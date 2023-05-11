@@ -264,8 +264,8 @@ fn check_signature_condition(
     account: &Account,
     signatories: impl IntoIterator<Item = PublicKey>,
 ) -> EvaluatesTo<bool> {
-    let where_expr = Where::new(EvaluatesTo::new_evaluates_to_value(Box::new(
-        account.signature_check_condition.as_expression().clone(),
+    let where_expr = Where::new(EvaluatesTo::new_evaluates_to_value(Clone::clone(
+        &*account.signature_check_condition.0.expression.clone(),
     )))
     .with_value(
         Name::from_str(iroha_data_model::account::ACCOUNT_SIGNATORIES_VALUE)

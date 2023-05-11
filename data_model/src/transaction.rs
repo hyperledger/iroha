@@ -26,8 +26,11 @@ use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
 use crate::{
-    account::Account, isi::InstructionBox, metadata::UnlimitedMetadata, name::Name, Identifiable,
-    Value,
+    account::Account,
+    isi::{Instruction, InstructionBox},
+    metadata::UnlimitedMetadata,
+    name::Name,
+    Identifiable, Value,
 };
 
 /// Default maximum number of instructions and expressions per transaction
@@ -69,7 +72,7 @@ pub trait Transaction {
             Executable::Instructions(instructions) => {
                 let instruction_count: u64 = instructions
                     .iter()
-                    .map(InstructionBox::len)
+                    .map(Instruction::len)
                     .sum::<usize>()
                     .try_into()
                     .expect("`usize` should always fit in `u64`");

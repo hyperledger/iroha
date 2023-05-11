@@ -57,6 +57,7 @@ pub trait Context: Clone {
 }
 
 /// Calculate the result of the expression without mutating the state.
+#[allow(clippy::len_without_is_empty)] // NOTE: Evaluate cannot be empty
 pub trait Evaluate {
     /// The resulting type of the expression.
     type Value;
@@ -66,6 +67,9 @@ pub trait Evaluate {
     /// # Errors
     /// Concrete to each implementer.
     fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error>;
+
+    /// Number of underneath expressions.
+    fn len(&self) -> usize;
 }
 
 impl<V: TryFrom<Value>> Evaluate for EvaluatesTo<V>
@@ -79,6 +83,10 @@ where
 
         V::try_from(expr).map_err(|error| Error::Conversion(error.to_string()))
     }
+
+    fn len(&self) -> usize {
+        self.expression.len()
+    }
 }
 
 impl Evaluate for Expression {
@@ -89,20 +97,23 @@ impl Evaluate for Expression {
             ($($non_value: ident),+ $(,)?) => {
                 match self { $(
                     $non_value(expr) => expr.evaluate(context).map(Into::into)?, )+
-                    Raw(value) => *value.clone(),
-                    Query(query) => context.query(query)?,
-                    If(if_expr) => if_expr.evaluate(context)?,
-                    Where(where_expr) => where_expr.evaluate(context)?,
+                    Raw(value) => value.clone(),
                 }
             };
         }
 
         use Expression::*;
         let result = match_evals!(
+            // numeric
             Add,
             Subtract,
             Greater,
             Less,
+            Multiply,
+            Divide,
+            Mod,
+            RaiseTo,
+            // logical
             Equal,
             Not,
             And,
@@ -110,163 +121,415 @@ impl Evaluate for Expression {
             Contains,
             ContainsAll,
             ContainsAny,
+            // value
+            If,
+            Where,
+            Query,
             ContextValue,
-            Multiply,
-            Divide,
-            Mod,
-            RaiseTo,
         );
 
         Ok(result)
+    }
+
+    fn len(&self) -> usize {
+        use Expression::*;
+
+        match self {
+            Add(add) => add.len(),
+            Subtract(subtract) => subtract.len(),
+            Greater(greater) => greater.len(),
+            Less(less) => less.len(),
+            Equal(equal) => equal.len(),
+            Not(not) => not.len(),
+            And(and) => and.len(),
+            Or(or) => or.len(),
+            If(if_expression) => if_expression.len(),
+            Raw(raw) => raw.len(),
+            Query(query) => query.len(),
+            Contains(contains) => contains.len(),
+            ContainsAll(contains_all) => contains_all.len(),
+            ContainsAny(contains_any) => contains_any.len(),
+            Where(where_expression) => where_expression.len(),
+            ContextValue(context_value) => context_value.len(),
+            Multiply(multiply) => multiply.len(),
+            Divide(divide) => divide.len(),
+            Mod(modulus) => modulus.len(),
+            RaiseTo(raise_to) => raise_to.len(),
+        }
     }
 }
 
 impl Evaluate for ContextValue {
     type Value = Value;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<Value, Error> {
+    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
         context
             .get(&self.value_name)
             .cloned()
             .ok_or_else(|| Error::Find(self.value_name.to_string()))
     }
-}
 
-impl Evaluate for Add {
-    type Value = NumericValue;
-
-    fn evaluate<C: Context>(&self, context: &C) -> Result<NumericValue, Error> {
-        use NumericValue::*;
-        let left = self.left.evaluate(context)?;
-        let right = self.right.evaluate(context)?;
-
-        let result = match (left, right) {
-            (U32(left), U32(right)) => left
-                .checked_add(right)
-                .ok_or(MathError::Overflow)
-                .map(NumericValue::from)?,
-            (U128(left), U128(right)) => left
-                .checked_add(right)
-                .ok_or(MathError::Overflow)
-                .map(NumericValue::from)?,
-            (Fixed(left), Fixed(right)) => left
-                .checked_add(right)
-                .map(NumericValue::from)
-                .map_err(MathError::from)?,
-            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                left, right,
-            ))?,
-        };
-
-        Ok(result)
+    fn len(&self) -> usize {
+        1
     }
 }
 
-impl Evaluate for Subtract {
-    type Value = NumericValue;
+mod numeric {
+    use super::*;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<NumericValue, Error> {
-        use NumericValue::*;
-        let left = self.left.evaluate(context)?;
-        let right = self.right.evaluate(context)?;
+    impl Evaluate for Add {
+        type Value = NumericValue;
 
-        let result = match (left, right) {
-            (U32(left), U32(right)) => left
-                .checked_sub(right)
-                .ok_or(MathError::NotEnoughQuantity)
-                .map(NumericValue::from)?,
-            (U128(left), U128(right)) => left
-                .checked_sub(right)
-                .ok_or(MathError::NotEnoughQuantity)
-                .map(NumericValue::from)?,
-            (Fixed(left), Fixed(right)) => left
-                .checked_sub(right)
-                .map(NumericValue::from)
-                .map_err(MathError::from)?,
-            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                left, right,
-            ))?,
-        };
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            use NumericValue::*;
+            let left = self.left.evaluate(context)?;
+            let right = self.right.evaluate(context)?;
 
-        Ok(result)
+            let result = match (left, right) {
+                (U32(left), U32(right)) => left
+                    .checked_add(right)
+                    .ok_or(MathError::Overflow)
+                    .map(NumericValue::from)?,
+                (U128(left), U128(right)) => left
+                    .checked_add(right)
+                    .ok_or(MathError::Overflow)
+                    .map(NumericValue::from)?,
+                (Fixed(left), Fixed(right)) => left
+                    .checked_add(right)
+                    .map(NumericValue::from)
+                    .map_err(MathError::from)?,
+                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                    left, right,
+                ))?,
+            };
+
+            Ok(result)
+        }
+
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+
+    impl Evaluate for Subtract {
+        type Value = NumericValue;
+
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            use NumericValue::*;
+            let left = self.left.evaluate(context)?;
+            let right = self.right.evaluate(context)?;
+
+            let result = match (left, right) {
+                (U32(left), U32(right)) => left
+                    .checked_sub(right)
+                    .ok_or(MathError::NotEnoughQuantity)
+                    .map(NumericValue::from)?,
+                (U128(left), U128(right)) => left
+                    .checked_sub(right)
+                    .ok_or(MathError::NotEnoughQuantity)
+                    .map(NumericValue::from)?,
+                (Fixed(left), Fixed(right)) => left
+                    .checked_sub(right)
+                    .map(NumericValue::from)
+                    .map_err(MathError::from)?,
+                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                    left, right,
+                ))?,
+            };
+
+            Ok(result)
+        }
+
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+
+    impl Evaluate for Multiply {
+        type Value = NumericValue;
+
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            use NumericValue::*;
+            let left = self.left.evaluate(context)?;
+            let right = self.right.evaluate(context)?;
+
+            let result = match (left, right) {
+                (U32(left), U32(right)) => left
+                    .checked_mul(right)
+                    .ok_or(MathError::Overflow)
+                    .map(NumericValue::from)?,
+                (U128(left), U128(right)) => left
+                    .checked_mul(right)
+                    .ok_or(MathError::Overflow)
+                    .map(NumericValue::from)?,
+                (Fixed(left), Fixed(right)) => left
+                    .checked_mul(right)
+                    .map(NumericValue::from)
+                    .map_err(MathError::from)?,
+                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                    left, right,
+                ))?,
+            };
+
+            Ok(result)
+        }
+
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+
+    impl Evaluate for RaiseTo {
+        type Value = NumericValue;
+
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            use NumericValue::*;
+            let value = self.left.evaluate(context)?;
+            let exp = self.right.evaluate(context)?;
+
+            let result = match (value, exp) {
+                (U32(value), U32(exp)) => value
+                    .checked_pow(exp)
+                    .ok_or(MathError::Overflow)
+                    .map(NumericValue::from)?,
+                (U128(value), U32(exp)) => value
+                    .checked_pow(exp)
+                    .ok_or(MathError::Overflow)
+                    .map(NumericValue::from)?,
+                // TODO (#2945): Extend `RaiseTo` to support `Fixed`
+                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                    left, right,
+                ))?,
+            };
+
+            Ok(result)
+        }
+
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+
+    impl Evaluate for Divide {
+        type Value = NumericValue;
+
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            use NumericValue::*;
+            let left = self.left.evaluate(context)?;
+            let right = self.right.evaluate(context)?;
+
+            let result = match (left, right) {
+                (U32(left), U32(right)) => left
+                    .checked_div(right)
+                    .ok_or(MathError::DivideByZero)
+                    .map(NumericValue::from)?,
+                (U128(left), U128(right)) => left
+                    .checked_div(right)
+                    .ok_or(MathError::DivideByZero)
+                    .map(NumericValue::from)?,
+                (Fixed(left), Fixed(right)) => left
+                    .checked_div(right)
+                    .map(NumericValue::from)
+                    .map_err(MathError::from)?,
+                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                    left, right,
+                ))?,
+            };
+
+            Ok(result)
+        }
+
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+
+    impl Evaluate for Mod {
+        type Value = NumericValue;
+
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            use NumericValue::*;
+            let left = self.left.evaluate(context)?;
+            let right = self.right.evaluate(context)?;
+
+            let result = match (left, right) {
+                (U32(left), U32(right)) => left
+                    .checked_rem(right)
+                    .ok_or(MathError::DivideByZero)
+                    .map(NumericValue::from)?,
+                (U128(left), U128(right)) => left
+                    .checked_rem(right)
+                    .ok_or(MathError::DivideByZero)
+                    .map(NumericValue::from)?,
+                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                    left, right,
+                ))?,
+            };
+
+            Ok(result)
+        }
+
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
     }
 }
 
-impl Evaluate for Greater {
-    type Value = bool;
+mod logical {
+    use super::*;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<bool, Error> {
-        use NumericValue::*;
-        let left = self.left.evaluate(context)?;
-        let right = self.right.evaluate(context)?;
+    impl Evaluate for Greater {
+        type Value = bool;
 
-        let result = match (left, right) {
-            (U32(left), U32(right)) => left > right,
-            (U128(left), U128(right)) => left > right,
-            (Fixed(left), Fixed(right)) => left > right,
-            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                left, right,
-            ))?,
-        };
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            use NumericValue::*;
+            let left = self.left.evaluate(context)?;
+            let right = self.right.evaluate(context)?;
 
-        Ok(result)
+            let result = match (left, right) {
+                (U32(left), U32(right)) => left > right,
+                (U128(left), U128(right)) => left > right,
+                (Fixed(left), Fixed(right)) => left > right,
+                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                    left, right,
+                ))?,
+            };
+
+            Ok(result)
+        }
+
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
     }
-}
 
-impl Evaluate for Less {
-    type Value = bool;
+    impl Evaluate for Less {
+        type Value = bool;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<bool, Error> {
-        use NumericValue::*;
-        let left = self.left.evaluate(context)?;
-        let right = self.right.evaluate(context)?;
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            use NumericValue::*;
+            let left = self.left.evaluate(context)?;
+            let right = self.right.evaluate(context)?;
 
-        let result = match (left, right) {
-            (U32(left), U32(right)) => left < right,
-            (U128(left), U128(right)) => left < right,
-            (Fixed(left), Fixed(right)) => left < right,
-            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                left, right,
-            ))?,
-        };
+            let result = match (left, right) {
+                (U32(left), U32(right)) => left < right,
+                (U128(left), U128(right)) => left < right,
+                (Fixed(left), Fixed(right)) => left < right,
+                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
+                    left, right,
+                ))?,
+            };
 
-        Ok(result)
+            Ok(result)
+        }
+
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
     }
-}
 
-impl Evaluate for Not {
-    type Value = bool;
+    impl Evaluate for Not {
+        type Value = bool;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<bool, Error> {
-        let expression = self.expression.evaluate(context)?;
-        Ok(!expression)
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            let expression = self.expression.evaluate(context)?;
+            Ok(!expression)
+        }
+
+        fn len(&self) -> usize {
+            self.expression.len() + 1
+        }
     }
-}
 
-impl Evaluate for And {
-    type Value = bool;
+    impl Evaluate for And {
+        type Value = bool;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<bool, Error> {
-        let left = self.left.evaluate(context)?;
-        let right = self.right.evaluate(context)?;
-        Ok(left && right)
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            let left = self.left.evaluate(context)?;
+            let right = self.right.evaluate(context)?;
+            Ok(left && right)
+        }
+
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
     }
-}
 
-impl Evaluate for Or {
-    type Value = bool;
+    impl Evaluate for Or {
+        type Value = bool;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<bool, Error> {
-        let left = self.left.evaluate(context)?;
-        let right = self.right.evaluate(context)?;
-        Ok(left || right)
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            let left = self.left.evaluate(context)?;
+            let right = self.right.evaluate(context)?;
+            Ok(left || right)
+        }
+
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+
+    impl Evaluate for Contains {
+        type Value = bool;
+
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            let collection = self.collection.evaluate(context)?;
+            let element = self.element.evaluate(context)?;
+            Ok(collection.contains(&element))
+        }
+
+        fn len(&self) -> usize {
+            self.collection.len() + self.element.len() + 1
+        }
+    }
+
+    impl Evaluate for ContainsAll {
+        type Value = bool;
+
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            let collection = self.collection.evaluate(context)?;
+            let elements = self.elements.evaluate(context)?;
+            Ok(elements.iter().all(|element| collection.contains(element)))
+        }
+
+        fn len(&self) -> usize {
+            self.collection.len() + self.elements.len() + 1
+        }
+    }
+
+    impl Evaluate for ContainsAny {
+        type Value = bool;
+
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            let collection = self.collection.evaluate(context)?;
+            let elements = self.elements.evaluate(context)?;
+            Ok(elements.iter().any(|element| collection.contains(element)))
+        }
+
+        fn len(&self) -> usize {
+            self.collection.len() + self.elements.len() + 1
+        }
+    }
+
+    impl Evaluate for Equal {
+        type Value = bool;
+
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+            let left = self.left.evaluate(context)?;
+            let right = self.right.evaluate(context)?;
+            Ok(left == right)
+        }
+
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
     }
 }
 
 impl Evaluate for If {
     type Value = Value;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<Value, Error> {
+    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
         let condition = self.condition.evaluate(context)?;
         if condition {
             self.then.evaluate(context)
@@ -274,52 +537,17 @@ impl Evaluate for If {
             self.otherwise.evaluate(context)
         }
     }
-}
 
-impl Evaluate for Contains {
-    type Value = bool;
-
-    fn evaluate<C: Context>(&self, context: &C) -> Result<bool, Error> {
-        let collection = self.collection.evaluate(context)?;
-        let element = self.element.evaluate(context)?;
-        Ok(collection.contains(&element))
-    }
-}
-
-impl Evaluate for ContainsAll {
-    type Value = bool;
-
-    fn evaluate<C: Context>(&self, context: &C) -> Result<bool, Error> {
-        let collection = self.collection.evaluate(context)?;
-        let elements = self.elements.evaluate(context)?;
-        Ok(elements.iter().all(|element| collection.contains(element)))
-    }
-}
-
-impl Evaluate for ContainsAny {
-    type Value = bool;
-
-    fn evaluate<C: Context>(&self, context: &C) -> Result<bool, Error> {
-        let collection = self.collection.evaluate(context)?;
-        let elements = self.elements.evaluate(context)?;
-        Ok(elements.iter().any(|element| collection.contains(element)))
-    }
-}
-
-impl Evaluate for Equal {
-    type Value = bool;
-
-    fn evaluate<C: Context>(&self, context: &C) -> Result<bool, Error> {
-        let left = self.left.evaluate(context)?;
-        let right = self.right.evaluate(context)?;
-        Ok(left == right)
+    fn len(&self) -> usize {
+        // TODO: This is wrong because we don't evaluate both branches
+        self.condition.len() + self.then.len() + self.otherwise.len() + 1
     }
 }
 
 impl Evaluate for Where {
     type Value = Value;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<Value, Error> {
+    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
         let additional_context: Result<BTreeMap<Name, Value>, Error> = self
             .values
             .clone()
@@ -335,118 +563,21 @@ impl Evaluate for Where {
         combined_context.update(additional_context?);
         self.expression.evaluate(&combined_context)
     }
-}
 
-impl Evaluate for Multiply {
-    type Value = NumericValue;
-
-    fn evaluate<C: Context>(&self, context: &C) -> Result<NumericValue, Error> {
-        use NumericValue::*;
-        let left = self.left.evaluate(context)?;
-        let right = self.right.evaluate(context)?;
-
-        let result = match (left, right) {
-            (U32(left), U32(right)) => left
-                .checked_mul(right)
-                .ok_or(MathError::Overflow)
-                .map(NumericValue::from)?,
-            (U128(left), U128(right)) => left
-                .checked_mul(right)
-                .ok_or(MathError::Overflow)
-                .map(NumericValue::from)?,
-            (Fixed(left), Fixed(right)) => left
-                .checked_mul(right)
-                .map(NumericValue::from)
-                .map_err(MathError::from)?,
-            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                left, right,
-            ))?,
-        };
-
-        Ok(result)
+    fn len(&self) -> usize {
+        self.expression.len() + self.values.values().map(EvaluatesTo::len).sum::<usize>() + 1
     }
 }
 
-impl Evaluate for RaiseTo {
-    type Value = NumericValue;
+impl Evaluate for QueryBox {
+    type Value = Value;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<NumericValue, Error> {
-        use NumericValue::*;
-        let value = self.left.evaluate(context)?;
-        let exp = self.right.evaluate(context)?;
-
-        let result = match (value, exp) {
-            (U32(value), U32(exp)) => value
-                .checked_pow(exp)
-                .ok_or(MathError::Overflow)
-                .map(NumericValue::from)?,
-            (U128(value), U32(exp)) => value
-                .checked_pow(exp)
-                .ok_or(MathError::Overflow)
-                .map(NumericValue::from)?,
-            // TODO (#2945): Extend `RaiseTo` to support `Fixed`
-            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                left, right,
-            ))?,
-        };
-
-        Ok(result)
+    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        context.query(self).map_err(Error::Query)
     }
-}
 
-impl Evaluate for Divide {
-    type Value = NumericValue;
-
-    fn evaluate<C: Context>(&self, context: &C) -> Result<NumericValue, Error> {
-        use NumericValue::*;
-        let left = self.left.evaluate(context)?;
-        let right = self.right.evaluate(context)?;
-
-        let result = match (left, right) {
-            (U32(left), U32(right)) => left
-                .checked_div(right)
-                .ok_or(MathError::DivideByZero)
-                .map(NumericValue::from)?,
-            (U128(left), U128(right)) => left
-                .checked_div(right)
-                .ok_or(MathError::DivideByZero)
-                .map(NumericValue::from)?,
-            (Fixed(left), Fixed(right)) => left
-                .checked_div(right)
-                .map(NumericValue::from)
-                .map_err(MathError::from)?,
-            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                left, right,
-            ))?,
-        };
-
-        Ok(result)
-    }
-}
-
-impl Evaluate for Mod {
-    type Value = NumericValue;
-
-    fn evaluate<C: Context>(&self, context: &C) -> Result<NumericValue, Error> {
-        use NumericValue::*;
-        let left = self.left.evaluate(context)?;
-        let right = self.right.evaluate(context)?;
-
-        let result = match (left, right) {
-            (U32(left), U32(right)) => left
-                .checked_rem(right)
-                .ok_or(MathError::DivideByZero)
-                .map(NumericValue::from)?,
-            (U128(left), U128(right)) => left
-                .checked_rem(right)
-                .ok_or(MathError::DivideByZero)
-                .map(NumericValue::from)?,
-            (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                left, right,
-            ))?,
-        };
-
-        Ok(result)
+    fn len(&self) -> usize {
+        1
     }
 }
 
@@ -797,10 +928,10 @@ mod tests {
     #[test]
     #[ignore = "Stack overflow"]
     fn serde_serialization_works() {
-        let expression: ExpressionBox = Add::new(1_u32, Subtract::new(7_u32, 4_u32)).into();
+        let expression: Expression = Add::new(1_u32, Subtract::new(7_u32, 4_u32)).into();
         let serialized_expression =
             serde_json::to_string(&expression).expect("Failed to serialize.");
-        let deserialized_expression: ExpressionBox =
+        let deserialized_expression: Expression =
             serde_json::from_str(&serialized_expression).expect("Failed to de-serialize.");
         assert_eq!(
             expression
@@ -814,10 +945,10 @@ mod tests {
 
     #[test]
     fn scale_codec_serialization_works() {
-        let expression: ExpressionBox = Add::new(1_u32, Subtract::new(7_u32, 4_u32)).into();
+        let expression: Expression = Add::new(1_u32, Subtract::new(7_u32, 4_u32)).into();
         let serialized_expression: Vec<u8> = expression.encode();
-        let deserialized_expression =
-            ExpressionBox::decode_all(&mut serialized_expression.as_slice())
+        let deserialized_expression: Expression =
+            DecodeAll::decode_all(&mut serialized_expression.as_slice())
                 .expect("Failed to decode.");
         assert_eq!(
             expression

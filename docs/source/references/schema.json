@@ -2035,10 +2035,6 @@
         "type": "SequenceBox"
       },
       {
-        "name": "Fail",
-        "type": "FailBox"
-      },
-      {
         "name": "SetKeyValue",
         "type": "SetKeyValueBox"
       },
@@ -2069,10 +2065,14 @@
       {
         "name": "Upgrade",
         "type": "UpgradeBox"
+      },
+      {
+        "name": "Fail",
+        "type": "FailBox"
       }
     ]
   },
-  "InstructionExecutionFailure": {
+  "InstructionExecutionFail": {
     "Struct": [
       {
         "name": "instruction",
@@ -2364,7 +2364,7 @@
       }
     ]
   },
-  "NotPermitted": {
+  "NotPermittedFail": {
     "Struct": [
       {
         "name": "reason",
@@ -3498,19 +3498,19 @@
       },
       {
         "name": "NotPermitted",
-        "type": "NotPermitted"
+        "type": "NotPermittedFail"
       },
       {
         "name": "UnsatisfiedSignatureCondition",
-        "type": "UnsatisfiedSignatureConditionFailure"
+        "type": "UnsatisfiedSignatureConditionFail"
       },
       {
         "name": "InstructionExecution",
-        "type": "InstructionExecutionFailure"
+        "type": "InstructionExecutionFail"
       },
       {
         "name": "WasmExecution",
-        "type": "WasmExecutionFailure"
+        "type": "WasmExecutionFail"
       },
       {
         "name": "UnexpectedGenesisAccountSignature"
@@ -3665,7 +3665,7 @@
       }
     ]
   },
-  "UnsatisfiedSignatureConditionFailure": {
+  "UnsatisfiedSignatureConditionFail": {
     "Struct": [
       {
         "name": "reason",
@@ -4063,7 +4063,7 @@
       }
     ]
   },
-  "WasmExecutionFailure": {
+  "WasmExecutionFail": {
     "Struct": [
       {
         "name": "reason",

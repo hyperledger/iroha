@@ -74,7 +74,6 @@ impl iroha_derive_primitives::params::ConstructArg for ParamType {
     }
 }
 
-/// [`entrypoint`](crate::entrypoint()) macro implementation
 pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     let syn::ItemFn {
         attrs,

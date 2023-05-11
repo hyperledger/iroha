@@ -14,15 +14,19 @@ pub fn validate(authority: AccountId, operation: NeedsValidationBox) -> Verdict 
     match operation {
         // NOTE: Invoked from Iroha
         NeedsValidationBox::Transaction(transaction) => {
-            validator.validate_and_execute_transaction(&authority, transaction)
+            validator.visit_transaction(&authority, &transaction)
         }
 
         // NOTE: Invoked only from another Wasm
         NeedsValidationBox::Instruction(instruction) => {
-            validator.validate_and_execute_instruction(&authority, &instruction)
+            validator.visit_instruction(&authority, &instruction);
         }
 
         // NOTE: Invoked only from another Wasm
-        NeedsValidationBox::Query(query) => validator.validate_query(&authority, &query),
+        NeedsValidationBox::Query(query) => {
+            validator.visit_query(&authority, &query);
+        }
     }
+
+    validator.verdict
 }

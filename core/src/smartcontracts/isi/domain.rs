@@ -79,7 +79,7 @@ pub mod isi {
     }
 
     impl Execute for Register<AssetDefinition> {
-        #[metrics(+"register_asset_def")]
+        #[metrics(+"register_asset_definition")]
         fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_definition = self.object.build(authority);
             asset_definition
@@ -122,7 +122,7 @@ pub mod isi {
     }
 
     impl Execute for Unregister<AssetDefinition> {
-        #[metrics(+"unregister_asset_def")]
+        #[metrics(+"unregister_asset_definition")]
         fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
@@ -176,7 +176,7 @@ pub mod isi {
     }
 
     impl Execute for SetKeyValue<AssetDefinition> {
-        #[metrics(+"set_key_value_asset_def")]
+        #[metrics(+"set_key_value_asset_definition")]
         fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
@@ -198,7 +198,7 @@ pub mod isi {
     }
 
     impl Execute for RemoveKeyValue<AssetDefinition> {
-        #[metrics(+"remove_key_value_asset_def")]
+        #[metrics(+"remove_key_value_asset_definition")]
         fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
@@ -218,7 +218,7 @@ pub mod isi {
     }
 
     impl Execute for SetKeyValue<Domain> {
-        #[metrics(+"set_key_value_domain")]
+        #[metrics(+"set_domain_key_value")]
         fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let domain_id = self.object_id;
 
@@ -239,7 +239,7 @@ pub mod isi {
     }
 
     impl Execute for RemoveKeyValue<Domain> {
-        #[metrics(+"remove_key_value_domain")]
+        #[metrics(+"remove_domain_key_value")]
         fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let domain_id = self.object_id;
 

@@ -104,7 +104,6 @@ types!(
     Box<Asset>,
     Box<AssetDefinition>,
     Box<Domain>,
-    Box<Expression>,
     Box<FindError>,
     Box<GenericPredicateBox<ValuePredicate>>,
     Box<NewAccount>,

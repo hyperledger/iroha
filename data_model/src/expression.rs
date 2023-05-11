@@ -25,7 +25,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use super::{query::QueryBox, Name, Value, ValueBox};
+use super::{query::QueryBox, Name, Value};
 use crate::NumericValue;
 
 /// Generate expression structure and basic impls for it.
@@ -79,23 +79,12 @@ use crate::NumericValue;
 /// }
 ///
 /// impl Add {
-///     /// Number of underneath expressions
-///     #[inline]
-///     pub fn len(&self) -> usize {
-///         self.left.len() + self.right.len() + 1
-///     }
 ///     /// Construct new [`Add`] expression
 ///     pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
 ///         Self {
 ///             left: left.into(),
 ///             right: right.into(),
 ///         }
-///     }
-/// }
-///
-/// impl From<Add> for ExpressionBox {
-///     fn from(expression: Add) -> Self {
-///         Expression::Add(expression).into()
 ///     }
 /// }
 ///
@@ -133,12 +122,6 @@ macro_rules! gen_expr_and_impls {
         }
 
         impl $i {
-            /// Number of underneath expressions.
-            #[inline]
-            pub fn len(&self) -> usize {
-                $(self.$param_name.len() +)* 1
-            }
-
             #[doc = concat!(" Construct new [`", stringify!($i), "`] expression")]
             pub fn new(
                 $($param_name: impl Into<EvaluatesTo<$param_type>>),*
@@ -146,12 +129,6 @@ macro_rules! gen_expr_and_impls {
                 Self {
                     $($param_name: $param_name.into()),*
                 }
-            }
-        }
-
-        impl From<$i> for ExpressionBox {
-            fn from(expression: $i) -> Self {
-                Expression::$i(expression).into()
             }
         }
     };
@@ -167,9 +144,6 @@ macro_rules! gen_expr_and_impls {
         }
     };
 }
-
-/// Boxed expression.
-pub type ExpressionBox = Box<Expression>;
 
 #[model]
 pub mod model {
@@ -197,12 +171,12 @@ pub mod model {
     #[debug(fmt = "{expression:?}")]
     #[serde(transparent)]
     #[repr(transparent)]
-    // SAFETY: `EvaluatesTo` has no trap representation in `ExpressionBox`
+    // SAFETY: `EvaluatesTo` has no trap representation in `Box<Expression>`
     #[ffi_type(unsafe {robust})]
     pub struct EvaluatesTo<V> {
         /// Expression.
         #[serde(flatten)]
-        pub expression: ExpressionBox,
+        pub expression: Box<Expression>,
         #[codec(skip)]
         pub(super) _value_type: PhantomData<V>,
     }
@@ -255,7 +229,7 @@ pub mod model {
         /// Raw value.
         #[serde_partially_tagged(untagged)]
         #[debug(fmt = "{_0:?}")]
-        Raw(ValueBox),
+        Raw(#[skip_from] Value),
         /// Query to Iroha state.
         Query(QueryBox),
         /// Contains expression for vectors.
@@ -497,7 +471,13 @@ pub mod model {
     }
 }
 
-impl<V: TryFrom<Value>, E: Into<ExpressionBox> + Into<V>> From<E> for EvaluatesTo<V> {
+impl<V: Into<Value>> From<V> for Expression {
+    fn from(value: V) -> Self {
+        Self::Raw(value.into())
+    }
+}
+
+impl<V: TryFrom<Value>, E: Into<Expression> + Into<V>> From<E> for EvaluatesTo<V> {
     fn from(expression: E) -> Self {
         Self::new_unchecked(expression)
     }
@@ -506,26 +486,20 @@ impl<V: TryFrom<Value>, E: Into<ExpressionBox> + Into<V>> From<E> for EvaluatesT
 impl<V> EvaluatesTo<V> {
     /// Expression
     #[inline]
-    // TODO: getset would return &Box<Expression>
+    // NOTE: getset would return &Box<Expression>
     pub fn expression(&self) -> &Expression {
         &self.expression
     }
 
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.expression.len()
-    }
-
-    /// Construct new [`EvaluatesTo`] from [`ExpressionBox`] without type checking.
+    /// Construct new [`EvaluatesTo`] from [`Expression`] without type checking.
     ///
     /// # Warning
     /// Prefer using [`Into`] conversions rather than this method,
     /// because it does not check the value type at compile-time.
     #[inline]
-    pub fn new_unchecked(expression: impl Into<ExpressionBox>) -> Self {
+    pub fn new_unchecked(expression: impl Into<Expression>) -> Self {
         Self {
-            expression: expression.into(),
+            expression: Box::new(expression.into()),
             _value_type: PhantomData::default(),
         }
     }
@@ -567,7 +541,7 @@ impl EvaluatesTo<Value> {
     /// Construct `EvaluatesTo<Value>` from any `expression`
     /// because all of them evaluate to [`Value`].
     #[inline]
-    pub fn new_evaluates_to_value(expression: impl Into<ExpressionBox>) -> Self {
+    pub fn new_evaluates_to_value(expression: impl Into<Expression>) -> Self {
         Self::new_unchecked(expression)
     }
 }
@@ -584,13 +558,58 @@ impl<V: TryFrom<Value> + IntoSchema> IntoSchema for EvaluatesTo<V> {
                 iroha_schema::NamedFieldsMeta {
                     declarations: vec![iroha_schema::Declaration {
                         name: String::from(EXPRESSION),
-                        ty: core::any::TypeId::of::<ExpressionBox>(),
+                        ty: core::any::TypeId::of::<Expression>(),
                     }],
                 },
             ));
 
-            ExpressionBox::update_schema_map(map);
+            Expression::update_schema_map(map);
         }
+    }
+}
+
+impl core::fmt::Display for Where {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "`{} where: [", self.expression)?;
+
+        let mut first = true;
+        for (key, value) in &self.values {
+            if !first {
+                write!(f, ", ")?;
+            }
+            first = false;
+            write!(f, "`{key}` : `{value}`")?;
+        }
+
+        write!(f, "]")
+    }
+}
+
+impl Where {
+    /// Construct [`Where`] expression
+    #[must_use]
+    pub fn new(expression: impl Into<EvaluatesTo<Value>>) -> Self {
+        Self {
+            expression: expression.into(),
+            values: Default::default(),
+        }
+    }
+
+    /// Get an iterator over the values of [`Where`] clause
+    #[inline]
+    pub fn values(&self) -> impl ExactSizeIterator<Item = (&Name, &EvaluatesTo<Value>)> {
+        self.values.iter()
+    }
+
+    /// Binds `expression` result to a `value_name`, by which it will be reachable from the main expression.
+    #[must_use]
+    pub fn with_value<E: Into<EvaluatesTo<Value>>>(
+        mut self,
+        value_name: Name,
+        expression: E,
+    ) -> Self {
+        self.values.insert(value_name, expression.into());
+        self
     }
 }
 
@@ -679,135 +698,10 @@ mod operation {
     }
 }
 
-impl Expression {
-    /// Number of underneath expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        use Expression::*;
-
-        match self {
-            Add(add) => add.len(),
-            Subtract(subtract) => subtract.len(),
-            Greater(greater) => greater.len(),
-            Less(less) => less.len(),
-            Equal(equal) => equal.len(),
-            Not(not) => not.len(),
-            And(and) => and.len(),
-            Or(or) => or.len(),
-            If(if_expression) => if_expression.len(),
-            Raw(raw) => raw.len(),
-            Query(query) => query.len(),
-            Contains(contains) => contains.len(),
-            ContainsAll(contains_all) => contains_all.len(),
-            ContainsAny(contains_any) => contains_any.len(),
-            Where(where_expression) => where_expression.len(),
-            ContextValue(context_value) => context_value.len(),
-            Multiply(multiply) => multiply.len(),
-            Divide(divide) => divide.len(),
-            Mod(modulus) => modulus.len(),
-            RaiseTo(raise_to) => raise_to.len(),
-        }
-    }
-}
-
-impl<T: Into<Value>> From<T> for ExpressionBox {
-    fn from(value: T) -> Self {
-        Expression::Raw(Box::new(value.into())).into()
-    }
-}
-
-impl ContextValue {
-    /// Number of underneath expressions.
-    #[inline]
-    pub const fn len(&self) -> usize {
-        1
-    }
-}
-
-impl From<ContextValue> for ExpressionBox {
-    #[inline]
-    fn from(expression: ContextValue) -> Self {
-        Expression::ContextValue(expression).into()
-    }
-}
-
-impl core::fmt::Display for Where {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "`{} where: [", self.expression)?;
-
-        let mut first = true;
-        for (key, value) in &self.values {
-            if !first {
-                write!(f, ", ")?;
-            }
-            first = false;
-            write!(f, "`{key}` : `{value}`")?;
-        }
-
-        write!(f, "]")
-    }
-}
-
-impl Where {
-    /// Get an iterator over the values of [`Where`] clause
-    #[inline]
-    pub fn values(&self) -> impl ExactSizeIterator<Item = (&Name, &EvaluatesTo<Value>)> {
-        self.values.iter()
-    }
-
-    /// Number of underneath expressions.
-    #[must_use]
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.expression.len() + self.values.values().map(EvaluatesTo::len).sum::<usize>() + 1
-    }
-
-    /// Construct [`Where`] expression
-    #[must_use]
-    pub fn new(expression: impl Into<EvaluatesTo<Value>>) -> Self {
-        Self {
-            expression: expression.into(),
-            values: Default::default(),
-        }
-    }
-
-    /// Binds `expression` result to a `value_name`, by which it will be reachable from the main expression.
-    #[must_use]
-    pub fn with_value<E: Into<EvaluatesTo<Value>>>(
-        mut self,
-        value_name: Name,
-        expression: E,
-    ) -> Self {
-        self.values.insert(value_name, expression.into());
-        self
-    }
-}
-
-impl From<Where> for ExpressionBox {
-    fn from(where_expression: Where) -> Self {
-        Expression::Where(where_expression).into()
-    }
-}
-
-impl QueryBox {
-    /// Number of underneath expressions.
-    #[inline]
-    pub const fn len(&self) -> usize {
-        1
-    }
-}
-
-impl From<QueryBox> for ExpressionBox {
-    fn from(query: QueryBox) -> Self {
-        Expression::Query(query).into()
-    }
-}
-
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
         Add, And, Contains, ContainsAll, ContainsAny, ContextValue, Divide, Equal, EvaluatesTo,
-        Expression, ExpressionBox, Greater, If, Less, Mod, Multiply, Not, Or, RaiseTo, Subtract,
-        Where,
+        Expression, Greater, If, Less, Mod, Multiply, Not, Or, RaiseTo, Subtract, Where,
     };
 }

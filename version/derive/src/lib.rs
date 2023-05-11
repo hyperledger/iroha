@@ -212,7 +212,7 @@ impl Parse for DeclareVersionedArgs {
         let enum_name: Ident = input.parse()?;
         let start_version: LitInt = input.parse()?;
         let start_version: u8 = start_version.base10_parse()?;
-        let _ = input.parse::<Token![..]>()?;
+        let _colon2: Token![..] = input.parse::<Token![..]>()?;
         let end_version: LitInt = input.parse()?;
         let end_version: u8 = end_version.base10_parse()?;
         if end_version <= start_version {

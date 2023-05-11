@@ -12,7 +12,7 @@ use alloc::{format, string::ToString};
 
 use iroha_wasm::{data_model::prelude::*, prelude::*};
 
-#[iroha_wasm::entrypoint]
+#[iroha_wasm::main]
 fn main() {
     iroha_wasm::info!("Executing trigger");
 

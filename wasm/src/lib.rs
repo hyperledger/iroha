@@ -21,7 +21,7 @@ use data_model::{
 };
 use debug::DebugExpectExt as _;
 pub use iroha_data_model as data_model;
-pub use iroha_wasm_derive::entrypoint;
+pub use iroha_wasm_derive::main;
 use parity_scale_codec::{DecodeAll, Encode};
 
 pub mod debug;
@@ -337,7 +337,7 @@ pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Box<[u8]> {
 
 /// Most used items
 pub mod prelude {
-    pub use crate::{debug::*, entrypoint, ExecuteOnHost, QueryHost};
+    pub use crate::{debug::*, ExecuteOnHost, QueryHost};
 }
 
 #[cfg(test)]

@@ -1,4 +1,7 @@
 //! Module with permission tokens and permission related functionality.
+
+use alloc::borrow::ToOwned as _;
+
 use crate::{data_model::prelude::*, prelude::*};
 
 /// [`Token`] trait is used to check if the token is owned by the account.
@@ -79,11 +82,11 @@ pub mod asset {
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-            if self.asset_id.account_id() == authority {
-                pass!();
+            if self.asset_id.account_id() != authority {
+                return Err("Can't access asset owned by another account".to_owned());
             }
 
-            deny!("Can't access asset owned by another account");
+            Ok(())
         }
     }
 }
@@ -93,22 +96,11 @@ pub mod asset_definition {
 
     use super::*;
 
-    /// Check if `authority` is the owner of `asset_definition_id`.
-    ///
-    /// Wrapper around [`IsAssetDefinitionOwner`](crate::data_model::prelude::IsAssetDefinitionOwner) query.
-    pub fn is_asset_definition_owner(
+    fn is_asset_definition_owner(
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
         authority: &<Account as Identifiable>::Id,
     ) -> bool {
-        use iroha_wasm::{debug::DebugExpectExt as _, QueryHost as _};
-
-        QueryBox::from(IsAssetDefinitionOwner::new(
-            asset_definition_id.clone(),
-            authority.clone(),
-        ))
-        .execute()
-        .try_into()
-        .dbg_expect("Failed to convert `IsAssetDefinitionOwner` query result into `bool`")
+        IsAssetDefinitionOwner::new(asset_definition_id.clone(), authority.clone()).execute()
     }
 
     /// Pass condition that checks if `authority` is the owner of `asset_definition_id`.
@@ -119,11 +111,11 @@ pub mod asset_definition {
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-            if is_asset_definition_owner(self.asset_definition_id, authority) {
-                pass!();
+            if !is_asset_definition_owner(self.asset_definition_id, authority) {
+                return Err("Can't access asset definition owned by another account".to_owned());
             }
 
-            deny!("Can't access asset definition owned by another account");
+            Ok(())
         }
     }
 }
@@ -141,11 +133,11 @@ pub mod account {
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-            if self.account_id == authority {
-                pass!();
+            if self.account_id != authority {
+                return Err("Can't access another account".to_owned());
             }
 
-            deny!("Can't access another account");
+            Ok(())
         }
     }
 }
@@ -173,11 +165,13 @@ pub mod trigger {
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-            if is_trigger_owner(self.trigger_id.clone(), authority) {
-                pass!();
+            if !is_trigger_owner(self.trigger_id.clone(), authority) {
+                return Err(
+                    "Can't give permission to access trigger owned by another account".to_owned(),
+                );
             }
 
-            deny!("Can't give permission to access trigger owned by another account");
+            Ok(())
         }
     }
 }
@@ -188,7 +182,7 @@ pub struct AlwaysPass;
 
 impl PassCondition for AlwaysPass {
     fn validate(&self, _: &<Account as Identifiable>::Id) -> Verdict {
-        pass!()
+        Ok(())
     }
 }
 
@@ -207,7 +201,7 @@ pub struct OnlyGenesis;
 
 impl PassCondition for OnlyGenesis {
     fn validate(&self, _: &<Account as Identifiable>::Id) -> Verdict {
-        deny!("This operation is always denied and only allowed inside the genesis block");
+        Err("This operation is always denied and only allowed inside the genesis block".to_owned())
     }
 }
 

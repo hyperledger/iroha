@@ -9,40 +9,51 @@ extern crate self as iroha_validator;
 
 #[cfg(feature = "default-validator")]
 pub use default::DefaultValidator;
+use iroha_wasm::data_model::{
+    validator::{DenialReason, Verdict},
+    visit::Visit,
+};
 pub use iroha_wasm::{self, data_model};
-pub use visitor::Validate;
 
 #[cfg(feature = "default-validator")]
 pub mod default;
 pub mod permission;
-pub mod visitor;
 
 /// Shortcut for `return Ok(())`.
 #[macro_export]
 macro_rules! pass {
-    () => {
-        return Ok(())
+    ($validator:ident) => {
+        #[cfg(debug_assertions)]
+        if let Err(_error) = $validator.verdict() {
+            panic!("Validator already denied");
+        }
+
+        return
     };
 }
 
 /// Shortcut for `return Err(DenialReason)`.
 ///
 /// Supports [`format!`](alloc::format) syntax as well as any expression returning [`String`](alloc::string::String).
-///
-/// # Example
-///
-/// ```no_run
-/// deny!("Some reason");
-/// deny!("Reason: {}", reason);
-/// deny!("Reason: {reason}");
-/// deny!(get_reason());
-/// ```
 #[macro_export]
 macro_rules! deny {
-        ($l:literal $(,)?) => {return Err(::alloc::fmt::format(::core::format_args!($l)))};
-        ($e:expr $(,)?) => {return Err($e)};
-        ($fmt:expr, $($arg:tt)*) => {return Err(::alloc::format!($fmt, $($arg)*)) };
-    }
+    ($validator:ident, $l:literal $(,)?) => {
+        #[cfg(debug_assertions)]
+        if let Err(_error) = $validator.verdict() {
+            unreachable!("Validator already denied");
+        }
+        $validator.deny(::alloc::fmt::format(::core::format_args!($l)));
+        return
+    };
+    ($validator:ident, $e:expr $(,)?) => {
+        #[cfg(debug_assertions)]
+        if let Err(_error) = $validator.verdict() {
+            unreachable!("Validator already denied");
+        }
+        $validator.deny($e);
+        return
+    };
+}
 
 /// Macro to parse literal as a type. Panics if failed.
 ///
@@ -52,7 +63,7 @@ macro_rules! deny {
 /// use iroha_wasm::parse;
 /// use data_model::prelude::*;
 ///
-/// let account_id = parse!("alice@wonderland" as <Account as Identifiable>::Id);
+/// let account_id = parse!("alice@wonderland" as AccountId);
 /// ```
 #[macro_export]
 macro_rules! parse {
@@ -96,55 +107,29 @@ macro_rules! declare_tokens {
     }
 }
 
+/// Validator of Iroha operations
+pub trait Validate: Visit {
+    /// Validator verdict.
+    fn verdict(&self) -> &Verdict;
+    /// Set validator verdict to deny
+    fn deny(&mut self, reason: DenialReason);
+}
+
 pub mod prelude {
     //! Contains useful re-exports
 
     pub use iroha_validator_derive::{entrypoint, Token, ValidateGrantRevoke};
     pub use iroha_wasm::{
-        data_model::{prelude::*, validator::Verdict},
+        data_model::{
+            prelude::*,
+            validator::{DenialReason, Verdict},
+            visit::Visit,
+        },
         prelude::*,
         Context,
     };
 
     #[cfg(feature = "default-validator")]
     pub use super::DefaultValidator;
-    pub use crate::{declare_tokens, deny, pass, visitor::Validate};
-}
-
-#[cfg(test)]
-mod tests {
-    //! Tests in this modules can't be doc-tests because of `compile_error!` on native target
-    //! and `webassembly-test-runner` on wasm target.
-
-    use iroha_wasm::data_model::validator::DenialReason;
-    use webassembly_test::webassembly_test;
-
-    use crate::{alloc::borrow::ToOwned as _, deny};
-
-    #[webassembly_test]
-    fn test_deny() {
-        let a = || deny!("Some reason");
-        assert_eq!(a(), Err::<(), DenialReason>("Some reason".to_owned()));
-
-        let get_reason = || "Reason from expression".to_owned();
-        let b = || deny!(get_reason());
-        assert_eq!(
-            b(),
-            Err::<(), DenialReason>("Reason from expression".to_owned())
-        );
-
-        let mes = "Format message";
-        let c = || deny!("Reason: {}", mes);
-        assert_eq!(
-            c(),
-            Err::<(), DenialReason>("Reason: Format message".to_owned())
-        );
-
-        let mes = "Advanced format message";
-        let d = || deny!("Reason: {mes}");
-        assert_eq!(
-            d(),
-            Err::<(), DenialReason>("Reason: Advanced format message".to_owned())
-        );
-    }
+    pub use super::{declare_tokens, deny, pass, Validate};
 }

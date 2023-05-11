@@ -292,15 +292,6 @@ impl NewAccount {
     }
 }
 
-impl SignatureCheckCondition {
-    /// Get a reference to the raw `ExpressionBox`.
-    #[inline]
-    pub const fn as_expression(&self) -> &crate::expression::Expression {
-        let Self(condition) = self;
-        &condition.expression
-    }
-}
-
 /// Default signature condition check for accounts.
 /// Returns true if any of the signatories have signed the transaction.
 impl Default for SignatureCheckCondition {

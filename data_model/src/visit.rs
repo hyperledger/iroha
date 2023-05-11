@@ -7,17 +7,11 @@ use alloc::format;
 use crate::{evaluate::ExpressionEvaluator, prelude::*, NumericValue};
 
 macro_rules! delegate {
-    ( $($visitor:ident($operation:ty)),+ $(,)? ) => { $(
-        fn $visitor(&mut self, authority: &AccountId, operation: $operation) {
+    ( $($visitor:ident $(<$param:ident $(: $bound:path)?>)?($operation:ty)),+ $(,)? ) => { $(
+        fn $visitor$(<$param $(: $bound)?>)?(&mut self, authority: &AccountId, operation: $operation) {
             $visitor(self, authority, operation);
         } )+
     }
-}
-
-macro_rules! deny_unsupported_instruction {
-    ($isi_type:ty) => {
-        unimplemented!() // concat!("Unsupported `", stringify!($isi_type), "` instruction").to_owned())
-    };
 }
 
 macro_rules! evaluate_expr {
@@ -36,35 +30,35 @@ macro_rules! evaluate_expr {
 ///
 /// This trait is based on the visitor pattern
 pub trait Visit: ExpressionEvaluator {
-    fn visit_expression<V>(&mut self, authority: &AccountId, expression: &EvaluatesTo<V>) {
-        visit_expression(self, authority, expression)
-    }
-
     delegate! {
+        visit_unsupported<T: core::fmt::Debug>(T),
+
         // Visit SignedTransaction
         visit_transaction(&SignedTransaction),
         visit_instruction(&InstructionBox),
+        visit_expression<V>(&EvaluatesTo<V>),
         visit_wasm(&WasmSmartContract),
         visit_query(&QueryBox),
 
         // Visit InstructionBox
         visit_burn(&BurnBox),
-        visit_execute_trigger(ExecuteTrigger),
         visit_fail(&FailBox),
         visit_grant(&GrantBox),
         visit_if(&Conditional),
         visit_mint(&MintBox),
-        visit_new_parameter(NewParameter<Parameter>),
         visit_pair(&Pair),
         visit_register(&RegisterBox),
         visit_remove_key_value(&RemoveKeyValueBox),
         visit_revoke(&RevokeBox),
         visit_sequence(&SequenceBox),
         visit_set_key_value(&SetKeyValueBox),
-        visit_set_parameter(SetParameter<Parameter>),
         visit_transfer(&TransferBox),
         visit_unregister(&UnregisterBox),
         visit_upgrade(&UpgradeBox),
+
+        visit_execute_trigger(ExecuteTrigger),
+        visit_new_parameter(NewParameter),
+        visit_set_parameter(SetParameter),
 
         // Visit QueryBox
         visit_does_account_have_permission_token(&DoesAccountHavePermissionToken),
@@ -167,6 +161,14 @@ pub trait Visit: ExpressionEvaluator {
         // Visit UpgradeBox
         visit_upgrade_validator(Upgrade<Validator>),
     }
+}
+
+/// Called when visiting any unsupported syntax tree node
+fn visit_unsupported<V: Visit + ?Sized, T: core::fmt::Debug>(
+    _visitor: &mut V,
+    _authority: &AccountId,
+    _item: T,
+) {
 }
 
 pub fn visit_transaction<V: Visit + ?Sized>(
@@ -390,7 +392,7 @@ pub fn visit_unregister<V: Visit + ?Sized>(
             let object_id = evaluate_expr!(visitor, authority, <isi as Unregister>::object_id());
             match object_id { $(
                 IdBox::$id(object_id) => visitor.$visitor(authority, Unregister{object_id}), )+
-                _ => deny_unsupported_instruction!(Unregister),
+                _ => visitor.visit_unsupported(authority, isi),
             }
         };
     }
@@ -442,7 +444,7 @@ pub fn visit_mint<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi
                     destination_id,
                 },
             ),
-        _ => deny_unsupported_instruction!(Mint),
+        _ => visitor.visit_unsupported(authority, isi),
     }
 }
 
@@ -466,7 +468,7 @@ pub fn visit_burn<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi
                     destination_id,
                 },
             ),
-        _ => deny_unsupported_instruction!(Burn),
+        _ => visitor.visit_unsupported(authority, isi),
     }
 }
 
@@ -481,7 +483,7 @@ pub fn visit_transfer<V: Visit + ?Sized>(
             evaluate_expr!(visitor, authority, <isi as Transfer>::source_id()),
             evaluate_expr!(visitor, authority, <isi as Transfer>::destination_id()),
         ) else {
-            deny_unsupported_instruction!(Transfer)
+            return visitor.visit_unsupported(authority, isi);
         };
 
     match object {
@@ -493,7 +495,7 @@ pub fn visit_transfer<V: Visit + ?Sized>(
                 destination_id,
             },
         ),
-        _ => deny_unsupported_instruction!(Transfer),
+        _ => visitor.visit_unsupported(authority, isi),
     }
 }
 
@@ -539,7 +541,7 @@ pub fn visit_set_key_value<V: Visit + ?Sized>(
                 value,
             },
         ),
-        _ => deny_unsupported_instruction!(SetKeyValue),
+        _ => visitor.visit_unsupported(authority, isi),
     }
 }
 
@@ -563,7 +565,7 @@ pub fn visit_remove_key_value<V: Visit + ?Sized>(
         IdBox::DomainId(object_id) => {
             visitor.visit_remove_domain_key_value(authority, RemoveKeyValue { object_id, key })
         }
-        _ => deny_unsupported_instruction!(RemoveKeyValue),
+        _ => visitor.visit_unsupported(authority, isi),
     }
 }
 
@@ -588,7 +590,7 @@ pub fn visit_grant<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, is
                     destination_id,
                 },
             ),
-        _ => deny_unsupported_instruction!(Grant),
+        _ => visitor.visit_unsupported(authority, isi),
     }
 }
 
@@ -613,7 +615,7 @@ pub fn visit_revoke<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, i
                     destination_id,
                 },
             ),
-        _ => deny_unsupported_instruction!(Revoke),
+        _ => visitor.visit_unsupported(authority, isi),
     }
 }
 
@@ -699,8 +701,8 @@ leaf_visitors! {
     visit_unregister_trigger(Unregister<Trigger<FilterBox, Executable>>),
     visit_mint_trigger_repetitions(Mint<Trigger<FilterBox, Executable>, u32>),
     visit_upgrade_validator(Upgrade<Validator>),
-    visit_new_parameter(NewParameter<Parameter>),
-    visit_set_parameter(SetParameter<Parameter>),
+    visit_new_parameter(NewParameter),
+    visit_set_parameter(SetParameter),
     visit_execute_trigger(ExecuteTrigger),
     visit_register_permission_token(Register<PermissionTokenDefinition>),
     visit_fail(&FailBox),

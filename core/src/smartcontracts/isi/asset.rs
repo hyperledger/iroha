@@ -39,7 +39,7 @@ pub mod isi {
     use crate::smartcontracts::account::isi::forbid_minting;
 
     impl Execute for SetKeyValue<Asset> {
-        #[metrics(+"asset_set_key_value")]
+        #[metrics(+"set_asset_key_value")]
         fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_id = self.object_id;
 
@@ -74,7 +74,7 @@ pub mod isi {
     }
 
     impl Execute for RemoveKeyValue<Asset> {
-        #[metrics(+"asset_remove_key_value")]
+        #[metrics(+"remove_asset_key_value")]
         fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_id = self.object_id;
 

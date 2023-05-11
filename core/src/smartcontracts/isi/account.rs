@@ -125,7 +125,7 @@ pub mod isi {
     }
 
     impl Execute for Mint<Account, PublicKey> {
-        #[metrics(+"mint_account_pubkey")]
+        #[metrics(+"mint_account_public_key")]
         fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let public_key = self.object;
@@ -144,7 +144,7 @@ pub mod isi {
     }
 
     impl Execute for Burn<Account, PublicKey> {
-        #[metrics(+"burn_account_pubkey")]
+        #[metrics(+"burn_account_public_key")]
         fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let public_key = self.object;
@@ -180,7 +180,7 @@ pub mod isi {
     }
 
     impl Execute for SetKeyValue<Account> {
-        #[metrics(+"set_key_value_account_string_value")]
+        #[metrics(+"set_account_key_value")]
         fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.object_id;
 
@@ -223,7 +223,7 @@ pub mod isi {
     }
 
     impl Execute for Grant<Account, PermissionToken> {
-        #[metrics(+"grant_account_permission_token")]
+        #[metrics(+"grant_account_permission")]
         fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let permission = self.object;
@@ -255,7 +255,7 @@ pub mod isi {
     }
 
     impl Execute for Revoke<Account, PermissionToken> {
-        #[metrics(+"revoke_account_permission_token")]
+        #[metrics(+"revoke_account_permission")]
         fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let permission = self.object;

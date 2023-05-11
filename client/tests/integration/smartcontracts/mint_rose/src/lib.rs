@@ -12,7 +12,7 @@ use core::str::FromStr as _;
 use iroha_wasm::data_model::prelude::*;
 
 /// Mint 1 rose for authority
-#[iroha_wasm::entrypoint(params = "[authority]")]
+#[iroha_wasm::main(params = "[authority]")]
 fn main(authority: <Account as Identifiable>::Id) {
     let rose_definition_id = <AssetDefinition as Identifiable>::Id::from_str("rose#wonderland")
         .dbg_expect("Failed to parse `rose#wonderland` asset definition id");

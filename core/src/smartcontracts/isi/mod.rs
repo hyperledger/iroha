@@ -364,7 +364,7 @@ impl Execute for FailBox {
     fn execute(self, _authority: &AccountId, _wsv: &WorldStateView) -> Result<(), Error> {
         iroha_logger::trace!(?self);
 
-        Err(Error::FailBox(self.message))
+        Err(Error::Fail(self.message))
     }
 }
 

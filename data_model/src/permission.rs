@@ -18,9 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
-use crate::{
-    utils::format_comma_separated, IdBox, Identifiable, Name, Registered, Value, ValueKind,
-};
+use crate::{IdBox, Identifiable, Name, Registered, Value, ValueKind};
 
 /// Collection of [`Token`]s
 pub type Permissions = BTreeSet<PermissionToken>;
@@ -187,7 +185,7 @@ impl core::fmt::Display for PermissionToken {
         if !self.params.is_empty() {
             write!(f, ": ")?;
 
-            format_comma_separated(
+            crate::utils::format_comma_separated(
                 self.params
                     .iter()
                     .map(|(name, value)| format!("`{name}`: `{value}`")),
