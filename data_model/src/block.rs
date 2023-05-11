@@ -71,6 +71,8 @@ mod header {
             /// Hash of merkle tree root of the tree of rejected transactions' hashes.
             pub rejected_transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
             /// Network topology when the block was committed.
+            // TODO: Derive with getset once FFI impl is fixed
+            #[getset(skip)]
             pub committed_with_topology: Vec<peer::PeerId>,
         }
     }
@@ -134,12 +136,19 @@ mod committed {
             /// Block header
             pub header: BlockHeader,
             /// Array of rejected transactions.
+            // TODO: Derive with getset once FFI impl is fixed
+            #[getset(skip)]
             pub rejected_transactions: Vec<VersionedRejectedTransaction>,
             /// array of transactions, which successfully passed validation and consensus step.
+            // TODO: Derive with getset once FFI impl is fixed
+            #[getset(skip)]
             pub transactions: Vec<VersionedValidTransaction>,
             /// Event recommendations.
+            // TODO: Derive with getset once FFI impl is fixed
+            #[getset(skip)]
             pub event_recommendations: Vec<Event>,
             /// Signatures of peers which approved this block
+            #[getset(skip)]
             pub signatures: SignaturesOf<Self>,
         }
     }
@@ -177,20 +186,11 @@ mod committed {
             self.as_v1().hash().transmute()
         }
 
-        /// Returns the header of a valid block
-        #[inline]
-        pub const fn header(&self) -> &BlockHeader {
-            &self.as_v1().header
-        }
-
         /// Return signatures that are verified with the `hash` of this block
         #[cfg(feature = "std")]
         #[inline]
-        pub fn signatures(&self) -> impl IntoIterator<Item = &SignatureOf<Self>> {
-            self.as_v1()
-                .signatures
-                .iter()
-                .map(SignatureOf::transmute_ref)
+        pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<Self>> {
+            self.as_v1().signatures().map(SignatureOf::transmute_ref)
         }
     }
 
@@ -219,6 +219,13 @@ mod committed {
         #[inline]
         pub fn hash(&self) -> HashOf<Self> {
             HashOf::new(&self.header).transmute()
+        }
+
+        /// Return signatures that are verified with the `hash` of this block
+        #[cfg(feature = "std")]
+        #[inline]
+        pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<Self>> {
+            self.signatures.iter()
         }
     }
 

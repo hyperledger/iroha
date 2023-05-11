@@ -100,7 +100,9 @@ impl Kura {
         });
 
         let shutdown = move || {
-            let _result = shutdown_sender.send(());
+            if let Err(error) = shutdown_sender.send(()) {
+                iroha_logger::error!(?error);
+            }
         };
 
         ThreadHandler::new(Box::new(shutdown), thread_handle)

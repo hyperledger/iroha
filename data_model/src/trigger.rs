@@ -7,7 +7,7 @@ use core::{cmp, str::FromStr};
 use derive_more::{Constructor, Display};
 use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
-use iroha_macro::FromVariant;
+use iroha_macro::{ffi_impl_opaque, FromVariant};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -59,7 +59,6 @@ pub mod model {
         Clone,
         IdEqOrdHash,
         Constructor,
-        Getters,
         Decode,
         Encode,
         Deserialize,
@@ -67,13 +66,50 @@ pub mod model {
         IntoSchema,
     )]
     #[display(fmt = "@@{id}")]
-    #[getset(get = "pub")]
     #[ffi_type]
     pub struct Trigger<F, E> {
         /// [`Id`] of the [`Trigger`].
         pub id: TriggerId,
         /// Action to be performed when the trigger matches.
         pub action: action::Action<F, E>,
+    }
+
+    /// Same as [`Executable`] but instead of [`Wasm`](Executable::Wasm) contains
+    /// [`WasmInternalRepr`](OptimizedExecutable::WasmInternalRepr) with
+    /// serialized optimized representation from `wasmtime` library.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    // TODO: Made opaque temporarily
+    #[ffi_type(opaque)]
+    pub enum OptimizedExecutable {
+        /// Internal representation of Wasm blob provided by preloading it with `wasmtime` crate.
+        WasmInternalRepr(Vec<u8>),
+        /// Vector of [`instructions`](InstructionBox).
+        Instructions(Vec<InstructionBox>),
+    }
+}
+
+#[ffi_impl_opaque]
+impl Trigger<FilterBox, OptimizedExecutable> {
+    /// [`Id`] of the [`Trigger`].
+    pub fn id(&self) -> &TriggerId {
+        &self.id
+    }
+
+    /// Action to be performed when the trigger matches.
+    pub fn action(&self) -> &action::Action<FilterBox, OptimizedExecutable> {
+        &self.action
     }
 }
 
@@ -149,29 +185,6 @@ impl FromStr for TriggerId {
     }
 }
 
-/// Same as [`Executable`] but instead of [`Wasm`](Executable::Wasm) contains
-/// [`WasmInternalRepr`](OptimizedExecutable::WasmInternalRepr) with
-/// serialized optimized representation from `wasmtime` library.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    FromVariant,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-)]
-pub enum OptimizedExecutable {
-    /// Internal representation of Wasm blob provided by preloading it with `wasmtime` crate.
-    WasmInternalRepr(Vec<u8>),
-    /// Vector of [`instructions`](InstructionBox).
-    Instructions(Vec<InstructionBox>),
-}
-
 pub mod action {
     //! Contains trigger action and common trait for all actions
 
@@ -200,9 +213,9 @@ pub mod action {
         /// be run before any of the ISIs are pushed into the queue of the
         /// next block.
         #[derive(
-            Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+            Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
         )]
-        #[getset(get = "pub")]
+        #[ffi_type]
         pub struct Action<F, E> {
             /// The executable linked to this action
             pub executable: E,
@@ -224,6 +237,8 @@ pub mod action {
         #[derive(
             Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
         )]
+        // TODO: It would not have to be opaque if AtomicU32 had FFI representation
+        #[ffi_type(opaque)]
         pub enum Repeats {
             /// Repeat indefinitely, until the trigger is unregistered.
             Indefinitely,
@@ -236,6 +251,30 @@ pub mod action {
     impl<F, E> crate::HasMetadata for Action<F, E> {
         fn metadata(&self) -> &crate::metadata::Metadata {
             &self.metadata
+        }
+    }
+
+    #[ffi_impl_opaque]
+    impl Action<FilterBox, OptimizedExecutable> {
+        /// The executable linked to this action
+        pub fn executable(&self) -> &OptimizedExecutable {
+            &self.executable
+        }
+        /// The repeating scheme of the action. It's kept as part of the
+        /// action and not inside the [`Trigger`] type, so that further
+        /// sanity checking can be done.
+        pub fn repeats(&self) -> &Repeats {
+            &self.repeats
+        }
+        /// Technical account linked to this trigger. The technical
+        /// account must already exist in order for `Register<Trigger>` to
+        /// work.
+        pub fn technical_account(&self) -> &crate::account::AccountId {
+            &self.technical_account
+        }
+        /// Defines events which trigger the `Action`
+        pub fn filter(&self) -> &FilterBox {
+            &self.filter
         }
     }
 

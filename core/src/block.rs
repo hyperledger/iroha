@@ -619,7 +619,7 @@ mod tests {
         let valid_block = PendingBlock::new_dummy();
         let committed_block = valid_block.clone().commit_unchecked();
 
-        assert_eq!(*valid_block.hash(), *committed_block.hash())
+        assert_eq!(valid_block.hash().transmute(), committed_block.hash())
     }
 
     #[test]

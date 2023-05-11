@@ -125,7 +125,8 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
-    #[getset(get = "pub")]
+    // TODO: Figure out how to serialize duration
+    // #[getset(get = "pub")]
     #[ffi_type]
     pub struct TimeInterval {
         /// The start of a time interval

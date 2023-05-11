@@ -296,7 +296,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "transparent_api")]
     fn nested_fns_ignore_empty_path() {
         let mut metadata = Metadata::new();
         let empty_path = vec![];
@@ -315,14 +314,14 @@ mod tests {
         // TODO: If we allow a `unsafe`, we could create the path.
         metadata
             .insert_with_limits(Name::from_str("0")?, Metadata::new().into(), limits)
-            .unwrap();
+            .expect("Valid");
         metadata
             .nested_insert_with_limits(
                 &[Name::from_str("0")?, Name::from_str("1")?],
                 Metadata::new().into(),
                 limits,
             )
-            .unwrap();
+            .expect("Valid");
         let path = [
             Name::from_str("0")?,
             Name::from_str("1")?,
@@ -330,9 +329,9 @@ mod tests {
         ];
         metadata
             .nested_insert_with_limits(&path, "Hello World".to_owned().into(), limits)
-            .unwrap();
+            .expect("Valid");
         assert_eq!(
-            *metadata.nested_get(&path).unwrap(),
+            *metadata.nested_get(&path).expect("Valid"),
             Value::from("Hello World".to_owned())
         );
         assert_eq!(metadata.nested_len(), 6); // Three nested path segments.
@@ -342,7 +341,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "transparent_api")]
     fn non_existent_path_segment_fails() -> Result<(), TestError> {
         let mut metadata = Metadata::new();
         let limits = Limits::new(10, 15);
@@ -383,7 +381,7 @@ mod tests {
                 Metadata::new().into(),
                 limits,
             )
-            .unwrap();
+            .expect("Valid");
         let path = vec![
             Name::from_str("0")?,
             Name::from_str("1")?,

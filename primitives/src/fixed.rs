@@ -140,7 +140,6 @@ impl Fixed {
 }
 
 /// Custom error type for Fixed point operation errors.
-#[allow(variant_size_differences)]
 #[derive(Debug, Clone, Display, iroha_macro::FromVariant)]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum FixedPointOperationError {

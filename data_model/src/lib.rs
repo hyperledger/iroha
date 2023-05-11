@@ -607,10 +607,10 @@ pub mod model {
     pub enum TriggerBox {
         /// Un-optimized [`Trigger`](`trigger::Trigger`) submitted from client to Iroha.
         #[display(fmt = "{_0}")]
-        Raw(Box<trigger::Trigger<FilterBox, Executable>>),
+        Raw(trigger::Trigger<FilterBox, Executable>),
         /// Optimized [`Trigger`](`trigger::Trigger`) returned from Iroha to client.
         #[display(fmt = "{_0} (optimised)")]
-        Optimized(Box<trigger::Trigger<FilterBox, trigger::OptimizedExecutable>>),
+        Optimized(trigger::Trigger<FilterBox, trigger::OptimizedExecutable>),
     }
 
     /// Sized container for all possible upgradable entities.
@@ -1160,7 +1160,7 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             }
             NewRole(role) => Ok(RegistrableBox::Role(role)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
-            Trigger(TriggerBox::Raw(trigger)) => Ok(RegistrableBox::Trigger(trigger)),
+            Trigger(TriggerBox::Raw(trigger)) => Ok(RegistrableBox::Trigger(Box::new(trigger))),
             Domain(_)
             | Account(_)
             | AssetDefinition(_)
@@ -1184,7 +1184,7 @@ impl From<RegistrableBox> for IdentifiableBox {
             }
             Role(role) => IdentifiableBox::NewRole(role),
             Asset(asset) => IdentifiableBox::Asset(asset),
-            Trigger(trigger) => IdentifiableBox::Trigger(TriggerBox::Raw(trigger)),
+            Trigger(trigger) => IdentifiableBox::Trigger(TriggerBox::Raw(*trigger)),
             PermissionTokenDefinition(token_definition) => {
                 IdentifiableBox::PermissionTokenDefinition(token_definition)
             }
@@ -1318,15 +1318,13 @@ impl TryFrom<f64> for Value {
 
 impl From<trigger::Trigger<FilterBox, Executable>> for Value {
     fn from(trigger: trigger::Trigger<FilterBox, Executable>) -> Self {
-        Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Raw(Box::new(trigger))))
+        Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Raw(trigger)))
     }
 }
 
 impl From<trigger::Trigger<FilterBox, trigger::OptimizedExecutable>> for Value {
     fn from(trigger: trigger::Trigger<FilterBox, trigger::OptimizedExecutable>) -> Self {
-        Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Optimized(Box::new(
-            trigger,
-        ))))
+        Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Optimized(trigger)))
     }
 }
 
@@ -1335,7 +1333,7 @@ impl TryFrom<Value> for trigger::Trigger<FilterBox, Executable> {
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Raw(trigger))) = value {
-            return Ok(*trigger);
+            return Ok(trigger);
         }
 
         Err(Self::Error::default())
@@ -1348,7 +1346,7 @@ impl TryFrom<Value> for trigger::Trigger<FilterBox, trigger::OptimizedExecutable
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Optimized(trigger))) = value
         {
-            return Ok(*trigger);
+            return Ok(trigger);
         }
 
         Err(Self::Error::default())
@@ -1693,49 +1691,13 @@ pub fn current_time() -> core::time::Duration {
         .expect("Failed to get the current system time")
 }
 
-#[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
-pub mod ffi {
+mod ffi {
     //! Definitions and implementations of FFI related functionalities
 
+    #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
     use super::*;
 
-    macro_rules! ffi_fn {
-        ($macro_name: ident) => {
-            iroha_ffi::$macro_name! { "iroha_data_model" Clone:
-                account::Account,
-                asset::Asset,
-                domain::Domain,
-                metadata::Metadata,
-                permission::PermissionToken,
-                role::Role,
-            }
-            iroha_ffi::$macro_name! { "iroha_data_model" Eq:
-                account::Account,
-                asset::Asset,
-                domain::Domain,
-                metadata::Metadata,
-                permission::PermissionToken,
-                role::Role,
-            }
-            iroha_ffi::$macro_name! { "iroha_data_model" Ord:
-                account::Account,
-                asset::Asset,
-                domain::Domain,
-                metadata::Metadata,
-                permission::PermissionToken,
-                role::Role,
-            }
-            iroha_ffi::$macro_name! { "iroha_data_model" Drop:
-                account::Account,
-                asset::Asset,
-                domain::Domain,
-                metadata::Metadata,
-                permission::PermissionToken,
-                role::Role,
-            }
-        };
-    }
-
+    #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
     iroha_ffi::handles! {
         account::Account,
         asset::Asset,
@@ -1746,9 +1708,14 @@ pub mod ffi {
     }
 
     #[cfg(feature = "ffi_import")]
-    ffi_fn! {decl_ffi_fn}
+    iroha_ffi::decl_ffi_fns! { link_prefix="iroha_data_model" Drop, Clone, Eq, Ord }
     #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
-    ffi_fn! {def_ffi_fn}
+    iroha_ffi::def_ffi_fns! { link_prefix="iroha_data_model"
+        Drop: { account::Account, asset::Asset, domain::Domain, metadata::Metadata, permission::PermissionToken, role::Role },
+        Clone: { account::Account, asset::Asset, domain::Domain, metadata::Metadata, permission::PermissionToken, role::Role },
+        Eq: { account::Account, asset::Asset, domain::Domain, metadata::Metadata, permission::PermissionToken, role::Role },
+        Ord: { account::Account, asset::Asset, domain::Domain, metadata::Metadata, permission::PermissionToken, role::Role },
+    }
 
     // NOTE: Makes sure that only one `dealloc` is exported per generated dynamic library
     #[cfg(any(crate_type = "dylib", crate_type = "cdylib"))]
@@ -1759,7 +1726,7 @@ pub mod ffi {
         #[cfg(feature = "std")]
         use std::alloc;
 
-        iroha_ffi::def_ffi_fn! {dealloc}
+        iroha_ffi::def_ffi_fns! {dealloc}
     }
 }
 

@@ -487,10 +487,10 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
-    #[getset(get = "pub")]
     #[ffi_type]
     pub struct Where {
         /// Expression to be evaluated.
+        #[getset(get = "pub")]
         pub expression: EvaluatesTo<Value>,
         /// Context values for the context bonded to their `String` names.
         pub values: btree_map::BTreeMap<Name, EvaluatesTo<Value>>,
@@ -749,6 +749,12 @@ impl core::fmt::Display for Where {
 }
 
 impl Where {
+    /// Get an iterator over the values of [`Where`] clause
+    #[inline]
+    pub fn values(&self) -> impl ExactSizeIterator<Item = (&Name, &EvaluatesTo<Value>)> {
+        self.values.iter()
+    }
+
     /// Number of underneath expressions.
     #[must_use]
     #[inline]

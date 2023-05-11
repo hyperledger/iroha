@@ -4,9 +4,9 @@ use getset::{Getters, Setters};
 use iroha_ffi::{ffi_export, FfiConvert, FfiType};
 
 /// FfiStruct
+#[ffi_export]
 #[derive(Clone, Setters, Getters, FfiType)]
 #[getset(get = "pub")]
-#[ffi_export]
 pub struct FfiStruct {
     /// a
     #[getset(set = "pub")]

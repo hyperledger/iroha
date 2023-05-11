@@ -285,7 +285,7 @@ impl Sumeragi {
                         }
                     };
 
-                    if block.header().is_genesis() {
+                    if block.as_v1().header.is_genesis() {
                         commit_block(self, state, block);
                         return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                     }
@@ -314,9 +314,7 @@ fn commit_block(sumeragi: &Sumeragi, state: &mut State, block: impl Into<Version
     );
 
     update_topology(state, sumeragi, &committed_block);
-
     sumeragi.kura.store_block(committed_block);
-
     cache_transaction(state, sumeragi);
 }
 
@@ -340,9 +338,7 @@ fn replace_top_block(
     );
 
     update_topology(state, sumeragi, &committed_block);
-
     sumeragi.kura.replace_top_block(committed_block);
-
     cache_transaction(state, sumeragi)
 }
 
@@ -351,9 +347,14 @@ fn update_topology(
     sumeragi: &Sumeragi,
     committed_block: &VersionedCommittedBlock,
 ) {
-    let mut topology = Topology {
-        sorted_peers: committed_block.header().committed_with_topology.clone(),
-    };
+    let mut topology = Topology::new(
+        committed_block
+            .as_v1()
+            .header()
+            .committed_with_topology
+            .clone(),
+    );
+
     topology.lift_up_peers(
         &committed_block
             .signatures()
@@ -389,9 +390,10 @@ fn update_state(state: &mut State, sumeragi: &Sumeragi, committed_block: &Versio
     // AFTER public facing WSV update
     sumeragi.send_events(committed_block);
 
-    state.latest_block_height = committed_block.header().height;
+    let header = &committed_block.as_v1().header;
+    state.latest_block_height = header.height;
     state.latest_block_hash = Some(committed_block.hash());
-    state.latest_block_view_change_index = committed_block.header().view_change_index;
+    state.latest_block_view_change_index = header.view_change_index;
 }
 
 fn cache_transaction(state: &mut State, sumeragi: &Sumeragi) {
@@ -493,35 +495,36 @@ fn handle_message(
                 }
             };
 
-            if state.previous_block_hash == block.header().previous_block_hash
-                && state.latest_block_height == block.header().height
+            let header = &block.as_v1().header();
+            if state.previous_block_hash == header.previous_block_hash
+                && state.latest_block_height == header.height
                 && state.latest_block_hash != Some(block.hash())
-                && state.latest_block_view_change_index < block.header().view_change_index
+                && state.latest_block_view_change_index < header.view_change_index
             {
                 error!(
                     %addr, %role,
                     peer_latest_block_hash=?state.latest_block_hash,
                     peer_latest_block_view_change_index=?state.latest_block_view_change_index,
                     consensus_latest_block_hash=%block.hash(),
-                    consensus_latest_block_view_change_index=%block.header().view_change_index,
+                    consensus_latest_block_view_change_index=%header.view_change_index,
                     "Soft fork occurred: peer in inconsistent state. Rolling back and replacing top block."
                 );
                 replace_top_block(sumeragi, state, block);
                 return;
             }
-            if state.latest_block_hash != block.header().previous_block_hash {
+            if state.latest_block_hash != header.previous_block_hash {
                 error!(
                     %addr, %role,
-                    actual = ?block.header().previous_block_hash,
+                    actual = ?header.previous_block_hash,
                     expected = ?state.latest_block_hash,
                     "Mismatch between the actual and expected hashes of the latest block."
                 );
                 return;
             }
-            if state.latest_block_height + 1 != block.header().height {
+            if state.latest_block_height + 1 != header.height {
                 error!(
                     %addr, %role,
-                    actual = block.header().height,
+                    actual = header.height,
                     expected = state.latest_block_height + 1,
                     "Mismatch between the actual and expected height of the block."
                 );

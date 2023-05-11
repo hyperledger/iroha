@@ -5,12 +5,14 @@ use std::mem::MaybeUninit;
 use getset::Getters;
 use iroha_ffi::{ffi_export, FfiConvert, FfiType};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, FfiType)]
+/// Struct
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FfiType)]
 pub struct GenericFfiStruct<T>(T);
 
+/// Struct
+#[ffi_export]
 #[derive(Clone, Copy, Getters, FfiType)]
 #[getset(get = "pub")]
-#[ffi_export]
 pub struct FfiStruct {
     inner: GenericFfiStruct<bool>,
 }

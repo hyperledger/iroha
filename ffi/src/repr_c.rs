@@ -219,7 +219,7 @@ impl<R: NonLocal<S>, S: Cloned> COutPtr<&S> for &R {
 impl<'itm, R: NonLocal<S> + CTypeConvert<'itm, S, R::ReprC> + Clone, S: Cloned + 'itm>
     COutPtrWrite<&'itm S> for &'itm R
 {
-    unsafe fn write_out(self, out_ptr: *mut R::ReprC) {
+    unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
         let mut store = Default::default();
         // NOTE: Bypasses the erroneous lifetime check.
         // Correct as long as `R::into_repr_c` doesn't return a reference to the store (`R: NonLocal`)

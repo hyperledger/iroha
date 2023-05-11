@@ -3,41 +3,43 @@ use alloc::{borrow::ToOwned as _, format, string::String, vec, vec::Vec};
 use core::{hash, marker::PhantomData, num::NonZeroU8, str::FromStr};
 
 use derive_more::{DebugCustom, Deref, DerefMut, Display};
-use iroha_ffi::FfiType;
+#[cfg(any(feature = "std", feature = "ffi_import"))]
+use iroha_macro::ffi_impl_opaque;
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::DeserializeFromStr;
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(feature = "ffi_import")))]
 use ursa::blake2::{
     digest::{Update, VariableOutput},
     VarBlake2b,
 };
 
-use crate::{ffi, hex_decode, Error};
+use crate::{error::Error, hex_decode};
 
-ffi::ffi_item! {
-    /// Hash of Iroha entities. Currently supports only blake2b-32.
-    /// The least significant bit of hash is set to 1.
-    #[allow(clippy::unsafe_derive_deserialize)] // NOTE: Unsafe invariants are maintained in `FromStr`
-    #[derive(DebugCustom, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DeserializeFromStr, TypeId)]
-    #[display(fmt = "{}", "hex::encode_upper(self.as_ref())")]
-    #[debug(fmt = "{}", "hex::encode_upper(self.as_ref())")]
-    #[repr(C)]
-    pub struct Hash {
-        more_significant_bits: [u8; Self::LENGTH - 1],
-        least_significant_byte: NonZeroU8,
-    }
-}
-
-// NOTE: Hash is FFI serialized as an array (a pointer in a function call, by value when part of a struct)
-iroha_ffi::ffi_type! {
-    unsafe impl Transparent for Hash {
-        type Target = [u8; Hash::LENGTH];
-
-        validation_fn=unsafe {Hash::is_lsb_1},
-        niche_value = [0; Hash::LENGTH]
-    }
+/// Hash of Iroha entities. Currently supports only blake2b-32.
+/// The least significant bit of hash is set to 1.
+#[derive(
+    DebugCustom,
+    Display,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    DeserializeFromStr,
+    TypeId,
+)]
+#[display(fmt = "{}", "hex::encode(self.as_ref())")]
+#[debug(fmt = "{}", "hex::encode(self.as_ref())")]
+// NOTE: Invariants are maintained in `FromStr`
+#[allow(clippy::unsafe_derive_deserialize)]
+#[repr(C)]
+pub struct Hash {
+    more_significant_bits: [u8; Self::LENGTH - 1],
+    least_significant_byte: NonZeroU8,
 }
 
 impl Hash {
@@ -56,20 +58,6 @@ impl Hash {
         }
     }
 
-    /// Hash the given bytes.
-    #[cfg(feature = "std")]
-    #[allow(clippy::expect_used)]
-    #[must_use]
-    pub fn new(bytes: impl AsRef<[u8]>) -> Self {
-        let vec_hash = VarBlake2b::new(Self::LENGTH)
-            .expect("Failed to initialize variable size hash")
-            .chain(bytes)
-            .finalize_boxed();
-        let mut hash = [0; Self::LENGTH];
-        hash.copy_from_slice(&vec_hash);
-        Hash::prehashed(hash)
-    }
-
     /// Adds type information to the hash. Be careful about using this function
     /// since it is not possible to validate the correctness of the conversion.
     /// Prefer creating new hashes with [`HashOf::new`] whenever possible
@@ -81,6 +69,24 @@ impl Hash {
     /// Check if least significant bit of `[u8; Hash::LENGTH]` is 1
     fn is_lsb_1(hash: &[u8; Self::LENGTH]) -> bool {
         hash[Self::LENGTH - 1] & 1 == 1
+    }
+}
+
+#[cfg(any(feature = "std", feature = "ffi_import"))]
+#[ffi_impl_opaque]
+impl Hash {
+    /// Hash the given bytes.
+    #[must_use]
+    pub fn new(bytes: impl AsRef<[u8]>) -> Self {
+        let vec_hash = VarBlake2b::new(Self::LENGTH)
+            .expect("Failed to initialize variable size hash")
+            .chain(bytes)
+            .finalize_boxed();
+
+        let mut hash = [0; Self::LENGTH];
+        hash.copy_from_slice(&vec_hash);
+
+        Hash::prehashed(hash)
     }
 }
 
@@ -198,24 +204,23 @@ impl<T> From<HashOf<T>> for Hash {
     }
 }
 
-/// Represents hash of Iroha entities like `Block` or `Transaction`. Currently supports only blake2b-32.
-// Lint triggers when expanding #[codec(skip)]
-#[allow(clippy::default_trait_access)]
-#[derive(
-    DebugCustom, Deref, DerefMut, Display, Decode, Encode, Deserialize, Serialize, FfiType, TypeId,
-)]
-#[debug(fmt = "{{ {} {_0} }}", "core::any::type_name::<Self>()")]
-#[display(fmt = "{_0}")]
-#[serde(transparent)]
-#[repr(transparent)]
-// TODO: Temporary until PRs are resolved
-#[ffi_type(opaque)]
-pub struct HashOf<T>(
-    #[deref]
-    #[deref_mut]
-    Hash,
-    #[codec(skip)] PhantomData<T>,
-);
+crate::ffi::ffi_item! {
+    /// Represents hash of Iroha entities like `Block` or `Transaction`. Currently supports only blake2b-32.
+    #[derive(DebugCustom, Display, Deref, DerefMut, Decode, Encode, Deserialize, Serialize, TypeId)]
+    #[debug(fmt = "{{ {} {_0} }}", "core::any::type_name::<Self>()")]
+    #[display(fmt = "{_0}")]
+    #[serde(transparent)]
+    #[repr(transparent)]
+    pub struct HashOf<T>(
+        #[deref]
+        #[deref_mut]
+        Hash,
+        #[codec(skip)] PhantomData<T>,
+    );
+
+    // SAFETY: `HashOf` has no trap representation in `Hash`
+    ffi_type(unsafe {robust})
+}
 
 impl<T> Clone for HashOf<T> {
     fn clone(&self) -> Self {
@@ -264,9 +269,9 @@ impl<T> HashOf<T> {
     }
 }
 
+#[cfg(any(feature = "std", feature = "ffi_import"))]
 impl<T: Encode> HashOf<T> {
     /// Construct typed hash
-    #[cfg(feature = "std")]
     #[must_use]
     pub fn new(value: &T) -> Self {
         Self(Hash::new(value.encode()), PhantomData)
@@ -290,25 +295,47 @@ impl<T: IntoSchema> IntoSchema for HashOf<T> {
     }
 }
 
+#[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
+mod ffi {
+    //! Manual implementations of FFI related functionality
+
+    use super::*;
+
+    // NOTE: Hash is FFI serialized as an array (a pointer in a function call, by value when part of a struct)
+    iroha_ffi::ffi_type! {
+        unsafe impl Transparent for Hash {
+            type Target = [u8; Hash::LENGTH];
+
+            validation_fn=unsafe {Hash::is_lsb_1},
+            niche_value = [0; Hash::LENGTH]
+        }
+    }
+
+    impl iroha_ffi::WrapperTypeOf<Hash> for [u8; Hash::LENGTH] {
+        type Type = Hash;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::restriction)]
 
     #[cfg(feature = "std")]
-    use hex_literal::hex;
-
-    #[cfg(feature = "std")]
+    #[cfg(not(feature = "ffi_import"))]
     use super::*;
 
     #[test]
     #[cfg(feature = "std")]
+    #[cfg(not(feature = "ffi_import"))]
     fn blake2_32b() {
         let mut hasher = VarBlake2b::new(32).unwrap();
-        hasher.update(hex!("6920616d2064617461"));
+        hasher.update(hex_literal::hex!("6920616d2064617461"));
         hasher.finalize_variable(|res| {
             assert_eq!(
                 res[..],
-                hex!("BA67336EFD6A3DF3A70EEB757860763036785C182FF4CF587541A0068D09F5B2")[..]
+                hex_literal::hex!(
+                    "BA67336EFD6A3DF3A70EEB757860763036785C182FF4CF587541A0068D09F5B2"
+                )[..]
             );
         })
     }

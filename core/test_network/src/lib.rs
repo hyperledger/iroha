@@ -57,7 +57,7 @@ pub fn get_key_pair() -> KeyPair {
         .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
+            "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0".as_ref()
         ).expect("Private key not hex encoded")
     ).expect("Key pair mismatch")
 }
@@ -780,34 +780,6 @@ pub trait TestClient: Sized {
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
-}
-
-#[cfg(feature = "query")]
-pub mod query {
-    //! Query mocking module.
-    use super::*;
-
-    /// Query result mocking trait.
-    pub trait TestQueryResult {
-        /// Tries to find asset by id
-        fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset>;
-    }
-
-    impl TestQueryResult for QueryResult {
-        fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset> {
-            let QueryResult(Value::Vec(assets)) = self else {
-                panic!("Wrong Query Result Type.");
-            };
-            assets.iter().find_map(|asset| {
-                if let Value::Identifiable(IdentifiableBox::Asset(asset)) = asset {
-                    if &asset.id().definition_id == asset_id {
-                        return Some(asset.as_ref());
-                    }
-                }
-                None
-            })
-        }
-    }
 }
 
 impl TestRuntime for Runtime {
