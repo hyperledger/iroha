@@ -2072,7 +2072,7 @@
       }
     ]
   },
-  "InstructionExecutionFail": {
+  "InstructionExecutionFailure": {
     "Struct": [
       {
         "name": "instruction",
@@ -2364,7 +2364,7 @@
       }
     ]
   },
-  "NotPermittedFail": {
+  "NotPermitted": {
     "Struct": [
       {
         "name": "reason",
@@ -3498,19 +3498,19 @@
       },
       {
         "name": "NotPermitted",
-        "type": "NotPermittedFail"
+        "type": "NotPermitted"
       },
       {
         "name": "UnsatisfiedSignatureCondition",
-        "type": "UnsatisfiedSignatureConditionFail"
+        "type": "UnsatisfiedSignatureConditionFailure"
       },
       {
         "name": "InstructionExecution",
-        "type": "InstructionExecutionFail"
+        "type": "InstructionExecutionFailure"
       },
       {
         "name": "WasmExecution",
-        "type": "WasmExecutionFail"
+        "type": "WasmExecutionFailure"
       },
       {
         "name": "UnexpectedGenesisAccountSignature"
@@ -3665,7 +3665,7 @@
       }
     ]
   },
-  "UnsatisfiedSignatureConditionFail": {
+  "UnsatisfiedSignatureConditionFailure": {
     "Struct": [
       {
         "name": "reason",
@@ -4063,7 +4063,7 @@
       }
     ]
   },
-  "WasmExecutionFail": {
+  "WasmExecutionFailure": {
     "Struct": [
       {
         "name": "reason",

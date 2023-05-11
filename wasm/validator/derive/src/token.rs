@@ -77,12 +77,10 @@ fn impl_token(
                 let permission_token = #permission_token_conversion_code;
 
                 ::iroha_validator::iroha_wasm::debug::DebugExpectExt::dbg_expect(
-                    ::iroha_validator::iroha_wasm::ExecuteOnHost::execute(
-                        &::iroha_validator::iroha_wasm::data_model::prelude::QueryBox::from(
-                            ::iroha_validator::iroha_wasm::data_model::prelude::DoesAccountHavePermissionToken::new(
-                                account_id.clone(),
-                                permission_token,
-                            )
+                    ::iroha_validator::iroha_wasm::QueryHost::execute(
+                        &::iroha_validator::iroha_wasm::data_model::prelude::DoesAccountHavePermissionToken::new(
+                            account_id.clone(),
+                            permission_token,
                         )
                     ).try_into(),
                     "Failed to convert `DoesAccountHavePermissionToken` query result into `bool`"

@@ -1,7 +1,9 @@
 //! This module contains implementations of smart-contract traits and
 //! instructions for triggers in Iroha.
 
-use iroha_data_model::{isi::error::MathError, prelude::*, query::error::FindError};
+use iroha_data_model::{
+    evaluate::ExpressionEvaluator, isi::error::MathError, prelude::*, query::error::FindError,
+};
 use iroha_telemetry::metrics;
 
 pub(crate) mod set;
@@ -19,15 +21,9 @@ pub mod isi {
     use super::{super::prelude::*, *};
 
     impl Execute for Register<Trigger<FilterBox, Executable>> {
-        type Error = Error;
-
         #[metrics(+"register_trigger")]
         #[allow(clippy::expect_used)]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let new_trigger = self.object;
 
             if !new_trigger.action.filter.mintable() {
@@ -45,22 +41,22 @@ pub mod isi {
                     FilterBox::Data(_) => triggers.add_data_trigger(
                         new_trigger
                             .try_into()
-                            .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
+                            .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                     ),
                     FilterBox::Pipeline(_) => triggers.add_pipeline_trigger(
                         new_trigger
                             .try_into()
-                            .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
+                            .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                     ),
                     FilterBox::Time(_) => triggers.add_time_trigger(
                         new_trigger
                             .try_into()
-                            .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
+                            .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                     ),
                     FilterBox::ExecuteTrigger(_) => triggers.add_by_call_trigger(
                         new_trigger
                             .try_into()
-                            .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
+                            .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                     ),
                 }
                 .map_err(|e| InvalidParameterError::Wasm(e.to_string()))?;
@@ -77,14 +73,8 @@ pub mod isi {
     }
 
     impl Execute for Unregister<Trigger<FilterBox, Executable>> {
-        type Error = Error;
-
         #[metrics(+"unregister_trigger")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let trigger_id = self.object_id.clone();
 
             wsv.modify_triggers(|triggers| {
@@ -101,19 +91,13 @@ pub mod isi {
     }
 
     impl Execute for Mint<Trigger<FilterBox, Executable>, u32> {
-        type Error = Error;
-
         #[metrics(+"mint_trigger_repetitions")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let id = self.destination_id;
 
             wsv.modify_triggers(|triggers| {
                 triggers
-                    .inspect_by_id(&id, |action| -> Result<(), Self::Error> {
+                    .inspect_by_id(&id, |action| -> Result<(), Error> {
                         if action.mintable() {
                             Ok(())
                         } else {
@@ -135,14 +119,8 @@ pub mod isi {
     }
 
     impl Execute for Burn<Trigger<FilterBox, Executable>, u32> {
-        type Error = Error;
-
         #[metrics(+"burn_trigger_repetitions")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let trigger = self.destination_id;
             wsv.modify_triggers(|triggers| {
                 triggers.mod_repeats(&trigger, |n| {
@@ -160,19 +138,12 @@ pub mod isi {
     }
 
     impl Execute for ExecuteTriggerBox {
-        type Error = Error;
-
         #[metrics(+"execute_trigger")]
-        fn execute(
-            self,
-            authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
-            let context = Context::new(wsv);
-            let id = self.trigger_id.evaluate(&context)?;
+        fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+            let id = wsv.evaluate(&self.trigger_id)?;
 
             wsv.triggers()
-                .inspect_by_id(&id, |action| -> Result<(), Self::Error> {
+                .inspect_by_id(&id, |action| -> Result<(), Error> {
                     let allow_execute =
                         if let FilterBox::ExecuteTrigger(filter) = action.clone_and_box().filter {
                             let event = ExecuteTriggerEvent {
@@ -180,12 +151,12 @@ pub mod isi {
                                 authority: authority.clone(),
                             };
 
-                            filter.matches(&event) || action.technical_account() == &authority
+                            filter.matches(&event) || action.technical_account() == authority
                         } else {
                             false
                         };
                     if allow_execute {
-                        wsv.execute_trigger(id.clone(), authority.clone());
+                        wsv.execute_trigger(id.clone(), authority);
                         Ok(())
                     } else {
                         Err(ValidationError::new("Unauthorized trigger execution").into())
@@ -203,7 +174,7 @@ pub mod query {
     };
 
     use super::*;
-    use crate::{prelude::*, smartcontracts::Context};
+    use crate::prelude::*;
 
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
@@ -215,9 +186,8 @@ pub mod query {
     impl ValidQuery for FindTriggerById {
         #[metrics(+"find_trigger_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.id)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
             iroha_logger::trace!(%id);
             // Can't use just `ActionTrait::clone_and_box` cause this will trigger lifetime mismatch
@@ -249,13 +219,11 @@ pub mod query {
     impl ValidQuery for FindTriggerKeyValueByIdAndKey {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.id)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
-            let key = self
-                .key
-                .evaluate(&Context::new(wsv))
+            let key = wsv
+                .evaluate(&self.key)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate key. {e}")))?;
             iroha_logger::trace!(%id, %key);
             wsv.triggers()
@@ -273,14 +241,13 @@ pub mod query {
     impl ValidQuery for FindTriggersByDomainId {
         #[metrics(+"find_triggers_by_domain_id")]
         fn execute(&self, wsv: &WorldStateView) -> eyre::Result<Self::Output, Error> {
-            let domain_id = &self
-                .domain_id
-                .evaluate(&Context::new(wsv))
+            let domain_id = wsv
+                .evaluate(&self.domain_id)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate domain id. {e}")))?;
 
             let triggers = wsv
                 .triggers()
-                .inspect_by_domain_id(domain_id, |trigger_id, action| {
+                .inspect_by_domain_id(&domain_id, |trigger_id, action| {
                     let Action {
                         executable: loaded_executable,
                         repeats,

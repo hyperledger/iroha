@@ -182,14 +182,21 @@ impl PermissionToken {
 
 impl core::fmt::Display for PermissionToken {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}: ", self.definition_id)?;
-        format_comma_separated(
-            self.params
-                .iter()
-                .map(|(name, value)| format!("`{name}` : `{value}`")),
-            ('{', '}'),
-            f,
-        )
+        write!(f, "{}", self.definition_id)?;
+
+        if !self.params.is_empty() {
+            write!(f, ": ")?;
+
+            format_comma_separated(
+                self.params
+                    .iter()
+                    .map(|(name, value)| format!("`{name}`: `{value}`")),
+                ('[', ']'),
+                f,
+            )?;
+        }
+
+        Ok(())
     }
 }
 

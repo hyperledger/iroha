@@ -91,7 +91,7 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     block.stmts.insert(
         0,
         parse_quote!(
-            use ::iroha_validator::iroha_wasm::ExecuteOnHost as _;
+            use ::iroha_validator::iroha_wasm::{ExecuteOnHost as _, QueryHost as _};
         ),
     );
 

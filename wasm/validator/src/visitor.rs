@@ -1,9 +1,11 @@
+//! Visitor that visits and validates every node in Iroha syntax tree
+#![allow(missing_docs, clippy::missing_errors_doc)]
+
 use alloc::borrow::ToOwned as _;
 
-use iroha_wasm::data_model::{transaction::TransactionPayload, NumericValue, SignaturesOf};
+use iroha_wasm::data_model::{evaluate::ExpressionEvaluator, prelude::*, NumericValue};
 
 use super::prelude::*;
-use crate::data_model::prelude::*;
 
 macro_rules! delegate {
     ( $($validator:ident($operation:ty)),+ $(,)? ) => { $(
@@ -23,19 +25,20 @@ macro_rules! evaluate_expr {
     ($validator:ident, $authority:ident, <$isi:ident as $isi_type:ty>::$field:ident()) => {{
         $validator.validate_expression($authority, $isi.$field())?;
 
-        $isi.$field().evaluate(&iroha_wasm::Context::new())
-            // TODO: Should evaluation always be successful by here?
-            .map_err(|error| alloc::format!(
+        $validator.evaluate($isi.$field()).map_err(|error| {
+            alloc::format!(
                 "Failed to evaluate field '{}::{}': {error}",
-                stringify!($field), stringify!($isi_type)
-            ))
+                stringify!($field),
+                stringify!($isi_type)
+            )
+        })
     }};
 }
 
-/// Trait to validate Iroha entities. Default implementations always passes
+/// Trait to validate Iroha entities. Default implementation always passes
 ///
 /// This trait is based on the visitor pattern
-pub trait Validate {
+pub trait Validate: ExpressionEvaluator {
     fn validate_expression<V>(
         &mut self,
         authority: &AccountId,
@@ -46,12 +49,10 @@ pub trait Validate {
 
     delegate! {
         // Validate SignedTransaction
-        validate_transaction(SignedTransaction),
-        validate_transaction_signatures(&SignaturesOf<TransactionPayload>),
-        validate_transaction_payload(&TransactionPayload),
+        validate_and_execute_transaction(SignedTransaction),
 
         // Validate TransactionPayload
-        validate_instruction(&InstructionBox),
+        validate_and_execute_instruction(&InstructionBox),
         validate_wasm(&WasmSmartContract),
         validate_query(&QueryBox),
 
@@ -179,32 +180,23 @@ pub trait Validate {
 
 /// Default validation for [`SignedTransaction`].
 ///
-/// Performs execution if transaction contains [`Executable::Instructions`]
-/// and does nothing if [`Executable::Wasm`].
+/// # Warning
 ///
-/// Execution is done to properly validate dependent instructions.
+/// Each instruction is executed in sequence following successful validation.
+/// [`Executable::Wasm`] is not executed because it is validated on the host side.
 // NOTE: It's always sent by value from host
+// TODO: Find a way to destructure transaction
 #[allow(clippy::needless_pass_by_value)]
-pub fn validate_transaction<V: Validate + ?Sized>(
+pub fn validate_and_execute_transaction<V: Validate + ?Sized>(
     validator: &mut V,
     authority: &AccountId,
     transaction: SignedTransaction,
 ) -> Verdict {
-    validator.validate_transaction_signatures(authority, transaction.signatures())?;
-    validator.validate_transaction_payload(authority, transaction.payload())
-}
-
-pub fn validate_transaction_payload<V: Validate + ?Sized>(
-    validator: &mut V,
-    authority: &AccountId,
-    payload: &TransactionPayload,
-) -> Verdict {
-    match payload.instructions() {
+    match transaction.payload().instructions() {
         Executable::Wasm(wasm) => validator.validate_wasm(authority, wasm),
         Executable::Instructions(instructions) => {
             for isi in instructions {
-                validator.validate_instruction(authority, isi)?;
-                isi.execute()
+                validator.validate_and_execute_instruction(authority, isi)?;
             }
 
             pass!()
@@ -212,17 +204,16 @@ pub fn validate_transaction_payload<V: Validate + ?Sized>(
     }
 }
 
+/// Default validation for [`QueryBox`].
 pub fn validate_query<V: Validate + ?Sized>(
     validator: &mut V,
     authority: &AccountId,
     query: &QueryBox,
 ) -> Verdict {
-    use QueryBox::*;
-
     macro_rules! query_validators {
         ( $($validator:ident($query:ident)),+ $(,)? ) => {
             match query { $(
-                $query(query) => validator.$validator(authority, &query), )+
+                QueryBox::$query(query) => validator.$validator(authority, &query), )+
             }
         };
     }
@@ -273,64 +264,87 @@ pub fn validate_query<V: Validate + ?Sized>(
     }
 }
 
-/// WASM validation is automatically done by execution on Iroha side.
-/// All instructions and queries executed by WASM will be passed to this validator.
+/// WASM validation is done on the host side by repeatedly calling
+/// [`Validate::validate_and_execute_instruction`]/[`Validate::validate_query`]
+/// for every instruction/query found in the smart contract
 pub fn validate_wasm<V: Validate + ?Sized>(
     _validator: &mut V,
     _authority: &AccountId,
     _wasm: &WasmSmartContract,
 ) -> Verdict {
-    // TODO: We should move validation of wasm here if possible
+    // TODO: Should we move wasm validation here if possible?
     pass!()
 }
 
-pub fn validate_instruction<V: Validate + ?Sized>(
+/// Default validation for [`InstructionBox`].
+///
+/// # Warning
+///
+/// Instruction is executed following successful validation
+pub fn validate_and_execute_instruction<V: Validate + ?Sized>(
     validator: &mut V,
     authority: &AccountId,
     isi: &InstructionBox,
 ) -> Verdict {
     macro_rules! isi_validators {
-        ( $($validator:ident($isi:ident)),+ $(,)? ) => {
-            match isi { $(
-                InstructionBox::$isi(isi) => validator.$validator(authority, isi), )+
+        ( single { $($validator:ident($isi:ident)),+ $(,)? } composite: {$($composite_validator:ident($composite_isi:ident)),+ $(,)?} ) => {
+            match isi {
                 InstructionBox::NewParameter(isi) => {
                     let parameter = evaluate_expr!(validator, authority, <isi as NewParameter>::parameter())?;
-                    validator.validate_new_parameter(authority, NewParameter{parameter})
+                    validator.validate_new_parameter(authority, NewParameter{parameter})?;
+                    isi.execute();
+                    pass!();
                 }
                 InstructionBox::SetParameter(isi) => {
                     let parameter = evaluate_expr!(validator, authority, <isi as NewParameter>::parameter())?;
-                    validator.validate_set_parameter(authority, SetParameter{parameter})
+                    validator.validate_set_parameter(authority, SetParameter{parameter})?;
+                    isi.execute();
+                    pass!();
                 }
                 InstructionBox::ExecuteTrigger(isi) => {
                     let trigger_id = evaluate_expr!(validator, authority, <isi as ExecuteTrigger>::trigger_id())?;
-                    validator.validate_execute_trigger(authority, ExecuteTrigger{trigger_id})
-                }
+                    validator.validate_execute_trigger(authority, ExecuteTrigger{trigger_id})?;
+                    isi.execute();
+                    pass!();
+                } $(
+                InstructionBox::$isi(isi) => {
+                    validator.$validator(authority, isi)?;
+                    isi.execute();
+                    pass!();
+                } )+ $(
+                // NOTE: `validate_and_execute_instructions` is reentrant, so don't execute composite instructions
+                InstructionBox::$composite_isi(isi) => validator.$composite_validator(authority, isi), )+
             }
         };
     }
 
     isi_validators! {
-        validate_burn(Burn),
-        validate_fail(Fail),
-        validate_grant(Grant),
-        validate_if(If),
-        validate_mint(Mint),
-        validate_pair(Pair),
-        validate_register(Register),
-        validate_remove_key_value(RemoveKeyValue),
-        validate_revoke(Revoke),
-        validate_sequence(Sequence),
-        validate_set_key_value(SetKeyValue),
-        validate_transfer(Transfer),
-        validate_unregister(Unregister),
-        validate_upgrade(Upgrade),
+        single {
+            validate_burn(Burn),
+            validate_fail(Fail),
+            validate_grant(Grant),
+            validate_mint(Mint),
+            validate_register(Register),
+            validate_remove_key_value(RemoveKeyValue),
+            validate_revoke(Revoke),
+            validate_set_key_value(SetKeyValue),
+            validate_transfer(Transfer),
+            validate_unregister(Unregister),
+            validate_upgrade(Upgrade),
+        }
+
+        composite: {
+            validate_sequence(Sequence),
+            validate_pair(Pair),
+            validate_if(If),
+        }
     }
 }
 
-pub fn validate_expression<V: Validate + ?Sized, E>(
+pub fn validate_expression<V: Validate + ?Sized, X>(
     validator: &mut V,
     authority: &<Account as Identifiable>::Id,
-    expression: &EvaluatesTo<E>,
+    expression: &EvaluatesTo<X>,
 ) -> Verdict {
     macro_rules! validate_binary_math_expression {
         ($e:ident) => {{
@@ -686,12 +700,11 @@ pub fn validate_if<V: Validate + ?Sized>(
 ) -> Verdict {
     let condition = evaluate_expr!(validator, authority, <isi as Conditional>::condition())?;
 
+    // TODO: We have to make sure both branches are syntactically valid
     if condition {
-        validator.validate_instruction(authority, isi.then())?;
-    }
-
-    if let Some(otherwise) = isi.otherwise() {
-        validator.validate_instruction(authority, otherwise)?;
+        validator.validate_and_execute_instruction(authority, isi.then())?;
+    } else if let Some(otherwise) = isi.otherwise() {
+        validator.validate_and_execute_instruction(authority, otherwise)?;
     }
 
     pass!()
@@ -702,8 +715,8 @@ pub fn validate_pair<V: Validate + ?Sized>(
     authority: &AccountId,
     isi: &Pair,
 ) -> Verdict {
-    validator.validate_instruction(authority, isi.left_instruction())?;
-    validator.validate_instruction(authority, isi.right_instruction())
+    validator.validate_and_execute_instruction(authority, isi.left_instruction())?;
+    validator.validate_and_execute_instruction(authority, isi.right_instruction())
 }
 
 pub fn validate_sequence<V: Validate + ?Sized>(
@@ -712,7 +725,7 @@ pub fn validate_sequence<V: Validate + ?Sized>(
     isi: &SequenceBox,
 ) -> Verdict {
     for instruction in isi.instructions() {
-        validator.validate_instruction(authority, instruction)?;
+        validator.validate_and_execute_instruction(authority, instruction)?;
     }
 
     pass!()
@@ -727,8 +740,6 @@ macro_rules! leaf_validators {
 }
 
 leaf_validators! {
-    validate_transaction_signatures(&SignaturesOf<TransactionPayload>),
-
     // Instruction validators
     validate_register_account(Register<Account>),
     validate_unregister_account(Unregister<Account>),

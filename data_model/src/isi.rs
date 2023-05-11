@@ -18,6 +18,9 @@ pub use self::model::*;
 use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
 use crate::Registered;
 
+/// Marker trait designating instruction
+pub trait Instruction {}
+
 impl InstructionBox {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
@@ -144,6 +147,28 @@ pub mod model {
         /// `Upgrade` variant.
         Upgrade(UpgradeBox),
     }
+
+    impl Instruction for InstructionBox {}
+
+    impl Instruction for SetKeyValueBox {}
+    impl Instruction for RemoveKeyValueBox {}
+    impl Instruction for RegisterBox {}
+    impl Instruction for UnregisterBox {}
+    impl Instruction for MintBox {}
+    impl Instruction for BurnBox {}
+    impl Instruction for TransferBox {}
+    impl Instruction for GrantBox {}
+    impl Instruction for RevokeBox {}
+    impl Instruction for SetParameterBox {}
+    impl Instruction for NewParameterBox {}
+    impl Instruction for UpgradeBox {}
+    impl Instruction for ExecuteTriggerBox {}
+    impl Instruction for FailBox {}
+
+    // Composite instructions
+    impl Instruction for SequenceBox {}
+    impl Instruction for Conditional {}
+    impl Instruction for Pair {}
 }
 
 mod transparent {
@@ -1132,10 +1157,10 @@ pub mod error {
 pub mod prelude {
     pub use super::{
         Burn, BurnBox, Conditional, ExecuteTrigger, ExecuteTriggerBox, FailBox, Grant, GrantBox,
-        InstructionBox, Mint, MintBox, NewParameter, NewParameterBox, Pair, Register, RegisterBox,
-        RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox, SetKeyValue,
-        SetKeyValueBox, SetParameter, SetParameterBox, Transfer, TransferBox, Unregister,
-        UnregisterBox, Upgrade, UpgradeBox,
+        Instruction, InstructionBox, Mint, MintBox, NewParameter, NewParameterBox, Pair, Register,
+        RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox,
+        SetKeyValue, SetKeyValueBox, SetParameter, SetParameterBox, Transfer, TransferBox,
+        Unregister, UnregisterBox, Upgrade, UpgradeBox,
     };
 }
 

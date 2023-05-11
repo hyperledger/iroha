@@ -83,7 +83,7 @@ pub mod transaction;
 pub mod trigger;
 pub mod validator;
 
-pub mod utils {
+mod utils {
     //! Module with useful utilities shared between crates
 
     use core::fmt::*;
@@ -92,24 +92,8 @@ pub mod utils {
     /// wrapping the whole output into provided characters.
     ///
     /// # Errors
-    /// If cannot write to the `f`
     ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use iroha_data_model::utils::format_comma_separated;
-    ///
-    /// struct Array([u8; 3]);
-    ///
-    /// impl core::fmt::Display for Array {
-    ///     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-    ///         format_comma_separated(self.0.iter(), ('[', ']'), f)
-    ///     }
-    /// }
-    ///
-    /// let arr = Array([1, 2, 3]);
-    /// assert_eq!(arr.to_string(), "[1, 2, 3]");
-    /// ```
+    /// - if cannot write to the `f`
     pub fn format_comma_separated<T: Display>(
         mut input: impl Iterator<Item = T>,
         (open, close): (char, char),

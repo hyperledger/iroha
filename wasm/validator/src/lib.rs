@@ -1,5 +1,4 @@
 //! API for *Runtime Validators*.
-
 #![no_std]
 
 extern crate alloc;
@@ -10,7 +9,7 @@ extern crate self as iroha_validator;
 
 #[cfg(feature = "default-validator")]
 pub use default::DefaultValidator;
-pub use iroha_wasm::{self, data_model, ExecuteOnHost};
+pub use iroha_wasm::{self, data_model};
 pub use visitor::Validate;
 
 #[cfg(feature = "default-validator")]

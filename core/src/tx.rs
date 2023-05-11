@@ -17,13 +17,14 @@
 use std::str::FromStr;
 
 use eyre::Result;
+use iroha_data_model::evaluate::ExpressionEvaluator;
 pub use iroha_data_model::prelude::*;
 use iroha_logger::debug;
 use iroha_primitives::must_use::MustUse;
 
 use crate::{
     prelude::*,
-    smartcontracts::{wasm, Context, Execute as _},
+    smartcontracts::{wasm, Execute as _},
 };
 
 /// Used to validate transaction and thus move transaction lifecycle forward
@@ -126,7 +127,7 @@ impl TransactionValidator {
                     for instruction in instructions {
                         instruction
                             .clone()
-                            .execute(account_id.clone(), wsv)
+                            .execute(account_id, wsv)
                             .map_err(|reason| InstructionExecutionFail {
                                 instruction,
                                 reason: reason.to_string(),
@@ -244,8 +245,7 @@ impl CheckSignatureCondition for AcceptedTransaction {
             .cloned();
 
         wsv.map_account(account_id, |account| {
-            check_signature_condition(account, signatories)
-                .evaluate(&Context::new(wsv))
+            wsv.evaluate(&check_signature_condition(account, signatories))
                 .map(MustUse::new)
                 .map_err(Into::into)
         })?

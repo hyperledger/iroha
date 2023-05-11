@@ -1,8 +1,11 @@
 //! This module contains trait implementations related to block queries
 use eyre::{Result, WrapErr};
-use iroha_data_model::query::{
-    block::FindBlockHeaderByHash,
-    error::{FindError, QueryExecutionFailure},
+use iroha_data_model::{
+    evaluate::ExpressionEvaluator,
+    query::{
+        block::FindBlockHeaderByHash,
+        error::{FindError, QueryExecutionFailure},
+    },
 };
 use iroha_telemetry::metrics;
 
@@ -31,9 +34,8 @@ impl ValidQuery for FindAllBlockHeaders {
 impl ValidQuery for FindBlockHeaderByHash {
     #[metrics(+"find_block_header")]
     fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
-        let hash = self
-            .hash
-            .evaluate(&Context::new(wsv))
+        let hash = wsv
+            .evaluate(&self.hash)
             .wrap_err("Failed to evaluate hash")
             .map_err(|e| QueryExecutionFailure::Evaluate(e.to_string()))?
             .typed();

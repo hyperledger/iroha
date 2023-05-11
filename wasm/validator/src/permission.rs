@@ -18,15 +18,16 @@ pub trait Token:
 /// Provides a function to check validity of [`Grant`] and [`Revoke`]
 /// instructions containing implementing token.
 pub trait ValidateGrantRevoke {
-    /// Validate [`Grant`] instruction for this token.
+    #[allow(missing_docs, clippy::missing_errors_doc)]
     fn validate_grant(&self, authority: &<Account as Identifiable>::Id) -> Verdict;
 
-    /// Validate [`Revoke`] instruction for this token.
+    #[allow(missing_docs, clippy::missing_errors_doc)]
     fn validate_revoke(&self, authority: &<Account as Identifiable>::Id) -> Verdict;
 }
 
 /// Predicate-like trait used for pass conditions to identify if [`Grant`] or [`Revoke`] should be allowed.
 pub trait PassCondition {
+    #[allow(missing_docs, clippy::missing_errors_doc)]
     fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict;
 }
 
@@ -99,7 +100,7 @@ pub mod asset_definition {
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
         authority: &<Account as Identifiable>::Id,
     ) -> bool {
-        use iroha_wasm::{debug::DebugExpectExt as _, ExecuteOnHost as _};
+        use iroha_wasm::{debug::DebugExpectExt as _, QueryHost as _};
 
         QueryBox::from(IsAssetDefinitionOwner::new(
             asset_definition_id.clone(),
@@ -160,11 +161,7 @@ pub mod trigger {
         trigger_id: <Trigger<FilterBox, Executable> as Identifiable>::Id,
         authority: &<Account as Identifiable>::Id,
     ) -> bool {
-        let query_value = QueryBox::from(FindTriggerById::new(trigger_id)).execute();
-        let Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Optimized(trigger))) = query_value else {
-        iroha_wasm::debug::dbg_panic("`FindTriggerById` should always return `Trigger`");
-    };
-
+        let trigger = FindTriggerById::new(trigger_id).execute();
         trigger.action().technical_account() == authority
     }
 

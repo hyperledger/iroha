@@ -1,8 +1,7 @@
 //! API which simplifies writing of smartcontracts
-
+#![no_std]
 // Required because of `unsafe` code and `no_mangle` use
 #![allow(unsafe_code)]
-#![no_std]
 
 #[cfg(all(not(test), not(target_pointer_width = "32")))]
 compile_error!("Target architectures other then 32-bit are not supported");
@@ -15,7 +14,11 @@ extern crate alloc;
 use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use core::ops::RangeFrom;
 
-use data_model::{prelude::*, query::error::QueryExecutionFailure, validator::NeedsValidationBox};
+use data_model::{
+    prelude::*,
+    query::{error::QueryExecutionFailure, QueryBox},
+    validator::NeedsValidationBox,
+};
 use debug::DebugExpectExt as _;
 pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::entrypoint;
@@ -45,43 +48,67 @@ unsafe extern "C" fn _iroha_wasm_dealloc(offset: *mut u8, len: usize) {
     let _box = Box::from_raw(core::slice::from_raw_parts_mut(offset, len));
 }
 
-/// Implementing types can be executed on the host
-pub trait ExecuteOnHost {
-    /// The resulting value
-    type Result;
-
-    /// Execute instruction or query on the host
-    fn execute(&self) -> Self::Result;
+/// Implementing instructions can be executed on the host
+pub trait ExecuteOnHost: Instruction {
+    /// Execute instruction on the host
+    fn execute(&self);
 }
 
-impl ExecuteOnHost for data_model::isi::InstructionBox {
-    type Result = ();
+/// Implementing queries can be executed on the host
+pub trait QueryHost: Query {
+    /// Execute query on the host
+    fn execute(&self) -> Self::Output;
+}
 
-    /// Execute the given instruction on the host environment
-    fn execute(&self) -> Self::Result {
+// TODO: Remove the Clone bound. It can be done by custom serialization to InstructionBox
+impl<I: Instruction + Into<InstructionBox> + Encode + Clone> ExecuteOnHost for I {
+    fn execute(&self) {
         #[cfg(not(test))]
         use host::execute_instruction as host_execute_instruction;
         #[cfg(test)]
         use tests::_iroha_wasm_execute_instruction_mock as host_execute_instruction;
 
+        // TODO: Redundant conversion into `InstructionBox`
+        let isi_box: InstructionBox = self.clone().into();
         // Safety: `host_execute_instruction` doesn't take ownership of it's pointer parameter
-        unsafe { encode_and_execute(self, host_execute_instruction) };
+        unsafe { encode_and_execute(&isi_box, host_execute_instruction) };
     }
 }
 
-impl ExecuteOnHost for data_model::query::QueryBox {
-    type Result = Value;
-
-    /// Executes the given query on the host environment
-    fn execute(&self) -> Self::Result {
+// TODO: Remove the Clone bound. It can be done by custom serialization/deserialization to QueryBox
+impl<Q: Query + Into<QueryBox> + Encode + Clone> QueryHost for Q
+where
+    Q::Output: DecodeAll,
+    <Q::Output as TryFrom<Value>>::Error: core::fmt::Debug,
+{
+    fn execute(&self) -> Q::Output {
         #[cfg(not(test))]
         use host::execute_query as host_execute_query;
         #[cfg(test)]
         use tests::_iroha_wasm_execute_query_mock as host_execute_query;
 
+        // TODO: Redundant conversion into `QueryBox`
+        let query_box: QueryBox = self.clone().into();
         // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
         //         - ownership of the returned result is transferred into `_decode_from_raw`
-        unsafe { decode_with_length_prefix_from_raw(encode_and_execute(self, host_execute_query)) }
+        let value: Value = unsafe {
+            decode_with_length_prefix_from_raw(encode_and_execute(&query_box, host_execute_query))
+        };
+
+        value.try_into().expect("Query returned invalid type")
+    }
+}
+
+/// World state view of the host
+#[derive(Debug, Clone, Copy)]
+pub struct Host;
+
+impl iroha_data_model::evaluate::ExpressionEvaluator for Host {
+    fn evaluate<E: Evaluate>(
+        &self,
+        expression: &E,
+    ) -> Result<E::Value, iroha_data_model::evaluate::Error> {
+        expression.evaluate(&Context::new())
     }
 }
 
@@ -310,7 +337,7 @@ pub fn encode_with_length_prefix<T: Encode>(val: &T) -> Box<[u8]> {
 
 /// Most used items
 pub mod prelude {
-    pub use crate::{debug::*, entrypoint, ExecuteOnHost};
+    pub use crate::{debug::*, entrypoint, ExecuteOnHost, QueryHost};
 }
 
 #[cfg(test)]

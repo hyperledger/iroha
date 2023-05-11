@@ -2,7 +2,12 @@
 //! If authority is not `admin@admin` then [`DefaultValidator`] is used as a backup.
 #![no_std]
 
-use iroha_validator::{parse, prelude::*, DefaultValidator};
+use iroha_validator::{
+    data_model::evaluate::{Error, ExpressionEvaluator},
+    parse,
+    prelude::*,
+    DefaultValidator,
+};
 
 #[cfg(not(test))]
 extern crate panic_halt;
@@ -19,30 +24,25 @@ impl Validate for Validator {
     }
 }
 
+impl ExpressionEvaluator for Validator {
+    fn evaluate<E: Evaluate>(&self, expression: &E) -> Result<E::Value, Error> {
+        self.0.evaluate(expression)
+    }
+}
+
 /// Allow operation if authority is `admin@admin` and if not,
 /// fallback to [`DefaultValidator::validate()`].
 #[entrypoint(params = "[authority, operation]")]
 pub fn validate(authority: AccountId, operation: NeedsValidationBox) -> Verdict {
-    let mut validator = Validator(DefaultValidator);
+    let mut validator = Validator(DefaultValidator::new());
 
     match operation {
-        // NOTE: Invoked from Iroha
         NeedsValidationBox::Transaction(transaction) => {
-            validator.validate_transaction(&authority, transaction)
+            validator.validate_and_execute_transaction(&authority, transaction)
         }
-
-        // NOTE: Invoked only from another Wasm
         NeedsValidationBox::Instruction(instruction) => {
-            let verdict = validator.validate_instruction(&authority, &instruction);
-
-            if verdict.is_ok() {
-                instruction.execute();
-            }
-
-            verdict
+            validator.validate_and_execute_instruction(&authority, &instruction)
         }
-
-        // NOTE: Invoked only from another Wasm
         NeedsValidationBox::Query(query) => validator.validate_query(&authority, &query),
     }
 }

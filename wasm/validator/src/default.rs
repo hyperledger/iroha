@@ -1,3 +1,6 @@
+//! Definition of Iroha default validator and accompanying validation functions
+#![allow(missing_docs, clippy::missing_errors_doc)]
+
 use account::{
     validate_burn_account_public_key, validate_mint_account_public_key,
     validate_mint_account_signature_check_condition, validate_remove_account_key_value,
@@ -12,10 +15,10 @@ use asset_definition::{
     validate_remove_asset_definition_key_value, validate_set_asset_definition_key_value,
     validate_transfer_asset_definition, validate_unregister_asset_definition,
 };
+use data_model::evaluate::ExpressionEvaluator;
 use domain::{
     validate_remove_domain_key_value, validate_set_domain_key_value, validate_unregister_domain,
 };
-use iroha_validator::{data_model::prelude::*, permission, permission::Token as _, prelude::*};
 use parameter::{validate_new_parameter, validate_set_parameter};
 use peer::validate_unregister_peer;
 use permission_token::{
@@ -29,6 +32,7 @@ use trigger::{
 use validator::validate_upgrade_validator;
 
 use super::*;
+use crate::{permission, permission::Token as _, prelude::*};
 
 macro_rules! custom_impls {
     ( $($validator:ident($operation:ty)),+ $(,)? ) => { $(
@@ -78,14 +82,11 @@ macro_rules! tokens {
         ),+);
 
         pub mod tokens {
-            //! Permission tokens for concrete operations.
-
             use super::*;
 
             macro_rules! single_token {
                 ($name_internal:ident) => {
                     $(#[$meta])*
-                    #[allow(missing_docs)]
                     $vis struct $name_internal {
                         $(
                             $(#[$field_meta])*
@@ -109,13 +110,26 @@ pub(crate) use tokens;
 ///
 /// The defaults are not guaranteed to be stable.
 #[derive(Debug, Clone, Copy)]
-pub struct DefaultValidator;
+pub struct DefaultValidator(iroha_wasm::Host);
+
+impl DefaultValidator {
+    /// Construct [`Self`]
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        DefaultValidator(iroha_wasm::Host)
+    }
+}
+
+impl ExpressionEvaluator for DefaultValidator {
+    fn evaluate<E: Evaluate>(
+        &self,
+        expression: &E,
+    ) -> Result<E::Value, iroha_wasm::data_model::evaluate::Error> {
+        self.0.evaluate(expression)
+    }
+}
 
 impl Validate for DefaultValidator {
-    //fn evaluator(&mut self) -> E {
-    //    self.0
-    //}
-
     custom_impls! {
         // Peer validation
         validate_unregister_peer(Unregister<Peer>),
@@ -168,13 +182,11 @@ impl Validate for DefaultValidator {
         validate_new_parameter(NewParameter),
 
         // Upgrade validation
-        validate_upgrade_validator(Upgrade<iroha_validator::data_model::validator::Validator>),
+        validate_upgrade_validator(Upgrade<crate::data_model::validator::Validator>),
     }
 }
 
 pub mod peer {
-    //! Validation and tokens related to peer operations.
-
     use super::*;
 
     tokens!(
@@ -189,7 +201,7 @@ pub mod peer {
         ]
     );
 
-    #[allow(missing_docs, clippy::needless_pass_by_value)]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn validate_unregister_peer<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -207,8 +219,6 @@ pub mod peer {
 }
 
 pub mod domain {
-    //! Validation and tokens related to domain operations.
-
     use super::*;
 
     // TODO: We probably need a better way to allow accounts to modify domains.
@@ -227,7 +237,6 @@ pub mod domain {
         ]
     );
 
-    #[allow(missing_docs)]
     pub fn validate_unregister_domain<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -243,7 +252,6 @@ pub mod domain {
         deny!("Can't unregister domain");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_set_domain_key_value<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -259,7 +267,6 @@ pub mod domain {
         deny!("Can't set key value in domain metadata");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_remove_domain_key_value<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -277,8 +284,6 @@ pub mod domain {
 }
 
 pub mod account {
-    //! Validation and tokens related to account operations.
-
     use super::*;
 
     tokens!(
@@ -303,7 +308,6 @@ pub mod account {
         account_id == authority
     }
 
-    #[allow(missing_docs)]
     pub fn validate_unregister_account<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -322,7 +326,6 @@ pub mod account {
         deny!("Can't unregister another account");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_mint_account_public_key<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -341,7 +344,6 @@ pub mod account {
         deny!("Can't mint public keys of another account");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_burn_account_public_key<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -360,7 +362,6 @@ pub mod account {
         deny!("Can't burn public keys of another account");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_mint_account_signature_check_condition<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -380,7 +381,6 @@ pub mod account {
         deny!("Can't mint signature check conditions of another account");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_set_account_key_value<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -400,7 +400,6 @@ pub mod account {
         deny!("Can't set value to the metadata of another account");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_remove_account_key_value<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -422,8 +421,7 @@ pub mod account {
 }
 
 pub mod asset_definition {
-    //! Validation and tokens related to asset definition operations.
-    use iroha_validator::permission::asset_definition::is_asset_definition_owner;
+    use permission::asset_definition::is_asset_definition_owner;
 
     use super::*;
 
@@ -442,7 +440,6 @@ pub mod asset_definition {
         ]
     );
 
-    #[allow(missing_docs)]
     pub fn validate_unregister_asset_definition<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -463,7 +460,6 @@ pub mod asset_definition {
         deny!("Can't unregister assets registered by other accounts");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_transfer_asset_definition<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -482,7 +478,6 @@ pub mod asset_definition {
         deny!("Can't transfer asset definition of another account");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_set_asset_definition_key_value<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -503,7 +498,6 @@ pub mod asset_definition {
         deny!("Can't set value to the asset definition metadata created by another account");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_remove_asset_definition_key_value<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -527,9 +521,7 @@ pub mod asset_definition {
 }
 
 pub mod asset {
-    //! Validation and tokens related to asset operations.
-
-    use iroha_validator::permission::asset_definition::is_asset_definition_owner;
+    use permission::asset_definition::is_asset_definition_owner;
 
     use super::*;
 
@@ -547,8 +539,6 @@ pub mod asset {
     );
 
     pub mod tokens {
-        //! Permission tokens for asset operations
-
         use super::*;
 
         /// Strongly-typed representation of `can_register_assets_with_definition` permission token.
@@ -636,7 +626,6 @@ pub mod asset {
         asset_id.account_id() == authority
     }
 
-    #[allow(missing_docs)]
     pub fn validate_register_asset<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -657,7 +646,6 @@ pub mod asset {
         deny!("Can't register assets with definitions registered by other accounts");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_unregister_asset<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -686,7 +674,6 @@ pub mod asset {
         deny!("Can't unregister asset from another account");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_mint_asset<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -707,7 +694,6 @@ pub mod asset {
         deny!("Can't mint assets with definitions registered by other accounts");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_burn_asset<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -735,7 +721,6 @@ pub mod asset {
         deny!("Can't burn assets from another account");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_transfer_asset<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -763,7 +748,6 @@ pub mod asset {
         deny!("Can't transfer assets of another account");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_set_asset_key_value<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -782,7 +766,6 @@ pub mod asset {
         deny!("Can't set value to the asset metadata of another account");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_remove_asset_key_value<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -804,9 +787,7 @@ pub mod asset {
 }
 
 pub mod parameter {
-    //! Validation and tokens related to parameter operations.
-
-    use iroha_validator::permission::ValidateGrantRevoke;
+    use permission::ValidateGrantRevoke;
 
     use super::*;
 
@@ -820,8 +801,6 @@ pub mod parameter {
     );
 
     pub mod tokens {
-        //! Permission tokens for asset definition operations
-
         use super::*;
 
         /// Strongly-typed representation of `can_grant_permission_to_create_parameters` permission token.
@@ -889,36 +868,34 @@ pub mod parameter {
         }
     }
 
-    #[allow(missing_docs, clippy::needless_pass_by_value)]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn validate_new_parameter<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
         _isi: NewParameter,
     ) -> Verdict {
-        if !tokens::CanCreateParameters.is_owned_by(authority) {
-            deny!("Can't create new configuration parameters without permission");
+        if tokens::CanCreateParameters.is_owned_by(authority) {
+            pass!();
         }
 
-        pass!();
+        deny!("Can't create new configuration parameters without permission");
     }
 
-    #[allow(missing_docs, clippy::needless_pass_by_value)]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn validate_set_parameter<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
         _isi: SetParameter,
     ) -> Verdict {
-        if !tokens::CanSetParameters.is_owned_by(authority) {
-            deny!("Can't set configuration parameters without permission");
+        if tokens::CanSetParameters.is_owned_by(authority) {
+            pass!();
         }
 
-        pass!();
+        deny!("Can't set configuration parameters without permission");
     }
 }
 
 pub mod role {
-    //! Validation and tokens related to role operations.
-
     use super::*;
 
     tokens!(
@@ -947,18 +924,16 @@ pub mod role {
                         if let Ok(concrete_token) =
                             <$token_ty as ::core::convert::TryFrom<_>>::try_from(
                                 <
-                                    ::iroha_validator::data_model::permission::PermissionToken as
+                                    $crate::data_model::permission::PermissionToken as
                                     ::core::clone::Clone
                                 >::clone(token)
                             )
                         {
-                            let verdict = <$token_ty as ::iroha_validator::permission::ValidateGrantRevoke>::$method(
+                            <$token_ty as permission::ValidateGrantRevoke>::$method(
                                 &concrete_token,
                                 $authority,
-                            );
-                            if verdict.is_err() {
-                                return verdict;
-                            }
+                            )?;
+
                             // Continue because token can correspond to only one concrete token
                             continue;
                         }
@@ -968,14 +943,14 @@ pub mod role {
                 map_all_crate_tokens!(validate_internal);
 
                 // In normal situation we either did early return or continue before reaching this line
-                ::iroha_validator::iroha_wasm::debug::dbg_panic("Role contains unknown permission token, this should never happen");
+                iroha_wasm::debug::dbg_panic("Role contains unknown permission token, this should never happen");
             }
 
             pass!()
         };
     }
 
-    #[allow(missing_docs, clippy::needless_pass_by_value)]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn validate_unregister_role<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -991,7 +966,6 @@ pub mod role {
         deny!("Can't unregister role");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_grant_account_role<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -1000,7 +974,6 @@ pub mod role {
         impl_validate!(isi, authority, validate_grant);
     }
 
-    #[allow(missing_docs)]
     pub fn validate_revoke_account_role<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -1011,9 +984,7 @@ pub mod role {
 }
 
 pub mod trigger {
-    //! Validation and tokens related to trigger operations
-
-    use iroha_validator::permission::trigger::is_trigger_owner;
+    use permission::trigger::is_trigger_owner;
 
     use super::*;
 
@@ -1050,7 +1021,6 @@ pub mod trigger {
         tokens::CanMintUserTrigger,
     );
 
-    #[allow(missing_docs)]
     pub fn validate_unregister_trigger<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -1069,7 +1039,6 @@ pub mod trigger {
         deny!("Can't unregister trigger owned by another account")
     }
 
-    #[allow(missing_docs)]
     pub fn validate_mint_trigger_repetitions<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -1088,7 +1057,6 @@ pub mod trigger {
         deny!("Can't mint execution count for trigger owned by another account");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_execute_trigger<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -1120,7 +1088,7 @@ pub mod permission_token {
                     if let Ok(concrete_token) =
                         <$token_ty as ::core::convert::TryFrom<_>>::try_from(token.clone())
                     {
-                        return <$token_ty as ::iroha_validator::permission::ValidateGrantRevoke>::$method(
+                        return <$token_ty as permission::ValidateGrantRevoke>::$method(
                             &concrete_token,
                             $authority,
                         );
@@ -1133,7 +1101,7 @@ pub mod permission_token {
         };
     }
 
-    #[allow(missing_docs, clippy::needless_pass_by_value)]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn validate_register_permission_token<V: Validate + ?Sized>(
         _validator: &mut V,
         _authority: &AccountId,
@@ -1142,7 +1110,6 @@ pub mod permission_token {
         deny!("Registering new permission token is allowed only in genesis");
     }
 
-    #[allow(missing_docs)]
     pub fn validate_grant_account_permission<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -1151,7 +1118,6 @@ pub mod permission_token {
         impl_validate!(isi, authority, validate_grant);
     }
 
-    #[allow(missing_docs)]
     pub fn validate_revoke_account_permission<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
@@ -1162,8 +1128,6 @@ pub mod permission_token {
 }
 
 pub mod validator {
-    //! Validation and tokens related to validator operations.
-
     use super::*;
 
     tokens!(
@@ -1178,11 +1142,11 @@ pub mod validator {
         ]
     );
 
-    #[allow(missing_docs, clippy::needless_pass_by_value)]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn validate_upgrade_validator<V: Validate + ?Sized>(
         _validator: &mut V,
         authority: &AccountId,
-        _isi: Upgrade<iroha_validator::data_model::validator::Validator>,
+        _isi: Upgrade<data_model::validator::Validator>,
     ) -> Verdict {
         const CAN_UPGRADE_VALIDATOR_TOKEN: tokens::CanUpgradeValidator =
             tokens::CanUpgradeValidator {};

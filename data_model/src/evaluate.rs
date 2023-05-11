@@ -20,6 +20,16 @@ use crate::{
     query::error::QueryExecutionFailure,
 };
 
+/// Expression evaluator
+pub trait ExpressionEvaluator {
+    /// Evaluates expression against current state of the underlying system
+    ///
+    /// # Errors
+    ///
+    /// - if expression is malformed
+    fn evaluate<E: Evaluate>(&self, expression: &E) -> Result<E::Value, Error>;
+}
+
 /// Context of expression evaluation, holding (name, value) pairs for resolving identifiers.
 /// Context comes into play because of [`Where`] and [`Query`] expressions.
 ///

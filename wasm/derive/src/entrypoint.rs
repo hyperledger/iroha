@@ -97,7 +97,7 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     block.stmts.insert(
         0,
         parse_quote!(
-            use ::iroha_wasm::{debug::DebugExpectExt as _, ExecuteOnHost as _};
+            use ::iroha_wasm::{debug::DebugExpectExt as _, ExecuteOnHost as _, QueryHost as _};
         ),
     );
 

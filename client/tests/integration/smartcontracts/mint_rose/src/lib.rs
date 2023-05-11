@@ -2,9 +2,7 @@
 //!
 //! This module isn't included in the build-tree,
 //! but instead it is being built by a `client/build.rs`
-
 #![no_std]
-#![allow(clippy::all)]
 
 #[cfg(not(test))]
 extern crate panic_halt;
@@ -20,5 +18,5 @@ fn main(authority: <Account as Identifiable>::Id) {
         .dbg_expect("Failed to parse `rose#wonderland` asset definition id");
     let rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, authority);
 
-    InstructionBox::from(MintBox::new(1_u32, rose_id)).execute();
+    MintBox::new(1_u32, rose_id).execute();
 }
