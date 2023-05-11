@@ -106,7 +106,6 @@ impl Sumeragi {
     /// # Panics
     /// - If either mutex is poisoned
     #[allow(
-        clippy::expect_used,
         clippy::unwrap_in_result,
         clippy::cast_precision_loss,
         clippy::float_arithmetic,
@@ -205,7 +204,6 @@ impl Sumeragi {
     /// and release the lock. This is because no blocks can be produced
     /// while this lock is held.
     // TODO: Return result.
-    #[allow(clippy::expect_used)]
     pub fn wsv_mutex_access(&self) -> MutexGuard<WorldStateView> {
         self.internal.wsv.lock()
     }
@@ -216,7 +214,6 @@ impl Sumeragi {
     /// - If either mutex is poisoned.
     /// - If topology was built wrong (programmer error)
     /// - Sumeragi thread failed to spawn.
-    #[allow(clippy::expect_used)]
     pub fn initialize_and_start_thread(
         sumeragi: Arc<Self>,
         genesis_network: Option<GenesisNetwork>,
@@ -263,7 +260,7 @@ impl Sumeragi {
         } else {
             let block_ref = sumeragi.internal.kura.get_block_by_height(latest_block_height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
             let mut topology = Topology {
-                sorted_peers: block_ref.header().committed_with_topology.clone(),
+                sorted_peers: block_ref.as_v1().header.committed_with_topology.clone(),
             };
             topology.rotate_set_a();
             topology
@@ -296,14 +293,15 @@ impl Sumeragi {
             .expect("Sumeragi thread spawn should not fail.");
 
         let shutdown = move || {
-            let _result = shutdown_sender.send(());
+            if let Err(error) = shutdown_sender.send(()) {
+                iroha_logger::error!(?error);
+            }
         };
 
         ThreadHandler::new(Box::new(shutdown), thread_handle)
     }
 
     /// Deposit a sumeragi network message.
-    #[allow(clippy::expect_used)]
     pub fn incoming_message(&self, msg: MessagePacket) {
         if let Err(error) = self.message_sender.try_send(msg) {
             self.metrics.dropped_messages.inc();
@@ -333,7 +331,6 @@ pub struct VotingBlock {
 
 impl VotingBlock {
     /// Construct new `VotingBlock` with current time.
-    #[allow(clippy::expect_used)]
     pub fn new(block: PendingBlock) -> VotingBlock {
         VotingBlock {
             block,
@@ -341,7 +338,6 @@ impl VotingBlock {
         }
     }
     /// Construct new `VotingBlock` with the given time.
-    #[allow(clippy::expect_used)]
     pub(crate) fn voted_at(block: PendingBlock, voted_at: Instant) -> VotingBlock {
         VotingBlock { block, voted_at }
     }

@@ -364,7 +364,7 @@ impl WorldStateView {
         let prev_interval = self
             .latest_block_ref()
             .map(|latest_block| {
-                let header = latest_block.header();
+                let header = &latest_block.as_v1().header;
                 header.timestamp.try_into().map(|since| TimeInterval {
                     since: Duration::from_millis(since),
                     length: Duration::from_millis(header.consensus_estimation),
@@ -455,7 +455,6 @@ impl WorldStateView {
     }
 
     /// Load all blocks in the block chain from disc and clone them for use.
-    #[allow(clippy::expect_used)]
     pub fn all_blocks_by_value(
         &self,
     ) -> impl DoubleEndedIterator<Item = VersionedCommittedBlock> + '_ {
@@ -697,7 +696,7 @@ impl WorldStateView {
     pub fn latest_block_view_change_index(&self) -> u64 {
         self.kura
             .get_block_by_height(self.height())
-            .map_or(0, |block| block.header().view_change_index)
+            .map_or(0, |block| block.as_v1().header.view_change_index)
     }
 
     /// Return the hash of the block one before the latest block
@@ -893,7 +892,6 @@ impl WorldStateView {
         NumericValue: From<I> + TryAsMut<I>,
         eyre::Error: From<<NumericValue as TryAsMut<I>>::Error>,
     {
-        #[allow(clippy::expect_used)]
         self.modify_domain(&definition_id.domain_id, |domain| {
             let asset_total_amount: &mut I = domain
                 .asset_total_quantities.get_mut(definition_id)
@@ -933,7 +931,6 @@ impl WorldStateView {
         NumericValue: From<I> + TryAsMut<I>,
         eyre::Error: From<<NumericValue as TryAsMut<I>>::Error>,
     {
-        #[allow(clippy::expect_used)]
         self.modify_domain(&definition_id.domain_id, |domain| {
             let asset_total_amount: &mut I = domain
                 .asset_total_quantities.get_mut(definition_id)
@@ -968,7 +965,6 @@ impl WorldStateView {
                     .rejected_transactions
                     .iter()
                     .cloned()
-                    .map(Box::new)
                     .map(|versioned_rejected_tx| TransactionQueryResult {
                         tx_value: TransactionValue::RejectedTransaction(versioned_rejected_tx),
                         block_hash: Hash::from(block.hash()),
@@ -979,7 +975,6 @@ impl WorldStateView {
                             .iter()
                             .cloned()
                             .map(VersionedSignedTransaction::from)
-                            .map(Box::new)
                             .map(|versioned_tx| TransactionQueryResult {
                                 tx_value: TransactionValue::Transaction(versioned_tx),
                                 block_hash: Hash::from(block.hash()),
@@ -1003,7 +998,6 @@ impl WorldStateView {
                 .iter()
                 .find(|e| e.hash() == *hash)
                 .cloned()
-                .map(Box::new)
                 .map(TransactionValue::RejectedTransaction)
                 .or_else(|| {
                     b.as_v1()
@@ -1012,7 +1006,6 @@ impl WorldStateView {
                         .find(|e| e.hash() == *hash)
                         .cloned()
                         .map(VersionedSignedTransaction::from)
-                        .map(Box::new)
                         .map(TransactionValue::Transaction)
                 })
         })
@@ -1032,7 +1025,6 @@ impl WorldStateView {
                     .iter()
                     .filter(|transaction| &transaction.payload().account_id == account_id)
                     .cloned()
-                    .map(Box::new)
                     .map(TransactionValue::RejectedTransaction)
                     .chain(
                         block
@@ -1041,7 +1033,6 @@ impl WorldStateView {
                             .filter(|transaction| &transaction.payload().account_id == account_id)
                             .cloned()
                             .map(VersionedSignedTransaction::from)
-                            .map(Box::new)
                             .map(TransactionValue::Transaction),
                     )
                     .collect::<Vec<_>>()
@@ -1188,7 +1179,7 @@ mod tests {
         assert_eq!(
             &wsv.all_blocks_by_value()
                 .skip(7)
-                .map(|block| block.header().height)
+                .map(|block| block.as_v1().header.height)
                 .collect::<Vec<_>>(),
             &[8, 9, 10]
         );

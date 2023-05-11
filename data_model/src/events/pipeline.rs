@@ -123,7 +123,7 @@ pub mod model {
             IntoSchema,
         )
     )]
-    #[ffi_type(local)]
+    #[ffi_type]
     pub enum PipelineStatus {
         /// Entity has been seen in the blockchain but has not passed validation.
         Validating,
@@ -149,7 +149,7 @@ pub mod model {
         IntoSchema,
     )]
     #[cfg_attr(feature = "std", derive(thiserror::Error))]
-    #[ffi_type(local)]
+    #[ffi_type]
     pub enum PipelineRejectionReason {
         /// The reason for rejecting the block.
         #[display(fmt = "Block was rejected: {_0}")]

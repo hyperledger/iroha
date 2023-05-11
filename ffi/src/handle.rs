@@ -30,15 +30,15 @@ pub type Id = u8;
 /// ```
 #[macro_export]
 macro_rules! handles {
-    ( $($other:ty),* $(,)? ) => {
-        $crate::handles! {0, $( $other, )*}
+    ( $($other:ty),+ $(,)? ) => {
+        $crate::handles! {0, $( $other ),+}
     };
     ( $id:expr, $ty:ty $(, $other:ty)* $(,)? ) => {
         unsafe impl $crate::Handle for $ty {
             const ID: $crate::handle::Id = $id;
         }
 
-        $crate::handles! {$id + 1, $( $other, )*}
+        $crate::handles! {$id + 1, $( $other ),*}
     };
     ( $id:expr, $(,)? ) => {};
 }
@@ -59,7 +59,7 @@ macro_rules! handles {
 /// The only exception to the rule is `__dealloc` function which is forced to be globally
 /// unique, i.e. it's not possible to define multiple versions by setting a prefix.
 #[macro_export]
-macro_rules! def_ffi_fn {
+macro_rules! def_ffi_fns {
     (@catch_unwind $block:block ) => {
         match std::panic::catch_unwind(|| $block) {
             Ok(res) => match res {
@@ -72,7 +72,13 @@ macro_rules! def_ffi_fn {
             },
         }
     };
-    ( $($prefix:literal)? Clone: $( $other:ty ),+ $(,)? ) => {
+    ( $($fn_name:ident: {$($other:ty),+ $(,)?}),+ $(,)?) => {
+        $( $crate::def_ffi_fns! { link_prefix = "" $fn_name: {$( $other ),+ }} )+
+    };
+    ( link_prefix = $prefix:literal $($fn_name:ident: {$($other:ty),+ $(,)?}),+ $(,)?) => {
+        $( $crate::def_ffi_fns! {@def: $prefix $fn_name: $( $other ),+ } )+
+    };
+    ( @def: $prefix:literal Clone: $( $other:ty ),+ $(,)? ) => {
         /// FFI function equivalent of [`Clone::clone`]
         ///
         /// # Safety
@@ -80,13 +86,13 @@ macro_rules! def_ffi_fn {
         /// All of the given pointers must be valid and the given handle id must match the expected
         /// pointer type
         #[no_mangle]
-        $(#[export_name = concat!($prefix, "__clone")])?
+        #[export_name = concat!($prefix, "__clone")]
         unsafe extern "C" fn __clone(
             handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
             handle_ptr: *const core::ffi::c_void,
             out_ptr: *mut *mut core::ffi::c_void
         ) -> $crate::FfiReturn {
-            $crate::def_ffi_fn!(@catch_unwind {
+            $crate::def_ffi_fns!(@catch_unwind {
                 match $crate::FfiConvert::try_from_ffi(handle_id, &mut ())? {
                     $( <$other as $crate::Handle>::ID => {
                         let handle_ref: &$other = $crate::FfiConvert::try_from_ffi(handle_ptr as <&$other as $crate::FfiType>::ReprC, &mut ())?;
@@ -100,7 +106,36 @@ macro_rules! def_ffi_fn {
             })
         }
     };
-    ( $($prefix:literal)? Eq: $( $other:ty ),+ $(,)? ) => {
+    ( @def: $prefix:literal Default: $( $other:ty ),+ $(,)? ) => {
+        /// FFI function equivalent of [`Default::default`]
+        ///
+        /// # Safety
+        ///
+        /// All of the given pointers must be valid and the given handle id must match the expected
+        /// pointer type
+        #[no_mangle]
+        #[export_name = concat!($prefix, "__default")]
+        unsafe extern "C" fn __default(
+            handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
+            out_ptr: *mut *mut core::ffi::c_void
+        ) -> $crate::FfiReturn {
+            $crate::def_ffi_fns!(@catch_unwind {
+                match $crate::FfiConvert::try_from_ffi(handle_id, &mut ())? {
+                    $( <$other as $crate::Handle>::ID => {
+                        let default_value = Default::default();
+
+                        let out_ptr = out_ptr.cast::<<$other as $crate::FfiType>::ReprC>();
+                        <$other as $crate::FfiOutPtrWrite>::write_out(default_value, out_ptr);
+                    } )+
+                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                    _ => return Err($crate::FfiReturn::UnknownHandle),
+                }
+
+                Ok(())
+            })
+        }
+    };
+    ( @def: $prefix:literal Eq: $( $other:ty ),+ $(,)? ) => {
         /// FFI function equivalent of [`Eq::eq`]
         ///
         /// # Safety
@@ -108,14 +143,14 @@ macro_rules! def_ffi_fn {
         /// All of the given pointers must be valid and the given handle id must match the expected
         /// pointer type
         #[no_mangle]
-        $(#[export_name = concat!($prefix, "__eq")])?
+        #[export_name = concat!($prefix, "__eq")]
         unsafe extern "C" fn __eq(
             handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
             out_ptr: *mut <bool as $crate::FfiOutPtr>::OutPtr,
         ) -> $crate::FfiReturn {
-            $crate::def_ffi_fn!(@catch_unwind {
+            $crate::def_ffi_fns!(@catch_unwind {
                 match $crate::FfiConvert::try_from_ffi(handle_id, &mut ())? {
                     $( <$other as $crate::Handle>::ID => {
                         let (lhandle_ptr, rhandle_ptr) = (
@@ -139,7 +174,7 @@ macro_rules! def_ffi_fn {
             })
         }
     };
-    ( $($prefix:literal)? Ord: $( $other:ty ),+ $(,)? ) => {
+    ( @def: $prefix:literal Ord: $( $other:ty ),+ $(,)? ) => {
         /// FFI function equivalent of [`Ord::ord`]
         ///
         /// # Safety
@@ -147,14 +182,14 @@ macro_rules! def_ffi_fn {
         /// All of the given pointers must be valid and the given handle id must match the expected
         /// pointer type
         #[no_mangle]
-        $(#[export_name = concat!($prefix, "__ord")])?
+        #[export_name = concat!($prefix, "__ord")]
         unsafe extern "C" fn __ord(
             handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
             out_ptr: *mut <core::cmp::Ordering as $crate::FfiOutPtr>::OutPtr,
         ) -> $crate::FfiReturn {
-            $crate::def_ffi_fn!(@catch_unwind {
+            $crate::def_ffi_fns!(@catch_unwind {
                 match $crate::FfiConvert::try_from_ffi(handle_id, &mut ())? {
                     $( <$other as $crate::Handle>::ID => {
                         let (lhandle_ptr, rhandle_ptr) = (
@@ -178,7 +213,7 @@ macro_rules! def_ffi_fn {
             })
         }
     };
-    ( $($prefix:literal)? Drop: $( $other:ty ),+ $(,)? ) => {
+    ( @def: $prefix:literal Drop: $( $other:ty ),+ $(,)? ) => {
         /// FFI function equivalent of [`Drop::drop`]
         ///
         /// # Safety
@@ -186,16 +221,16 @@ macro_rules! def_ffi_fn {
         /// All of the given pointers must be valid and the given handle id must match the expected
         /// pointer type
         #[no_mangle]
-        $(#[export_name = concat!($prefix, "__drop")])?
+        #[export_name = concat!($prefix, "__drop")]
         unsafe extern "C" fn __drop(
             handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
             handle_ptr: *mut core::ffi::c_void,
         ) -> $crate::FfiReturn {
-            $crate::def_ffi_fn!(@catch_unwind {
+            $crate::def_ffi_fns!(@catch_unwind {
                 match $crate::FfiConvert::try_from_ffi(handle_id, &mut ())? {
                     $( <$other as $crate::Handle>::ID => {
                         let handle_ptr = handle_ptr as <$other as $crate::FfiType>::ReprC;
-                        let handle: $other = $crate::FfiConvert::try_from_ffi(handle_ptr, &mut ())?;
+                        let _handle: $other = $crate::FfiConvert::try_from_ffi(handle_ptr, &mut ())?;
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                     _ => return Err($crate::FfiReturn::UnknownHandle),
@@ -229,72 +264,7 @@ macro_rules! def_ffi_fn {
 
 /// Generate the declaration of FFI functions for the requested trait method (e.g. Clone, Eq, Ord)
 #[macro_export]
-macro_rules! decl_ffi_fn {
-    ( $($prefix:literal)? Clone: $( $other:ty ),+ $(,)? ) => {
-        extern {
-            /// FFI function equivalent of [`Clone::clone`]
-            ///
-            /// # Safety
-            ///
-            /// All of the given pointers must be valid and the given handle id must match the expected
-            /// pointer type
-            $(#[link_name = concat!($prefix, "__clone")])?
-            fn __clone(
-                handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
-                handle_ptr: *const $crate::Extern,
-                out_ptr: *mut *mut $crate::Extern
-            ) -> $crate::FfiReturn;
-        }
-    };
-    ( $($prefix:literal)? Eq: $( $other:ty ),+ $(,)? ) => {
-        extern {
-            /// FFI function equivalent of [`Eq::eq`]
-            ///
-            /// # Safety
-            ///
-            /// All of the given pointers must be valid and the given handle id must match the expected
-            /// pointer type
-            $(#[link_name = concat!($prefix, "__eq")])?
-            fn __eq(
-                handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
-                left_handle_ptr: *const $crate::Extern,
-                right_handle_ptr: *const $crate::Extern,
-                out_ptr: *mut u8,
-            ) -> $crate::FfiReturn;
-        }
-    };
-    ( $($prefix:literal)? Ord: $( $other:ty ),+ $(,)? ) => {
-        extern {
-            /// FFI function equivalent of [`Ord::ord`]
-            ///
-            /// # Safety
-            ///
-            /// All of the given pointers must be valid and the given handle id must match the expected
-            /// pointer type
-            $(#[link_name = concat!($prefix, "__ord")])?
-            fn __ord(
-                handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
-                left_handle_ptr: *const $crate::Extern,
-                right_handle_ptr: *const $crate::Extern,
-                out_ptr: *mut i8,
-            ) -> $crate::FfiReturn;
-        }
-    };
-    ( $($prefix:literal)? Drop: $( $other:ty ),+ $(,)? ) => {
-        extern {
-            /// FFI function equivalent of [`Drop::drop`]
-            ///
-            /// # Safety
-            ///
-            /// All of the given pointers must be valid and the given handle id must match the expected
-            /// pointer type
-            $(#[link_name = concat!($prefix, "__drop")])?
-            fn __drop(
-                handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
-                handle_ptr: *mut $crate::Extern,
-            ) -> $crate::FfiReturn;
-        }
-    };
+macro_rules! decl_ffi_fns {
     ( dealloc ) => {
         extern {
             /// FFI function equivalent of [`alloc::alloc::dealloc`]
@@ -306,6 +276,92 @@ macro_rules! decl_ffi_fn {
                 ptr: *mut $crate::Extern,
                 size: usize,
                 align: usize,
+            ) -> $crate::FfiReturn;
+        }
+    };
+    ( $($fn_names:ident),+ ) => {
+        $( $crate::decl_ffi_fns!{ link_prefix = "" $fn_names } )+
+    };
+    ( link_prefix = $prefix:literal $($fn_names:ident),+ ) => {
+        $( $crate::decl_ffi_fns!{ @decl: $prefix $fn_names } )+
+    };
+    ( @decl: $prefix:literal Clone ) => {
+        extern {
+            /// FFI function equivalent of [`Clone::clone`]
+            ///
+            /// # Safety
+            ///
+            /// All of the given pointers must be valid and the given handle id must match the expected
+            /// pointer type
+            #[link_name = concat!($prefix, "__clone")]
+            fn __clone(
+                handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
+                handle_ptr: *const $crate::Extern,
+                out_ptr: *mut *mut $crate::Extern
+            ) -> $crate::FfiReturn;
+        }
+    };
+    ( @decl: $prefix:literal Default ) => {
+        extern {
+            /// FFI function equivalent of [`Default::default`]
+            ///
+            /// # Safety
+            ///
+            /// All of the given pointers must be valid and the given handle id must match the expected
+            /// pointer type
+            #[link_name = concat!($prefix, "__default")]
+            fn __default(
+                handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
+                out_ptr: *mut *mut $crate::Extern
+            ) -> $crate::FfiReturn;
+        }
+    };
+    ( @decl: $prefix:literal Eq ) => {
+        extern {
+            /// FFI function equivalent of [`Eq::eq`]
+            ///
+            /// # Safety
+            ///
+            /// All of the given pointers must be valid and the given handle id must match the expected
+            /// pointer type
+            #[link_name = concat!($prefix, "__eq")]
+            fn __eq(
+                handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
+                left_handle_ptr: *const $crate::Extern,
+                right_handle_ptr: *const $crate::Extern,
+                out_ptr: *mut u8,
+            ) -> $crate::FfiReturn;
+        }
+    };
+    ( @decl: $prefix:literal Ord ) => {
+        extern {
+            /// FFI function equivalent of [`Ord::ord`]
+            ///
+            /// # Safety
+            ///
+            /// All of the given pointers must be valid and the given handle id must match the expected
+            /// pointer type
+            #[link_name = concat!($prefix, "__ord")]
+            fn __ord(
+                handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
+                left_handle_ptr: *const $crate::Extern,
+                right_handle_ptr: *const $crate::Extern,
+                out_ptr: *mut i8,
+            ) -> $crate::FfiReturn;
+        }
+    };
+    ( @decl: $prefix:literal Drop ) => {
+        extern {
+            /// FFI function equivalent of [`Drop::drop`]
+            ///
+            /// # Safety
+            ///
+            /// All of the given pointers must be valid and the given handle id must match the expected
+            /// pointer type
+            #[link_name = concat!($prefix, "__drop")]
+            fn __drop(
+                handle_id: <$crate::handle::Id as $crate::FfiType>::ReprC,
+                handle_ptr: *mut $crate::Extern,
             ) -> $crate::FfiReturn;
         }
     };

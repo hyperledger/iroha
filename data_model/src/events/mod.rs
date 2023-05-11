@@ -47,7 +47,7 @@ pub mod model {
     }
 
     /// Event type. Like [`Event`] but without actual event data
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Decode, Encode, IntoSchema)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Decode, Encode, IntoSchema)]
     pub enum EventType {
         /// Pipeline event.
         Pipeline,
@@ -74,6 +74,8 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
+    // TODO: Temporarily made opaque
+    #[ffi_type(opaque)]
     pub enum FilterBox {
         /// Listen to pipeline events with filter.
         Pipeline(pipeline::PipelineEventFilter),

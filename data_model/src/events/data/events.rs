@@ -39,19 +39,10 @@ pub mod model {
     /// Generic [`MetadataChanged`] struct.
     /// Contains the changed metadata (`(key, value)` pair), either inserted or removed, which is determined by the wrapping event.
     #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        Getters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
-    #[getset(get = "pub")]
+    // TODO: Generics are not supported. Figure out what to do
+    //#[getset(get = "pub")]
     #[ffi_type]
     pub struct MetadataChanged<ID> {
         pub target_id: ID,

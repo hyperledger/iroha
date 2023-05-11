@@ -398,7 +398,7 @@ pub struct Extern {
 /// #[derive(FfiType)]
 /// #[ffi_type(unsafe {robust})]
 /// #[repr(transparent)]
-/// struct Example(u32);
+/// pub struct Example(u32);
 ///
 /// /*
 /// Due to the fact that implementations of traits for [`Transparent`] structures delegate to the inner
@@ -516,6 +516,10 @@ impl<'itm, R: Ir + CTypeConvert<'itm, R::Type, C>, C: ReprC> FfiConvert<'itm, C>
     }
 }
 
+impl FfiWrapperType for () {
+    type InputType = ();
+    type ReturnType = ();
+}
 impl<R: Ir + CWrapperType<R::Type>> FfiWrapperType for R {
     type InputType = R::InputType;
     type ReturnType = R::ReturnType;
@@ -535,14 +539,14 @@ impl<R: Ir + COutPtrRead<R::Type>> FfiOutPtrRead for R {
 }
 
 macro_rules! impl_tuple {
-    ( ($( $ty:ident ),+ $(,)?) -> $ffi_ty:ident ) => {
+    ( ($( $ty:ident ),+) -> $ffi_ty:ident with ($($repr_c:ident),+) ) => {
         /// FFI-compatible tuple with n elements
         #[repr(C)]
         #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-        pub struct $ffi_ty<$($ty),+>($(pub $ty),+);
+        pub struct $ffi_ty<$($ty: ReprC),+>($(pub $ty),+);
 
         #[allow(non_snake_case)]
-        impl<$($ty),+> From<($( $ty, )+)> for $ffi_ty<$($ty),+> {
+        impl<$($ty: $crate::ReprC),+> From<($( $ty, )+)> for $ffi_ty<$($ty),+> {
             fn from(source: ($( $ty, )+)) -> Self {
                 let ($($ty,)+) = source;
                 Self($( $ty ),+)
@@ -559,43 +563,54 @@ macro_rules! impl_tuple {
         impl<$($ty: FfiType),+> $crate::repr_c::CType<Self> for ($($ty,)+) {
             type ReprC = $ffi_ty<$($ty::ReprC),+>;
         }
-        impl<'itm, $($ty: FfiType + FfiConvert<'itm, <$ty as FfiType>::ReprC>),+> $crate::repr_c::CTypeConvert<'itm, Self, <Self as FfiType>::ReprC> for ($($ty,)+) {
+        impl<'itm, $($ty: FfiConvert<'itm, $repr_c>, $repr_c: $crate::ReprC),+> $crate::repr_c::CTypeConvert<'itm, Self, $ffi_ty<$($repr_c),+>> for ($($ty,)+) {
             type RustStore = ($( $ty::RustStore, )+);
             type FfiStore = ($( $ty::FfiStore, )+);
 
             #[allow(non_snake_case)]
-            fn into_repr_c(self, store: &'itm mut Self::RustStore) -> <Self as $crate::FfiType>::ReprC {
-                impl_tuple! {@decl_priv_mod $($ty),+ for RustStore}
+            fn into_repr_c(self, store: &'itm mut Self::RustStore) -> $ffi_ty<$($repr_c),+> {
+                impl_tuple! {@decl_priv_store $($ty),+ for RustStore with $($repr_c),+}
 
                 let ($($ty,)+) = self;
-                let store: private::Store<$($ty),+> = store.into();
-                $ffi_ty($( <$ty as FfiConvert<<$ty as FfiType>::ReprC>>::into_ffi($ty, store.$ty),)+)
+                let store: private_store::Store<$($ty),+, $($repr_c),+> = store.into();
+                $ffi_ty($( <$ty as FfiConvert<$repr_c>>::into_ffi($ty, store.$ty),)+)
             }
             #[allow(non_snake_case, clippy::missing_errors_doc, clippy::missing_safety_doc)]
-            unsafe fn try_from_repr_c(source: <Self as FfiType>::ReprC, store: &'itm mut Self::FfiStore) -> Result<Self> {
-                impl_tuple! {@decl_priv_mod $($ty),+ for FfiStore}
+            unsafe fn try_from_repr_c(source: $ffi_ty<$($repr_c),+>, store: &'itm mut Self::FfiStore) -> Result<Self> {
+                impl_tuple! {@decl_priv_store $($ty),+ for FfiStore with $($repr_c),+}
 
                 let $ffi_ty($($ty,)+) = source;
-                let store: private::Store<$($ty),+> = store.into();
-                Ok(($( <$ty as FfiConvert<<$ty as FfiType>::ReprC>>::try_from_ffi($ty, store.$ty)?, )+))
+                let store: private_store::Store<$($ty),+, $($repr_c),+> = store.into();
+                Ok(($( <$ty as FfiConvert<$repr_c>>::try_from_ffi($ty, store.$ty)?, )+))
             }
         }
 
-        impl<$($ty),+> CWrapperType<Self> for ($($ty,)+) where Self: CType<Self> {
+        impl<$($ty),+> CWrapperType<Self> for ($($ty,)+) {
             type InputType = Self;
             type ReturnType = Self;
         }
-        impl<$($ty),+> COutPtr<Self> for ($($ty,)+) where Self: NonLocal<Self> {
-            type OutPtr = Self::ReprC;
+        impl<$($ty: FfiOutPtr),+> COutPtr<Self> for ($($ty,)+) {
+            type OutPtr = $ffi_ty<$($ty::OutPtr),+>;
         }
-        impl<'itm, $($ty: 'itm),+> COutPtrWrite<Self> for ($($ty,)+) where Self: NonLocal<Self> + CTypeConvert<'itm, Self, Self::ReprC> + COutPtr<Self, OutPtr = Self::ReprC> {
+        #[allow(non_snake_case)]
+        impl<$($ty: FfiOutPtrWrite),+> COutPtrWrite<Self> for ($($ty,)+) {
             unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-                crate::repr_c::write_non_local(self, out_ptr)
+                impl_tuple! {@decl_priv_out_ptr $($ty),+}
+                let mut field_out_ptrs = ($(core::mem::MaybeUninit::<$ty::OutPtr>::uninit(),)+);
+
+                let ($($ty,)+) = self;
+                let field_out_ptrs: private_out_ptr::OutPtr<$($ty),+> = (&mut field_out_ptrs).into();
+                $( FfiOutPtrWrite::write_out($ty, field_out_ptrs.$ty.as_mut_ptr()); )+
+                out_ptr.write($ffi_ty($( unsafe { field_out_ptrs.$ty.assume_init() } ),+));
             }
         }
-        impl<'itm, $($ty: 'itm),+> COutPtrRead<Self> for ($($ty,)+) where Self: NonLocal<Self> + CTypeConvert<'itm, Self, Self::ReprC> + COutPtr<Self, OutPtr = Self::ReprC> {
-            unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
-                crate::repr_c::read_non_local(out_ptr)
+        #[allow(non_snake_case)]
+        impl<$($ty: FfiOutPtrRead),+> COutPtrRead<Self> for ($($ty,)+) {
+            unsafe fn try_read_out(source: Self::OutPtr) -> Result<Self> {
+                impl_tuple! {@decl_priv_out_ptr $($ty),+}
+
+                let $ffi_ty($($ty,)+) = source;
+                Ok(($( FfiOutPtrRead::try_read_out($ty)?, )+))
             }
         }
 
@@ -610,14 +625,29 @@ macro_rules! impl_tuple {
     };
 
     // NOTE: This is a trick to index tuples
-    ( @decl_priv_mod $( $ty:ident ),+ $(,)? for $store:ident ) => {
-        mod private {
-            pub struct Store<'itm, $($ty),+> where $($ty: $crate::FfiType + $crate::FfiConvert<'itm, <$ty as $crate::FfiType>::ReprC>),+ {
+    ( @decl_priv_store $( $ty:ident ),+ for $store:ident with $($repr_c:ident),+ ) => {
+        mod private_store {
+            pub struct Store<'itm, $($ty: $crate::FfiConvert<'itm, $repr_c>),+, $($repr_c: $crate::ReprC),+> {
                 $(pub $ty: &'itm mut $ty::$store),+
             }
 
-            impl<'itm, $($ty: $crate::FfiType + $crate::FfiConvert<'itm, <$ty as $crate::FfiType>::ReprC>),+> From<&'itm mut ($($ty::$store,)+)> for Store<'itm, $($ty),+> {
+            impl<'itm, $($ty: $crate::FfiConvert<'itm, $repr_c>),+, $($repr_c: $crate::ReprC),+> From<&'itm mut ($($ty::$store,)+)> for Store<'itm, $($ty,)+ $($repr_c),+> {
                 fn from(($($ty,)+): &'itm mut ($($ty::$store,)+)) -> Self {
+                    Self {$($ty,)+}
+                }
+            }
+        }
+    };
+
+    // NOTE: This is a trick to index tuples
+    ( @decl_priv_out_ptr $( $ty:ident ),+ $(,)? ) => {
+        mod private_out_ptr {
+            pub struct OutPtr<'itm, $($ty: $crate::FfiOutPtrWrite),+> {
+                $(pub $ty: &'itm mut core::mem::MaybeUninit::<$ty::OutPtr>),+
+            }
+
+            impl<'itm, $($ty: $crate::FfiOutPtrWrite),+> From<&'itm mut ($(core::mem::MaybeUninit::<$ty::OutPtr>,)+)> for OutPtr<'itm, $($ty),+> {
+                fn from(($($ty,)+): &'itm mut ($(core::mem::MaybeUninit::<$ty::OutPtr>,)+)) -> Self {
                     Self {$($ty,)+}
                 }
             }
@@ -625,15 +655,15 @@ macro_rules! impl_tuple {
     };
 }
 
-impl_tuple! {(A) -> FfiTuple1}
-impl_tuple! {(A, B) -> FfiTuple2}
-impl_tuple! {(A, B, C) -> FfiTuple3}
-impl_tuple! {(A, B, C, D) -> FfiTuple4}
-impl_tuple! {(A, B, C, D, E) -> FfiTuple5}
-impl_tuple! {(A, B, C, D, E, F) -> FfiTuple6}
-impl_tuple! {(A, B, C, D, E, F, G) -> FfiTuple7}
-impl_tuple! {(A, B, C, D, E, F, G, H) -> FfiTuple8}
-impl_tuple! {(A, B, C, D, E, F, G, H, I) -> FfiTuple9}
-impl_tuple! {(A, B, C, D, E, F, G, H, I, J) -> FfiTuple10}
-impl_tuple! {(A, B, C, D, E, F, G, H, I, J, K) -> FfiTuple11}
-impl_tuple! {(A, B, C, D, E, F, G, H, I, J, K, L) -> FfiTuple12}
+impl_tuple! {(A) -> FfiTuple1 with (C1)}
+impl_tuple! {(A, B) -> FfiTuple2 with (C1, C2)}
+impl_tuple! {(A, B, C) -> FfiTuple3 with (C1, C2, C3)}
+impl_tuple! {(A, B, C, D) -> FfiTuple4 with (C1, C2, C3, C4)}
+impl_tuple! {(A, B, C, D, E) -> FfiTuple5 with (C1, C2, C3, C4, C5)}
+impl_tuple! {(A, B, C, D, E, F) -> FfiTuple6 with (C1, C2, C3, C4, C5, C6)}
+impl_tuple! {(A, B, C, D, E, F, G) -> FfiTuple7 with (C1, C2, C3, C4, C5, C6, C7)}
+impl_tuple! {(A, B, C, D, E, F, G, H) -> FfiTuple8 with (C1, C2, C3, C4, C5, C6, C7, C8)}
+impl_tuple! {(A, B, C, D, E, F, G, H, I) -> FfiTuple9 with (C1, C2, C3, C4, C5, C6, C7, C8, C9)}
+impl_tuple! {(A, B, C, D, E, F, G, H, I, J) -> FfiTuple10 with (C1, C2, C3, C4, C5, C6, C7, C8, C9, C10)}
+impl_tuple! {(A, B, C, D, E, F, G, H, I, J, K) -> FfiTuple11 with (C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11)}
+impl_tuple! {(A, B, C, D, E, F, G, H, I, J, K, L) -> FfiTuple12 with (C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12)}

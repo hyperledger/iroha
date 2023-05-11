@@ -84,29 +84,6 @@ impl From<DigestFunction> for u64 {
     }
 }
 
-/// Error which occurs when converting to/from `Multihash`
-#[derive(Debug, Clone, Display)]
-pub struct ConvertError {
-    reason: String,
-}
-
-impl ConvertError {
-    const fn new(reason: String) -> Self {
-        Self { reason }
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for ConvertError {}
-
-impl From<NoSuchAlgorithm> for ConvertError {
-    fn from(_: NoSuchAlgorithm) -> Self {
-        Self {
-            reason: String::from("Digest function not supported"),
-        }
-    }
-}
-
 /// Multihash
 #[derive(Debug, PartialEq, Eq)]
 pub struct Multihash {
@@ -117,7 +94,7 @@ pub struct Multihash {
 }
 
 impl TryFrom<Vec<u8>> for Multihash {
-    type Error = ConvertError;
+    type Error = MultihashConvertError;
 
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
         let idx = bytes
@@ -159,7 +136,7 @@ impl TryFrom<Vec<u8>> for Multihash {
 }
 
 impl TryFrom<&Multihash> for Vec<u8> {
-    type Error = ConvertError;
+    type Error = MultihashConvertError;
 
     fn try_from(multihash: &Multihash) -> Result<Self, Self::Error> {
         let mut bytes = vec![];
@@ -168,13 +145,9 @@ impl TryFrom<&Multihash> for Vec<u8> {
         let digest_function: varint::VarUint = digest_function.into();
         let mut digest_function = digest_function.into();
         bytes.append(&mut digest_function);
-        bytes.push(
-            multihash
-                .payload
-                .len()
-                .try_into()
-                .map_err(|_e| ConvertError::new(String::from("Digest size can't fit into u8")))?,
-        );
+        bytes.push(multihash.payload.len().try_into().map_err(|_e| {
+            MultihashConvertError::new(String::from("Digest size can't fit into u8"))
+        })?);
         bytes.extend_from_slice(&multihash.payload);
 
         Ok(bytes)
@@ -211,6 +184,29 @@ impl From<PublicKey> for Multihash {
         Self {
             digest_function,
             payload: public_key.payload,
+        }
+    }
+}
+
+/// Error which occurs when converting to/from `Multihash`
+#[derive(Debug, Clone, Display)]
+pub struct MultihashConvertError {
+    reason: String,
+}
+
+impl MultihashConvertError {
+    pub(crate) const fn new(reason: String) -> Self {
+        Self { reason }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for MultihashConvertError {}
+
+impl From<NoSuchAlgorithm> for MultihashConvertError {
+    fn from(source: NoSuchAlgorithm) -> Self {
+        Self {
+            reason: source.to_string(),
         }
     }
 }

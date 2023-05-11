@@ -148,8 +148,9 @@ mod crypto {
                                 .wrap_err("failed to generate key pair")
                         },
                         |private_key| {
-                            let private_key = PrivateKey::from_hex(self.algorithm, &private_key)
-                                .wrap_err("Failed to decode private key")?;
+                            let private_key =
+                                PrivateKey::from_hex(self.algorithm, private_key.as_ref())
+                                    .wrap_err("Failed to decode private key")?;
                             KeyPair::generate_with_configuration(
                                 key_gen_configuration.clone().use_private_key(private_key),
                             )
@@ -540,7 +541,7 @@ mod config {
                     )?),
                     private_key: Some(PrivateKey::from_hex(
                         Algorithm::Ed25519,
-                        "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
+                        "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0".as_ref()
                     )?),
                     ..ConfigurationProxy::default()
                 }

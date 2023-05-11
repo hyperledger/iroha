@@ -102,9 +102,6 @@ where
 
 /// Different errors as a result of query response handling
 #[derive(Debug, thiserror::Error)]
-// `QueryError` variant is too large (32 bytes), but I think that this enum is not
-// very frequently constructed, so boxing here is unnecessary.
-#[allow(variant_size_differences)]
 pub enum ClientQueryError {
     /// Certain Iroha query error
     #[error("Query error: {0}")]
@@ -948,7 +945,7 @@ impl Client {
         first.account_id() == second.account_id()
             && first.instructions() == second.instructions()
             && first.time_to_live_ms() == second.time_to_live_ms()
-            && first.metadata() == second.metadata()
+            && first.metadata().eq(second.metadata())
     }
 
     /// Find the original transaction in the pending local tx
@@ -1687,7 +1684,7 @@ mod tests {
             ),
             private_key: Some(iroha_crypto::PrivateKey::from_hex(
             iroha_crypto::Algorithm::Ed25519,
-            "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
+            "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0".as_ref()
             ).expect("Private key not hex encoded")),
             account_id: Some(
                 "alice@wonderland"

@@ -8,7 +8,7 @@ use iroha_ffi::{
     FfiConvert, FfiOutPtrRead, FfiReturn, FfiType,
 };
 
-iroha_ffi::def_ffi_fn! { dealloc }
+iroha_ffi::def_ffi_fns! { dealloc }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, FfiType)]
 #[ffi_type(unsafe{robust})]
@@ -189,7 +189,6 @@ fn transparent_vec_to_vec() {
 #[test]
 #[webassembly_test::webassembly_test]
 // False positive
-#[allow(clippy::let_unit_value)]
 fn transparent_slice_to_slice() {
     let transparent_struct_slice = [
         TransparentStruct::new(GenericTransparentStruct::new(1)),

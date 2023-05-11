@@ -361,7 +361,6 @@ mod account {
 
     use super::*;
 
-    #[allow(variant_size_differences)]
     /// subcommands for account subcommand
     #[derive(StructOpt, Debug)]
     pub enum Args {

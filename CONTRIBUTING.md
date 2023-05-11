@@ -163,7 +163,7 @@ To pass the *`check-PR-title`* check, the pull request should have the title tha
     [feature] #1623: Implement a `RawGenesisBlockBuilder`
     ```
 
-2. Add the issue number the pull request addresses:
+2. Add the issue number to the pull request addresses:
 
    - For `feature` and `fix` adding the issue number to the title is mandatory.
    - For all other types it is optional but highly encouraged.
@@ -245,7 +245,7 @@ Set the `LOG_FILE_PATH` environment variable to an appropriate location to store
 
 Sometimes it might be helpful for debugging to analyze tokio tasks using [tokio-console](https://github.com/tokio-rs/console).
 
-In this case you should compile iroha with support of tokio console like that: 
+In this case you should compile iroha with support of tokio console like that:
 
 ```bash
 RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console

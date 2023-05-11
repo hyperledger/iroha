@@ -337,7 +337,7 @@ pub mod derive {
 
         /// Key pair creation failed, most likely because the keys don't form a pair
         #[error("Key pair creation failed")]
-        Crypto(#[from] iroha_crypto::Error),
+        Crypto(#[from] iroha_crypto::error::Error),
 
         // IMO this variant should not exist. If the value is inferred, we should only warn people if the inferred value is different from the provided one.
         /// Inferred field was provided by accident and we don't want it to be provided, because the value is inferred from other fields
