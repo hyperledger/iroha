@@ -27,16 +27,17 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let peer_id = self.object.id;
 
-            wsv.modify_world(|world| {
-                if !world.trusted_peers_ids.insert(peer_id.clone()) {
-                    return Err(Error::Repetition(
-                        InstructionType::Register,
-                        IdBox::PeerId(peer_id),
-                    ));
-                }
+            let world = wsv.world_mut();
+            if !world.trusted_peers_ids.insert(peer_id.clone()) {
+                return Err(Error::Repetition(
+                    InstructionType::Register,
+                    IdBox::PeerId(peer_id),
+                ));
+            }
 
-                Ok(PeerEvent::Added(peer_id).into())
-            })
+            wsv.emit_events(Some(PeerEvent::Added(peer_id)));
+
+            Ok(())
         }
     }
 
@@ -44,13 +45,14 @@ pub mod isi {
         #[metrics(+"unregister_peer")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let peer_id = self.object_id;
-            wsv.modify_world(|world| {
-                if !world.trusted_peers_ids.remove(&peer_id) {
-                    return Err(FindError::Peer(peer_id).into());
-                }
+            let world = wsv.world_mut();
+            if !world.trusted_peers_ids.remove(&peer_id) {
+                return Err(FindError::Peer(peer_id).into());
+            }
 
-                Ok(PeerEvent::Removed(peer_id).into())
-            })
+            wsv.emit_events(Some(PeerEvent::Removed(peer_id)));
+
+            Ok(())
         }
     }
 
@@ -65,17 +67,17 @@ pub mod isi {
                 .validate_len(wsv.config.ident_length_limits)
                 .map_err(Error::from)?;
 
-            wsv.modify_world(|world| {
-                if world.domains.contains_key(&domain_id) {
-                    return Err(Error::Repetition(
-                        InstructionType::Register,
-                        IdBox::DomainId(domain_id),
-                    ));
-                }
+            let world = wsv.world_mut();
+            if world.domains.contains_key(&domain_id) {
+                return Err(Error::Repetition(
+                    InstructionType::Register,
+                    IdBox::DomainId(domain_id),
+                ));
+            }
 
-                world.domains.insert(domain_id.clone(), domain.clone());
-                Ok(DomainEvent::Created(domain).into())
-            })?;
+            world.domains.insert(domain_id, domain.clone());
+
+            wsv.emit_events(Some(DomainEvent::Created(domain)));
 
             Ok(())
         }
@@ -86,13 +88,12 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let domain_id = self.object_id;
 
-            wsv.modify_world(|world| {
-                if world.domains.remove(&domain_id).is_none() {
-                    return Err(FindError::Domain(domain_id).into());
-                }
+            let world = wsv.world_mut();
+            if world.domains.remove(&domain_id).is_none() {
+                return Err(FindError::Domain(domain_id).into());
+            }
 
-                Ok(DomainEvent::Deleted(domain_id).into())
-            })?;
+            wsv.emit_events(Some(DomainEvent::Deleted(domain_id)));
 
             Ok(())
         }
@@ -121,11 +122,13 @@ pub mod isi {
                 ));
             }
 
-            wsv.modify_world(|world| {
-                let role_id = role.id().clone();
-                world.roles.insert(role_id, role.clone());
-                Ok(RoleEvent::Created(role).into())
-            })
+            let world = wsv.world_mut();
+            let role_id = role.id().clone();
+            world.roles.insert(role_id, role.clone());
+
+            wsv.emit_events(Some(RoleEvent::Created(role)));
+
+            Ok(())
         }
     }
 
@@ -155,13 +158,14 @@ pub mod isi {
                 revoke.execute(authority, wsv)?
             }
 
-            wsv.modify_world(|world| {
-                if world.roles.remove(&role_id).is_none() {
-                    return Err(FindError::Role(role_id).into());
-                }
+            let world = wsv.world_mut();
+            if world.roles.remove(&role_id).is_none() {
+                return Err(FindError::Role(role_id).into());
+            }
 
-                Ok(RoleEvent::Deleted(role_id).into())
-            })
+            wsv.emit_events(Some(RoleEvent::Deleted(role_id)));
+
+            Ok(())
         }
     }
 
@@ -171,22 +175,24 @@ pub mod isi {
             let definition = self.object;
             let definition_id = definition.id().clone();
 
-            wsv.modify_world(|world| {
-                if world
-                    .permission_token_definitions
-                    .contains_key(&definition_id)
-                {
-                    return Err(Error::Repetition(
-                        InstructionType::Register,
-                        IdBox::PermissionTokenDefinitionId(definition_id),
-                    ));
-                }
+            let world = wsv.world_mut();
+            if world
+                .permission_token_definitions
+                .contains_key(&definition_id)
+            {
+                return Err(Error::Repetition(
+                    InstructionType::Register,
+                    IdBox::PermissionTokenDefinitionId(definition_id),
+                ));
+            }
 
-                world
-                    .permission_token_definitions
-                    .insert(definition_id, definition.clone());
-                Ok(PermissionTokenEvent::DefinitionCreated(definition).into())
-            })
+            world
+                .permission_token_definitions
+                .insert(definition_id, definition.clone());
+
+            wsv.emit_events(Some(PermissionTokenEvent::DefinitionCreated(definition)));
+
+            Ok(())
         }
     }
 
@@ -198,15 +204,13 @@ pub mod isi {
             remove_token_from_roles(wsv, &definition_id)?;
             remove_token_from_accounts(wsv, &definition_id)?;
 
-            wsv.modify_world(|world| {
-                world
-                    .permission_token_definitions
-                    .remove(&definition_id)
-                    .map_or_else(
-                        || Err(FindError::PermissionTokenDefinition(definition_id).into()),
-                        |definition| Ok(PermissionTokenEvent::DefinitionDeleted(definition).into()),
-                    )
-            })?;
+            let world = wsv.world_mut();
+            let definition = world
+                .permission_token_definitions
+                .remove(&definition_id)
+                .ok_or_else(|| FindError::PermissionTokenDefinition(definition_id))?;
+
+            wsv.emit_events(Some(PermissionTokenEvent::DefinitionDeleted(definition)));
 
             Ok(())
         }
@@ -229,22 +233,23 @@ pub mod isi {
             }
         }
 
+        let mut events = Vec::with_capacity(roles_containing_token.len());
+        let world = wsv.world_mut();
         for role_id in roles_containing_token {
-            wsv.modify_world(|world| {
-                if let Some(role) = world.roles.get_mut(&role_id) {
-                    role.permissions
-                        .retain(|token| token.definition_id != *target_definition_id);
-                    Ok(RoleEvent::PermissionRemoved(PermissionRemoved {
-                        role_id: role_id.clone(),
-                        permission_definition_id: target_definition_id.clone(),
-                    })
-                    .into())
-                } else {
-                    error!(%role_id, "role not found. This is a bug");
-                    Err(FindError::Role(role_id.clone()).into())
-                }
-            })?;
+            if let Some(role) = world.roles.get_mut(&role_id) {
+                role.permissions
+                    .retain(|token| token.definition_id != *target_definition_id);
+                events.push(RoleEvent::PermissionRemoved(PermissionRemoved {
+                    role_id: role_id.clone(),
+                    permission_definition_id: target_definition_id.clone(),
+                }));
+            } else {
+                error!(%role_id, "role not found. This is a bug");
+                return Err(FindError::Role(role_id.clone()).into());
+            }
         }
+
+        wsv.emit_events(events);
 
         Ok(())
     }
@@ -269,19 +274,23 @@ pub mod isi {
             accounts_with_token.extend(account_ids);
         }
 
+        let mut events = Vec::new();
         for (account_id, tokens) in accounts_with_token {
             for token in tokens {
                 if !wsv.remove_account_permission(&account_id, &token) {
                     error!(%token, "token not found. This is a bug");
+                    return Err(
+                        FindError::PermissionTokenDefinition(token.definition_id.clone()).into(),
+                    );
                 }
-                wsv.modify_account(&account_id, |account| {
-                    Ok(AccountEvent::PermissionRemoved(AccountPermissionChanged {
-                        account_id: account.id().clone(),
-                        permission_id: token.definition_id,
-                    }))
-                })?;
+                events.push(AccountEvent::PermissionRemoved(AccountPermissionChanged {
+                    account_id: account_id.clone(),
+                    permission_id: token.definition_id,
+                }));
             }
         }
+        wsv.emit_events(events);
+
         Ok(())
     }
 
@@ -289,15 +298,18 @@ pub mod isi {
         #[metrics(+"set_parameter")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let parameter = self.parameter;
+            let parameter_id = parameter.id.clone();
 
-            wsv.modify_world(|world| {
-                if world.parameters.remove(&parameter) {
-                    world.parameters.insert(parameter.clone());
-                    Ok(ConfigurationEvent::Changed(parameter.id).into())
-                } else {
-                    Err(FindError::Parameter(parameter.id).into())
-                }
-            })
+            let world = wsv.world_mut();
+            if !world.parameters.remove(&parameter) {
+                return Err(FindError::Parameter(parameter_id).into());
+            }
+
+            world.parameters.insert(parameter);
+
+            wsv.emit_events(Some(ConfigurationEvent::Changed(parameter_id)));
+
+            Ok(())
         }
     }
 
@@ -305,17 +317,19 @@ pub mod isi {
         #[metrics(+"new_parameter")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let parameter = self.parameter;
+            let parameter_id = parameter.id.clone();
 
-            wsv.modify_world(|world| {
-                if world.parameters.insert(parameter.clone()) {
-                    Ok(ConfigurationEvent::Created(parameter.id).into())
-                } else {
-                    Err(Error::Repetition(
-                        InstructionType::NewParameter,
-                        IdBox::ParameterId(parameter.id),
-                    ))
-                }
-            })
+            let world = wsv.world_mut();
+            if !world.parameters.insert(parameter) {
+                return Err(Error::Repetition(
+                    InstructionType::NewParameter,
+                    IdBox::ParameterId(parameter_id),
+                ));
+            }
+
+            wsv.emit_events(Some(ConfigurationEvent::Created(parameter_id)));
+
+            Ok(())
         }
     }
 
@@ -329,13 +343,14 @@ pub mod isi {
 
             let raw_validator = self.object;
             let engine = wsv.engine.clone(); // Cloning engine is cheep
-            wsv.modify_world(|world| {
-                let new_validator = Validator::new(raw_validator, &engine).map_err(|err| {
-                    ValidationError::new(format!("Failed to load wasm blob: {err}"))
-                })?;
-                let _ = world.upgraded_validator.insert(new_validator);
-                Ok(ValidatorEvent::Upgraded.into())
-            })
+            let world = wsv.world_mut();
+            let new_validator = Validator::new(raw_validator, &engine)
+                .map_err(|err| ValidationError::new(format!("Failed to load wasm blob: {err}")))?;
+            let _ = world.upgraded_validator.insert(new_validator);
+
+            wsv.emit_events(Some(ValidatorEvent::Upgraded));
+
+            Ok(())
         }
     }
 }

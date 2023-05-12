@@ -481,16 +481,19 @@ impl WorldStateView {
         }
 
         // This function is strictly infallible.
-        self.modify_account(&id.account_id, |account| {
-            let asset = Asset::new(id.clone(), default_asset_value.into());
-            assert!(account.add_asset(asset.clone()).is_none());
+        let asset = self
+            .account_mut(&id.account_id)
+            .map(|account| {
+                let asset = Asset::new(id.clone(), default_asset_value.into());
+                assert!(account.add_asset(asset.clone()).is_none());
+                asset
+            })
+            .map_err(|err| {
+                iroha_logger::warn!(?err);
+                err
+            })?;
 
-            Ok(AccountEvent::Asset(AssetEvent::Created(asset)))
-        })
-        .map_err(|err| {
-            iroha_logger::warn!(?err);
-            err
-        })?;
+        self.emit_events(Some(AccountEvent::Asset(AssetEvent::Created(asset))));
 
         self.asset(id).map_err(Into::into)
     }
@@ -527,42 +530,9 @@ impl WorldStateView {
         )
     }
 
-    /// The same as [`Self::modify_world_multiple_events`] except closure `f` returns a single [`WorldEvent`].
-    ///
-    /// # Errors
-    /// Forward errors from [`Self::modify_world_multiple_events`]
-    pub fn modify_world(
-        &mut self,
-        f: impl FnOnce(&mut World) -> Result<WorldEvent, Error>,
-    ) -> Result<(), Error> {
-        self.modify_world_multiple_events(move |world| f(world).map(std::iter::once))
-    }
-
-    /// Get [`World`] and pass it to `closure` to modify it.
-    ///
-    /// The function puts events produced by `f` into `events_buffer`.
-    /// Events should be produced in the order of expanding scope: from specific to general.
-    /// Example: account events before domain events.
-    ///
-    /// # Errors
-    /// Forward errors from `f`
-    pub fn modify_world_multiple_events<I: IntoIterator<Item = WorldEvent>>(
-        &mut self,
-        f: impl FnOnce(&mut World) -> Result<I, Error>,
-    ) -> Result<(), Error> {
-        let world_events = f(&mut self.world)?;
-        let data_events: SmallVec<[DataEvent; 3]> = world_events
-            .into_iter()
-            .flat_map(WorldEvent::flatten)
-            .collect();
-
-        for event in data_events.iter() {
-            self.world.triggers.handle_data_event(event.clone());
-        }
-        self.events_buffer
-            .extend(data_events.into_iter().map(Into::into));
-
-        Ok(())
+    /// Return mutable reference to the [`World`]
+    pub fn world_mut(&mut self) -> &mut World {
+        &mut self.world
     }
 
     /// Returns reference for trusted peer ids
@@ -631,37 +601,6 @@ impl WorldStateView {
             |value| value,
         );
         Ok(value)
-    }
-
-    /// The same as [`Self::modify_domain_multiple_events`] except closure `f` returns a single [`DomainEvent`].
-    ///
-    /// # Errors
-    /// Forward errors from [`Self::modify_domain_multiple_events`]
-    pub fn modify_domain(
-        &mut self,
-        id: &<Domain as Identifiable>::Id,
-        f: impl FnOnce(&mut Domain) -> Result<DomainEvent, Error>,
-    ) -> Result<(), Error> {
-        self.modify_domain_multiple_events(id, move |domain| f(domain).map(std::iter::once))
-    }
-
-    /// Get [`Domain`] and pass it to `closure` to modify it
-    ///
-    /// # Errors
-    /// - If there is no domain
-    /// - Forward errors from `f`
-    pub fn modify_domain_multiple_events<I: IntoIterator<Item = DomainEvent>>(
-        &mut self,
-        id: &<Domain as Identifiable>::Id,
-        f: impl FnOnce(&mut Domain) -> Result<I, Error>,
-    ) -> Result<(), Error> {
-        self.modify_world_multiple_events(|world| {
-            let domain = world
-                .domains
-                .get_mut(id)
-                .ok_or_else(|| FindError::Domain(id.clone()))?;
-            f(domain).map(|events| events.into_iter().map(Into::into))
-        })
     }
 
     /// Get all roles
@@ -757,108 +696,45 @@ impl WorldStateView {
         Ok(f(account))
     }
 
-    /// The same as [`Self::modify_account_multiple_events`] except closure `f` returns a single [`AccountEvent`].
+    /// Get mutable reference to [`Account`]
     ///
     /// # Errors
-    /// Forward errors from [`Self::modify_account_multiple_events`]
-    pub fn modify_account(
-        &mut self,
-        id: &AccountId,
-        f: impl FnOnce(&mut Account) -> Result<AccountEvent, Error>,
-    ) -> Result<(), Error> {
-        self.modify_account_multiple_events(id, move |account| f(account).map(std::iter::once))
-    }
-
-    /// Get [`Account`] and pass it to `closure` to modify it
-    ///
-    /// # Errors
-    /// - If there is no domain or account
-    /// - Forward errors from `f`
-    pub fn modify_account_multiple_events<I: IntoIterator<Item = AccountEvent>>(
-        &mut self,
-        id: &AccountId,
-        f: impl FnOnce(&mut Account) -> Result<I, Error>,
-    ) -> Result<(), Error> {
-        self.modify_domain_multiple_events(&id.domain_id, |domain| {
-            let account = domain
+    /// Fail if domain or account not found
+    pub fn account_mut(&mut self, id: &AccountId) -> Result<&mut Account, FindError> {
+        self.domain_mut(&id.domain_id).and_then(move |domain| {
+            domain
                 .accounts
                 .get_mut(id)
-                .ok_or_else(|| FindError::Account(id.clone()))?;
-            f(account).map(|events| events.into_iter().map(DomainEvent::Account))
+                .ok_or_else(|| FindError::Account(id.clone()))
         })
     }
 
-    /// The same as [`Self::modify_asset_multiple_events`] except closure `f` returns a single [`AssetEvent`].
+    /// Get mutable reference to [`Asset`]
     ///
     /// # Errors
-    /// Forward errors from [`Self::modify_asset_multiple_events`]
-    pub fn modify_asset(
-        &mut self,
-        id: &<Asset as Identifiable>::Id,
-        f: impl FnOnce(&mut Asset) -> Result<AssetEvent, Error>,
-    ) -> Result<(), Error> {
-        self.modify_asset_multiple_events(id, move |asset| f(asset).map(std::iter::once))
-    }
-
-    /// Get [`Asset`] and pass it to `closure` to modify it.
-    /// If asset value hits 0 after modification, asset is removed from the [`Account`].
-    ///
-    /// # Errors
-    /// - If there are no such asset or account
-    /// - Forward errors from `f`
-    ///
-    /// # Panics
-    /// If removing asset from account failed
-    pub fn modify_asset_multiple_events<I: IntoIterator<Item = AssetEvent>>(
-        &mut self,
-        id: &<Asset as Identifiable>::Id,
-        f: impl FnOnce(&mut Asset) -> Result<I, Error>,
-    ) -> Result<(), Error> {
-        self.modify_account_multiple_events(&id.account_id, |account| {
-            let asset = account
+    /// If domain, account or asset not found
+    pub fn asset_mut(&mut self, id: &AssetId) -> Result<&mut Asset, FindError> {
+        self.account_mut(&id.account_id).and_then(move |account| {
+            account
                 .assets
                 .get_mut(id)
-                .ok_or_else(|| FindError::Asset(id.clone()))?;
-
-            let events_result = f(asset);
-            if asset.value.is_zero_value() {
-                assert!(account.remove_asset(id).is_some());
-            }
-
-            events_result.map(|events| events.into_iter().map(AccountEvent::Asset))
+                .ok_or_else(|| FindError::Asset(id.clone()))
         })
     }
 
-    /// The same as [`Self::modify_asset_definition_multiple_events`] except closure `f` returns a single [`AssetDefinitionEvent`].
+    /// Get mutable reference to [`AssetDefinition`]
     ///
     /// # Errors
-    /// Forward errors from [`Self::modify_asset_definition_multiple_events`]
-    pub fn modify_asset_definition(
+    /// If domain or asset definition not found
+    pub fn asset_definition_mut(
         &mut self,
-        id: &<AssetDefinition as Identifiable>::Id,
-        f: impl FnOnce(&mut AssetDefinition) -> Result<AssetDefinitionEvent, Error>,
-    ) -> Result<(), Error> {
-        self.modify_asset_definition_multiple_events(id, move |asset_definition| {
-            f(asset_definition).map(std::iter::once)
-        })
-    }
-
-    /// Get [`AssetDefinition`] and pass it to `closure` to modify it
-    ///
-    /// # Errors
-    /// - If asset definition entry does not exist
-    /// - Forward errors from `f`
-    pub fn modify_asset_definition_multiple_events<I: IntoIterator<Item = AssetDefinitionEvent>>(
-        &mut self,
-        id: &<AssetDefinition as Identifiable>::Id,
-        f: impl FnOnce(&mut AssetDefinition) -> Result<I, Error>,
-    ) -> Result<(), Error> {
-        self.modify_domain_multiple_events(&id.domain_id, |domain| {
-            let asset_definition = domain
+        id: &AssetDefinitionId,
+    ) -> Result<&mut AssetDefinition, FindError> {
+        self.domain_mut(&id.domain_id).and_then(|domain| {
+            domain
                 .asset_definitions
                 .get_mut(id)
-                .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
-            f(asset_definition).map(|events| events.into_iter().map(DomainEvent::AssetDefinition))
+                .ok_or_else(|| FindError::AssetDefinition(id.clone()))
         })
     }
 
@@ -943,28 +819,28 @@ impl WorldStateView {
         NumericValue: From<I> + TryAsMut<I>,
         eyre::Error: From<<NumericValue as TryAsMut<I>>::Error>,
     {
-        self.modify_domain(&definition_id.domain_id, |domain| {
-            let asset_total_amount: &mut I = domain
-                .asset_total_quantities.get_mut(definition_id)
-                .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount")
-                .try_as_mut()
-                .map_err(eyre::Error::from)
-                .map_err(|e| Error::Conversion(e.to_string()))?;
-            *asset_total_amount = asset_total_amount
-                .checked_add(increment)
-                .ok_or(MathError::Overflow)?;
+        let domain = self.domain_mut(&definition_id.domain_id)?;
+        let asset_total_amount: &mut I = domain
+            .asset_total_quantities.get_mut(definition_id)
+            .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount")
+            .try_as_mut()
+            .map_err(eyre::Error::from)
+            .map_err(|e| Error::Conversion(e.to_string()))?;
+        *asset_total_amount = asset_total_amount
+            .checked_add(increment)
+            .ok_or(MathError::Overflow)?;
+        let asset_total_amount = *asset_total_amount;
 
-            Ok(
-                DomainEvent::AssetDefinition(
-                    AssetDefinitionEvent::TotalQuantityChanged(
-                        AssetDefinitionTotalQuantityChanged {
-                            asset_definition_id: definition_id.clone(),
-                            total_amount: NumericValue::from(*asset_total_amount)
-                        }
-                    )
-                )
-            )
-        })
+        self.emit_events({
+            Some(DomainEvent::AssetDefinition(
+                AssetDefinitionEvent::TotalQuantityChanged(AssetDefinitionTotalQuantityChanged {
+                    asset_definition_id: definition_id.clone(),
+                    total_amount: NumericValue::from(asset_total_amount),
+                }),
+            ))
+        });
+
+        Ok(())
     }
 
     /// Decrease [`Asset`] total amount by given value
@@ -982,28 +858,28 @@ impl WorldStateView {
         NumericValue: From<I> + TryAsMut<I>,
         eyre::Error: From<<NumericValue as TryAsMut<I>>::Error>,
     {
-        self.modify_domain(&definition_id.domain_id, |domain| {
-            let asset_total_amount: &mut I = domain
-                .asset_total_quantities.get_mut(definition_id)
-                .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount")
-                .try_as_mut()
-                .map_err(eyre::Error::from)
-                .map_err(|e| Error::Conversion(e.to_string()))?;
-            *asset_total_amount = asset_total_amount
-                .checked_sub(decrement)
-                .ok_or(MathError::NotEnoughQuantity)?;
+        let domain = self.domain_mut(&definition_id.domain_id)?;
+        let asset_total_amount: &mut I = domain
+            .asset_total_quantities.get_mut(definition_id)
+            .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount")
+            .try_as_mut()
+            .map_err(eyre::Error::from)
+            .map_err(|e| Error::Conversion(e.to_string()))?;
+        *asset_total_amount = asset_total_amount
+            .checked_sub(decrement)
+            .ok_or(MathError::NotEnoughQuantity)?;
+        let asset_total_amount = *asset_total_amount;
 
-            Ok(
-                DomainEvent::AssetDefinition(
-                    AssetDefinitionEvent::TotalQuantityChanged(
-                        AssetDefinitionTotalQuantityChanged {
-                            asset_definition_id: definition_id.clone(),
-                            total_amount: NumericValue::from(*asset_total_amount)
-                        }
-                    )
-                )
-            )
-        })
+        self.emit_events({
+            Some(DomainEvent::AssetDefinition(
+                AssetDefinitionEvent::TotalQuantityChanged(AssetDefinitionTotalQuantityChanged {
+                    asset_definition_id: definition_id.clone(),
+                    total_amount: NumericValue::from(asset_total_amount),
+                }),
+            ))
+        });
+
+        Ok(())
     }
 
     /// Get all transactions
@@ -1106,29 +982,10 @@ impl WorldStateView {
         &self.world.triggers
     }
 
-    /// The same as [`Self::modify_triggers_multiple_events`] except closure `f` returns a single `TriggerEvent`.
-    ///
-    /// # Errors
-    /// Forward errors from [`Self::modify_triggers_multiple_events`]
-    pub fn modify_triggers<F>(&mut self, f: F) -> Result<(), Error>
-    where
-        F: FnOnce(&mut TriggerSet) -> Result<TriggerEvent, Error>,
-    {
-        self.modify_triggers_multiple_events(move |triggers| f(triggers).map(std::iter::once))
-    }
-
-    /// Get [`TriggerSet`] and pass it to `closure` to modify it
-    ///
-    /// # Errors
-    /// Forward errors from `f`
-    pub fn modify_triggers_multiple_events<I, F>(&mut self, f: F) -> Result<(), Error>
-    where
-        I: IntoIterator<Item = TriggerEvent>,
-        F: FnOnce(&mut TriggerSet) -> Result<I, Error>,
-    {
-        self.modify_world_multiple_events(|world| {
-            f(&mut world.triggers).map(|events| events.into_iter().map(WorldEvent::Trigger))
-        })
+    /// Return mutable reference for triggers
+    #[inline]
+    pub fn triggers_mut(&mut self) -> &mut TriggerSet {
+        &mut self.world.triggers
     }
 
     /// Execute trigger with `trigger_id` as id and `authority` as owner
@@ -1176,6 +1033,23 @@ impl WorldStateView {
             .validator
             .as_ref()
             .expect("Must be initialized at this point")
+    }
+
+    /// The function puts events produced by `f` into `events_buffer`.
+    /// Events should be produced in the order of expanding scope: from specific to general.
+    /// Example: account events before domain events.
+    pub fn emit_events<I: IntoIterator<Item = T>, T: Into<WorldEvent>>(&mut self, world_events: I) {
+        let data_events: SmallVec<[DataEvent; 3]> = world_events
+            .into_iter()
+            .map(Into::into)
+            .flat_map(WorldEvent::flatten)
+            .collect();
+
+        for event in data_events.iter() {
+            self.world.triggers.handle_data_event(event.clone());
+        }
+        self.events_buffer
+            .extend(data_events.into_iter().map(Into::into));
     }
 }
 

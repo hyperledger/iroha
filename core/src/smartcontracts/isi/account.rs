@@ -95,32 +95,35 @@ pub mod isi {
             let asset_id = self.object_id;
             let account_id = asset_id.account_id.clone();
 
-            match wsv.asset(&asset_id)?.value {
+            let asset = wsv.account_mut(&account_id).and_then(|account| {
+                account
+                    .remove_asset(&asset_id)
+                    .ok_or_else(|| FindError::Asset(asset_id))
+            })?;
+
+            match asset.value {
                 AssetValue::Quantity(increment) => {
-                    wsv.decrease_asset_total_amount(&asset_id.definition_id, increment)?;
+                    wsv.decrease_asset_total_amount(&asset.id.definition_id, increment)?;
                 }
                 AssetValue::BigQuantity(increment) => {
-                    wsv.decrease_asset_total_amount(&asset_id.definition_id, increment)?;
+                    wsv.decrease_asset_total_amount(&asset.id.definition_id, increment)?;
                 }
                 AssetValue::Fixed(increment) => {
-                    wsv.decrease_asset_total_amount(&asset_id.definition_id, increment)?;
+                    wsv.decrease_asset_total_amount(&asset.id.definition_id, increment)?;
                 }
                 AssetValue::Store(_) => {
-                    wsv.decrease_asset_total_amount(&asset_id.definition_id, 1_u32)?;
+                    wsv.decrease_asset_total_amount(&asset.id.definition_id, 1_u32)?;
                 }
             }
 
-            wsv.modify_account(&account_id, |account| {
-                account
-                    .remove_asset(&asset_id)
-                    .map(|asset| {
-                        AccountEvent::Asset(AssetEvent::Removed(AssetChanged {
-                            asset_id: asset.id,
-                            amount: asset.value,
-                        }))
-                    })
-                    .ok_or_else(|| Error::Find(Box::new(FindError::Asset(asset_id))))
-            })
+            wsv.emit_events({
+                Some(AccountEvent::Asset(AssetEvent::Removed(AssetChanged {
+                    asset_id: asset.id,
+                    amount: asset.value,
+                })))
+            });
+
+            Ok(())
         }
     }
 
@@ -130,16 +133,23 @@ pub mod isi {
             let account_id = self.destination_id;
             let public_key = self.object;
 
-            wsv.modify_account(&account_id, |account| {
-                if account.signatories.contains(&public_key) {
-                    return Err(
-                        ValidationError::new("Account already contains this signatory").into(),
-                    );
-                }
+            wsv.account_mut(&account_id)
+                .map_err(Error::from)
+                .and_then(|account| {
+                    if account.signatories.contains(&public_key) {
+                        return Err(ValidationError::new(
+                            "Account already contains this signatory",
+                        )
+                        .into());
+                    }
 
-                account.add_signatory(public_key);
-                Ok(AccountEvent::AuthenticationAdded(account_id.clone()))
-            })
+                    account.add_signatory(public_key);
+                    Ok(())
+                })?;
+
+            wsv.emit_events(Some(AccountEvent::AuthenticationAdded(account_id.clone())));
+
+            Ok(())
         }
     }
 
@@ -149,20 +159,25 @@ pub mod isi {
             let account_id = self.destination_id;
             let public_key = self.object;
 
-            wsv.modify_account(&account_id, |account| {
-                if account.signatories.len() < 2 {
-                    return Err(ValidationError::new(
-                        "Public keys cannot be burned to nothing. \
+            wsv.account_mut(&account_id)
+                .map_err(Error::from)
+                .and_then(|account| {
+                    if account.signatories.len() < 2 {
+                        return Err(ValidationError::new(
+                            "Public keys cannot be burned to nothing. \
                          If you want to delete the account, please use an unregister instruction.",
-                    )
-                    .into());
-                }
-                if !account.remove_signatory(&public_key) {
-                    return Err(ValidationError::new("Public key not found").into());
-                }
+                        )
+                        .into());
+                    }
+                    if !account.remove_signatory(&public_key) {
+                        return Err(ValidationError::new("Public key not found").into());
+                    }
+                    Ok(())
+                })?;
 
-                Ok(AccountEvent::AuthenticationRemoved(account_id.clone()))
-            })
+            wsv.emit_events(Some(AccountEvent::AuthenticationRemoved(account_id)));
+
+            Ok(())
         }
     }
 
@@ -172,10 +187,11 @@ pub mod isi {
             let account_id = self.destination_id;
             let signature_check_condition = self.object;
 
-            wsv.modify_account(&account_id, |account| {
-                account.signature_check_condition = signature_check_condition;
-                Ok(AccountEvent::AuthenticationAdded(account_id.clone()))
-            })
+            wsv.account_mut(&account_id)?.signature_check_condition = signature_check_condition;
+
+            wsv.emit_events(Some(AccountEvent::AuthenticationAdded(account_id.clone())));
+
+            Ok(())
         }
     }
 
@@ -186,19 +202,28 @@ pub mod isi {
 
             let account_metadata_limits = wsv.config.account_metadata_limits;
 
-            wsv.modify_account(&account_id, |account| {
-                account.metadata.insert_with_limits(
-                    self.key.clone(),
-                    self.value.clone(),
-                    account_metadata_limits,
-                )?;
+            wsv.account_mut(&account_id)
+                .map_err(Error::from)
+                .and_then(|account| {
+                    account
+                        .metadata
+                        .insert_with_limits(
+                            self.key.clone(),
+                            self.value.clone(),
+                            account_metadata_limits,
+                        )
+                        .map_err(Error::from)
+                })?;
 
-                Ok(AccountEvent::MetadataInserted(MetadataChanged {
+            wsv.emit_events({
+                Some(AccountEvent::MetadataInserted(MetadataChanged {
                     target_id: account_id.clone(),
                     key: self.key.clone(),
                     value: Box::new(self.value),
                 }))
-            })
+            });
+
+            Ok(())
         }
     }
 
@@ -207,18 +232,22 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.object_id;
 
-            wsv.modify_account(&account_id, |account| {
-                let value = account
+            let value = wsv.account_mut(&account_id).and_then(|account| {
+                account
                     .metadata
                     .remove(&self.key)
-                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
+                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))
+            })?;
 
-                Ok(AccountEvent::MetadataRemoved(MetadataChanged {
+            wsv.emit_events({
+                Some(AccountEvent::MetadataRemoved(MetadataChanged {
                     target_id: account_id.clone(),
                     key: self.key,
                     value: Box::new(value),
                 }))
-            })
+            });
+
+            Ok(())
         }
     }
 
@@ -227,13 +256,15 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let permission = self.object;
+            let permission_id = permission.definition_id.clone();
+
+            // Check if account exists
+            wsv.account_mut(&account_id)?;
 
             let definition = wsv
                 .permission_token_definitions()
-                .get(&permission.definition_id)
-                .ok_or_else(|| {
-                    FindError::PermissionTokenDefinition(permission.definition_id.clone())
-                })?;
+                .get(&permission_id)
+                .ok_or_else(|| FindError::PermissionTokenDefinition(permission_id.clone()))?;
 
             permissions::check_permission_token_parameters(&permission, definition)?;
 
@@ -241,17 +272,14 @@ pub mod isi {
                 return Err(ValidationError::new("Permission already exists").into());
             }
 
-            wsv.modify_account(&account_id, |account| {
-                let account_id = account.id().clone();
-                let permission_id = permission.definition_id.clone();
+            wsv.add_account_permission(&account_id, permission);
 
-                Ok(AccountEvent::PermissionAdded(AccountPermissionChanged {
+            wsv.emit_events({
+                Some(AccountEvent::PermissionAdded(AccountPermissionChanged {
                     account_id,
                     permission_id,
                 }))
-            })?;
-
-            wsv.add_account_permission(&account_id, permission);
+            });
 
             Ok(())
         }
@@ -263,6 +291,9 @@ pub mod isi {
             let account_id = self.destination_id;
             let permission = self.object;
 
+            // Check if account exists
+            wsv.account_mut(&account_id)?;
+
             if !wsv
                 .permission_token_definitions()
                 .contains_key(&permission.definition_id)
@@ -273,12 +304,14 @@ pub mod isi {
                 return Err(ValidationError::new("Permission not found").into());
             }
 
-            wsv.modify_account(&account_id, |_| {
-                Ok(AccountEvent::PermissionRemoved(AccountPermissionChanged {
-                    account_id: account_id.clone(),
+            wsv.emit_events({
+                Some(AccountEvent::PermissionRemoved(AccountPermissionChanged {
+                    account_id,
                     permission_id: permission.definition_id,
                 }))
-            })
+            });
+
+            Ok(())
         }
     }
 
@@ -298,29 +331,36 @@ pub mod isi {
                 .into_iter()
                 .map(|token| token.definition_id);
 
-            wsv.modify_account_multiple_events(&account_id, |account| {
-                if !account.add_role(role_id.clone()) {
-                    return Err(Error::Repetition(
-                        InstructionType::Grant,
-                        IdBox::RoleId(role_id),
-                    ));
-                }
-                let events: Vec<_> = permissions
-                    .map(|permission_id| AccountPermissionChanged {
-                        account_id: account_id.clone(),
+            wsv.account_mut(&account_id)
+                .map_err(Error::from)
+                .and_then(|account| {
+                    if !account.add_role(role_id.clone()) {
+                        return Err(Error::Repetition(
+                            InstructionType::Grant,
+                            IdBox::RoleId(role_id.clone()),
+                        ));
+                    }
+                    Ok(())
+                })?;
+
+            wsv.emit_events({
+                let account_id_clone = account_id.clone();
+                permissions
+                    .zip(core::iter::repeat_with(move || account_id.clone()))
+                    .map(|(permission_id, account_id)| AccountPermissionChanged {
+                        account_id,
                         permission_id,
                     })
                     .map(AccountEvent::PermissionAdded)
                     .chain(std::iter::once(AccountEvent::RoleGranted(
                         AccountRoleChanged {
-                            account_id: account_id.clone(),
+                            account_id: account_id_clone,
                             role_id,
                         },
                     )))
-                    .collect();
+            });
 
-                Ok(events)
-            })
+            Ok(())
         }
     }
 
@@ -340,26 +380,31 @@ pub mod isi {
                 .into_iter()
                 .map(|token| token.definition_id);
 
-            wsv.modify_account_multiple_events(&account_id, |account| {
+            wsv.account_mut(&account_id).and_then(|account| {
                 if !account.remove_role(&role_id) {
-                    return Err(FindError::Role(role_id).into());
+                    return Err(FindError::Role(role_id.clone()));
                 }
-                let events: Vec<_> = permissions
-                    .map(|permission_id| AccountPermissionChanged {
-                        account_id: account_id.clone(),
+                Ok(())
+            })?;
+
+            wsv.emit_events({
+                let account_id_clone = account_id.clone();
+                permissions
+                    .zip(core::iter::repeat_with(move || account_id.clone()))
+                    .map(|(permission_id, account_id)| AccountPermissionChanged {
+                        account_id,
                         permission_id,
                     })
                     .map(AccountEvent::PermissionRemoved)
                     .chain(std::iter::once(AccountEvent::RoleRevoked(
                         AccountRoleChanged {
-                            account_id: account_id.clone(),
+                            account_id: account_id_clone,
                             role_id,
                         },
                     )))
-                    .collect();
+            });
 
-                Ok(events)
-            })
+            Ok(())
         }
     }
 
@@ -375,12 +420,13 @@ pub mod isi {
             Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
             Mintable::Once => {
                 if !value.is_zero_value() {
-                    wsv.modify_asset_definition(definition_id, |entry| {
-                        forbid_minting(entry)?;
-                        Ok(AssetDefinitionEvent::MintabilityChanged(
+                    let asset_definition = wsv.asset_definition_mut(definition_id)?;
+                    forbid_minting(asset_definition)?;
+                    wsv.emit_events({
+                        Some(AssetDefinitionEvent::MintabilityChanged(
                             definition_id.clone(),
                         ))
-                    })?;
+                    });
                 }
                 Ok(())
             }

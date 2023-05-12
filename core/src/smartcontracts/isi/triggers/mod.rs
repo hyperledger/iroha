@@ -36,44 +36,46 @@ pub mod isi {
             }
 
             let engine = wsv.engine.clone(); // Cloning engine is cheep
-            wsv.modify_triggers(|triggers| {
-                let trigger_id = new_trigger.id().clone();
-                let success = match &new_trigger.action.filter {
-                    FilterBox::Data(_) => triggers.add_data_trigger(
-                        &engine,
-                        new_trigger
-                            .try_into()
-                            .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
-                    ),
-                    FilterBox::Pipeline(_) => triggers.add_pipeline_trigger(
-                        &engine,
-                        new_trigger
-                            .try_into()
-                            .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
-                    ),
-                    FilterBox::Time(_) => triggers.add_time_trigger(
-                        &engine,
-                        new_trigger
-                            .try_into()
-                            .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
-                    ),
-                    FilterBox::ExecuteTrigger(_) => triggers.add_by_call_trigger(
-                        &engine,
-                        new_trigger
-                            .try_into()
-                            .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
-                    ),
-                }
-                .map_err(|e| InvalidParameterError::Wasm(e.to_string()))?;
-                if success {
-                    Ok(TriggerEvent::Created(trigger_id))
-                } else {
-                    Err(Error::Repetition(
-                        InstructionType::Register,
-                        trigger_id.into(),
-                    ))
-                }
-            })
+            let triggers = wsv.triggers_mut();
+            let trigger_id = new_trigger.id().clone();
+            let success = match &new_trigger.action.filter {
+                FilterBox::Data(_) => triggers.add_data_trigger(
+                    &engine,
+                    new_trigger
+                        .try_into()
+                        .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
+                ),
+                FilterBox::Pipeline(_) => triggers.add_pipeline_trigger(
+                    &engine,
+                    new_trigger
+                        .try_into()
+                        .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
+                ),
+                FilterBox::Time(_) => triggers.add_time_trigger(
+                    &engine,
+                    new_trigger
+                        .try_into()
+                        .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
+                ),
+                FilterBox::ExecuteTrigger(_) => triggers.add_by_call_trigger(
+                    &engine,
+                    new_trigger
+                        .try_into()
+                        .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
+                ),
+            }
+            .map_err(|e| InvalidParameterError::Wasm(e.to_string()))?;
+
+            if !success {
+                return Err(Error::Repetition(
+                    InstructionType::Register,
+                    trigger_id.into(),
+                ));
+            }
+
+            wsv.emit_events(Some(TriggerEvent::Created(trigger_id)));
+
+            Ok(())
         }
     }
 
@@ -82,16 +84,16 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let trigger_id = self.object_id.clone();
 
-            wsv.modify_triggers(|triggers| {
-                if triggers.remove(&trigger_id) {
-                    Ok(TriggerEvent::Deleted(self.object_id))
-                } else {
-                    Err(Error::Repetition(
-                        InstructionType::Unregister,
-                        trigger_id.into(),
-                    ))
-                }
-            })
+            let triggers = wsv.triggers_mut();
+            if triggers.remove(&trigger_id) {
+                wsv.emit_events(Some(TriggerEvent::Deleted(self.object_id)));
+                Ok(())
+            } else {
+                Err(Error::Repetition(
+                    InstructionType::Unregister,
+                    trigger_id.into(),
+                ))
+            }
         }
     }
 
@@ -100,26 +102,30 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let id = self.destination_id;
 
-            wsv.modify_triggers(|triggers| {
-                triggers
-                    .inspect_by_id(&id, |action| -> Result<(), Error> {
-                        if action.mintable() {
-                            Ok(())
-                        } else {
-                            Err(MathError::Overflow.into())
-                        }
-                    })
-                    .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))??;
+            let triggers = wsv.triggers_mut();
+            triggers
+                .inspect_by_id(&id, |action| -> Result<(), Error> {
+                    if action.mintable() {
+                        Ok(())
+                    } else {
+                        Err(MathError::Overflow.into())
+                    }
+                })
+                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))??;
 
-                triggers.mod_repeats(&id, |n| {
-                    n.checked_add(self.object)
-                        .ok_or(super::set::RepeatsOverflowError)
-                })?;
-                Ok(TriggerEvent::Extended(TriggerNumberOfExecutionsChanged {
+            triggers.mod_repeats(&id, |n| {
+                n.checked_add(self.object)
+                    .ok_or(super::set::RepeatsOverflowError)
+            })?;
+
+            wsv.emit_events({
+                Some(TriggerEvent::Extended(TriggerNumberOfExecutionsChanged {
                     trigger_id: id,
                     by: self.object,
                 }))
-            })
+            });
+
+            Ok(())
         }
     }
 
@@ -127,18 +133,21 @@ pub mod isi {
         #[metrics(+"burn_trigger_repetitions")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let trigger = self.destination_id;
-            wsv.modify_triggers(|triggers| {
-                triggers.mod_repeats(&trigger, |n| {
-                    n.checked_sub(self.object)
-                        .ok_or(super::set::RepeatsOverflowError)
-                })?;
-                // TODO: Is it okay to remove triggers with 0 repeats count from `TriggerSet` only
-                // when they will match some of the events?
-                Ok(TriggerEvent::Shortened(TriggerNumberOfExecutionsChanged {
+            let triggers = wsv.triggers_mut();
+            triggers.mod_repeats(&trigger, |n| {
+                n.checked_sub(self.object)
+                    .ok_or(super::set::RepeatsOverflowError)
+            })?;
+            // TODO: Is it okay to remove triggers with 0 repeats count from `TriggerSet` only
+            // when they will match some of the events?
+            wsv.emit_events({
+                Some(TriggerEvent::Shortened(TriggerNumberOfExecutionsChanged {
                     trigger_id: trigger,
                     by: self.object,
                 }))
-            })
+            });
+
+            Ok(())
         }
     }
 
