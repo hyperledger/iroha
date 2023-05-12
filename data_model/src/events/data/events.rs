@@ -583,6 +583,24 @@ impl WorldEvent {
     }
 }
 
+impl From<AccountEvent> for WorldEvent {
+    fn from(value: AccountEvent) -> Self {
+        DomainEvent::Account(value).into()
+    }
+}
+
+impl From<AssetDefinitionEvent> for WorldEvent {
+    fn from(value: AssetDefinitionEvent) -> Self {
+        DomainEvent::AssetDefinition(value).into()
+    }
+}
+
+impl From<AssetEvent> for WorldEvent {
+    fn from(value: AssetEvent) -> Self {
+        AccountEvent::Asset(value).into()
+    }
+}
+
 impl DataEvent {
     /// Return the domain id of [`Event`]
     pub fn domain_id(&self) -> Option<&<Domain as Identifiable>::Id> {
