@@ -33,7 +33,8 @@ typing==3.6.2
 urllib3
 watchdog==0.8.3
 yarg==0.1.9
-mistune>=0.8.4
-m2r2>=0.3.2
-pygments-lexer-solidity>=0.7.0
-sphinxext-remoteliteralinclude>=0.4.0
+mistune==2.0.3
+m2r2==0.3.2
+pygments-lexer-solidity
+sphinxext-remoteliteralinclude
+m2r2==0.3.3

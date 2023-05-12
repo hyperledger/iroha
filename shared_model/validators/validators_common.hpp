@@ -7,7 +7,7 @@
 #define IROHA_VALIDATORS_COMMON_HPP
 
 #include <google/protobuf/util/time_util.h>
-
+#include <optional>
 #include <string>
 
 namespace shared_model {
@@ -20,7 +20,8 @@ namespace shared_model {
     struct ValidatorsConfig {
       ValidatorsConfig(uint64_t max_batch_size,
                        bool partial_ordered_batches_are_valid = false,
-                       bool txs_duplicates_allowed = false);
+                       bool txs_duplicates_allowed = false,
+                       std::optional<uint32_t> max_past_created_hours = {});
       /// Maximum allowed amount of transactions within a batch
       const uint64_t max_batch_size;
 
@@ -36,6 +37,14 @@ namespace shared_model {
        * - BlockLoader
        */
       const bool txs_duplicates_allowed;
+
+      /**
+       * A parameter, which specifies how many hours before the current peer's
+       * `created_time` can the transaction be set.
+       * Default is `FieldValidator::KDefaultMaxDelay` (hours).
+       * The value must be synchronised across all peers.
+       */
+      std::optional<uint32_t> max_past_created_hours;
     };
 
     /**

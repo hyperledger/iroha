@@ -196,7 +196,7 @@ void OnDemandOrderingGate::sendCachedTransactions() {
               end_iterator->get()->transactions().end(),
               [&](const auto &tx) {
                 return (uint64_t)now
-                    > shared_model::validation::FieldValidator::kMaxDelay
+                    > shared_model::validation::FieldValidator::kDefaultMaxDelay
                     + tx->createdTime();
               })) {
         end_iterator = batches.erase(end_iterator);

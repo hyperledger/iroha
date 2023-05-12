@@ -171,6 +171,37 @@ TEST_F(OnDemandOsTest, OverflowRound) {
                 .size());
 }
 
+TEST_F(OnDemandOsTest, OverflowRound4) {
+  generateTransactionsAndInsert({1, transaction_limit * 5});
+
+  os->onCollaborationOutcome(commit_round);
+
+  ASSERT_TRUE(os->onRequestProposal(target_round));
+  ASSERT_TRUE(os->onRequestProposal(target_round)->size() == 4);
+  for (size_t ix = 0; ix < 4; ++ix) {
+    ASSERT_EQ(transaction_limit,
+              os->onRequestProposal(target_round)
+                  ->
+                  operator[](ix)
+                  .first->transactions()
+                  .size());
+  }
+}
+
+TEST_F(OnDemandOsTest, OverflowRound5) {
+  generateTransactionsAndInsert({1, transaction_limit * 15});
+
+  os->onCollaborationOutcome(commit_round);
+
+  auto pack = os->onRequestProposal(target_round);
+  ASSERT_TRUE(pack);
+  ASSERT_TRUE(pack->size() == max_proposal_pack);
+  for (size_t ix = 0; ix < max_proposal_pack; ++ix) {
+    ASSERT_EQ(transaction_limit,
+              pack->operator[](ix).first->transactions().size());
+  }
+}
+
 /**
  * @given initialized on-demand OS
  * @when  insert commit round and then proposal_limit + 2 reject rounds

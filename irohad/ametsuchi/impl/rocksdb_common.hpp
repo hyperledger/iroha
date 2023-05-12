@@ -590,7 +590,7 @@ namespace iroha::ametsuchi {
                                                 Args &&... args) {
     assert(format != nullptr);
     return expected::makeError(
-        DbError{code, fmt::format(format, std::forward<Args>(args)...)});
+        DbError{code, fmt::format(fmt::runtime(format), std::forward<Args>(args)...)});
   }
 
   template <typename T>
@@ -1019,7 +1019,7 @@ namespace iroha::ametsuchi {
              S const &fmtstring,
              Args &&... args) {
       keyBuffer().clear();
-      fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
+      fmt::format_to(std::back_inserter(keyBuffer()), fmtstring, std::forward<Args>(args)...);
 
       valueBuffer().clear();
       rocksdb::Slice const slice(keyBuffer().data(), keyBuffer().size());
@@ -1052,7 +1052,7 @@ namespace iroha::ametsuchi {
              S const &fmtstring,
              Args &&... args) {
       keyBuffer().clear();
-      fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
+      fmt::format_to(std::back_inserter(keyBuffer()), fmtstring, std::forward<Args>(args)...);
 
       rocksdb::Slice const slice(keyBuffer().data(), keyBuffer().size());
       if (auto c = cache(); c && c->isCacheable(slice.ToStringView())
@@ -1074,7 +1074,7 @@ namespace iroha::ametsuchi {
              S const &fmtstring,
              Args &&... args) {
       keyBuffer().clear();
-      fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
+      fmt::format_to(std::back_inserter(keyBuffer()), fmtstring, std::forward<Args>(args)...);
 
       rocksdb::Slice const slice(keyBuffer().data(), keyBuffer().size());
       if (auto c = cache(); c && c->isCacheable(slice.ToStringView())) {
@@ -1092,7 +1092,7 @@ namespace iroha::ametsuchi {
               S const &fmtstring,
               Args &&... args) {
       keyBuffer().clear();
-      fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
+      fmt::format_to(std::back_inserter(keyBuffer()), fmt::runtime(fmtstring), std::forward<Args>(args)...);
 
       rocksdb::ReadOptions ro;
       ro.fill_cache = false;
@@ -1112,7 +1112,7 @@ namespace iroha::ametsuchi {
                    S const &fmtstring,
                    Args &&... args) {
       keyBuffer().clear();
-      fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
+      fmt::format_to(std::back_inserter(keyBuffer()), fmtstring, std::forward<Args>(args)...);
       return enumerate(it, std::forward<F>(func));
     }
 
@@ -1482,15 +1482,17 @@ namespace iroha::ametsuchi {
     return value;
   }
 
-  template <typename RetT, kDbOperation kOp, kDbEntry kSc, typename... Args>
+  template <typename RetT, kDbOperation kOp, kDbEntry kSc, typename StrFormat, typename... Args>
   inline expected::Result<std::optional<RetT>, DbError> dbCall(
       RocksDbCommon &common,
       RocksDBPort::ColumnFamilyType cf_type,
+      const StrFormat& formatstr,
       Args &&... args) {
     auto status = executeOperation<kOp, kSc>(
         common,
-        [&] { return fmt::format(std::forward<Args>(args)...); },
+        [&] { return fmt::format(fmt::runtime(formatstr), std::forward<Args>(args)...); },
         cf_type,
+        formatstr,
         std::forward<Args>(args)...);
     RDB_ERROR_CHECK(status);
     return loadValue<kOp, RetT>(common, status);

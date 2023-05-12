@@ -313,6 +313,7 @@ IntegrationTestFramework::IntegrationTestFramework(
   config_.max_proposal_size = 10;
   config_.mst_support = mst_support;
   config_.syncing_mode = false;
+  config_.max_past_created_hours = 24;
 
   switch (db_type) {
     case iroha::StorageType::kPostgres: {
@@ -652,8 +653,8 @@ IntegrationTestFramework &IntegrationTestFramework::sendTx(
     const shared_model::proto::Transaction &tx) {
   sendTx(tx, [this](const auto &status) {
     if (!status.statelessErrorOrCommandName().empty()) {
-      log_->debug("Got error while sending transaction: "
-                  + status.statelessErrorOrCommandName());
+      log_->debug("Got error while sending transaction: {}",
+                  status.statelessErrorOrCommandName());
     }
   });
   return *this;

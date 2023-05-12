@@ -226,7 +226,7 @@ jobs:
                                   echo  >/tmp/comment_body "/build ubuntu debug release normal gcc-10"
                                 fi ;;
             push)               commit_message_body_build_spec >/tmp/comment_body || {
-                                  echo "/build ubuntu debug release normal gcc-10"
+                                  echo "/build macos ubuntu debug release normal gcc-10"
                                 } >/tmp/comment_body ;;
             workflow_dispatch)  echo >/tmp/comment_body "${{github.event.inputs.build_spec}}" ;;
             *)                  echo >&2 "::error::Unexpected event"; false ;;
@@ -389,13 +389,14 @@ jobs:
           images: ghcr.io/${{ github.repository }}-builder
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
-      - name: Cache Docker layers
-        uses: actions/cache@v2
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{env.dockertag}}
-          restore-keys: ${{ runner.os }}-buildx-
-      - id: build_and_push
+      - # - &step_docker_cache
+        #   name: Cache Docker layers
+        #   uses: actions/cache@v2
+        #   with:
+        #     path: /tmp/.buildx-cache
+        #     key:           ${{ runner.os }}-buildx-${{env.dockertag}}
+        #     restore-keys:  ${{ runner.os }}-buildx-
+        id: build_and_push
         name: Build and push
         uses: docker/build-push-action@v2
         with:
@@ -415,13 +416,14 @@ jobs:
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo == github.event.pull_request.base.repo }}
           tags: ${{ steps.meta_ghcr.outputs.tags }}
           labels: ${{ steps.meta_ghcr.outputs.labels }}
-      - # Temp fix
-        # https://github.com/docker/build-push-action/issues/252
-        # https://github.com/moby/buildkit/issues/1896
-        name: Move cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+      # - &step_docker_move_cache
+      #   # Temp fix
+      #   # https://github.com/docker/build-push-action/issues/252
+      #   # https://github.com/moby/buildkit/issues/1896
+      #   name: Move cache
+      #   run: |
+      #     rm -rf /tmp/.buildx-cache
+      #     mv /tmp/.buildx-cache-new /tmp/.buildx-cache
       - name: Check if dockertaghash exists in remote registry
         id: dockertag_already
         run: |
@@ -442,7 +444,7 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [self-hosted, Linux]
+    runs-on: [self-hosted, Linux, iroha]
     container: ## Container is taken from previous job
       image: ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
@@ -538,22 +540,25 @@ jobs:
           echo >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/gcc) --show-config | sed -nE 's,.*cache_dir = ,,p')
           echo >>$GITHUB_ENV NPROC=$(nproc | awk '{printf("%.0f",$1*0.77)}')
           echo >>$GITHUB_ENV HOME=$HOME
-      - name: Restore cache CCache
-        uses: actions/cache@v2
-        with:
-          path: ${{ env._CCACHE_DIR }}
-          key: ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
-          restore-keys: ${{runner.os}}-ccache-
-      - run: ccache --show-stats | tee /tmp/ccache-stats
-      - ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
-        name: Restore cache Vcpkg binarycache ## NOTE not useng NuGet because on ubuntu nuget needs mono of 433MB, unusable.
-        uses: actions/cache@v2
-        with:
-          path: |
-            ${{env.HOME}}/.cache/vcpkg/archives
-          key: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
-          restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
-      - name: Build iroha vcpkg dependancies
+      - # - &step_restore_ccache
+        #   name: Restore cache CCache
+        #   uses: actions/cache@v2
+        #   with:
+        #     path: ${{ env._CCACHE_DIR }}
+        #     key:          ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
+        #     restore-keys: ${{runner.os}}-ccache-
+        # - &step_store_ccache_stats
+        #   run: ccache --show-stats | tee /tmp/ccache-stats
+        # - &step_vcpkg_cache
+        #   ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+        #   name: Restore cache Vcpkg binarycache ## NOTE not useng NuGet because on ubuntu nuget needs mono of 433MB, unusable.
+        #   uses: actions/cache@v2
+        #   with:
+        #     path: |
+        #       ${{env.HOME}}/.cache/vcpkg/archives
+        #     key:          ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
+        #     restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
+        name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build; test -f $PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
         ## Takes 13m41s on self-hosted AWS EC2 c5.x4large
@@ -582,8 +587,9 @@ jobs:
         ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
       - name: CPack (linux only)
         run: cd build; cpack; ## cmake --build build --target package
-      - run: ccache --show-stats | diff --side-by-side /tmp/ccache-stats - ||true
-      - name: Show free space and disk usage
+      - # - &step_compare_ccache_stats
+        #   run: ccache --show-stats | diff --side-by-side /tmp/ccache-stats - ||true
+        name: Show free space and disk usage
         if: ${{ always() }}
         run: |
           df -h || true
@@ -728,7 +734,7 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [self-hosted, Linux]
+    runs-on: [self-hosted, Linux, iroha]
     container: ## Container is taken from previous job
       image: ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
@@ -820,22 +826,25 @@ jobs:
           echo >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/gcc) --show-config | sed -nE 's,.*cache_dir = ,,p')
           echo >>$GITHUB_ENV NPROC=$(nproc | awk '{printf("%.0f",$1*0.77)}')
           echo >>$GITHUB_ENV HOME=$HOME
-      - name: Restore cache CCache
-        uses: actions/cache@v2
-        with:
-          path: ${{ env._CCACHE_DIR }}
-          key: ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
-          restore-keys: ${{runner.os}}-ccache-
-      - run: ccache --show-stats | tee /tmp/ccache-stats
-      - ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
-        name: Restore cache Vcpkg binarycache ## NOTE not useng NuGet because on ubuntu nuget needs mono of 433MB, unusable.
-        uses: actions/cache@v2
-        with:
-          path: |
-            ${{env.HOME}}/.cache/vcpkg/archives
-          key: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
-          restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
-      - name: Build iroha vcpkg dependancies
+      - # - &step_restore_ccache
+        #   name: Restore cache CCache
+        #   uses: actions/cache@v2
+        #   with:
+        #     path: ${{ env._CCACHE_DIR }}
+        #     key:          ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
+        #     restore-keys: ${{runner.os}}-ccache-
+        # - &step_store_ccache_stats
+        #   run: ccache --show-stats | tee /tmp/ccache-stats
+        # - &step_vcpkg_cache
+        #   ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+        #   name: Restore cache Vcpkg binarycache ## NOTE not useng NuGet because on ubuntu nuget needs mono of 433MB, unusable.
+        #   uses: actions/cache@v2
+        #   with:
+        #     path: |
+        #       ${{env.HOME}}/.cache/vcpkg/archives
+        #     key:          ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
+        #     restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
+        name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build; test -f $PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
         ## Takes 13m41s on self-hosted AWS EC2 c5.x4large
@@ -864,8 +873,9 @@ jobs:
         ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
       - name: CPack (linux only)
         run: cd build; cpack; ## cmake --build build --target package
-      - run: ccache --show-stats | diff --side-by-side /tmp/ccache-stats - ||true
-      - name: Show free space and disk usage
+      - # - &step_compare_ccache_stats
+        #   run: ccache --show-stats | diff --side-by-side /tmp/ccache-stats - ||true
+        name: Show free space and disk usage
         if: ${{ always() }}
         run: |
           df -h || true
@@ -1129,22 +1139,28 @@ jobs:
           echo >>$GITHUB_ENV HOME=$HOME
         env:
           CCACHE_PATH: /usr/local/opt/ccache/libexec
-      - name: Restore cache CCache
-        uses: actions/cache@v2
-        with:
-          path: ${{ env._CCACHE_DIR }}
-          key: ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
-          restore-keys: ${{runner.os}}-ccache-
-      - run: ccache --show-stats | tee /tmp/ccache-stats
-      - ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
-        name: Restore cache Vcpkg binarycache ## NOTE not useng NuGet because on ubuntu nuget needs mono of 433MB, unusable.
-        uses: actions/cache@v2
-        with:
-          path: |
-            ${{env.HOME}}/.cache/vcpkg/archives
-          key: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
-          restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
-      - name: Build iroha vcpkg dependancies
+      # - *step_restore_ccache
+      # - *step_store_ccache_stats
+      # - *step_vcpkg_cache
+      - # - &step_restore_ccache
+        #   name: Restore cache CCache
+        #   uses: actions/cache@v2
+        #   with:
+        #     path: ${{ env._CCACHE_DIR }}
+        #     key:          ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
+        #     restore-keys: ${{runner.os}}-ccache-
+        # - &step_store_ccache_stats
+        #   run: ccache --show-stats | tee /tmp/ccache-stats
+        # - &step_vcpkg_cache
+        #   ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+        #   name: Restore cache Vcpkg binarycache ## NOTE not useng NuGet because on ubuntu nuget needs mono of 433MB, unusable.
+        #   uses: actions/cache@v2
+        #   with:
+        #     path: |
+        #       ${{env.HOME}}/.cache/vcpkg/archives
+        #     key:          ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
+        #     restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
+        name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build; test -f $PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
         ## Takes 13m41s on self-hosted AWS EC2 c5.x4large
@@ -1171,8 +1187,10 @@ jobs:
         ## Debug   takes 18m44s on regular GitHub runner
         ## Debug   takes 7m41s on self-hosted AWS EC2 c5.x4large
         ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
-      - run: ccache --show-stats | diff --side-by-side /tmp/ccache-stats - ||true
-      - name: Show free space and disk usage
+      # - *step_compare_ccache_stats
+      - # - &step_compare_ccache_stats
+        #   run: ccache --show-stats | diff --side-by-side /tmp/ccache-stats - ||true
+        name: Show free space and disk usage
         if: ${{ always() }}
         run: |
           df -h || true
@@ -1373,7 +1391,25 @@ jobs:
         working-directory:
       #- *step_restore_ccache
       #- *step_vcpkg_cache
-      - name: Build iroha vcpkg dependancies
+      - # - &step_restore_ccache
+        #   name: Restore cache CCache
+        #   uses: actions/cache@v2
+        #   with:
+        #     path: ${{ env._CCACHE_DIR }}
+        #     key:          ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
+        #     restore-keys: ${{runner.os}}-ccache-
+        # - &step_store_ccache_stats
+        #   run: ccache --show-stats | tee /tmp/ccache-stats
+        # - &step_vcpkg_cache
+        #   ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+        #   name: Restore cache Vcpkg binarycache ## NOTE not useng NuGet because on ubuntu nuget needs mono of 433MB, unusable.
+        #   uses: actions/cache@v2
+        #   with:
+        #     path: |
+        #       ${{env.HOME}}/.cache/vcpkg/archives
+        #     key:          ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
+        #     restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
+        name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build; test -f $PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
         ## Takes 13m41s on self-hosted AWS EC2 c5.x4large
@@ -1400,7 +1436,9 @@ jobs:
         ## Debug   takes 18m44s on regular GitHub runner
         ## Debug   takes 7m41s on self-hosted AWS EC2 c5.x4large
         ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
-      - name: Show free space and disk usage
+      - # - &step_compare_ccache_stats
+        #   run: ccache --show-stats | diff --side-by-side /tmp/ccache-stats - ||true
+        name: Show free space and disk usage
         if: ${{ always() }}
         run: |
           df -h || true
@@ -1417,7 +1455,7 @@ jobs:
     needs:
       - build-UR
       - generate_matrixes
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+    runs-on: [self-hosted, Linux, iroha] #ubuntu-latest
     # strategy: *strategy_ubuntu_release
     # if: *if_ubuntu_release
     strategy:
@@ -1565,13 +1603,19 @@ jobs:
         run: echo "::warning::DOCKERHUB_TOKEN and DOCKERHUB_USERNAME are empty. Will build but NOT push."
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
-      - name: Cache Docker layers
-        uses: actions/cache@v2
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-release-${{env.dockertag}}
-          restore-keys: ${{ runner.os }}-buildx-release
-      - id: build_and_push
+      # - <<: *step_docker_cache
+      #   with:
+      #     path: /tmp/.buildx-cache
+      #     key:           ${{ runner.os }}-buildx-release-${{env.dockertag}}
+      #     restore-keys:  ${{ runner.os }}-buildx-release
+      - # - &step_docker_cache
+        #   name: Cache Docker layers
+        #   uses: actions/cache@v2
+        #   with:
+        #     path: /tmp/.buildx-cache
+        #     key:           ${{ runner.os }}-buildx-${{env.dockertag}}
+        #     restore-keys:  ${{ runner.os }}-buildx-
+        id: build_and_push
         name: Build and push
         uses: docker/build-push-action@v2
         with:
@@ -1591,15 +1635,9 @@ jobs:
           tags: ${{ steps.meta_ghcr.outputs.tags }}
           labels: ${{ steps.meta_ghcr.outputs.labels }}
           context: docker/release/
-      - # Temp fix
-        # https://github.com/docker/build-push-action/issues/252
-        # https://github.com/moby/buildkit/issues/1896
-        name: Move cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+    # - *step_docker_move_cache
   docker-D:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+    runs-on: [self-hosted, Linux, iroha] #ubuntu-latest
     env:
       DOCKERHUB_ORG: hyperledger ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1741,13 +1779,19 @@ jobs:
         run: echo "::warning::DOCKERHUB_TOKEN and DOCKERHUB_USERNAME are empty. Will build but NOT push."
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
-      - name: Cache Docker layers
-        uses: actions/cache@v2
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-release-${{env.dockertag}}
-          restore-keys: ${{ runner.os }}-buildx-release
-      - id: build_and_push
+      # - <<: *step_docker_cache
+      #   with:
+      #     path: /tmp/.buildx-cache
+      #     key:           ${{ runner.os }}-buildx-release-${{env.dockertag}}
+      #     restore-keys:  ${{ runner.os }}-buildx-release
+      - # - &step_docker_cache
+        #   name: Cache Docker layers
+        #   uses: actions/cache@v2
+        #   with:
+        #     path: /tmp/.buildx-cache
+        #     key:           ${{ runner.os }}-buildx-${{env.dockertag}}
+        #     restore-keys:  ${{ runner.os }}-buildx-
+        id: build_and_push
         name: Build and push
         uses: docker/build-push-action@v2
         with:
@@ -1767,13 +1811,8 @@ jobs:
           tags: ${{ steps.meta_ghcr.outputs.tags }}
           labels: ${{ steps.meta_ghcr.outputs.labels }}
           context: docker/release/
-      - # Temp fix
-        # https://github.com/docker/build-push-action/issues/252
-        # https://github.com/moby/buildkit/issues/1896
-        name: Move cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+    # - *step_docker_move_cache
+
     needs:
       - build-UD
       - generate_matrixes

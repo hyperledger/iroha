@@ -10,7 +10,7 @@ Validation
 
 The validation for all queries includes:
 
-- timestamp — shouldn't be from the past (24 hours prior to the peer time) or from the future (range of 5 minutes added to the peer time)
+- timestamp — shouldn't be from the past (configurable in `Iroha configuration <../../configure/index.html#environment-specific-parameters>`_) or from the future (range of 5 minutes added to the peer time)
 - signature of query creator — used for checking the identity of query creator
 - query counter — checked to be incremented with every subsequent query from query creator
 - roles — depending on the query creator's role: the range of state available to query can relate to to the same account, account in the domain, to the whole chain, or not allowed at all
