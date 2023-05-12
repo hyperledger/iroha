@@ -113,8 +113,8 @@ impl Configuration {
     }
 }
 
-/// `SumeragiConfiguration` provides an ability to define parameters
-/// such as `BLOCK_TIME_MS` and a list of `TRUSTED_PEERS`.
+/// Part of the [`Configuration`]. It is separated from the main structure in order to be able
+/// to load it from a separate file (see [`TrustedPeers::from_path`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(transparent)]
