@@ -1,8 +1,10 @@
 #![allow(clippy::restriction)]
 
+use std::{collections::HashMap, env::VarError, ffi::OsStr};
+
 use iroha_config_base::{
     derive::{Documented, LoadFromEnv, Override},
-    proxy::{Documented as _, LoadFromEnv as _, Override as _},
+    proxy::{Documented as _, FetchEnv, LoadFromEnv as _, Override as _},
 };
 use serde::{Deserialize, Serialize};
 
@@ -101,27 +103,62 @@ fn test_docs() {
     );
 }
 
-fn env_var_setup() {
+struct TestEnv {
+    map: HashMap<String, String>,
+}
+
+impl TestEnv {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+        }
+    }
+
+    fn set_var(&mut self, key: impl AsRef<str>, value: impl AsRef<str>) {
+        self.map
+            .insert(key.as_ref().to_owned(), value.as_ref().to_owned());
+    }
+
+    fn remove_var(&mut self, key: impl AsRef<str>) {
+        self.map.remove(key.as_ref());
+    }
+}
+
+impl FetchEnv for TestEnv {
+    fn fetch<K: AsRef<OsStr>>(&self, key: K) -> Result<String, VarError> {
+        self.map
+            .get(
+                key.as_ref()
+                    .to_str()
+                    .ok_or(VarError::NotUnicode(key.as_ref().to_owned()))?,
+            )
+            .ok_or(VarError::NotPresent)
+            .map(|x| x.clone())
+    }
+}
+
+fn test_env_factory() -> TestEnv {
     let string_wrapper_json = "string";
     let string = "cool string";
     let data_json = "{\"key\": \"key\", \"value\": 34}";
     let inner_json = "{\"a\": \"\", \"b\": 0}";
-    std::env::set_var("CONF_STRING_WRAPPER", string_wrapper_json);
-    std::env::set_var("CONF_STRING", string);
-    std::env::set_var("CONF_DATA", data_json);
-    std::env::set_var("CONF_OPTIONAL_STRING_WRAPPER", string_wrapper_json);
-    std::env::set_var("CONF_OPTIONAL_STRING", string);
-    std::env::set_var("CONF_OPTIONAL_DATA", data_json);
-    std::env::set_var("CONF_OPTIONAL_INNER", inner_json);
-    std::env::set_var("CONF_INNER_A", "string");
-    std::env::set_var("CONF_INNER_B", "42");
+    let mut env = TestEnv::new();
+    env.set_var("CONF_STRING_WRAPPER", string_wrapper_json);
+    env.set_var("CONF_STRING", string);
+    env.set_var("CONF_DATA", data_json);
+    env.set_var("CONF_OPTIONAL_STRING_WRAPPER", string_wrapper_json);
+    env.set_var("CONF_OPTIONAL_STRING", string);
+    env.set_var("CONF_OPTIONAL_DATA", data_json);
+    env.set_var("CONF_OPTIONAL_INNER", inner_json);
+    env.set_var("CONF_INNER_A", "string");
+    env.set_var("CONF_INNER_B", "42");
+    env
 }
 
 #[test]
 fn test_proxy_load_from_env() {
-    env_var_setup();
     let config = ConfigurationProxy::new_with_placeholders();
-    let env_config = ConfigurationProxy::from_env();
+    let env_config = ConfigurationProxy::from_env(&test_env_factory()).expect("valid env");
     assert_eq!(&env_config.optional_data, &config.optional_data);
     assert_eq!(
         &env_config.optional_string_wrapper,
@@ -133,21 +170,43 @@ fn test_proxy_load_from_env() {
 
 #[test]
 fn test_can_load_inner_without_the_wrapping_config() {
-    env_var_setup();
-    std::env::remove_var("CONF_OPTIONAL_INNER");
+    let mut env = test_env_factory();
+    env.remove_var("CONF_OPTIONAL_INNER");
     let config = ConfigurationProxy::new_with_placeholders();
-    let env_config = ConfigurationProxy::from_env();
+    let env_config = ConfigurationProxy::from_env(&env).expect("valid env");
     assert_eq!(&env_config.optional_inner, &config.optional_inner)
 }
 
 #[test]
 fn test_proxy_combine_does_not_overload_with_none() {
-    env_var_setup();
     let config = ConfigurationProxy::new_with_none();
     dbg!(&config);
-    let env_config = ConfigurationProxy::from_env();
+    let env_config = ConfigurationProxy::from_env(&test_env_factory()).expect("valid env");
     dbg!(&env_config);
     let combine_config = env_config.clone().override_with(config);
     dbg!(&combine_config);
     assert_eq!(&env_config.optional_data, &combine_config.optional_data);
+}
+
+#[test]
+fn configuration_proxy_from_env_returns_err_on_parsing_error() {
+    #[derive(LoadFromEnv, Debug)]
+    #[config(env_prefix = "")]
+    struct Target {
+        foo: Option<u64>,
+    }
+
+    struct Env;
+
+    impl FetchEnv for Env {
+        fn fetch<K: AsRef<OsStr>>(&self, key: K) -> Result<String, VarError> {
+            match key.as_ref().to_str().unwrap() {
+                "FOO" => Ok("not u64 for sure".to_owned()),
+                _ => Err(VarError::NotPresent),
+            }
+        }
+    }
+
+    let err = Target::from_env(&Env).expect_err("Must not be parsed");
+    assert_eq!(format!("{err}"), "Failed to deserialize env var `FOO` as JSON:  --> 1:1\n  |\n1 | not u64 for sure\n  | ^---\n  |\n  = expected array, boolean, null, number, object, or string");
 }

@@ -407,6 +407,8 @@ pub mod view {
 pub mod proxy {
     //! Module with traits for configuration proxies
 
+    use thiserror::Error;
+
     use super::*;
 
     /// Trait for dynamic and asynchronous configuration via
@@ -478,7 +480,30 @@ pub mod proxy {
         ///
         /// # Errors
         /// - Fails if the deserialization of any field fails.
-        fn from_env() -> Self::ReturnValue;
+        fn from_env<F: FetchEnv>(fetcher: &F) -> Self::ReturnValue;
+    }
+
+    #[derive(Debug, Error)]
+    pub enum LoadFromEnvError {
+        #[error("Failed to deserialize env var `{}` as JSON: {}", .env_var, .error)]
+        Json5 {
+            // FIXME: or String?
+            env_var: &'static str,
+            error: json5::Error,
+        },
+    }
+
+    impl LoadFromEnvError {
+        pub fn json5(env_var: &'static str, error: json5::Error) -> Self {
+            Self::Json5 { env_var, error }
+        }
+    }
+
+    /// Abstraction over the actual implementation of how env variables are gotten
+    /// from the environment. Necessary for mocking in tests.
+    pub trait FetchEnv {
+        /// The signature of [`std::env::var`].
+        fn fetch<K: AsRef<std::ffi::OsStr>>(&self, key: K) -> Result<String, std::env::VarError>;
     }
 
     /// Trait for configuration loading and deserialization from disk
@@ -519,4 +544,13 @@ pub mod proxy {
     {
         Option::<T>::deserialize(deserializer).map(Some)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{env::VarError, ffi::OsStr};
+
+    use iroha_config_derive::view;
+
+    use super::proxy::FetchEnv;
 }

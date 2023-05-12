@@ -1,8 +1,12 @@
 //! This module contains [`struct@Configuration`] structure and related implementation.
 #![allow(clippy::std_instead_of_core)]
-use std::fmt::Debug;
 
-use iroha_config_base::derive::{view, Documented, Error as ConfigError, Proxy};
+use std::{env::VarError, ffi::OsStr, fmt::Debug};
+
+use iroha_config_base::{
+    derive::{view, Documented, Error as ConfigError, Proxy},
+    proxy::{FetchEnv, LoadFromEnv, LoadFromEnvError},
+};
 use iroha_crypto::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -79,6 +83,18 @@ impl Default for ConfigurationProxy {
 }
 
 impl ConfigurationProxy {
+    pub fn from_std_env() -> Result<Self, LoadFromEnvError> {
+        struct FetchStdEnv;
+
+        impl FetchEnv for FetchStdEnv {
+            fn fetch<K: AsRef<OsStr>>(&self, key: K) -> Result<String, VarError> {
+                std::env::var(key)
+            }
+        }
+
+        Self::from_env(&FetchStdEnv)
+    }
+
     /// Finalise Iroha config proxy by instantiating mutually equivalent fields
     /// via the uppermost Iroha config fields. Configuration fields provided in the
     /// Iroha config always overwrite those in sumeragi even in case of discrepancy,
@@ -121,6 +137,7 @@ impl ConfigurationProxy {
                                     "`p2p_addr` should not be set to `null` or `None` explicitly.",
                             })?,
                         &self.public_key.clone().expect(
+                            // FIXME: not a useful error for the end user
                             "Iroha `public_key` should have been initialized above at the latest",
                         ),
                     ));

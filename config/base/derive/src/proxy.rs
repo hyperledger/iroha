@@ -70,6 +70,11 @@ pub fn impl_override(ast: &StructWithFields) -> TokenStream {
 
 #[allow(clippy::str_to_string)]
 pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
+    let env_fetcher_ident = quote! { env_fetcher };
+    let fetch_env_trait = quote! { ::iroha_config_base::proxy::FetchEnv };
+    let env_trait = quote! { ::iroha_config_base::proxy::LoadFromEnv };
+    let load_from_env_err = quote! {::iroha_config_base::proxy::LoadFromEnvError};
+
     let set_field = ast.fields
         .iter()
         .map(|field| {
@@ -91,29 +96,28 @@ pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
             } else {
                 false
             };
-            let err_ty = quote! { ::iroha_config_base::derive::Error };
-            let err_variant = quote! { ::iroha_config_base::derive::Error::Json5 };
             let inner = if is_string {
                 quote! { Ok(var) }
             } else if as_str_attr {
                 quote! {{
                     let value: ::serde_json::Value = var.into();
-                    ::json5::from_str(&value.to_string()).map_err(#err_variant)
+                    ::json5::from_str(&value.to_string())
                 }}
             } else {
-                quote! { ::json5::from_str(&var).map_err(#err_variant) }
+                quote! { ::json5::from_str(&var) }
             };
             let mut set_field = quote! {
-                let #ident = std::env::var(#field_env)
+                let #ident = #env_fetcher_ident.fetch(#field_env)
+                    // omit a possible unicode error
                     .ok()
-                    .and_then(|var| {
-                        let inner: Result<#inner_ty, #err_ty> = #inner;
-                        inner.ok()
-                    });
+                    .map(|var| {
+                        #inner.map_err(|err| #load_from_env_err::json5(#field_env, err))
+                    })
+                    .transpose()?;
             };
             if field.has_inner {
                 set_field.extend(quote! {
-                    let inner_proxy = <#inner_ty as ::iroha_config_base::proxy::LoadFromEnv>::from_env();
+                    let inner_proxy = <#inner_ty as #env_trait>::from_env(#env_fetcher_ident)?;
                     let #ident = if let Some(old_inner) = #ident {
                         Some(<#inner_ty as ::iroha_config_base::proxy::Override>::override_with(old_inner, inner_proxy))
                     } else {
@@ -121,7 +125,7 @@ pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
                     };
                 });
             }
-        set_field
+            set_field
         });
 
     let name = &ast.ident;
@@ -133,15 +137,15 @@ pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
             quote! { #ident }
         })
         .collect::<Vec<_>>();
-    let env_trait = quote! { ::iroha_config_base::proxy::LoadFromEnv };
     quote! {
         impl #env_trait for #name {
-            type ReturnValue = Self;
-            fn from_env() -> Self::ReturnValue {
+            type ReturnValue = Result<Self, #load_from_env_err>;
+            fn from_env<F: #fetch_env_trait>(#env_fetcher_ident: &F) -> Self::ReturnValue {
                 #(#set_field)*
-                #name {
+                let proxy = #name {
                     #(#fields),*
-                }
+                };
+                Ok(proxy)
             }
         }
     }

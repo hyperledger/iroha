@@ -23,3 +23,10 @@ color-eyre = "0.6.2"
 clap = { version = "4.2.1", features = ["derive"] }
 serde_json = "1.0.91"
 tempfile = "3.3.0"
+derive_more = "0.99.17"
+serde = { version = "1.0.151", default-features = false, features = ["derive"] }
+git-version = "0.3.5" # there is some other way in iroha cli?
+serde_yaml = "0.9.21"
+expect-test = "1.4.1"
+pathdiff = "0.2.1"
+path-absolutize = "3.1.0"
