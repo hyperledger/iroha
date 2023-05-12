@@ -545,12 +545,3 @@ pub mod proxy {
         Option::<T>::deserialize(deserializer).map(Some)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::{env::VarError, ffi::OsStr};
-
-    use iroha_config_derive::view;
-
-    use super::proxy::FetchEnv;
-}
