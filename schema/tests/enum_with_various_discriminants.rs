@@ -10,11 +10,9 @@ use parity_scale_codec::{Decode, Encode};
 
 #[derive(IntoSchema, Encode, Decode)]
 enum Foo {
-    #[codec(index = 1)]
     A,
     B,
     C,
-    #[codec(index = 99)]
     D,
 }
 
@@ -30,22 +28,18 @@ fn discriminant() {
                 variants: vec![
                     EnumVariant {
                         tag: "A".to_owned(),
-                        discriminant: 1,
                         ty: None,
                     },
                     EnumVariant {
                         tag: "B".to_owned(),
-                        discriminant: 1,
                         ty: None,
                     },
                     EnumVariant {
                         tag: "C".to_owned(),
-                        discriminant: 2,
                         ty: None,
                     },
                     EnumVariant {
                         tag: "D".to_owned(),
-                        discriminant: 99,
                         ty: None,
                     },
                 ],

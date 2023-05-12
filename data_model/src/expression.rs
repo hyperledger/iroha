@@ -1,8 +1,6 @@
 //! Expressions to use inside of ISIs.
 
 #![allow(
-    // Because of `codec(skip)`
-    clippy::default_trait_access,
     // Because of length on instructions and expressions (can't be 0)
     clippy::len_without_is_empty,
     // Because of length on instructions and expressions (XXX: Should it be trait?)
@@ -177,7 +175,6 @@ pub mod model {
         /// Expression.
         #[serde(flatten)]
         pub expression: Box<Expression>,
-        #[codec(skip)]
         pub(super) _value_type: PhantomData<V>,
     }
 
@@ -591,7 +588,7 @@ impl Where {
     pub fn new(expression: impl Into<EvaluatesTo<Value>>) -> Self {
         Self {
             expression: expression.into(),
-            values: Default::default(),
+            values: btree_map::BTreeMap::default(),
         }
     }
 

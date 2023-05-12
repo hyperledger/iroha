@@ -138,8 +138,7 @@ impl<T> From<SignatureOf<T>> for Signature {
 
 ffi::ffi_item! {
     /// Represents signature of the data (`Block` or `Transaction` for example).
-    // Lint triggers when expanding #[codec(skip)]
-    #[allow(clippy::default_trait_access, clippy::unsafe_derive_deserialize)]
+    #[allow(clippy::unsafe_derive_deserialize)]
     #[derive(Deref, DerefMut, TypeId)]
     #[cfg_attr(not(feature="ffi_import"), derive(Decode, Encode, Serialize, Deserialize))]
     #[cfg_attr(not(feature="ffi_import"), serde(transparent))]
@@ -149,7 +148,7 @@ ffi::ffi_item! {
         #[deref]
         #[deref_mut]
         Signature,
-        #[cfg_attr(not(feature = "ffi_import"), codec(skip))] PhantomData<T>,
+        PhantomData<T>,
     );
 
     // SAFETY: `SignatureOf` has no trap representation in `Signature`

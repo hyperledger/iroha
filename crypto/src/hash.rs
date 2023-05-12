@@ -215,7 +215,7 @@ crate::ffi::ffi_item! {
         #[deref]
         #[deref_mut]
         Hash,
-        #[codec(skip)] PhantomData<T>,
+        PhantomData<T>,
     );
 
     // SAFETY: `HashOf` has no trap representation in `Hash`

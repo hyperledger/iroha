@@ -46,24 +46,20 @@ fn default_discriminants() {
                     variants: vec![
                         EnumVariant {
                             tag: "Variant1".to_owned(),
-                            discriminant: 0,
                             ty: Some(TypeId::of::<bool>()),
                         },
                         EnumVariant {
                             tag: "Variant2".to_owned(),
-                            discriminant: 1,
                             ty: Some(TypeId::of::<alloc::string::String>()),
                         },
                         EnumVariant {
                             tag: "Variant3".to_owned(),
-                            discriminant: 2,
                             ty: Some(TypeId::of::<
                                 core::result::Result<bool, alloc::string::String>,
                             >()),
                         },
                         EnumVariant {
                             tag: "Variant5".to_owned(),
-                            discriminant: 4,
                             ty: Some(TypeId::of::<i32>()),
                         },
                     ],

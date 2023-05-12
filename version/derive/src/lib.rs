@@ -237,13 +237,15 @@ fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
                 use iroha_version::{error::Error, Version, UnsupportedVersion, RawVersioned};
                 use parity_scale_codec::DecodeAll;
 
-                if let Some(version) = input.first() {
-                    if Self::supported_versions().contains(version) {
+                if let Some(&(mut version)) = input.first() {
+                    version += 1;
+
+                    if Self::supported_versions().contains(&version) {
                         let mut input = input.clone();
                         Ok(Self::decode_all(&mut input)?)
                     } else {
                         Err(Error::UnsupportedVersion(Box::new(UnsupportedVersion::new(
-                            *version,
+                            version,
                             RawVersioned::ScaleBytes(input.to_vec())
                         ))))
                     }
@@ -319,16 +321,6 @@ fn impl_declare_versioned(
     } else {
         quote!()
     };
-    let scale_variant_attributes: Vec<_> = version_numbers
-        .iter()
-        .map(|version| {
-            if with_scale {
-                quote!(#[codec(index = #version)])
-            } else {
-                quote!()
-            }
-        })
-        .collect();
     let version_field_name = VERSION_FIELD_NAME;
     let json_impl = if with_json {
         impl_json(enum_name, version_field_name)
@@ -366,7 +358,7 @@ fn impl_declare_versioned(
         pub enum #enum_name {
             #(
                 /// This variant represents a particular version.
-                #scale_variant_attributes #json_variant_attributes
+                #json_variant_attributes
                 #version_idents (#version_struct_idents),
             )*
         }

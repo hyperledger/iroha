@@ -413,10 +413,8 @@ fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
     let variants = data_enum
         .variants
         .iter()
-        .enumerate()
-        .filter(|(_, variant)| !should_skip(&variant.attrs))
-        .map(|(discriminant, variant)| {
-            let discriminant = variant_index(variant, discriminant);
+        .filter(|variant| !should_skip(&variant.attrs, None))
+        .map(|variant| {
             assert!(
                 variant.discriminant.is_none(),
                 "Fieldless enums with explicit discriminants are not allowed"
@@ -430,7 +428,6 @@ fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
             quote! {
                 iroha_schema::EnumVariant {
                     tag: String::from(stringify!(#name)),
-                    discriminant: #discriminant,
                     ty: #ty,
                 }
             }
@@ -438,7 +435,7 @@ fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
     let fields_ty = data_enum
         .variants
         .iter()
-        .filter(|variant| !should_skip(&variant.attrs))
+        .filter(|variant| !should_skip(&variant.attrs, None))
         .filter_map(|variant| variant_field(&variant.fields))
         .collect();
     let expr = syn::parse2(quote! {
@@ -483,8 +480,8 @@ fn is_compact(field: &Field) -> bool {
 }
 
 /// Look for a `#[codec(skip)]` in the given attributes.
-fn should_skip(attrs: &[Attribute]) -> bool {
-    find_meta_item(attrs.iter(), |meta| {
+fn should_skip(attrs: &[Attribute], ty: Option<&syn::Type>) -> bool {
+    let codec_skip = find_meta_item(attrs.iter(), |meta| {
         if let NestedMeta::Meta(Meta::Path(ref path)) = meta {
             if path.is_ident("skip") {
                 return Some(path.span());
@@ -492,40 +489,21 @@ fn should_skip(attrs: &[Attribute]) -> bool {
         }
 
         None
-    })
-    .is_some()
-}
-
-/// Look for a `#[scale(index = $int)]` attribute on a variant. If no attribute
-/// is found, fall back to the discriminant or just the variant index.
-fn variant_index(v: &syn::Variant, i: usize) -> TokenStream2 {
-    // first look for an attribute
-    let index = find_meta_item(v.attrs.iter(), |meta| {
-        if let NestedMeta::Meta(Meta::NameValue(ref nv)) = meta {
-            if nv.path.is_ident("index") {
-                if let syn::Lit::Int(ref val) = nv.lit {
-                    let byte = val
-                        .base10_parse::<u8>()
-                        .expect("Internal error, index attribute must have been checked");
-                    return Some(byte);
-                }
-            }
-        }
-
-        None
     });
 
-    // then fallback to discriminant or just index
-    index
-        .map(|int| quote! { #int })
-        .or_else(|| {
-            v.discriminant.as_ref().map(|(_, expr)| {
-                let n: syn::Lit = syn::parse2(quote! { #expr })
-                    .expect("Fallback in variant_index failed to parse");
-                quote! { #n }
-            })
-        })
-        .unwrap_or_else(|| quote! { #i as u8 })
+    if codec_skip.is_some() {
+        return true;
+    }
+
+    if let Some(syn::Type::Path(ty)) = ty {
+        if let Some(seg) = ty.path.segments.last() {
+            if seg.ident == "PhantomData" {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 /// Finds specific attribute with codec ident satisfying predicate
@@ -546,7 +524,7 @@ where
 /// Filter map function for types
 fn filter_map_fields_types(field: &Field) -> Option<Field> {
     //skip if #[codec(skip)] used
-    if should_skip(&field.attrs) {
+    if should_skip(&field.attrs, Some(&field.ty)) {
         return None;
     }
     if is_compact(field) {
