@@ -49,17 +49,18 @@ pub mod isi {
                 .validate_len(wsv.config.ident_length_limits)
                 .map_err(Error::from)?;
 
-            wsv.modify_domain(&account_id.domain_id.clone(), |domain| {
-                if domain.accounts.get(&account_id).is_some() {
-                    return Err(Error::Repetition(
-                        InstructionType::Register,
-                        IdBox::AccountId(account_id),
-                    ));
-                }
+            let domain = wsv.domain_mut(&account_id.domain_id)?;
+            if domain.accounts.get(&account_id).is_some() {
+                return Err(Error::Repetition(
+                    InstructionType::Register,
+                    IdBox::AccountId(account_id),
+                ));
+            }
+            domain.add_account(account.clone());
 
-                domain.add_account(account.clone());
-                Ok(DomainEvent::Account(AccountEvent::Created(account)))
-            })
+            wsv.emit_events(Some(DomainEvent::Account(AccountEvent::Created(account))));
+
+            Ok(())
         }
     }
 
@@ -68,13 +69,16 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.object_id;
 
-            wsv.modify_domain(&account_id.domain_id.clone(), |domain| {
-                if domain.remove_account(&account_id).is_none() {
-                    return Err(FindError::Account(account_id).into());
-                }
+            let domain = wsv.domain_mut(&account_id.domain_id)?;
+            if domain.remove_account(&account_id).is_none() {
+                return Err(FindError::Account(account_id).into());
+            }
 
-                Ok(DomainEvent::Account(AccountEvent::Deleted(account_id)))
-            })
+            wsv.emit_events(Some(DomainEvent::Account(AccountEvent::Deleted(
+                account_id,
+            ))));
+
+            Ok(())
         }
     }
 
@@ -89,35 +93,39 @@ pub mod isi {
                 .map_err(Error::from)?;
 
             let asset_definition_id = asset_definition.id().clone();
-            wsv.modify_domain(&asset_definition_id.domain_id.clone(), |domain| {
-                if domain.asset_definitions.get(&asset_definition_id).is_some() {
-                    return Err(Error::Repetition(
-                        InstructionType::Register,
-                        IdBox::AssetDefinitionId(asset_definition_id),
-                    ));
-                }
+            let domain = wsv.domain_mut(&asset_definition_id.domain_id)?;
+            if domain.asset_definitions.get(&asset_definition_id).is_some() {
+                return Err(Error::Repetition(
+                    InstructionType::Register,
+                    IdBox::AssetDefinitionId(asset_definition_id),
+                ));
+            }
 
-                #[allow(clippy::match_same_arms)]
-                match asset_definition.value_type {
-                    AssetValueType::Fixed => {
-                        domain.add_asset_total_quantity(asset_definition_id, Fixed::ZERO);
-                    }
-                    AssetValueType::Quantity => {
-                        domain.add_asset_total_quantity(asset_definition_id, u32::MIN);
-                    }
-                    AssetValueType::BigQuantity => {
-                        domain.add_asset_total_quantity(asset_definition_id, u128::MIN);
-                    }
-                    AssetValueType::Store => {
-                        domain.add_asset_total_quantity(asset_definition_id, u32::MIN);
-                    }
+            #[allow(clippy::match_same_arms)]
+            match asset_definition.value_type {
+                AssetValueType::Fixed => {
+                    domain.add_asset_total_quantity(asset_definition_id, Fixed::ZERO);
                 }
+                AssetValueType::Quantity => {
+                    domain.add_asset_total_quantity(asset_definition_id, u32::MIN);
+                }
+                AssetValueType::BigQuantity => {
+                    domain.add_asset_total_quantity(asset_definition_id, u128::MIN);
+                }
+                AssetValueType::Store => {
+                    domain.add_asset_total_quantity(asset_definition_id, u32::MIN);
+                }
+            }
 
-                domain.add_asset_definition(asset_definition.clone());
-                Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::Created(
+            domain.add_asset_definition(asset_definition.clone());
+
+            wsv.emit_events({
+                Some(DomainEvent::AssetDefinition(AssetDefinitionEvent::Created(
                     asset_definition,
                 )))
-            })
+            });
+
+            Ok(())
         }
     }
 
@@ -145,31 +153,35 @@ pub mod isi {
                 }
             }
 
+            let mut events = Vec::with_capacity(assets_to_remove.len() + 1);
             for asset_id in assets_to_remove {
                 let account_id = asset_id.account_id.clone();
-                wsv.modify_account(&account_id, |account| {
-                    if account.remove_asset(&asset_id).is_none() {
-                        error!(%asset_id, "asset not found. This is a bug");
-                    }
-
-                    Ok(AccountEvent::Asset(AssetEvent::Deleted(asset_id)))
-                })?;
-            }
-
-            wsv.modify_domain(&asset_definition_id.domain_id.clone(), |domain| {
-                if domain
-                    .remove_asset_definition(&asset_definition_id)
+                if wsv
+                    .account_mut(&account_id)?
+                    .remove_asset(&asset_id)
                     .is_none()
                 {
-                    return Err(FindError::AssetDefinition(asset_definition_id).into());
+                    error!(%asset_id, "asset not found. This is a bug");
                 }
 
-                domain.remove_asset_total_quantity(&asset_definition_id);
+                events.push(AccountEvent::Asset(AssetEvent::Deleted(asset_id)).into());
+            }
 
-                Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::Deleted(
-                    asset_definition_id,
-                )))
-            })?;
+            let domain = wsv.domain_mut(&asset_definition_id.domain_id)?;
+            if domain
+                .remove_asset_definition(&asset_definition_id)
+                .is_none()
+            {
+                return Err(FindError::AssetDefinition(asset_definition_id).into());
+            }
+
+            domain.remove_asset_total_quantity(&asset_definition_id);
+
+            events.push(WorldEvent::from(DomainEvent::AssetDefinition(
+                AssetDefinitionEvent::Deleted(asset_definition_id),
+            )));
+
+            wsv.emit_events(events);
 
             Ok(())
         }
@@ -181,19 +193,24 @@ pub mod isi {
             let asset_definition_id = self.object_id;
 
             let metadata_limits = wsv.config.asset_definition_metadata_limits;
-            wsv.modify_asset_definition(&asset_definition_id.clone(), |asset_definition| {
-                asset_definition.metadata.insert_with_limits(
-                    self.key.clone(),
-                    self.value.clone(),
-                    metadata_limits,
-                )?;
+            wsv.asset_definition_mut(&asset_definition_id)
+                .map_err(Error::from)
+                .and_then(|asset_definition| {
+                    asset_definition
+                        .metadata
+                        .insert_with_limits(self.key.clone(), self.value.clone(), metadata_limits)
+                        .map_err(Error::from)
+                })?;
 
-                Ok(AssetDefinitionEvent::MetadataInserted(MetadataChanged {
+            wsv.emit_events({
+                Some(AssetDefinitionEvent::MetadataInserted(MetadataChanged {
                     target_id: asset_definition_id,
                     key: self.key,
                     value: Box::new(self.value),
                 }))
-            })
+            });
+
+            Ok(())
         }
     }
 
@@ -202,18 +219,24 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
-            wsv.modify_asset_definition(&asset_definition_id.clone(), |asset_definition| {
-                let value = asset_definition
-                    .metadata
-                    .remove(&self.key)
-                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
+            let value =
+                wsv.asset_definition_mut(&asset_definition_id)
+                    .and_then(|asset_definition| {
+                        asset_definition
+                            .metadata
+                            .remove(&self.key)
+                            .ok_or_else(|| FindError::MetadataKey(self.key.clone()))
+                    })?;
 
-                Ok(AssetDefinitionEvent::MetadataRemoved(MetadataChanged {
+            wsv.emit_events({
+                Some(AssetDefinitionEvent::MetadataRemoved(MetadataChanged {
                     target_id: asset_definition_id,
                     key: self.key,
                     value: Box::new(value),
                 }))
-            })
+            });
+
+            Ok(())
         }
     }
 
@@ -224,17 +247,20 @@ pub mod isi {
 
             let limits = wsv.config.domain_metadata_limits;
 
-            wsv.modify_domain(&domain_id.clone(), |domain| {
-                domain
-                    .metadata
-                    .insert_with_limits(self.key.clone(), self.value.clone(), limits)?;
+            let domain = wsv.domain_mut(&domain_id)?;
+            domain
+                .metadata
+                .insert_with_limits(self.key.clone(), self.value.clone(), limits)?;
 
-                Ok(DomainEvent::MetadataInserted(MetadataChanged {
+            wsv.emit_events({
+                Some(DomainEvent::MetadataInserted(MetadataChanged {
                     target_id: domain_id,
                     key: self.key,
                     value: Box::new(self.value),
                 }))
-            })
+            });
+
+            Ok(())
         }
     }
 
@@ -243,18 +269,21 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let domain_id = self.object_id;
 
-            wsv.modify_domain(&domain_id.clone(), |domain| {
-                let value = domain
-                    .metadata
-                    .remove(&self.key)
-                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
+            let domain = wsv.domain_mut(&domain_id)?;
+            let value = domain
+                .metadata
+                .remove(&self.key)
+                .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
-                Ok(DomainEvent::MetadataRemoved(MetadataChanged {
+            wsv.emit_events({
+                Some(DomainEvent::MetadataRemoved(MetadataChanged {
                     target_id: domain_id,
                     key: self.key,
                     value: Box::new(value),
                 }))
-            })
+            });
+
+            Ok(())
         }
     }
 }
