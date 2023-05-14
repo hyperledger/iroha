@@ -474,6 +474,7 @@ fn handle_message(
     let role = current_topology.role(&sumeragi.peer_id);
     let addr = &sumeragi.peer_id.address;
 
+    #[allow(clippy::suspicious_operation_groupings)]
     match (message, role) {
         (Message::ViewChangeSuggested, _) => {
             trace!("Received view change suggestion.");
