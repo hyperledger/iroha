@@ -34,7 +34,7 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
-    #[serde(untagged)]
+    #[serde(untagged)] // Unaffected by #3330
     pub enum FilterOpt<F> {
         /// Accept all items that will be passed to `filter()` method
         #[serde(with = "accept_all_as_string")]
