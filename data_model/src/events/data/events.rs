@@ -505,7 +505,7 @@ mod validator {
         )]
         #[non_exhaustive]
         #[ffi_type]
-        #[serde(untagged)]      // Unaffected by #3330, as single unit variant
+        #[serde(untagged)] // Unaffected by #3330, as single unit variant
         #[repr(transparent)]
         pub enum ValidatorEvent {
             Upgraded,
