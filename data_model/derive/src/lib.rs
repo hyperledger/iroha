@@ -188,7 +188,7 @@ pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```
 /// use iroha_data_model_derive::{Filter, IdEqOrdHash};
 /// use iroha_data_model::prelude::{HasOrigin, Identifiable};
 /// use serde::{Deserialize, Serialize};

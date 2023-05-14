@@ -72,8 +72,8 @@ mod small_vector {
     /// produces a heap-allocated vector.
     ///
     /// To instantiate a vector with `N` stack elements,
-    /// ```ignore
-    /// use iroha_data_model::small::SmallVec;
+    /// ```
+    /// use iroha_primitives::small::SmallVec;
     ///
     /// let a: SmallVec<[u8; 24]> = SmallVec(smallvec::smallvec![32]);
     /// ```

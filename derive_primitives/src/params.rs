@@ -2,7 +2,7 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```ignore, example sketch
 //! enum ParamType {
 //!    // ...
 //! }

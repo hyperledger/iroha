@@ -15,14 +15,11 @@ use super::Configuration;
 #[allow(dead_code)]
 const PEER_COUNT: usize = 7;
 
-#[ignore = "ignore, more in #2851"]
 #[test]
 fn transaction_with_no_instructions_should_be_committed() -> Result<()> {
     test_with_instruction_and_status_and_port(None, PipelineStatusKind::Committed, 10_250)
 }
 
-#[ignore = "ignore, more in #2851"]
-// #[ignore = "Experiment"]
 #[test]
 fn transaction_with_fail_instruction_should_be_rejected() -> Result<()> {
     let fail = FailBox::new("Should be rejected");

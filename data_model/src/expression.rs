@@ -34,7 +34,7 @@ use crate::NumericValue;
 ///
 /// Basic syntax:
 ///
-/// ```ignore
+/// ```ignore, import resolution
 /// gen_expr_and_impls! {
 ///     /// Comment
 ///     #[derive(Derives)]
@@ -58,7 +58,7 @@ use crate::NumericValue;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```ignore, import resolution
 /// gen_expr_and_impls! {
 ///     /// Evaluates to the sum of left and right expressions.
 ///     #[derive(Debug)]

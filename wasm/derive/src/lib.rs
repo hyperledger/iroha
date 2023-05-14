@@ -44,7 +44,7 @@ mod entrypoint;
 // `ignore` because this macro idiomatically should be imported from `iroha_wasm` crate.
 //
 /// Using without parameters:
-/// ```ignore
+/// ```ignore, example sketch
 /// #[iroha_wasm::entrypoint]
 /// fn trigger_entrypoint() {
 ///     // do stuff
@@ -52,7 +52,7 @@ mod entrypoint;
 /// ```
 ///
 /// Using only `authority` parameter:
-/// ```ignore
+/// ```no_run
 /// use iroha_wasm::{data_model::prelude::*, dbg};
 ///
 /// #[iroha_wasm::entrypoint(params = "[authority]")]
@@ -62,7 +62,7 @@ mod entrypoint;
 /// ```
 ///
 /// Using both `authority` and `triggering_event` parameters:
-/// ```ignore
+/// ```ignore, sketch of example
 /// use iroha_wasm::{data_model::prelude::*, dbg};
 ///
 /// #[iroha_wasm::entrypoint(params = "[authority, triggering_event]")]

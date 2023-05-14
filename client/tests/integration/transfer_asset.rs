@@ -28,7 +28,7 @@ fn simulate_transfer_fixed() {
 
 #[should_panic]
 #[test]
-#[ignore = "long"]
+#[ignore = "Long, waits for timeout"]
 fn simulate_insufficient_funds() {
     simulate_transfer(
         Fixed::try_from(20_f64).expect("Valid"),

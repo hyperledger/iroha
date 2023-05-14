@@ -13,7 +13,6 @@ use test_network::*;
 
 use super::Configuration;
 
-#[ignore = "ignore, more in #2851"]
 #[test]
 fn connected_peers_with_f_2_1_2() -> Result<()> {
     connected_peers_with_f(2, 10_050)

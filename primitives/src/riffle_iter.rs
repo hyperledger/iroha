@@ -3,8 +3,21 @@
 /// Iterator which combine two iterators into the single one.
 /// Name is inspired by riffle shuffle of cards deck.
 ///
-/// ```ignore
-/// [(a0,a1,a2,..),(b0,b1,b2,..)] -> (a0,b0,a1,b1,a2,b2,..)
+/// TODO: Proper test with assertions and explanations.
+/// ```
+/// use iroha_primitives::riffle_iter::RiffleIter;
+///
+/// let a = vec![1, 2, 3, 4, 5];
+/// let b = vec![10, 20, 30];
+/// let mut r = a.into_iter().riffle(b);
+/// assert_eq!(r.next(), Some(1));
+/// assert_eq!(r.next(), Some(10));
+/// assert_eq!(r.next(), Some(2));
+/// assert_eq!(r.next(), Some(20));
+/// assert_eq!(r.next(), Some(3));
+/// assert_eq!(r.next(), Some(30));
+/// assert_eq!(r.next(), Some(4));
+/// assert_eq!(r.next(), Some(5));
 /// ```
 #[derive(Clone)]
 pub struct RiffleIterator<A, B> {

@@ -112,7 +112,7 @@ pub trait Reload<T> {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```ignore, too many imports
 /// use iroha_config_derive::Documented;
 /// use serde::{Deserialize, Serialize};
 /// use iroha_config::runtime_upgrades::{handle, Reload, ReloadMut, ReloadError};
@@ -217,11 +217,11 @@ pub mod handle {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
     /// use serde::{Serialize, Deserialize};
     /// use  iroha_config_base::runtime_upgrades::{handle::Value, Reload};
     ///
-    /// #[derive(iroha_config_base::derive::Combine, Serialize, Deserialize)]
+    /// #[derive(Serialize, Deserialize)]
     /// pub struct Config { option: Value<bool> }
     ///
     /// fn main() {

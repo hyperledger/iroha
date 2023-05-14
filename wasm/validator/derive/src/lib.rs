@@ -22,7 +22,7 @@ mod validate;
 ///
 /// The syntax is:
 ///
-/// ```ignore
+/// ```ignore, example
 /// #[iroha_validator::entrypoint(params = "[<type>,*]")]
 /// ```
 ///
@@ -52,9 +52,7 @@ mod validate;
 ///
 /// Using only `query` parameter:
 ///
-// `ignore` because this macro idiomatically should be imported from `iroha_wasm` crate.
-//
-/// ```ignore
+/// ```ignore, because this macro idiomatically should be imported from `iroha_wasm` crate.
 /// use iroha_validator::prelude::*;
 ///
 /// #[entrypoint(params = "[operation]")]
@@ -69,7 +67,7 @@ mod validate;
 ///
 /// Using both `authority` and `operation` parameters:
 ///
-/// ```ignore
+/// ```ignore, because this macro idiomatically should be imported from `iroha_wasm` crate.
 /// use iroha_validator::prelude::*;
 ///
 /// #[entrypoint(params = "[authority, operation]")]
@@ -93,7 +91,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```ignore, because this macro idiomatically should be imported from `iroha_wasm` crate.
 /// use iroha_validator::{pass_conditions, prelude::*};
 ///
 /// #[derive(Token, ValidateGrantRevoke, pass_conditions::derive_conversions::asset::Owner)]

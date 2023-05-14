@@ -625,13 +625,13 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
     /// use eyre::Result;
     /// use iroha_client::{
     ///     client::{Client, ResponseHandler},
     ///     http::{RequestBuilder, Response, Method},
     /// };
-    /// use iroha_data_model::{predicate::PredicateBox, prelude::{Account, FindAllAccounts, Pagination}};
+    /// use iroha_data_model::{predicate::PredicateBox, prelude::*};
     ///
     /// struct YourAsyncRequest;
     ///
@@ -664,8 +664,9 @@ impl Client {
     ///     // Put `YourAsyncRequest` as a type here
     ///     // It returns the request and the handler (zero-cost abstraction) for the response
     ///     let (req, resp_handler) = client.prepare_query_request::<_, YourAsyncRequest>(
-    ///         FindAllAccounts::new(),
+    ///         FindAllAccounts,
     ///         Pagination::default(),
+    ///         Sorting::default(),
     ///         PredicateBox::default(),
     ///     )?;
     ///
