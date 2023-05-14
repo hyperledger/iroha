@@ -482,7 +482,7 @@ pub mod error {
             IntoSchema,
         )]
         #[display(fmt = "Block was rejected during consensus")]
-        #[serde(untagged)]      // Unaffected by #3330 as it's a unit variant
+        #[serde(untagged)] // Unaffected by #3330 as it's a unit variant
         #[repr(transparent)]
         #[ffi_type]
         pub enum BlockRejectionReason {

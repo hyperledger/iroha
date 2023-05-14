@@ -352,6 +352,7 @@ pub fn partially_tagged_serialize_derive(input: TokenStream) -> TokenStream {
 /// ```
 /// use serde::Deserialize;
 /// use iroha_data_model_derive::PartiallyTaggedDeserialize;
+/// use std::string::ToString;
 ///
 /// #[derive(Debug, PartialEq, Eq, PartiallyTaggedDeserialize)]
 /// enum Outer {
