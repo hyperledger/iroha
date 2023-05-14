@@ -150,7 +150,7 @@ pub fn impl_partially_tagged_serialize(enum_: &PartiallyTaggedEnum) -> TokenStre
                 }
 
                 #[derive(::serde::Serialize)]
-                #[serde(untagged)]
+                #[serde(untagged)] // Unaffected by #3330, because Serialize implementations are unaffected
                 enum SerializeHelper<'re> {
                     #(
                         #(

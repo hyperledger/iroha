@@ -717,7 +717,7 @@ pub mod model {
     )]
     // SAFETY: `UpgradableBox` has no trap representations in `validator::Validator`
     #[ffi_type(unsafe {robust})]
-    #[serde(untagged)]
+    #[serde(untagged)]          // Unaffected by #3330, because stores binary data with no `u128`
     #[repr(transparent)]
     pub enum UpgradableBox {
         /// [`Validator`](`validator::Validator`) variant.
