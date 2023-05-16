@@ -81,6 +81,15 @@ harness = false
 name = "kura"
 harness = false
 
+[[bench]]
+name = "apply_blocks"
+harness = false
+path = "benches/apply_blocks/benchmark.rs"
+
+[[example]]
+name = "apply_blocks"
+harness = false
+path = "benches/apply_blocks/oneshot.rs"
 
 [package.metadata.cargo-all-features]
 denylist = [
