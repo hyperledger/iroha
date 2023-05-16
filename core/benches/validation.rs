@@ -1,11 +1,15 @@
 #![allow(missing_docs, clippy::restriction)]
 
-use std::{collections::BTreeSet, str::FromStr as _, sync::Arc};
+use std::{collections::BTreeSet, str::FromStr as _};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{
-    block::*, prelude::*, smartcontracts::isi::Registrable as _,
-    sumeragi::network_topology::Topology, tx::TransactionValidator, wsv::World,
+    block::*,
+    prelude::*,
+    smartcontracts::{isi::Registrable as _, Execute},
+    sumeragi::network_topology::Topology,
+    tx::TransactionValidator,
+    wsv::World,
 };
 use iroha_data_model::{prelude::*, transaction::InBlock};
 
@@ -60,7 +64,7 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let (public_key, _) = keys.into();
 
-    WorldStateView::new(
+    let wsv = WorldStateView::new(
         {
             let domain_id = DomainId::from_str(START_DOMAIN).expect("Valid");
             let account_id = AccountId::new(
@@ -73,7 +77,21 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
             World::with([domain], BTreeSet::new())
         },
         kura,
-    )
+    );
+
+    {
+        let path_to_validator = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../configs/peer/validator.wasm");
+        let wasm = std::fs::read(&path_to_validator)
+            .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_validator.display()));
+        let validator = Validator::new(WasmSmartContract::from_compiled(wasm));
+        let authority = "genesis@genesis".parse().expect("Valid");
+        UpgradeBox::new(validator)
+            .execute(&authority, &wsv)
+            .expect("Failed to load validator");
+    }
+
+    wsv
 }
 
 fn accept_transaction(criterion: &mut Criterion) {
@@ -117,14 +135,12 @@ fn validate_transaction(criterion: &mut Criterion) {
     .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failure_count = 0;
+    let wsv = build_test_and_transient_wsv(keys);
     let _ = criterion.bench_function("validate", move |b| {
         let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
         b.iter(|| {
-            match transaction_validator.validate(
-                transaction.clone(),
-                false,
-                &Arc::new(build_test_and_transient_wsv(keys.clone())),
-            ) {
+            let wsv = wsv.clone();
+            match transaction_validator.validate(transaction.clone(), false, &wsv) {
                 Ok(_) => success_count += 1,
                 Err(_) => failure_count += 1,
             }
