@@ -1902,30 +1902,11 @@ mod swarm {
                       TORII_TELEMETRY_URL: iroha0:8180
                       IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                       IROHA_GENESIS_ACCOUNT_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9"}'
-                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"}]'
+                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"}]'
                     ports:
                     - 1337:1337
                     - 8080:8080
                     - 8180:8180
-                    volumes:
-                    - ./config:/config
-                    init: true
-                    command: null
-                  iroha3:
-                    build: ./iroha-cloned
-                    environment:
-                      IROHA_PUBLIC_KEY: ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE
-                      IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"ab0e99c2b845b4ac7b3e88d25a860793c7eb600a25c66c75cba0bae91e955aa6854457b2e3d6082181da73dc01c1e6f93a72d0c45268dc8845755287e98a5dee"}'
-                      TORII_P2P_ADDR: iroha3:1340
-                      TORII_API_URL: iroha3:8083
-                      TORII_TELEMETRY_URL: iroha3:8183
-                      IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
-                      IROHA_GENESIS_ACCOUNT_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9"}'
-                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"},{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"}]'
-                    ports:
-                    - 1340:1340
-                    - 8083:8083
-                    - 8183:8183
                     volumes:
                     - ./config:/config
                     init: true
@@ -1940,7 +1921,7 @@ mod swarm {
                       TORII_TELEMETRY_URL: iroha1:8181
                       IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                       IROHA_GENESIS_ACCOUNT_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9"}'
-                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"}]'
+                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"},{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"}]'
                     ports:
                     - 1338:1338
                     - 8081:8081
@@ -1959,11 +1940,30 @@ mod swarm {
                       TORII_TELEMETRY_URL: iroha2:8182
                       IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                       IROHA_GENESIS_ACCOUNT_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9"}'
-                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"}]'
+                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                     ports:
                     - 1339:1339
                     - 8082:8082
                     - 8182:8182
+                    volumes:
+                    - ./config:/config
+                    init: true
+                    command: null
+                  iroha3:
+                    build: ./iroha-cloned
+                    environment:
+                      IROHA_PUBLIC_KEY: ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE
+                      IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"ab0e99c2b845b4ac7b3e88d25a860793c7eb600a25c66c75cba0bae91e955aa6854457b2e3d6082181da73dc01c1e6f93a72d0c45268dc8845755287e98a5dee"}'
+                      TORII_P2P_ADDR: iroha3:1340
+                      TORII_API_URL: iroha3:8083
+                      TORII_TELEMETRY_URL: iroha3:8183
+                      IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
+                      IROHA_GENESIS_ACCOUNT_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9"}'
+                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"}]'
+                    ports:
+                    - 1340:1340
+                    - 8083:8083
+                    - 8183:8183
                     volumes:
                     - ./config:/config
                     init: true
