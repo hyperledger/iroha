@@ -867,6 +867,7 @@ mod swarm {
         fs::File,
         io::{BufWriter, Write},
         num::NonZeroUsize,
+        ops::Deref,
         path::{Path, PathBuf},
         str::FromStr,
     };
@@ -874,7 +875,7 @@ mod swarm {
     use clap::ValueEnum;
     use color_eyre::{
         eyre::{eyre, Context, ContextCompat},
-        Result,
+        Report, Result,
     };
     use iroha_crypto::{KeyGenConfiguration, KeyPair};
     use iroha_data_model::peer::PeerId;
@@ -926,26 +927,26 @@ mod swarm {
 
     impl<T: Write> RunArgs<T> for Args {
         fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-            let prerare_dir_strategy = if self.dir_force {
+            let prepare_dir_strategy = if self.dir_force {
                 PrepareDirectoryStrategy::ForceRecreate
             } else {
                 PrepareDirectoryStrategy::Prompt
             };
             let source = ImageSource::from(self.source);
-            let dir = TargetDirectory::new(self.dir);
+            let target_dir = TargetDirectory::new(AbsolutePath::absolutize(self.dir)?);
 
-            if let EarlyEnding::Halt = dir
-                .prepare(prerare_dir_strategy)
+            if let EarlyEnding::Halt = target_dir
+                .prepare(prepare_dir_strategy)
                 .wrap_err("failed to prepare directory")?
             {
                 return Ok(());
             }
 
             let image_source = source
-                .resolve(&dir)
+                .resolve(&target_dir)
                 .wrap_err("failed to resolve the source of image")?;
 
-            let config_dir = dir.path.join("config");
+            let config_dir = AbsolutePath::absolutize(target_dir.path.join("config"))?;
 
             if self.no_default_configuration {
                 PrepareConfigurationStrategy::GenerateOnlyDirectory
@@ -956,14 +957,16 @@ mod swarm {
             .wrap_err("failed to prepare configuration")?;
 
             DockerComposeBuilder {
+                target_dir: target_dir.path.clone(),
+                config_dir,
                 image: image_source,
-                config_dir_relative: config_dir.clone(),
+                // config_dir_relative: config_dir.clone(),
                 peers: self.peers,
                 seed: self.seed.map(|x| x.into_bytes()),
             }
             .build()
             .wrap_err("failed to build docker compose")?
-            .write_file(&dir.path.join("docker-compose.yml"))
+            .write_file(&target_dir.path.join("docker-compose.yml"))
             .wrap_err("failed to write compose file")?;
 
             Ok(())
@@ -1016,7 +1019,10 @@ mod swarm {
     #[derive(Clone, Debug)]
     enum ImageSource {
         Dockerhub(Channel),
-        Github { revision: String },
+        Github {
+            revision: String,
+        },
+        /// Raw path passed from user
         Path(PathBuf),
     }
 
@@ -1041,29 +1047,20 @@ mod swarm {
     impl ImageSource {
         /// Has a side effect: if self is [`Self::Github`], it clones the repo into
         /// the target directory.
-        fn resolve(self, dir: &TargetDirectory) -> Result<ResolvedImageSource> {
+        fn resolve(self, target: &TargetDirectory) -> Result<ResolvedImageSource> {
             match self {
-                Self::Path(path) => {
-                    let absolute = path.absolutize()?;
-                    let relative_to_target = pathdiff::diff_paths(&absolute, &dir.path)
-                        .ok_or_else(|| {
-                            eyre!(
-                                "cannot find relative path from {} to {}",
-                                dir.path.display(),
-                                absolute.display()
-                            )
-                        })?;
-                    Ok(ResolvedImageSource::Build {
-                        path: relative_to_target,
-                    })
-                }
+                Self::Path(path) => Ok(ResolvedImageSource::Build {
+                    path: AbsolutePath::absolutize(path)
+                        .wrap_err("failed to resolve build path")?,
+                }),
                 Self::Github { revision } => {
-                    let clone_dir = PathBuf::from_str("./iroha-cloned").unwrap();
+                    let clone_dir = target.path.join("./iroha-cloned");
+                    let clone_dir = AbsolutePath::absolutize(clone_dir)?;
 
                     shallow_git_clone(
                         "https://github.com/hyperledger/iroha.git",
                         revision,
-                        &dir.path.join(&clone_dir),
+                        &clone_dir,
                     )
                     .wrap_err("failed to clone the repo")?;
 
@@ -1079,7 +1076,7 @@ mod swarm {
     fn shallow_git_clone(
         remote: impl AsRef<str>,
         revision: impl AsRef<str>,
-        dir: &Path,
+        dir: &AbsolutePath,
     ) -> Result<()> {
         std::fs::create_dir(dir)?;
 
@@ -1113,9 +1110,10 @@ mod swarm {
         Ok(())
     }
 
+    #[derive(Debug)]
     enum ResolvedImageSource {
         Image { name: String },
-        Build { path: PathBuf },
+        Build { path: AbsolutePath },
     }
 
     enum PrepareConfigurationStrategy {
@@ -1124,14 +1122,12 @@ mod swarm {
     }
 
     impl PrepareConfigurationStrategy {
-        fn run(&self, dir: &Path) -> Result<()> {
-            std::fs::create_dir(dir).wrap_err("failed to create the config directory")?;
+        fn run(&self, config_dir: &AbsolutePath) -> Result<()> {
+            std::fs::create_dir(config_dir).wrap_err("failed to create the config directory")?;
 
             match self {
                 Self::GenerateOnlyDirectory => {}
                 Self::GenerateDefault => {
-                    let path_genesis = PathBuf::from_str("./genesis.json").unwrap();
-                    let path_config = PathBuf::from_str("./config.json").unwrap();
                     let path_validator = PathBuf::from_str("./validator.wasm").unwrap();
 
                     let raw_genesis_block = {
@@ -1148,10 +1144,12 @@ mod swarm {
                     let validator = super::validator::construct_validator()
                         .wrap_err("failed to construct the validator")?;
 
-                    File::create(dir.join(path_genesis))?
+                    File::create(config_dir.join("./genesis.json"))?
                         .write_all(raw_genesis_block.as_bytes())?;
-                    File::create(dir.join(path_config))?.write_all(default_config.as_bytes())?;
-                    File::create(dir.join(path_validator))?.write_all(validator.as_slice())?;
+                    File::create(config_dir.join("./config.json"))?
+                        .write_all(default_config.as_bytes())?;
+                    File::create(config_dir.join(path_validator))?
+                        .write_all(validator.as_slice())?;
                 }
             }
 
@@ -1164,39 +1162,24 @@ mod swarm {
         Prompt,
     }
 
-    // FIXME: just use bool?
-    enum DirectoryExistence {
-        Exists,
-        Absent,
-    }
-
-    impl DirectoryExistence {
-        /// FIXME: use [`std::fs::try_exists`] when it is stable
-        fn check(path: &PathBuf) -> Self {
-            if path.exists() {
-                DirectoryExistence::Exists
-            } else {
-                DirectoryExistence::Absent
-            }
-        }
-    }
-
     enum EarlyEnding {
         Halt,
         Continue,
     }
 
+    #[derive(Clone, Debug)]
     struct TargetDirectory {
-        path: PathBuf,
+        path: AbsolutePath,
     }
 
     impl TargetDirectory {
-        fn new(path: PathBuf) -> Self {
+        fn new(path: AbsolutePath) -> Self {
             Self { path }
         }
 
         fn prepare(&self, strategy: PrepareDirectoryStrategy) -> Result<EarlyEnding> {
-            if let DirectoryExistence::Exists = DirectoryExistence::check(&self.path) {
+            // FIXME: use [`std::fs::try_exists`] when it is stable
+            if self.path.exists() {
                 match strategy {
                     PrepareDirectoryStrategy::ForceRecreate => {
                         self.remove_dir()
@@ -1221,7 +1204,7 @@ mod swarm {
 
         /// `rm -r <dir>`
         fn remove_dir(&self) -> Result<()> {
-            std::fs::remove_dir(&self.path)
+            std::fs::remove_dir_all(&self.path)
                 .wrap_err_with(|| eyre!("failed to remove the directory: {}", self.path.display()))
         }
 
@@ -1247,9 +1230,11 @@ mod swarm {
         }
     }
 
+    #[derive(Debug)]
     struct DockerComposeBuilder {
+        target_dir: AbsolutePath,
+        config_dir: AbsolutePath,
         image: ResolvedImageSource,
-        config_dir_relative: PathBuf,
         peers: NonZeroUsize,
         seed: Option<Vec<u8>>,
     }
@@ -1266,11 +1251,14 @@ mod swarm {
             let genesis_key_pair = key_gen::generate(&base_seed, "genesis".as_bytes())
                 .wrap_err("failed to generate genesis key pair")?;
             let service_source = match &self.image {
-                ResolvedImageSource::Build { path } => ServiceSource::Build(path.clone()),
+                ResolvedImageSource::Build { path } => {
+                    ServiceSource::Build(path.relative_to(&self.target_dir)?)
+                }
                 ResolvedImageSource::Image { name } => ServiceSource::Image(name.clone()),
             };
             let volumes = vec![(
-                self.config_dir_relative
+                self.config_dir
+                    .relative_to(&self.target_dir)?
                     .to_str()
                     .wrap_err("config directory path is not a valid string")?
                     .to_owned(),
@@ -1308,6 +1296,64 @@ mod swarm {
 
             let compose = DockerCompose::new(services);
             Ok(compose)
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct AbsolutePath {
+        path: PathBuf,
+    }
+
+    impl Deref for AbsolutePath {
+        type Target = PathBuf;
+
+        fn deref(&self) -> &Self::Target {
+            &self.path
+        }
+    }
+
+    impl AsRef<Path> for AbsolutePath {
+        fn as_ref(&self) -> &Path {
+            self.path.as_path()
+        }
+    }
+
+    impl AbsolutePath {
+        fn absolutize(path: PathBuf) -> Result<Self> {
+            Ok(Self {
+                path: if path.is_absolute() {
+                    path
+                } else {
+                    path.absolutize()?.to_path_buf()
+                },
+            })
+        }
+
+        /// Relative path from self to other.
+        ///
+        /// ```
+        /// let a = AbsolutePath::resolve(PathBuf::from_str("./abc/123/xyz")).unwrap();
+        /// let b = AbsolutePath::resolve(PathBuf::from_str("./987")).unwrap();
+        ///
+        /// assert_eq!(a.relative_to(&b), Ok(PathBuf::from_str("../../987")));
+        /// ```
+        fn relative_to(&self, other: &AbsolutePath) -> Result<PathBuf> {
+            pathdiff::diff_paths(self, other)
+                .ok_or_else(|| {
+                    eyre!(
+                        "failed to build relative path from {} to {}",
+                        other.display(),
+                        self.display(),
+                    )
+                })
+                // docker-compose might not like "test" path, but "./test" instead 
+                .map(|rel| {
+                    if !rel.starts_with("..") {
+                        Path::new("./").join(rel)
+                    } else {
+                        rel
+                    }
+                })
         }
     }
 
@@ -1773,19 +1819,59 @@ mod swarm {
 
     #[cfg(test)]
     mod tests {
-        use std::{num::NonZeroUsize, path::Path};
+        use std::{
+            num::NonZeroUsize,
+            path::{Path, PathBuf},
+            str::FromStr,
+        };
 
-        use crate::swarm::{DockerComposeBuilder, ResolvedImageSource};
+        use super::{AbsolutePath, Absolutize, DockerComposeBuilder, ResolvedImageSource, Result};
+
+        impl AbsolutePath {
+            fn from_virtual(path: PathBuf, virtual_root: impl AsRef<Path> + Sized) -> Self {
+                let path = path
+                    .absolutize_virtually(virtual_root)
+                    .unwrap()
+                    .to_path_buf();
+                Self { path }
+            }
+        }
+
+        #[test]
+        fn relative_inner_path_starts_with_dot() {
+            let root = PathBuf::from_str("/").unwrap();
+            let a = AbsolutePath::from_virtual(PathBuf::from_str("./a/b/c").unwrap(), &root);
+            let b = AbsolutePath::from_virtual(PathBuf::from_str("./").unwrap(), &root);
+
+            assert_eq!(
+                a.relative_to(&b).unwrap(),
+                PathBuf::from_str("./a/b/c").unwrap()
+            );
+        }
+
+        #[test]
+        fn relative_outer_path_starts_with_dots() {
+            let root = Path::new("/");
+            let a = AbsolutePath::from_virtual(PathBuf::from_str("./a/b/c").unwrap(), root);
+            let b = AbsolutePath::from_virtual(PathBuf::from_str("./cde").unwrap(), root);
+
+            assert_eq!(
+                b.relative_to(&a).unwrap(),
+                PathBuf::from_str("../../../cde").unwrap()
+            );
+        }
 
         #[test]
         fn generate_peers_deterministically() {
+            let root = Path::new("/");
             let seed: Vec<_> = "iroha".as_bytes().iter().map(|x| x.clone()).collect();
 
             let composed = DockerComposeBuilder {
-                config_dir_relative: "./config".try_into().unwrap(),
+                target_dir: AbsolutePath::from_virtual(PathBuf::from("/test"), root),
+                config_dir: AbsolutePath::from_virtual(PathBuf::from("/test/config"), root),
                 peers: NonZeroUsize::new(4).unwrap(),
                 image: ResolvedImageSource::Build {
-                    path: "./iroha-cloned".try_into().unwrap(),
+                    path: AbsolutePath::from_virtual(PathBuf::from("/test/iroha-cloned"), root),
                 },
                 seed: Some(seed),
             }
