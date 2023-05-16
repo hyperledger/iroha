@@ -213,7 +213,7 @@ impl TransactionValidator {
         };
 
         wsv.validator_view()
-            .clone() // Cloning validator is cheep operation
+            .clone() // Cloning validator is a cheap operation
             .validate(wsv, authority, signed_tx)
             .map_err(|err| {
                 TransactionRejectionReason::NotPermitted(NotPermittedFail {

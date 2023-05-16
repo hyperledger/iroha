@@ -44,6 +44,8 @@ pub struct BlockSynchronizer {
     gossip_period: Duration,
     block_batch_size: u32,
     network: IrohaNetwork,
+    latest_hash: Option<HashOf<VersionedCommittedBlock>>,
+    previous_hash: Option<HashOf<VersionedCommittedBlock>>,
 }
 
 impl BlockSynchronizer {
@@ -60,6 +62,13 @@ impl BlockSynchronizer {
         loop {
             tokio::select! {
                 _ = gossip_period.tick() => self.request_block().await,
+                _ = self.sumeragi.wsv_updated() => {
+                    let (latest_hash, previous_hash) = self
+                        .sumeragi
+                        .apply_wsv(|wsv| (wsv.latest_block_hash(), wsv.previous_block_hash()));
+                    self.latest_hash = latest_hash;
+                    self.previous_hash = previous_hash;
+                }
                 msg = message_receiver.recv() => {
                     let Some(msg) = msg else {
                         info!("All handler to BlockSynchronizer are dropped. Shutting down...");
@@ -90,12 +99,9 @@ impl BlockSynchronizer {
 
     /// Sends request for latest blocks to a chosen peer
     async fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
-        let (latest_hash, previous_hash) = self
-            .sumeragi
-            .wsv(|wsv| (wsv.latest_block_hash(), wsv.previous_block_hash()));
         message::Message::GetBlocksAfter(message::GetBlocksAfter::new(
-            latest_hash,
-            previous_hash,
+            self.latest_hash,
+            self.previous_hash,
             self.peer_id.clone(),
         ))
         .send_to(&self.network, peer_id)
@@ -110,6 +116,8 @@ impl BlockSynchronizer {
         peer_id: PeerId,
         network: IrohaNetwork,
     ) -> Self {
+        let (latest_hash, previous_hash) =
+            sumeragi.apply_wsv(|wsv| (wsv.latest_block_hash(), wsv.previous_block_hash()));
         Self {
             peer_id,
             sumeragi,
@@ -117,6 +125,8 @@ impl BlockSynchronizer {
             gossip_period: Duration::from_millis(config.gossip_period_ms),
             block_batch_size: config.block_batch_size,
             network,
+            latest_hash,
+            previous_hash,
         }
     }
 }
@@ -124,7 +134,7 @@ impl BlockSynchronizer {
 pub mod message {
     //! Module containing messages for [`BlockSynchronizer`](super::BlockSynchronizer).
     use super::*;
-    use crate::{sumeragi::view_change::ProofChain, wsv::WorldStateView};
+    use crate::sumeragi::view_change::ProofChain;
 
     declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant);
 
@@ -217,8 +227,7 @@ pub mod message {
                         warn!("Error: not sending any blocks as batch_size is equal to zero.");
                         return;
                     }
-                    let local_latest_block_hash =
-                        block_sync.sumeragi.wsv(WorldStateView::latest_block_hash);
+                    let local_latest_block_hash = block_sync.latest_hash;
                     if *latest_hash == local_latest_block_hash
                         || *previous_hash == local_latest_block_hash
                     {

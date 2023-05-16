@@ -4,7 +4,6 @@ use std::sync::mpsc;
 
 use iroha_data_model::{block::*, transaction::error::TransactionExpired};
 use iroha_p2p::UpdateTopology;
-use parking_lot::Mutex;
 use tracing::{span, Level};
 
 use super::*;
@@ -21,7 +20,7 @@ pub struct Sumeragi {
     /// An actor that sends events
     pub events_sender: EventsSender,
     /// The world state view instance that is used in public contexts
-    pub public_wsv: Arc<Mutex<WorldStateView>>,
+    pub public_wsv_sender: watch::Sender<WorldStateView>,
     /// Time by which a newly created block should be committed. Prevents malicious nodes
     /// from stalling the network by not participating in consensus
     pub commit_time: Duration,
@@ -334,7 +333,8 @@ impl Sumeragi {
         Strategy::kura_store_block(&self.kura, Arc::clone(&committed_block));
 
         // Update WSV copy that is public facing
-        *self.public_wsv.lock() = self.wsv.clone();
+        self.public_wsv_sender
+            .send_modify(|public_wsv| *public_wsv = self.wsv.clone());
 
         // This sends "Block committed" event, so it should be done
         // AFTER public facing WSV update

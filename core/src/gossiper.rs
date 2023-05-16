@@ -11,7 +11,9 @@ use iroha_p2p::Broadcast;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
 
-use crate::{queue::Queue, sumeragi::SumeragiHandle, IrohaNetwork, NetworkMessage};
+use crate::{
+    queue::Queue, sumeragi::SumeragiHandle, wsv::WorldStateView, IrohaNetwork, NetworkMessage,
+};
 
 /// [`Gossiper`] actor handle.
 #[derive(Clone)]
@@ -43,6 +45,8 @@ pub struct TransactionGossiper {
     network: IrohaNetwork,
     /// Sumearagi
     sumeragi: SumeragiHandle,
+    /// Local clone of [`WorldStateView`]
+    wsv: WorldStateView,
 }
 
 impl TransactionGossiper {
@@ -61,21 +65,26 @@ impl TransactionGossiper {
         queue: Arc<Queue>,
         sumeragi: SumeragiHandle,
     ) -> Self {
+        let wsv = sumeragi.wsv_clone();
         Self {
             queue,
             sumeragi,
             network,
             gossip_batch_size: configuartion.gossip_batch_size,
             gossip_period: Duration::from_millis(configuartion.gossip_period_ms),
+            wsv,
         }
     }
 
-    async fn run(self, mut message_receiver: mpsc::Receiver<TransactionGossip>) {
+    async fn run(mut self, mut message_receiver: mpsc::Receiver<TransactionGossip>) {
         let mut gossip_period = tokio::time::interval(self.gossip_period);
         #[allow(clippy::arithmetic_side_effects)]
         loop {
             tokio::select! {
                 _ = gossip_period.tick() => self.gossip_transactions(),
+                _ = self.sumeragi.wsv_updated() => {
+                    self.wsv = self.sumeragi.wsv_clone();
+                }
                 transaction_gossip = message_receiver.recv() => {
                     let Some(transaction_gossip) = transaction_gossip else {
                         iroha_logger::info!("All handler to Gossiper are dropped. Shutting down...");
@@ -89,10 +98,9 @@ impl TransactionGossiper {
     }
 
     fn gossip_transactions(&self) {
-        let txs = self.sumeragi.wsv(|wsv| {
-            self.queue
-                .n_random_transactions(self.gossip_batch_size, wsv)
-        });
+        let txs = self
+            .queue
+            .n_random_transactions(self.gossip_batch_size, &self.wsv);
 
         if txs.is_empty() {
             iroha_logger::debug!("Nothing to gossip");
@@ -108,11 +116,12 @@ impl TransactionGossiper {
     fn handle_transaction_gossip(&self, TransactionGossip { txs }: TransactionGossip) {
         iroha_logger::trace!(size = txs.len(), "Received new transaction gossip");
 
-        let transaction_limits = self.sumeragi.wsv(|wsv| wsv.config.transaction_limits);
-
         for tx in txs {
-            match <AcceptedTransaction as InBlock>::accept(tx.into_v1(), &transaction_limits) {
-                Ok(tx) => match self.sumeragi.wsv(|wsv| self.queue.push(tx.into(), wsv)) {
+            match <AcceptedTransaction as InBlock>::accept(
+                tx.into_v1(),
+                &self.wsv.config.transaction_limits,
+            ) {
+                Ok(tx) => match self.queue.push(tx.into(), &self.wsv) {
                     Ok(_) => {}
                     Err(crate::queue::Failure {
                         tx,

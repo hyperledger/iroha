@@ -123,7 +123,7 @@ impl Config {
             .as_ref()
             .expect("Must be some")
             .sumeragi
-            .wsv(Clone::clone);
+            .wsv_clone();
         let mut blocks = blocks_wsv
             .all_blocks_by_value()
             .into_iter()

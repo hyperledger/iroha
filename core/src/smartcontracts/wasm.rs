@@ -284,7 +284,7 @@ impl<'wrld> Runtime<'wrld> {
             // is validated and then it's executed. Here it's validating in both steps.
             // Add a flag indicating whether smart contract is being validated or executed
             wsv.validator_view()
-                .clone() // Cloning validator is cheep operation
+                .clone() // Cloning validator is a cheap operation
                 .validate(wsv, account_id, query.clone())
                 .map_err(|error| NotPermittedFail {
                     reason: error.to_string(),
@@ -349,7 +349,7 @@ impl<'wrld> Runtime<'wrld> {
             // is validated and then it's executed. Here it's validating in both steps.
             // Add a flag indicating whether smart contract is being validated or executed
             wsv.validator_view()
-                .clone() // Cloning validator is cheep operation
+                .clone() // Cloning validator is a cheap operation
                 .validate(wsv, account_id, isi)
                 .map_err(|error| NotPermittedFail {
                     reason: error.to_string(),

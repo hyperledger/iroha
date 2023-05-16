@@ -342,7 +342,7 @@ pub mod isi {
             use crate::validator::Validator;
 
             let raw_validator = self.object;
-            let engine = wsv.engine.clone(); // Cloning engine is cheep
+            let engine = wsv.engine.clone(); // Cloning engine is cheap
             let world = wsv.world_mut();
             let new_validator = Validator::new(raw_validator, &engine)
                 .map_err(|err| ValidationError::new(format!("Failed to load wasm blob: {err}")))?;
