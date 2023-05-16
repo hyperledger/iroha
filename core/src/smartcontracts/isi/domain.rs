@@ -119,11 +119,9 @@ pub mod isi {
 
             domain.add_asset_definition(asset_definition.clone());
 
-            wsv.emit_events({
-                Some(DomainEvent::AssetDefinition(AssetDefinitionEvent::Created(
-                    asset_definition,
-                )))
-            });
+            wsv.emit_events(Some(DomainEvent::AssetDefinition(
+                AssetDefinitionEvent::Created(asset_definition),
+            )));
 
             Ok(())
         }
@@ -202,13 +200,13 @@ pub mod isi {
                         .map_err(Error::from)
                 })?;
 
-            wsv.emit_events({
-                Some(AssetDefinitionEvent::MetadataInserted(MetadataChanged {
+            wsv.emit_events(Some(AssetDefinitionEvent::MetadataInserted(
+                MetadataChanged {
                     target_id: asset_definition_id,
                     key: self.key,
                     value: Box::new(self.value),
-                }))
-            });
+                },
+            )));
 
             Ok(())
         }
@@ -228,13 +226,13 @@ pub mod isi {
                             .ok_or_else(|| FindError::MetadataKey(self.key.clone()))
                     })?;
 
-            wsv.emit_events({
-                Some(AssetDefinitionEvent::MetadataRemoved(MetadataChanged {
+            wsv.emit_events(Some(AssetDefinitionEvent::MetadataRemoved(
+                MetadataChanged {
                     target_id: asset_definition_id,
                     key: self.key,
                     value: Box::new(value),
-                }))
-            });
+                },
+            )));
 
             Ok(())
         }
@@ -252,13 +250,11 @@ pub mod isi {
                 .metadata
                 .insert_with_limits(self.key.clone(), self.value.clone(), limits)?;
 
-            wsv.emit_events({
-                Some(DomainEvent::MetadataInserted(MetadataChanged {
-                    target_id: domain_id,
-                    key: self.key,
-                    value: Box::new(self.value),
-                }))
-            });
+            wsv.emit_events(Some(DomainEvent::MetadataInserted(MetadataChanged {
+                target_id: domain_id,
+                key: self.key,
+                value: Box::new(self.value),
+            })));
 
             Ok(())
         }
@@ -275,13 +271,11 @@ pub mod isi {
                 .remove(&self.key)
                 .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
-            wsv.emit_events({
-                Some(DomainEvent::MetadataRemoved(MetadataChanged {
-                    target_id: domain_id,
-                    key: self.key,
-                    value: Box::new(value),
-                }))
-            });
+            wsv.emit_events(Some(DomainEvent::MetadataRemoved(MetadataChanged {
+                target_id: domain_id,
+                key: self.key,
+                value: Box::new(value),
+            })));
 
             Ok(())
         }

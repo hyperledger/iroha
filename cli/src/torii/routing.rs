@@ -76,7 +76,7 @@ impl VerifiedQuery {
             )));
         }
         wsv.validator_view()
-            .clone() // Cloning validator is cheep operation
+            .clone() // Cloning validator is a cheap operation
             .validate(wsv, &self.payload.account_id, self.payload.query.clone())
             .map_err(|err| QueryExecutionFailure::Permission(err.to_string()))?;
         Ok((
@@ -108,12 +108,13 @@ pub(crate) async fn handle_instructions(
     transaction: VersionedSignedTransaction,
 ) -> Result<Empty> {
     let transaction: SignedTransaction = transaction.into_v1();
-    let transaction_limits = sumeragi.wsv(|wsv| wsv.config.transaction_limits);
+    let wsv = sumeragi.wsv_clone();
+    let transaction_limits = wsv.config.transaction_limits;
     let transaction = <AcceptedTransaction as InBlock>::accept(transaction, &transaction_limits)
         .map_err(Error::AcceptTransaction)?
         .into();
-    sumeragi
-        .wsv(|wsv| queue.push(transaction, wsv))
+    queue
+        .push(transaction, &wsv)
         .map_err(|queue::Failure { tx, err }| {
             iroha_logger::warn!(
                 tx_hash=%tx.hash(), ?err,
@@ -137,7 +138,7 @@ pub(crate) async fn handle_queries(
     let request: VerifiedQuery = request.try_into()?;
 
     let (result, filter) = {
-        let mut wsv = sumeragi.wsv(Clone::clone);
+        let mut wsv = sumeragi.wsv_clone();
         let (valid_request, filter) = request.validate(&mut wsv)?;
         let original_result = valid_request.execute(&wsv)?;
         (filter.filter(original_result), filter)
@@ -229,9 +230,10 @@ async fn handle_pending_transactions(
     sumeragi: SumeragiHandle,
     pagination: Pagination,
 ) -> Result<Scale<VersionedPendingTransactions>> {
+    let wsv = sumeragi.wsv_clone();
     Ok(Scale(
-        sumeragi
-            .wsv(|wsv| queue.all_transactions(wsv))
+        queue
+            .all_transactions(&wsv)
             .into_iter()
             .map(VersionedAcceptedTransaction::into_v1)
             .map(SignedTransaction::from)
@@ -417,7 +419,7 @@ async fn handle_version(sumeragi: SumeragiHandle) -> Json {
 
     #[allow(clippy::expect_used)]
     let string = sumeragi
-        .wsv(WorldStateView::latest_block_ref)
+        .apply_wsv(WorldStateView::latest_block_ref)
         .expect("Genesis not applied. Nothing we can do. Solve the issue and rerun.")
         .version()
         .to_string();
