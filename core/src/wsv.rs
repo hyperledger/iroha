@@ -253,7 +253,7 @@ impl WorldStateView {
             Wasm(LoadedWasm { module, .. }) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::new()
                     .with_configuration(self.config.wasm_runtime_config)
-                    .with_engine(self.engine.clone()) // Cloning engine is cheep
+                    .with_engine(self.engine.clone()) // Cloning engine is cheap
                     .build()?;
                 wasm_runtime
                     .execute_trigger_module(self, id, authority.clone(), module, event)
@@ -299,7 +299,7 @@ impl WorldStateView {
             Executable::Wasm(bytes) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::new()
                     .with_configuration(self.config.wasm_runtime_config)
-                    .with_engine(self.engine.clone()) // Cloning engine is cheep
+                    .with_engine(self.engine.clone()) // Cloning engine is cheap
                     .build()?;
                 wasm_runtime
                     .execute(self, authority, bytes)
@@ -1035,7 +1035,7 @@ impl WorldStateView {
             .expect("Must be initialized at this point")
     }
 
-    /// The function puts events produced by `f` into `events_buffer`.
+    /// The function puts events produced by iterator into `events_buffer`.
     /// Events should be produced in the order of expanding scope: from specific to general.
     /// Example: account events before domain events.
     pub fn emit_events<I: IntoIterator<Item = T>, T: Into<WorldEvent>>(&mut self, world_events: I) {

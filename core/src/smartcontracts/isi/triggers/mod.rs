@@ -35,7 +35,7 @@ pub mod isi {
                 }
             }
 
-            let engine = wsv.engine.clone(); // Cloning engine is cheep
+            let engine = wsv.engine.clone(); // Cloning engine is cheap
             let triggers = wsv.triggers_mut();
             let trigger_id = new_trigger.id().clone();
             let success = match &new_trigger.action.filter {
@@ -118,12 +118,12 @@ pub mod isi {
                     .ok_or(super::set::RepeatsOverflowError)
             })?;
 
-            wsv.emit_events({
-                Some(TriggerEvent::Extended(TriggerNumberOfExecutionsChanged {
+            wsv.emit_events(Some(TriggerEvent::Extended(
+                TriggerNumberOfExecutionsChanged {
                     trigger_id: id,
                     by: self.object,
-                }))
-            });
+                },
+            )));
 
             Ok(())
         }
@@ -140,12 +140,12 @@ pub mod isi {
             })?;
             // TODO: Is it okay to remove triggers with 0 repeats count from `TriggerSet` only
             // when they will match some of the events?
-            wsv.emit_events({
-                Some(TriggerEvent::Shortened(TriggerNumberOfExecutionsChanged {
+            wsv.emit_events(Some(TriggerEvent::Shortened(
+                TriggerNumberOfExecutionsChanged {
                     trigger_id: trigger,
                     by: self.object,
-                }))
-            });
+                },
+            )));
 
             Ok(())
         }

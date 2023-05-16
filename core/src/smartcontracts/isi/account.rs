@@ -116,12 +116,12 @@ pub mod isi {
                 }
             }
 
-            wsv.emit_events({
-                Some(AccountEvent::Asset(AssetEvent::Removed(AssetChanged {
+            wsv.emit_events(Some(AccountEvent::Asset(AssetEvent::Removed(
+                AssetChanged {
                     asset_id: asset.id,
                     amount: asset.value,
-                })))
-            });
+                },
+            ))));
 
             Ok(())
         }
@@ -215,13 +215,11 @@ pub mod isi {
                         .map_err(Error::from)
                 })?;
 
-            wsv.emit_events({
-                Some(AccountEvent::MetadataInserted(MetadataChanged {
-                    target_id: account_id.clone(),
-                    key: self.key.clone(),
-                    value: Box::new(self.value),
-                }))
-            });
+            wsv.emit_events(Some(AccountEvent::MetadataInserted(MetadataChanged {
+                target_id: account_id.clone(),
+                key: self.key.clone(),
+                value: Box::new(self.value),
+            })));
 
             Ok(())
         }
@@ -239,13 +237,11 @@ pub mod isi {
                     .ok_or_else(|| FindError::MetadataKey(self.key.clone()))
             })?;
 
-            wsv.emit_events({
-                Some(AccountEvent::MetadataRemoved(MetadataChanged {
-                    target_id: account_id.clone(),
-                    key: self.key,
-                    value: Box::new(value),
-                }))
-            });
+            wsv.emit_events(Some(AccountEvent::MetadataRemoved(MetadataChanged {
+                target_id: account_id.clone(),
+                key: self.key,
+                value: Box::new(value),
+            })));
 
             Ok(())
         }
@@ -274,12 +270,12 @@ pub mod isi {
 
             wsv.add_account_permission(&account_id, permission);
 
-            wsv.emit_events({
-                Some(AccountEvent::PermissionAdded(AccountPermissionChanged {
+            wsv.emit_events(Some(AccountEvent::PermissionAdded(
+                AccountPermissionChanged {
                     account_id,
                     permission_id,
-                }))
-            });
+                },
+            )));
 
             Ok(())
         }
@@ -304,12 +300,12 @@ pub mod isi {
                 return Err(ValidationError::new("Permission not found").into());
             }
 
-            wsv.emit_events({
-                Some(AccountEvent::PermissionRemoved(AccountPermissionChanged {
+            wsv.emit_events(Some(AccountEvent::PermissionRemoved(
+                AccountPermissionChanged {
                     account_id,
                     permission_id: permission.definition_id,
-                }))
-            });
+                },
+            )));
 
             Ok(())
         }
@@ -422,11 +418,9 @@ pub mod isi {
                 if !value.is_zero_value() {
                     let asset_definition = wsv.asset_definition_mut(definition_id)?;
                     forbid_minting(asset_definition)?;
-                    wsv.emit_events({
-                        Some(AssetDefinitionEvent::MintabilityChanged(
-                            definition_id.clone(),
-                        ))
-                    });
+                    wsv.emit_events(Some(AssetDefinitionEvent::MintabilityChanged(
+                        definition_id.clone(),
+                    )));
                 }
                 Ok(())
             }

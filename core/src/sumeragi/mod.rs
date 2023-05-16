@@ -20,6 +20,7 @@ use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
+use tokio::sync::watch;
 
 use crate::handler::ThreadHandler;
 
@@ -53,7 +54,7 @@ struct LastUpdateMetricsData {
 /// Handle to `Sumeragi` actor
 #[derive(Clone)]
 pub struct SumeragiHandle {
-    public_wsv: Arc<Mutex<WorldStateView>>,
+    public_wsv_receiver: watch::Receiver<WorldStateView>,
     message_sender: mpsc::SyncSender<MessagePacket>,
     metrics: Metrics,
     last_update_metrics_mutex: Arc<Mutex<LastUpdateMetricsData>>,
@@ -64,9 +65,24 @@ pub struct SumeragiHandle {
 }
 
 impl SumeragiHandle {
-    /// Pass closure inside and apply fn to [`WorldStateView`]
-    pub fn wsv<T>(&self, f: impl FnOnce(&WorldStateView) -> T) -> T {
-        f(&self.public_wsv.lock())
+    /// Pass closure inside and apply fn to [`WorldStateView`].
+    /// This function must be used with very cheap closures.
+    /// So that it costs no more than cloning wsv.
+    pub fn apply_wsv<T>(&self, f: impl FnOnce(&WorldStateView) -> T) -> T {
+        f(&self.public_wsv_receiver.borrow())
+    }
+
+    /// Get public clone of [`WorldStateView`].
+    pub fn wsv_clone(&self) -> WorldStateView {
+        self.public_wsv_receiver.borrow().clone()
+    }
+
+    /// Notify when [`WorldStateView`] is updated.
+    pub async fn wsv_updated(&mut self) {
+        self.public_wsv_receiver
+            .changed()
+            .await
+            .expect("Shouldn't return error as long as there is at least one SumeragiHandle");
     }
 
     /// Update the metrics on the world state view.
@@ -84,28 +100,14 @@ impl SumeragiHandle {
             .try_into()
             .expect("casting usize to u64");
 
-        let (
-            height,
-            genesis_timestamp,
-            metric_tx_amounts_counter,
-            metric_tx_amounts,
-            latest_block_view_change_index,
-        ) = self.wsv(|wsv| {
-            (
-                wsv.height(),
-                wsv.genesis_timestamp(),
-                wsv.metric_tx_amounts_counter,
-                wsv.metric_tx_amounts,
-                wsv.latest_block_view_change_index(),
-            )
-        });
+        let wsv = self.wsv_clone();
 
         let mut last_guard = self.last_update_metrics_mutex.lock();
 
         let start_index = last_guard.block_height;
         {
             let mut block_index = start_index;
-            while block_index < height {
+            while block_index < wsv.height() {
                 let Some(block) = self.kura.get_block_by_height(block_index + 1) else {
                     break;
                 };
@@ -130,9 +132,9 @@ impl SumeragiHandle {
             last_guard.block_height = block_index;
         }
 
-        let diff_count = metric_tx_amounts_counter - last_guard.metric_tx_amounts_counter;
+        let diff_count = wsv.metric_tx_amounts_counter - last_guard.metric_tx_amounts_counter;
         let diff_amount_per_count =
-            (metric_tx_amounts - last_guard.metric_tx_amounts) / (diff_count as f64);
+            (wsv.metric_tx_amounts - last_guard.metric_tx_amounts) / (diff_count as f64);
         for _ in 0..diff_count {
             last_guard.metric_tx_amounts_counter += 1;
             last_guard.metric_tx_amounts += diff_amount_per_count;
@@ -141,7 +143,7 @@ impl SumeragiHandle {
         }
 
         #[allow(clippy::cast_possible_truncation)]
-        if let Some(timestamp) = genesis_timestamp {
+        if let Some(timestamp) = wsv.genesis_timestamp() {
             // this will overflow in 584942417years.
             self.metrics
                 .uptime_since_genesis_ms
@@ -150,22 +152,19 @@ impl SumeragiHandle {
 
         self.metrics.connected_peers.set(online_peers_count);
 
-        self.wsv(|wsv| -> Result<()> {
-            let domains = wsv.domains();
-            self.metrics.domains.set(domains.len() as u64);
-            for domain in domains.values() {
-                self.metrics
-                    .accounts
-                    .get_metric_with_label_values(&[domain.id().name.as_ref()])
-                    .wrap_err("Failed to compose domains")?
-                    .set(domain.accounts.len() as u64);
-            }
-            Ok(())
-        })?;
+        let domains = wsv.domains();
+        self.metrics.domains.set(domains.len() as u64);
+        for domain in domains.values() {
+            self.metrics
+                .accounts
+                .get_metric_with_label_values(&[domain.id().name.as_ref()])
+                .wrap_err("Failed to compose domains")?
+                .set(domain.accounts.len() as u64);
+        }
 
         self.metrics
             .view_changes
-            .set(latest_block_view_change_index);
+            .set(wsv.latest_block_view_change_index());
 
         self.metrics.queue_size.set(self.queue.tx_len() as u64);
 
@@ -245,7 +244,7 @@ impl SumeragiHandle {
             }
         };
 
-        let public_wsv = Arc::new(Mutex::new(wsv.clone()));
+        let (public_wsv_sender, public_wsv_receiver) = watch::channel(wsv.clone());
 
         #[cfg(debug_assertions)]
         let debug_force_soft_fork = configuration.debug_force_soft_fork;
@@ -257,7 +256,7 @@ impl SumeragiHandle {
             queue: Arc::clone(&queue),
             peer_id: configuration.peer_id.clone(),
             events_sender,
-            public_wsv: Arc::clone(&public_wsv),
+            public_wsv_sender,
             commit_time: Duration::from_millis(configuration.commit_time_limit_ms),
             block_time: Duration::from_millis(configuration.block_time_ms),
             max_txs_in_block: configuration.max_transactions_in_block as usize,
@@ -293,7 +292,7 @@ impl SumeragiHandle {
             queue,
             kura,
             message_sender,
-            public_wsv,
+            public_wsv_receiver,
             metrics: Metrics::default(),
             last_update_metrics_mutex: Arc::new(Mutex::new(LastUpdateMetricsData {
                 block_height: 0,

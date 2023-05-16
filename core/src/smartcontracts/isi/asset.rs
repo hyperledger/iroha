@@ -66,13 +66,11 @@ pub mod isi {
                 )?;
             }
 
-            wsv.emit_events({
-                Some(AssetEvent::MetadataInserted(MetadataChanged {
-                    target_id: asset_id.clone(),
-                    key: self.key,
-                    value: Box::new(self.value),
-                }))
-            });
+            wsv.emit_events(Some(AssetEvent::MetadataInserted(MetadataChanged {
+                target_id: asset_id.clone(),
+                key: self.key,
+                value: Box::new(self.value),
+            })));
 
             Ok(())
         }
@@ -96,13 +94,11 @@ pub mod isi {
                     .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?
             };
 
-            wsv.emit_events({
-                Some(AssetEvent::MetadataRemoved(MetadataChanged {
-                    target_id: asset_id.clone(),
-                    key: self.key,
-                    value: Box::new(value),
-                }))
-            });
+            wsv.emit_events(Some(AssetEvent::MetadataRemoved(MetadataChanged {
+                target_id: asset_id.clone(),
+                key: self.key,
+                value: Box::new(value),
+            })));
 
             Ok(())
         }
@@ -112,14 +108,12 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             wsv.asset_definition_mut(&self.object.id)?.owned_by = self.destination_id.clone();
 
-            wsv.emit_events({
-                Some(AssetDefinitionEvent::OwnerChanged(
-                    AssetDefinitionOwnerChanged {
-                        asset_definition_id: self.object.id,
-                        new_owner: self.destination_id,
-                    },
-                ))
-            });
+            wsv.emit_events(Some(AssetDefinitionEvent::OwnerChanged(
+                AssetDefinitionOwnerChanged {
+                    asset_definition_id: self.object.id,
+                    new_owner: self.destination_id,
+                },
+            )));
 
             Ok(())
         }
@@ -231,7 +225,7 @@ pub mod isi {
                 *quantity
             };
 
-            // TODO: shouldn't we add only increment?
+            // TODO: add only value actually being minted (https://github.com/hyperledger/iroha/issues/3543)
             #[allow(clippy::float_arithmetic)]
             {
                 wsv.metric_tx_amounts += quantity.into_metric();
@@ -239,12 +233,10 @@ pub mod isi {
                 wsv.increase_asset_total_amount(&asset_id.definition_id, mint.object)?;
             }
 
-            wsv.emit_events({
-                Some(AssetEvent::Added(AssetChanged {
-                    asset_id: asset_id.clone(),
-                    amount: mint.object.into(),
-                }))
-            });
+            wsv.emit_events(Some(AssetEvent::Added(AssetChanged {
+                asset_id: asset_id.clone(),
+                amount: mint.object.into(),
+            })));
 
             Ok(())
         }
@@ -292,7 +284,7 @@ pub mod isi {
                 quantity
             };
 
-            // TODO: shouldn't we add only increment?
+            // TODO: add only value actually being burnt (https://github.com/hyperledger/iroha/issues/3543)
             #[allow(clippy::float_arithmetic)]
             {
                 wsv.metric_tx_amounts += quantity.into_metric();
@@ -300,12 +292,10 @@ pub mod isi {
                 wsv.decrease_asset_total_amount(&asset_id.definition_id, burn.object)?;
             }
 
-            wsv.emit_events({
-                Some(AssetEvent::Removed(AssetChanged {
-                    asset_id: asset_id.clone(),
-                    amount: burn.object.into(),
-                }))
-            });
+            wsv.emit_events(Some(AssetEvent::Removed(AssetChanged {
+                asset_id: asset_id.clone(),
+                amount: burn.object.into(),
+            })));
 
             Ok(())
         }
@@ -364,25 +354,23 @@ pub mod isi {
                 *quantity
             };
 
-            // TODO: shouldn't we add anything here since total amount don't change?
+            // TODO: add only value actually being transferred (https://github.com/hyperledger/iroha/issues/3543)
             #[allow(clippy::float_arithmetic)]
             {
                 wsv.metric_tx_amounts += quantity.into_metric();
                 wsv.metric_tx_amounts_counter += 1;
             }
 
-            wsv.emit_events({
-                [
-                    AssetEvent::Removed(AssetChanged {
-                        asset_id: source_id.clone(),
-                        amount: transfer.object.into(),
-                    }),
-                    AssetEvent::Added(AssetChanged {
-                        asset_id: destination_id.clone(),
-                        amount: transfer.object.into(),
-                    }),
-                ]
-            });
+            wsv.emit_events([
+                AssetEvent::Removed(AssetChanged {
+                    asset_id: source_id.clone(),
+                    amount: transfer.object.into(),
+                }),
+                AssetEvent::Added(AssetChanged {
+                    asset_id: destination_id.clone(),
+                    amount: transfer.object.into(),
+                }),
+            ]);
 
             Ok(())
         }
@@ -440,11 +428,9 @@ pub mod isi {
             Mintable::Once => {
                 let asset_definition = wsv.asset_definition_mut(definition_id)?;
                 forbid_minting(asset_definition)?;
-                wsv.emit_events({
-                    Some(AssetDefinitionEvent::MintabilityChanged(
-                        definition_id.clone(),
-                    ))
-                });
+                wsv.emit_events(Some(AssetDefinitionEvent::MintabilityChanged(
+                    definition_id.clone(),
+                )));
                 Ok(())
             }
         }
