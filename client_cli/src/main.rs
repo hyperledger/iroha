@@ -119,7 +119,7 @@ pub trait RunArgs {
     fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>>;
 }
 
-macro_rules! match_run_all {
+macro_rules! match_all {
     (($self:ident, $cfg:ident), { $($variants:path),* $(,)?}) => {
         match $self {
             $($variants(variant) => RunArgs::run(variant, $cfg),)*
@@ -130,7 +130,7 @@ macro_rules! match_run_all {
 impl RunArgs for Subcommand {
     fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
         use Subcommand::*;
-        match_run_all!((self, cfg), { Domain, Account, Asset, Peer, Events, Wasm, Blocks, Json })
+        match_all!((self, cfg), { Domain, Account, Asset, Peer, Events, Wasm, Blocks, Json })
     }
 }
 
@@ -307,7 +307,7 @@ mod domain {
 
     impl RunArgs for Args {
         fn run(self, cfg: &Configuration) -> Result<Box<dyn Serialize>> {
-            match_run_all!((self, cfg), { Args::Register, Args::List })
+            match_all!((self, cfg), { Args::Register, Args::List })
         }
     }
 
@@ -380,7 +380,7 @@ mod account {
 
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
-            match_run_all!((self, cfg), {
+            match_all!((self, cfg), {
                 Args::Register,
                 Args::Set,
                 Args::List,
@@ -425,7 +425,7 @@ mod account {
 
     impl RunArgs for Set {
         fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
-            match_run_all!((self, cfg), { Set::SignatureCondition })
+            match_all!((self, cfg), { Set::SignatureCondition })
         }
     }
 
@@ -561,6 +561,8 @@ mod asset {
         Register(Register),
         /// Command for minting asset in existing Iroha account
         Mint(Mint),
+        /// Command for burning asset in existing Iroha account
+        Burn(Burn),
         /// Transfer asset between accounts
         Transfer(Transfer),
         /// Get info of asset
@@ -572,9 +574,9 @@ mod asset {
 
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
-            match_run_all!(
+            match_all!(
                 (self, cfg),
-                { Args::Register, Args::Mint, Args::Transfer, Args::Get, Args::List }
+                { Args::Register, Args::Mint, Args::Burn, Args::Transfer, Args::Get, Args::List }
             )
         }
     }
@@ -650,6 +652,41 @@ mod asset {
             .into();
             submit([mint_asset], cfg, metadata)
                 .wrap_err("Failed to mint asset of type `NumericValue::U32`")
+        }
+    }
+
+    /// Command for minting asset in existing Iroha account
+    #[derive(StructOpt, Debug)]
+    pub struct Burn {
+        /// Account id where asset is stored (in form of `name@domain_name')
+        #[structopt(long)]
+        pub account: AccountId,
+        /// Asset id from which to mint (in form of `name#domain_name')
+        #[structopt(long)]
+        pub asset: AssetDefinitionId,
+        /// Quantity to mint
+        #[structopt(short, long)]
+        pub quantity: u32,
+        /// The JSON/JSON5 file with key-value metadata pairs
+        #[structopt(short, long, default_value = "")]
+        pub metadata: super::Metadata,
+    }
+
+    impl RunArgs for Burn {
+        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+            let Self {
+                account,
+                asset,
+                quantity,
+                metadata: Metadata(metadata),
+            } = self;
+            let burn_asset = BurnBox::new(
+                quantity.to_value(),
+                IdBox::AssetId(AssetId::new(asset, account)),
+            )
+            .into();
+            submit([burn_asset], cfg, metadata)
+                .wrap_err("Failed to burn asset of type `NumericValue::U32`")
         }
     }
 
@@ -750,7 +787,7 @@ mod peer {
 
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
-            match_run_all!(
+            match_all!(
                 (self, cfg),
                 { Args::Register, Args::Unregister }
             )

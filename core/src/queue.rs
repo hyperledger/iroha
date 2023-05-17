@@ -254,7 +254,6 @@ impl Queue {
     ) -> Option<VersionedAcceptedTransaction> {
         loop {
             let Some(hash) = queue.pop() else {
-                trace!("Queue is empty");
                 return None;
             };
             let entry = match self.txs.entry(hash) {
