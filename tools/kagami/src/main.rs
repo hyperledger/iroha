@@ -944,11 +944,11 @@ mod swarm {
                 return Ok(());
             }
 
-            let image_source = source
+            let config_dir = AbsolutePath::absolutize(target_dir.path.join(DIR_CONFIG))?;
+
+            let source = source
                 .resolve(&target_dir)
                 .wrap_err("failed to resolve the source of image")?;
-
-            let config_dir = AbsolutePath::absolutize(target_dir.path.join(DIR_CONFIG))?;
 
             if self.no_default_configuration {
                 PrepareConfigurationStrategy::GenerateOnlyDirectory
@@ -961,10 +961,9 @@ mod swarm {
             DockerComposeBuilder {
                 target_dir: target_dir.path.clone(),
                 config_dir,
-                image: image_source,
-                // config_dir_relative: config_dir.clone(),
+                source,
                 peers: self.peers,
-                seed: self.seed.map(std::string::String::into_bytes),
+                seed: self.seed.map(String::into_bytes),
             }
             .build()
             .wrap_err("failed to build docker compose")?
@@ -1224,7 +1223,7 @@ mod swarm {
     struct DockerComposeBuilder {
         target_dir: AbsolutePath,
         config_dir: AbsolutePath,
-        image: ResolvedImageSource,
+        source: ResolvedImageSource,
         peers: NonZeroUsize,
         seed: Option<Vec<u8>>,
     }
@@ -1237,7 +1236,7 @@ mod swarm {
                 .wrap_err("failed to generate peers")?;
             let genesis_key_pair = key_gen::generate(base_seed, b"genesis")
                 .wrap_err("failed to generate genesis key pair")?;
-            let service_source = match &self.image {
+            let service_source = match &self.source {
                 ResolvedImageSource::Build { path } => {
                     ServiceSource::Build(path.relative_to(&self.target_dir)?)
                 }
@@ -1425,7 +1424,7 @@ mod swarm {
         use color_eyre::eyre::{eyre, Context};
         use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
         use iroha_data_model::prelude::PeerId;
-        use serde::{ser::Error, Serialize, Serializer};
+        use serde::{ser::Error as _, Serialize, Serializer};
 
         use crate::swarm::peer_generator::Peer;
 
@@ -1851,7 +1850,7 @@ mod swarm {
                 target_dir: AbsolutePath::from_virtual(&PathBuf::from("/test"), root),
                 config_dir: AbsolutePath::from_virtual(&PathBuf::from("/test/config"), root),
                 peers: NonZeroUsize::new(4).unwrap(),
-                image: ResolvedImageSource::Build {
+                source: ResolvedImageSource::Build {
                     path: AbsolutePath::from_virtual(&PathBuf::from("/test/iroha-cloned"), root),
                 },
                 seed: Some(seed),
