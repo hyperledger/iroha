@@ -30,3 +30,7 @@ serde_yaml = "0.9.21"
 expect-test = "1.4.1"
 pathdiff = "0.2.1"
 path-absolutize = "3.1.0"
+spinoff = { version = "0.7.0", features = ["aesthetic"] }
+owo-colors = { version = "3.5.0", features = ["supports-colors"] }
+supports-color = "2.0.0"
+inquire = "0.6.2"
