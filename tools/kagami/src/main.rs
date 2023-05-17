@@ -831,8 +831,6 @@ mod tokens {
 }
 
 mod validator {
-    use color_eyre::owo_colors::OwoColorize;
-
     use super::*;
 
     #[derive(ClapArgs, Debug, Clone, Copy)]
@@ -863,7 +861,6 @@ mod validator {
 
 mod swarm {
     use std::{
-        collections::{HashMap, HashSet},
         fs::File,
         io::{BufWriter, Write},
         num::NonZeroUsize,
@@ -875,10 +872,8 @@ mod swarm {
     use clap::ValueEnum;
     use color_eyre::{
         eyre::{eyre, Context, ContextCompat},
-        Report, Result,
+        Result,
     };
-    use iroha_crypto::{KeyGenConfiguration, KeyPair};
-    use iroha_data_model::peer::PeerId;
     use path_absolutize::Absolutize;
 
     use super::ClapArgs;
@@ -933,7 +928,7 @@ mod swarm {
     }
 
     impl<T: Write> RunArgs<T> for Args {
-        fn run(self, writer: &mut BufWriter<T>) -> Outcome {
+        fn run(self, _writer: &mut BufWriter<T>) -> Outcome {
             let prepare_dir_strategy = if self.dir_force {
                 PrepareDirectoryStrategy::ForceRecreate
             } else {
@@ -943,7 +938,7 @@ mod swarm {
             let target_dir = TargetDirectory::new(AbsolutePath::absolutize(self.dir)?);
 
             if let EarlyEnding::Halt = target_dir
-                .prepare(prepare_dir_strategy)
+                .prepare(&prepare_dir_strategy)
                 .wrap_err("failed to prepare directory")?
             {
                 return Ok(());
@@ -969,7 +964,7 @@ mod swarm {
                 image: image_source,
                 // config_dir_relative: config_dir.clone(),
                 peers: self.peers,
-                seed: self.seed.map(|x| x.into_bytes()),
+                seed: self.seed.map(std::string::String::into_bytes),
             }
             .build()
             .wrap_err("failed to build docker compose")?
@@ -1172,7 +1167,7 @@ mod swarm {
             Self { path }
         }
 
-        fn prepare(&self, strategy: PrepareDirectoryStrategy) -> Result<EarlyEnding> {
+        fn prepare(&self, strategy: &PrepareDirectoryStrategy) -> Result<EarlyEnding> {
             // FIXME: use [`std::fs::try_exists`] when it is stable
             if self.path.exists() {
                 match strategy {
@@ -1236,14 +1231,11 @@ mod swarm {
 
     impl DockerComposeBuilder {
         fn build(&self) -> Result<DockerCompose> {
-            let base_seed = match &self.seed {
-                Some(x) => Some(x.as_slice()),
-                None => None,
-            };
+            let base_seed = self.seed.as_deref();
 
-            let peers = peer_generator::generate_peers(self.peers, &base_seed)
+            let peers = peer_generator::generate_peers(self.peers, base_seed)
                 .wrap_err("failed to generate peers")?;
-            let genesis_key_pair = key_gen::generate(&base_seed, "genesis".as_bytes())
+            let genesis_key_pair = key_gen::generate(base_seed, b"genesis")
                 .wrap_err("failed to generate genesis key pair")?;
             let service_source = match &self.image {
                 ResolvedImageSource::Build { path } => {
@@ -1277,7 +1269,7 @@ mod swarm {
                     };
 
                     let service = DockerComposeService::new(
-                        &peer,
+                        peer,
                         service_source.clone(),
                         volumes.clone(),
                         command,
@@ -1325,13 +1317,6 @@ mod swarm {
         }
 
         /// Relative path from self to other.
-        ///
-        /// ```
-        /// let a = AbsolutePath::resolve(PathBuf::from_str("./abc/123/xyz")).unwrap();
-        /// let b = AbsolutePath::resolve(PathBuf::from_str("./987")).unwrap();
-        ///
-        /// assert_eq!(a.relative_to(&b), Ok(PathBuf::from_str("../../987")));
-        /// ```
         fn relative_to(&self, other: &AbsolutePath) -> Result<PathBuf> {
             pathdiff::diff_paths(self, other)
                 .ok_or_else(|| {
@@ -1343,10 +1328,11 @@ mod swarm {
                 })
                 // docker-compose might not like "test" path, but "./test" instead 
                 .map(|rel| {
-                    if !rel.starts_with("..") {
-                        Path::new("./").join(rel)
-                    } else {
+                    if rel.starts_with("..") {
                         rel
+                    } else {
+                        Path::new("./").join(rel)
+
                     }
                 })
         }
@@ -1357,19 +1343,15 @@ mod swarm {
 
         /// If there is no base seed, the additional one will be ignored
         pub fn generate(
-            base_seed: &Option<&[u8]>,
+            base_seed: Option<&[u8]>,
             additional_seed: &[u8],
         ) -> Result<KeyPair, Error> {
             let cfg = base_seed
                 .map(|base| {
-                    let seed: Vec<_> = base
-                        .iter()
-                        .chain(additional_seed)
-                        .map(|x| x.clone())
-                        .collect();
+                    let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
                     KeyGenConfiguration::default().use_seed(seed)
                 })
-                .unwrap_or_else(|| KeyGenConfiguration::default());
+                .unwrap_or_default();
 
             KeyPair::generate_with_configuration(cfg)
         }
@@ -1379,7 +1361,7 @@ mod swarm {
         use std::{collections::HashMap, num::NonZeroUsize};
 
         use color_eyre::{eyre::Context, Report};
-        use iroha_crypto::{KeyGenConfiguration, KeyPair};
+        use iroha_crypto::KeyPair;
         use iroha_data_model::prelude::PeerId;
 
         const BASE_PORT_P2P: u16 = 1337;
@@ -1407,9 +1389,10 @@ mod swarm {
 
         pub fn generate_peers(
             peers: NonZeroUsize,
-            base_seed: &Option<&[u8]>,
+            base_seed: Option<&[u8]>,
         ) -> Result<HashMap<String, Peer>, Report> {
-            (0u16..peers.get() as u16)
+            (0u16..u16::try_from(peers.get())
+                .expect("Peers count is likely to be in bounds of u16"))
                 .map(|i| {
                     let service_name = format!("{BASE_SERVICE_NAME}{i}");
 
@@ -1432,20 +1415,17 @@ mod swarm {
 
     mod serialize_docker_compose {
         use std::{
-            collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+            collections::{BTreeMap, BTreeSet},
             fmt::Display,
             fs::File,
             io::Write,
-            path::{Path, PathBuf},
+            path::PathBuf,
         };
 
         use color_eyre::eyre::{eyre, Context};
         use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
         use iroha_data_model::prelude::PeerId;
-        use serde::{
-            ser::{Error, SerializeMap},
-            Serialize, Serializer,
-        };
+        use serde::{ser::Error, Serialize, Serializer};
 
         use crate::swarm::peer_generator::Peer;
 
@@ -1467,7 +1447,7 @@ mod swarm {
 
             pub fn write_file(&self, path: &PathBuf) -> Result<(), color_eyre::Report> {
                 let yaml = serde_yaml::to_string(self).wrap_err("failed to serialise YAML")?;
-                File::create(&path)
+                File::create(path)
                     .wrap_err(eyre!("failed to create file: {:?}", path))?
                     .write_all(yaml.as_bytes())
                     .wrap_err("failed to write YAML content")?;
@@ -1546,7 +1526,7 @@ mod swarm {
             }
         }
 
-        #[derive(Eq, PartialEq, Debug)]
+        #[derive(Debug)]
         pub enum ServiceCommand {
             SubmitGenesis,
             None,
@@ -1554,7 +1534,7 @@ mod swarm {
 
         impl ServiceCommand {
             fn is_none(&self) -> bool {
-                self == &Self::None
+                matches!(self, Self::None)
             }
         }
 
@@ -1658,21 +1638,19 @@ mod swarm {
         #[cfg(test)]
         mod test {
             use std::{
-                collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+                collections::{BTreeMap, BTreeSet, HashMap},
                 env::VarError,
                 ffi::OsStr,
                 path::PathBuf,
                 str::FromStr,
             };
 
-            use clap::ColorChoice::Always;
             use color_eyre::eyre::Context;
             use iroha_config::{
                 base::proxy::{FetchEnv, LoadFromEnv, Override},
                 iroha::ConfigurationProxy,
             };
             use iroha_crypto::{KeyGenConfiguration, KeyPair};
-            use serde::Serialize;
 
             use super::{
                 CompactPeerEnv, DockerCompose, DockerComposeService, DockerComposeVersion,
@@ -1700,10 +1678,10 @@ mod swarm {
                         .get(
                             key.as_ref()
                                 .to_str()
-                                .ok_or(VarError::NotUnicode(key.as_ref().into()))?,
+                                .ok_or_else(|| VarError::NotUnicode(key.as_ref().into()))?,
                         )
                         .ok_or(VarError::NotPresent)
-                        .map(|x| x.clone());
+                        .map(std::clone::Clone::clone);
 
                     res
                 }
@@ -1766,7 +1744,7 @@ mod swarm {
                                 source: ServiceSource::Build(PathBuf::from_str(".").unwrap()),
                                 environment: CompactPeerEnv {
                                     key_pair: key_pair.clone(),
-                                    genesis_key_pair: key_pair.clone(),
+                                    genesis_key_pair: key_pair,
                                     p2p_addr: "iroha0:1337".to_owned(),
                                     api_url: "iroha0:1337".to_owned(),
                                     telemetry_url: "iroha0:1337".to_owned(),
@@ -1828,10 +1806,10 @@ mod swarm {
             str::FromStr,
         };
 
-        use super::{AbsolutePath, Absolutize, DockerComposeBuilder, ResolvedImageSource, Result};
+        use super::{AbsolutePath, Absolutize, DockerComposeBuilder, ResolvedImageSource};
 
         impl AbsolutePath {
-            fn from_virtual(path: PathBuf, virtual_root: impl AsRef<Path> + Sized) -> Self {
+            fn from_virtual(path: &PathBuf, virtual_root: impl AsRef<Path> + Sized) -> Self {
                 let path = path
                     .absolutize_virtually(virtual_root)
                     .unwrap()
@@ -1843,8 +1821,8 @@ mod swarm {
         #[test]
         fn relative_inner_path_starts_with_dot() {
             let root = PathBuf::from_str("/").unwrap();
-            let a = AbsolutePath::from_virtual(PathBuf::from_str("./a/b/c").unwrap(), &root);
-            let b = AbsolutePath::from_virtual(PathBuf::from_str("./").unwrap(), &root);
+            let a = AbsolutePath::from_virtual(&PathBuf::from("./a/b/c"), &root);
+            let b = AbsolutePath::from_virtual(&PathBuf::from("./"), &root);
 
             assert_eq!(
                 a.relative_to(&b).unwrap(),
@@ -1855,8 +1833,8 @@ mod swarm {
         #[test]
         fn relative_outer_path_starts_with_dots() {
             let root = Path::new("/");
-            let a = AbsolutePath::from_virtual(PathBuf::from_str("./a/b/c").unwrap(), root);
-            let b = AbsolutePath::from_virtual(PathBuf::from_str("./cde").unwrap(), root);
+            let a = AbsolutePath::from_virtual(&PathBuf::from("./a/b/c"), root);
+            let b = AbsolutePath::from_virtual(&PathBuf::from("./cde"), root);
 
             assert_eq!(
                 b.relative_to(&a).unwrap(),
@@ -1867,14 +1845,14 @@ mod swarm {
         #[test]
         fn generate_peers_deterministically() {
             let root = Path::new("/");
-            let seed: Vec<_> = "iroha".as_bytes().iter().map(|x| x.clone()).collect();
+            let seed: Vec<_> = b"iroha".to_vec();
 
             let composed = DockerComposeBuilder {
-                target_dir: AbsolutePath::from_virtual(PathBuf::from("/test"), root),
-                config_dir: AbsolutePath::from_virtual(PathBuf::from("/test/config"), root),
+                target_dir: AbsolutePath::from_virtual(&PathBuf::from("/test"), root),
+                config_dir: AbsolutePath::from_virtual(&PathBuf::from("/test/config"), root),
                 peers: NonZeroUsize::new(4).unwrap(),
                 image: ResolvedImageSource::Build {
-                    path: AbsolutePath::from_virtual(PathBuf::from("/test/iroha-cloned"), root),
+                    path: AbsolutePath::from_virtual(&PathBuf::from("/test/iroha-cloned"), root),
                 },
                 seed: Some(seed),
             }

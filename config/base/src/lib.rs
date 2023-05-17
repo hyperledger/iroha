@@ -483,17 +483,22 @@ pub mod proxy {
         fn from_env<F: FetchEnv>(fetcher: &F) -> Self::ReturnValue;
     }
 
+    /// Errors that might occur during the loading data from environment
+    /// using [`LoadFromEnv`] trait.
     #[derive(Debug, Error)]
     pub enum LoadFromEnvError {
-        #[error("Failed to deserialize env var `{}` as JSON: {}", .env_var, .error)]
+        /// JSON5 deserialization error
+        #[error("Failed to deserialize env var `{}` as JSON5: {}", .env_var, .error)]
         Json5 {
-            // FIXME: or String?
+            /// The environment variable name
             env_var: &'static str,
+            /// The actual parsing error
             error: json5::Error,
         },
     }
 
     impl LoadFromEnvError {
+        /// Shortcut for [`Self::Json5`]
         pub fn json5(env_var: &'static str, error: json5::Error) -> Self {
             Self::Json5 { env_var, error }
         }
@@ -503,6 +508,10 @@ pub mod proxy {
     /// from the environment. Necessary for mocking in tests.
     pub trait FetchEnv {
         /// The signature of [`std::env::var`].
+        ///
+        /// # Errors
+        ///
+        /// See errors of [`std::env::var`].
         fn fetch<K: AsRef<std::ffi::OsStr>>(&self, key: K) -> Result<String, std::env::VarError>;
     }
 

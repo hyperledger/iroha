@@ -72,16 +72,20 @@ ffi::ffi_item! {
     #[repr(u8)]
     pub enum Algorithm {
         #[default]
+        #[allow(missing_docs)]
         Ed25519,
+        #[allow(missing_docs)]
         Secp256k1,
+        #[allow(missing_docs)]
         BlsNormal,
+        #[allow(missing_docs)]
         BlsSmall,
     }
 }
 
 impl Algorithm {
     /// Maps the algorithm to its static string representation
-    pub const fn as_static_str(&self) -> &'static str {
+    pub const fn as_static_str(self) -> &'static str {
         match self {
             Self::Ed25519 => ED_25519,
             Self::Secp256k1 => SECP_256_K1,
