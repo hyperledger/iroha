@@ -77,7 +77,7 @@ impl Validator {
 
         let runtime = wasm::RuntimeBuilder::new()
             .with_engine(self.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-            .with_configuration(wsv.config.wasm_runtime_config)
+            .with_configuration(wsv.config.borrow().wasm_runtime_config)
             .build()?;
 
         trace!("Running validator");

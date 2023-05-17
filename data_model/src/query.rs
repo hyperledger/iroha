@@ -1341,7 +1341,7 @@ pub mod http {
         pub fn sign(
             self,
             key_pair: iroha_crypto::KeyPair,
-        ) -> Result<SignedQuery, iroha_crypto::Error> {
+        ) -> Result<SignedQuery, iroha_crypto::error::Error> {
             SignatureOf::new(key_pair, &self.payload).map(|signature| SignedQuery {
                 payload: self.payload,
                 signature,

@@ -34,6 +34,8 @@ pub mod model {
     #[ffi_type]
     pub struct PeerId {
         /// Address of the [`Peer`]'s entrypoint.
+        // TODO: Derive with getset once FFI impl is fixed
+        #[getset(skip)]
         pub address: String,
         /// Public Key of the [`Peer`].
         pub public_key: PublicKey,
@@ -62,6 +64,13 @@ impl PeerId {
             address: String::from(address),
             public_key: public_key.clone(),
         }
+    }
+    /// Serialize the data contained in this Id for use in hashing.
+    pub fn payload(&self) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend(self.address.bytes());
+        data.extend(self.public_key.payload());
+        data
     }
 }
 

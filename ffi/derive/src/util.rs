@@ -1,11 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use proc_macro2::TokenStream;
 use proc_macro_error::{abort, OptionExt};
 use quote::quote;
-use syn::{parse_quote, visit::Visit, Ident};
+use syn::{parse_quote, visit::Visit, Fields, Ident};
 
-use crate::impl_visitor::{find_doc_attr, unwrap_result_type, Arg, FnDescriptor};
+use crate::impl_visitor::{is_doc_attr, unwrap_result_type, Arg, FnDescriptor};
 
 /// Type of accessor method derived for a structure
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -16,26 +16,31 @@ enum Derive {
 }
 
 /// Generate FFI function equivalents of derived methods
-pub fn gen_derived_methods(item: &syn::ItemStruct) -> Vec<FnDescriptor> {
-    let struct_derives = parse_derives(&item.attrs).unwrap_or_default();
+pub fn gen_derived_methods<'a>(
+    name: &Ident,
+    attrs: &[syn::Attribute],
+    fields: &'a syn::Fields,
+) -> impl Iterator<Item = FnDescriptor<'a>> {
+    let struct_derives = parse_derives(attrs).unwrap_or_default();
+    let mut ffi_derives = HashMap::new();
 
-    let mut ffi_derives = Vec::new();
-    match &item.fields {
-        syn::Fields::Named(syn::FieldsNamed { named, .. }) => named.iter().for_each(|field| {
+    match fields {
+        Fields::Named(syn::FieldsNamed { named, .. }) => named.iter().for_each(|field| {
             if let Some(mut field_derives) = parse_derives(&field.attrs) {
                 field_derives.extend(struct_derives.clone());
 
                 for derive in field_derives {
-                    ffi_derives.push(gen_derived_method(&item.ident, field, derive));
+                    let fn_ = gen_derived_method(name, field, derive);
+                    ffi_derives.insert(fn_.sig.ident.clone(), fn_);
                 }
             }
         }),
-        syn::Fields::Unnamed(_) | syn::Fields::Unit => {
-            abort!(item, "Only named structs supported")
+        Fields::Unnamed(_) | Fields::Unit => {
+            abort!(name, "Only named structs supported")
         }
     }
 
-    ffi_derives
+    ffi_derives.into_values()
 }
 
 pub fn gen_resolve_type(arg: &Arg) -> TokenStream {
@@ -99,14 +104,22 @@ fn parse_derives(attrs: &[syn::Attribute]) -> Option<HashSet<Derive>> {
         })
 }
 
-#[allow(clippy::expect_used)]
-fn gen_derived_method(item_name: &Ident, field: &syn::Field, derive: Derive) -> FnDescriptor {
+fn gen_derived_method<'ast>(
+    item_name: &Ident,
+    field: &'ast syn::Field,
+    derive: Derive,
+) -> FnDescriptor<'ast> {
     let handle_name = Ident::new("__handle", proc_macro2::Span::call_site());
     let field_name = field.ident.as_ref().expect_or_abort("Defined").clone();
+    let sig = gen_derived_method_sig(field, derive);
     let self_ty = Some(parse_quote! {#item_name});
 
-    let sig = gen_derived_method_sig(field, derive);
-    let doc = find_doc_attr(&field.attrs).cloned();
+    let mut doc = Vec::new();
+    for attr in &field.attrs {
+        if is_doc_attr(attr) {
+            doc.push(attr);
+        }
+    }
 
     let field_ty = &field.ty;
     let field_ty = match derive {
@@ -134,8 +147,8 @@ fn gen_derived_method(item_name: &Ident, field: &syn::Field, derive: Derive) -> 
     };
 
     FnDescriptor {
+        attrs: Vec::new(),
         self_ty,
-        trait_name: None,
         doc,
         sig,
         receiver: Some(receiver),
@@ -144,7 +157,6 @@ fn gen_derived_method(item_name: &Ident, field: &syn::Field, derive: Derive) -> 
     }
 }
 
-#[allow(clippy::expect_used)]
 fn gen_derived_method_sig(field: &syn::Field, derive: Derive) -> syn::Signature {
     let field_name = field.ident.as_ref().expect("Field name not defined");
     let field_ty = &field.ty;
@@ -160,10 +172,10 @@ fn gen_derived_method_sig(field: &syn::Field, derive: Derive) -> syn::Signature 
 
     match derive {
         Derive::Setter => parse_quote! {
-            fn #method_name(&mut self, #field)
+            fn #method_name(&mut self, #field_name: #field_ty)
         },
         Derive::Getter => parse_quote! {
-            fn #method_name(&self) -> & #field_ty
+            fn #method_name(&self) -> &#field_ty
         },
         Derive::MutGetter => parse_quote! {
             fn #method_name(&mut self) -> &mut #field_ty
@@ -185,6 +197,8 @@ impl<'itm> Visit<'itm> for FfiTypeResolver<'itm> {
             self.1 = quote! { let #arg_name: Vec<_> = #arg_name.into_iter().collect(); };
         } else if trait_.ident == "Into" {
             self.1 = quote! { let #arg_name = #arg_name.into(); };
+        } else if trait_.ident == "AsRef" {
+            self.1 = quote! { let #arg_name = #arg_name.as_ref(); };
         }
     }
 }

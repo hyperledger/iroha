@@ -46,10 +46,7 @@ The following is the default configuration used by Iroha.
     "BLOCK_TIME_MS": 2000,
     "TRUSTED_PEERS": null,
     "COMMIT_TIME_LIMIT_MS": 4000,
-    "TRANSACTION_LIMITS": {
-      "max_instruction_number": 4096,
-      "max_wasm_size_bytes": 4194304
-    },
+    "MAX_TRANSACTIONS_IN_BLOCK": 512,
     "ACTOR_CHANNEL_CAPACITY": 100,
     "GOSSIP_BATCH_SIZE": 500,
     "GOSSIP_PERIOD_MS": 1000
@@ -67,9 +64,8 @@ The following is the default configuration used by Iroha.
     "ACTOR_CHANNEL_CAPACITY": 100
   },
   "QUEUE": {
-    "MAXIMUM_TRANSACTIONS_IN_BLOCK": 512,
-    "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
-    "MAXIMUM_TRANSACTIONS_IN_SIGNATURE_BUFFER": 65536,
+    "MAX_TRANSACTIONS_IN_QUEUE": 65536,
+    "MAX_TRANSACTIONS_IN_SIGNATURE_BUFFER": 65536,
     "TRANSACTION_TIME_TO_LIVE_MS": 86400000,
     "FUTURE_THRESHOLD_MS": 1000
   },
@@ -104,6 +100,10 @@ The following is the default configuration used by Iroha.
     "IDENT_LENGTH_LIMITS": {
       "min": 1,
       "max": 128
+    },
+    "TRANSACTION_LIMITS": {
+      "max_instruction_number": 4096,
+      "max_wasm_size_bytes": 4194304
     },
     "WASM_RUNTIME_CONFIG": {
       "FUEL_LIMIT": 23000000,
@@ -393,9 +393,8 @@ Has type `Option<queue::ConfigurationProxy>`[^1]. Can be configured via environm
 ```json
 {
   "FUTURE_THRESHOLD_MS": 1000,
-  "MAXIMUM_TRANSACTIONS_IN_BLOCK": 512,
-  "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
-  "MAXIMUM_TRANSACTIONS_IN_SIGNATURE_BUFFER": 65536,
+  "MAX_TRANSACTIONS_IN_QUEUE": 65536,
+  "MAX_TRANSACTIONS_IN_SIGNATURE_BUFFER": 65536,
   "TRANSACTION_TIME_TO_LIVE_MS": 86400000
 }
 ```
@@ -410,31 +409,21 @@ Has type `Option<u64>`[^1]. Can be configured via environment variable `QUEUE_FU
 1000
 ```
 
-### `queue.maximum_transactions_in_block`
-
-The upper limit of the number of transactions per block.
-
-Has type `Option<u32>`[^1]. Can be configured via environment variable `QUEUE_MAXIMUM_TRANSACTIONS_IN_BLOCK`
-
-```json
-512
-```
-
-### `queue.maximum_transactions_in_queue`
+### `queue.max_transactions_in_queue`
 
 The upper limit of the number of transactions waiting in the queue.
 
-Has type `Option<u32>`[^1]. Can be configured via environment variable `QUEUE_MAXIMUM_TRANSACTIONS_IN_QUEUE`
+Has type `Option<u32>`[^1]. Can be configured via environment variable `QUEUE_MAX_TRANSACTIONS_IN_QUEUE`
 
 ```json
 65536
 ```
 
-### `queue.maximum_transactions_in_signature_buffer`
+### `queue.max_transactions_in_signature_buffer`
 
 The upper limit of the number of transactions waiting for more signatures.
 
-Has type `Option<u32>`[^1]. Can be configured via environment variable `QUEUE_MAXIMUM_TRANSACTIONS_IN_SIGNATURE_BUFFER`
+Has type `Option<u32>`[^1]. Can be configured via environment variable `QUEUE_MAX_TRANSACTIONS_IN_SIGNATURE_BUFFER`
 
 ```json
 65536
@@ -464,11 +453,8 @@ Has type `Option<sumeragi::ConfigurationProxy>`[^1]. Can be configured via envir
   "GOSSIP_BATCH_SIZE": 500,
   "GOSSIP_PERIOD_MS": 1000,
   "KEY_PAIR": null,
+  "MAX_TRANSACTIONS_IN_BLOCK": 512,
   "PEER_ID": null,
-  "TRANSACTION_LIMITS": {
-    "max_instruction_number": 4096,
-    "max_wasm_size_bytes": 4194304
-  },
   "TRUSTED_PEERS": null
 }
 ```
@@ -505,7 +491,7 @@ Has type `Option<u64>`[^1]. Can be configured via environment variable `SUMERAGI
 
 ### `sumeragi.gossip_batch_size`
 
-Maximum number of transactions in tx gossip batch message. While configuring this, pay attention to `p2p` max message size.
+max number of transactions in tx gossip batch message. While configuring this, pay attention to `p2p` max message size.
 
 Has type `Option<u32>`[^1]. Can be configured via environment variable `SUMERAGI_GOSSIP_BATCH_SIZE`
 
@@ -533,6 +519,16 @@ Has type `Option<KeyPair>`[^1]. Can be configured via environment variable `SUME
 null
 ```
 
+### `sumeragi.max_transactions_in_block`
+
+The upper limit of the number of transactions per block.
+
+Has type `Option<u32>`[^1]. Can be configured via environment variable `SUMERAGI_MAX_TRANSACTIONS_IN_BLOCK`
+
+```json
+512
+```
+
 ### `sumeragi.peer_id`
 
 Current Peer Identification.
@@ -541,19 +537,6 @@ Has type `Option<PeerId>`[^1]. Can be configured via environment variable `SUMER
 
 ```json
 null
-```
-
-### `sumeragi.transaction_limits`
-
-The limits to which transactions must adhere
-
-Has type `Option<TransactionLimits>`[^1]. Can be configured via environment variable `SUMERAGI_TRANSACTION_LIMITS`
-
-```json
-{
-  "max_instruction_number": 4096,
-  "max_wasm_size_bytes": 4194304
-}
 ```
 
 ### `sumeragi.trusted_peers`
@@ -726,6 +709,10 @@ Has type `Option<wsv::ConfigurationProxy>`[^1]. Can be configured via environmen
     "max": 128,
     "min": 1
   },
+  "TRANSACTION_LIMITS": {
+    "max_instruction_number": 4096,
+    "max_wasm_size_bytes": 4194304
+  },
   "WASM_RUNTIME_CONFIG": {
     "FUEL_LIMIT": 23000000,
     "MAX_MEMORY": 524288000
@@ -795,6 +782,19 @@ Has type `Option<LengthLimits>`[^1]. Can be configured via environment variable 
 {
   "max": 128,
   "min": 1
+}
+```
+
+### `wsv.transaction_limits`
+
+Limits that all transactions need to obey, in terms of size
+
+Has type `Option<TransactionLimits>`[^1]. Can be configured via environment variable `WSV_TRANSACTION_LIMITS`
+
+```json
+{
+  "max_instruction_number": 4096,
+  "max_wasm_size_bytes": 4194304
 }
 ```
 

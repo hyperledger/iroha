@@ -352,6 +352,7 @@ pub fn partially_tagged_serialize_derive(input: TokenStream) -> TokenStream {
 /// ```
 /// use serde::Deserialize;
 /// use iroha_data_model_derive::PartiallyTaggedDeserialize;
+/// use std::string::ToString;
 ///
 /// #[derive(Debug, PartialEq, Eq, PartiallyTaggedDeserialize)]
 /// enum Outer {
@@ -362,15 +363,15 @@ pub fn partially_tagged_serialize_derive(input: TokenStream) -> TokenStream {
 ///
 /// #[derive(Debug, PartialEq, Eq, Deserialize)]
 /// enum Inner {
-///     B(u32),
+///     B(u128),
 /// }
 ///
 /// assert_eq!(
-///     serde_json::from_str::<Outer>(r#"{"B":42}"#).expect("Failed to deserialize"), Outer::Inner(Inner::B(42))
+///     serde_json::from_str::<Outer>(r#"{"B":42}"#).expect("Failed to deserialize B"), Outer::Inner(Inner::B(42))
 /// );
 ///
 /// assert_eq!(
-///     serde_json::from_str::<Outer>(r#"{"A":42}"#).expect("Failed to deserialize"), Outer::A(42)
+///     serde_json::from_str::<Outer>(r#"{"A":42}"#).expect("Failed to deserialize A"), Outer::A(42)
 /// );
 /// ```
 ///

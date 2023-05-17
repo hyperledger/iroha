@@ -324,14 +324,6 @@
       {
         "name": "metadata",
         "type": "Metadata"
-      }
-    ]
-  },
-  "AssetDefinitionEntry": {
-    "Struct": [
-      {
-        "name": "definition",
-        "type": "AssetDefinition"
       },
       {
         "name": "owned_by",
@@ -863,7 +855,7 @@
       },
       {
         "name": "asset_definitions",
-        "type": "SortedMap<AssetDefinitionId, AssetDefinitionEntry>"
+        "type": "SortedMap<AssetDefinitionId, AssetDefinition>"
       },
       {
         "name": "asset_total_quantities",
@@ -3261,10 +3253,10 @@
       "value": "Account"
     }
   },
-  "SortedMap<AssetDefinitionId, AssetDefinitionEntry>": {
+  "SortedMap<AssetDefinitionId, AssetDefinition>": {
     "Map": {
       "key": "AssetDefinitionId",
-      "value": "AssetDefinitionEntry"
+      "value": "AssetDefinition"
     }
   },
   "SortedMap<AssetDefinitionId, NumericValue>": {

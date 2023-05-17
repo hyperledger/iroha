@@ -38,7 +38,7 @@ fn query_requests(criterion: &mut Criterion) {
             )
             .build(),
         Some(&configuration.genesis),
-        &configuration.sumeragi.transaction_limits,
+        &configuration.wsv.transaction_limits,
     )
     .expect("genesis creation failed");
 
@@ -140,7 +140,7 @@ fn instruction_submits(criterion: &mut Criterion) {
             )
             .build(),
         Some(&configuration.genesis),
-        &configuration.sumeragi.transaction_limits,
+        &configuration.wsv.transaction_limits,
     )
     .expect("failed to create genesis");
     let builder = PeerBuilder::new()

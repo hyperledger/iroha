@@ -6,12 +6,14 @@
 /// ```ignore
 /// [(a0,a1,a2,..),(b0,b1,b2,..)] -> (a0,b0,a1,b1,a2,b2,..)
 /// ```
+#[derive(Clone)]
 pub struct RiffleIterator<A, B> {
     left_iter: A,
     right_iter: B,
     state: RiffleState,
 }
 
+#[derive(Clone, Copy)]
 enum RiffleState {
     CurrentLeft,
     CurrentRight,

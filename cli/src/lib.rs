@@ -20,13 +20,14 @@ use iroha_config::{
 };
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
+    gossiper::{TransactionGossiper, TransactionGossiperHandle},
     handler::ThreadHandler,
     kura::Kura,
     prelude::{World, WorldStateView},
     queue::Queue,
     smartcontracts::isi::Registrable as _,
-    sumeragi::Sumeragi,
-    tx::{PeerId, TransactionValidator},
+    sumeragi::{SumeragiHandle, SumeragiStartArgs},
+    tx::PeerId,
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
@@ -90,7 +91,7 @@ pub struct Iroha {
     /// Queue of transactions
     pub queue: Arc<Queue>,
     /// Sumeragi consensus
-    pub sumeragi: Arc<Sumeragi>,
+    pub sumeragi: SumeragiHandle,
     /// Kura — block storage
     pub kura: Arc<Kura>,
     /// Torii web server
@@ -114,8 +115,9 @@ impl Drop for Iroha {
 }
 
 struct NetworkRelay {
-    sumeragi: Arc<Sumeragi>,
+    sumeragi: SumeragiHandle,
     block_sync: BlockSynchronizerHandle,
+    gossiper: TransactionGossiperHandle,
     network: IrohaNetwork,
     shutdown_notify: Arc<Notify>,
     #[cfg(debug_assertions)]
@@ -158,6 +160,7 @@ impl NetworkRelay {
                 self.sumeragi.incoming_message(data.into_v1());
             }
             BlockSync(data) => self.block_sync.message(data.into_v1()).await,
+            TransactionGossiper(data) => self.gossiper.gossip(*data).await,
             Health => {}
         }
     }
@@ -242,7 +245,7 @@ impl Iroha {
         )?;
         let wsv = WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura));
 
-        let transaction_validator = TransactionValidator::new(config.sumeragi.transaction_limits);
+        let transaction_validator = wsv.transaction_validator();
 
         // Validate every transaction in genesis block
         if let Some(ref genesis) = genesis {
@@ -268,36 +271,40 @@ impl Iroha {
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
-        let sumeragi = Arc::new(
-            // TODO: No function needs 10 parameters. It should accept one struct.
-            Sumeragi::new(
-                &config.sumeragi,
-                events_sender.clone(),
-                wsv,
-                transaction_validator,
-                Arc::clone(&queue),
-                Arc::clone(&kura),
-                network.clone(),
-            ),
-        );
-
-        let sumeragi_thread_handler =
-            Sumeragi::initialize_and_start_thread(Arc::clone(&sumeragi), genesis, &block_hashes);
+        let sumeragi = SumeragiHandle::start(SumeragiStartArgs {
+            configuration: &config.sumeragi,
+            events_sender: events_sender.clone(),
+            wsv,
+            queue: Arc::clone(&queue),
+            kura: Arc::clone(&kura),
+            network: network.clone(),
+            genesis_network: genesis,
+            block_hashes: &block_hashes,
+        });
 
         let block_sync = BlockSynchronizer::from_configuration(
             &config.block_sync,
-            Arc::clone(&sumeragi),
+            sumeragi.clone(),
             Arc::clone(&kura),
             PeerId::new(&config.torii.p2p_addr, &config.public_key),
             network.clone(),
         )
         .start();
 
+        let gossiper = TransactionGossiper::from_configuration(
+            &config.sumeragi,
+            network.clone(),
+            Arc::clone(&queue),
+            sumeragi.clone(),
+        )
+        .start();
+
         let freeze_status = Arc::new(AtomicBool::new(false));
 
         NetworkRelay {
-            sumeragi: Arc::clone(&sumeragi),
+            sumeragi: sumeragi.clone(),
             block_sync,
+            gossiper,
             network: network.clone(),
             shutdown_notify: Arc::clone(&notify_shutdown),
             #[cfg(debug_assertions)]
@@ -310,7 +317,7 @@ impl Iroha {
             Arc::clone(&queue),
             events_sender,
             Arc::clone(&notify_shutdown),
-            Arc::clone(&sumeragi),
+            sumeragi.clone(),
             Arc::clone(&kura),
         );
 
@@ -324,7 +331,7 @@ impl Iroha {
             sumeragi,
             kura,
             torii,
-            thread_handlers: vec![sumeragi_thread_handler, kura_thread_handler],
+            thread_handlers: vec![kura_thread_handler],
             #[cfg(debug_assertions)]
             freeze_status,
         })
@@ -426,12 +433,14 @@ impl Iroha {
 }
 
 fn genesis_account(public_key: iroha_crypto::PublicKey) -> Account {
-    Account::new(AccountId::genesis(), [public_key]).build()
+    let genesis_account_id = AccountId::genesis();
+    Account::new(genesis_account_id.clone(), [public_key]).build(genesis_account_id)
 }
 
 fn genesis_domain(configuration: &Configuration) -> Domain {
+    let genesis_account_id = AccountId::genesis();
     let account_public_key = &configuration.genesis.account_public_key;
-    let mut domain = Domain::new(DomainId::genesis()).build();
+    let mut domain = Domain::new(DomainId::genesis()).build(genesis_account_id);
 
     domain.accounts.insert(
         <Account as Identifiable>::Id::genesis(),

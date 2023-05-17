@@ -16,13 +16,14 @@ impl Registrable for NewAssetDefinition {
 
     #[must_use]
     #[inline]
-    fn build(self) -> Self::Target {
+    fn build(self, authority: AccountId) -> Self::Target {
         Self::Target {
             id: self.id,
             value_type: self.value_type,
             mintable: self.mintable,
             logo: self.logo,
             metadata: self.metadata,
+            owned_by: authority,
         }
     }
 }
@@ -56,7 +57,7 @@ pub mod isi {
             }
 
             wsv.asset_or_insert(&asset_id, Metadata::new())?;
-            let asset_metadata_limits = wsv.config.asset_metadata_limits;
+            let asset_metadata_limits = wsv.config.borrow().asset_metadata_limits;
 
             wsv.modify_asset(&asset_id, |asset| {
                 let store: &mut Metadata = asset
@@ -112,7 +113,7 @@ pub mod isi {
         type Error = Error;
 
         fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
-            wsv.modify_asset_definition_entry(self.object.id(), |entry| {
+            wsv.modify_asset_definition(self.object.id(), |entry| {
                 entry.owned_by = self.destination_id.clone();
 
                 Ok(AssetDefinitionEvent::OwnerChanged(
@@ -167,7 +168,7 @@ pub mod isi {
         ($ty:ty, $metrics:literal) => {
             impl InnerTransfer for $ty {}
 
-            impl Execute for Transfer<Asset, $ty, Asset> {
+            impl Execute for Transfer<Asset, $ty, Account> {
                 type Error = Error;
 
                 #[metrics(+$metrics)]
@@ -303,7 +304,7 @@ pub mod isi {
     /// Trait for blanket transfer implementation.
     trait InnerTransfer {
         fn execute<Err>(
-            transfer: Transfer<Asset, Self, Asset>,
+            transfer: Transfer<Asset, Self, Account>,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Err>
@@ -314,18 +315,17 @@ pub mod isi {
             Value: From<Self>,
             Err: From<Error>,
         {
-            assert_matching_definitions(
-                &transfer.source_id,
-                &transfer.destination_id,
-                wsv,
-                <Self as AssetInstructionInfo>::EXPECTED_VALUE_TYPE,
-            )?;
+            let source_id = &transfer.source_id;
+            let destination_id = AssetId::new(
+                source_id.definition_id.clone(),
+                transfer.destination_id.clone(),
+            );
 
             wsv.asset_or_insert(
-                &transfer.destination_id,
+                &destination_id,
                 <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE,
             )?;
-            wsv.modify_asset(&transfer.source_id, |asset| {
+            wsv.modify_asset(source_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -335,11 +335,12 @@ pub mod isi {
                     .ok_or(MathError::NotEnoughQuantity)?;
 
                 Ok(AssetEvent::Removed(AssetChanged {
-                    asset_id: transfer.source_id.clone(),
+                    asset_id: source_id.clone(),
                     amount: transfer.object.into(),
                 }))
             })?;
-            wsv.modify_asset(&transfer.destination_id, |asset| {
+            let destination_id_clone = destination_id.clone();
+            wsv.modify_asset(&destination_id, |asset| {
                 let quantity: &mut Self = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -354,7 +355,7 @@ pub mod isi {
                     .set(wsv.metric_tx_amounts_counter.get() + 1);
 
                 Ok(AssetEvent::Added(AssetChanged {
-                    asset_id: transfer.destination_id.clone(),
+                    asset_id: destination_id_clone,
                     amount: transfer.object.into(),
                 }))
             })?;
@@ -389,14 +390,13 @@ pub mod isi {
         wsv: &WorldStateView,
         expected_value_type: AssetValueType,
     ) -> Result<AssetDefinition, Error> {
-        let asset_definition = wsv.asset_definition_entry(definition_id)?;
-        let definition = asset_definition.definition;
-        if definition.value_type == expected_value_type {
-            Ok(definition)
+        let asset_definition = wsv.asset_definition(definition_id)?;
+        if asset_definition.value_type == expected_value_type {
+            Ok(asset_definition)
         } else {
             Err(TypeError::from(Mismatch {
                 expected: expected_value_type,
-                actual: definition.value_type,
+                actual: asset_definition.value_type,
             })
             .into())
         }
@@ -408,42 +408,17 @@ pub mod isi {
         wsv: &WorldStateView,
         expected_value_type: AssetValueType,
     ) -> Result<(), Error> {
-        let definition = assert_asset_type(definition_id, wsv, expected_value_type)?;
-        match definition.mintable {
+        let asset_definition = assert_asset_type(definition_id, wsv, expected_value_type)?;
+        match asset_definition.mintable {
             Mintable::Infinitely => Ok(()),
             Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
-            Mintable::Once => wsv.modify_asset_definition_entry(definition_id, |entry| {
-                forbid_minting(&mut entry.definition)?;
+            Mintable::Once => wsv.modify_asset_definition(definition_id, |entry| {
+                forbid_minting(entry)?;
                 Ok(AssetDefinitionEvent::MintabilityChanged(
                     definition_id.clone(),
                 ))
             }),
         }
-    }
-
-    /// Assert that the two assets have the same asset `definition_id`.
-    fn assert_matching_definitions(
-        source: &<Asset as Identifiable>::Id,
-        destination: &<Asset as Identifiable>::Id,
-        wsv: &WorldStateView,
-        value_type: AssetValueType,
-    ) -> Result<(), Error> {
-        if destination.definition_id != source.definition_id {
-            let expected = wsv
-                .asset_definition_entry(&destination.definition_id)?
-                .definition
-                .id()
-                .clone();
-            let actual = wsv
-                .asset_definition_entry(&source.definition_id)?
-                .definition
-                .id()
-                .clone();
-            return Err(TypeError::from(Mismatch { expected, actual }).into());
-        }
-        assert_asset_type(&source.definition_id, wsv, value_type)?;
-        assert_asset_type(&destination.definition_id, wsv, value_type)?;
-        Ok(())
     }
 }
 
@@ -476,8 +451,8 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for asset_definition_entry in domain.asset_definitions.values() {
-                    vec.push(asset_definition_entry.definition.clone())
+                for asset_definition in domain.asset_definitions.values() {
+                    vec.push(asset_definition.clone())
                 }
             }
             Ok(vec)
@@ -494,7 +469,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
             wsv.asset(&id).map_err(|asset_err| {
-                if let Err(definition_err) = wsv.asset_definition_entry(&id.definition_id) {
+                if let Err(definition_err) = wsv.asset_definition(&id.definition_id) {
                     definition_err.into()
                 } else {
                     asset_err
@@ -512,9 +487,9 @@ pub mod query {
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
 
-            let entry = wsv.asset_definition_entry(&id).map_err(Error::from)?;
+            let entry = wsv.asset_definition(&id).map_err(Error::from)?;
 
-            Ok(entry.definition)
+            Ok(entry)
         }
     }
 
@@ -641,7 +616,7 @@ pub mod query {
             let value = wsv
                 .asset(&id)
                 .map_err(|asset_err| {
-                    if let Err(definition_err) = wsv.asset_definition_entry(&id.definition_id) {
+                    if let Err(definition_err) = wsv.asset_definition(&id.definition_id) {
                         Error::Find(Box::new(definition_err))
                     } else {
                         asset_err
@@ -682,7 +657,7 @@ pub mod query {
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let asset = wsv.asset(&id).map_err(|asset_err| {
-                if let Err(definition_err) = wsv.asset_definition_entry(&id.definition_id) {
+                if let Err(definition_err) = wsv.asset_definition(&id.definition_id) {
                     Error::Find(Box::new(definition_err))
                 } else {
                     asset_err
@@ -715,8 +690,8 @@ pub mod query {
                 .wrap_err("Failed to get account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
 
-            let entry = wsv.asset_definition_entry(&asset_definition_id)?;
-            Ok(entry.owned_by() == &account_id)
+            let entry = wsv.asset_definition(&asset_definition_id)?;
+            Ok(entry.owned_by == account_id)
         }
     }
 }

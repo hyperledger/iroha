@@ -36,7 +36,7 @@ pub trait Registrable {
     type Target;
 
     /// Construct [`Self::Target`]
-    fn build(self) -> Self::Target;
+    fn build(self, authority: AccountId) -> Self::Target;
 }
 
 impl Execute for InstructionBox {
@@ -226,7 +226,7 @@ impl Execute for TransferBox {
         wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new(wsv);
-        let (IdBox::AssetId(source_asset_id), IdBox::AssetId(destination_asset_id)) = (
+        let (IdBox::AssetId(source_asset_id), IdBox::AccountId(destination_account_id)) = (
             self.source_id.evaluate(&context)?,
             self.destination_id.evaluate(&context)?,
         ) else {
@@ -235,20 +235,20 @@ impl Execute for TransferBox {
 
         let value = self.object.evaluate(&context)?;
         Span::current().record("from", source_asset_id.to_string());
-        Span::current().record("to", destination_asset_id.to_string());
+        Span::current().record("to", destination_account_id.to_string());
         iroha_logger::trace!(%value, %authority);
 
         match value {
             Value::Numeric(NumericValue::U32(quantity)) => {
-                Transfer::new(source_asset_id, quantity, destination_asset_id)
+                Transfer::new(source_asset_id, quantity, destination_account_id)
                     .execute(authority, wsv)
             }
             Value::Numeric(NumericValue::U128(quantity)) => {
-                Transfer::new(source_asset_id, quantity, destination_asset_id)
+                Transfer::new(source_asset_id, quantity, destination_account_id)
                     .execute(authority, wsv)
             }
             Value::Numeric(NumericValue::Fixed(quantity)) => {
-                Transfer::new(source_asset_id, quantity, destination_asset_id)
+                Transfer::new(source_asset_id, quantity, destination_account_id)
                     .execute(authority, wsv)
             }
             _ => Err(Error::Evaluate(InstructionType::Transfer.into())),
@@ -442,7 +442,7 @@ impl Execute for SetParameterBox {
     fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
         let context = Context::new(wsv);
         let parameter = self.parameter.evaluate(&context)?;
-        SetParameter::<Parameter>::new(parameter).execute(authority, wsv)
+        SetParameter::new(parameter).execute(authority, wsv)
     }
 }
 
@@ -452,7 +452,7 @@ impl Execute for NewParameterBox {
     fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
         let context = Context::new(wsv);
         let parameter = self.parameter.evaluate(&context)?;
-        NewParameter::<Parameter>::new(parameter).execute(authority, wsv)
+        NewParameter::new(parameter).execute(authority, wsv)
     }
 }
 
@@ -573,8 +573,7 @@ mod tests {
         )
         .execute(account_id, &wsv)?;
         let bytes = wsv
-            .asset_definition_entry(&definition_id)?
-            .definition
+            .asset_definition(&definition_id)?
             .metadata()
             .get(&Name::from_str("Bytes")?)
             .cloned();

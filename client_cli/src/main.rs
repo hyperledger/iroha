@@ -361,7 +361,6 @@ mod account {
 
     use super::*;
 
-    #[allow(variant_size_differences)]
     /// subcommands for account subcommand
     #[derive(StructOpt, Debug)]
     pub enum Args {
@@ -462,9 +461,8 @@ mod account {
                 condition: Signature(condition),
                 metadata: Metadata(metadata),
             } = self;
-            let mint_box =
-                MintBox::new(account, EvaluatesTo::new_unchecked(condition.into())).into();
-            submit([mint_box], cfg, metadata).wrap_err("Failed to set signature condition")
+            let mint_box = MintBox::new(account, EvaluatesTo::new_unchecked(condition));
+            submit([mint_box.into()], cfg, metadata).wrap_err("Failed to set signature condition")
         }
     }
 
@@ -685,9 +683,9 @@ mod asset {
                 metadata: Metadata(metadata),
             } = self;
             let transfer_asset = TransferBox::new(
-                IdBox::AssetId(AssetId::new(asset_id.clone(), from)),
+                IdBox::AssetId(AssetId::new(asset_id, from)),
                 quantity.to_value(),
-                IdBox::AssetId(AssetId::new(asset_id, to)),
+                IdBox::AccountId(to),
             )
             .into();
             submit([transfer_asset], cfg, metadata).wrap_err("Failed to transfer asset")

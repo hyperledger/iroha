@@ -57,7 +57,7 @@ impl<T: Deref<Target = Metrics>> From<&T> for Status {
 }
 
 /// A strict superset of [`Status`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Metrics {
     /// Total number of transactions
     pub txs: IntCounterVec,

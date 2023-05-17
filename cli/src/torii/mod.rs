@@ -14,7 +14,7 @@ use iroha_core::{
     kura::Kura,
     prelude::*,
     queue::{self, Queue},
-    sumeragi::Sumeragi,
+    sumeragi::SumeragiHandle,
     EventsSender,
 };
 use thiserror::Error;
@@ -38,7 +38,7 @@ pub struct Torii {
     queue: Arc<Queue>,
     events: EventsSender,
     notify_shutdown: Arc<Notify>,
-    sumeragi: Arc<Sumeragi>,
+    sumeragi: SumeragiHandle,
     kura: Arc<Kura>,
 }
 

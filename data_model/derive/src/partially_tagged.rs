@@ -1,9 +1,4 @@
-#![allow(
-    clippy::str_to_string,
-    clippy::mixed_read_write_in_expression,
-    clippy::unwrap_in_result
-)]
-
+#![allow(clippy::too_many_lines)]
 use proc_macro::TokenStream;
 use proc_macro_error::abort;
 use quote::{format_ident, quote};
@@ -119,6 +114,7 @@ pub fn impl_partially_tagged_serialize(enum_: &PartiallyTaggedEnum) -> TokenStre
     let enum_ident = &enum_.ident;
     let enum_attrs = &enum_.attrs;
     let ref_internal_repr_ident = format_ident!("{}RefInternalRepr", enum_ident);
+    let ser_helper = format_ident!("{}SerializeHelper", enum_ident);
     let (variants_ident, variants_ty, variants_attrs) = variants_to_tuple(enum_.variants());
     let (untagged_variants_ident, untagged_variants_ty, untagged_variants_attrs) =
         variants_to_tuple(enum_.untagged_variants());
@@ -150,8 +146,8 @@ pub fn impl_partially_tagged_serialize(enum_: &PartiallyTaggedEnum) -> TokenStre
                 }
 
                 #[derive(::serde::Serialize)]
-                #[serde(untagged)]
-                enum SerializeHelper<'re> {
+                #[serde(untagged)] // Unaffected by #3330, because Serialize implementations are unaffected
+                enum #ser_helper<'re> {
                     #(
                         #(
                             #untagged_variants_attrs
@@ -163,9 +159,9 @@ pub fn impl_partially_tagged_serialize(enum_: &PartiallyTaggedEnum) -> TokenStre
 
                 let wrapper = match self {
                     #(
-                        #enum_ident::#untagged_variants_ident(value) => SerializeHelper::#untagged_variants_ident(value),
+                        #enum_ident::#untagged_variants_ident(value) => #ser_helper::#untagged_variants_ident(value),
                     )*
-                    value => SerializeHelper::Other(convert(value)),
+                    value => #ser_helper::Other(convert(value)),
                 };
 
                 wrapper.serialize(serializer)
@@ -179,6 +175,9 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
     let enum_ident = &enum_.ident;
     let enum_attrs = &enum_.attrs;
     let internal_repr_ident = format_ident!("{}InternalRepr", enum_ident);
+    let deser_helper = format_ident!("{}DeserializeHelper", enum_ident);
+    let no_successful_untagged_variant_match =
+        format!("Data did not match any variant of enum {}", deser_helper);
     let (variants_ident, variants_ty, variants_attrs) = variants_to_tuple(enum_.variants());
     let (untagged_variants_ident, untagged_variants_ty, untagged_variants_attrs) =
         variants_to_tuple(enum_.untagged_variants());
@@ -189,7 +188,7 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
             where
                 D: ::serde::Deserializer<'de>,
             {
-                #[derive(::serde::Deserialize)]
+                #[derive(::serde::Deserialize, Debug)]
                 #(
                     #enum_attrs
                 )*
@@ -211,9 +210,19 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
                     }
                 }
 
-                #[derive(::serde::Deserialize)]
-                #[serde(untagged)]
-                enum DeserializeHelper {
+                // FIXME: Due to an oversight in handling of `u128`
+                // values, an untagged containing a `u128` value will
+                // always fail to deserialize, thus
+                // #[derive(::serde::Deserialize)] #[serde(untagged)]
+                // is replaced with a manual implementation until
+                // further notice.
+                //
+                // Also note that this struct isn't necessary for the
+                // current manual implementation of partially tagged
+                // enums, but is needed to neatly return the
+                // derive-based solution.#
+                #[derive(Debug)]
+                enum #deser_helper {
                     #(
                         #(
                             #untagged_variants_attrs
@@ -223,12 +232,63 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
                     Other(#internal_repr_ident),
                 }
 
-                let wrapper = DeserializeHelper::deserialize(deserializer)?;
+                // TODO: remove once `serde::__private::ContentDeserializer` properly handles `u128`.
+                // Tracking issue: https://github.com/serde-rs/serde/issues/2230
+                impl<'de> ::serde::Deserialize<'de> for #deser_helper {
+                    fn deserialize<D: ::serde::Deserializer<'de>>(
+                        deserializer: D,
+                    ) -> Result<Self, D::Error> {
+                        #[cfg(feature = "std")]
+                        let mut errors = Vec::new();
+
+                        let content = serde_json::Value::deserialize(deserializer)?;
+                        #(
+                            {
+                                let candidate_variant = #untagged_variants_ty::deserialize(&content);
+                                match candidate_variant {
+                                    Ok(candidate) => return Ok(
+                                        #deser_helper::#untagged_variants_ident(candidate)
+                                    ),
+                                    Err(error) => {
+                                        #[cfg(feature = "std")]
+                                        errors.push((error, stringify!(#untagged_variants_ty)));
+                                    }
+                                }
+                            }
+                        )*
+                        {
+                            let candidate_variant = #internal_repr_ident::deserialize(content);
+                            match candidate_variant {
+                                Ok(candidate) => return Ok(#deser_helper::Other(candidate)),
+                                Err(error) => {
+                                    #[cfg(feature = "std")]
+                                    errors.push((error, stringify!(#internal_repr_ident)));
+                                }
+                            }
+                        }
+                        #[cfg(feature = "std")]
+                        {
+                            let mut message = #no_successful_untagged_variant_match.to_string();
+                            for (error, candidate_type) in errors {
+                                message +=". ";
+                                message +="Candidate `";
+                                message += &candidate_type;
+                                message += "` failed to deserialize with error: ";
+                                message += &error.to_string();
+                            }
+                            Err(::serde::de::Error::custom(message))
+                        }
+                        #[cfg(not(feature = "std"))]
+                        Err(::serde::de::Error::custom(#no_successful_untagged_variant_match))
+                    }
+                }
+
+                let wrapper = #deser_helper::deserialize(deserializer)?;
                 match wrapper {
                     #(
-                        DeserializeHelper::#untagged_variants_ident(value) => Ok(#enum_ident::#untagged_variants_ident(value)),
+                        #deser_helper::#untagged_variants_ident(value) => Ok(#enum_ident::#untagged_variants_ident(value)),
                     )*
-                    DeserializeHelper::Other(value) => Ok(convert(value)),
+                    #deser_helper::Other(value) => Ok(convert(value)),
                 }
             }
         }

@@ -28,41 +28,34 @@ use serde::{
     ser::{Serialize, Serializer},
 };
 
-use crate::ffi;
-
 const MAX_INLINED_STRING_LEN: usize = 2 * size_of::<usize>() - 1;
 
-ffi::ffi_item! {
-    /// Immutable inlinable string.
-    /// Strings shorter than 15/7/3 bytes (in 64/32/16-bit architecture) are inlined.
-    /// Union represents const-string variants: inlined or boxed.
-    /// Distinction between variants are achieved by tagging most significant bit of field `len`:
-    /// - for inlined variant MSB of `len` is always equal to 1, it's enforced by `InlinedString` constructor;
-    /// - for boxed variant MSB of `len` is always equal to 0, it's enforced by the fact
-    /// that `Box` and `Vec` never allocate more than`isize::MAX bytes`.
-    /// For little-endian 64bit architecture memory layout of [`Self`] is following:
-    ///
-    /// ```text
-    /// +---------+-------+---------+----------+----------------+
-    /// | Bits    | 0..63 | 64..118 | 119..126 | 127            |
-    /// +---------+-------+---------+----------+----------------+
-    /// | Inlined | payload         | len      | tag (always 1) |
-    /// +---------+-------+---------+----------+----------------+
-    /// | Box     | ptr   | len                | tag (always 0) |
-    /// +---------+-------+--------------------+----------------+
-    /// ```
-    #[derive(DebugCustom, Display, IntoSchema)]
-    #[display(fmt = "{}", "&**self")]
-    #[debug(fmt = "{:?}", "&**self")]
-    #[schema(transparent = "String")]
-    #[repr(C)]
-    pub union ConstString {
-        inlined: InlinedString,
-        boxed: ManuallyDrop<BoxedString>,
-    }
-
-    // TODO: Must it be opaque considering that it's repr(C)?
-    ffi_type(opaque)
+/// Immutable inlinable string.
+/// Strings shorter than 15/7/3 bytes (in 64/32/16-bit architecture) are inlined.
+/// Union represents const-string variants: inlined or boxed.
+/// Distinction between variants are achieved by tagging most significant bit of field `len`:
+/// - for inlined variant MSB of `len` is always equal to 1, it's enforced by `InlinedString` constructor;
+/// - for boxed variant MSB of `len` is always equal to 0, it's enforced by the fact
+/// that `Box` and `Vec` never allocate more than`isize::MAX bytes`.
+/// For little-endian 64bit architecture memory layout of [`Self`] is following:
+///
+/// ```text
+/// +---------+-------+---------+----------+----------------+
+/// | Bits    | 0..63 | 64..118 | 119..126 | 127            |
+/// +---------+-------+---------+----------+----------------+
+/// | Inlined | payload         | len      | tag (always 1) |
+/// +---------+-------+---------+----------+----------------+
+/// | Box     | ptr   | len                | tag (always 0) |
+/// +---------+-------+--------------------+----------------+
+/// ```
+#[derive(DebugCustom, Display, IntoSchema)]
+#[display(fmt = "{}", "&**self")]
+#[debug(fmt = "{:?}", "&**self")]
+#[schema(transparent = "String")]
+#[repr(C)]
+pub union ConstString {
+    inlined: InlinedString,
+    boxed: ManuallyDrop<BoxedString>,
 }
 
 impl ConstString {

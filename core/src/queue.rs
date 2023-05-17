@@ -15,6 +15,7 @@ use eyre::{Report, Result};
 use iroha_config::queue::Configuration;
 use iroha_crypto::HashOf;
 use iroha_data_model::transaction::prelude::*;
+use iroha_logger::{debug, info, trace, warn};
 use iroha_primitives::{must_use::MustUse, riffle_iter::RiffleIter};
 use rand::seq::IteratorRandom;
 use thiserror::Error;
@@ -34,8 +35,6 @@ pub struct Queue {
     signature_buffer: ArrayQueue<HashOf<VersionedSignedTransaction>>,
     /// [`VersionedAcceptedTransaction`]s addressed by `Hash`.
     txs: DashMap<HashOf<VersionedSignedTransaction>, VersionedAcceptedTransaction>,
-    /// The maximum number of transactions in the block
-    pub txs_in_block: usize,
     /// The maximum number of transactions in the queue
     max_txs: usize,
     /// Length of time after which transactions are dropped.
@@ -89,14 +88,11 @@ impl Queue {
     /// Makes queue from configuration
     pub fn from_configuration(cfg: &Configuration) -> Self {
         Self {
-            queue: ArrayQueue::new(cfg.maximum_transactions_in_queue as usize),
-            signature_buffer: ArrayQueue::new(
-                cfg.maximum_transactions_in_signature_buffer as usize,
-            ),
+            queue: ArrayQueue::new(cfg.max_transactions_in_queue as usize),
+            signature_buffer: ArrayQueue::new(cfg.max_transactions_in_signature_buffer as usize),
             txs: DashMap::new(),
-            max_txs: (cfg.maximum_transactions_in_queue
-                + cfg.maximum_transactions_in_signature_buffer) as usize,
-            txs_in_block: cfg.maximum_transactions_in_block as usize,
+            max_txs: (cfg.max_transactions_in_queue + cfg.max_transactions_in_signature_buffer)
+                as usize,
             tx_time_to_live: Duration::from_millis(cfg.transaction_time_to_live_ms),
             future_threshold: Duration::from_millis(cfg.future_threshold_ms),
         }
@@ -162,50 +158,67 @@ impl Queue {
         tx: VersionedAcceptedTransaction,
         wsv: &WorldStateView,
     ) -> Result<(), Failure> {
-        match self.check_tx(&tx, wsv) {
-            Err(err) => Err(Failure { tx, err }),
-            Ok(MustUse(signature_check)) => {
-                // Get `txs_len` before entry to avoid deadlock
-                let txs_len = self.txs.len();
-                let hash = tx.hash();
-                let entry = match self.txs.entry(hash) {
-                    Entry::Occupied(mut old_tx) => {
-                        // MST case
-                        old_tx
-                            .get_mut()
-                            .as_mut_v1()
-                            .signatures
-                            .extend(tx.as_v1().signatures.clone());
-                        return Ok(());
-                    }
-                    Entry::Vacant(entry) => entry,
-                };
-                if txs_len >= self.max_txs {
-                    return Err(Failure {
-                        tx,
-                        err: Error::Full,
-                    });
-                }
-
-                // Insert entry first so that the `tx` popped from `queue` will always have a `(hash, tx)` record in `txs`.
-                entry.insert(tx);
-                let queue_to_push = if signature_check {
-                    &self.queue
-                } else {
-                    &self.signature_buffer
-                };
-                queue_to_push.push(hash).map_err(|err_hash| {
-                    let (_, err_tx) = self
-                        .txs
-                        .remove(&err_hash)
-                        .expect("Inserted just before match");
-                    Failure {
-                        tx: err_tx,
-                        err: Error::Full,
-                    }
-                })
+        trace!(?tx, "Pushing to the queue");
+        let signature_check_succeed = match self.check_tx(&tx, wsv) {
+            Err(err) => {
+                warn!("Failed to evaluate signature check");
+                return Err(Failure { tx, err });
             }
+            Ok(MustUse(signature_check)) => signature_check,
+        };
+
+        // Get `txs_len` before entry to avoid deadlock
+        let txs_len = self.txs.len();
+        let hash = tx.hash();
+        let entry = match self.txs.entry(hash) {
+            Entry::Occupied(mut old_tx) => {
+                // MST case
+                old_tx
+                    .get_mut()
+                    .as_mut_v1()
+                    .signatures
+                    .extend(tx.as_v1().signatures.clone());
+                info!("Signature added to existing multisignature transaction");
+                return Ok(());
+            }
+            Entry::Vacant(entry) => entry,
+        };
+        if txs_len >= self.max_txs {
+            warn!(
+                max = self.max_txs,
+                "Achieved maximum amount of transactions"
+            );
+            return Err(Failure {
+                tx,
+                err: Error::Full,
+            });
         }
+
+        // Insert entry first so that the `tx` popped from `queue` will always have a `(hash, tx)` record in `txs`.
+        entry.insert(tx);
+        let queue_to_push = if signature_check_succeed {
+            &self.queue
+        } else {
+            info!("New multisignature transaction detected");
+            &self.signature_buffer
+        };
+        let res = queue_to_push.push(hash).map_err(|err_hash| {
+            warn!("Concrete sub-queue to push is full");
+            let (_, err_tx) = self
+                .txs
+                .remove(&err_hash)
+                .expect("Inserted just before match");
+            Failure {
+                tx: err_tx,
+                err: Error::Full,
+            }
+        });
+        trace!(
+            "Transaction queue length = {}, multisig transaction queue length = {}",
+            self.queue.len(),
+            self.signature_buffer.len()
+        );
+        res
     }
 
     /// Pop single transaction from the signature buffer. Record all visited and not removed transactions in `seen`.
@@ -240,21 +253,29 @@ impl Queue {
         expired_transactions: &mut Vec<VersionedAcceptedTransaction>,
     ) -> Option<VersionedAcceptedTransaction> {
         loop {
-            let hash = queue.pop()?;
+            let Some(hash) = queue.pop() else {
+                trace!("Queue is empty");
+                return None;
+            };
             let entry = match self.txs.entry(hash) {
                 Entry::Occupied(entry) => entry,
                 // FIXME: Reachable under high load. Investigate, see if it's a problem.
                 // As practice shows this code is not `unreachable!()`.
                 // When transactions are submitted quickly it can be reached.
-                Entry::Vacant(_) => continue,
+                Entry::Vacant(_) => {
+                    warn!("Looks like we're experiencing a high load");
+                    continue;
+                }
             };
 
             let tx = entry.get();
             if tx.is_in_blockchain(wsv) {
+                debug!("Transaction is already in blockchain");
                 entry.remove_entry();
                 continue;
             }
             if tx.is_expired(self.tx_time_to_live) {
+                debug!("Transaction is expired");
                 let (_, tx) = entry.remove_entry();
                 expired_transactions.push(tx);
                 continue;
@@ -280,9 +301,10 @@ impl Queue {
     fn collect_transactions_for_block(
         &self,
         wsv: &WorldStateView,
+        max_txs_in_block: usize,
     ) -> Vec<VersionedAcceptedTransaction> {
-        let mut transactions = Vec::with_capacity(self.txs_in_block);
-        self.get_transactions_for_block(wsv, &mut transactions, &mut Vec::new());
+        let mut transactions = Vec::with_capacity(max_txs_in_block);
+        self.get_transactions_for_block(wsv, max_txs_in_block, &mut transactions, &mut Vec::new());
         transactions
     }
 
@@ -292,10 +314,11 @@ impl Queue {
     pub fn get_transactions_for_block(
         &self,
         wsv: &WorldStateView,
+        max_txs_in_block: usize,
         transactions: &mut Vec<VersionedAcceptedTransaction>,
         expired_transactions: &mut Vec<VersionedAcceptedTransaction>,
     ) {
-        if transactions.len() >= self.txs_in_block {
+        if transactions.len() >= max_txs_in_block {
             return;
         }
 
@@ -322,7 +345,7 @@ impl Queue {
         let txs = txs_from_queue
             .riffle(txs_from_waiting_buffer)
             .filter(|tx| !transactions_hashes.contains(&tx.hash()))
-            .take(self.txs_in_block - transactions.len());
+            .take(max_txs_in_block - transactions.len());
         transactions.extend(txs);
 
         [
@@ -390,8 +413,8 @@ mod tests {
     ) -> World {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
-        let mut domain = Domain::new(domain_id).build();
-        let account = Account::new(account_id, signatures).build();
+        let mut domain = Domain::new(domain_id).build(account_id.clone());
+        let account = Account::new(account_id.clone(), signatures).build(account_id);
         assert!(domain.add_account(account).is_none());
         World::with([domain], PeersIds::new())
     }
@@ -406,9 +429,8 @@ mod tests {
         ));
 
         let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100,
+            max_transactions_in_queue: 100,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
@@ -431,9 +453,8 @@ mod tests {
         ));
 
         let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: max_txs_in_queue,
+            max_transactions_in_queue: max_txs_in_queue,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
@@ -467,34 +488,29 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
-            let mut domain = Domain::new(domain_id.clone()).build();
             let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+            let mut domain = Domain::new(domain_id.clone()).build(alice_id.clone());
             let bob_id = AccountId::from_str("bob@wonderland").expect("Valid");
             let mut alice = Account::new(
-                alice_id,
+                alice_id.clone(),
                 alice_key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
-            .build();
+            .build(alice_id);
             alice.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(
-                            Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
-                                .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
-                        )
-                        .into(),
-                    ),
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(
-                            Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
-                                .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
-                        )
-                        .into(),
-                    ),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
+                            .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
+                    )),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
+                            .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
+                    )),
                 )
                 .into(),
             );
-            let bob = Account::new(bob_id, [bob_key_pair.public_key().clone()]).build();
+            let bob =
+                Account::new(bob_id.clone(), [bob_key_pair.public_key().clone()]).build(bob_id);
             assert!(domain.add_account(alice).is_none());
             assert!(domain.add_account(bob).is_none());
             Arc::new(WorldStateView::new(
@@ -504,9 +520,8 @@ mod tests {
         };
 
         let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_signature_buffer: max_txs_in_waiting_buffer,
+            max_transactions_in_signature_buffer: max_txs_in_waiting_buffer,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
@@ -553,34 +568,29 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
-            let mut domain = Domain::new(domain_id.clone()).build();
             let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+            let mut domain = Domain::new(domain_id.clone()).build(alice_id.clone());
             let bob_id = AccountId::from_str("bob@wonderland").expect("Valid");
             let mut alice = Account::new(
-                alice_id,
+                alice_id.clone(),
                 alice_key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
-            .build();
+            .build(alice_id);
             alice.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(
-                            Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
-                                .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
-                        )
-                        .into(),
-                    ),
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(
-                            Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
-                                .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
-                        )
-                        .into(),
-                    ),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
+                            .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
+                    )),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
+                            .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
+                    )),
                 )
                 .into(),
             );
-            let bob = Account::new(bob_id, [bob_key_pair.public_key().clone()]).build();
+            let bob =
+                Account::new(bob_id.clone(), [bob_key_pair.public_key().clone()]).build(bob_id);
             assert!(domain.add_account(alice).is_none());
             assert!(domain.add_account(bob).is_none());
             Arc::new(WorldStateView::new(
@@ -590,9 +600,8 @@ mod tests {
         };
 
         let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: max_txs_in_queue,
+            max_transactions_in_queue: max_txs_in_queue,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
@@ -637,12 +646,13 @@ mod tests {
 
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
-            let mut domain = Domain::new(domain_id.clone()).build();
             let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
-            let mut account = Account::new(account_id, [key_pair.public_key().clone()]).build();
+            let mut domain = Domain::new(domain_id.clone()).build(account_id.clone());
+            let mut account =
+                Account::new(account_id.clone(), [key_pair.public_key().clone()]).build(account_id);
             // Cause `check_siganture_condition` failure by trying to convert `u32` to `bool`
             account.signature_check_condition =
-                SignatureCheckCondition(EvaluatesTo::new_unchecked(0u32.into()));
+                SignatureCheckCondition(EvaluatesTo::new_unchecked(0u32));
             assert!(domain.add_account(account).is_none());
 
             let kura = Kura::blank_kura_for_testing();
@@ -653,9 +663,8 @@ mod tests {
         };
 
         let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: max_txs_in_queue,
+            max_transactions_in_queue: max_txs_in_queue,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
@@ -672,33 +681,28 @@ mod tests {
 
     #[test]
     fn push_multisignature_tx() {
+        let max_txs_in_block = 2;
         let key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
         let kura = Kura::blank_kura_for_testing();
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
-            let mut domain = Domain::new(domain_id.clone()).build();
             let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+            let mut domain = Domain::new(domain_id.clone()).build(account_id.clone());
             let mut account = Account::new(
-                account_id,
+                account_id.clone(),
                 key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
-            .build();
+            .build(account_id);
             account.signature_check_condition = SignatureCheckCondition(
                 ContainsAll::new(
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(
-                            Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
-                                .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
-                        )
-                        .into(),
-                    ),
-                    EvaluatesTo::new_unchecked(
-                        ContextValue::new(
-                            Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
-                                .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
-                        )
-                        .into(),
-                    ),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
+                            .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
+                    )),
+                    EvaluatesTo::new_unchecked(ContextValue::new(
+                        Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
+                            .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
+                    )),
                 )
                 .into(),
             );
@@ -710,9 +714,8 @@ mod tests {
         };
 
         let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100,
+            max_transactions_in_queue: 100,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
@@ -767,7 +770,7 @@ mod tests {
         // Check that transactions combined into one instead of duplicating
         assert_eq!(queue.tx_len(), 1);
 
-        let mut available = queue.collect_transactions_for_block(&wsv);
+        let mut available = queue.collect_transactions_for_block(&wsv, max_txs_in_block);
         assert_eq!(available.len(), 1);
         let tx_from_queue = available.pop().expect("Checked that have one transactions");
         // Check that transaction from queue pass signature check
@@ -779,7 +782,7 @@ mod tests {
 
     #[test]
     fn get_available_txs() {
-        let max_block_tx = 2;
+        let max_txs_in_block = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
@@ -787,9 +790,8 @@ mod tests {
             kura.clone(),
         ));
         let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100,
+            max_transactions_in_queue: 100,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
@@ -804,13 +806,12 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
 
-        let available = queue.collect_transactions_for_block(&wsv);
-        assert_eq!(available.len(), max_block_tx as usize);
+        let available = queue.collect_transactions_for_block(&wsv, max_txs_in_block);
+        assert_eq!(available.len(), max_txs_in_block);
     }
 
     #[test]
     fn push_tx_already_in_blockchain() {
-        let max_block_tx = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
@@ -820,9 +821,8 @@ mod tests {
         let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         wsv.transactions.insert(tx.hash());
         let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100,
+            max_transactions_in_queue: 100,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
@@ -839,7 +839,7 @@ mod tests {
 
     #[test]
     fn get_tx_drop_if_in_blockchain() {
-        let max_block_tx = 2;
+        let max_txs_in_block = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
@@ -848,22 +848,26 @@ mod tests {
         ));
         let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100,
+            max_transactions_in_queue: 100,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
         });
         queue.push(tx.clone(), &wsv).unwrap();
         wsv.transactions.insert(tx.hash());
-        assert_eq!(queue.collect_transactions_for_block(&wsv).len(), 0);
+        assert_eq!(
+            queue
+                .collect_transactions_for_block(&wsv, max_txs_in_block)
+                .len(),
+            0
+        );
         assert_eq!(queue.txs.len(), 0);
     }
 
     #[test]
     fn get_available_txs_with_timeout() {
-        let max_block_tx = 6;
+        let max_txs_in_block = 6;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
@@ -871,14 +875,13 @@ mod tests {
             kura.clone(),
         ));
         let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 200,
-            maximum_transactions_in_queue: 100,
+            max_transactions_in_queue: 100,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
         });
-        for _ in 0..(max_block_tx - 1) {
+        for _ in 0..(max_txs_in_block - 1) {
             queue
                 .push(
                     accepted_tx("alice@wonderland", 100, alice_key.clone()),
@@ -895,19 +898,30 @@ mod tests {
             )
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(101));
-        assert_eq!(queue.collect_transactions_for_block(&wsv).len(), 1);
+        assert_eq!(
+            queue
+                .collect_transactions_for_block(&wsv, max_txs_in_block)
+                .len(),
+            1
+        );
 
         queue
             .push(accepted_tx("alice@wonderland", 300, alice_key), &wsv)
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(210));
-        assert_eq!(queue.collect_transactions_for_block(&wsv).len(), 0);
+        assert_eq!(
+            queue
+                .collect_transactions_for_block(&wsv, max_txs_in_block)
+                .len(),
+            0
+        );
     }
 
     // Queue should only drop transactions which are already committed or ttl expired.
     // Others should stay in the queue until that moment.
     #[test]
     fn transactions_available_after_pop() {
+        let max_txs_in_block = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
@@ -915,9 +929,8 @@ mod tests {
             kura.clone(),
         ));
         let queue = Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100,
+            max_transactions_in_queue: 100,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
@@ -927,12 +940,12 @@ mod tests {
             .expect("Failed to push tx into queue");
 
         let a = queue
-            .collect_transactions_for_block(&wsv)
+            .collect_transactions_for_block(&wsv, max_txs_in_block)
             .into_iter()
             .map(|tx| tx.hash())
             .collect::<Vec<_>>();
         let b = queue
-            .collect_transactions_for_block(&wsv)
+            .collect_transactions_for_block(&wsv, max_txs_in_block)
             .into_iter()
             .map(|tx| tx.hash())
             .collect::<Vec<_>>();
@@ -942,7 +955,7 @@ mod tests {
 
     #[test]
     fn concurrent_stress_test() {
-        let max_block_tx = 10;
+        let max_txs_in_block = 10;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(
@@ -951,9 +964,8 @@ mod tests {
         );
 
         let queue = Arc::new(Queue::from_configuration(&Configuration {
-            maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100_000_000,
+            max_transactions_in_queue: 100_000_000,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default queue config should always build")
@@ -988,7 +1000,9 @@ mod tests {
 
             thread::spawn(move || {
                 while start_time.elapsed() < run_for {
-                    for tx in queue_arc_clone.collect_transactions_for_block(&wsv_clone) {
+                    for tx in
+                        queue_arc_clone.collect_transactions_for_block(&wsv_clone, max_txs_in_block)
+                    {
                         wsv_clone.transactions.insert(tx.hash());
                     }
                     // Simulate random small delays

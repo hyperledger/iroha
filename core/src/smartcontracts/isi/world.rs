@@ -10,7 +10,7 @@ impl Registrable for NewRole {
 
     #[must_use]
     #[inline]
-    fn build(self) -> Self::Target {
+    fn build(self, _authority: AccountId) -> Self::Target {
         self.inner
     }
 }
@@ -72,15 +72,15 @@ pub mod isi {
         #[metrics("register_domain")]
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let domain: Domain = self.object.build();
+            let domain: Domain = self.object.build(authority);
             let domain_id = domain.id().clone();
 
             domain_id
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(wsv.config.borrow().ident_length_limits)
                 .map_err(Error::from)?;
 
             wsv.modify_world(|world| {
@@ -128,10 +128,10 @@ pub mod isi {
         #[metrics(+"register_role")]
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let role = self.object.build();
+            let role = self.object.build(authority);
 
             for permission in &role.permissions {
                 let definition = wsv
@@ -335,7 +335,7 @@ pub mod isi {
         Ok(())
     }
 
-    impl Execute for SetParameter<Parameter> {
+    impl Execute for SetParameter {
         type Error = Error;
 
         #[metrics(+"set_parameter")]
@@ -357,7 +357,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for NewParameter<Parameter> {
+    impl Execute for NewParameter {
         type Error = Error;
 
         #[metrics(+"new_parameter")]

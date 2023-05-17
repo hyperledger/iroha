@@ -1,13 +1,10 @@
 #![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
 
-use std::ops::Deref;
-
-use iroha_ffi::{ffi, ffi_import, FfiType, LocalRef, LocalSlice};
+use iroha_ffi::{ffi, ffi_import, LocalRef, LocalSlice};
 
 ffi! {
     // NOTE: Wrapped in ffi! to test that macro expansion works for non-opaque types as well.
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, FfiType)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[ffi_type(unsafe {robust})]
     #[repr(transparent)]
     pub struct Transparent((u32, u32));
@@ -50,6 +47,11 @@ pub fn freestanding_take_and_return_boxed_int(input: Box<u8>) -> Box<u8> {
     unreachable!("replaced by ffi_import")
 }
 
+#[ffi_import]
+pub fn freestanding_return_empty_tuple_result(flag: bool) -> Result<(), u8> {
+    unreachable!("replaced by ffi_import")
+}
+
 #[test]
 #[webassembly_test::webassembly_test]
 fn take_and_return_non_local() {
@@ -63,7 +65,7 @@ fn take_and_return_non_local() {
 fn tuple_ref_is_coppied_when_returned() {
     let in_tuple = (420, 420);
     let out_tuple: LocalRef<(u32, u32)> = freestanding_returns_local_ref(&in_tuple);
-    assert_eq!(&in_tuple, out_tuple.deref());
+    assert_eq!(in_tuple, *out_tuple);
 }
 
 #[test]
@@ -71,7 +73,7 @@ fn tuple_ref_is_coppied_when_returned() {
 fn vec_of_tuples_is_coppied_when_returned() {
     let in_tuple = vec![(420_u32, 420_u32)];
     let out_tuple: LocalSlice<(u32, u32)> = freestanding_returns_local_slice(&in_tuple);
-    assert_eq!(&in_tuple, out_tuple.deref());
+    assert_eq!(in_tuple, *out_tuple);
 }
 
 #[test]
@@ -95,7 +97,7 @@ fn take_and_return_array() {
 fn take_and_return_transparent_local_ref() {
     let input = Transparent((420, 420));
     let output: LocalRef<Transparent> = freestanding_take_and_return_local_transparent_ref(&input);
-    assert_eq!(&input, output.deref());
+    assert_eq!(input, *output);
 }
 
 #[test]
@@ -106,6 +108,12 @@ fn take_and_return_boxed_int() {
     assert_eq!(input, output);
 }
 
+#[test]
+#[webassembly_test::webassembly_test]
+fn return_empty_tuple_result() {
+    assert!(freestanding_return_empty_tuple_result(false).is_ok());
+}
+
 mod ffi {
     use std::alloc;
 
@@ -114,7 +122,7 @@ mod ffi {
         FfiOutPtr, FfiReturn, FfiTuple2, FfiType,
     };
 
-    iroha_ffi::def_ffi_fn! { dealloc }
+    iroha_ffi::def_ffi_fns! { dealloc }
 
     #[no_mangle]
     unsafe extern "C" fn __freestanding_returns_non_local(
@@ -178,6 +186,17 @@ mod ffi {
         output: *mut <Box<u8> as FfiOutPtr>::OutPtr,
     ) -> FfiReturn {
         output.write(input.read());
+        FfiReturn::Ok
+    }
+
+    #[no_mangle]
+    unsafe extern "C" fn __freestanding_return_empty_tuple_result(
+        input: <bool as FfiType>::ReprC,
+    ) -> FfiReturn {
+        if input == 1 {
+            return FfiReturn::ExecutionFail;
+        }
+
         FfiReturn::Ok
     }
 }

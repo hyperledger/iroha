@@ -1,14 +1,16 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
 #![cfg_attr(not(feature = "std"), no_std)]
-#![allow(clippy::std_instead_of_alloc, clippy::arithmetic_side_effects)]
+#![allow(clippy::arithmetic_side_effects)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
 mod hash;
 mod merkle;
+#[cfg(not(feature = "ffi_import"))]
 mod multihash;
 mod signature;
+#[cfg(not(feature = "ffi_import"))]
 mod varint;
 
 #[cfg(not(feature = "std"))]
@@ -21,13 +23,14 @@ use core::{fmt, str::FromStr};
 
 #[cfg(feature = "base64")]
 pub use base64;
-use derive_more::{DebugCustom, Display};
-use getset::Getters;
+use derive_more::Display;
+use error::{Error, NoSuchAlgorithm};
+use getset::{CopyGetters, Getters};
 pub use hash::*;
-use iroha_ffi::FfiType;
+use iroha_macro::ffi_impl_opaque;
 use iroha_schema::IntoSchema;
 pub use merkle::MerkleTree;
-use multihash::Multihash;
+#[cfg(not(feature = "ffi_import"))]
 use parity_scale_codec::{Decode, Encode};
 #[cfg(feature = "std")]
 use serde::Deserialize;
@@ -35,8 +38,10 @@ use serde::Serialize;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 pub use signature::*;
 #[cfg(feature = "std")]
+#[cfg(not(feature = "ffi_import"))]
 pub use ursa;
 #[cfg(feature = "std")]
+#[cfg(not(feature = "ffi_import"))]
 use ursa::{
     keys::{KeyGenOption as UrsaKeyGenOption, PrivateKey as UrsaPrivateKey},
     signatures::{
@@ -61,17 +66,9 @@ pub const BLS_NORMAL: &str = "bls_normal";
 /// String algorithm representation
 pub const BLS_SMALL: &str = "bls_small";
 
-/// Error indicating algorithm could not be found
-#[derive(Debug, Clone, Copy, Display, IntoSchema)]
-#[display(fmt = "Algorithm not supported")]
-pub struct NoSuchAlgorithm;
-
-#[cfg(feature = "std")]
-impl std::error::Error for NoSuchAlgorithm {}
-
 ffi::ffi_item! {
     /// Algorithm for hashing
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, DeserializeFromStr, SerializeDisplay, Decode, Encode, FfiType, IntoSchema)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, DeserializeFromStr, SerializeDisplay, Decode, Encode, IntoSchema)]
     #[repr(u8)]
     pub enum Algorithm {
         #[default]
@@ -119,8 +116,9 @@ impl FromStr for Algorithm {
 }
 
 /// Options for key generation
+#[cfg(not(feature = "ffi_import"))]
 #[derive(Debug, Clone)]
-pub enum KeyGenOption {
+enum KeyGenOption {
     /// Use seed
     UseSeed(Vec<u8>),
     /// Derive from private key
@@ -128,12 +126,13 @@ pub enum KeyGenOption {
 }
 
 #[cfg(feature = "std")]
+#[cfg(not(feature = "ffi_import"))]
 impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
     type Error = NoSuchAlgorithm;
 
     fn try_from(key_gen_option: KeyGenOption) -> Result<Self, Self::Error> {
         match key_gen_option {
-            KeyGenOption::UseSeed(seed) => Ok(UrsaKeyGenOption::UseSeed(seed)),
+            KeyGenOption::UseSeed(seed) => Ok(Self::UseSeed(seed)),
             KeyGenOption::FromPrivateKey(key) => {
                 let algorithm = key.digest_function();
 
@@ -148,15 +147,19 @@ impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
     }
 }
 
-/// Configuration of key generation
-#[derive(Debug, Clone, Default)]
-pub struct KeyGenConfiguration {
-    /// Options
-    pub key_gen_option: Option<KeyGenOption>,
-    /// Algorithm
-    pub algorithm: Algorithm,
+ffi::ffi_item! {
+    /// Configuration of key generation
+    #[derive(Clone, Default)]
+    #[cfg_attr(not(feature="ffi_import"), derive(Debug))]
+    pub struct KeyGenConfiguration {
+        /// Options
+        key_gen_option: Option<KeyGenOption>,
+        /// Algorithm
+        algorithm: Algorithm,
+    }
 }
 
+#[ffi_impl_opaque]
 impl KeyGenConfiguration {
     /// Use seed
     #[must_use]
@@ -174,7 +177,7 @@ impl KeyGenConfiguration {
 
     /// With algorithm
     #[must_use]
-    pub const fn with_algorithm(mut self, algorithm: Algorithm) -> Self {
+    pub fn with_algorithm(mut self, algorithm: Algorithm) -> Self {
         self.algorithm = algorithm;
         self
     }
@@ -182,92 +185,47 @@ impl KeyGenConfiguration {
 
 ffi::ffi_item! {
     /// Pair of Public and Private keys.
-    #[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize, FfiType)]
+    #[derive(Clone, PartialEq, Eq, Getters)]
+    #[cfg_attr(not(feature="ffi_import"), derive(Debug, Serialize))]
     #[getset(get = "pub")]
     pub struct KeyPair {
-        /// Public Key.
+        /// Public key.
         public_key: PublicKey,
-        /// Private Key.
+        /// Private key.
         private_key: PrivateKey,
     }
 }
 
-/// Error when dealing with cryptographic functions
-#[derive(Debug, Display, serde::Deserialize)]
-pub enum Error {
-    /// Returned when trying to create an algorithm which does not exist
-    #[display(fmt = "Algorithm doesn't exist")] // TODO: which algorithm
-    NoSuchAlgorithm,
-    /// Occurs during deserialization of a private or public key
-    #[display(fmt = "Key could not be parsed. {_0}")]
-    Parse(String),
-    /// Returned when an error occurs during the signing process
-    #[display(fmt = "Signing failed. {_0}")]
-    Signing(String),
-    /// Returned when an error occurs during key generation
-    #[display(fmt = "Key generation failed. {_0}")]
-    KeyGen(String),
-    /// Returned when an error occurs during digest generation
-    #[display(fmt = "Digest generation failed. {_0}")]
-    DigestGen(String),
-    /// Returned when an error occurs during creation of [`SignaturesOf`]
-    #[display(fmt = "`SignaturesOf` must contain at least one signature")]
-    EmptySignatureIter,
-    /// A General purpose error message that doesn't fit in any category
-    #[display(fmt = "General error. {_0}")] // This is going to cause a headache
-    Other(String),
-}
-
-#[cfg(feature = "std")]
-impl From<ursa::CryptoError> for Error {
-    fn from(source: ursa::CryptoError) -> Self {
-        match source {
-            ursa::CryptoError::NoSuchAlgorithm(_) => Self::NoSuchAlgorithm,
-            ursa::CryptoError::ParseError(source) => Self::Parse(source),
-            ursa::CryptoError::SigningError(source) => Self::Signing(source),
-            ursa::CryptoError::KeyGenError(source) => Self::KeyGen(source),
-            ursa::CryptoError::DigestGenError(source) => Self::DigestGen(source),
-            ursa::CryptoError::GeneralError(source) => Self::Other(source),
-        }
+impl KeyPair {
+    /// Generates a pair of Public and Private key with [`Algorithm::default()`] selected as generation algorithm.
+    ///
+    /// # Errors
+    /// Fails if decoding fails
+    #[cfg(any(feature = "std", feature = "ffi_import"))]
+    pub fn generate() -> Result<Self, Error> {
+        Self::generate_with_configuration(KeyGenConfiguration::default())
     }
 }
 
-#[cfg(feature = "std")]
-impl From<NoSuchAlgorithm> for Error {
-    fn from(_: NoSuchAlgorithm) -> Self {
-        Self::NoSuchAlgorithm
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for Error {}
-
+#[ffi_impl_opaque]
 impl KeyPair {
     /// Digest function
     pub fn digest_function(&self) -> Algorithm {
         self.private_key.digest_function()
     }
 
-    /// Construct `KeyPair` from a matching pair of public and private key.
-    /// It is up to the user to ensure that the given keys indeed make a pair.
-    #[cfg(not(feature = "std"))]
-    pub fn new_unchecked(public_key: PublicKey, private_key: PrivateKey) -> Self {
-        Self {
-            public_key,
-            private_key,
-        }
-    }
-
     /// Construct `KeyPair`
     ///
     /// # Errors
     /// If public and private key don't match, i.e. if they don't make a pair
-    #[cfg(feature = "std")]
+    #[cfg(any(feature = "std", feature = "ffi_import"))]
     pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Result<Self, Error> {
         let algorithm = private_key.digest_function();
 
         if algorithm != public_key.digest_function() {
-            return Err(Error::KeyGen(String::from("Mismatch of key algorithms")));
+            #[cfg(not(feature = "std"))]
+            use alloc::borrow::ToOwned as _;
+            return Err(Error::KeyGen("Mismatch of key algorithms".to_owned()));
         }
 
         if PublicKey::from(private_key.clone()) != public_key {
@@ -280,23 +238,12 @@ impl KeyPair {
         })
     }
 
-    /// Generates a pair of Public and Private key with [`Algorithm::default()`] selected as generation algorithm.
-    ///
-    /// # Errors
-    /// Fails if decoding fails
-    #[cfg(feature = "std")]
-    pub fn generate() -> Result<Self, Error> {
-        Self::generate_with_configuration(KeyGenConfiguration::default())
-    }
-
     /// Generates a pair of Public and Private key with the corresponding [`KeyGenConfiguration`].
     ///
     /// # Errors
     /// Fails if decoding fails
-    #[cfg(feature = "std")]
+    #[cfg(any(feature = "std", feature = "ffi_import"))]
     pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, Error> {
-        let digest_function: Algorithm = configuration.algorithm;
-
         let key_gen_option: Option<UrsaKeyGenOption> = configuration
             .key_gen_option
             .map(TryInto::try_into)
@@ -310,11 +257,11 @@ impl KeyPair {
 
         Ok(Self {
             public_key: PublicKey {
-                digest_function,
+                digest_function: configuration.algorithm,
                 payload: core::mem::take(&mut public_key.0),
             },
             private_key: PrivateKey {
-                digest_function,
+                digest_function: configuration.algorithm,
                 payload: core::mem::take(&mut private_key.0),
             },
         })
@@ -322,6 +269,7 @@ impl KeyPair {
 }
 
 #[cfg(feature = "std")]
+#[cfg(not(feature = "ffi_import"))]
 impl<'de> Deserialize<'de> for KeyPair {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -341,6 +289,8 @@ impl<'de> Deserialize<'de> for KeyPair {
     }
 }
 
+// TODO: enable in ffi_import?
+#[cfg(not(feature = "ffi_import"))]
 impl From<KeyPair> for (PublicKey, PrivateKey) {
     fn from(key_pair: KeyPair) -> Self {
         (key_pair.public_key, key_pair.private_key)
@@ -349,30 +299,24 @@ impl From<KeyPair> for (PublicKey, PrivateKey) {
 
 ffi::ffi_item! {
     /// Public Key used in signatures.
-    #[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, DeserializeFromStr, SerializeDisplay, Decode, Encode, FfiType, IntoSchema)]
-    #[debug(fmt = "{{digest: {digest_function}, payload: {payload:X?}}}")]
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, CopyGetters)]
+    #[cfg_attr(not(feature="ffi_import"), derive(derive_more::DebugCustom, Hash, DeserializeFromStr, SerializeDisplay, Decode, Encode, IntoSchema))]
+    #[cfg_attr(not(feature="ffi_import"), debug(fmt = "{{digest: {digest_function}, payload: {payload:X?}}}"))]
     pub struct PublicKey {
         /// Digest function
+        #[getset(get_copy = "pub")]
         digest_function: Algorithm,
         /// Key payload
         payload: Vec<u8>,
     }
 }
 
-#[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
-    iroha_ffi::ffi_export
-)]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
+#[ffi_impl_opaque]
 impl PublicKey {
     /// Key payload
+    // TODO: Derive with getset once FFI impl is fixed
     pub fn payload(&self) -> &[u8] {
         &self.payload
-    }
-
-    /// Digest function
-    pub fn digest_function(&self) -> Algorithm {
-        self.digest_function
     }
 
     #[cfg(feature = "std")]
@@ -403,15 +347,16 @@ impl FromStr for PublicKey {
     fn from_str(key: &str) -> Result<Self, Self::Err> {
         let bytes = hex_decode(key).map_err(|err| Error::Parse(err.to_string()))?;
 
-        Multihash::try_from(bytes)
+        multihash::Multihash::try_from(bytes)
             .map_err(|err| Error::Parse(err.to_string()))
             .map(Into::into)
     }
 }
 
+#[cfg(not(feature = "ffi_import"))]
 impl fmt::Display for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let multihash: &Multihash = &self
+        let multihash: &multihash::Multihash = &self
             .clone()
             .try_into()
             .expect("Failed to get multihash representation.");
@@ -426,7 +371,9 @@ impl fmt::Display for PublicKey {
     }
 }
 
+// TODO: Enable in ffi_import
 #[cfg(feature = "std")]
+#[cfg(not(feature = "ffi_import"))]
 impl From<PrivateKey> for PublicKey {
     fn from(private_key: PrivateKey) -> Self {
         Self::try_from_private(private_key).expect("can't fail for valid `PrivateKey`")
@@ -435,10 +382,12 @@ impl From<PrivateKey> for PublicKey {
 
 ffi::ffi_item! {
     /// Private Key used in signatures.
-    #[derive(DebugCustom, Clone, PartialEq, Eq, Serialize, FfiType)]
-    #[debug(fmt = "{{digest: {digest_function}, payload: {payload:X?}}}")]
+    #[derive(Clone, PartialEq, Eq, CopyGetters)]
+    #[cfg_attr(not(feature="ffi_import"), derive(derive_more::DebugCustom, Serialize))]
+    #[cfg_attr(not(feature="ffi_import"), debug(fmt = "{{digest: {digest_function}, payload: {payload:X?}}}"))]
     pub struct PrivateKey {
         /// Digest function
+        #[getset(get_copy = "pub")]
         digest_function: Algorithm,
         /// Key payload
         #[serde(with = "hex::serde")]
@@ -452,20 +401,12 @@ impl fmt::Display for PrivateKey {
     }
 }
 
-#[cfg_attr(
-    all(feature = "ffi_export", not(feature = "ffi_import")),
-    iroha_ffi::ffi_export
-)]
-#[cfg_attr(feature = "ffi_import", iroha_ffi::ffi_import)]
+#[ffi_impl_opaque]
 impl PrivateKey {
     /// Key payload
+    // TODO: Derive with getset once FFI impl is fixed
     pub fn payload(&self) -> &[u8] {
         &self.payload
-    }
-
-    /// Digest function
-    pub fn digest_function(&self) -> Algorithm {
-        self.digest_function
     }
 }
 
@@ -492,10 +433,7 @@ impl PrivateKey {
     /// - If the given payload is not hex encoded
     /// - If the given payload is not a valid private key
     #[cfg(feature = "std")]
-    pub fn from_hex(
-        digest_function: Algorithm,
-        payload: &(impl AsRef<[u8]> + ?Sized),
-    ) -> Result<Self, Error> {
+    pub fn from_hex(digest_function: Algorithm, payload: &[u8]) -> Result<Self, Error> {
         let payload = hex_decode(payload)?;
 
         let private_key_candidate = Self {
@@ -526,7 +464,8 @@ impl<'de> Deserialize<'de> for PrivateKey {
 
         // NOTE: Verify that private key is valid
         let private_key = PrivateKeyCandidate::deserialize(deserializer)?;
-        Self::from_hex(private_key.digest_function, &private_key.payload).map_err(D::Error::custom)
+        Self::from_hex(private_key.digest_function, private_key.payload.as_ref())
+            .map_err(D::Error::custom)
     }
 }
 
@@ -535,37 +474,115 @@ pub(crate) fn hex_decode<T: AsRef<[u8]> + ?Sized>(payload: &T) -> Result<Vec<u8>
     hex::decode(payload).map_err(|err| Error::Parse(err.to_string()))
 }
 
-pub mod ffi {
+pub mod error {
+    //! Module containing errors
+    use super::*;
+
+    /// Error indicating algorithm could not be found
+    #[derive(Debug, Display, Clone, Copy)]
+    #[display(fmt = "Algorithm not supported")]
+    pub struct NoSuchAlgorithm;
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for NoSuchAlgorithm {}
+
+    /// Error when dealing with cryptographic functions
+    #[derive(Debug, Display, serde::Deserialize)]
+    pub enum Error {
+        /// Returned when trying to create an algorithm which does not exist
+        #[display(fmt = "Algorithm doesn't exist")] // TODO: which algorithm
+        NoSuchAlgorithm(String),
+        /// Occurs during deserialization of a private or public key
+        #[display(fmt = "Key could not be parsed. {_0}")]
+        Parse(String),
+        /// Returned when an error occurs during the signing process
+        #[display(fmt = "Signing failed. {_0}")]
+        Signing(String),
+        /// Returned when an error occurs during key generation
+        #[display(fmt = "Key generation failed. {_0}")]
+        KeyGen(String),
+        /// Returned when an error occurs during digest generation
+        #[display(fmt = "Digest generation failed. {_0}")]
+        DigestGen(String),
+        /// Returned when an error occurs during creation of [`SignaturesOf`]
+        #[display(fmt = "`SignaturesOf` must contain at least one signature")]
+        EmptySignatureIter,
+        /// A General purpose error message that doesn't fit in any category
+        #[display(fmt = "General error. {_0}")] // This is going to cause a headache
+        Other(String),
+    }
+
+    #[cfg(feature = "std")]
+    #[cfg(not(feature = "ffi_import"))]
+    impl From<ursa::CryptoError> for Error {
+        fn from(source: ursa::CryptoError) -> Self {
+            match source {
+                ursa::CryptoError::NoSuchAlgorithm(source) => Self::NoSuchAlgorithm(source),
+                ursa::CryptoError::ParseError(source) => Self::Parse(source),
+                ursa::CryptoError::SigningError(source) => Self::Signing(source),
+                ursa::CryptoError::KeyGenError(source) => Self::KeyGen(source),
+                ursa::CryptoError::DigestGenError(source) => Self::DigestGen(source),
+                ursa::CryptoError::GeneralError(source) => Self::Other(source),
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl From<NoSuchAlgorithm> for Error {
+        fn from(source: NoSuchAlgorithm) -> Self {
+            Self::NoSuchAlgorithm(source.to_string())
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for Error {}
+}
+
+mod ffi {
     //! Definitions and implementations of FFI related functionalities
 
+    #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
     use super::*;
 
     macro_rules! ffi_item {
-        ($it: item) => {
-            #[cfg(not(feature = "ffi_import"))]
+        ($it: item $($attr: meta)?) => {
+            #[cfg(all(not(feature = "ffi_export"), not(feature = "ffi_import")))]
+            $it
+
+            #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
+            #[derive(iroha_ffi::FfiType)]
+            #[iroha_ffi::ffi_export]
+            $(#[$attr])?
             $it
 
             #[cfg(feature = "ffi_import")]
-            iroha_ffi::ffi! { $it }
+            iroha_ffi::ffi! {
+                #[iroha_ffi::ffi_import]
+                $(#[$attr])?
+                $it
+            }
         };
     }
 
     #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
-    macro_rules! ffi_fn {
-        ($macro_name: ident) => {
-            iroha_ffi::$macro_name! { "iroha_crypto" Clone: KeyPair, PublicKey, PrivateKey }
-            iroha_ffi::$macro_name! { "iroha_crypto" Eq: KeyPair, PublicKey, PrivateKey }
-            iroha_ffi::$macro_name! { "iroha_crypto" Ord: PublicKey }
-            iroha_ffi::$macro_name! { "iroha_crypto" Drop: KeyPair, PublicKey, PrivateKey }
-        };
+    iroha_ffi::handles! {
+        KeyGenConfiguration,
+        PublicKey,
+        PrivateKey,
+        KeyPair,
+        Signature,
     }
 
-    iroha_ffi::handles! {KeyPair, PublicKey, PrivateKey}
-
     #[cfg(feature = "ffi_import")]
-    ffi_fn! {decl_ffi_fn}
+    iroha_ffi::decl_ffi_fns! { link_prefix="iroha_crypto" Drop, Clone, Eq, Ord, Default }
     #[cfg(all(feature = "ffi_export", not(feature = "ffi_import")))]
-    ffi_fn! {def_ffi_fn}
+    iroha_ffi::def_ffi_fns! { link_prefix="iroha_crypto"
+        Drop: { KeyGenConfiguration, PublicKey, PrivateKey, KeyPair, Signature },
+        Clone: { KeyGenConfiguration, PublicKey, PrivateKey, KeyPair, Signature },
+        Eq: { PublicKey, PrivateKey, KeyPair, Signature },
+        Ord: { PublicKey, Signature },
+        Default: { KeyGenConfiguration },
+    }
 
     // NOTE: Makes sure that only one `dealloc` is exported per generated dynamic library
     #[cfg(any(crate_type = "dylib", crate_type = "cdylib"))]
@@ -576,7 +593,7 @@ pub mod ffi {
         #[cfg(feature = "std")]
         use std::alloc;
 
-        iroha_ffi::def_ffi_fn! {dealloc}
+        iroha_ffi::def_ffi_fns! {dealloc}
     }
 
     pub(crate) use ffi_item;
@@ -592,7 +609,7 @@ mod tests {
     #![allow(clippy::restriction)]
 
     #[cfg(not(feature = "std"))]
-    use alloc::borrow::ToString as _;
+    use alloc::string::ToString as _;
 
     use parity_scale_codec::{Decode, Encode};
 
@@ -663,7 +680,7 @@ mod tests {
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
+            "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774".as_ref()
         ).expect("Private key not hex encoded")).is_ok());
 
         assert!(KeyPair::new("ea0161040FCFADE2FC5D9104A9ACF9665EA545339DDF10AE50343249E01AF3B8F885CD5D52956542CCE8105DB3A2EC4006E637A7177FAAEA228C311F907DAAFC254F22667F1A1812BB710C6F4116A1415275D27BB9FB884F37E8EF525CC31F3945E945FA"
@@ -671,7 +688,7 @@ mod tests {
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::BlsNormal,
-            "0000000000000000000000000000000049BF70187154C57B97AF913163E8E875733B4EAF1F3F0689B31CE392129493E9"
+            "0000000000000000000000000000000049BF70187154C57B97AF913163E8E875733B4EAF1F3F0689B31CE392129493E9".as_ref()
         ).expect("Private key not hex encoded")).is_ok());
     }
 
@@ -705,13 +722,13 @@ mod tests {
     fn invalid_private_key() {
         assert!(PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "0000000000000000000000000000000049BF70187154C57B97AF913163E8E875733B4EAF1F3F0689B31CE392129493E9"
+            "0000000000000000000000000000000049BF70187154C57B97AF913163E8E875733B4EAF1F3F0689B31CE392129493E9".as_ref()
         ).is_err());
 
         assert!(
             PrivateKey::from_hex(
                 Algorithm::BlsNormal,
-                "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
+                "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774".as_ref()
             ).is_err());
     }
 
@@ -722,7 +739,7 @@ mod tests {
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
+            "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4".as_ref()
         ).expect("Private key not valid")).is_err());
 
         assert!(KeyPair::new("ea0161040FCFADE2FC5D9104A9ACF9665EA545339DDF10AE50343249E01AF3B8F885CD5D52956542CCE8105DB3A2EC4006E637A7177FAAEA228C311F907DAAFC254F22667F1A1812BB710C6F4116A1415275D27BB9FB884F37E8EF525CC31F3945E945FA"
@@ -730,11 +747,12 @@ mod tests {
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::BlsNormal,
-            "000000000000000000000000000000002F57460183837EFBAC6AA6AB3B8DBB7CFFCFC59E9448B7860A206D37D470CBA3"
+            "000000000000000000000000000000002F57460183837EFBAC6AA6AB3B8DBB7CFFCFC59E9448B7860A206D37D470CBA3".as_ref()
         ).expect("Private key not valid")).is_err());
     }
 
     #[test]
+    #[cfg(not(feature = "ffi_import"))]
     fn display_public_key() {
         assert_eq!(
             format!(
@@ -790,7 +808,7 @@ mod tests {
         )
     }
 
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Debug, PartialEq, Deserialize, Serialize)]
     struct TestJson {
         public_key: PublicKey,
         private_key: PrivateKey,

@@ -28,8 +28,6 @@ pub enum ReloadError {
 
 /// The field needs to be mutably borrowed to be reloaded.
 pub trait ReloadMut<T> {
-    // TODO: When negative traits/specialisation, remove Debug
-
     /// Reload `self` using provided `item`.
     ///
     /// # Errors

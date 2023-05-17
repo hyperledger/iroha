@@ -98,10 +98,7 @@ impl Default for ConfigurationProxy {
             torii_telemetry_url: None,
             transaction_time_to_live_ms: Some(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS),
             transaction_status_timeout_ms: Some(DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS),
-            transaction_limits: Some(TransactionLimits::new(
-                transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-                transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
-            )),
+            transaction_limits: Some(transaction::DEFAULT_TRANSACTION_LIMITS),
             add_transaction_nonce: Some(DEFAULT_ADD_TRANSACTION_NONCE),
         }
     }
@@ -233,7 +230,7 @@ mod tests {
     use super::*;
     use crate::torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_TELEMETRY_URL};
 
-    const CONFIGURATION_PATH: &str = "../configs/client_cli/config.json";
+    const CONFIGURATION_PATH: &str = "../configs/client/config.json";
 
     prop_compose! {
         // TODO: make tests to check generated key validity
@@ -270,10 +267,7 @@ mod tests {
                 torii_telemetry_url in prop::option::of(Just(SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL))),
                 transaction_time_to_live_ms in prop::option::of(Just(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS)),
                 transaction_status_timeout_ms in prop::option::of(Just(DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS)),
-                transaction_limits in prop::option::of(Just(TransactionLimits::new(
-                    transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-                    transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
-                ))),
+                transaction_limits in prop::option::of(Just(transaction::DEFAULT_TRANSACTION_LIMITS)),
                 add_transaction_nonce in prop::option::of(Just(DEFAULT_ADD_TRANSACTION_NONCE)),
             )
             -> ConfigurationProxy {

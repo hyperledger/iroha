@@ -16,7 +16,7 @@ use iroha_config::{
     torii::uri,
     GetConfiguration, PostConfiguration,
 };
-use iroha_core::smartcontracts::isi::query::ValidQueryRequest;
+use iroha_core::{smartcontracts::isi::query::ValidQueryRequest, sumeragi::SumeragiHandle};
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{
     block::{
@@ -101,19 +101,17 @@ impl TryFrom<SignedQuery> for VerifiedQuery {
 
 #[iroha_futures::telemetry_future]
 pub(crate) async fn handle_instructions(
-    iroha_cfg: Configuration,
     queue: Arc<Queue>,
-    sumeragi: Arc<Sumeragi>,
+    sumeragi: SumeragiHandle,
     transaction: VersionedSignedTransaction,
 ) -> Result<Empty> {
     let transaction: SignedTransaction = transaction.into_v1();
-    let transaction =
-        AcceptedTransaction::accept::<false>(transaction, &iroha_cfg.sumeragi.transaction_limits)
-            .map_err(Error::AcceptTransaction)?
-            .into();
-    #[allow(clippy::map_err_ignore)]
-    queue
-        .push(transaction, &sumeragi.wsv_mutex_access())
+    let transaction_limits = sumeragi.wsv(|wsv| wsv.config.borrow().transaction_limits);
+    let transaction = AcceptedTransaction::accept::<false>(transaction, &transaction_limits)
+        .map_err(Error::AcceptTransaction)?
+        .into();
+    sumeragi
+        .wsv(|wsv| queue.push(transaction, wsv))
         .map_err(|queue::Failure { tx, err }| {
             iroha_logger::warn!(
                 tx_hash=%tx.hash(), ?err,
@@ -128,7 +126,7 @@ pub(crate) async fn handle_instructions(
 
 #[iroha_futures::telemetry_future]
 pub(crate) async fn handle_queries(
-    sumeragi: Arc<Sumeragi>,
+    sumeragi: SumeragiHandle,
     pagination: Pagination,
     sorting: Sorting,
     request: VersionedSignedQuery,
@@ -137,7 +135,7 @@ pub(crate) async fn handle_queries(
     let request: VerifiedQuery = request.try_into()?;
 
     let (result, filter) = {
-        let wsv = sumeragi.wsv_mutex_access().clone();
+        let wsv = sumeragi.wsv(Clone::clone);
         let (valid_request, filter) = request.validate(&wsv)?;
         let original_result = valid_request.execute(&wsv)?;
         (filter.filter(original_result), filter)
@@ -226,12 +224,12 @@ async fn handle_schema() -> Json {
 #[iroha_futures::telemetry_future]
 async fn handle_pending_transactions(
     queue: Arc<Queue>,
-    sumeragi: Arc<Sumeragi>,
+    sumeragi: SumeragiHandle,
     pagination: Pagination,
 ) -> Result<Scale<VersionedPendingTransactions>> {
     Ok(Scale(
-        queue
-            .all_transactions(&sumeragi.wsv_mutex_access())
+        sumeragi
+            .wsv(|wsv| queue.all_transactions(wsv))
             .into_iter()
             .map(VersionedAcceptedTransaction::into_v1)
             .map(SignedTransaction::from)
@@ -412,13 +410,12 @@ mod subscription {
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "telemetry")]
-async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
+async fn handle_version(sumeragi: SumeragiHandle) -> Json {
     use iroha_version::Version;
 
     #[allow(clippy::expect_used)]
     let string = sumeragi
-        .wsv_mutex_access()
-        .latest_block_ref()
+        .wsv(WorldStateView::latest_block_ref)
         .expect("Genesis not applied. Nothing we can do. Solve the issue and rerun.")
         .version()
         .to_string();
@@ -426,7 +423,7 @@ async fn handle_version(sumeragi: Arc<Sumeragi>) -> Json {
 }
 
 #[cfg(feature = "telemetry")]
-fn handle_metrics(sumeragi: &Sumeragi) -> Result<String> {
+fn handle_metrics(sumeragi: &SumeragiHandle) -> Result<String> {
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
     }
@@ -438,7 +435,7 @@ fn handle_metrics(sumeragi: &Sumeragi) -> Result<String> {
 
 #[cfg(feature = "telemetry")]
 #[allow(clippy::unnecessary_wraps)]
-fn handle_status(sumeragi: &Sumeragi) -> Result<warp::reply::Json, Infallible> {
+fn handle_status(sumeragi: &SumeragiHandle) -> Result<warp::reply::Json, Infallible> {
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
     }
@@ -448,7 +445,7 @@ fn handle_status(sumeragi: &Sumeragi) -> Result<warp::reply::Json, Infallible> {
 
 #[cfg(feature = "telemetry")]
 #[allow(clippy::unused_async)]
-async fn handle_status_precise(sumeragi: Arc<Sumeragi>, segment: String) -> Result<Json> {
+async fn handle_status_precise(sumeragi: SumeragiHandle, segment: String) -> Result<Json> {
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
     }
@@ -477,7 +474,7 @@ impl Torii {
         queue: Arc<Queue>,
         events: EventsSender,
         notify_shutdown: Arc<Notify>,
-        sumeragi: Arc<Sumeragi>,
+        sumeragi: SumeragiHandle,
         kura: Arc<Kura>,
     ) -> Self {
         Self {
@@ -500,25 +497,23 @@ impl Torii {
         let get_router_status_precise = endpoint2(
             handle_status_precise,
             status_path
-                .and(add_state!(self.sumeragi))
+                .and(add_state!(self.sumeragi.clone()))
                 .and(warp::path::param()),
         );
         let get_router_status_bare =
             status_path
-                .and(add_state!(self.sumeragi))
-                .and_then(|sumeragi: Arc<_>| async move {
+                .and(add_state!(self.sumeragi.clone()))
+                .and_then(|sumeragi| async move {
                     Ok::<_, Infallible>(WarpResult(handle_status(&sumeragi)))
                 });
         let get_router_metrics = warp::path(uri::METRICS)
             .and(add_state!(self.sumeragi))
-            .and_then(|sumeragi: Arc<_>| async move {
+            .and_then(|sumeragi| async move {
                 Ok::<_, Infallible>(WarpResult(handle_metrics(&sumeragi)))
             });
         let get_api_version = warp::path(uri::API_VERSION)
-            .and(add_state!(self.sumeragi))
-            .and_then(|sumeragi: Arc<_>| async {
-                Ok::<_, Infallible>(handle_version(sumeragi).await)
-            });
+            .and(add_state!(self.sumeragi.clone()))
+            .and_then(|sumeragi| async { Ok::<_, Infallible>(handle_version(sumeragi).await) });
 
         warp::get()
             .and(get_router_status_precise.or(get_router_status_bare))
@@ -555,10 +550,10 @@ impl Torii {
             .and_then(|| async { Ok::<_, Infallible>(handle_schema().await) }));
 
         let post_router = warp::post()
-            .and(endpoint4(
+            .and(endpoint3(
                 handle_instructions,
                 warp::path(uri::TRANSACTION)
-                    .and(add_state!(self.iroha_cfg, self.queue, self.sumeragi))
+                    .and(add_state!(self.queue, self.sumeragi))
                     .and(warp::body::content_length_limit(
                         self.iroha_cfg.torii.max_content_len.into(),
                     ))

@@ -7,10 +7,6 @@ authors.workspace = true
 
 license.workspace = true
 
-[features]
-# Create a mock query for testing
-query = []
-
 [dependencies]
 iroha = { path = "../../cli", features = ["test-network"] }
 iroha_client = { version = "=2.0.0-pre-rc.13", path = "../../client" }

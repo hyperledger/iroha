@@ -19,13 +19,13 @@ mod wasm {
     pub enum NonWasmIntPrimitive {}
 
     impl crate::ir::IrTypeFamily for NonWasmIntPrimitive {
-        type RefType<'itm> = Transparent;
-        type RefMutType<'itm> = Transparent;
-        type BoxType = Box<Robust>;
-        type SliceRefType<'itm> = &'itm [Robust];
-        type SliceRefMutType<'itm> = &'itm mut [Robust];
-        type VecType = Vec<Robust>;
-        type ArrType<const N: usize> = Robust;
+        type Ref<'itm> = Transparent;
+        type RefMut<'itm> = Transparent;
+        type Box = Box<Robust>;
+        type SliceRef<'itm> = &'itm [Robust];
+        type SliceRefMut<'itm> = &'itm mut [Robust];
+        type Vec = Vec<Robust>;
+        type Arr<const N: usize> = Robust;
     }
 
     macro_rules! wasm_repr_impls {

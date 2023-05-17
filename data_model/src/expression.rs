@@ -101,7 +101,7 @@ use crate::NumericValue;
 ///
 /// impl From<Add> for EvaluatesTo<u32> {
 ///     fn from(expression: Add) -> Self {
-///         EvaluatesTo::new_unchecked(expression.into())
+///         EvaluatesTo::new_unchecked(expression)
 ///     }
 /// }
 /// ```
@@ -162,7 +162,7 @@ macro_rules! gen_expr_and_impls {
     (impl_extra_convert $i:ident $result_type:ty) => {
         impl From<$i> for EvaluatesTo<$result_type> {
             fn from(expression: $i) -> Self {
-                EvaluatesTo::new_unchecked(expression.into())
+                EvaluatesTo::new_unchecked(expression)
             }
         }
     };
@@ -487,10 +487,10 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
-    #[getset(get = "pub")]
     #[ffi_type]
     pub struct Where {
         /// Expression to be evaluated.
+        #[getset(get = "pub")]
         pub expression: EvaluatesTo<Value>,
         /// Context values for the context bonded to their `String` names.
         pub values: btree_map::BTreeMap<Name, EvaluatesTo<Value>>,
@@ -499,7 +499,7 @@ pub mod model {
 
 impl<V: TryFrom<Value>, E: Into<ExpressionBox> + Into<V>> From<E> for EvaluatesTo<V> {
     fn from(expression: E) -> Self {
-        Self::new_unchecked(expression.into())
+        Self::new_unchecked(expression)
     }
 }
 
@@ -523,9 +523,9 @@ impl<V: TryFrom<Value>> EvaluatesTo<V> {
     /// Prefer using [`Into`] conversions rather than this method,
     /// because it does not check the value type at compile-time.
     #[inline]
-    pub fn new_unchecked(expression: ExpressionBox) -> Self {
+    pub fn new_unchecked(expression: impl Into<ExpressionBox>) -> Self {
         Self {
-            expression,
+            expression: expression.into(),
             _value_type: PhantomData::default(),
         }
     }
@@ -567,7 +567,7 @@ impl EvaluatesTo<Value> {
     /// Construct `EvaluatesTo<Value>` from any `expression`
     /// because all of them evaluate to [`Value`].
     #[inline]
-    pub fn new_evaluates_to_value(expression: ExpressionBox) -> Self {
+    pub fn new_evaluates_to_value(expression: impl Into<ExpressionBox>) -> Self {
         Self::new_unchecked(expression)
     }
 }
@@ -749,6 +749,12 @@ impl core::fmt::Display for Where {
 }
 
 impl Where {
+    /// Get an iterator over the values of [`Where`] clause
+    #[inline]
+    pub fn values(&self) -> impl ExactSizeIterator<Item = (&Name, &EvaluatesTo<Value>)> {
+        self.values.iter()
+    }
+
     /// Number of underneath expressions.
     #[must_use]
     #[inline]

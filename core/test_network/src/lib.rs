@@ -57,7 +57,7 @@ pub fn get_key_pair() -> KeyPair {
         .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
+            "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0".as_ref()
         ).expect("Private key not hex encoded")
     ).expect("Key pair mismatch")
 }
@@ -125,7 +125,7 @@ impl TestGenesis for GenesisNetwork {
             submit_genesis,
             genesis,
             Some(&cfg.genesis),
-            &cfg.sumeragi.transaction_limits,
+            &cfg.wsv.transaction_limits,
         )
         .expect("Failed to init genesis")
     }
@@ -146,24 +146,18 @@ impl Network {
     /// and client for connecting to it.
     pub fn start_test_with_runtime(
         n_peers: u32,
-        max_txs_in_block: u32,
         start_port: Option<u16>,
     ) -> (Runtime, Self, Client) {
         let rt = Runtime::test();
-        let (network, client) =
-            rt.block_on(Self::start_test(n_peers, max_txs_in_block, start_port));
+        let (network, client) = rt.block_on(Self::start_test(n_peers, start_port));
         (rt, network, client)
     }
 
     /// Starts network with peers with default configuration and
     /// specified options.  Returns its info and client for connecting
     /// to it.
-    pub async fn start_test(
-        n_peers: u32,
-        max_txs_in_block: u32,
-        start_port: Option<u16>,
-    ) -> (Self, Client) {
-        Self::start_test_with_offline(n_peers, max_txs_in_block, 0, start_port).await
+    pub async fn start_test(n_peers: u32, start_port: Option<u16>) -> (Self, Client) {
+        Self::start_test_with_offline(n_peers, 0, start_port).await
     }
 
     /// Starts network with peers with default configuration and
@@ -171,12 +165,10 @@ impl Network {
     /// to it.
     pub async fn start_test_with_offline_and_set_n_shifts(
         n_peers: u32,
-        max_txs_in_block: u32,
         offline_peers: u32,
         start_port: Option<u16>,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
-        configuration.queue.maximum_transactions_in_block = max_txs_in_block;
         configuration.logger.max_log_level = iroha_logger::Level::INFO.into();
         let network = Network::new_with_offline_peers(
             Some(configuration),
@@ -198,17 +190,10 @@ impl Network {
     /// to it.
     pub async fn start_test_with_offline(
         n_peers: u32,
-        maximum_transactions_in_block: u32,
         offline_peers: u32,
         start_port: Option<u16>,
     ) -> (Self, Client) {
-        Self::start_test_with_offline_and_set_n_shifts(
-            n_peers,
-            maximum_transactions_in_block,
-            offline_peers,
-            start_port,
-        )
-        .await
+        Self::start_test_with_offline_and_set_n_shifts(n_peers, offline_peers, start_port).await
     }
 
     /// Adds peer to network and waits for it to start block
@@ -780,34 +765,6 @@ pub trait TestClient: Sized {
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
-}
-
-#[cfg(feature = "query")]
-pub mod query {
-    //! Query mocking module.
-    use super::*;
-
-    /// Query result mocking trait.
-    pub trait TestQueryResult {
-        /// Tries to find asset by id
-        fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset>;
-    }
-
-    impl TestQueryResult for QueryResult {
-        fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset> {
-            let QueryResult(Value::Vec(assets)) = self else {
-                panic!("Wrong Query Result Type.");
-            };
-            assets.iter().find_map(|asset| {
-                if let Value::Identifiable(IdentifiableBox::Asset(asset)) = asset {
-                    if &asset.id().definition_id == asset_id {
-                        return Some(asset.as_ref());
-                    }
-                }
-                None
-            })
-        }
-    }
 }
 
 impl TestRuntime for Runtime {

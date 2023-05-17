@@ -62,6 +62,7 @@ pub fn get_config_proxy(peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> Co
         public_key: Some(public_key.clone()),
         private_key: Some(private_key.clone()),
         sumeragi: Some(iroha_config::sumeragi::ConfigurationProxy {
+            max_transactions_in_block: Some(2),
             trusted_peers: Some(TrustedPeers { peers }),
             ..iroha_config::sumeragi::ConfigurationProxy::default()
         }),
@@ -77,7 +78,6 @@ pub fn get_config_proxy(peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> Co
             ..iroha_config::block_sync::ConfigurationProxy::default()
         }),
         queue: Some(iroha_config::queue::ConfigurationProxy {
-            maximum_transactions_in_block: Some(2),
             ..iroha_config::queue::ConfigurationProxy::default()
         }),
         genesis: Some(iroha_config::genesis::ConfigurationProxy {

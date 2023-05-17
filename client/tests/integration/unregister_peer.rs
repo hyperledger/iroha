@@ -4,7 +4,10 @@ use std::thread;
 use eyre::Result;
 use iroha_client::client;
 use iroha_crypto::KeyPair;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{
+    parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+    prelude::*,
+};
 use test_network::*;
 
 use super::Configuration;
@@ -99,22 +102,24 @@ fn init() -> Result<(
     AccountId,
     AssetDefinitionId,
 )> {
-    let (rt, network, client) = <Network>::start_test_with_runtime(4, 1, Some(10_925));
+    let (rt, network, client) = <Network>::start_test_with_runtime(4, Some(10_925));
     let pipeline_time = Configuration::pipeline_time();
-    thread::sleep(pipeline_time * 2);
     iroha_logger::info!("Started");
-    let create_domain = RegisterBox::new(Domain::new("domain".parse().expect("Valid")));
-    let account_id: AccountId = "account@domain".parse().expect("Valid");
+    let parameters = ParametersBuilder::new()
+        .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
+        .into_set_parameters();
+    let create_domain = RegisterBox::new(Domain::new("domain".parse()?));
+    let account_id: AccountId = "account@domain".parse()?;
     let (public_key, _) = KeyPair::generate()?.into();
     let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
-    let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
+    let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
-    client.submit_all(vec![
+    client.submit_all_blocking(vec![
+        parameters.into(),
         create_domain.into(),
         create_account.into(),
         create_asset.into(),
     ])?;
-    thread::sleep(pipeline_time * 2);
     iroha_logger::info!("Init");
     Ok((
         rt,

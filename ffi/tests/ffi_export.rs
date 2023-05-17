@@ -3,11 +3,12 @@
 use std::{alloc, collections::BTreeMap, mem::MaybeUninit};
 
 use iroha_ffi::{
-    def_ffi_fn, ffi_export, handles, slice::OutBoxedSlice, FfiConvert, FfiOutPtrRead, FfiReturn,
-    FfiTuple1, FfiTuple2, FfiType, LocalRef,
+    ffi_export, slice::OutBoxedSlice, FfiConvert, FfiOutPtrRead, FfiReturn, FfiTuple1, FfiTuple2,
+    FfiType, LocalRef,
 };
 
-iroha_ffi::def_ffi_fn! { dealloc }
+iroha_ffi::handles! {OpaqueStruct}
+iroha_ffi::def_ffi_fns! { dealloc }
 
 pub trait Target {
     type Target;
@@ -67,9 +68,6 @@ pub struct RobustReprCStruct<T, U> {
     d: core::mem::ManuallyDrop<i16>,
 }
 
-handles! {0, OpaqueStruct}
-def_ffi_fn! {Drop: OpaqueStruct}
-
 #[ffi_export]
 impl OpaqueStruct {
     /// New
@@ -118,6 +116,15 @@ impl OpaqueStruct {
     pub fn fallible_int_output(flag: bool) -> Result<u32, &'static str> {
         if flag {
             Ok(42)
+        } else {
+            Err("fail")
+        }
+    }
+
+    /// Fallible empty tuple output
+    pub fn fallible_empty_tuple_output(flag: bool) -> Result<(), &'static str> {
+        if flag {
+            Ok(())
         } else {
             Err("fail")
         }
@@ -530,6 +537,21 @@ fn return_result() {
             OpaqueStruct__fallible_int_output(true.into_ffi(&mut ()), output.as_mut_ptr())
         );
         assert_eq!(42, output.assume_init());
+    }
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
+fn return_empty_tuple_result() {
+    unsafe {
+        assert_eq!(
+            FfiReturn::ExecutionFail,
+            OpaqueStruct__fallible_empty_tuple_output(false.into_ffi(&mut ()))
+        );
+        assert_eq!(
+            FfiReturn::Ok,
+            OpaqueStruct__fallible_empty_tuple_output(true.into_ffi(&mut ()))
+        );
     }
 }
 

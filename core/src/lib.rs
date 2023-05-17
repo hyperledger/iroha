@@ -2,6 +2,7 @@
 
 pub mod block;
 pub mod block_sync;
+pub mod gossiper;
 pub mod kura;
 pub mod modules;
 pub mod queue;
@@ -14,6 +15,7 @@ pub mod wsv;
 use core::time::Duration;
 
 use dashmap::{DashMap, DashSet};
+use gossiper::TransactionGossip;
 use iroha_data_model::{permission::Permissions, prelude::*};
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::broadcast;
@@ -58,6 +60,8 @@ pub enum NetworkMessage {
     SumeragiPacket(Box<SumeragiPacket>),
     /// Block sync message
     BlockSync(Box<BlockSyncMessage>),
+    /// Transaction gossiper message
+    TransactionGossiper(Box<TransactionGossip>),
     /// Health check message
     Health,
 }
@@ -76,7 +80,7 @@ pub mod handler {
     /// Call shutdown function and join thread on drop
     pub struct ThreadHandler {
         /// Shutdown function: after calling it, the thread must terminate in finite amount of time
-        shutdown: Option<Box<dyn FnOnce() + Send>>,
+        shutdown: Option<Box<dyn FnOnce() + Send + Sync>>,
         handle: Option<JoinHandle<()>>,
     }
 
@@ -84,7 +88,7 @@ pub mod handler {
         /// [`Self`] constructor
         #[must_use]
         #[inline]
-        pub fn new(shutdown: Box<dyn FnOnce() + Send>, handle: JoinHandle<()>) -> Self {
+        pub fn new(shutdown: Box<dyn FnOnce() + Send + Sync>, handle: JoinHandle<()>) -> Self {
             Self {
                 shutdown: Some(shutdown),
                 handle: Some(handle),
@@ -97,7 +101,10 @@ pub mod handler {
         fn drop(&mut self) {
             (self.shutdown.take().expect("Always some after init"))();
             let handle = self.handle.take().expect("Always some after init");
-            let _joined = handle.join();
+
+            if let Err(error) = handle.join() {
+                iroha_logger::error!(?error, "Fatal error: thread panicked");
+            }
         }
     }
 }

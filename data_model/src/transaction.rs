@@ -12,7 +12,7 @@ use core::{
 #[cfg(feature = "std")]
 use std::{collections::btree_set, time::Duration};
 
-use derive_more::{Constructor, DebugCustom, Display};
+use derive_more::{DebugCustom, Display};
 use getset::Getters;
 use iroha_crypto::{Hash, SignatureOf, SignatureVerificationFail, SignaturesOf};
 use iroha_data_model_derive::model;
@@ -25,13 +25,20 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{account::Account, isi::InstructionBox, metadata::UnlimitedMetadata, Identifiable};
+use crate::{
+    account::Account, isi::InstructionBox, metadata::UnlimitedMetadata, name::Name, Identifiable,
+    Value,
+};
 
 /// Default maximum number of instructions and expressions per transaction
 pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
 
 /// Default maximum number of instructions and expressions per transaction
 pub const DEFAULT_MAX_WASM_SIZE_BYTES: u64 = 2_u64.pow(22); // 4 MiB
+
+/// Default transaction limits
+pub const DEFAULT_TRANSACTION_LIMITS: TransactionLimits =
+    TransactionLimits::new(DEFAULT_MAX_INSTRUCTION_NUMBER, DEFAULT_MAX_WASM_SIZE_BYTES);
 
 /// Trait for basic transaction operations
 pub trait Transaction {
@@ -131,7 +138,7 @@ pub trait Sign {
     fn sign(
         self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::Error>;
+    ) -> Result<SignedTransaction, iroha_crypto::error::Error>;
 }
 
 #[model]
@@ -140,18 +147,10 @@ pub mod model {
 
     /// Either ISI or Wasm binary
     #[derive(
-        derive_more::DebugCustom,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        DebugCustom, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
-    #[ffi_type(local)]
+    // TODO: Temporarily made opaque
+    #[ffi_type(opaque)]
     pub enum Executable {
         /// Ordered set of instructions.
         #[debug(fmt = "{_0:?}")]
@@ -216,6 +215,7 @@ pub mod model {
         /// Random value to make different hashes for transactions which occur repeatedly and simultaneously
         pub nonce: Option<u32>,
         /// Metadata.
+        #[getset(skip)]
         pub metadata: UnlimitedMetadata,
     }
 
@@ -231,7 +231,6 @@ pub mod model {
         Ord,
         Hash,
         Getters,
-        Constructor,
         Decode,
         Encode,
         Deserialize,
@@ -289,12 +288,12 @@ pub mod model {
     #[derive(
         Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
-    #[ffi_type(local)]
+    #[ffi_type]
     pub enum TransactionValue {
         /// Committed transaction
-        Transaction(Box<VersionedSignedTransaction>),
+        Transaction(VersionedSignedTransaction),
         /// Rejected transaction with reason of rejection
-        RejectedTransaction(Box<VersionedRejectedTransaction>),
+        RejectedTransaction(VersionedRejectedTransaction),
     }
 
     /// `TransactionQueryResult` is used in `FindAllTransactions` query
@@ -370,6 +369,16 @@ pub mod model {
     }
 }
 
+impl TransactionLimits {
+    /// Construct [`Self`]
+    pub const fn new(max_instruction_number: u64, max_wasm_size_bytes: u64) -> Self {
+        Self {
+            max_instruction_number,
+            max_wasm_size_bytes,
+        }
+    }
+}
+
 impl FromIterator<InstructionBox> for Executable {
     fn from_iter<T: IntoIterator<Item = InstructionBox>>(iter: T) -> Self {
         Self::Instructions(iter.into_iter().collect())
@@ -399,6 +408,14 @@ impl WasmSmartContract {
     #[inline]
     pub const fn from_compiled(blob: Vec<u8>) -> Self {
         Self(blob)
+    }
+}
+
+impl TransactionPayload {
+    /// Metadata.
+    // TODO: Should probably implement `HasMetadata` instead
+    pub fn metadata(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
+        self.metadata.iter()
     }
 }
 
@@ -449,7 +466,7 @@ impl Sign for TransactionBuilder {
     fn sign(
         self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::Error> {
+    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
         let signature = SignatureOf::new(key_pair, &self.payload)?;
         let signatures = btree_set::BTreeSet::from([signature]);
 
@@ -538,7 +555,7 @@ impl Sign for SignedTransaction {
     fn sign(
         mut self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::Error> {
+    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
         let signature = SignatureOf::new(key_pair, &self.payload)?;
         self.signatures.insert(signature);
 
@@ -779,7 +796,7 @@ impl Transaction for AcceptedTransaction {
 
 #[cfg(feature = "transparent_api")]
 impl AcceptedTransaction {
-    /// Accept transaction. Transition from [`Transaction`] to [`AcceptedTransaction`].
+    /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
     ///
     /// # Errors
     ///
@@ -1045,7 +1062,8 @@ pub mod error {
             IntoSchema,
         )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
-        #[ffi_type(local)]
+        // TODO: Temporarily opaque
+        #[ffi_type(opaque)]
         pub enum TransactionRejectionReason {
             /// Failed to validate transaction limits (e.g. number of instructions)
             #[display(fmt = "Transaction rejected due to an unsatisfied limit condition: {_0}")]

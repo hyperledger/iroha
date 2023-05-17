@@ -16,7 +16,7 @@ impl Registrable for iroha_data_model::domain::NewDomain {
 
     #[must_use]
     #[inline]
-    fn build(self) -> Self::Target {
+    fn build(self, _authority: AccountId) -> Self::Target {
         Self::Target {
             id: self.id,
             accounts: AccountsMap::default(),
@@ -44,15 +44,15 @@ pub mod isi {
         #[metrics(+"register_account")]
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let account: Account = self.object.build();
+            let account: Account = self.object.build(authority);
             let account_id = account.id().clone();
 
             account_id
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(wsv.config.borrow().ident_length_limits)
                 .map_err(Error::from)?;
 
             wsv.modify_domain(&account_id.domain_id.clone(), |domain| {
@@ -99,11 +99,11 @@ pub mod isi {
             authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let asset_definition = self.object.build();
+            let asset_definition = self.object.build(authority);
             asset_definition
                 .id()
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(wsv.config.borrow().ident_length_limits)
                 .map_err(Error::from)?;
 
             let asset_definition_id = asset_definition.id().clone();
@@ -131,7 +131,7 @@ pub mod isi {
                     }
                 }
 
-                domain.add_asset_definition(asset_definition.clone(), authority);
+                domain.add_asset_definition(asset_definition.clone());
                 Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::Created(
                     asset_definition,
                 )))
@@ -210,25 +210,20 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
 
-            let metadata_limits = wsv.config.asset_definition_metadata_limits;
-            wsv.modify_asset_definition_entry(
-                &asset_definition_id.clone(),
-                |asset_definition_entry| {
-                    let asset_definition = &mut asset_definition_entry.definition;
+            let metadata_limits = wsv.config.borrow().asset_definition_metadata_limits;
+            wsv.modify_asset_definition(&asset_definition_id.clone(), |asset_definition| {
+                asset_definition.metadata.insert_with_limits(
+                    self.key.clone(),
+                    self.value.clone(),
+                    metadata_limits,
+                )?;
 
-                    asset_definition.metadata.insert_with_limits(
-                        self.key.clone(),
-                        self.value.clone(),
-                        metadata_limits,
-                    )?;
-
-                    Ok(AssetDefinitionEvent::MetadataInserted(MetadataChanged {
-                        target_id: asset_definition_id,
-                        key: self.key,
-                        value: Box::new(self.value),
-                    }))
-                },
-            )
+                Ok(AssetDefinitionEvent::MetadataInserted(MetadataChanged {
+                    target_id: asset_definition_id,
+                    key: self.key,
+                    value: Box::new(self.value),
+                }))
+            })
         }
     }
 
@@ -243,23 +238,18 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
 
-            wsv.modify_asset_definition_entry(
-                &asset_definition_id.clone(),
-                |asset_definition_entry| {
-                    let asset_definition = &mut asset_definition_entry.definition;
+            wsv.modify_asset_definition(&asset_definition_id.clone(), |asset_definition| {
+                let value = asset_definition
+                    .metadata
+                    .remove(&self.key)
+                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
-                    let value = asset_definition
-                        .metadata
-                        .remove(&self.key)
-                        .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
-
-                    Ok(AssetDefinitionEvent::MetadataRemoved(MetadataChanged {
-                        target_id: asset_definition_id,
-                        key: self.key,
-                        value: Box::new(value),
-                    }))
-                },
-            )
+                Ok(AssetDefinitionEvent::MetadataRemoved(MetadataChanged {
+                    target_id: asset_definition_id,
+                    key: self.key,
+                    value: Box::new(value),
+                }))
+            })
         }
     }
 
@@ -274,7 +264,7 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
 
-            let limits = wsv.config.domain_metadata_limits;
+            let limits = wsv.config.borrow().domain_metadata_limits;
 
             wsv.modify_domain(&domain_id.clone(), |domain| {
                 domain
@@ -384,8 +374,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id, %key);
             Ok(wsv
-                .asset_definition_entry(&id)?
-                .definition
+                .asset_definition(&id)?
                 .metadata
                 .get(&key)
                 .ok_or(FindError::MetadataKey(key))?

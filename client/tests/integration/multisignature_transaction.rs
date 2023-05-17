@@ -2,10 +2,16 @@
 
 use std::{str::FromStr as _, thread, time::Duration};
 
+use eyre::Result;
 use iroha_client::client::{self, Client};
 use iroha_config::client::Configuration as ClientConfiguration;
 use iroha_crypto::KeyPair;
-use iroha_data_model::{account::TRANSACTION_SIGNATORIES_VALUE, prelude::*, val_vec};
+use iroha_data_model::{
+    account::TRANSACTION_SIGNATORIES_VALUE,
+    parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+    prelude::*,
+    val_vec,
+};
 use iroha_primitives::small::SmallStr;
 use test_network::*;
 
@@ -13,32 +19,32 @@ use super::Configuration;
 
 #[allow(clippy::too_many_lines)]
 #[test]
-fn multisignature_transactions_should_wait_for_all_signatures() {
-    let (_rt, network, _) = <Network>::start_test_with_runtime(4, 1, Some(10_945));
+fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
+    let (_rt, network, client) = <Network>::start_test_with_runtime(4, Some(10_945));
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+    client.submit_blocking(
+        ParametersBuilder::new()
+            .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
+            .into_set_parameters(),
+    )?;
+
+    let alice_id = AccountId::from_str("alice@wonderland")?;
     let alice_key_pair = get_key_pair();
-    let key_pair_2 = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let asset_definition_id = AssetDefinitionId::from_str("camomile#wonderland").expect("Valid");
+    let key_pair_2 = KeyPair::generate()?;
+    let asset_definition_id = AssetDefinitionId::from_str("camomile#wonderland")?;
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let set_signature_condition = MintBox::new(
-        SignatureCheckCondition::new(EvaluatesTo::new_unchecked(
-            ContainsAll::new(
-                EvaluatesTo::new_unchecked(
-                    ContextValue::new(
-                        Name::from_str(TRANSACTION_SIGNATORIES_VALUE).expect("Can't fail."),
-                    )
-                    .into(),
-                ),
-                val_vec![
-                    alice_key_pair.public_key().clone(),
-                    key_pair_2.public_key().clone(),
-                ],
-            )
-            .into(),
-        )),
+        SignatureCheckCondition::new(EvaluatesTo::new_unchecked(ContainsAll::new(
+            EvaluatesTo::new_unchecked(ContextValue::new(Name::from_str(
+                TRANSACTION_SIGNATORIES_VALUE,
+            )?)),
+            val_vec![
+                alice_key_pair.public_key().clone(),
+                key_pair_2.public_key().clone(),
+            ],
+        ))),
         IdBox::AccountId(alice_id.clone()),
     );
 
@@ -46,10 +52,8 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
         &network.genesis.api_address,
         &network.genesis.telemetry_address,
     );
-    let iroha_client = Client::new(&client_configuration).expect("Invalid client configuration");
-    iroha_client
-        .submit_all_blocking(vec![create_asset.into(), set_signature_condition.into()])
-        .expect("Failed to prepare state.");
+    let client = Client::new(&client_configuration)?;
+    client.submit_all_blocking(vec![create_asset.into(), set_signature_condition.into()])?;
 
     //When
     let quantity: u32 = 200;
@@ -60,58 +64,39 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     client_configuration.account_id = alice_id.clone();
     client_configuration.public_key = public_key1;
     client_configuration.private_key = private_key1;
-    let iroha_client = Client::new(&client_configuration).expect("Invalid client configuration");
+    let client = Client::new(&client_configuration)?;
     let instructions: Vec<InstructionBox> = vec![mint_asset.clone().into()];
-    let transaction = iroha_client
-        .build_transaction(instructions, UnlimitedMetadata::new())
-        .expect("Failed to create transaction.");
-    iroha_client
-        .submit_transaction(
-            iroha_client
-                .sign_transaction(transaction)
-                .expect("Failed to sign transaction."),
-        )
-        .expect("Failed to submit transaction.");
+    let transaction = client.build_transaction(instructions, UnlimitedMetadata::new())?;
+    client.submit_transaction(client.sign_transaction(transaction)?)?;
     thread::sleep(pipeline_time);
 
     //Then
     client_configuration.torii_api_url = SmallStr::from_string(
         "http://".to_owned() + &network.peers.values().last().unwrap().api_address,
     );
-    let iroha_client_1 = Client::new(&client_configuration).expect("Invalid client configuration");
+    let client_1 = Client::new(&client_configuration).expect("Invalid client configuration");
     let request = client::asset::by_account_id(alice_id);
     assert_eq!(
-        iroha_client_1
-            .request(request.clone())
-            .expect("Query failed.")
-            .len(),
+        client_1.request(request.clone())?.len(),
         2 // Alice has roses and cabbage from Genesis
     );
     let (public_key2, private_key2) = key_pair_2.into();
     client_configuration.public_key = public_key2;
     client_configuration.private_key = private_key2;
-    let iroha_client_2 = Client::new(&client_configuration).expect("Invalid client configuration");
+    let client_2 = Client::new(&client_configuration)?;
     let instructions: Vec<InstructionBox> = vec![mint_asset.into()];
-    let transaction = iroha_client_2
-        .build_transaction(instructions, UnlimitedMetadata::new())
-        .expect("Failed to create transaction.");
-    let transaction = iroha_client_2
-        .get_original_transaction(&transaction, 3, Duration::from_millis(100))
-        .expect("Failed to query pending transactions.")
+    let transaction = client_2.build_transaction(instructions, UnlimitedMetadata::new())?;
+    let transaction = client_2
+        .get_original_transaction(&transaction, 3, Duration::from_millis(100))?
         .expect("Found no pending transaction for this account.");
-    iroha_client_2
-        .submit_transaction(
-            iroha_client_2
-                .sign_transaction(transaction)
-                .expect("Failed to sign transaction."),
-        )
-        .expect("Failed to submit transaction.");
+    client_2.submit_transaction(client_2.sign_transaction(transaction)?)?;
     thread::sleep(pipeline_time);
-    let assets = iroha_client_1.request(request).expect("Query failed.");
+    let assets = client_1.request(request)?;
     assert!(!assets.is_empty());
     let camomile_asset = assets
         .iter()
         .find(|asset| *asset.id() == asset_id)
         .expect("Failed to find expected asset");
     assert_eq!(AssetValue::Quantity(quantity), *camomile_asset.value());
+    Ok(())
 }

@@ -15,10 +15,7 @@
     "BLOCK_TIME_MS": 2000,
     "TRUSTED_PEERS": null,
     "COMMIT_TIME_LIMIT_MS": 4000,
-    "TRANSACTION_LIMITS": {
-      "max_instruction_number": 4096,
-      "max_wasm_size_bytes": 4194304
-    },
+    "MAX_TRANSACTIONS_IN_BLOCK": 512,
     "ACTOR_CHANNEL_CAPACITY": 100,
     "GOSSIP_BATCH_SIZE": 500,
     "GOSSIP_PERIOD_MS": 1000
@@ -36,9 +33,8 @@
     "ACTOR_CHANNEL_CAPACITY": 100
   },
   "QUEUE": {
-    "MAXIMUM_TRANSACTIONS_IN_BLOCK": 512,
-    "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
-    "MAXIMUM_TRANSACTIONS_IN_SIGNATURE_BUFFER": 65536,
+    "MAX_TRANSACTIONS_IN_QUEUE": 65536,
+    "MAX_TRANSACTIONS_IN_SIGNATURE_BUFFER": 65536,
     "TRANSACTION_TIME_TO_LIVE_MS": 86400000,
     "FUTURE_THRESHOLD_MS": 1000
   },
@@ -73,6 +69,10 @@
     "IDENT_LENGTH_LIMITS": {
       "min": 1,
       "max": 128
+    },
+    "TRANSACTION_LIMITS": {
+      "max_instruction_number": 4096,
+      "max_wasm_size_bytes": 4194304
     },
     "WASM_RUNTIME_CONFIG": {
       "FUEL_LIMIT": 23000000,

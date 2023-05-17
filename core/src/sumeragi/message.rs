@@ -6,8 +6,8 @@
     clippy::module_name_repetitions
 )]
 
-use iroha_crypto::{HashOf, SignaturesOf};
-use iroha_data_model::{block::VersionedCommittedBlock, prelude::*};
+use iroha_crypto::{HashOf, SignatureOf, SignaturesOf};
+use iroha_data_model::block::VersionedCommittedBlock;
 use iroha_macro::*;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
@@ -16,7 +16,7 @@ use super::view_change;
 use crate::{
     block::{PendingBlock, Revalidate},
     tx::TransactionValidator,
-    VersionedAcceptedTransaction, WorldStateView,
+    WorldStateView,
 };
 
 declare_versioned_with_scale!(VersionedPacket 1..2, Debug, Clone, iroha_macro::FromVariant);
@@ -78,8 +78,6 @@ pub enum Message {
     BlockSyncUpdate(BlockSyncUpdate),
     /// View change is suggested due to some faulty peer or general fault in consensus.
     ViewChangeSuggested,
-    /// This message is sent by all peers during gossiping.
-    TransactionGossip(TransactionGossip),
 }
 
 /// `BlockCreated` message structure.
@@ -118,7 +116,7 @@ impl BlockCreated {
     }
     /// Get hash of block.
     pub fn hash(&self) -> HashOf<PendingBlock> {
-        self.block.hash()
+        self.block.partial_hash()
     }
 }
 
@@ -132,11 +130,11 @@ pub struct BlockSigned {
     pub signatures: SignaturesOf<PendingBlock>,
 }
 
-impl From<PendingBlock> for BlockSigned {
-    fn from(block: PendingBlock) -> Self {
+impl From<&PendingBlock> for BlockSigned {
+    fn from(block: &PendingBlock) -> Self {
         Self {
-            hash: block.hash(),
-            signatures: block.signatures,
+            hash: block.partial_hash(),
+            signatures: block.signatures.clone(),
         }
     }
 }
@@ -146,7 +144,7 @@ impl From<PendingBlock> for BlockSigned {
 #[non_exhaustive]
 pub struct BlockCommitted {
     /// Hash of the block being signed.
-    pub hash: HashOf<VersionedCommittedBlock>,
+    pub hash: iroha_data_model::block::PartialBlockHash,
     /// Set of signatures.
     pub signatures: SignaturesOf<VersionedCommittedBlock>,
 }
@@ -154,8 +152,14 @@ pub struct BlockCommitted {
 impl From<VersionedCommittedBlock> for BlockCommitted {
     fn from(block: VersionedCommittedBlock) -> Self {
         Self {
-            hash: block.hash().transmute(),
-            signatures: block.as_v1().signatures.clone().transmute(),
+            hash: block.partial_hash(),
+            signatures: block
+                .signatures()
+                .into_iter()
+                .cloned()
+                .collect::<std::collections::BTreeSet<SignatureOf<VersionedCommittedBlock>>>()
+                .try_into()
+                .expect("Can't send a committed block message without signatures."),
         }
     }
 }
@@ -197,24 +201,5 @@ impl BlockSyncUpdate {
     /// Get hash of block.
     pub fn hash(&self) -> HashOf<VersionedCommittedBlock> {
         self.block.hash()
-    }
-}
-
-/// Message for gossiping batches of transactions.
-#[derive(Decode, Encode, Debug, Clone)]
-pub struct TransactionGossip {
-    /// Batch of transactions.
-    pub txs: Vec<VersionedSignedTransaction>,
-}
-
-impl TransactionGossip {
-    #![allow(clippy::unused_async)]
-    /// Constructor.
-    pub fn new(txs: Vec<VersionedAcceptedTransaction>) -> Self {
-        Self {
-            // Converting into non-accepted transaction because it's not possible
-            // to guarantee that the sending peer checked transaction limits
-            txs: txs.into_iter().map(Into::into).collect(),
-        }
     }
 }

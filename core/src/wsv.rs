@@ -7,7 +7,10 @@
     clippy::arithmetic_side_effects
 )]
 
-use std::{collections::BTreeSet, convert::Infallible, fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    borrow::Borrow, collections::BTreeSet, convert::Infallible, fmt::Debug, sync::Arc,
+    time::Duration,
+};
 
 use dashmap::{
     mapref::one::{Ref as DashMapRef, RefMut as DashMapRefMut},
@@ -22,6 +25,7 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{
     block::{CommittedBlock, VersionedCommittedBlock},
     isi::error::{InstructionExecutionFailure as Error, MathError},
+    parameter::Parameter,
     prelude::*,
     query::error::{FindError, QueryExecutionFailure},
     trigger::action::ActionTrait,
@@ -44,6 +48,7 @@ use crate::{
         },
         wasm, Execute,
     },
+    tx::TransactionValidator,
     DomainsMap, Parameters, PeersIds,
 };
 
@@ -119,7 +124,7 @@ pub struct WorldStateView {
     /// The world. Contains `domains`, `triggers`, `roles` and other data representing the current state of the blockchain.
     pub world: World,
     /// Configuration of World State View.
-    pub config: Configuration,
+    pub config: std::cell::RefCell<Configuration>,
     /// Blockchain.
     pub block_hashes: std::cell::RefCell<Vec<HashOf<VersionedCommittedBlock>>>,
     /// Hashes of transactions
@@ -139,7 +144,7 @@ impl Clone for WorldStateView {
     fn clone(&self) -> Self {
         Self {
             world: Clone::clone(&self.world),
-            config: self.config,
+            config: self.config.clone(),
             block_hashes: self.block_hashes.clone(),
             transactions: self.transactions.clone(),
             events_buffer: std::cell::RefCell::new(Vec::new()),
@@ -265,7 +270,7 @@ impl WorldStateView {
             }
             Wasm(module) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::new()
-                    .with_configuration(self.config.wasm_runtime_config)
+                    .with_configuration(self.config.borrow().wasm_runtime_config)
                     .with_engine(engine)
                     .build()?;
                 wasm_runtime
@@ -282,7 +287,7 @@ impl WorldStateView {
             }
             Executable::Wasm(bytes) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::new()
-                    .with_configuration(self.config.wasm_runtime_config)
+                    .with_configuration(self.config.borrow().wasm_runtime_config)
                     .build()?;
                 wasm_runtime
                     .execute(self, authority, bytes)
@@ -349,7 +354,38 @@ impl WorldStateView {
 
         self.block_hashes.borrow_mut().push(hash);
 
+        self.apply_parameters();
+
         Ok(())
+    }
+
+    fn apply_parameters(&self) {
+        use iroha_data_model::parameter::default::*;
+        macro_rules! update_params {
+            ($ident:ident, $($param:expr => $config:expr),+ $(,)?) => {
+                let mut $ident = self.config.borrow_mut();
+                $(if let Some(param) = self.query_param($param) {
+                    $config = param;
+                })+
+
+            };
+        }
+        update_params! {
+            config,
+            WSV_ASSET_METADATA_LIMITS => config.asset_metadata_limits,
+            WSV_ASSET_DEFINITION_METADATA_LIMITS => config.asset_definition_metadata_limits,
+            WSV_ACCOUNT_METADATA_LIMITS => config.account_metadata_limits,
+            WSV_DOMAIN_METADATA_LIMITS => config.domain_metadata_limits,
+            WSV_IDENT_LENGTH_LIMITS => config.ident_length_limits,
+            WASM_FUEL_LIMIT => config.wasm_runtime_config.fuel_limit,
+            WASM_MAX_MEMORY => config.wasm_runtime_config.max_memory,
+            TRANSACTION_LIMITS => config.transaction_limits,
+        }
+    }
+
+    /// Get transaction validator
+    pub fn transaction_validator(&self) -> TransactionValidator {
+        TransactionValidator::new(self.config.borrow().transaction_limits)
     }
 
     /// Get a reference to the latest block. Returns none if genesis is not committed.
@@ -364,7 +400,7 @@ impl WorldStateView {
         let prev_interval = self
             .latest_block_ref()
             .map(|latest_block| {
-                let header = latest_block.header();
+                let header = &latest_block.as_v1().header;
                 header.timestamp.try_into().map(|since| TimeInterval {
                     since: Duration::from_millis(since),
                     length: Duration::from_millis(header.consensus_estimation),
@@ -455,7 +491,6 @@ impl WorldStateView {
     }
 
     /// Load all blocks in the block chain from disc and clone them for use.
-    #[allow(clippy::expect_used)]
     pub fn all_blocks_by_value(
         &self,
     ) -> impl DoubleEndedIterator<Item = VersionedCommittedBlock> + '_ {
@@ -647,7 +682,7 @@ impl WorldStateView {
     pub fn from_configuration(config: Configuration, world: World, kura: Arc<Kura>) -> Self {
         Self {
             world,
-            config,
+            config: std::cell::RefCell::new(config),
             transactions: DashSet::new(),
             block_hashes: std::cell::RefCell::new(Vec::new()),
             events_buffer: std::cell::RefCell::new(Vec::new()),
@@ -697,7 +732,7 @@ impl WorldStateView {
     pub fn latest_block_view_change_index(&self) -> u64 {
         self.kura
             .get_block_by_height(self.height())
-            .map_or(0, |block| block.header().view_change_index)
+            .map_or(0, |block| block.as_v1().header.view_change_index)
     }
 
     /// Return the hash of the block one before the latest block
@@ -797,36 +832,33 @@ impl WorldStateView {
     /// The same as [`Self::modify_asset_definition_multiple_events`] except closure `f` returns a single [`AssetDefinitionEvent`].
     ///
     /// # Errors
-    /// Forward errors from [`Self::modify_asset_definition_entry_multiple_events`]
-    pub fn modify_asset_definition_entry(
+    /// Forward errors from [`Self::modify_asset_definition_multiple_events`]
+    pub fn modify_asset_definition(
         &self,
         id: &<AssetDefinition as Identifiable>::Id,
-        f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<AssetDefinitionEvent, Error>,
+        f: impl FnOnce(&mut AssetDefinition) -> Result<AssetDefinitionEvent, Error>,
     ) -> Result<(), Error> {
-        self.modify_asset_definition_entry_multiple_events(id, move |asset_definition| {
+        self.modify_asset_definition_multiple_events(id, move |asset_definition| {
             f(asset_definition).map(std::iter::once)
         })
     }
 
-    /// Get [`AssetDefinitionEntry`] and pass it to `closure` to modify it
+    /// Get [`AssetDefinition`] and pass it to `closure` to modify it
     ///
     /// # Errors
     /// - If asset definition entry does not exist
     /// - Forward errors from `f`
-    pub fn modify_asset_definition_entry_multiple_events<
-        I: IntoIterator<Item = AssetDefinitionEvent>,
-    >(
+    pub fn modify_asset_definition_multiple_events<I: IntoIterator<Item = AssetDefinitionEvent>>(
         &self,
         id: &<AssetDefinition as Identifiable>::Id,
-        f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<I, Error>,
+        f: impl FnOnce(&mut AssetDefinition) -> Result<I, Error>,
     ) -> Result<(), Error> {
         self.modify_domain_multiple_events(&id.domain_id, |domain| {
-            let asset_definition_entry = domain
+            let asset_definition = domain
                 .asset_definitions
                 .get_mut(id)
                 .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
-            f(asset_definition_entry)
-                .map(|events| events.into_iter().map(DomainEvent::AssetDefinition))
+            f(asset_definition).map(|events| events.into_iter().map(DomainEvent::AssetDefinition))
         })
     }
 
@@ -851,14 +883,29 @@ impl WorldStateView {
             .collect::<Vec<Parameter>>()
     }
 
-    /// Get `AssetDefinitionEntry` immutable view.
+    /// Query parameter and convert it to a proper type
+    pub fn query_param<T: TryFrom<Value>, P: core::hash::Hash + Eq + ?Sized>(
+        &self,
+        param: &P,
+    ) -> Option<T>
+    where
+        Parameter: Borrow<P>,
+    {
+        self.world
+            .parameters
+            .get(param)
+            .as_ref()
+            .and_then(|param| param.key().val.clone().try_into().ok())
+    }
+
+    /// Get `AssetDefinition` immutable view.
     ///
     /// # Errors
     /// - Asset definition entry not found
-    pub fn asset_definition_entry(
+    pub fn asset_definition(
         &self,
         asset_id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Result<AssetDefinitionEntry, FindError> {
+    ) -> Result<AssetDefinition, FindError> {
         self.domain(&asset_id.domain_id)?
             .asset_definitions
             .get(asset_id)
@@ -896,7 +943,6 @@ impl WorldStateView {
         NumericValue: From<I> + TryAsMut<I>,
         eyre::Error: From<<NumericValue as TryAsMut<I>>::Error>,
     {
-        #[allow(clippy::expect_used)]
         self.modify_domain(&definition_id.domain_id, |domain| {
             let asset_total_amount: &mut I = domain
                 .asset_total_quantities.get_mut(definition_id)
@@ -936,7 +982,6 @@ impl WorldStateView {
         NumericValue: From<I> + TryAsMut<I>,
         eyre::Error: From<<NumericValue as TryAsMut<I>>::Error>,
     {
-        #[allow(clippy::expect_used)]
         self.modify_domain(&definition_id.domain_id, |domain| {
             let asset_total_amount: &mut I = domain
                 .asset_total_quantities.get_mut(definition_id)
@@ -971,7 +1016,6 @@ impl WorldStateView {
                     .rejected_transactions
                     .iter()
                     .cloned()
-                    .map(Box::new)
                     .map(|versioned_rejected_tx| TransactionQueryResult {
                         tx_value: TransactionValue::RejectedTransaction(versioned_rejected_tx),
                         block_hash: Hash::from(block.hash()),
@@ -982,7 +1026,6 @@ impl WorldStateView {
                             .iter()
                             .cloned()
                             .map(VersionedSignedTransaction::from)
-                            .map(Box::new)
                             .map(|versioned_tx| TransactionQueryResult {
                                 tx_value: TransactionValue::Transaction(versioned_tx),
                                 block_hash: Hash::from(block.hash()),
@@ -1006,7 +1049,6 @@ impl WorldStateView {
                 .iter()
                 .find(|e| e.hash() == *hash)
                 .cloned()
-                .map(Box::new)
                 .map(TransactionValue::RejectedTransaction)
                 .or_else(|| {
                     b.as_v1()
@@ -1015,7 +1057,6 @@ impl WorldStateView {
                         .find(|e| e.hash() == *hash)
                         .cloned()
                         .map(VersionedSignedTransaction::from)
-                        .map(Box::new)
                         .map(TransactionValue::Transaction)
                 })
         })
@@ -1035,7 +1076,6 @@ impl WorldStateView {
                     .iter()
                     .filter(|transaction| &transaction.payload().account_id == account_id)
                     .cloned()
-                    .map(Box::new)
                     .map(TransactionValue::RejectedTransaction)
                     .chain(
                         block
@@ -1044,7 +1084,6 @@ impl WorldStateView {
                             .filter(|transaction| &transaction.payload().account_id == account_id)
                             .cloned()
                             .map(VersionedSignedTransaction::from)
-                            .map(Box::new)
                             .map(TransactionValue::Transaction),
                     )
                     .collect::<Vec<_>>()
@@ -1191,7 +1230,7 @@ mod tests {
         assert_eq!(
             &wsv.all_blocks_by_value()
                 .skip(7)
-                .map(|block| block.header().height)
+                .map(|block| block.as_v1().header.height)
                 .collect::<Vec<_>>(),
             &[8, 9, 10]
         );

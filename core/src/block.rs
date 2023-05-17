@@ -13,7 +13,7 @@
 use std::error::Error;
 
 use eyre::{bail, eyre, Context, Result};
-use iroha_config::sumeragi::DEFAULT_CONSENSUS_ESTIMATION_MS;
+use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
 use iroha_data_model::{block::*, events::prelude::*, transaction::prelude::*};
 use parity_scale_codec::{Decode, Encode};
@@ -110,7 +110,7 @@ impl BlockBuilder<'_> {
             .hash();
         // TODO: Validate Event recommendations somehow?
 
-        let signature = SignatureOf::from_hash(self.key_pair, &HashOf::new(&header).transmute())
+        let signature = SignatureOf::from_hash(self.key_pair, &Hash::new(header.payload()).typed())
             .expect("Signing of new block failed.");
         let signatures = SignaturesOf::from(signature);
 
@@ -125,16 +125,16 @@ impl BlockBuilder<'_> {
 }
 
 impl PendingBlock {
-    /// Calculate the hash of the current block.
-    pub fn hash(&self) -> HashOf<Self> {
-        HashOf::new(&self.header).transmute()
+    /// Calculate the partial hash of the current block.
+    pub fn partial_hash(&self) -> HashOf<Self> {
+        Hash::new(self.header.payload()).typed()
     }
 
     /// Return signatures that are verified with the `hash` of this block,
     /// removing all other signatures.
     #[inline]
     pub fn retain_verified_signatures(&mut self) -> impl Iterator<Item = &SignatureOf<Self>> {
-        self.signatures.retain_verified_by_hash(self.hash())
+        self.signatures.retain_verified_by_hash(self.partial_hash())
     }
 
     /// Commit block to the store.
@@ -195,8 +195,11 @@ impl PendingBlock {
     /// # Errors
     /// Fails if signature generation fails
     pub fn sign(mut self, key_pair: KeyPair) -> Result<Self> {
-        SignatureOf::from_hash(key_pair, &self.hash())
-            .wrap_err(format!("Failed to sign block with hash {}", self.hash()))
+        SignatureOf::from_hash(key_pair, &self.partial_hash())
+            .wrap_err(format!(
+                "Failed to sign block with partial hash {}",
+                self.partial_hash()
+            ))
             .map(|signature| {
                 self.signatures.insert(signature);
                 self
@@ -209,13 +212,13 @@ impl PendingBlock {
     /// Fails if given signature doesn't match block hash
     pub fn add_signature(&mut self, signature: SignatureOf<Self>) -> Result<()> {
         signature
-            .verify_hash(&self.hash())
+            .verify_hash(&self.partial_hash())
             .map(|_| {
                 self.signatures.insert(signature);
             })
             .wrap_err(format!(
                 "Provided signature doesn't match block with hash {}",
-                self.hash()
+                self.partial_hash()
             ))
     }
 
@@ -596,7 +599,7 @@ impl From<&PendingBlock> for Vec<Event> {
             .chain([PipelineEvent {
                 entity_kind: PipelineEntityKind::Block,
                 status: PipelineStatus::Validating,
-                hash: block.hash().into(),
+                hash: block.partial_hash().into(),
             }
             .into()])
             .collect()
@@ -619,7 +622,10 @@ mod tests {
         let valid_block = PendingBlock::new_dummy();
         let committed_block = valid_block.clone().commit_unchecked();
 
-        assert_eq!(*valid_block.hash(), *committed_block.hash())
+        assert_eq!(
+            *valid_block.partial_hash(),
+            committed_block.partial_hash().internal
+        )
     }
 
     #[test]
@@ -627,9 +633,10 @@ mod tests {
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let alice_keys = KeyPair::generate().expect("Valid");
-        let account = Account::new(alice_id.clone(), [alice_keys.public_key().clone()]).build();
+        let account = Account::new(alice_id.clone(), [alice_keys.public_key().clone()])
+            .build(alice_id.clone());
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
-        let mut domain = Domain::new(domain_id).build();
+        let mut domain = Domain::new(domain_id).build(alice_id.clone());
         assert!(domain.add_account(account).is_none());
         let world = World::with([domain], Vec::new());
         let kura = Kura::blank_kura_for_testing();
