@@ -900,6 +900,13 @@ mod swarm {
     };
 
     const GIT_REVISION: &str = git_version::git_version!();
+    const GIT_ORIGIN: &str = "https://github.com/hyperledger/iroha.git";
+    const DIR_CONFIG: &str = "config";
+    const DIR_CLONE: &str = "iroha-cloned";
+    const FILE_VALIDATOR: &str = "validator.wasm";
+    const FILE_CONFIG: &str = "config.json";
+    const FILE_GENESIS: &str = "genesis.json";
+    const FILE_COMPOSE: &str = "docker-compose.yml";
 
     #[derive(ClapArgs, Debug)]
     pub struct Args {
@@ -956,7 +963,7 @@ mod swarm {
                 .resolve(&target_dir)
                 .wrap_err("failed to resolve the source of image")?;
 
-            let config_dir = AbsolutePath::absolutize(target_dir.path.join("config"))?;
+            let config_dir = AbsolutePath::absolutize(target_dir.path.join(DIR_CONFIG))?;
 
             if self.no_default_configuration {
                 PrepareConfigurationStrategy::GenerateOnlyDirectory
@@ -976,7 +983,7 @@ mod swarm {
             }
             .build()
             .wrap_err("failed to build docker compose")?
-            .write_file(&target_dir.path.join("docker-compose.yml"))
+            .write_file(&target_dir.path.join(FILE_COMPOSE))
             .wrap_err("failed to write compose file")?;
 
             Ok(())
@@ -991,15 +998,7 @@ mod swarm {
     }
 
     impl Channel {
-        // fn as_git_branch(&self) -> &'static str {
-        //     match self {
-        //         Self::Dev => "iroha2-dev",
-        //         Self::Stable => "iroha2-stable",
-        //         Self::Lts => "iroha2-lts",
-        //     }
-        // }
-
-        fn as_dockerhub_image(&self) -> &'static str {
+        const fn as_dockerhub_image(&self) -> &'static str {
             match self {
                 Self::Dev => "hyperledger/iroha2:dev",
                 Self::Stable => "hyperledger/iroha2:stable",
@@ -1064,15 +1063,11 @@ mod swarm {
                         .wrap_err("failed to resolve build path")?,
                 }),
                 Self::Github { revision } => {
-                    let clone_dir = target.path.join("./iroha-cloned");
+                    let clone_dir = target.path.join(DIR_CLONE);
                     let clone_dir = AbsolutePath::absolutize(clone_dir)?;
 
-                    shallow_git_clone(
-                        "https://github.com/hyperledger/iroha.git",
-                        revision,
-                        &clone_dir,
-                    )
-                    .wrap_err("failed to clone the repo")?;
+                    shallow_git_clone(GIT_ORIGIN, revision, &clone_dir)
+                        .wrap_err("failed to clone the repo")?;
 
                     Ok(ResolvedImageSource::Build { path: clone_dir })
                 }
@@ -1138,7 +1133,7 @@ mod swarm {
             match self {
                 Self::GenerateOnlyDirectory => {}
                 Self::GenerateDefault => {
-                    let path_validator = PathBuf::from_str("./validator.wasm").unwrap();
+                    let path_validator = PathBuf::from_str(FILE_VALIDATOR).unwrap();
 
                     let raw_genesis_block = {
                         let block = super::genesis::generate_default(Some(path_validator.clone()))
@@ -1154,9 +1149,9 @@ mod swarm {
                     let validator = super::validator::construct_validator()
                         .wrap_err("failed to construct the validator")?;
 
-                    File::create(config_dir.join("./genesis.json"))?
+                    File::create(config_dir.join(FILE_GENESIS))?
                         .write_all(raw_genesis_block.as_bytes())?;
-                    File::create(config_dir.join("./config.json"))?
+                    File::create(config_dir.join(FILE_CONFIG))?
                         .write_all(default_config.as_bytes())?;
                     File::create(config_dir.join(path_validator))?
                         .write_all(validator.as_slice())?;
@@ -1272,7 +1267,7 @@ mod swarm {
                     .to_str()
                     .wrap_err("config directory path is not a valid string")?
                     .to_owned(),
-                "/config".to_owned(),
+                DIR_CONFIG.to_owned(),
             )];
 
             let services = peers
@@ -1464,6 +1459,8 @@ mod swarm {
 
         use crate::swarm::peer_generator::Peer;
 
+        const COMMAND_SUBMIT_GENESIS: &str = "iroha --submit-genesis";
+
         #[derive(Serialize, Debug)]
         pub struct DockerCompose {
             version: DockerComposeVersion,
@@ -1578,7 +1575,7 @@ mod swarm {
             {
                 match self {
                     Self::None => serializer.serialize_none(),
-                    Self::SubmitGenesis => serializer.serialize_str("iroha --submit-genesis"),
+                    Self::SubmitGenesis => serializer.serialize_str(COMMAND_SUBMIT_GENESIS),
                 }
             }
         }
