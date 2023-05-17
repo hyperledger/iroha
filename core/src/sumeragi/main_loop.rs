@@ -891,7 +891,6 @@ pub(crate) fn run(
             &mut sumeragi.transaction_cache,
             &mut expired_transactions,
         );
-        debug!("Transaction cache: {:?}", sumeragi.transaction_cache);
         sumeragi.send_events(
             expired_transactions
                 .iter()
