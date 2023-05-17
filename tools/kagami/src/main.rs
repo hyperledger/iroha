@@ -1447,7 +1447,7 @@ mod swarm {
 
     mod serialize_docker_compose {
         use std::{
-            collections::{BTreeMap, HashMap, HashSet},
+            collections::{BTreeMap, BTreeSet, HashMap, HashSet},
             fmt::Display,
             fs::File,
             io::Write,
@@ -1464,7 +1464,7 @@ mod swarm {
 
         use crate::swarm::peer_generator::Peer;
 
-        #[derive(Serialize)]
+        #[derive(Serialize, Debug)]
         pub struct DockerCompose {
             version: DockerComposeVersion,
             services: BTreeMap<String, DockerComposeService>,
@@ -1488,6 +1488,7 @@ mod swarm {
             }
         }
 
+        #[derive(Debug)]
         struct DockerComposeVersion;
 
         impl Serialize for DockerComposeVersion {
@@ -1499,7 +1500,7 @@ mod swarm {
             }
         }
 
-        #[derive(Serialize)]
+        #[derive(Serialize, Debug)]
         pub struct DockerComposeService {
             #[serde(flatten)]
             source: ServiceSource,
@@ -1507,6 +1508,7 @@ mod swarm {
             ports: Vec<PairColon<u16, u16>>,
             volumes: Vec<PairColon<String, String>>,
             init: AlwaysTrue,
+            #[serde(skip_serializing_if = "ServiceCommand::is_none")]
             command: ServiceCommand,
         }
 
@@ -1516,7 +1518,7 @@ mod swarm {
                 source: ServiceSource,
                 volumes: Vec<(String, String)>,
                 command: ServiceCommand,
-                trusted_peers: HashSet<PeerId>,
+                trusted_peers: BTreeSet<PeerId>,
                 genesis_key_pair: &KeyPair,
             ) -> Self {
                 let ports = vec![
@@ -1545,6 +1547,7 @@ mod swarm {
             }
         }
 
+        #[derive(Debug)]
         struct AlwaysTrue;
 
         impl Serialize for AlwaysTrue {
@@ -1556,9 +1559,16 @@ mod swarm {
             }
         }
 
+        #[derive(Eq, PartialEq, Debug)]
         pub enum ServiceCommand {
-            None,
             SubmitGenesis,
+            None,
+        }
+
+        impl ServiceCommand {
+            fn is_none(&self) -> bool {
+                self == &Self::None
+            }
         }
 
         impl Serialize for ServiceCommand {
@@ -1574,7 +1584,7 @@ mod swarm {
         }
 
         /// Serializes as `"{0}:{1}"`
-        #[derive(derive_more::Display)]
+        #[derive(derive_more::Display, Debug)]
         #[display(fmt = "{_0}:{_1}")]
         struct PairColon<T, U>(T, U)
         where
@@ -1594,14 +1604,14 @@ mod swarm {
             }
         }
 
-        #[derive(Serialize, Clone)]
+        #[derive(Serialize, Clone, Debug)]
         #[serde(rename_all = "lowercase")]
         pub enum ServiceSource {
             Image(String),
             Build(PathBuf),
         }
 
-        #[derive(Serialize)]
+        #[derive(Serialize, Debug)]
         #[serde(rename_all = "UPPERCASE")]
         struct FullPeerEnv {
             iroha_public_key: PublicKey,
@@ -1611,7 +1621,7 @@ mod swarm {
             torii_telemetry_url: String,
             iroha_genesis_account_public_key: PublicKey,
             iroha_genesis_account_private_key: SerializeAsJsonStr<PrivateKey>,
-            sumeragi_trusted_peers: SerializeAsJsonStr<HashSet<PeerId>>,
+            sumeragi_trusted_peers: SerializeAsJsonStr<BTreeSet<PeerId>>,
         }
 
         struct CompactPeerEnv {
@@ -1620,7 +1630,7 @@ mod swarm {
             p2p_addr: String,
             api_url: String,
             telemetry_url: String,
-            trusted_peers: HashSet<PeerId>,
+            trusted_peers: BTreeSet<PeerId>,
         }
 
         impl From<CompactPeerEnv> for FullPeerEnv {
@@ -1640,6 +1650,7 @@ mod swarm {
             }
         }
 
+        #[derive(Debug)]
         struct SerializeAsJsonStr<T>(T);
 
         impl<T> serde::Serialize for SerializeAsJsonStr<T>
@@ -1660,7 +1671,7 @@ mod swarm {
         #[cfg(test)]
         mod test {
             use std::{
-                collections::{BTreeMap, HashMap, HashSet},
+                collections::{BTreeMap, BTreeSet, HashMap, HashSet},
                 env::VarError,
                 ffi::OsStr,
                 path::PathBuf,
@@ -1674,6 +1685,7 @@ mod swarm {
                 iroha::ConfigurationProxy,
             };
             use iroha_crypto::{KeyGenConfiguration, KeyPair};
+            use serde::Serialize;
 
             use super::{
                 CompactPeerEnv, DockerCompose, DockerComposeService, DockerComposeVersion,
@@ -1728,7 +1740,7 @@ mod swarm {
                     torii_p2p_addr: "127.0.0.1:1337".to_owned(),
                     torii_api_url: "127.0.0.1:1337".to_owned(),
                     torii_telemetry_url: "127.0.0.1:1337".to_owned(),
-                    sumeragi_trusted_peers: SerializeAsJsonStr(HashSet::new()),
+                    sumeragi_trusted_peers: SerializeAsJsonStr(BTreeSet::new()),
                 }
                 .into();
 
@@ -1744,14 +1756,8 @@ mod swarm {
             #[test]
             fn serialize_image_source() {
                 let source = ServiceSource::Image("hyperledger/iroha2:stable".to_owned());
-
-                let yaml = serde_yaml::to_string(&source).unwrap();
-                assert_eq!(yaml, "image: hyperledger/iroha2:stable");
-            }
-
-            #[test]
-            fn none_command_is_not_serialised() {
-                todo!()
+                let serialised = serde_json::to_string(&source).unwrap();
+                assert_eq!(serialised, r#"{"image":"hyperledger/iroha2:stable"}"#);
             }
 
             #[test]
@@ -1777,7 +1783,7 @@ mod swarm {
                                     p2p_addr: "iroha0:1337".to_owned(),
                                     api_url: "iroha0:1337".to_owned(),
                                     telemetry_url: "iroha0:1337".to_owned(),
-                                    trusted_peers: HashSet::new(),
+                                    trusted_peers: BTreeSet::new(),
                                 }
                                 .into(),
                                 ports: vec![
@@ -1787,7 +1793,7 @@ mod swarm {
                                 ],
                                 volumes: vec![PairColon(
                                     "./configs/peer/legacy_stable".to_owned(),
-                                    "./configs/peer/legacy_stable".to_owned(),
+                                    "/config".to_owned(),
                                 )],
                                 init: AlwaysTrue,
                                 command: ServiceCommand::SubmitGenesis,
@@ -1818,7 +1824,7 @@ mod swarm {
                         - 8080:8080
                         - 8081:8081
                         volumes:
-                        - ./configs/peer/legacy_stable:./configs/peer/legacy_stable
+                        - ./configs/peer/legacy_stable:/config
                         init: true
                         command: iroha --submit-genesis
                 "#]];
@@ -1902,7 +1908,7 @@ mod swarm {
                       TORII_TELEMETRY_URL: iroha0:8180
                       IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                       IROHA_GENESIS_ACCOUNT_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9"}'
-                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"}]'
+                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"}]'
                     ports:
                     - 1337:1337
                     - 8080:8080
@@ -1910,7 +1916,7 @@ mod swarm {
                     volumes:
                     - ./config:/config
                     init: true
-                    command: null
+                    command: iroha --submit-genesis
                   iroha1:
                     build: ./iroha-cloned
                     environment:
@@ -1921,7 +1927,7 @@ mod swarm {
                       TORII_TELEMETRY_URL: iroha1:8181
                       IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                       IROHA_GENESIS_ACCOUNT_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9"}'
-                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"},{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"}]'
+                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                     ports:
                     - 1338:1338
                     - 8081:8081
@@ -1929,7 +1935,6 @@ mod swarm {
                     volumes:
                     - ./config:/config
                     init: true
-                    command: iroha --submit-genesis
                   iroha2:
                     build: ./iroha-cloned
                     environment:
@@ -1940,7 +1945,7 @@ mod swarm {
                       TORII_TELEMETRY_URL: iroha2:8182
                       IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                       IROHA_GENESIS_ACCOUNT_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9"}'
-                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
+                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                     ports:
                     - 1339:1339
                     - 8082:8082
@@ -1948,7 +1953,6 @@ mod swarm {
                     volumes:
                     - ./config:/config
                     init: true
-                    command: null
                   iroha3:
                     build: ./iroha-cloned
                     environment:
@@ -1959,7 +1963,7 @@ mod swarm {
                       TORII_TELEMETRY_URL: iroha3:8183
                       IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                       IROHA_GENESIS_ACCOUNT_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9"}'
-                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"}]'
+                      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                     ports:
                     - 1340:1340
                     - 8083:8083
@@ -1967,7 +1971,6 @@ mod swarm {
                     volumes:
                     - ./config:/config
                     init: true
-                    command: null
             "#]];
             expected.assert_eq(&yaml);
         }
