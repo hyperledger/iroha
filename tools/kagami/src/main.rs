@@ -878,8 +878,11 @@ mod swarm {
 
     use super::ClapArgs;
     use crate::{
-        swarm::serialize_docker_compose::{
-            DockerCompose, DockerComposeService, ServiceCommand, ServiceSource,
+        swarm::{
+            serialize_docker_compose::{
+                DockerCompose, DockerComposeService, ServiceCommand, ServiceSource,
+            },
+            ui::Reporter,
         },
         Outcome, RunArgs,
     };
@@ -892,6 +895,8 @@ mod swarm {
     const FILE_CONFIG: &str = "config.json";
     const FILE_GENESIS: &str = "genesis.json";
     const FILE_COMPOSE: &str = "docker-compose.yml";
+    const DIR_FORCE_SUGGESTION: &str =
+        "You can pass `--dir-force` flag to remove the directory without prompting";
 
     #[derive(ClapArgs, Debug)]
     pub struct Args {
@@ -929,6 +934,8 @@ mod swarm {
 
     impl<T: Write> RunArgs<T> for Args {
         fn run(self, _writer: &mut BufWriter<T>) -> Outcome {
+            let reporter = ui::Reporter::new();
+
             let prepare_dir_strategy = if self.dir_force {
                 PrepareDirectoryStrategy::ForceRecreate
             } else {
@@ -938,7 +945,7 @@ mod swarm {
             let target_dir = TargetDirectory::new(AbsolutePath::absolutize(self.dir)?);
 
             if let EarlyEnding::Halt = target_dir
-                .prepare(&prepare_dir_strategy)
+                .prepare(&prepare_dir_strategy, &reporter)
                 .wrap_err("failed to prepare directory")?
             {
                 return Ok(());
@@ -946,16 +953,16 @@ mod swarm {
 
             let config_dir = AbsolutePath::absolutize(target_dir.path.join(DIR_CONFIG))?;
 
-            let source = source
-                .resolve(&target_dir)
+            let (source, reporter) = source
+                .resolve(&target_dir, reporter)
                 .wrap_err("failed to resolve the source of image")?;
 
-            if self.no_default_configuration {
+            let reporter = if self.no_default_configuration {
                 PrepareConfigurationStrategy::GenerateOnlyDirectory
             } else {
                 PrepareConfigurationStrategy::GenerateDefault
             }
-            .run(&config_dir)
+            .run(&config_dir, reporter)
             .wrap_err("failed to prepare configuration")?;
 
             DockerComposeBuilder {
@@ -969,6 +976,8 @@ mod swarm {
             .wrap_err("failed to build docker compose")?
             .write_file(&target_dir.path.join(FILE_COMPOSE))
             .wrap_err("failed to write compose file")?;
+
+            reporter.log_complete(&target_dir.path);
 
             Ok(())
         }
@@ -1040,25 +1049,41 @@ mod swarm {
     impl ImageSource {
         /// Has a side effect: if self is [`Self::Github`], it clones the repo into
         /// the target directory.
-        fn resolve(self, target: &TargetDirectory) -> Result<ResolvedImageSource> {
-            match self {
-                Self::Path(path) => Ok(ResolvedImageSource::Build {
-                    path: AbsolutePath::absolutize(path)
-                        .wrap_err("failed to resolve build path")?,
-                }),
+        fn resolve(
+            self,
+            target: &TargetDirectory,
+            reporter: Reporter,
+        ) -> Result<(ResolvedImageSource, Reporter)> {
+            let (source, reporter) = match self {
+                Self::Path(path) => (
+                    ResolvedImageSource::Build {
+                        path: AbsolutePath::absolutize(path)
+                            .wrap_err("failed to resolve build path")?,
+                    },
+                    reporter,
+                ),
                 Self::Github { revision } => {
                     let clone_dir = target.path.join(DIR_CLONE);
                     let clone_dir = AbsolutePath::absolutize(clone_dir)?;
 
+                    let spinner = reporter.spinner_repo_clone(GIT_ORIGIN);
+
                     shallow_git_clone(GIT_ORIGIN, revision, &clone_dir)
                         .wrap_err("failed to clone the repo")?;
 
-                    Ok(ResolvedImageSource::Build { path: clone_dir })
+                    let reporter = spinner.done()?;
+
+                    (ResolvedImageSource::Build { path: clone_dir }, reporter)
                 }
-                Self::Dockerhub(channel) => Ok(ResolvedImageSource::Image {
-                    name: channel.as_dockerhub_image().to_owned(),
-                }),
-            }
+                Self::Dockerhub(channel) => (
+                    ResolvedImageSource::Image {
+                        name: channel.as_dockerhub_image().to_owned(),
+                    },
+                    reporter,
+                ),
+            };
+
+            Ok((source, reporter))
         }
     }
 
@@ -1111,11 +1136,14 @@ mod swarm {
     }
 
     impl PrepareConfigurationStrategy {
-        fn run(&self, config_dir: &AbsolutePath) -> Result<()> {
+        fn run(&self, config_dir: &AbsolutePath, reporter: Reporter) -> Result<Reporter> {
             std::fs::create_dir(config_dir).wrap_err("failed to create the config directory")?;
 
-            match self {
-                Self::GenerateOnlyDirectory => {}
+            let reporter = match self {
+                Self::GenerateOnlyDirectory => {
+                    reporter.warn_no_default_config(&config_dir);
+                    reporter
+                }
                 Self::GenerateDefault => {
                     let path_validator = PathBuf::from_str(FILE_VALIDATOR).unwrap();
 
@@ -1130,8 +1158,12 @@ mod swarm {
                         serde_json::to_string_pretty(&proxy)?
                     };
 
+                    let spinner = reporter.spinner_validator();
+
                     let validator = super::validator::construct_validator()
                         .wrap_err("failed to construct the validator")?;
+
+                    let reporter = spinner.done()?;
 
                     File::create(config_dir.join(FILE_GENESIS))?
                         .write_all(raw_genesis_block.as_bytes())?;
@@ -1139,10 +1171,13 @@ mod swarm {
                         .write_all(default_config.as_bytes())?;
                     File::create(config_dir.join(path_validator))?
                         .write_all(validator.as_slice())?;
-                }
-            }
 
-            Ok(())
+                    reporter.log_default_configuration_is_written(&config_dir);
+                    reporter
+                }
+            };
+
+            Ok(reporter)
         }
     }
 
@@ -1166,19 +1201,20 @@ mod swarm {
             Self { path }
         }
 
-        fn prepare(&self, strategy: &PrepareDirectoryStrategy) -> Result<EarlyEnding> {
+        fn prepare(
+            &self,
+            strategy: &PrepareDirectoryStrategy,
+            reporter: &Reporter,
+        ) -> Result<EarlyEnding> {
             // FIXME: use [`std::fs::try_exists`] when it is stable
             if self.path.exists() {
                 match strategy {
                     PrepareDirectoryStrategy::ForceRecreate => {
-                        self.remove_dir()
-                            .wrap_err("failed to remove the directory")?;
+                        self.remove_dir()?;
+                        reporter.log_removed_directory(&self.path);
                     }
                     PrepareDirectoryStrategy::Prompt => {
-                        if let EarlyEnding::Halt = self
-                            .remove_directory_with_prompt()
-                            .wrap_err("failed to remove the directory with prompt")?
-                        {
+                        if let EarlyEnding::Halt = self.remove_directory_with_prompt(&reporter)? {
                             return Ok(EarlyEnding::Halt);
                         }
                     }
@@ -1187,6 +1223,8 @@ mod swarm {
 
             self.make_dir_recursive()
                 .wrap_err("failed to create the directory")?;
+
+            reporter.log_directory_created(&self.path);
 
             Ok(EarlyEnding::Continue)
         }
@@ -1199,13 +1237,25 @@ mod swarm {
 
         /// If user says "no", program should just exit, so it returns [`EarlyEnding::Halt`].
         ///
-        /// FIXME: maybe it is simpler just to call [`std::process::exit`] with 0?
-        ///
         /// # Errors
         ///
         /// - If TTY is not interactive
-        fn remove_directory_with_prompt(&self) -> Result<EarlyEnding> {
-            todo!("unable to prompt yet")
+        fn remove_directory_with_prompt(&self, reporter: &Reporter) -> Result<EarlyEnding> {
+            if let ui::PromptAnswer::Yes = reporter
+                .prompt_remove_target_dir(&self.path)
+                .wrap_err_with(|| {
+                    eyre!(
+                        "Failed to prompt removal for the directory: {}",
+                        self.path.display()
+                    )
+                })?
+            {
+                self.remove_dir()?;
+                reporter.log_removed_directory(&self.path);
+                Ok(EarlyEnding::Continue)
+            } else {
+                Ok(EarlyEnding::Halt)
+            }
         }
 
         /// `mkdir -r <dir>`
@@ -1793,6 +1843,149 @@ mod swarm {
                         command: iroha --submit-genesis
                 "#]];
                 expected.assert_eq(&actual);
+            }
+        }
+    }
+
+    mod ui {
+        use color_eyre::{eyre::WrapErr, Help};
+        use iroha_crypto::ursa::sha2::digest::generic_array::typenum::Abs;
+        use owo_colors::OwoColorize;
+
+        use super::{AbsolutePath, ResolvedImageSource, Result};
+        use crate::swarm::{DIR_FORCE_SUGGESTION, FILE_COMPOSE};
+
+        const INFO: &str = "ℹ";
+        const SUCCESS: &str = "✓";
+        const WARNING: &str = "‼";
+
+        pub struct Reporter;
+
+        pub(super) enum PromptAnswer {
+            Yes,
+            No,
+        }
+
+        impl Reporter {
+            pub(super) fn new() -> Self {
+                Self
+            }
+
+            pub(super) fn log_removed_directory(&self, dir: &AbsolutePath) {
+                println!("{INFO} Removed directory: {}", dir.display().dimmed());
+            }
+
+            pub(super) fn log_directory_created(&self, dir: &AbsolutePath) {
+                println!("{INFO} Created directory: {}", dir.display().green().bold());
+            }
+
+            pub(super) fn log_default_configuration_is_written(&self, dir: &AbsolutePath) {
+                println!(
+                    "{INFO} Generated default configuration in {}",
+                    dir.display().green().bold()
+                );
+            }
+
+            pub(super) fn warn_no_default_config(&self, dir: &AbsolutePath) {
+                println!(
+                    "{}",
+                    format!(
+                    "{WARNING} Config directory is created, but the configuration itself is not.\
+                        \n  Without any configuration, generated peers will be unable to start.\
+                        \n  Don't forget to put the configuration into:\n\n    {}\n",
+                    dir.display().bold()
+                )
+                    .yellow()
+                );
+            }
+
+            pub(super) fn prompt_remove_target_dir(
+                &self,
+                dir: &AbsolutePath,
+            ) -> Result<PromptAnswer> {
+                inquire::Confirm::new(&format!(
+                    "Directory {} already exists. Remove it?",
+                    dir.display().blue().bold()
+                ))
+                .with_default(false)
+                .prompt()
+                .suggestion(DIR_FORCE_SUGGESTION)
+                .map(|flag| {
+                    if flag {
+                        PromptAnswer::Yes
+                    } else {
+                        PromptAnswer::No
+                    }
+                })
+            }
+
+            pub(super) fn spinner_repo_clone(self, remote: impl AsRef<str>) -> SpinnerRepoClone {
+                SpinnerRepoClone::new(self, remote)
+            }
+
+            pub(super) fn spinner_validator(self) -> SpinnerValidator {
+                SpinnerValidator::new(self)
+            }
+
+            pub(super) fn log_complete(&self, dir: &AbsolutePath) {
+                println!(
+                    "{SUCCESS} Docker compose configuration is ready at: {}\
+                        \n  You can now run `{}` in it",
+                    dir.display().green().bold(),
+                    "docker compose up".blue()
+                );
+            }
+        }
+
+        struct Spinner {
+            inner: spinoff::Spinner,
+            reporter: Reporter,
+        }
+
+        impl Spinner {
+            fn new(message: impl AsRef<str>, reporter: Reporter) -> Self {
+                let inner = spinoff::Spinner::new(
+                    spinoff::spinners::Aesthetic,
+                    message.as_ref().to_owned(),
+                    spinoff::Color::White,
+                );
+
+                Self { inner, reporter }
+            }
+
+            fn done(self, message: impl AsRef<str>) -> Result<Reporter> {
+                self.inner.stop_and_persist(SUCCESS, message.as_ref());
+                Ok(self.reporter)
+            }
+        }
+
+        pub(super) struct SpinnerRepoClone(Spinner);
+
+        impl SpinnerRepoClone {
+            fn new(reporter: Reporter, remote: impl AsRef<str>) -> Self {
+                Self(Spinner::new(
+                    format!("Cloning repo {}...", remote.as_ref().magenta().bold()),
+                    reporter,
+                ))
+            }
+
+            pub(super) fn done(self) -> Result<Reporter> {
+                self.0.done("Cloned the repo")
+            }
+        }
+
+        pub(super) struct SpinnerValidator(Spinner);
+
+        impl SpinnerValidator {
+            fn new(reporter: Reporter) -> Self {
+                Self(Spinner::new(
+                    "Constructing the default validator...",
+                    reporter,
+                ))
+            }
+
+            pub(super) fn done(self) -> Result<Reporter> {
+                self.0.done("Constructed the default validator")
             }
         }
     }
