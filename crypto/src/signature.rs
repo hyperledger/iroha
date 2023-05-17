@@ -220,7 +220,7 @@ impl<T> SignatureOf<T> {
     /// # Errors
     /// Fails if signing fails
     #[cfg(any(feature = "std", feature = "import_ffi"))]
-    pub fn from_hash(key_pair: KeyPair, hash: &HashOf<T>) -> Result<Self, Error> {
+    pub fn from_hash(key_pair: KeyPair, hash: HashOf<T>) -> Result<Self, Error> {
         Signature::new(key_pair, hash.as_ref()).map(|signature| Self(signature, PhantomData))
     }
 
@@ -251,7 +251,7 @@ impl<T> SignatureOf<T> {
     ///
     /// Fails if the given hash didn't pass verification
     #[cfg(any(feature = "std", feature = "import_ffi"))]
-    pub fn verify_hash(&self, hash: &HashOf<T>) -> Result<(), Error> {
+    pub fn verify_hash(&self, hash: HashOf<T>) -> Result<(), Error> {
         self.0.verify(hash.as_ref())
     }
 }
@@ -265,7 +265,7 @@ impl<T: parity_scale_codec::Encode> SignatureOf<T> {
     /// # Errors
     /// Fails if signing fails
     pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
-        Self::from_hash(key_pair, &HashOf::new(value))
+        Self::from_hash(key_pair, HashOf::new(value))
     }
 
     /// Verifies signature for this item
@@ -273,7 +273,7 @@ impl<T: parity_scale_codec::Encode> SignatureOf<T> {
     /// # Errors
     /// Fails if verification fails
     pub fn verify(&self, value: &T) -> Result<(), Error> {
-        self.verify_hash(&HashOf::new(value))
+        self.verify_hash(HashOf::new(value))
     }
 }
 
@@ -384,6 +384,20 @@ impl<T> PartialEq for SignaturesOf<T> {
 
 #[cfg(not(feature = "ffi_import"))]
 impl<T> Eq for SignaturesOf<T> {}
+
+#[cfg(not(feature = "ffi_import"))]
+impl<T> PartialOrd for SignaturesOf<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl<T> Ord for SignaturesOf<T> {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.signatures.cmp(&other.signatures)
+    }
+}
 
 #[cfg(not(feature = "ffi_import"))]
 impl<'de, T> Deserialize<'de> for SignaturesOf<T> {
@@ -517,7 +531,7 @@ impl<T> SignaturesOf<T> {
         hash: HashOf<T>,
     ) -> impl ExactSizeIterator<Item = &SignatureOf<T>> {
         self.signatures
-            .retain(|sign| sign.verify_hash(&hash).is_ok());
+            .retain(|sign| sign.verify_hash(hash).is_ok());
         self.iter()
     }
 
@@ -544,7 +558,7 @@ impl<T> SignaturesOf<T> {
     /// # Errors
     /// Fails if verificatoin of any signature fails
     #[cfg(feature = "std")]
-    pub fn verify_hash(&self, hash: &HashOf<T>) -> Result<(), SignatureVerificationFail<T>> {
+    pub fn verify_hash(&self, hash: HashOf<T>) -> Result<(), SignatureVerificationFail<T>> {
         self.iter().try_for_each(|signature| {
             signature
                 .verify_hash(hash)
@@ -572,7 +586,7 @@ impl<T: Encode> SignaturesOf<T> {
     /// # Errors
     /// Fails if validation of any signature fails
     pub fn verify(&self, item: &T) -> Result<(), SignatureVerificationFail<T>> {
-        self.verify_hash(&HashOf::new(item))
+        self.verify_hash(HashOf::new(item))
     }
 
     /// Return signatures that have passed verification, remove all others.

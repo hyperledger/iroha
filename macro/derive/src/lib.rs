@@ -87,9 +87,12 @@ fn from_container_variant_internal(
     into_variant: &syn::Ident,
     from_ty: &syn::GenericArgument,
     container_ty: &syn::TypePath,
+    generics: &syn::Generics,
 ) -> proc_macro2::TokenStream {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
     quote! {
-        impl From<#from_ty> for #into_ty {
+        impl #impl_generics From<#from_ty> for #into_ty #ty_generics #where_clause {
             fn from(origin: #from_ty) -> Self {
                 #into_ty :: #into_variant (#container_ty :: new(origin))
             }
@@ -101,9 +104,12 @@ fn from_variant_internal(
     into_ty: &syn::Ident,
     into_variant: &syn::Ident,
     from_ty: &syn::Type,
+    generics: &syn::Generics,
 ) -> proc_macro2::TokenStream {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
     quote! {
-        impl From<#from_ty> for #into_ty {
+        impl #impl_generics From<#from_ty> for #into_ty #ty_generics #where_clause {
             fn from(origin: #from_ty) -> Self {
                 #into_ty :: #into_variant (origin)
             }
@@ -115,9 +121,10 @@ fn from_variant(
     into_ty: &syn::Ident,
     into_variant: &syn::Ident,
     from_ty: &syn::Type,
+    generics: &syn::Generics,
     skip_container: bool,
 ) -> proc_macro2::TokenStream {
-    let from_orig = from_variant_internal(into_ty, into_variant, from_ty);
+    let from_orig = from_variant_internal(into_ty, into_variant, from_ty, generics);
 
     if let syn::Type::Path(path) = from_ty {
         let mut code = from_orig;
@@ -145,7 +152,7 @@ fn from_variant(
                 let path = &syn::TypePath { path, qself: None };
 
                 let from_inner =
-                    from_container_variant_internal(into_ty, into_variant, inner, path);
+                    from_container_variant_internal(into_ty, into_variant, inner, path, generics);
                 code = quote! {
                     #code
                     #from_inner
@@ -163,9 +170,12 @@ fn try_into_variant(
     enum_ty: &syn::Ident,
     variant: &syn::Ident,
     variant_ty: &syn::Type,
+    generics: &syn::Generics,
 ) -> proc_macro2::TokenStream {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
     quote! {
-        impl TryFrom<#enum_ty> for #variant_ty {
+        impl #impl_generics TryFrom<#enum_ty #ty_generics> for #variant_ty #where_clause {
             type Error = iroha_macro::error::ErrorTryFromEnum<#enum_ty, Self>;
 
             fn try_from(origin: #enum_ty) -> core::result::Result<Self, Self::Error> {
@@ -182,6 +192,7 @@ fn try_into_variant(
 fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
     let name = &ast.ident;
 
+    let generics = &ast.generics;
     let froms = if let syn::Data::Enum(data_enum) = &ast.data {
         &data_enum.variants
     } else {
@@ -200,14 +211,14 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
                 let try_into = if attrs_have_ident(&unnamed.unnamed[0].attrs, SKIP_TRY_FROM_ATTR) {
                     quote!()
                 } else {
-                    try_into_variant(name, &variant.ident, variant_type)
+                    try_into_variant(name, &variant.ident, variant_type, generics)
                 };
                 let from = if attrs_have_ident(&unnamed.unnamed[0].attrs, SKIP_FROM_ATTR) {
                     quote!()
                 } else if attrs_have_ident(&unnamed.unnamed[0].attrs, SKIP_CONTAINER) {
-                    from_variant(name, &variant.ident, variant_type, true)
+                    from_variant(name, &variant.ident, variant_type, generics, true)
                 } else {
-                    from_variant(name, &variant.ident, variant_type, false)
+                    from_variant(name, &variant.ident, variant_type, generics, false)
                 };
 
                 return Some(quote!(

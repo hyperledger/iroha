@@ -56,7 +56,8 @@ pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Used to generate a versioned container with the given name and given range of supported versions.
 ///
-/// Adds support for both scale codec and json serialization. To declare only with json support, use [`declare_versioned_with_json`](`declare_versioned_with_json()`), for scale — [`declare_versioned_with_scale`](`declare_versioned_with_json()`).
+/// Adds support for both scale codec and json serialization. To declare only with json support,
+/// use [`declare_versioned_with_json`](`declare_versioned_with_json()`), for scale — [`declare_versioned_with_scale`](`declare_versioned_with_json()`).
 ///
 /// It's a user responsibility to export `Box` so that this macro works properly
 ///
@@ -182,6 +183,7 @@ fn impl_version(args: Vec<NestedMeta>, item: TokenStream) -> TokenStream2 {
 
 struct DeclareVersionedArgs {
     pub enum_name: Ident,
+    pub generics: syn::Generics,
     pub range: Range<u8>,
     pub _comma: Option<Token![,]>,
     pub derive: Punctuated<Path, Token![,]>,
@@ -210,9 +212,10 @@ impl DeclareVersionedArgs {
 impl Parse for DeclareVersionedArgs {
     fn parse(input: ParseStream) -> SynResult<Self> {
         let enum_name: Ident = input.parse()?;
+        let generics: syn::Generics = input.parse()?;
         let start_version: LitInt = input.parse()?;
         let start_version: u8 = start_version.base10_parse()?;
-        let _colon2: Token![..] = input.parse::<Token![..]>()?;
+        let _: Token![..] = input.parse::<Token![..]>()?;
         let end_version: LitInt = input.parse()?;
         let end_version: u8 = end_version.base10_parse()?;
         if end_version <= start_version {
@@ -223,6 +226,7 @@ impl Parse for DeclareVersionedArgs {
         }
         Ok(Self {
             enum_name,
+            generics,
             range: start_version..end_version,
             _comma: input.parse()?,
             derive: Punctuated::parse_terminated(input)?,
@@ -230,9 +234,11 @@ impl Parse for DeclareVersionedArgs {
     }
 }
 
-fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
+fn impl_decode_versioned(enum_name: &Ident, generics: &syn::Generics) -> proc_macro2::TokenStream {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
     quote! (
-        impl iroha_version::scale::DecodeVersioned for #enum_name {
+        impl #impl_generics iroha_version::scale::DecodeVersioned for #enum_name #ty_generics #where_clause {
             fn decode_all_versioned(input: &[u8]) -> iroha_version::error::Result<Self> {
                 use iroha_version::{error::Error, Version, UnsupportedVersion, RawVersioned};
                 use parity_scale_codec::DecodeAll;
@@ -253,7 +259,7 @@ fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
             }
         }
 
-        impl iroha_version::scale::EncodeVersioned for #enum_name {
+        impl #impl_generics iroha_version::scale::EncodeVersioned for #enum_name #ty_generics #where_clause {
             fn encode_versioned(&self) -> Vec<u8> {
                 use parity_scale_codec::Encode;
 
@@ -263,9 +269,15 @@ fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
     )
 }
 
-fn impl_json(enum_name: &Ident, version_field_name: &str) -> proc_macro2::TokenStream {
+fn impl_json(
+    enum_name: &Ident,
+    generics: &syn::Generics,
+    version_field_name: &str,
+) -> proc_macro2::TokenStream {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
     quote!(
-        impl<'a> iroha_version::json::DeserializeVersioned<'a> for #enum_name {
+        impl #impl_generics iroha_version::json::DeserializeVersioned<'_> for #enum_name #ty_generics #where_clause {
             fn from_versioned_json_str(input: &str) -> iroha_version::error::Result<Self> {
                 use iroha_version::{error::Error, Version, UnsupportedVersion, RawVersioned};
                 use serde_json::Value;
@@ -290,7 +302,7 @@ fn impl_json(enum_name: &Ident, version_field_name: &str) -> proc_macro2::TokenS
             }
         }
 
-        impl iroha_version::json::SerializeVersioned for #enum_name {
+        impl #impl_generics iroha_version::json::SerializeVersioned for #enum_name #ty_generics #where_clause {
             fn to_versioned_json_str(&self) -> iroha_version::error::Result<String> {
                 Ok(serde_json::to_string(self)?)
             }
@@ -309,8 +321,9 @@ fn impl_declare_versioned(
     let range_end = args.range.end;
     let range_start = args.range.start;
     let enum_name = &args.enum_name;
+    let (impl_generics, ty_generics, where_clause) = args.generics.split_for_impl();
     let scale_impl = if with_scale {
-        impl_decode_versioned(enum_name)
+        impl_decode_versioned(enum_name, &args.generics)
     } else {
         quote!()
     };
@@ -331,7 +344,7 @@ fn impl_declare_versioned(
         .collect();
     let version_field_name = VERSION_FIELD_NAME;
     let json_impl = if with_json {
-        impl_json(enum_name, version_field_name)
+        impl_json(enum_name, &args.generics, version_field_name)
     } else {
         quote!()
     };
@@ -363,11 +376,11 @@ fn impl_declare_versioned(
         /// Autogenerated versioned container.
         #[derive(#scale_derives #json_derives #derives)]
         #json_enum_attribute
-        pub enum #enum_name {
+        pub enum #enum_name #ty_generics #where_clause {
             #(
                 /// This variant represents a particular version.
                 #scale_variant_attributes #json_variant_attributes
-                #version_idents (#version_struct_idents),
+                #version_idents (#version_struct_idents #ty_generics),
             )*
         }
     };
@@ -375,11 +388,10 @@ fn impl_declare_versioned(
     quote!(
         #enum_
 
-        impl iroha_version::Version for #enum_name {
+        impl #impl_generics iroha_version::Version for #enum_name #ty_generics #where_clause {
             fn version(&self) -> u8 {
-                use #enum_name::*;
                 match self {
-                    #(#version_idents (_) => #version_numbers),*
+                    #(#enum_name::#version_idents (_) => #version_numbers),*
                 }
             }
 

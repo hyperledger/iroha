@@ -7,6 +7,6 @@ fn get_assets_by_account_id(_account_id: impl Into<EvaluatesTo<AccountId>>) -> V
 }
 
 fn main() {
-    let asset_definition_id: <AssetDefinition as Identifiable>::Id = "rose#wonderland".parse().unwrap();
+    let asset_definition_id: AssetDefinitionId = "rose#wonderland".parse().unwrap();
     get_assets_by_account_id(asset_definition_id);
 }

@@ -11,16 +11,12 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{
-    isi::InstructionBox,
-    query::QueryBox,
-    transaction::{SignedTransaction, WasmSmartContract},
-    FromVariant,
-};
+use crate::{isi::InstructionBox, query::QueryBox, transaction::WasmSmartContract, FromVariant};
 
 #[model]
 pub mod model {
     use super::*;
+    use crate::transaction::VersionedSignedTransaction;
 
     /// validator that checks if an operation satisfies some conditions.
     ///
@@ -33,7 +29,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         Constructor,
         Getters,
         Decode,
@@ -63,7 +58,6 @@ pub mod model {
         Clone,
         PartialEq,
         Eq,
-        Hash,
         FromVariant,
         Decode,
         Encode,
@@ -73,8 +67,8 @@ pub mod model {
     )]
     #[ffi_type]
     pub enum NeedsValidationBox {
-        /// [`Transaction`] application operation
-        Transaction(SignedTransaction),
+        /// [`VersionedSignedTransaction`] application operation
+        Transaction(VersionedSignedTransaction),
         /// [`InstructionBox`] execution operation
         Instruction(InstructionBox),
         /// [`QueryBox`] execution operations

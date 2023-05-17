@@ -5,8 +5,7 @@ use serde::{Deserialize, Serialize};
 
 const DEFAULT_MAX_TRANSACTIONS_IN_QUEUE: u32 = 2_u32.pow(16);
 const DEFAULT_MAX_TRANSACTIONS_IN_QUEUE_PER_USER: u32 = 2_u32.pow(16);
-// 24 hours
-const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 24 * 60 * 60 * 1000;
+const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 24 * 60 * 60 * 1000; // 24 hours
 const DEFAULT_FUTURE_THRESHOLD_MS: u64 = 1000;
 
 /// `Queue` configuration.

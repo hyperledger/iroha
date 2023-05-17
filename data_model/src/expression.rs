@@ -111,7 +111,7 @@ macro_rules! gen_expr_and_impls {
     // Internal usage: generate basic code for the expression
     (impl_basic $(#[$me:meta])* $v:vis $i:ident($($param_name:ident: $param_type:ty),* $(,)?)) => {
         iroha_data_model_derive::model_single! {
-            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
             #[getset(get = "pub")]
             $(#[$me])*
             $v struct $i { $(
@@ -158,7 +158,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         Decode,
         Encode,
         Deserialize,
@@ -190,7 +189,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         FromVariant,
         Decode,
         Encode,
@@ -254,7 +252,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         Getters,
         Constructor,
         Decode,
@@ -453,7 +450,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         Getters,
         Decode,
         Encode,

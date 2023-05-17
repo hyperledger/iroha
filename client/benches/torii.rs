@@ -8,7 +8,7 @@ use iroha_client::client::{asset, Client};
 use iroha_config::{base::runtime_upgrades::Reload, logger};
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
-use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlockBuilder};
+use iroha_genesis::{GenesisNetwork, RawGenesisBlockBuilder};
 use iroha_version::Encode;
 use test_network::{get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
 use tokio::runtime::Runtime;
@@ -24,7 +24,6 @@ fn query_requests(criterion: &mut Criterion) {
 
     let rt = Runtime::test();
     let genesis = GenesisNetwork::from_configuration(
-        true,
         RawGenesisBlockBuilder::new()
             .domain("wonderland".parse().expect("Valid"))
             .account(
@@ -37,7 +36,6 @@ fn query_requests(criterion: &mut Criterion) {
             )
             .build(),
         Some(&configuration.genesis),
-        &configuration.wsv.transaction_limits,
     )
     .expect("genesis creation failed");
 
@@ -73,13 +71,14 @@ fn query_requests(criterion: &mut Criterion) {
     let iroha_client = Client::new(&client_config).expect("Invalid client configuration");
     thread::sleep(std::time::Duration::from_millis(5000));
 
+    let instructions: [InstructionBox; 4] = [
+        create_domain.into(),
+        create_account.into(),
+        create_asset.into(),
+        mint_asset.into(),
+    ];
     let _ = iroha_client
-        .submit_all(vec![
-            create_domain.into(),
-            create_account.into(),
-            create_asset.into(),
-            mint_asset.into(),
-        ])
+        .submit_all(instructions)
         .expect("Failed to prepare state");
 
     let request = asset::by_account_id(account_id);
@@ -118,7 +117,6 @@ fn instruction_submits(criterion: &mut Criterion) {
         Some(get_key_pair()),
     );
     let genesis = GenesisNetwork::from_configuration(
-        true,
         RawGenesisBlockBuilder::new()
             .domain("wonderland".parse().expect("Valid"))
             .account(
@@ -131,7 +129,6 @@ fn instruction_submits(criterion: &mut Criterion) {
             )
             .build(),
         Some(&configuration.genesis),
-        &configuration.wsv.transaction_limits,
     )
     .expect("failed to create genesis");
     let builder = PeerBuilder::new()
@@ -152,7 +149,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     let iroha_client = Client::new(&client_config).expect("Invalid client configuration");
     thread::sleep(std::time::Duration::from_millis(5000));
     let _ = iroha_client
-        .submit_all(vec![create_domain.into(), create_account.into()])
+        .submit_all([create_domain, create_account])
         .expect("Failed to create role.");
     thread::sleep(std::time::Duration::from_millis(500));
     let mut success_count = 0;

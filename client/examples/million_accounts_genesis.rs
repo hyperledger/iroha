@@ -4,7 +4,7 @@ use std::{thread, time::Duration};
 
 use iroha::samples::{construct_validator, get_config};
 use iroha_data_model::prelude::*;
-use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock, RawGenesisBlockBuilder};
+use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
 use test_network::{
     get_key_pair, wait_for_genesis_committed, Peer as TestPeer, PeerBuilder, TestRuntime,
 };
@@ -43,10 +43,8 @@ fn main_genesis() {
     );
     let rt = Runtime::test();
     let genesis = GenesisNetwork::from_configuration(
-        true,
         generate_genesis(1_000_000_u32),
         Some(&configuration.genesis),
-        &configuration.wsv.transaction_limits,
     )
     .expect("genesis creation failed");
 
@@ -74,7 +72,7 @@ fn create_million_accounts_directly() {
         let create_domain = RegisterBox::new(Domain::new(domain_id));
         let create_account = RegisterBox::new(Account::new(normal_account_id.clone(), []));
         if test_client
-            .submit_all([create_domain.into(), create_account.into()].to_vec())
+            .submit_all([create_domain, create_account])
             .is_err()
         {
             thread::sleep(Duration::from_millis(100));

@@ -6,7 +6,12 @@
     clippy::std_instead_of_alloc
 )]
 use std::{
-    collections::HashMap, fmt::Debug, marker::PhantomData, num::NonZeroU64, thread, time::Duration,
+    collections::HashMap,
+    fmt::Debug,
+    marker::PhantomData,
+    num::{NonZeroU32, NonZeroU64},
+    thread,
+    time::Duration,
 };
 
 use derive_more::{DebugCustom, Display};
@@ -57,6 +62,37 @@ impl<R> Default for QueryResponseHandler<R> {
 
 /// `Result` with [`ClientQueryError`] as an error
 pub type QueryHandlerResult<T> = core::result::Result<T, ClientQueryError>;
+
+/// Trait for signing transactions
+pub trait Sign {
+    /// Sign transaction with provided key pair.
+    ///
+    /// # Errors
+    ///
+    /// Fails if signature creation fails
+    fn sign(
+        self,
+        key_pair: iroha_crypto::KeyPair,
+    ) -> Result<VersionedSignedTransaction, iroha_crypto::error::Error>;
+}
+
+impl Sign for TransactionBuilder {
+    fn sign(
+        self,
+        key_pair: iroha_crypto::KeyPair,
+    ) -> Result<VersionedSignedTransaction, iroha_crypto::error::Error> {
+        self.sign(key_pair)
+    }
+}
+
+impl Sign for VersionedSignedTransaction {
+    fn sign(
+        self,
+        key_pair: iroha_crypto::KeyPair,
+    ) -> Result<VersionedSignedTransaction, iroha_crypto::error::Error> {
+        self.sign(key_pair)
+    }
+}
 
 impl<R> ResponseHandler for QueryResponseHandler<R>
 where
@@ -250,12 +286,10 @@ pub struct Client {
     torii_url: Url,
     /// Url to report status for administration
     telemetry_url: Url,
-    /// The limits to which transactions must adhere to
-    transaction_limits: TransactionLimits,
     /// Accounts keypair
     key_pair: KeyPair,
     /// Transaction time to live in milliseconds
-    proposed_transaction_ttl_ms: u64,
+    transaction_ttl: Option<Duration>,
     /// Transaction status timeout
     transaction_status_timeout: Duration,
     /// Current account
@@ -298,12 +332,13 @@ impl Client {
         Ok(Self {
             torii_url: configuration.torii_api_url.clone(),
             telemetry_url: configuration.torii_telemetry_url.clone(),
-            transaction_limits: configuration.transaction_limits,
             key_pair: KeyPair::new(
                 configuration.public_key.clone(),
                 configuration.private_key.clone(),
             )?,
-            proposed_transaction_ttl_ms: configuration.transaction_time_to_live_ms,
+            transaction_ttl: configuration
+                .transaction_time_to_live_ms
+                .map(|ttl| Duration::from_millis(ttl.into())),
             transaction_status_timeout: Duration::from_millis(
                 configuration.transaction_status_timeout_ms,
             ),
@@ -321,22 +356,24 @@ impl Client {
         &self,
         instructions: impl Into<Executable>,
         metadata: UnlimitedMetadata,
-    ) -> Result<SignedTransaction> {
-        let transaction = TransactionBuilder::new(
-            self.account_id.clone(),
-            instructions,
-            self.proposed_transaction_ttl_ms,
-        );
+    ) -> Result<VersionedSignedTransaction> {
+        let tx_builder = TransactionBuilder::new(self.account_id.clone());
 
-        let transaction_with_metadata = if self.add_transaction_nonce {
-            let nonce = rand::thread_rng().gen::<u32>();
-            transaction.with_nonce(nonce)
-        } else {
-            transaction
+        let mut tx_builder = match instructions.into() {
+            Executable::Instructions(instructions) => tx_builder.with_instructions(instructions),
+            Executable::Wasm(wasm) => tx_builder.with_wasm(wasm),
+        };
+
+        if let Some(transaction_ttl) = self.transaction_ttl {
+            tx_builder.set_ttl(transaction_ttl);
         }
-        .with_metadata(metadata);
+        if self.add_transaction_nonce {
+            let nonce = rand::thread_rng().gen::<NonZeroU32>();
+            tx_builder.set_nonce(nonce);
+        };
 
-        transaction_with_metadata
+        tx_builder
+            .with_metadata(metadata)
             .sign(self.key_pair.clone())
             .wrap_err("Failed to sign transaction")
     }
@@ -345,7 +382,10 @@ impl Client {
     ///
     /// # Errors
     /// Fails if signature generation fails
-    pub fn sign_transaction<Tx: Sign>(&self, transaction: Tx) -> Result<SignedTransaction> {
+    pub fn sign_transaction<Tx: Sign>(
+        &self,
+        transaction: Tx,
+    ) -> Result<VersionedSignedTransaction> {
         transaction
             .sign(self.key_pair.clone())
             .wrap_err("Failed to sign transaction")
@@ -368,8 +408,8 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit(
         &self,
-        instruction: impl Into<InstructionBox> + Debug,
-    ) -> Result<HashOf<VersionedSignedTransaction>> {
+        instruction: impl Instruction + Debug,
+    ) -> Result<HashOf<TransactionPayload>> {
         let isi = instruction.into();
         self.submit_all([isi])
     }
@@ -381,8 +421,8 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all(
         &self,
-        instructions: impl IntoIterator<Item = InstructionBox>,
-    ) -> Result<HashOf<VersionedSignedTransaction>> {
+        instructions: impl IntoIterator<Item = impl Instruction>,
+    ) -> Result<HashOf<TransactionPayload>> {
         self.submit_all_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
@@ -394,9 +434,9 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_with_metadata(
         &self,
-        instruction: InstructionBox,
+        instruction: impl Instruction,
         metadata: UnlimitedMetadata,
-    ) -> Result<HashOf<VersionedSignedTransaction>> {
+    ) -> Result<HashOf<TransactionPayload>> {
         self.submit_all_with_metadata([instruction], metadata)
     }
 
@@ -408,10 +448,10 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_with_metadata(
         &self,
-        instructions: impl IntoIterator<Item = InstructionBox>,
+        instructions: impl IntoIterator<Item = impl Instruction>,
         metadata: UnlimitedMetadata,
-    ) -> Result<HashOf<VersionedSignedTransaction>> {
-        self.submit_transaction(self.build_transaction(instructions, metadata)?)
+    ) -> Result<HashOf<TransactionPayload>> {
+        self.submit_transaction(&self.build_transaction(instructions, metadata)?)
     }
 
     /// Submit a prebuilt transaction.
@@ -421,11 +461,11 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_transaction(
         &self,
-        transaction: SignedTransaction,
-    ) -> Result<HashOf<VersionedSignedTransaction>> {
+        transaction: &VersionedSignedTransaction,
+    ) -> Result<HashOf<TransactionPayload>> {
         iroha_logger::trace!(tx=?transaction, "Submitting");
         let (req, hash, resp_handler) =
-            self.prepare_transaction_request::<DefaultRequestBuilder>(transaction)?;
+            self.prepare_transaction_request::<DefaultRequestBuilder>(transaction);
         let response = req
             .build()?
             .send()
@@ -441,10 +481,10 @@ impl Client {
     /// Fails if sending a transaction to a peer fails or there is an error in the response
     pub fn submit_transaction_blocking(
         &self,
-        transaction: SignedTransaction,
-    ) -> Result<HashOf<VersionedSignedTransaction>> {
+        transaction: &VersionedSignedTransaction,
+    ) -> Result<HashOf<TransactionPayload>> {
         let (init_sender, init_receiver) = tokio::sync::oneshot::channel();
-        let hash = transaction.hash();
+        let hash = transaction.payload().hash();
 
         thread::scope(|spawner| {
             let submitter_handle = spawner.spawn(move || -> Result<()> {
@@ -471,8 +511,8 @@ impl Client {
     fn listen_for_tx_confirmation(
         &self,
         init_sender: tokio::sync::oneshot::Sender<bool>,
-        hash: HashOf<SignedTransaction>,
-    ) -> Result<HashOf<VersionedSignedTransaction>> {
+        hash: HashOf<TransactionPayload>,
+    ) -> Result<HashOf<TransactionPayload>> {
         let deadline = tokio::time::Instant::now() + self.transaction_status_timeout;
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -508,8 +548,8 @@ impl Client {
 
     async fn listen_for_tx_confirmation_loop(
         event_iterator: &mut AsyncEventStream,
-        hash: HashOf<SignedTransaction>,
-    ) -> Result<HashOf<VersionedSignedTransaction>> {
+        hash: HashOf<TransactionPayload>,
+    ) -> Result<HashOf<TransactionPayload>> {
         while let Some(event) = event_iterator.next().await {
             if let Event::Pipeline(this_event) = event? {
                 match this_event.status() {
@@ -533,32 +573,22 @@ impl Client {
     /// it is better to use a response handler anyway. It allows to abstract from implementation details.
     ///
     /// For general usage example see [`Client::prepare_query_request`].
-    ///
-    /// # Errors
-    /// Fails if transaction check fails
     pub fn prepare_transaction_request<B: RequestBuilder>(
         &self,
-        transaction: SignedTransaction,
-    ) -> Result<(
-        B,
-        HashOf<VersionedSignedTransaction>,
-        TransactionResponseHandler,
-    )> {
-        transaction.check_limits(&self.transaction_limits)?;
-        let transaction: VersionedSignedTransaction = transaction.into();
-        let hash = transaction.hash();
+        transaction: &VersionedSignedTransaction,
+    ) -> (B, HashOf<TransactionPayload>, TransactionResponseHandler) {
         let transaction_bytes: Vec<u8> = transaction.encode_versioned();
 
-        Ok((
+        (
             B::new(
                 HttpMethod::POST,
                 self.torii_url.join(uri::TRANSACTION).expect("Valid URI"),
             )
             .headers(self.headers.clone())
             .body(transaction_bytes),
-            hash,
+            transaction.payload().hash(),
             TransactionResponseHandler,
-        ))
+        )
     }
 
     /// Submits and waits until the transaction is either rejected or committed.
@@ -568,8 +598,8 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking(
         &self,
-        instruction: impl Into<InstructionBox>,
-    ) -> Result<HashOf<VersionedSignedTransaction>> {
+        instruction: impl Instruction,
+    ) -> Result<HashOf<TransactionPayload>> {
         self.submit_all_blocking(vec![instruction.into()])
     }
 
@@ -580,8 +610,8 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking(
         &self,
-        instructions: impl IntoIterator<Item = InstructionBox>,
-    ) -> Result<HashOf<VersionedSignedTransaction>> {
+        instructions: impl IntoIterator<Item = impl Instruction>,
+    ) -> Result<HashOf<TransactionPayload>> {
         self.submit_all_blocking_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
@@ -593,9 +623,9 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking_with_metadata(
         &self,
-        instruction: impl Into<InstructionBox>,
+        instruction: impl Instruction,
         metadata: UnlimitedMetadata,
-    ) -> Result<HashOf<VersionedSignedTransaction>> {
+    ) -> Result<HashOf<TransactionPayload>> {
         self.submit_all_blocking_with_metadata(vec![instruction.into()], metadata)
     }
 
@@ -607,11 +637,11 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking_with_metadata(
         &self,
-        instructions: impl IntoIterator<Item = InstructionBox>,
+        instructions: impl IntoIterator<Item = impl Instruction>,
         metadata: UnlimitedMetadata,
-    ) -> Result<HashOf<VersionedSignedTransaction>> {
+    ) -> Result<HashOf<TransactionPayload>> {
         let transaction = self.build_transaction(instructions, metadata)?;
-        self.submit_transaction_blocking(transaction)
+        self.submit_transaction_blocking(&transaction)
     }
 
     /// Lower-level Query API entry point. Prepares an http-request and returns it with an http-response handler.
@@ -938,9 +968,9 @@ impl Client {
         first: &TransactionPayload,
         second: &TransactionPayload,
     ) -> bool {
-        first.account_id() == second.account_id()
+        first.authority() == second.authority()
             && first.instructions() == second.instructions()
-            && first.time_to_live_ms() == second.time_to_live_ms()
+            && first.time_to_live() == second.time_to_live()
             && first.metadata().eq(second.metadata())
     }
 
@@ -952,11 +982,11 @@ impl Client {
     /// - if subscribing to websocket fails
     pub fn get_original_transaction_with_pagination(
         &self,
-        transaction: &SignedTransaction,
+        transaction: &VersionedSignedTransaction,
         retry_count: u32,
         retry_in: Duration,
         pagination: Pagination,
-    ) -> Result<Option<SignedTransaction>> {
+    ) -> Result<Option<VersionedSignedTransaction>> {
         let pagination: Vec<_> = pagination.into();
         for _ in 0..retry_count {
             let response = DefaultRequestBuilder::new(
@@ -971,9 +1001,9 @@ impl Client {
             .send()?;
 
             if response.status() == StatusCode::OK {
-                let pending_transactions =
-                    VersionedPendingTransactions::decode_all_versioned(response.body())?;
-                let VersionedPendingTransactions::V1(pending_transactions) = pending_transactions;
+                let pending_transactions: Vec<VersionedSignedTransaction> =
+                    DecodeAll::decode_all(&mut response.body().as_slice())?;
+
                 let transaction = pending_transactions
                     .into_iter()
                     .find(|pending_transaction| {
@@ -1004,10 +1034,10 @@ impl Client {
     /// - if sending request fails
     pub fn get_original_transaction(
         &self,
-        transaction: &SignedTransaction,
+        transaction: &VersionedSignedTransaction,
         retry_count: u32,
         retry_in: Duration,
-    ) -> Result<Option<SignedTransaction>> {
+    ) -> Result<Option<VersionedSignedTransaction>> {
         self.get_original_transaction_with_pagination(
             transaction,
             retry_count,
@@ -1662,16 +1692,22 @@ mod tests {
 
         let build_transaction = || {
             client
-                .build_transaction(Vec::new(), UnlimitedMetadata::new())
+                .build_transaction(Vec::<InstructionBox>::new(), UnlimitedMetadata::new())
                 .unwrap()
         };
         let tx1 = build_transaction();
         let mut tx2 = build_transaction();
+        assert_ne!(tx1.payload().hash(), tx2.payload().hash());
 
-        tx2.payload.creation_time = tx1.payload.creation_time;
-        assert_ne!(tx1.hash(), tx2.hash());
-        tx2.payload.nonce = tx1.payload.nonce;
-        assert_eq!(tx1.hash(), tx2.hash());
+        let VersionedSignedTransaction::V1(tx2_ref) = &mut tx2;
+        tx2_ref.payload.creation_time_ms = tx1
+            .payload()
+            .creation_time()
+            .as_millis()
+            .try_into()
+            .expect("Valid");
+        tx2_ref.payload.nonce = tx1.payload().nonce;
+        assert_eq!(tx1.payload().hash(), tx2.payload().hash());
     }
 
     #[test]
@@ -1716,7 +1752,7 @@ mod tests {
     #[cfg(test)]
     mod query_errors_handling {
         use http::Response;
-        use iroha_data_model::{query::error::QueryExecutionFailure, ValidationFail};
+        use iroha_data_model::{query::error::QueryExecutionFail, ValidationFail};
 
         use super::*;
 
@@ -1726,7 +1762,7 @@ mod tests {
             let responses = vec![
                 (
                     StatusCode::UNAUTHORIZED,
-                    ValidationFail::QueryFailed(QueryExecutionFailure::Signature(
+                    ValidationFail::QueryFailed(QueryExecutionFail::Signature(
                         "whatever".to_owned(),
                     )),
                 ),
@@ -1734,7 +1770,7 @@ mod tests {
                 (
                     StatusCode::NOT_FOUND,
                     // Here should be `Find`, but actually handler doesn't care
-                    ValidationFail::QueryFailed(QueryExecutionFailure::Evaluate(
+                    ValidationFail::QueryFailed(QueryExecutionFail::Evaluate(
                         "whatever".to_owned(),
                     )),
                 ),

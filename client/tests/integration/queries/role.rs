@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_data_model::{prelude::*, query::error::QueryExecutionFailure};
+use iroha_data_model::{prelude::*, query::error::QueryExecutionFail};
 use test_network::*;
 
 fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {
@@ -20,7 +20,7 @@ fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {
 #[test]
 fn find_roles() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_525).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let role_ids = create_role_ids();
 
@@ -28,7 +28,7 @@ fn find_roles() -> Result<()> {
     let register_roles = role_ids
         .iter()
         .cloned()
-        .map(|role_id| RegisterBox::new(Role::new(role_id)).into())
+        .map(|role_id| RegisterBox::new(Role::new(role_id)))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_roles)?;
 
@@ -49,7 +49,7 @@ fn find_roles() -> Result<()> {
 #[test]
 fn find_role_ids() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_530).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let role_ids = create_role_ids();
 
@@ -57,7 +57,7 @@ fn find_role_ids() -> Result<()> {
     let register_roles = role_ids
         .iter()
         .cloned()
-        .map(|role_id| RegisterBox::new(Role::new(role_id)).into())
+        .map(|role_id| RegisterBox::new(Role::new(role_id)))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_roles)?;
 
@@ -75,7 +75,7 @@ fn find_role_ids() -> Result<()> {
 #[test]
 fn find_role_by_id() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_535).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
     let new_role = Role::new(role_id.clone());
@@ -95,7 +95,7 @@ fn find_role_by_id() -> Result<()> {
 #[test]
 fn find_unregistered_role_by_id() {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_540).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
 
@@ -106,7 +106,7 @@ fn find_unregistered_role_by_id() {
     assert!(matches!(
         found_role,
         Err(client::ClientQueryError::Validation(
-            ValidationFail::QueryFailed(QueryExecutionFailure::Find(_))
+            ValidationFail::QueryFailed(QueryExecutionFail::Find(_))
         ))
     ));
 }
@@ -114,7 +114,7 @@ fn find_unregistered_role_by_id() {
 #[test]
 fn find_roles_by_account_id() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_545).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let role_ids = create_role_ids();
     let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
@@ -135,7 +135,6 @@ fn find_roles_by_account_id() -> Result<()> {
                     )]),
                 ),
             )
-            .into()
         })
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_roles)?;
@@ -144,7 +143,7 @@ fn find_roles_by_account_id() -> Result<()> {
     let grant_roles = role_ids
         .iter()
         .cloned()
-        .map(|role_id| GrantBox::new(role_id, alice_id.clone()).into())
+        .map(|role_id| GrantBox::new(role_id, alice_id.clone()))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(grant_roles)?;
 

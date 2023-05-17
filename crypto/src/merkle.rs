@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
 
-use crate::HashOf;
+use crate::{Hash, HashOf};
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate `T`
 #[derive(Debug, TypeId, Decode, Encode)]
@@ -230,7 +230,7 @@ impl<T> MerkleTree<T> {
             .zip(r_hash.as_ref().iter())
             .map(|(l, r)| l.wrapping_add(*r))
             .collect();
-        Some(crate::Hash::new(sum).typed())
+        Some(HashOf::from_untyped_unchecked(Hash::new(sum)))
     }
 }
 
@@ -259,11 +259,11 @@ impl<T> LeafHashIterator<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Hash;
 
     fn test_hashes(n_hashes: u8) -> Vec<HashOf<()>> {
         (1..=n_hashes)
-            .map(|i| Hash::prehashed([i; Hash::LENGTH]).typed())
+            .map(|i| Hash::prehashed([i; Hash::LENGTH]))
+            .map(HashOf::from_untyped_unchecked)
             .collect()
     }
 

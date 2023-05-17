@@ -5,13 +5,12 @@ use std::{collections::BTreeSet, str::FromStr as _};
 use eyre::Result;
 use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_core::{block::PendingBlock, prelude::*, wsv::World};
-use iroha_crypto::{HashOf, SignatureOf, SignaturesOf};
+use iroha_crypto::{HashOf, MerkleTree, SignatureOf, SignaturesOf};
 use iroha_data_model::{
     asset::{AssetDefinition, AssetDefinitionId},
     block::{BlockHeader, VersionedCommittedBlock},
     isi::InstructionBox,
     prelude::*,
-    transaction::{TransactionBuilder, ValidTransaction},
 };
 
 /// Create block, bypassing validation
@@ -22,13 +21,15 @@ fn create_block(
     account_id: AccountId,
     key_pair: KeyPair,
 ) -> Result<VersionedCommittedBlock> {
-    let transaction =
-        TransactionBuilder::new(account_id, instructions, u64::MAX).sign(key_pair.clone())?;
-    let valid_transaction = ValidTransaction {
-        payload: transaction.payload,
-        signatures: transaction.signatures,
-    };
+    let transaction = TransactionBuilder::new(account_id)
+        .with_instructions(instructions)
+        .sign(key_pair.clone())?;
 
+    let transactions_hash = [&transaction]
+        .iter()
+        .map(|tx| tx.hash())
+        .collect::<MerkleTree<_>>()
+        .hash();
     let timestamp = current_time().as_millis();
     let header = BlockHeader {
         timestamp,
@@ -36,18 +37,21 @@ fn create_block(
         height,
         view_change_index: 1,
         previous_block_hash,
-        transactions_hash: Some(valid_transaction.hash().transmute()), // Single transaction is merkle root hash
+        transactions_hash, // Single transaction is merkle root hash
         rejected_transactions_hash: None,
         committed_with_topology: Vec::new(),
     };
 
-    let signature = SignatureOf::from_hash(key_pair, &Hash::new(header.payload()).typed())?;
+    let signature = SignatureOf::from_hash(
+        key_pair,
+        HashOf::from_untyped_unchecked(Hash::new(header.payload())),
+    )?;
     let signatures = SignaturesOf::from(signature);
 
     let pending_block = PendingBlock {
         header,
         rejected_transactions: Vec::new(),
-        transactions: vec![valid_transaction.into()],
+        transactions: vec![transaction],
         event_recommendations: Vec::new(),
         signatures,
     };

@@ -83,7 +83,7 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region domain_register_example_submit_tx
     // Submit a prepared domain registration transaction
     iroha_client
-        .submit_transaction(tx)
+        .submit_transaction(&tx)
         .wrap_err("Failed to submit transaction")?;
     // #endregion domain_register_example_submit_tx
 
@@ -152,7 +152,7 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
 
     // #region register_account_submit_tx
     // Submit a prepared account registration transaction
-    iroha_client.submit_transaction(tx)?;
+    iroha_client.submit_transaction(&tx)?;
     // #endregion register_account_submit_tx
 
     // Finish the test successfully
@@ -200,7 +200,7 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
     );
 
     // Submit a minting transaction
-    iroha_client.submit_all([mint.into()])?;
+    iroha_client.submit_all([mint])?;
     // #endregion register_asset_mint_submit
 
     // Finish the test successfully

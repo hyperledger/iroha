@@ -5,7 +5,7 @@ use std::env;
 use color_eyre::eyre::WrapErr as _;
 use iroha::style::Styling;
 use iroha_config::path::Path as ConfigPath;
-use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait as _, RawGenesisBlock};
+use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use owo_colors::OwoColorize as _;
 
 const HELP_ARG: [&str; 2] = ["--help", "-h"];
@@ -122,24 +122,20 @@ async fn main() -> Result<(), color_eyre::Report> {
         "Hyperledgerいろは2にようこそ！(translation) Welcome to Hyperledger Iroha!"
     );
 
-    let genesis = if let Some(genesis_path) = &args.genesis_path {
-        GenesisNetwork::from_configuration(
-            args.submit_genesis,
-            RawGenesisBlock::from_path(
-                genesis_path
-                    .first_existing_path()
-                    .ok_or({
-                        color_eyre::eyre::eyre!("Genesis block file {genesis_path:?} doesn't exist")
-                    })?
-                    .as_ref(),
-            )?,
-            Some(&config.genesis),
-            &config.wsv.transaction_limits,
-        )
-        .wrap_err("Failed to initialize genesis.")?
-    } else {
-        None
-    };
+    let genesis = args
+        .submit_genesis
+        .then_some(())
+        .and(args.genesis_path)
+        .map(|genesis_path| {
+            let genesis_path = genesis_path.first_existing_path().ok_or({
+                color_eyre::eyre::eyre!("Genesis block file {genesis_path:?} doesn't exist")
+            })?;
+
+            let genesis_block = RawGenesisBlock::from_path(genesis_path.as_ref())?;
+            GenesisNetwork::from_configuration(genesis_block, Some(&config.genesis))
+                .wrap_err("Failed to initialize genesis.")
+        })
+        .transpose()?;
 
     iroha::Iroha::with_genesis(genesis, config, telemetry)
         .await?

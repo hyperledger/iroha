@@ -201,7 +201,7 @@ pub fn impl_filter(event: &EventEnum) -> TokenStream {
 
     quote! {
         iroha_data_model_derive::model_single! {
-            #[derive(Debug, Clone, PartialEq, Eq, Hash, derive_more::Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+            #[derive(Debug, Clone, PartialEq, Eq, derive_more::Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
             #[doc = #filter_doc]
             #vis struct #filter_ident #generics {
                 origin_filter: #fil_opt<#orig_fil<#imp_event>>,
@@ -247,7 +247,7 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
 
     quote! {
         iroha_data_model_derive::model_single! {
-            #[derive(Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+            #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
             #[allow(clippy::enum_variant_names, missing_docs)]
             #[doc = #event_filter_doc]
             #vis enum #event_filter_ident #generics {

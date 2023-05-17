@@ -603,12 +603,13 @@ pub mod model {
         Clone,
         PartialEq,
         Eq,
-        Hash,
+        PartialOrd,
+        Ord,
         FromVariant,
-        Serialize,
         Deserialize,
-        Encode,
+        Serialize,
         Decode,
+        Encode,
         IntoSchema,
     )]
     #[cfg_attr(feature = "std", derive(thiserror::Error))]

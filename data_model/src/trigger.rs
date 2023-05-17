@@ -15,11 +15,8 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
 use crate::{
-    events::prelude::*,
-    metadata::Metadata,
-    prelude::{Domain, InstructionBox},
-    transaction::Executable,
-    Identifiable, Name, ParseError, Registered,
+    domain::DomainId, events::prelude::*, metadata::Metadata, prelude::InstructionBox,
+    transaction::Executable, Identifiable, Name, ParseError, Registered,
 };
 
 #[model]
@@ -49,7 +46,7 @@ pub mod model {
         /// Name given to trigger by its creator.
         pub name: Name,
         /// DomainId of domain of the trigger.
-        pub domain_id: Option<<Domain as Identifiable>::Id>,
+        pub domain_id: Option<DomainId>,
     }
 
     /// Type which is used for registering a `Trigger`.
@@ -75,9 +72,7 @@ pub mod model {
     }
 
     /// Internal representation of Wasm blob provided by preloading it with `wasmtime` crate.
-    #[derive(
-        Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
-    )]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct WasmInternalRepr {
         /// Serialized with `wasmtime::Module::serialize`
         pub serialized: Vec<u8>,
@@ -89,17 +84,7 @@ pub mod model {
     /// [`WasmInternalRepr`] with serialized optimized representation
     /// from `wasmtime` library.
     #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
     // TODO: Made opaque temporarily
     #[ffi_type(opaque)]
@@ -139,7 +124,7 @@ macro_rules! impl_try_from_box {
                         let action = action::Action::new(
                             boxed.action.executable,
                             boxed.action.repeats,
-                            boxed.action.technical_account,
+                            boxed.action.authority,
                             concrete_filter,
                         );
                         Ok(Self {
@@ -187,7 +172,7 @@ impl FromStr for TriggerId {
             }),
             (Some(name), Some(domain_id), None) if !domain_id.is_empty() => Ok(Self {
                 name: Name::from_str(name)?,
-                domain_id: Some(<Domain as Identifiable>::Id::from_str(domain_id)?),
+                domain_id: Some(DomainId::from_str(domain_id)?),
             }),
             _ => Err(ParseError {
                 reason: "Trigger ID should have format `name` or `name$domain_id`",
@@ -203,8 +188,7 @@ pub mod action {
 
     pub use self::model::*;
     use super::*;
-    #[cfg(feature = "transparent_api")]
-    use crate::prelude::Account;
+    use crate::account::AccountId;
 
     #[model]
     pub mod model {
@@ -233,10 +217,8 @@ pub mod action {
             /// action and not inside the [`Trigger`] type, so that further
             /// sanity checking can be done.
             pub repeats: Repeats,
-            /// Technical account linked to this trigger. The technical
-            /// account must already exist in order for `Register<Trigger>` to
-            /// work.
-            pub technical_account: crate::account::AccountId,
+            /// Account executing this action
+            pub authority: AccountId,
             /// Defines events which trigger the `Action`
             pub filter: F,
             /// Metadata used as persistent storage for trigger data.
@@ -275,11 +257,9 @@ pub mod action {
         pub fn repeats(&self) -> &Repeats {
             &self.repeats
         }
-        /// Technical account linked to this trigger. The technical
-        /// account must already exist in order for `Register<Trigger>` to
-        /// work.
-        pub fn technical_account(&self) -> &crate::account::AccountId {
-            &self.technical_account
+        /// Account executing this action
+        pub fn authority(&self) -> &AccountId {
+            &self.authority
         }
         /// Defines events which trigger the `Action`
         pub fn filter(&self) -> &FilterBox {
@@ -288,18 +268,18 @@ pub mod action {
     }
 
     impl<F, E> Action<F, E> {
-        /// Construct an action given `executable`, `repeats`, `technical_account` and `filter`.
+        /// Construct an action given `executable`, `repeats`, `authority` and `filter`.
         pub fn new(
             executable: impl Into<E>,
             repeats: impl Into<Repeats>,
-            technical_account: crate::account::AccountId,
+            authority: AccountId,
             filter: F,
         ) -> Self {
             Self {
                 executable: executable.into(),
                 repeats: repeats.into(),
-                // TODO: At this point the technical account is meaningless.
-                technical_account,
+                // TODO: At this point the authority is meaningless.
+                authority,
                 filter,
                 metadata: Metadata::new(),
             }
@@ -322,7 +302,7 @@ pub mod action {
                 cmp::Ordering::Equal => {}
                 ord => return Some(ord),
             }
-            Some(self.technical_account.cmp(&other.technical_account))
+            Some(self.authority.cmp(&other.authority))
         }
     }
 
@@ -350,7 +330,7 @@ pub mod action {
         fn set_repeats(&mut self, repeats: Repeats);
 
         /// Get action technical account
-        fn technical_account(&self) -> &<Account as Identifiable>::Id;
+        fn authority(&self) -> &AccountId;
 
         /// Get action metadata
         fn metadata(&self) -> &Metadata;
@@ -381,8 +361,8 @@ pub mod action {
             self.repeats = repeats;
         }
 
-        fn technical_account(&self) -> &<Account as Identifiable>::Id {
-            &self.technical_account
+        fn authority(&self) -> &AccountId {
+            &self.authority
         }
 
         fn metadata(&self) -> &Metadata {
@@ -397,7 +377,7 @@ pub mod action {
             Action::<FilterBox, Self::Executable> {
                 executable: self.executable,
                 repeats: self.repeats,
-                technical_account: self.technical_account,
+                authority: self.authority,
                 filter: self.filter.into(),
                 metadata: self.metadata,
             }
@@ -407,7 +387,7 @@ pub mod action {
             Action::<FilterBox, Self::Executable> {
                 executable: self.executable.clone(),
                 repeats: self.repeats.clone(),
-                technical_account: self.technical_account.clone(),
+                authority: self.authority.clone(),
                 filter: self.filter.clone().into(),
                 metadata: self.metadata.clone(),
             }

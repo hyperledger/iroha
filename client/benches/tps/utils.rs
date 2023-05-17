@@ -7,6 +7,7 @@ use std::{
     fmt,
     fs::File,
     io::BufReader,
+    num::NonZeroU32,
     path::Path,
     str::FromStr as _,
     sync::mpsc,
@@ -174,22 +175,17 @@ impl MeasurerUnit {
 
         let can_burn_my_asset = PermissionToken::new("can_burn_user_asset".parse()?)
             .with_params([("asset_id".parse()?, asset_id.clone().into())]);
-        let allow_alice_to_burn_my_asset =
-            GrantBox::new(can_burn_my_asset, alice_id.clone()).into();
+        let allow_alice_to_burn_my_asset = GrantBox::new(can_burn_my_asset, alice_id.clone());
         let can_transfer_my_asset = PermissionToken::new("can_transfer_user_asset".parse()?)
             .with_params([("asset_id".parse()?, asset_id.clone().into())]);
-        let allow_alice_to_transfer_my_asset =
-            GrantBox::new(can_transfer_my_asset, alice_id).into();
-        let grant_tx = TransactionBuilder::new(
-            account_id,
-            vec![
+        let allow_alice_to_transfer_my_asset = GrantBox::new(can_transfer_my_asset, alice_id);
+        let grant_tx = TransactionBuilder::new(account_id)
+            .with_instructions([
                 allow_alice_to_burn_my_asset,
                 allow_alice_to_transfer_my_asset,
-            ],
-            100_000,
-        )
-        .sign(keypair)?;
-        self.client.submit_transaction_blocking(grant_tx)?;
+            ])
+            .sign(keypair)?;
+        self.client.submit_transaction_blocking(&grant_tx)?;
 
         let mint_a_rose = MintBox::new(1_u32, asset_id);
         self.client.submit_blocking(mint_a_rose)?;
@@ -232,22 +228,25 @@ impl MeasurerUnit {
         let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")
             .expect("Failed to parse account id");
 
-        let mut nonce = 0;
+        let mut nonce = NonZeroU32::new(1).expect("Valid");
+
         thread::spawn(move || {
             for instruction in instructions {
                 match shutdown_signal.try_recv() {
                     Err(mpsc::TryRecvError::Empty) => {
-                        let transaction =
-                            TransactionBuilder::new(alice_id.clone(), [instruction], u64::MAX)
-                                .with_nonce(nonce); // Use nonce to avoid transaction duplication within the same thread
+                        let mut transaction = TransactionBuilder::new(alice_id.clone())
+                            .with_instructions([instruction]);
+                        transaction.set_nonce(nonce); // Use nonce to avoid transaction duplication within the same thread
+
                         let transaction = submitter
                             .sign_transaction(transaction)
                             .expect("Failed to sign transaction");
-                        if let Err(error) = submitter.submit_transaction(transaction) {
+                        if let Err(error) = submitter.submit_transaction(&transaction) {
                             iroha_logger::error!(?error, "Failed to submit transaction");
                         }
-                        nonce = nonce.wrapping_add(1);
-                        thread::sleep(core::time::Duration::from_micros(interval_us_per_tx));
+
+                        nonce = nonce.checked_add(1).or(NonZeroU32::new(1)).expect("Valid");
+                        thread::sleep(time::Duration::from_micros(interval_us_per_tx));
                     }
                     Err(mpsc::TryRecvError::Disconnected) => {
                         panic!("Unexpected disconnection of shutdown sender");

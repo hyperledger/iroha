@@ -16,10 +16,10 @@ use strum::EnumDiscriminants;
 
 pub use self::model::*;
 use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
-use crate::{sealed, Registered};
+use crate::{seal, Registered};
 
 /// Marker trait designating instruction
-pub trait Instruction: Into<InstructionBox> + sealed::Sealed {
+pub trait Instruction: Into<InstructionBox> + seal::Sealed {
     /// Length of contained instructions and queries.
     fn len(&self) -> usize;
 }
@@ -27,7 +27,7 @@ pub trait Instruction: Into<InstructionBox> + sealed::Sealed {
 macro_rules! isi {
     ($($meta:meta)* $item:item) => {
         iroha_data_model_derive::model_single! {
-            #[derive(Debug, Clone, PartialEq, Eq, Hash, getset::Getters)]
+            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, getset::Getters)]
             #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
             #[derive(serde::Deserialize, serde::Serialize)]
             #[derive(iroha_schema::IntoSchema)]
@@ -51,7 +51,8 @@ pub mod model {
         Clone,
         PartialEq,
         Eq,
-        Hash,
+        PartialOrd,
+        Ord,
         FromVariant,
         EnumDiscriminants,
         Decode,
@@ -62,7 +63,16 @@ pub mod model {
     )]
     #[strum_discriminants(
         name(InstructionType),
-        derive(Display, Hash, Serialize, Deserialize, Encode, Decode, IntoSchema),
+        derive(
+            Display,
+            PartialOrd,
+            Ord,
+            Deserialize,
+            Serialize,
+            Decode,
+            Encode,
+            IntoSchema
+        ),
         cfg_attr(
             any(feature = "ffi_import", feature = "ffi_export"),
             derive(iroha_ffi::FfiType)
@@ -640,11 +650,11 @@ isi! {
     #[display(fmt = "EXECUTE `{trigger_id}`")]
     #[serde(transparent)]
     #[repr(transparent)]
-    // SAFETY: `ExecuteTriggerBox` has no trap representation in `Trigger<FilterBox, Executable> as Identifiable>::Id`
+    // SAFETY: `ExecuteTriggerBox` has no trap representation in `TriggerId`
     #[ffi_type(unsafe {robust})]
     pub struct ExecuteTriggerBox {
         /// Id of a trigger to execute
-        pub trigger_id: EvaluatesTo<<Trigger<FilterBox, Executable> as Identifiable>::Id>,
+        pub trigger_id: EvaluatesTo<TriggerId>,
     }
 }
 
@@ -666,7 +676,7 @@ impl ExecuteTriggerBox {
     /// Construct [`ExecuteTriggerBox`]
     pub fn new<I>(trigger_id: I) -> Self
     where
-        I: Into<EvaluatesTo<<Trigger<FilterBox, Executable> as Identifiable>::Id>>,
+        I: Into<EvaluatesTo<TriggerId>>,
     {
         Self {
             trigger_id: trigger_id.into(),
@@ -897,19 +907,18 @@ pub mod error {
     pub use self::model::*;
     use super::InstructionType;
     use crate::{
-        asset::{AssetDefinition, AssetValueType},
+        asset::AssetValueType,
         evaluate, metadata,
-        query::error::{FindError, QueryExecutionFailure},
-        IdBox, Identifiable, NumericValue, Value,
+        query::error::{FindError, QueryExecutionFail},
+        IdBox, NumericValue, Value,
     };
 
     #[model]
     pub mod model {
-        use core::ops::RangeInclusive;
-
         use serde::{Deserialize, Serialize};
 
         use super::*;
+        use crate::asset::AssetDefinitionId;
 
         /// Instruction execution error type
         #[derive(
@@ -918,24 +927,25 @@ pub mod error {
             Clone,
             PartialEq,
             Eq,
-            Hash,
+            PartialOrd,
+            Ord,
             FromVariant,
-            Serialize,
             Deserialize,
-            Encode,
+            Serialize,
             Decode,
+            Encode,
             IntoSchema,
         )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
-        // TODO: Only temporarily opaque because of InstructionExecutionFailure::Repetition
+        // TODO: Only temporarily opaque because of InstructionExecutionError::Repetition
         #[ffi_type(opaque)]
-        pub enum InstructionExecutionFailure {
+        pub enum InstructionExecutionError {
             /// Instruction does not adhere to Iroha DSL specification
             #[display(fmt = "Evaluation failed")]
             Evaluate(#[cfg_attr(feature = "std", source)] InstructionEvaluationError),
             /// Query Error
             #[display(fmt = "Query failed")]
-            Query(#[cfg_attr(feature = "std", source)] QueryExecutionFailure),
+            Query(#[cfg_attr(feature = "std", source)] QueryExecutionFail),
             /// Conversion Error
             #[display(fmt = "Conversion Error: {_0}")]
             Conversion(
@@ -984,12 +994,13 @@ pub mod error {
             Clone,
             PartialEq,
             Eq,
-            Hash,
+            PartialOrd,
+            Ord,
             FromVariant,
-            Serialize,
             Deserialize,
-            Encode,
+            Serialize,
             Decode,
+            Encode,
             IntoSchema,
         )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
@@ -1016,9 +1027,10 @@ pub mod error {
             Clone,
             PartialEq,
             Eq,
-            Hash,
-            Serialize,
+            PartialOrd,
+            Ord,
             Deserialize,
+            Serialize,
             Decode,
             Encode,
             IntoSchema,
@@ -1040,12 +1052,13 @@ pub mod error {
             Clone,
             PartialEq,
             Eq,
-            Hash,
+            PartialOrd,
+            Ord,
             FromVariant,
-            Serialize,
             Deserialize,
-            Encode,
+            Serialize,
             Decode,
+            Encode,
             IntoSchema,
         )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
@@ -1062,8 +1075,7 @@ pub mod error {
             /// Asset Id mismatch
             #[display(fmt = "AssetDefinition Ids don't match, {_0}")]
             AssetDefinitionId(
-                #[cfg_attr(feature = "std", source)]
-                Box<Mismatch<<AssetDefinition as Identifiable>::Id>>,
+                #[cfg_attr(feature = "std", source)] Box<Mismatch<AssetDefinitionId>>,
             ),
         }
 
@@ -1074,15 +1086,16 @@ pub mod error {
             Clone,
             PartialEq,
             Eq,
+            PartialOrd,
+            Ord,
             FromVariant,
-            Hash,
-            Serialize,
             Deserialize,
-            Encode,
+            Serialize,
             Decode,
+            Encode,
             IntoSchema,
         )]
-        // TODO: Only temporarily opaque because of InstructionExecutionFailure::BinaryOpIncompatibleNumericValueTypes
+        // TODO: Only temporarily opaque because of InstructionExecutionError::BinaryOpIncompatibleNumericValueTypes
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[ffi_type(opaque)]
         pub enum MathError {
@@ -1120,9 +1133,10 @@ pub mod error {
             Clone,
             PartialEq,
             Eq,
-            Hash,
-            Serialize,
+            PartialOrd,
+            Ord,
             Deserialize,
+            Serialize,
             Decode,
             Encode,
             IntoSchema,
@@ -1145,11 +1159,12 @@ pub mod error {
             Copy,
             PartialEq,
             Eq,
-            Hash,
-            Serialize,
+            PartialOrd,
+            Ord,
             Deserialize,
-            Encode,
+            Serialize,
             Decode,
+            Encode,
             IntoSchema,
         )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
@@ -1175,11 +1190,12 @@ pub mod error {
             Clone,
             PartialEq,
             Eq,
-            Hash,
-            Serialize,
+            PartialOrd,
+            Ord,
             Deserialize,
-            Encode,
+            Serialize,
             Decode,
+            Encode,
             IntoSchema,
         )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
@@ -1190,12 +1206,8 @@ pub mod error {
             #[display(fmt = "Invalid WASM binary: {_0}")]
             Wasm(String),
             /// Invalid name length (i.e. too long [`AccountId`])
-            #[display(
-                fmt = "Name must be between {} and {} (inclusive) characters in length",
-                "_0.start()",
-                "_0.end()"
-            )]
-            NameLength(RangeInclusive<u32>),
+            #[display(fmt = "Name length violation")]
+            NameLength,
         }
 
         #[derive(
@@ -1204,9 +1216,10 @@ pub mod error {
             Clone,
             PartialEq,
             Eq,
-            Hash,
-            Serialize,
+            PartialOrd,
+            Ord,
             Deserialize,
+            Serialize,
             Decode,
             Encode,
             IntoSchema,
@@ -1220,12 +1233,12 @@ pub mod error {
         }
     }
 
-    impl From<TypeError> for InstructionExecutionFailure {
+    impl From<TypeError> for InstructionExecutionError {
         fn from(err: TypeError) -> Self {
             Self::Evaluate(InstructionEvaluationError::Type(err))
         }
     }
-    impl From<evaluate::EvaluationError> for InstructionExecutionFailure {
+    impl From<evaluate::EvaluationError> for InstructionExecutionError {
         fn from(err: evaluate::EvaluationError) -> Self {
             Self::Evaluate(InstructionEvaluationError::Expression(err))
         }

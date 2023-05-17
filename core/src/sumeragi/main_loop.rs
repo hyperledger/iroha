@@ -2,7 +2,7 @@
 #![allow(clippy::cognitive_complexity)]
 use std::sync::mpsc;
 
-use iroha_data_model::{block::*, transaction::error::TransactionExpired};
+use iroha_data_model::{block::*, transaction::error::TransactionRejectionReason};
 use iroha_p2p::UpdateTopology;
 use tracing::{span, Level};
 
@@ -56,7 +56,7 @@ pub struct Sumeragi {
     /// other subsystems where we can. This way the performance of
     /// sumeragi is more dependent on the code that is internal to the
     /// subsystem.
-    pub transaction_cache: Vec<VersionedAcceptedTransaction>,
+    pub transaction_cache: Vec<AcceptedTransaction>,
 }
 
 impl Debug for Sumeragi {
@@ -217,7 +217,7 @@ impl Sumeragi {
                         }
                     };
 
-                    if block.as_v1().header.is_genesis() {
+                    if block.is_genesis() {
                         self.commit_block(block);
                         return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                     }
@@ -237,7 +237,12 @@ impl Sumeragi {
         assert_eq!(self.wsv.height(), 0);
         assert_eq!(self.wsv.latest_block_hash(), None);
 
-        let transactions = genesis_network.transactions;
+        let transactions: Vec<_> = genesis_network
+            .transactions
+            .into_iter()
+            .map(AcceptedTransaction::accept_genesis)
+            .collect();
+
         // Don't start genesis round. Instead just commit the genesis block.
         assert!(
             !transactions.is_empty(),
@@ -360,9 +365,8 @@ impl Sumeragi {
     }
 
     fn cache_transaction(&mut self) {
-        self.transaction_cache.retain(|tx| {
-            !tx.is_in_blockchain(&self.wsv) && !tx.is_expired(self.queue.tx_time_to_live)
-        });
+        self.transaction_cache
+            .retain(|tx| !self.wsv.has_transaction(tx.hash()) && !self.queue.is_expired(tx));
     }
 }
 
@@ -799,7 +803,7 @@ pub(crate) fn run(
             .transaction_cache
             // Checking if transactions are in the blockchain is costly
             .retain(|tx| {
-                let expired = tx.is_expired(sumeragi.queue.tx_time_to_live);
+                let expired = sumeragi.queue.is_expired(tx);
                 if expired {
                     debug!(?tx, "Transaction expired")
                 }
@@ -911,15 +915,13 @@ fn add_signatures<const EXPECT_VALID: bool>(
 }
 
 /// Create expired pipeline event for the given transaction.
-fn expired_event(txn: &impl Transaction) -> Event {
+fn expired_event(txn: &AcceptedTransaction) -> Event {
     PipelineEvent {
         entity_kind: PipelineEntityKind::Transaction,
         status: PipelineStatus::Rejected(PipelineRejectionReason::Transaction(
-            TransactionRejectionReason::Expired(TransactionExpired {
-                time_to_live_ms: txn.payload().time_to_live_ms,
-            }),
+            TransactionRejectionReason::Expired,
         )),
-        hash: txn.hash().into(),
+        hash: txn.payload().hash().into(),
     }
     .into()
 }
@@ -1114,8 +1116,6 @@ fn handle_block_sync(
 mod tests {
     use std::str::FromStr;
 
-    use iroha_data_model::transaction::InBlock;
-
     use super::*;
     use crate::smartcontracts::Registrable;
 
@@ -1137,10 +1137,11 @@ mod tests {
         let fail_box: InstructionBox = FailBox::new("Dummy isi").into();
 
         // Making two transactions that have the same instruction
-        let tx = TransactionBuilder::new(alice_id.clone(), [fail_box], 4000)
+        let tx = TransactionBuilder::new(alice_id.clone())
+            .with_instructions([fail_box])
             .sign(alice_keys.clone())
             .expect("Valid");
-        let tx: VersionedAcceptedTransaction =
+        let tx: AcceptedTransaction =
             AcceptedTransaction::accept(tx, &wsv.transaction_validator().transaction_limits)
                 .map(Into::into)
                 .expect("Valid");
@@ -1169,10 +1170,11 @@ mod tests {
             RegisterBox::new(AssetDefinition::quantity(asset_definition_id)).into();
 
         // Making two transactions that have the same instruction
-        let tx = TransactionBuilder::new(alice_id, [create_asset_definition], 4000)
+        let tx = TransactionBuilder::new(alice_id)
+            .with_instructions([create_asset_definition])
             .sign(alice_keys.clone())
             .expect("Valid");
-        let tx: VersionedAcceptedTransaction =
+        let tx: AcceptedTransaction =
             AcceptedTransaction::accept(tx, &wsv.transaction_validator().transaction_limits)
                 .map(Into::into)
                 .expect("Valid");

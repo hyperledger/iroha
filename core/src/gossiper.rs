@@ -3,16 +3,14 @@
 use std::{sync::Arc, time::Duration};
 
 use iroha_config::sumeragi::Configuration;
-use iroha_data_model::transaction::{
-    AcceptedTransaction, InBlock, Transaction, VersionedAcceptedTransaction,
-    VersionedSignedTransaction,
-};
+use iroha_data_model::transaction::VersionedSignedTransaction;
 use iroha_p2p::Broadcast;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
 
 use crate::{
-    queue::Queue, sumeragi::SumeragiHandle, wsv::WorldStateView, IrohaNetwork, NetworkMessage,
+    queue::Queue, sumeragi::SumeragiHandle, tx::AcceptedTransaction, wsv::WorldStateView,
+    IrohaNetwork, NetworkMessage,
 };
 
 /// [`Gossiper`] actor handle.
@@ -117,20 +115,19 @@ impl TransactionGossiper {
         iroha_logger::trace!(size = txs.len(), "Received new transaction gossip");
 
         for tx in txs {
-            match <AcceptedTransaction as InBlock>::accept(
-                tx.into_v1(),
-                &self.wsv.config.transaction_limits,
-            ) {
-                Ok(tx) => match self.queue.push(tx.into(), &self.wsv) {
+            let transaction_limits = &self.wsv.config.transaction_limits;
+
+            match AcceptedTransaction::accept(tx, transaction_limits) {
+                Ok(tx) => match self.queue.push(tx, &self.wsv) {
                     Ok(_) => {}
                     Err(crate::queue::Failure {
                         tx,
                         err: crate::queue::Error::InBlockchain,
                     }) => {
-                        iroha_logger::debug!(tx_hash = %tx.hash(), "Transaction already in blockchain, ignoring...")
+                        iroha_logger::debug!(tx_payload_hash = %tx.payload().hash(), "Transaction already in blockchain, ignoring...")
                     }
                     Err(crate::queue::Failure { tx, err }) => {
-                        iroha_logger::error!(?err, tx_hash = %tx.hash(), "Failed to enqueue transaction.")
+                        iroha_logger::error!(?err, tx_payload_hash = %tx.payload().hash(), "Failed to enqueue transaction.")
                     }
                 },
                 Err(err) => iroha_logger::error!(%err, "Transaction rejected"),
@@ -148,7 +145,7 @@ pub struct TransactionGossip {
 
 impl TransactionGossip {
     /// Constructor.
-    pub fn new(txs: Vec<VersionedAcceptedTransaction>) -> Self {
+    pub fn new(txs: Vec<AcceptedTransaction>) -> Self {
         Self {
             // Converting into non-accepted transaction because it's not possible
             // to guarantee that the sending peer checked transaction limits

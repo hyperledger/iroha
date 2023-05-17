@@ -194,7 +194,7 @@
         "type": "Repeats"
       },
       {
-        "name": "technical_account",
+        "name": "authority",
         "type": "AccountId"
       },
       {
@@ -218,7 +218,7 @@
         "type": "Repeats"
       },
       {
-        "name": "technical_account",
+        "name": "authority",
         "type": "AccountId"
       },
       {
@@ -696,11 +696,11 @@
       },
       {
         "name": "rejected_transactions",
-        "type": "Vec<VersionedRejectedTransaction>"
+        "type": "Vec<RejectedTransaction>"
       },
       {
         "name": "transactions",
-        "type": "Vec<VersionedValidTransaction>"
+        "type": "Vec<VersionedSignedTransaction>"
       },
       {
         "name": "event_recommendations",
@@ -2112,6 +2112,7 @@
     ]
   },
   "Hash": "Array<u8, 32>",
+  "HashOf<CommittedBlock>": "Hash",
   "HashOf<MerkleTree<VersionedSignedTransaction>>": "Hash",
   "HashOf<VersionedCommittedBlock>": "Hash",
   "HashOf<VersionedSignedTransaction>": "Hash",
@@ -2363,19 +2364,7 @@
       }
     ]
   },
-  "InstructionExecutionFail": {
-    "Struct": [
-      {
-        "name": "instruction",
-        "type": "InstructionBox"
-      },
-      {
-        "name": "reason",
-        "type": "String"
-      }
-    ]
-  },
-  "InstructionExecutionFailure": {
+  "InstructionExecutionError": {
     "Enum": [
       {
         "tag": "Evaluate",
@@ -2385,7 +2374,7 @@
       {
         "tag": "Query",
         "discriminant": 1,
-        "type": "QueryExecutionFailure"
+        "type": "QueryExecutionFail"
       },
       {
         "tag": "Conversion",
@@ -2430,6 +2419,18 @@
       {
         "tag": "InvariantViolation",
         "discriminant": 10,
+        "type": "String"
+      }
+    ]
+  },
+  "InstructionExecutionFail": {
+    "Struct": [
+      {
+        "name": "instruction",
+        "type": "InstructionBox"
+      },
+      {
+        "name": "reason",
         "type": "String"
       }
     ]
@@ -2539,8 +2540,7 @@
       },
       {
         "tag": "NameLength",
-        "discriminant": 1,
-        "type": "RangeInclusive<u32>"
+        "discriminant": 1
       }
     ]
   },
@@ -2912,6 +2912,7 @@
     ]
   },
   "NonTrivial<GenericPredicateBox<ValuePredicate>>": "Vec<GenericPredicateBox<ValuePredicate>>",
+  "NonZero<u32>": "u32",
   "NonZero<u64>": "u64",
   "Not": {
     "Struct": [
@@ -2982,6 +2983,12 @@
   },
   "Option<Name>": {
     "Option": "Name"
+  },
+  "Option<NonZero<u32>>": {
+    "Option": "NonZero<u32>"
+  },
+  "Option<NonZero<u64>>": {
+    "Option": "NonZero<u64>"
   },
   "Option<PipelineEntityKind>": {
     "Option": "PipelineEntityKind"
@@ -3140,7 +3147,6 @@
       }
     ]
   },
-  "PendingTransactions": "Vec<SignedTransaction>",
   "PermissionRemoved": {
     "Struct": [
       {
@@ -3528,7 +3534,7 @@
       }
     ]
   },
-  "QueryExecutionFailure": {
+  "QueryExecutionFail": {
     "Enum": [
       {
         "tag": "Signature",
@@ -3567,7 +3573,7 @@
         "type": "QueryBox"
       },
       {
-        "name": "account_id",
+        "name": "authority",
         "type": "AccountId"
       },
       {
@@ -3587,12 +3593,6 @@
         "name": "right",
         "type": "EvaluatesTo<NumericValue>"
       }
-    ]
-  },
-  "RangeInclusive<u32>": {
-    "Tuple": [
-      "u32",
-      "u32"
     ]
   },
   "RawGenesisBlock": {
@@ -3662,15 +3662,11 @@
   "RejectedTransaction": {
     "Struct": [
       {
-        "name": "payload",
-        "type": "TransactionPayload"
+        "name": "transaction",
+        "type": "VersionedSignedTransaction"
       },
       {
-        "name": "signatures",
-        "type": "SignaturesOf<TransactionPayload>"
-      },
-      {
-        "name": "rejection_reason",
+        "name": "error",
         "type": "TransactionRejectionReason"
       }
     ]
@@ -4140,14 +4136,6 @@
       }
     ]
   },
-  "TransactionExpired": {
-    "Struct": [
-      {
-        "name": "time_to_live_ms",
-        "type": "u64"
-      }
-    ]
-  },
   "TransactionLimitError": {
     "Struct": [
       {
@@ -4171,24 +4159,24 @@
   "TransactionPayload": {
     "Struct": [
       {
-        "name": "account_id",
+        "name": "authority",
         "type": "AccountId"
       },
       {
-        "name": "instructions",
-        "type": "Executable"
-      },
-      {
-        "name": "creation_time",
-        "type": "u64"
-      },
-      {
-        "name": "time_to_live_ms",
+        "name": "creation_time_ms",
         "type": "u64"
       },
       {
         "name": "nonce",
-        "type": "Option<u32>"
+        "type": "Option<NonZero<u32>>"
+      },
+      {
+        "name": "time_to_live_ms",
+        "type": "Option<NonZero<u64>>"
+      },
+      {
+        "name": "instructions",
+        "type": "Executable"
       },
       {
         "name": "metadata",
@@ -4199,12 +4187,12 @@
   "TransactionQueryResult": {
     "Struct": [
       {
-        "name": "tx_value",
+        "name": "transaction",
         "type": "TransactionValue"
       },
       {
         "name": "block_hash",
-        "type": "Hash"
+        "type": "HashOf<CommittedBlock>"
       }
     ]
   },
@@ -4226,28 +4214,22 @@
         "type": "ValidationFail"
       },
       {
-        "tag": "UnsatisfiedSignatureCondition",
-        "discriminant": 3,
-        "type": "UnsatisfiedSignatureConditionFail"
-      },
-      {
         "tag": "InstructionExecution",
-        "discriminant": 4,
+        "discriminant": 3,
         "type": "InstructionExecutionFail"
       },
       {
         "tag": "WasmExecution",
-        "discriminant": 5,
+        "discriminant": 4,
         "type": "WasmExecutionFail"
       },
       {
         "tag": "UnexpectedGenesisAccountSignature",
-        "discriminant": 6
+        "discriminant": 5
       },
       {
         "tag": "Expired",
-        "discriminant": 7,
-        "type": "TransactionExpired"
+        "discriminant": 6
       }
     ]
   },
@@ -4261,7 +4243,7 @@
       {
         "tag": "RejectedTransaction",
         "discriminant": 1,
-        "type": "VersionedRejectedTransaction"
+        "type": "RejectedTransaction"
       }
     ]
   },
@@ -4426,14 +4408,6 @@
       }
     ]
   },
-  "UnsatisfiedSignatureConditionFail": {
-    "Struct": [
-      {
-        "name": "reason",
-        "type": "String"
-      }
-    ]
-  },
   "UpgradableBox": {
     "Enum": [
       {
@@ -4451,18 +4425,6 @@
       }
     ]
   },
-  "ValidTransaction": {
-    "Struct": [
-      {
-        "name": "payload",
-        "type": "TransactionPayload"
-      },
-      {
-        "name": "signatures",
-        "type": "SignaturesOf<TransactionPayload>"
-      }
-    ]
-  },
   "ValidationFail": {
     "Enum": [
       {
@@ -4473,12 +4435,12 @@
       {
         "tag": "InstructionFailed",
         "discriminant": 1,
-        "type": "InstructionExecutionFailure"
+        "type": "InstructionExecutionError"
       },
       {
         "tag": "QueryFailed",
         "discriminant": 2,
-        "type": "QueryExecutionFailure"
+        "type": "QueryExecutionFail"
       },
       {
         "tag": "TooComplex",
@@ -4793,8 +4755,8 @@
   "Vec<PeerId>": {
     "Vec": "PeerId"
   },
-  "Vec<SignedTransaction>": {
-    "Vec": "SignedTransaction"
+  "Vec<RejectedTransaction>": {
+    "Vec": "RejectedTransaction"
   },
   "Vec<Value>": {
     "Vec": "Value"
@@ -4802,11 +4764,8 @@
   "Vec<Vec<InstructionBox>>": {
     "Vec": "Vec<InstructionBox>"
   },
-  "Vec<VersionedRejectedTransaction>": {
-    "Vec": "VersionedRejectedTransaction"
-  },
-  "Vec<VersionedValidTransaction>": {
-    "Vec": "VersionedValidTransaction"
+  "Vec<VersionedSignedTransaction>": {
+    "Vec": "VersionedSignedTransaction"
   },
   "Vec<u8>": {
     "Vec": "u8"
@@ -4865,24 +4824,6 @@
       }
     ]
   },
-  "VersionedPendingTransactions": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "PendingTransactions"
-      }
-    ]
-  },
-  "VersionedRejectedTransaction": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "RejectedTransaction"
-      }
-    ]
-  },
   "VersionedSignedQuery": {
     "Enum": [
       {
@@ -4898,15 +4839,6 @@
         "tag": "V1",
         "discriminant": 1,
         "type": "SignedTransaction"
-      }
-    ]
-  },
-  "VersionedValidTransaction": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "ValidTransaction"
       }
     ]
   },

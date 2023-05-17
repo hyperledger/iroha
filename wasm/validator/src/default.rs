@@ -158,7 +158,7 @@ impl Visit for DefaultValidator {
     custom_impls! {
         visit_unsupported<T: core::fmt::Debug>(T),
 
-        visit_transaction(&SignedTransaction),
+        visit_transaction(&VersionedSignedTransaction),
         visit_instruction(&InstructionBox),
         visit_expression<V>(&EvaluatesTo<V>),
         visit_sequence(&SequenceBox),
@@ -220,7 +220,7 @@ impl Visit for DefaultValidator {
     }
 }
 
-/// Default validation for [`SignedTransaction`].
+/// Default validation for [`VersionedSignedTransaction`].
 ///
 /// # Warning
 ///
@@ -229,7 +229,7 @@ impl Visit for DefaultValidator {
 pub fn visit_transaction<V: Validate + ?Sized>(
     validator: &mut V,
     authority: &AccountId,
-    transaction: &SignedTransaction,
+    transaction: &VersionedSignedTransaction,
 ) {
     match transaction.payload().instructions() {
         Executable::Wasm(wasm) => validator.visit_wasm(authority, wasm),

@@ -21,10 +21,8 @@ pub mod permission;
 macro_rules! pass {
     ($validator:ident) => {{
         #[cfg(debug_assertions)]
-        {
-            if let Err(_error) = $validator.verdict() {
-                panic!("Validator already denied");
-            }
+        if let Err(_error) = $validator.verdict() {
+            unreachable!("Validator already denied");
         }
 
         return;

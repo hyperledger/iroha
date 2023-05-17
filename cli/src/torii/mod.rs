@@ -50,7 +50,7 @@ pub enum Error {
     Query(#[from] iroha_data_model::ValidationFail),
     /// Failed to accept transaction
     #[error("Failed to accept transaction: {0}")]
-    AcceptTransaction(#[from] iroha_data_model::transaction::error::AcceptTransactionFailure),
+    AcceptTransaction(#[from] iroha_core::tx::AcceptTransactionFail),
     /// Error while getting or setting configuration
     #[error("Configuration error: {0}")]
     Config(#[source] eyre::Report),
@@ -69,14 +69,14 @@ pub enum Error {
 /// Status code for query error response.
 pub(crate) fn query_status_code(validation_error: &iroha_data_model::ValidationFail) -> StatusCode {
     use iroha_data_model::{
-        isi::error::InstructionExecutionFailure, query::error::QueryExecutionFailure::*,
+        isi::error::InstructionExecutionError, query::error::QueryExecutionFail::*,
         ValidationFail::*,
     };
 
     match validation_error {
         NotPermitted(_) => StatusCode::FORBIDDEN,
         QueryFailed(query_error)
-        | InstructionFailed(InstructionExecutionFailure::Query(query_error)) => match query_error {
+        | InstructionFailed(InstructionExecutionError::Query(query_error)) => match query_error {
             Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
             Signature(_) | Unauthorized => StatusCode::UNAUTHORIZED,
             Find(_) => StatusCode::NOT_FOUND,
