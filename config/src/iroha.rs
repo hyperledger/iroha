@@ -83,6 +83,11 @@ impl Default for ConfigurationProxy {
 }
 
 impl ConfigurationProxy {
+    /// Loading configuration from env using [`std::env::var`].
+    ///
+    /// # Errors
+    ///
+    /// See [`LoadFromEnv::from_env`].
     pub fn from_std_env() -> Result<Self, LoadFromEnvError> {
         struct FetchStdEnv;
 

@@ -455,7 +455,10 @@ pub fn combine_configs(args: &Arguments) -> color_eyre::eyre::Result<Configurati
             },
             |path| ConfigurationProxy::from_path(&path.as_path()),
         )
-        .override_with(ConfigurationProxy::from_env())
+        .override_with(
+            ConfigurationProxy::from_std_env()
+                .wrap_err("Failed to build configuration from env")?,
+        )
         .build()
         .map_err(Into::into)
 }

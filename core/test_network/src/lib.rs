@@ -824,7 +824,7 @@ impl TestConfiguration for Configuration {
     fn test() -> Self {
         let mut sample_proxy =
             iroha::samples::get_config_proxy(HashSet::new(), Some(get_key_pair()));
-        let env_proxy = ConfigurationProxy::from_env();
+        let env_proxy = ConfigurationProxy::from_std_env().expect("No ENV parsing errors");
         let (public_key, private_key) = KeyPair::generate().unwrap().into();
         sample_proxy.public_key = Some(public_key);
         sample_proxy.private_key = Some(private_key);
