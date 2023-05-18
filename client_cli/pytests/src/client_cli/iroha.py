@@ -1,0 +1,144 @@
+"""
+This module contains the Iroha class, which is a subclass of ClientCli.
+"""
+
+import json
+
+from src.client_cli.client_cli import ClientCli, Config
+
+
+class Iroha(ClientCli):
+    """
+    Iroha is a subclass of ClientCli that provides additional methods
+    for interacting with the Iroha network.
+    """
+
+    def __init__(self, config: Config, path: str):
+        super().__init__(config, path)
+        self._storage: str = ''
+        self._domains: str = ''
+        self._accounts: str = ''
+        self._assets: str = ''
+        self._asset_definitions = {}
+
+    def _execute_command(self, command_name: str):
+        """
+        Execute a command by inserting the command_name into the command list and then executing it.
+
+        :param command_name: The name of the command to execute.
+        :type command_name: str
+        """
+        self.command.insert(2, command_name)
+        self.execute()
+
+    def should(self, _expected):
+        """
+        Placeholder method for implementing assertions.
+
+        :param expected: The expected value.
+        :type expected: str
+        :return: The current Iroha object.
+        :rtype: Iroha
+        """
+        return self
+
+    def domains(self):
+        """
+        Retrieve domains from the Iroha network and store them in the _domains attribute.
+
+        :return: The current Iroha object.
+        :rtype: Iroha
+        """
+        self._execute_command('domain')
+        self._storage = json.loads(self.stdout)
+        self._domains = [self._storage["id"] for self._storage in self._storage]
+        return self
+
+    def accounts(self):
+        """
+        Retrieve accounts from the Iroha network and store them in the _accounts attribute.
+
+        :return: The current Iroha object.
+        :rtype: Iroha
+        """
+        self._execute_command('account')
+        self._accounts = json.loads(self.stdout)
+        self._accounts = [self._accounts["id"] for self._accounts in self._accounts]
+        return self
+
+    def assets(self):
+        """
+        Retrieve assets from the Iroha network and store them in the _assets attribute.
+
+        :return: The current Iroha object.
+        :rtype: Iroha
+        """
+        self._execute_command('asset')
+        self._assets = json.loads(self.stdout)
+        self._assets = [self._assets["id"] for self._assets in self._assets]
+        return self
+
+    def asset_definitions(self):
+        """
+        Retrieve asset definitions from the Iroha network
+        and store them in the _asset_definitions attribute.
+
+        :return: The current Iroha object.
+        :rtype: Iroha
+        """
+        self._execute_command('domain')
+        self._storage = json.loads(self.stdout)
+        for obj in self._storage:
+            asset_defs = obj.get('asset_definitions', {})
+            for asset_def in asset_defs.values():
+                definition = asset_def.get('definition', {})
+                value_type = definition.get('value_type')
+                if value_type:
+                    self._asset_definitions[definition['id']] = value_type
+        return self
+
+    def get_domains(self):
+        """
+        Get the list of domains.
+
+        :return: A list of domain IDs.
+        :rtype: list
+        """
+        return self._domains
+
+    def get_accounts(self):
+        """
+        Get the list of accounts.
+
+        :return: A list of account IDs.
+        :rtype: list
+        """
+        return self._accounts
+
+    def get_asset_definitions(self):
+        """
+        Get the dictionary of asset definitions.
+
+        :return: A dictionary containing asset definition IDs as keys
+        and their value types as values.
+        :rtype: dict
+        """
+        return self._asset_definitions
+
+    def get_assets(self):
+        """
+        Get the list of assets.
+
+        :return: A list of asset IDs.
+        :rtype: list
+        """
+        return self._assets
+
+    def get_storage(self):
+        """
+        Get the storage data.
+
+        :return: The storage data in its current form.
+        :rtype: str
+        """
+        return self._storage
