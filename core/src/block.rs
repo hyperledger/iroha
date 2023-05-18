@@ -15,8 +15,13 @@ use std::error::Error;
 use eyre::{bail, eyre, Context, Result};
 use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
-use iroha_data_model::{block::*, events::prelude::*, transaction::prelude::*};
+use iroha_data_model::{
+    block::*,
+    events::prelude::*,
+    transaction::{prelude::*, Accept as _},
+};
 use parity_scale_codec::{Decode, Encode};
+use sealed::sealed;
 
 use crate::{
     prelude::*,
@@ -257,8 +262,11 @@ impl PendingBlock {
     }
 }
 
-/// This trait represents the ability to revalidate a block. Should be
-/// implemented for both `PendingBlock` and `VersionedCommittedBlock`.
+/// This sealed trait represents the ability to revalidate a block. Should be
+/// implemented for both [`PendingBlock`] and [`VersionedCommittedBlock`].
+/// Public users should only use this trait's extensions [`InGenesis`] and
+/// [`InBlock`].
+#[sealed]
 pub trait Revalidate: Sized {
     /// # Errors
     /// - When the block is deemed invalid.
@@ -274,6 +282,55 @@ pub trait Revalidate: Sized {
     fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool;
 }
 
+/// This trait extends the [`Revalidate`] trait for usage only in the
+/// genesis context.
+pub trait InGenesis: Sized + Revalidate {
+    /// # Errors
+    /// - When the block is deemed invalid.
+    fn revalidate(
+        &self,
+        transaction_validator: &TransactionValidator,
+        wsv: WorldStateView,
+        latest_block: Option<HashOf<VersionedCommittedBlock>>,
+        block_height: u64,
+    ) -> Result<(), eyre::Report> {
+        <Self as Revalidate>::revalidate::<true>(
+            self,
+            transaction_validator,
+            wsv,
+            latest_block,
+            block_height,
+        )
+    }
+}
+
+/// This trait extends the [`Revalidate`] trait for usage only in the
+/// non-genesis context.
+pub trait InBlock: Sized + Revalidate {
+    /// # Errors
+    /// - When the block is deemed invalid.
+    fn revalidate(
+        &self,
+        transaction_validator: &TransactionValidator,
+        wsv: WorldStateView,
+        latest_block: Option<HashOf<VersionedCommittedBlock>>,
+        block_height: u64,
+    ) -> Result<(), eyre::Report> {
+        <Self as Revalidate>::revalidate::<false>(
+            self,
+            transaction_validator,
+            wsv,
+            latest_block,
+            block_height,
+        )
+    }
+}
+
+impl InBlock for PendingBlock {}
+
+impl InGenesis for PendingBlock {}
+
+#[sealed]
 impl Revalidate for PendingBlock {
     /// Revalidate a block against the current state of the world.
     ///
@@ -417,6 +474,11 @@ impl Revalidate for PendingBlock {
     }
 }
 
+impl InBlock for VersionedCommittedBlock {}
+
+impl InGenesis for VersionedCommittedBlock {}
+
+#[sealed]
 impl Revalidate for VersionedCommittedBlock {
     /// Revalidate a block against the current state of the world.
     ///
@@ -612,7 +674,7 @@ mod tests {
 
     use std::str::FromStr;
 
-    use iroha_data_model::prelude::*;
+    use iroha_data_model::{prelude::*, transaction::InBlock};
 
     use super::*;
     use crate::{kura::Kura, smartcontracts::isi::Registrable as _};
@@ -657,7 +719,7 @@ mod tests {
             .sign(alice_keys.clone())
             .expect("Valid");
         let tx: VersionedAcceptedTransaction =
-            AcceptedTransaction::accept::<false>(tx, &transaction_limits)
+            <AcceptedTransaction as InBlock>::accept(tx, &transaction_limits)
                 .map(Into::into)
                 .expect("Valid");
 

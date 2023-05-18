@@ -2819,6 +2819,7 @@ dependencies = [
  "parity-scale-codec",
  "parking_lot",
  "rand 0.8.5",
+ "sealed",
  "serde",
  "serde_json",
  "tempfile",
@@ -2865,6 +2866,7 @@ dependencies = [
  "iroha_schema",
  "iroha_version",
  "parity-scale-codec",
+ "sealed",
  "serde",
  "serde_json",
  "serde_with",
@@ -4501,6 +4503,18 @@ name = "scratch"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1792db035ce95be60c3f8853017b3999209281c24e2ba5bc8e59bf97a0c590c1"
+
+[[package]]
+name = "sealed"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4a8caec23b7800fb97971a1c6ae365b6239aaeddfb934d6265f8505e795699d"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.15",
+]
 
 [[package]]
 name = "secp256k1"
