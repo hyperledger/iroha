@@ -33,3 +33,8 @@ spinoff = { version = "0.7.0", features = ["aesthetic"] }
 owo-colors = { version = "3.5.0", features = ["supports-colors"] }
 supports-color = "2.0.0"
 inquire = "0.6.2"
+duct = "0.13.6"
+
+[build-dependencies]
+eyre = "0.6.8"
+vergen = { version = "8.1.1", default-features = false, features = ["git", "gitoxide"] }
