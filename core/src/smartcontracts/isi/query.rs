@@ -100,7 +100,10 @@ mod tests {
     use std::str::FromStr;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::{block::VersionedCommittedBlock, transaction::TransactionLimits};
+    use iroha_data_model::{
+        block::VersionedCommittedBlock,
+        transaction::{InBlock, TransactionLimits},
+    };
     use once_cell::sync::Lazy;
 
     use super::*;
@@ -194,13 +197,15 @@ mod tests {
         let valid_tx = {
             let tx =
                 TransactionBuilder::new(ALICE_ID.clone(), vec![], 4000).sign(ALICE_KEYS.clone())?;
-            VersionedAcceptedTransaction::from(AcceptedTransaction::accept::<false>(tx, &limits)?)
+            VersionedAcceptedTransaction::from(<AcceptedTransaction as InBlock>::accept(
+                tx, &limits,
+            )?)
         };
         let invalid_tx = {
             let isi: InstructionBox = FailBox::new("fail").into();
             let tx = TransactionBuilder::new(ALICE_ID.clone(), vec![isi.clone(), isi], 4000)
                 .sign(ALICE_KEYS.clone())?;
-            AcceptedTransaction::accept::<false>(tx, &huge_limits)?.into()
+            <AcceptedTransaction as InBlock>::accept(tx, &huge_limits)?.into()
         };
 
         let mut transactions = vec![valid_tx; valid_tx_per_block];
@@ -370,7 +375,7 @@ mod tests {
         };
 
         let va_tx: VersionedAcceptedTransaction =
-            AcceptedTransaction::accept::<false>(signed_tx, &tx_limits)?.into();
+            <AcceptedTransaction as InBlock>::accept(signed_tx, &tx_limits)?.into();
 
         let vcb: VersionedCommittedBlock = BlockBuilder {
             transactions: vec![va_tx.clone()],

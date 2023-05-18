@@ -375,6 +375,7 @@ mod tests {
     use iroha_data_model::{
         account::{ACCOUNT_SIGNATORIES_VALUE, TRANSACTION_SIGNATORIES_VALUE},
         prelude::*,
+        transaction::InBlock,
     };
     use iroha_primitives::must_use::MustUse;
     use rand::Rng as _;
@@ -402,7 +403,7 @@ mod tests {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        AcceptedTransaction::accept::<false>(tx, &limits)
+        <AcceptedTransaction as InBlock>::accept(tx, &limits)
             .expect("Failed to accept Transaction.")
             .into()
     }
@@ -736,7 +737,7 @@ mod tests {
             for key_pair in &key_pairs[1..] {
                 signed_tx = signed_tx.sign(key_pair.clone()).expect("Failed to sign");
             }
-            AcceptedTransaction::accept::<false>(signed_tx, &tx_limits)
+            <AcceptedTransaction as InBlock>::accept(signed_tx, &tx_limits)
                 .expect("Failed to accept Transaction.")
                 .into()
         };
@@ -747,7 +748,7 @@ mod tests {
         ));
 
         let get_tx = |key_pair| {
-            AcceptedTransaction::accept::<false>(
+            <AcceptedTransaction as InBlock>::accept(
                 tx.clone().sign(key_pair).expect("Failed to sign."),
                 &tx_limits,
             )

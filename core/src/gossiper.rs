@@ -4,7 +4,8 @@ use std::{sync::Arc, time::Duration};
 
 use iroha_config::sumeragi::Configuration;
 use iroha_data_model::transaction::{
-    AcceptedTransaction, Transaction, VersionedAcceptedTransaction, VersionedSignedTransaction,
+    AcceptedTransaction, InBlock, Transaction, VersionedAcceptedTransaction,
+    VersionedSignedTransaction,
 };
 use iroha_p2p::Broadcast;
 use parity_scale_codec::{Decode, Encode};
@@ -112,7 +113,7 @@ impl TransactionGossiper {
             .wsv(|wsv| wsv.config.borrow().transaction_limits);
 
         for tx in txs {
-            match AcceptedTransaction::accept::<false>(tx.into_v1(), &transaction_limits) {
+            match <AcceptedTransaction as InBlock>::accept(tx.into_v1(), &transaction_limits) {
                 Ok(tx) => match self.sumeragi.wsv(|wsv| self.queue.push(tx.into(), wsv)) {
                     Ok(_) => {}
                     Err(crate::queue::Failure {

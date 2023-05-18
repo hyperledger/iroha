@@ -30,6 +30,7 @@ use iroha_data_model::{
     prelude::*,
     query,
     query::error::QueryExecutionFailure,
+    transaction::InBlock,
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
@@ -107,7 +108,7 @@ pub(crate) async fn handle_instructions(
 ) -> Result<Empty> {
     let transaction: SignedTransaction = transaction.into_v1();
     let transaction_limits = sumeragi.wsv(|wsv| wsv.config.borrow().transaction_limits);
-    let transaction = AcceptedTransaction::accept::<false>(transaction, &transaction_limits)
+    let transaction = <AcceptedTransaction as InBlock>::accept(transaction, &transaction_limits)
         .map_err(Error::AcceptTransaction)?
         .into();
     sumeragi
