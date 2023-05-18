@@ -11,11 +11,12 @@ use alloc::{format, string::String, vec::Vec};
 use std::collections::VecDeque;
 
 use iroha_schema::{IntoSchema, TypeId};
+use parity_scale_codec::{Decode, Encode};
 
 use crate::HashOf;
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate `T`
-#[derive(Debug, TypeId)]
+#[derive(Debug, TypeId, Decode, Encode)]
 #[repr(transparent)]
 pub struct MerkleTree<T>(Vec<Option<HashOf<T>>>);
 
