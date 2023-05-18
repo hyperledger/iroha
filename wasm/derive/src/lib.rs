@@ -8,15 +8,15 @@ mod entrypoint;
 ///
 /// # Attributes
 ///
-/// This macro can have an attribute describing entrypoint parameters.
+/// This macro can have an attribute describing main(i.e. entrypoint) function parameters.
 ///
 /// The syntax is:
-/// `#[iroha_wasm::entrypoint(params = "[<type>,*]")]`, where `<type>` is one of:
+/// `#[iroha_wasm::main(params = "[<type>,*]")]`, where `<type>` is one of:
 /// - `authority` is an account id of the smart contract authority
 /// - `triggering_event` is an event that triggers the execution of the smart contract
 ///
 /// None, one or both parameters in any order can be specified.
-/// Parameters will be passed to the entrypoint function in the order they are specified.
+/// Parameters will be passed to the main(i.e. entrypoint) function in the order they are specified.
 ///
 /// ## Authority
 ///
@@ -45,8 +45,8 @@ mod entrypoint;
 //
 /// Using without parameters:
 /// ```ignore
-/// #[iroha_wasm::entrypoint]
-/// fn trigger_entrypoint() {
+/// #[iroha_wasm::main]
+/// fn main() {
 ///     // do stuff
 /// }
 /// ```
@@ -55,8 +55,8 @@ mod entrypoint;
 /// ```ignore
 /// use iroha_wasm::{data_model::prelude::*, dbg};
 ///
-/// #[iroha_wasm::entrypoint(params = "[authority]")]
-/// fn trigger_entrypoint(authority: <Account as Identifiable>::Id) {
+/// #[iroha_wasm::main(params = "[authority]")]
+/// fn main(authority: <Account as Identifiable>::Id) {
 ///     dbg(&format!("Trigger authority: {authority}"));
 /// }
 /// ```
@@ -65,8 +65,8 @@ mod entrypoint;
 /// ```ignore
 /// use iroha_wasm::{data_model::prelude::*, dbg};
 ///
-/// #[iroha_wasm::entrypoint(params = "[authority, triggering_event]")]
-/// fn trigger_entrypoint(authority: <Account as Identifiable>::Id, event: DataEvent) {
+/// #[iroha_wasm::main(params = "[authority, triggering_event]")]
+/// fn main(authority: <Account as Identifiable>::Id, event: DataEvent) {
 ///     dbg(&format!(
 ///         "Trigger authority: {authority};\n\
 ///          Triggering event: {event:?}"
@@ -74,6 +74,6 @@ mod entrypoint;
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn main(attr: TokenStream, item: TokenStream) -> TokenStream {
     entrypoint::impl_entrypoint(attr, item)
 }

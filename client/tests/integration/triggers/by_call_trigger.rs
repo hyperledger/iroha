@@ -186,14 +186,12 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     test_client.submit_blocking(execute_trigger.clone())?;
 
     // Executing trigger second time
-    assert!(matches!(
-        test_client
-            .submit_blocking(execute_trigger)
-            .expect_err("Error expected")
-            .root_cause()
-            .downcast_ref::<NotPermittedFail>(),
-        Some(&NotPermittedFail { .. })
-    ));
+    assert!(test_client
+        .submit_blocking(execute_trigger)
+        .expect_err("Error expected")
+        .root_cause()
+        .downcast_ref::<NotPermittedFail>()
+        .is_some());
 
     // Checking results
     let new_asset_value = get_asset_value(&mut test_client, asset_id)?;

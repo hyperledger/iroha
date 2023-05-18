@@ -16,14 +16,14 @@ impl Registrable for NewAssetDefinition {
 
     #[must_use]
     #[inline]
-    fn build(self, authority: AccountId) -> Self::Target {
+    fn build(self, authority: &AccountId) -> Self::Target {
         Self::Target {
             id: self.id,
             value_type: self.value_type,
             mintable: self.mintable,
             logo: self.logo,
             metadata: self.metadata,
-            owned_by: authority,
+            owned_by: authority.clone(),
         }
     }
 }
@@ -38,15 +38,9 @@ pub mod isi {
     use super::*;
     use crate::smartcontracts::account::isi::forbid_minting;
 
-    impl Execute for SetKeyValue<Asset, Name, Value> {
-        type Error = Error;
-
-        #[metrics(+"asset_set_key_value")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+    impl Execute for SetKeyValue<Asset> {
+        #[metrics(+"set_asset_key_value")]
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_id = self.object_id;
 
             assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
@@ -79,15 +73,9 @@ pub mod isi {
         }
     }
 
-    impl Execute for RemoveKeyValue<Asset, Name> {
-        type Error = Error;
-
-        #[metrics(+"asset_remove_key_value")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+    impl Execute for RemoveKeyValue<Asset> {
+        #[metrics(+"remove_asset_key_value")]
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_id = self.object_id;
 
             assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
@@ -110,9 +98,7 @@ pub mod isi {
     }
 
     impl Execute for Transfer<Account, AssetDefinition, Account> {
-        type Error = Error;
-
-        fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             wsv.modify_asset_definition(self.object.id(), |entry| {
                 entry.owned_by = self.destination_id.clone();
 
@@ -131,14 +117,8 @@ pub mod isi {
             impl InnerMint for $ty {}
 
             impl Execute for Mint<Asset, $ty> {
-                type Error = Error;
-
                 #[metrics(+$metrics)]
-                fn execute(
-                    self,
-                    authority: AccountId,
-                    wsv: &WorldStateView,
-                ) -> Result<(), Self::Error> {
+                fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
                     <$ty as InnerMint>::execute(self, authority, wsv)
                 }
             }
@@ -150,14 +130,8 @@ pub mod isi {
             impl InnerBurn for $ty {}
 
             impl Execute for Burn<Asset, $ty> {
-                type Error = Error;
-
                 #[metrics(+$metrics)]
-                fn execute(
-                    self,
-                    authority: AccountId,
-                    wsv: &WorldStateView,
-                ) -> Result<(), Self::Error> {
+                fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
                     <$ty as InnerBurn>::execute(self, authority, wsv)
                 }
             }
@@ -169,14 +143,8 @@ pub mod isi {
             impl InnerTransfer for $ty {}
 
             impl Execute for Transfer<Asset, $ty, Account> {
-                type Error = Error;
-
                 #[metrics(+$metrics)]
-                fn execute(
-                    self,
-                    authority: AccountId,
-                    wsv: &WorldStateView,
-                ) -> Result<(), Self::Error> {
+                fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
                     <$ty as InnerTransfer>::execute(self, authority, wsv)
                 }
             }
@@ -199,7 +167,7 @@ pub mod isi {
     trait InnerMint {
         fn execute<Err>(
             mint: Mint<Asset, Self>,
-            _authority: <Account as Identifiable>::Id,
+            _authority: &AccountId,
             wsv: &WorldStateView,
         ) -> Result<(), Err>
         where
@@ -256,7 +224,7 @@ pub mod isi {
     trait InnerBurn {
         fn execute<Err>(
             burn: Burn<Asset, Self>,
-            _authority: <Account as Identifiable>::Id,
+            _authority: &AccountId,
             wsv: &WorldStateView,
         ) -> Result<(), Err>
         where
@@ -305,7 +273,7 @@ pub mod isi {
     trait InnerTransfer {
         fn execute<Err>(
             transfer: Transfer<Asset, Self, Account>,
-            _authority: <Account as Identifiable>::Id,
+            _authority: &AccountId,
             wsv: &WorldStateView,
         ) -> Result<(), Err>
         where
@@ -462,9 +430,8 @@ pub mod query {
     impl ValidQuery for FindAssetById {
         #[metrics(+"find_asset_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.id)
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -481,9 +448,8 @@ pub mod query {
     impl ValidQuery for FindAssetDefinitionById {
         #[metrics(+"find_asset_defintion_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.id)
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
 
@@ -496,9 +462,8 @@ pub mod query {
     impl ValidQuery for FindAssetsByName {
         #[metrics(+"find_assets_by_name")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let name = self
-                .name
-                .evaluate(&Context::new(wsv))
+            let name = wsv
+                .evaluate(&self.name)
                 .wrap_err("Failed to get asset name")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%name);
@@ -519,9 +484,8 @@ pub mod query {
     impl ValidQuery for FindAssetsByAccountId {
         #[metrics(+"find_assets_by_account_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .account_id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.account_id)
                 .wrap_err("Failed to get account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -532,9 +496,8 @@ pub mod query {
     impl ValidQuery for FindAssetsByAssetDefinitionId {
         #[metrics(+"find_assets_by_asset_definition_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .asset_definition_id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.asset_definition_id)
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -555,9 +518,8 @@ pub mod query {
     impl ValidQuery for FindAssetsByDomainId {
         #[metrics(+"find_assets_by_domain_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .domain_id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.domain_id)
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -574,14 +536,12 @@ pub mod query {
     impl ValidQuery for FindAssetsByDomainIdAndAssetDefinitionId {
         #[metrics(+"find_assets_by_domain_id_and_asset_definition_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let domain_id = self
-                .domain_id
-                .evaluate(&Context::new(wsv))
+            let domain_id = wsv
+                .evaluate(&self.domain_id)
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let asset_definition_id = self
-                .asset_definition_id
-                .evaluate(&Context::new(wsv))
+            let asset_definition_id = wsv
+                .evaluate(&self.asset_definition_id)
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let domain = wsv.domain(&domain_id)?;
@@ -607,9 +567,8 @@ pub mod query {
     impl ValidQuery for FindAssetQuantityById {
         #[metrics(+"find_asset_quantity_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.id)
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -632,9 +591,8 @@ pub mod query {
     impl ValidQuery for FindTotalAssetQuantityByAssetDefinitionId {
         #[metrics(+"find_total_asset_quantity_by_asset_definition_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.id)
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -646,14 +604,12 @@ pub mod query {
     impl ValidQuery for FindAssetKeyValueByIdAndKey {
         #[metrics(+"find_asset_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.id)
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let key = self
-                .key
-                .evaluate(&Context::new(wsv))
+            let key = wsv
+                .evaluate(&self.key)
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let asset = wsv.asset(&id).map_err(|asset_err| {
@@ -679,14 +635,12 @@ pub mod query {
     impl ValidQuery for IsAssetDefinitionOwner {
         #[metrics("is_asset_definition_owner")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let asset_definition_id = self
-                .asset_definition_id
-                .evaluate(&Context::new(wsv))
+            let asset_definition_id = wsv
+                .evaluate(&self.asset_definition_id)
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let account_id = self
-                .account_id
-                .evaluate(&Context::new(wsv))
+            let account_id = wsv
+                .evaluate(&self.account_id)
                 .wrap_err("Failed to get account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
 

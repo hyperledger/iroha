@@ -6,8 +6,7 @@
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::fmt::Debug;
 
-use derive_more::{Constructor, DebugCustom, Display};
-use getset::Getters;
+use derive_more::{DebugCustom, Display};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
@@ -17,33 +16,12 @@ use strum::EnumDiscriminants;
 
 pub use self::model::*;
 use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
-use crate::Registered;
+use crate::{sealed, Registered};
 
-impl InstructionBox {
-    /// Calculates number of underneath instructions and expressions
-    pub fn len(&self) -> usize {
-        use InstructionBox::*;
-
-        match self {
-            Register(register_box) => register_box.len(),
-            Unregister(unregister_box) => unregister_box.len(),
-            Mint(mint_box) => mint_box.len(),
-            Burn(burn_box) => burn_box.len(),
-            Transfer(transfer_box) => transfer_box.len(),
-            If(if_box) => if_box.len(),
-            Pair(pair_box) => pair_box.len(),
-            Sequence(sequence) => sequence.len(),
-            Fail(fail_box) => fail_box.len(),
-            SetKeyValue(set_key_value) => set_key_value.len(),
-            RemoveKeyValue(remove_key_value) => remove_key_value.len(),
-            Grant(grant_box) => grant_box.len(),
-            Revoke(revoke_box) => revoke_box.len(),
-            ExecuteTrigger(execute_trigger) => execute_trigger.len(),
-            SetParameter(set_parameter) => set_parameter.len(),
-            NewParameter(new_parameter) => new_parameter.len(),
-            Upgrade(upgrade_box) => upgrade_box.len(),
-        }
-    }
+/// Marker trait designating instruction
+pub trait Instruction: Into<InstructionBox> + sealed::Sealed {
+    /// Length of contained instructions and queries.
+    fn len(&self) -> usize;
 }
 
 macro_rules! isi {
@@ -62,6 +40,8 @@ macro_rules! isi {
 
 #[model]
 pub mod model {
+    pub use transparent::*;
+
     use super::*;
 
     /// Sized structure for all possible Instructions.
@@ -116,9 +96,6 @@ pub mod model {
         /// `Sequence` variant.
         #[debug(fmt = "{_0:?}")]
         Sequence(SequenceBox),
-        /// `Fail` variant.
-        #[debug(fmt = "{_0:?}")]
-        Fail(FailBox),
         /// `SetKeyValue` variant.
         #[debug(fmt = "{_0:?}")]
         SetKeyValue(SetKeyValueBox),
@@ -142,44 +119,166 @@ pub mod model {
         NewParameter(NewParameterBox),
         /// `Upgrade` variant.
         Upgrade(UpgradeBox),
+
+        /// `Fail` variant.
+        #[debug(fmt = "{_0:?}")]
+        Fail(FailBox),
     }
 
+    impl Instruction for InstructionBox {
+        fn len(&self) -> usize {
+            use InstructionBox::*;
+
+            match self {
+                Register(register_box) => register_box.len(),
+                Unregister(unregister_box) => unregister_box.len(),
+                Mint(mint_box) => mint_box.len(),
+                Burn(burn_box) => burn_box.len(),
+                Transfer(transfer_box) => transfer_box.len(),
+                If(if_box) => if_box.len(),
+                Pair(pair_box) => pair_box.len(),
+                Sequence(sequence) => sequence.len(),
+                Fail(fail_box) => fail_box.len(),
+                SetKeyValue(set_key_value) => set_key_value.len(),
+                RemoveKeyValue(remove_key_value) => remove_key_value.len(),
+                Grant(grant_box) => grant_box.len(),
+                Revoke(revoke_box) => revoke_box.len(),
+                ExecuteTrigger(execute_trigger) => execute_trigger.len(),
+                SetParameter(set_parameter) => set_parameter.len(),
+                NewParameter(new_parameter) => new_parameter.len(),
+                Upgrade(upgrade_box) => upgrade_box.len(),
+            }
+        }
+    }
+
+    impl Instruction for SetKeyValueBox {
+        fn len(&self) -> usize {
+            self.object_id.len() + self.key.len() + self.value.len() + 1
+        }
+    }
+    impl Instruction for RemoveKeyValueBox {
+        fn len(&self) -> usize {
+            self.object_id.len() + self.key.len() + 1
+        }
+    }
+    impl Instruction for RegisterBox {
+        fn len(&self) -> usize {
+            self.object.len() + 1
+        }
+    }
+    impl Instruction for UnregisterBox {
+        fn len(&self) -> usize {
+            self.object_id.len() + 1
+        }
+    }
+    impl Instruction for MintBox {
+        fn len(&self) -> usize {
+            self.destination_id.len() + self.object.len() + 1
+        }
+    }
+    impl Instruction for BurnBox {
+        fn len(&self) -> usize {
+            self.destination_id.len() + self.object.len() + 1
+        }
+    }
+    impl Instruction for TransferBox {
+        fn len(&self) -> usize {
+            self.destination_id.len() + self.object.len() + self.source_id.len() + 1
+        }
+    }
+    impl Instruction for GrantBox {
+        fn len(&self) -> usize {
+            self.object.len() + self.destination_id.len() + 1
+        }
+    }
+    impl Instruction for RevokeBox {
+        fn len(&self) -> usize {
+            self.object.len() + self.destination_id.len() + 1
+        }
+    }
+    impl Instruction for SetParameterBox {
+        fn len(&self) -> usize {
+            self.parameter.len() + 1
+        }
+    }
+    impl Instruction for NewParameterBox {
+        fn len(&self) -> usize {
+            self.parameter.len() + 1
+        }
+    }
+    impl Instruction for UpgradeBox {
+        fn len(&self) -> usize {
+            self.object.len() + 1
+        }
+    }
+    impl Instruction for ExecuteTriggerBox {
+        fn len(&self) -> usize {
+            1
+        }
+    }
+    impl Instruction for FailBox {
+        fn len(&self) -> usize {
+            1
+        }
+    }
+
+    // Composite instructions
+    impl Instruction for SequenceBox {
+        fn len(&self) -> usize {
+            self.instructions
+                .iter()
+                .map(InstructionBox::len)
+                .sum::<usize>()
+                + 1
+        }
+    }
+    impl Instruction for Conditional {
+        fn len(&self) -> usize {
+            let otherwise = self.otherwise.as_ref().map_or(0, InstructionBox::len);
+            self.condition.len() + self.then.len() + otherwise + 1
+        }
+    }
+    impl Instruction for Pair {
+        fn len(&self) -> usize {
+            self.left_instruction.len() + self.right_instruction.len() + 1
+        }
+    }
+}
+
+mod transparent {
+    // NOTE: instructions in this module don't have to be made opaque with `model!`
+    // because they are never shared between client and server(http)/host(wasm)
+
+    use super::*;
+
     /// Generic instruction to set key value at the object.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    pub struct SetKeyValue<O, K, V>
+    #[derive(Debug, Clone)]
+    pub struct SetKeyValue<O>
     where
         O: Identifiable,
-        K: Into<Value>,
-        V: Into<Value>,
     {
         /// Where to set key value.
         pub object_id: O::Id,
         /// Key.
-        pub key: K,
+        pub key: Name,
         /// Value.
-        pub value: V,
+        pub value: Value,
     }
 
     /// Generic instruction to remove key value at the object.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    pub struct RemoveKeyValue<O, K>
+    #[derive(Debug, Clone)]
+    pub struct RemoveKeyValue<O>
     where
         O: Identifiable,
-        K: Into<Value>,
     {
         /// From where to remove key value.
         pub object_id: O::Id,
         /// Key of the pair to remove.
-        pub key: K,
+        pub key: Name,
     }
 
     /// Generic instruction for a registration of an object to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    #[serde(transparent)]
-    #[repr(transparent)]
+    #[derive(Debug, Clone)]
     pub struct Register<O>
     where
         O: Registered,
@@ -189,10 +288,7 @@ pub mod model {
     }
 
     /// Generic instruction for an unregistration of an object from the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
-    #[serde(transparent)]
-    #[repr(transparent)]
+    #[derive(Debug, Clone)]
     pub struct Unregister<O>
     where
         O: Registered,
@@ -202,8 +298,7 @@ pub mod model {
     }
 
     /// Generic instruction for a mint of an object to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct Mint<D, O>
     where
         D: Identifiable,
@@ -216,8 +311,7 @@ pub mod model {
     }
 
     /// Generic instruction for a burn of an object to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct Burn<D, O>
     where
         D: Identifiable,
@@ -230,8 +324,7 @@ pub mod model {
     }
 
     /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct Transfer<S: Identifiable, O, D: Identifiable>
     where
         O: Into<Value>,
@@ -245,8 +338,7 @@ pub mod model {
     }
 
     /// Generic instruction for granting permission to an entity.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct Grant<D, O>
     where
         D: Registered,
@@ -259,8 +351,7 @@ pub mod model {
     }
 
     /// Generic instruction for revoking permission from an entity.
-    #[derive(Debug, Clone, Constructor, Serialize, Deserialize, Encode, Decode, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct Revoke<D, O>
     where
         D: Registered,
@@ -273,30 +364,34 @@ pub mod model {
     }
 
     /// Generic instruction for setting a chain-wide config parameter.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct SetParameter {
         /// Parameter to be changed.
         pub parameter: Parameter,
     }
 
     /// Generic instruction for setting a chain-wide config parameter.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct NewParameter {
         /// Parameter to be changed.
         pub parameter: Parameter,
     }
 
     /// Generic instruction for upgrading runtime objects.
-    #[derive(Debug, Clone, Constructor, Decode, Encode, Deserialize, Serialize, Getters)]
-    #[getset(get = "pub")]
+    #[derive(Debug, Clone)]
     pub struct Upgrade<O>
     where
         O: Into<UpgradableBox>,
     {
         /// Object to upgrade.
         pub object: O,
+    }
+
+    /// Generic instruction for executing specified trigger
+    #[derive(Debug, Clone)]
+    pub struct ExecuteTrigger {
+        /// Id of a trigger to execute
+        pub trigger_id: TriggerId,
     }
 }
 
@@ -503,7 +598,7 @@ isi! {
     #[display(fmt = "FAIL `{message}`")]
     #[serde(transparent)]
     #[repr(transparent)]
-    // SAFETY: `FailBox` has no trap representation in `String`
+    // SAFETY: `Fail` has no trap representation in `String`
     #[ffi_type(unsafe {robust})]
     pub struct FailBox {
         /// Message to submit.
@@ -577,20 +672,9 @@ impl ExecuteTriggerBox {
             trigger_id: trigger_id.into(),
         }
     }
-    /// Length of contained instructions and queries.
-    #[inline]
-    pub const fn len(&self) -> usize {
-        1
-    }
 }
 
 impl RevokeBox {
-    /// Compute the number of contained instructions and expressions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.object.len() + self.destination_id.len() + 1
-    }
-
     /// Generic constructor.
     pub fn new<P: Into<EvaluatesTo<Value>>, I: Into<EvaluatesTo<IdBox>>>(
         object: P,
@@ -604,11 +688,6 @@ impl RevokeBox {
 }
 
 impl GrantBox {
-    /// Compute the number of contained instructions and expressions.
-    pub fn len(&self) -> usize {
-        self.object.len() + self.destination_id.len() + 1
-    }
-
     /// Constructor.
     pub fn new<P: Into<EvaluatesTo<Value>>, I: Into<EvaluatesTo<IdBox>>>(
         object: P,
@@ -622,12 +701,6 @@ impl GrantBox {
 }
 
 impl SetKeyValueBox {
-    /// Length of contained instructions and queries.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.object_id.len() + self.key.len() + self.value.len() + 1
-    }
-
     /// Construct [`SetKeyValueBox`].
     pub fn new<
         I: Into<EvaluatesTo<IdBox>>,
@@ -647,12 +720,6 @@ impl SetKeyValueBox {
 }
 
 impl RemoveKeyValueBox {
-    /// Length of contained instructions and queries.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.object_id.len() + self.key.len() + 1
-    }
-
     /// Construct [`RemoveKeyValueBox`].
     pub fn new<I: Into<EvaluatesTo<IdBox>>, K: Into<EvaluatesTo<Name>>>(
         object_id: I,
@@ -666,12 +733,6 @@ impl RemoveKeyValueBox {
 }
 
 impl RegisterBox {
-    /// Length of contained instructions and queries.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.object.len() + 1
-    }
-
     /// Construct [`Register`].
     pub fn new<O: Into<EvaluatesTo<RegistrableBox>>>(object: O) -> Self {
         Self {
@@ -681,12 +742,6 @@ impl RegisterBox {
 }
 
 impl UnregisterBox {
-    /// Length of contained instructions and queries.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.object_id.len() + 1
-    }
-
     /// Construct [`Unregister`].
     pub fn new<O: Into<EvaluatesTo<IdBox>>>(object_id: O) -> Self {
         Self {
@@ -696,12 +751,6 @@ impl UnregisterBox {
 }
 
 impl MintBox {
-    /// Length of contained instructions and queries.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.destination_id.len() + self.object.len() + 1
-    }
-
     /// Construct [`Mint`].
     pub fn new<O: Into<EvaluatesTo<Value>>, D: Into<EvaluatesTo<IdBox>>>(
         object: O,
@@ -715,12 +764,6 @@ impl MintBox {
 }
 
 impl BurnBox {
-    /// Length of contained instructions and queries.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.destination_id.len() + self.object.len() + 1
-    }
-
     /// Construct [`Burn`].
     pub fn new<O: Into<EvaluatesTo<Value>>, D: Into<EvaluatesTo<IdBox>>>(
         object: O,
@@ -734,12 +777,6 @@ impl BurnBox {
 }
 
 impl TransferBox {
-    /// Length of contained instructions and queries.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.destination_id.len() + self.object.len() + self.source_id.len() + 1
-    }
-
     /// Construct [`Transfer`].
     pub fn new<
         S: Into<EvaluatesTo<IdBox>>,
@@ -759,12 +796,6 @@ impl TransferBox {
 }
 
 impl Pair {
-    /// Length of contained instructions and queries.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.left_instruction.len() + self.right_instruction.len() + 1
-    }
-
     /// Construct [`Pair`].
     pub fn new<LI: Into<InstructionBox>, RI: Into<InstructionBox>>(
         left_instruction: LI,
@@ -778,15 +809,6 @@ impl Pair {
 }
 
 impl SequenceBox {
-    /// Length of contained instructions and queries.
-    pub fn len(&self) -> usize {
-        self.instructions
-            .iter()
-            .map(InstructionBox::len)
-            .sum::<usize>()
-            + 1
-    }
-
     /// Construct [`SequenceBox`].
     pub fn new(instructions: impl IntoIterator<Item = InstructionBox>) -> Self {
         Self {
@@ -796,13 +818,6 @@ impl SequenceBox {
 }
 
 impl Conditional {
-    /// Length of contained instructions and queries.
-    #[inline]
-    pub fn len(&self) -> usize {
-        let otherwise = self.otherwise.as_ref().map_or(0, InstructionBox::len);
-        self.condition.len() + self.then.len() + otherwise + 1
-    }
-
     /// Construct [`If`].
     pub fn new<C: Into<EvaluatesTo<bool>>, T: Into<InstructionBox>>(condition: C, then: T) -> Self {
         Self {
@@ -830,12 +845,7 @@ impl Conditional {
 }
 
 impl FailBox {
-    /// Length of contained instructions and queries.
-    pub const fn len(&self) -> usize {
-        1
-    }
-
-    /// Construct [`FailBox`].
+    /// Construct [`Fail`].
     pub fn new(message: &str) -> Self {
         Self {
             message: String::from(message),
@@ -844,11 +854,6 @@ impl FailBox {
 }
 
 impl SetParameterBox {
-    /// Length of contained instructions and queries.
-    pub fn len(&self) -> usize {
-        self.parameter.len() + 1
-    }
-
     /// Construct [`SetParameterBox`].
     pub fn new<P: Into<EvaluatesTo<Parameter>>>(parameter: P) -> Self {
         Self {
@@ -858,11 +863,6 @@ impl SetParameterBox {
 }
 
 impl NewParameterBox {
-    /// Length of contained instructions and queries.
-    pub fn len(&self) -> usize {
-        self.parameter.len() + 1
-    }
-
     /// Construct [`NewParameterBox`].
     pub fn new<P: Into<EvaluatesTo<Parameter>>>(parameter: P) -> Self {
         Self {
@@ -872,11 +872,6 @@ impl NewParameterBox {
 }
 
 impl UpgradeBox {
-    /// Length of contained instructions and queries.
-    pub fn len(&self) -> usize {
-        self.object.len() + 1
-    }
-
     /// Construct [`UpgradeBox`].
     pub fn new<O: Into<EvaluatesTo<UpgradableBox>>>(object: O) -> Self {
         Self {
@@ -949,9 +944,9 @@ pub mod error {
             /// Metadata Error.
             #[display(fmt = "Metadata error: {_0}")]
             Metadata(#[cfg_attr(feature = "std", source)] metadata::Error),
-            /// [`FailBox`] error
+            /// [`Fail`] error
             #[display(fmt = "Execution failed: {_0}")]
-            FailBox(
+            Fail(
                 #[skip_from]
                 #[skip_try_from]
                 String,
@@ -1135,11 +1130,11 @@ pub mod error {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Burn, BurnBox, Conditional, ExecuteTriggerBox, FailBox, Grant, GrantBox, InstructionBox,
-        Mint, MintBox, NewParameter, NewParameterBox, Pair, Register, RegisterBox, RemoveKeyValue,
-        RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox, SetKeyValue, SetKeyValueBox,
-        SetParameter, SetParameterBox, Transfer, TransferBox, Unregister, UnregisterBox, Upgrade,
-        UpgradeBox,
+        Burn, BurnBox, Conditional, ExecuteTrigger, ExecuteTriggerBox, FailBox, Grant, GrantBox,
+        Instruction, InstructionBox, Mint, MintBox, NewParameter, NewParameterBox, Pair, Register,
+        RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox,
+        SetKeyValue, SetKeyValueBox, SetParameter, SetParameterBox, Transfer, TransferBox,
+        Unregister, UnregisterBox, Upgrade, UpgradeBox,
     };
 }
 
@@ -1152,11 +1147,11 @@ mod tests {
     use super::*;
 
     fn if_instruction(
-        c: impl Into<ExpressionBox>,
+        c: impl Into<Expression>,
         then: InstructionBox,
         otherwise: Option<InstructionBox>,
     ) -> InstructionBox {
-        let condition: ExpressionBox = c.into();
+        let condition: Expression = c.into();
         let condition = EvaluatesTo::new_unchecked(condition);
         Conditional {
             condition,

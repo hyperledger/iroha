@@ -36,10 +36,11 @@ use block::VersionedCommittedBlock;
 #[cfg(not(target_arch = "aarch64"))]
 use derive_more::Into;
 use derive_more::{AsRef, DebugCustom, Deref, Display, From, FromStr};
+use evaluate::Evaluate;
 use events::FilterBox;
 use getset::Getters;
-pub use iroha_crypto::SignatureOf;
 use iroha_crypto::{Hash, PublicKey};
+pub use iroha_crypto::{SignatureOf, SignaturesOf};
 use iroha_data_model_derive::{
     model, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize,
 };
@@ -82,34 +83,17 @@ pub mod sorting;
 pub mod transaction;
 pub mod trigger;
 pub mod validator;
+pub mod visit;
 
-pub mod utils {
-    //! Module with useful utilities shared between crates
-
+mod utils {
     use core::fmt::*;
 
     /// Format `input` separating items with a comma,
     /// wrapping the whole output into provided characters.
     ///
     /// # Errors
-    /// If cannot write to the `f`
     ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use iroha_data_model::utils::format_comma_separated;
-    ///
-    /// struct Array([u8; 3]);
-    ///
-    /// impl core::fmt::Display for Array {
-    ///     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-    ///         format_comma_separated(self.0.iter(), ('[', ']'), f)
-    ///     }
-    /// }
-    ///
-    /// let arr = Array([1, 2, 3]);
-    /// assert_eq!(arr.to_string(), "[1, 2, 3]");
-    /// ```
+    /// - if cannot write to the `f`
     pub fn format_comma_separated<T: Display>(
         mut input: impl Iterator<Item = T>,
         (open, close): (char, char),
@@ -126,6 +110,88 @@ pub mod utils {
         }
 
         f.write_char(close)
+    }
+}
+
+mod sealed {
+    use crate::{isi::prelude::*, query::prelude::*};
+
+    pub trait Sealed {}
+
+    macro_rules! impl_sealed {
+        ($($ident:ident),+ $(,)?) => { $(
+            impl Sealed for $ident {} )+
+        };
+    }
+
+    impl_sealed! {
+        // Boxed instructions
+        InstructionBox,
+        SetKeyValueBox,
+        RemoveKeyValueBox,
+        RegisterBox,
+        UnregisterBox,
+        MintBox,
+        BurnBox,
+        TransferBox,
+        GrantBox,
+        RevokeBox,
+        SetParameterBox,
+        NewParameterBox,
+        UpgradeBox,
+        ExecuteTriggerBox,
+
+        // Composite instructions
+        SequenceBox,
+        Conditional,
+        Pair,
+
+        FailBox,
+
+        // Boxed queries
+        QueryBox,
+        FindAllAccounts,
+        FindAccountById,
+        FindAccountKeyValueByIdAndKey,
+        FindAccountsByName,
+        FindAccountsByDomainId,
+        FindAccountsWithAsset,
+        FindAllAssets,
+        FindAllAssetsDefinitions,
+        FindAssetById,
+        FindAssetDefinitionById,
+        FindAssetsByName,
+        FindAssetsByAccountId,
+        FindAssetsByAssetDefinitionId,
+        FindAssetsByDomainId,
+        FindAssetsByDomainIdAndAssetDefinitionId,
+        FindAssetQuantityById,
+        FindTotalAssetQuantityByAssetDefinitionId,
+        IsAssetDefinitionOwner,
+        FindAssetKeyValueByIdAndKey,
+        FindAssetDefinitionKeyValueByIdAndKey,
+        FindAllDomains,
+        FindDomainById,
+        FindDomainKeyValueByIdAndKey,
+        FindAllPeers,
+        FindAllBlocks,
+        FindAllBlockHeaders,
+        FindBlockHeaderByHash,
+        FindAllTransactions,
+        FindTransactionsByAccountId,
+        FindTransactionByHash,
+        FindPermissionTokensByAccountId,
+        FindAllPermissionTokenDefinitions,
+        DoesAccountHavePermissionToken,
+        FindAllActiveTriggerIds,
+        FindTriggerById,
+        FindTriggerKeyValueByIdAndKey,
+        FindTriggersByDomainId,
+        FindAllRoles,
+        FindAllRoleIds,
+        FindRoleByRoleId,
+        FindRolesByAccountId,
+        FindAllParameters,
     }
 }
 
@@ -969,9 +1035,6 @@ macro_rules! val_vec {
     ($($x:expr),+ $(,)?) => { vec![$($crate::Value::from($x),)+] };
 }
 
-/// Boxed [`Value`].
-pub type ValueBox = Box<Value>;
-
 impl NumericValue {
     /// Return `true` if value is zero
     pub const fn is_zero_value(self) -> bool {
@@ -1066,7 +1129,7 @@ impl Value {
             | Validator(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
-            SignatureCheckCondition(s) => s.0.len(),
+            SignatureCheckCondition(s) => Evaluate::len(&s.0),
         }
     }
 }

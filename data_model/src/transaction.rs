@@ -3,14 +3,14 @@
 // TODO: Remove when a proper `Display` will be implemented for `Transaction`
 #![allow(clippy::use_debug)]
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_set, format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{
     cmp::Ordering,
     fmt::{Display, Formatter, Result as FmtResult},
     iter::IntoIterator,
 };
 #[cfg(feature = "std")]
-use std::{collections::btree_set, time::Duration};
+use std::time::Duration;
 
 use derive_more::{DebugCustom, Display};
 use getset::Getters;
@@ -26,8 +26,11 @@ use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
 use crate::{
-    account::Account, isi::InstructionBox, metadata::UnlimitedMetadata, name::Name, Identifiable,
-    Value,
+    account::Account,
+    isi::{Instruction, InstructionBox},
+    metadata::UnlimitedMetadata,
+    name::Name,
+    Identifiable, Value,
 };
 
 /// Default maximum number of instructions and expressions per transaction
@@ -69,7 +72,7 @@ pub trait Transaction {
             Executable::Instructions(instructions) => {
                 let instruction_count: u64 = instructions
                     .iter()
-                    .map(InstructionBox::len)
+                    .map(Instruction::len)
                     .sum::<usize>()
                     .try_into()
                     .expect("`usize` should always fit in `u64`");
@@ -281,7 +284,7 @@ pub mod model {
         /// [`Transaction`] payload.
         pub payload: TransactionPayload,
         /// [`SignatureOf`]<[`TransactionPayload`]>.
-        pub signatures: btree_set::BTreeSet<SignatureOf<TransactionPayload>>,
+        pub signatures: SignaturesOf<TransactionPayload>,
     }
 
     /// Transaction Value used in Instructions and Queries
@@ -468,7 +471,7 @@ impl Sign for TransactionBuilder {
         key_pair: iroha_crypto::KeyPair,
     ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
         let signature = SignatureOf::new(key_pair, &self.payload)?;
-        let signatures = btree_set::BTreeSet::from([signature]);
+        let signatures = signature.into();
 
         Ok(SignedTransaction {
             payload: self.payload,
@@ -521,23 +524,19 @@ impl Transaction for VersionedSignedTransaction {
 impl From<VersionedValidTransaction> for VersionedSignedTransaction {
     fn from(transaction: VersionedValidTransaction) -> Self {
         match transaction {
-            VersionedValidTransaction::V1(transaction) => {
-                let signatures = transaction.signatures.into();
-
-                SignedTransaction {
-                    payload: transaction.payload,
-                    signatures,
-                }
-                .into()
+            VersionedValidTransaction::V1(transaction) => SignedTransaction {
+                payload: transaction.payload,
+                signatures: transaction.signatures,
             }
+            .into(),
         }
     }
 }
 
 impl SignedTransaction {
     /// Return signatures
-    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<TransactionPayload>> {
-        self.signatures.iter()
+    pub fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
+        &self.signatures
     }
 }
 
@@ -734,15 +733,11 @@ impl Transaction for RejectedTransaction {
 impl From<VersionedRejectedTransaction> for VersionedSignedTransaction {
     fn from(transaction: VersionedRejectedTransaction) -> Self {
         match transaction {
-            VersionedRejectedTransaction::V1(transaction) => {
-                let signatures = transaction.signatures.into();
-
-                SignedTransaction {
-                    payload: transaction.payload,
-                    signatures,
-                }
-                .into()
+            VersionedRejectedTransaction::V1(transaction) => SignedTransaction {
+                payload: transaction.payload,
+                signatures: transaction.signatures,
             }
+            .into(),
         }
     }
 }
@@ -807,18 +802,15 @@ impl AcceptedTransaction {
         transaction: SignedTransaction,
         limits: &TransactionLimits,
     ) -> Result<Self, error::AcceptTransactionFailure> {
+        transaction.signatures.verify(&transaction.payload)?;
+
         if !IS_GENESIS {
             transaction.check_limits(limits)?
         }
-        let signatures: SignaturesOf<_> = transaction
-            .signatures
-            .try_into()
-            .expect("Transaction should have at least one signature");
-        signatures.verify(&transaction.payload)?;
 
         Ok(Self {
             payload: transaction.payload,
-            signatures,
+            signatures: transaction.signatures,
         })
     }
 }
@@ -837,7 +829,7 @@ impl From<AcceptedTransaction> for SignedTransaction {
     fn from(transaction: AcceptedTransaction) -> Self {
         SignedTransaction {
             payload: transaction.payload,
-            signatures: transaction.signatures.into_iter().collect(),
+            signatures: transaction.signatures,
         }
     }
 }

@@ -346,7 +346,7 @@ impl Revalidate for PendingBlock {
             .map(|tx_v| {
                 let tx = SignedTransaction {
                     payload: tx_v.payload,
-                    signatures: tx_v.signatures.into(),
+                    signatures: tx_v.signatures,
                 };
                 AcceptedTransaction::accept::<IS_GENESIS>(
                     tx,
@@ -379,7 +379,7 @@ impl Revalidate for PendingBlock {
             .map(|tx_r| {
                 let tx = SignedTransaction {
                     payload: tx_r.payload,
-                    signatures: tx_r.signatures.into(),
+                    signatures: tx_r.signatures,
                 };
                 AcceptedTransaction::accept::<IS_GENESIS>(
                     tx,
@@ -490,7 +490,7 @@ impl Revalidate for VersionedCommittedBlock {
                     .map(|tx_v| {
                         let tx = SignedTransaction {
                             payload: tx_v.payload,
-                            signatures: tx_v.signatures.into(),
+                            signatures: tx_v.signatures,
                         };
                         AcceptedTransaction::accept::<IS_GENESIS>(
                             tx,
@@ -523,7 +523,7 @@ impl Revalidate for VersionedCommittedBlock {
                     .map(|tx_r| {
                         let tx = SignedTransaction {
                             payload: tx_r.payload,
-                            signatures: tx_r.signatures.into(),
+                            signatures: tx_r.signatures,
                         };
                         AcceptedTransaction::accept::<IS_GENESIS>(
                             tx,
@@ -633,10 +633,10 @@ mod tests {
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let alice_keys = KeyPair::generate().expect("Valid");
-        let account = Account::new(alice_id.clone(), [alice_keys.public_key().clone()])
-            .build(alice_id.clone());
+        let account =
+            Account::new(alice_id.clone(), [alice_keys.public_key().clone()]).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
-        let mut domain = Domain::new(domain_id).build(alice_id.clone());
+        let mut domain = Domain::new(domain_id).build(&alice_id);
         assert!(domain.add_account(account).is_none());
         let world = World::with([domain], Vec::new());
         let kura = Kura::blank_kura_for_testing();

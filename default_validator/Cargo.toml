@@ -11,7 +11,7 @@ license = "Apache-2.0"
 [workspace]
 
 [lib]
-crate-type = ['cdylib', 'rlib']
+crate-type = ['cdylib']
 
 [profile.dev]
 panic = "abort"
@@ -23,11 +23,7 @@ lto = true          # Link-time-optimization produces notable decrease in binary
 opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorization)
 codegen-units = 1   # Further reduces binary size but increases compilation time
 
-[features]
-default = ["entrypoint"]
-entrypoint = [] # Defines entrypoint function to be called from Iroha
-
 [dependencies]
-iroha_validator = { version = "2.0.0-pre-rc.13", path = "../wasm/validator", features = ["debug"]}
+iroha_validator = { version = "2.0.0-pre-rc.13", path = "../wasm/validator", features = ["debug", "default-validator"]}
 
 panic-halt = "0.2.0"

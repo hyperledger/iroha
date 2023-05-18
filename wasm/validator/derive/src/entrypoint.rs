@@ -91,7 +91,7 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     block.stmts.insert(
         0,
         parse_quote!(
-            use ::iroha_validator::iroha_wasm::ExecuteOnHost as _;
+            use ::iroha_validator::iroha_wasm::{ExecuteOnHost as _, QueryHost as _};
         ),
     );
 
@@ -111,6 +111,8 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
             bytes_box.as_ptr()
         }
 
+        // NOTE: Host objects are allways passed by value to wasm
+        #[allow(clippy::needless_pass_by_value)]
         #(#attrs)*
         #vis #sig
         #block
