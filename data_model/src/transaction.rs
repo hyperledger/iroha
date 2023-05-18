@@ -22,6 +22,8 @@ use iroha_schema::IntoSchema;
 use iroha_version::declare_versioned_with_scale;
 use iroha_version::{declare_versioned, version, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
+#[cfg(feature = "transparent_api")]
+use sealed::sealed;
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
@@ -142,6 +144,60 @@ pub trait Sign {
         self,
         key_pair: iroha_crypto::KeyPair,
     ) -> Result<SignedTransaction, iroha_crypto::error::Error>;
+}
+
+/// Sealed trait for accepting transactions. Downstream users
+/// should only use its extension traits [`InGenesis`] and
+/// [`InBlock`] according to the use case.
+#[sealed]
+#[cfg(all(feature = "std", feature = "transparent_api"))]
+pub trait Accept: Sized {
+    /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
+    ///
+    /// # Errors
+    ///
+    /// - if it does not adhere to limits
+    /// - if signature verification fails
+    fn accept<const IS_GENESIS: bool>(
+        transaction: SignedTransaction,
+        limits: &TransactionLimits,
+    ) -> Result<Self, error::AcceptTransactionFailure>;
+}
+
+/// Trait for accepting transactions in block context.
+#[cfg(all(feature = "std", feature = "transparent_api"))]
+pub trait InBlock: Sized + Accept {
+    /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`]
+    /// in block context.
+    ///
+    /// # Errors
+    ///
+    /// - if it does not adhere to limits
+    /// - if signature verification fails
+    fn accept(
+        transaction: SignedTransaction,
+        limits: &TransactionLimits,
+    ) -> Result<Self, error::AcceptTransactionFailure> {
+        <Self as Accept>::accept::<false>(transaction, limits)
+    }
+}
+
+/// Trait for accepting transactions in genesis context.
+#[cfg(all(feature = "std", feature = "transparent_api"))]
+pub trait InGenesis: Sized + Accept {
+    /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`]
+    /// in genesis context.
+    ///
+    /// # Errors
+    ///
+    /// - if it does not adhere to limits
+    /// - if signature verification fails
+    fn accept(
+        transaction: SignedTransaction,
+        limits: &TransactionLimits,
+    ) -> Result<Self, error::AcceptTransactionFailure> {
+        <Self as Accept>::accept::<true>(transaction, limits)
+    }
 }
 
 #[model]
@@ -790,7 +846,8 @@ impl Transaction for AcceptedTransaction {
 }
 
 #[cfg(feature = "transparent_api")]
-impl AcceptedTransaction {
+#[sealed]
+impl Accept for AcceptedTransaction {
     /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
     ///
     /// # Errors
@@ -798,7 +855,7 @@ impl AcceptedTransaction {
     /// - if it does not adhere to limits
     /// - if signature verification fails
     #[cfg(feature = "std")]
-    pub fn accept<const IS_GENESIS: bool>(
+    fn accept<const IS_GENESIS: bool>(
         transaction: SignedTransaction,
         limits: &TransactionLimits,
     ) -> Result<Self, error::AcceptTransactionFailure> {
@@ -814,6 +871,12 @@ impl AcceptedTransaction {
         })
     }
 }
+
+#[cfg(feature = "transparent_api")]
+impl InGenesis for AcceptedTransaction {}
+
+#[cfg(feature = "transparent_api")]
+impl InBlock for AcceptedTransaction {}
 
 #[cfg(feature = "transparent_api")]
 impl From<VersionedAcceptedTransaction> for VersionedSignedTransaction {
@@ -884,7 +947,7 @@ pub mod error {
         /// Error type for transaction from [`Transaction`] to [`AcceptedTransaction`]
         #[derive(Debug, Display, FromVariant)]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
-        pub(crate) enum AcceptTransactionFailure {
+        pub enum AcceptTransactionFailure {
             /// Failure during limits check
             TransactionLimit(#[cfg_attr(feature = "std", source)] TransactionLimitError),
             /// Failure during signature verification
@@ -1267,7 +1330,7 @@ mod tests {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        let result = AcceptedTransaction::accept::<false>(tx, &tx_limits);
+        let result = <AcceptedTransaction as InBlock>::accept(tx, &tx_limits);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -1301,7 +1364,7 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
 
-        assert!(AcceptedTransaction::accept::<true>(tx, &tx_limits).is_ok());
+        assert!(<AcceptedTransaction as InGenesis>::accept(tx, &tx_limits).is_ok());
     }
 
     #[test]
