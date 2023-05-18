@@ -1212,12 +1212,13 @@ mod swarm {
             strategy: &PrepareDirectoryStrategy,
             reporter: &Reporter,
         ) -> Result<EarlyEnding> {
+            let mut was_removed = false;
+
             // FIXME: use [`std::fs::try_exists`] when it is stable
             if self.path.exists() {
                 match strategy {
                     PrepareDirectoryStrategy::ForceRecreate => {
                         self.remove_dir()?;
-                        reporter.log_removed_directory(&self.path);
                     }
                     PrepareDirectoryStrategy::Prompt => {
                         if let EarlyEnding::Halt = self.remove_directory_with_prompt(&reporter)? {
@@ -1225,12 +1226,20 @@ mod swarm {
                         }
                     }
                 }
+                was_removed = true;
             }
 
             self.make_dir_recursive()
                 .wrap_err("failed to create the directory")?;
 
-            reporter.log_directory_created(&self.path);
+            reporter.log_target_directory_ready(
+                &self.path,
+                if was_removed {
+                    ui::TargetDirectoryAction::Recreated
+                } else {
+                    ui::TargetDirectoryAction::Created
+                },
+            );
 
             Ok(EarlyEnding::Continue)
         }
@@ -1257,7 +1266,6 @@ mod swarm {
                 })?
             {
                 self.remove_dir()?;
-                reporter.log_removed_directory(&self.path);
                 Ok(EarlyEnding::Continue)
             } else {
                 Ok(EarlyEnding::Halt)
@@ -1854,22 +1862,38 @@ mod swarm {
     }
 
     mod ui {
-        use color_eyre::{eyre::WrapErr, Help};
-        use iroha_crypto::ursa::sha2::digest::generic_array::typenum::Abs;
+        use color_eyre::Help;
         use owo_colors::OwoColorize;
 
-        use super::{AbsolutePath, ResolvedImageSource, Result};
-        use crate::swarm::{DIR_FORCE_SUGGESTION, FILE_COMPOSE};
+        use super::{AbsolutePath, Result};
+        use crate::swarm::DIR_FORCE_SUGGESTION;
 
-        const INFO: &str = "ℹ";
-        const SUCCESS: &str = "✓";
-        const WARNING: &str = "‼";
+        mod prefix {
+            use owo_colors::{FgColorDisplay, OwoColorize};
 
-        pub struct Reporter;
+            pub fn info() -> FgColorDisplay<'static, owo_colors::colors::BrightBlue, &'static str> {
+                "ℹ".bright_blue()
+            }
+
+            pub fn success() -> FgColorDisplay<'static, owo_colors::colors::Green, &'static str> {
+                "✓".green()
+            }
+
+            pub fn warning() -> FgColorDisplay<'static, owo_colors::colors::Yellow, &'static str> {
+                "‼".yellow()
+            }
+        }
+
+        pub(super) struct Reporter;
 
         pub(super) enum PromptAnswer {
             Yes,
             No,
+        }
+
+        pub(super) enum TargetDirectoryAction {
+            Created,
+            Recreated,
         }
 
         impl Reporter {
@@ -1877,31 +1901,39 @@ mod swarm {
                 Self
             }
 
-            pub(super) fn log_removed_directory(&self, dir: &AbsolutePath) {
-                println!("{INFO} Removed directory: {}", dir.display().dimmed());
-            }
-
-            pub(super) fn log_directory_created(&self, dir: &AbsolutePath) {
-                println!("{INFO} Created directory: {}", dir.display().green().bold());
+            pub(super) fn log_target_directory_ready(
+                &self,
+                dir: &AbsolutePath,
+                action: TargetDirectoryAction,
+            ) {
+                println!(
+                    "{} {} directory: {}",
+                    prefix::info(),
+                    match action {
+                        TargetDirectoryAction::Created => "Created",
+                        TargetDirectoryAction::Recreated => "Re-created",
+                    },
+                    dir.display().green().bold()
+                );
             }
 
             pub(super) fn log_default_configuration_is_written(&self, dir: &AbsolutePath) {
                 println!(
-                    "{INFO} Generated default configuration in {}",
+                    "{} Generated default configuration in {}",
+                    prefix::info(),
                     dir.display().green().bold()
                 );
             }
 
             pub(super) fn warn_no_default_config(&self, dir: &AbsolutePath) {
                 println!(
-                    "{}",
-                    format!(
-                    "{WARNING} Config directory is created, but the configuration itself is not.\
-                        \n  Without any configuration, generated peers will be unable to start.\
-                        \n  Don't forget to put the configuration into:\n\n    {}\n",
-                    dir.display().bold()
-                )
-                    .yellow()
+                    "{} {}\n\n    {}\n",
+                    prefix::warning().bold(),
+                    "Config directory is created, but the configuration itself is not.\
+                    \n  Without any configuration, generated peers will be unable to start.\
+                    \n  Don't forget to put the configuration into:"
+                        .yellow(),
+                    dir.display().bold().yellow()
                 );
             }
 
@@ -1926,7 +1958,7 @@ mod swarm {
             }
 
             pub(super) fn log_cloning_repo(&self) {
-                println!("{INFO} Cloning git repo...");
+                println!("{} Cloning git repo...", prefix::info());
             }
 
             pub(super) fn spinner_validator(self) -> SpinnerValidator {
@@ -1935,8 +1967,9 @@ mod swarm {
 
             pub(super) fn log_complete(&self, dir: &AbsolutePath) {
                 println!(
-                    "{SUCCESS} Docker compose configuration is ready at:\n\n    {}\
-                        \n\n  You could `{}` in it.",
+                    "{} Docker compose configuration is ready at:\n\n    {}\
+                    \n\n  You could `{}` in it.",
+                    prefix::success(),
                     dir.display().green().bold(),
                     "docker compose up".blue()
                 );
@@ -1960,7 +1993,8 @@ mod swarm {
             }
 
             fn done(self, message: impl AsRef<str>) -> Result<Reporter> {
-                self.inner.stop_and_persist(SUCCESS, message.as_ref());
+                self.inner
+                    .stop_and_persist(&format!("{}", prefix::success()), message.as_ref());
                 Ok(self.reporter)
             }
         }
