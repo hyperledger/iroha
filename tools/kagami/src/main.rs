@@ -953,8 +953,8 @@ mod swarm {
 
             let config_dir = AbsolutePath::absolutize(target_dir.path.join(DIR_CONFIG))?;
 
-            let (source, reporter) = source
-                .resolve(&target_dir, reporter)
+            let source = source
+                .resolve(&target_dir, &reporter)
                 .wrap_err("failed to resolve the source of image")?;
 
             let reporter = if self.no_default_configuration {
@@ -1052,16 +1052,13 @@ mod swarm {
         fn resolve(
             self,
             target: &TargetDirectory,
-            reporter: Reporter,
-        ) -> Result<(ResolvedImageSource, Reporter)> {
-            let (source, reporter) = match self {
-                Self::Path(path) => (
-                    ResolvedImageSource::Build {
-                        path: AbsolutePath::absolutize(path)
-                            .wrap_err("failed to resolve build path")?,
-                    },
-                    reporter,
-                ),
+            reporter: &Reporter,
+        ) -> Result<ResolvedImageSource> {
+            let source = match self {
+                Self::Path(path) => ResolvedImageSource::Build {
+                    path: AbsolutePath::absolutize(path)
+                        .wrap_err("failed to resolve build path")?,
+                },
                 Self::Github { revision } => {
                     let clone_dir = target.path.join(DIR_CLONE);
                     let clone_dir = AbsolutePath::absolutize(clone_dir)?;
@@ -1071,17 +1068,14 @@ mod swarm {
                     shallow_git_clone(GIT_ORIGIN, revision, &clone_dir)
                         .wrap_err("failed to clone the repo")?;
 
-                    (ResolvedImageSource::Build { path: clone_dir }, reporter)
+                    ResolvedImageSource::Build { path: clone_dir }
                 }
-                Self::Dockerhub(channel) => (
-                    ResolvedImageSource::Image {
-                        name: channel.as_dockerhub_image().to_owned(),
-                    },
-                    reporter,
-                ),
+                Self::Dockerhub(channel) => ResolvedImageSource::Image {
+                    name: channel.as_dockerhub_image().to_owned(),
+                },
             };
 
-            Ok((source, reporter))
+            Ok(source)
         }
     }
 
