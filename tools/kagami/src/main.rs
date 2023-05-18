@@ -58,12 +58,10 @@ pub enum Args {
     Docs(Box<docs::Args>),
     /// Generate a list of predefined permission tokens and their parameters
     Tokens(tokens::Args),
-    /// Generate validator
+    /// Generate a validator
     Validator(validator::Args),
-    /// Generate docker-compose configuration for a variable number of peers
+    /// Generate a docker-compose configuration for a variable number of peers
     /// using Dockerhub images, Git repo or a local path.
-    ///
-    /// In opposite to other commands, this command is channel-agnostic, i.e.
     Swarm(swarm::Args),
 }
 
@@ -79,7 +77,7 @@ impl<T: Write> RunArgs<T> for Args {
             Docs(args) => args.run(writer),
             Tokens(args) => args.run(writer),
             Validator(args) => args.run(writer),
-            Swarm(args) => args.run(writer),
+            Swarm(args) => args.run(),
         }
     }
 }
@@ -862,7 +860,7 @@ mod validator {
 mod swarm {
     use std::{
         fs::File,
-        io::{BufWriter, Write},
+        io::Write,
         num::NonZeroUsize,
         ops::Deref,
         path::{Path, PathBuf},
@@ -882,9 +880,9 @@ mod swarm {
             serialize_docker_compose::{
                 DockerCompose, DockerComposeService, ServiceCommand, ServiceSource,
             },
-            ui::Reporter,
+            ui::UserInterface,
         },
-        Outcome, RunArgs,
+        Outcome,
     };
 
     const GIT_REVISION: &str = env!("VERGEN_GIT_SHA");
@@ -932,9 +930,9 @@ mod swarm {
         seed: Option<String>,
     }
 
-    impl<T: Write> RunArgs<T> for Args {
-        fn run(self, _writer: &mut BufWriter<T>) -> Outcome {
-            let reporter = ui::Reporter::new();
+    impl Args {
+        pub fn run(self) -> Outcome {
+            let ui = ui::UserInterface::new();
 
             let prepare_dir_strategy = if self.dir_force {
                 PrepareDirectoryStrategy::ForceRecreate
@@ -945,7 +943,7 @@ mod swarm {
             let target_dir = TargetDirectory::new(AbsolutePath::absolutize(self.dir)?);
 
             if let EarlyEnding::Halt = target_dir
-                .prepare(&prepare_dir_strategy, &reporter)
+                .prepare(&prepare_dir_strategy, &ui)
                 .wrap_err("failed to prepare directory")?
             {
                 return Ok(());
@@ -954,15 +952,15 @@ mod swarm {
             let config_dir = AbsolutePath::absolutize(target_dir.path.join(DIR_CONFIG))?;
 
             let source = source
-                .resolve(&target_dir, &reporter)
+                .resolve(&target_dir, &ui)
                 .wrap_err("failed to resolve the source of image")?;
 
-            let reporter = if self.no_default_configuration {
+            let ui = if self.no_default_configuration {
                 PrepareConfigurationStrategy::GenerateOnlyDirectory
             } else {
                 PrepareConfigurationStrategy::GenerateDefault
             }
-            .run(&config_dir, reporter)
+            .run(&config_dir, ui)
             .wrap_err("failed to prepare configuration")?;
 
             DockerComposeBuilder {
@@ -977,7 +975,7 @@ mod swarm {
             .write_file(&target_dir.path.join(FILE_COMPOSE))
             .wrap_err("failed to write compose file")?;
 
-            reporter.log_complete(&target_dir.path);
+            ui.log_complete(&target_dir.path);
 
             Ok(())
         }
@@ -1003,7 +1001,7 @@ mod swarm {
     #[derive(ClapArgs, Clone, Debug)]
     #[group(required = true, multiple = false)]
     struct ImageSourceArgs {
-        /// Use images published on Dockerhub.
+        /// Use an image published on Dockerhub.
         #[arg(long, value_name = "CHANNEL")]
         dockerhub: Option<Channel>,
         /// Clone `hyperledger/iroha` repo from the revision Kagami is built itself,
@@ -1052,7 +1050,7 @@ mod swarm {
         fn resolve(
             self,
             target: &TargetDirectory,
-            reporter: &Reporter,
+            ui: &UserInterface,
         ) -> Result<ResolvedImageSource> {
             let source = match self {
                 Self::Path(path) => ResolvedImageSource::Build {
@@ -1063,7 +1061,7 @@ mod swarm {
                     let clone_dir = target.path.join(DIR_CLONE);
                     let clone_dir = AbsolutePath::absolutize(clone_dir)?;
 
-                    reporter.log_cloning_repo();
+                    ui.log_cloning_repo();
 
                     shallow_git_clone(GIT_ORIGIN, revision, &clone_dir)
                         .wrap_err("failed to clone the repo")?;
@@ -1136,13 +1134,13 @@ mod swarm {
     }
 
     impl PrepareConfigurationStrategy {
-        fn run(&self, config_dir: &AbsolutePath, reporter: Reporter) -> Result<Reporter> {
+        fn run(&self, config_dir: &AbsolutePath, ui: UserInterface) -> Result<UserInterface> {
             std::fs::create_dir(config_dir).wrap_err("failed to create the config directory")?;
 
-            let reporter = match self {
+            let ui = match self {
                 Self::GenerateOnlyDirectory => {
-                    reporter.warn_no_default_config(&config_dir);
-                    reporter
+                    ui.warn_no_default_config(&config_dir);
+                    ui
                 }
                 Self::GenerateDefault => {
                     let path_validator = PathBuf::from_str(FILE_VALIDATOR).unwrap();
@@ -1158,12 +1156,12 @@ mod swarm {
                         serde_json::to_string_pretty(&proxy)?
                     };
 
-                    let spinner = reporter.spinner_validator();
+                    let spinner = ui.spinner_validator();
 
                     let validator = super::validator::construct_validator()
                         .wrap_err("failed to construct the validator")?;
 
-                    let reporter = spinner.done()?;
+                    let ui = spinner.done()?;
 
                     File::create(config_dir.join(FILE_GENESIS))?
                         .write_all(raw_genesis_block.as_bytes())?;
@@ -1172,12 +1170,12 @@ mod swarm {
                     File::create(config_dir.join(path_validator))?
                         .write_all(validator.as_slice())?;
 
-                    reporter.log_default_configuration_is_written(&config_dir);
-                    reporter
+                    ui.log_default_configuration_is_written(&config_dir);
+                    ui
                 }
             };
 
-            Ok(reporter)
+            Ok(ui)
         }
     }
 
@@ -1204,7 +1202,7 @@ mod swarm {
         fn prepare(
             &self,
             strategy: &PrepareDirectoryStrategy,
-            reporter: &Reporter,
+            ui: &UserInterface,
         ) -> Result<EarlyEnding> {
             let mut was_removed = false;
 
@@ -1215,7 +1213,7 @@ mod swarm {
                         self.remove_dir()?;
                     }
                     PrepareDirectoryStrategy::Prompt => {
-                        if let EarlyEnding::Halt = self.remove_directory_with_prompt(&reporter)? {
+                        if let EarlyEnding::Halt = self.remove_directory_with_prompt(&ui)? {
                             return Ok(EarlyEnding::Halt);
                         }
                     }
@@ -1223,10 +1221,9 @@ mod swarm {
                 was_removed = true;
             }
 
-            self.make_dir_recursive()
-                .wrap_err("failed to create the directory")?;
+            self.make_dir_recursive()?;
 
-            reporter.log_target_directory_ready(
+            ui.log_target_directory_ready(
                 &self.path,
                 if was_removed {
                     ui::TargetDirectoryAction::Recreated
@@ -1249,12 +1246,11 @@ mod swarm {
         /// # Errors
         ///
         /// - If TTY is not interactive
-        fn remove_directory_with_prompt(&self, reporter: &Reporter) -> Result<EarlyEnding> {
-            if let ui::PromptAnswer::Yes = reporter
-                .prompt_remove_target_dir(&self.path)
-                .wrap_err_with(|| {
+        fn remove_directory_with_prompt(&self, ui: &UserInterface) -> Result<EarlyEnding> {
+            if let ui::PromptAnswer::Yes =
+                ui.prompt_remove_target_dir(&self.path).wrap_err_with(|| {
                     eyre!(
-                        "Failed to prompt removal for the directory: {}",
+                        "failed to prompt removal for the directory: {}",
                         self.path.display()
                     )
                 })?
@@ -1878,7 +1874,7 @@ mod swarm {
             }
         }
 
-        pub(super) struct Reporter;
+        pub(super) struct UserInterface;
 
         pub(super) enum PromptAnswer {
             Yes,
@@ -1890,7 +1886,7 @@ mod swarm {
             Recreated,
         }
 
-        impl Reporter {
+        impl UserInterface {
             pub(super) fn new() -> Self {
                 Self
             }
@@ -1972,38 +1968,35 @@ mod swarm {
 
         struct Spinner {
             inner: spinoff::Spinner,
-            reporter: Reporter,
+            ui: UserInterface,
         }
 
         impl Spinner {
-            fn new(message: impl AsRef<str>, reporter: Reporter) -> Self {
+            fn new(message: impl AsRef<str>, ui: UserInterface) -> Self {
                 let inner = spinoff::Spinner::new(
                     spinoff::spinners::Dots,
                     message.as_ref().to_owned(),
                     spinoff::Color::White,
                 );
 
-                Self { inner, reporter }
+                Self { inner, ui }
             }
 
-            fn done(self, message: impl AsRef<str>) -> Result<Reporter> {
+            fn done(self, message: impl AsRef<str>) -> Result<UserInterface> {
                 self.inner
                     .stop_and_persist(&format!("{}", prefix::success()), message.as_ref());
-                Ok(self.reporter)
+                Ok(self.ui)
             }
         }
 
         pub(super) struct SpinnerValidator(Spinner);
 
         impl SpinnerValidator {
-            fn new(reporter: Reporter) -> Self {
-                Self(Spinner::new(
-                    "Constructing the default validator...",
-                    reporter,
-                ))
+            fn new(ui: UserInterface) -> Self {
+                Self(Spinner::new("Constructing the default validator...", ui))
             }
 
-            pub(super) fn done(self) -> Result<Reporter> {
+            pub(super) fn done(self) -> Result<UserInterface> {
                 self.0.done("Constructed the validator")
             }
         }
