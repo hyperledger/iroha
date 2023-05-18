@@ -2390,6 +2390,9 @@
       }
     ]
   },
+  "MerkleTree<VersionedSignedTransaction>": {
+    "Vec": "HashOf<VersionedSignedTransaction>"
+  },
   "Metadata": {
     "Struct": [
       {
@@ -3282,6 +3285,50 @@
       {
         "name": "object",
         "type": "EvaluatesTo<RegistrableBox>"
+      }
+    ]
+  },
+  "RegistrableBox": {
+    "Enum": [
+      {
+        "tag": "Peer",
+        "discriminant": 0,
+        "type": "Peer"
+      },
+      {
+        "tag": "Domain",
+        "discriminant": 1,
+        "type": "NewDomain"
+      },
+      {
+        "tag": "Account",
+        "discriminant": 2,
+        "type": "NewAccount"
+      },
+      {
+        "tag": "AssetDefinition",
+        "discriminant": 3,
+        "type": "NewAssetDefinition"
+      },
+      {
+        "tag": "Asset",
+        "discriminant": 4,
+        "type": "Asset"
+      },
+      {
+        "tag": "Trigger",
+        "discriminant": 5,
+        "type": "Trigger<FilterBox, Executable>"
+      },
+      {
+        "tag": "Role",
+        "discriminant": 6,
+        "type": "NewRole"
+      },
+      {
+        "tag": "PermissionTokenDefinition",
+        "discriminant": 7,
+        "type": "PermissionTokenDefinition"
       }
     ]
   },
