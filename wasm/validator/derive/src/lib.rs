@@ -94,10 +94,10 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # Example
 ///
 /// ```ignore
-/// use iroha_validator::{pass_conditions, prelude::*};
+/// use iroha_validator::{permission, prelude::*};
 ///
-/// #[derive(Token, ValidateGrantRevoke, pass_conditions::derive_conversions::asset::Owner)]
-/// #[validate(pass_conditions::asset::Owner)]
+/// #[derive(Token, ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
+/// #[validate(permission::asset::Owner)]
 /// struct CanDoSomethingWithAsset {
 ///     some_data: String,
 ///     asset_id: <Asset as Identifiable>::Id,
@@ -130,7 +130,7 @@ pub fn derive_token(input: TokenStream) -> TokenStream {
 ///
 /// ## `validate` attribute
 ///
-/// Use `validate` to specify [*Pass Condition*](#pass_conditions) for both `Grant` and `Revoke`
+/// Use `validate` to specify [*Pass Condition*](#permission) for both `Grant` and `Revoke`
 /// instructions validation.
 ///
 /// ## `validate_grant` and `validate_revoke` attributes
@@ -140,7 +140,7 @@ pub fn derive_token(input: TokenStream) -> TokenStream {
 ///
 /// # Pass conditions
 ///
-/// You can pass any type implementing `iroha_validator::pass_conditions::PassCondition`
+/// You can pass any type implementing `iroha_validator::permission::PassCondition`
 /// and `From<&YourToken>` traits.
 ///
 /// ## Builtin
@@ -151,7 +151,7 @@ pub fn derive_token(input: TokenStream) -> TokenStream {
 /// - `asset::Owner` - checks if the authority is the asset owner;
 /// - `account::Owner` - checks if the authority is the account owner.
 ///
-/// Also check out `iroha_validator::pass_conditions::derive_conversion` module
+/// Also check out `iroha_validator::permission::derive_conversion` module
 /// for conversion derive macros from your token to this *Pass Conditions*.
 ///
 /// ## Why *Pass Conditions*?
@@ -188,11 +188,11 @@ pub fn derive_validate(input: TokenStream) -> TokenStream {
 }
 
 /// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
-/// from your token to a `pass_conditions::asset_definition::Owner` type.
+/// from your token to a `permission::asset_definition::Owner` type.
 ///
 /// Requires `asset_definition_id` field in the token.
 ///
-/// Implements [`From`] for `pass_conditions::asset_definition::Owner`
+/// Implements [`From`] for `permission::asset_definition::Owner`
 /// and not [`Into`] for your type. [`Into`] will be implemented automatically.
 #[proc_macro_derive(RefIntoAssetDefinitionOwner)]
 pub fn derive_ref_into_asset_definition_owner(input: TokenStream) -> TokenStream {
@@ -200,11 +200,11 @@ pub fn derive_ref_into_asset_definition_owner(input: TokenStream) -> TokenStream
 }
 
 /// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
-/// from your token to a `pass_conditions::asset::Owner` type.
+/// from your token to a `permission::asset::Owner` type.
 ///
 /// Requires `asset_id` field in the token.
 ///
-/// Implements [`From`] for `pass_conditions::asset::Owner`
+/// Implements [`From`] for `permission::asset::Owner`
 /// and not [`Into`] for your type. [`Into`] will be implemented automatically.
 #[proc_macro_derive(RefIntoAssetOwner)]
 pub fn derive_ref_into_asset_owner(input: TokenStream) -> TokenStream {
@@ -212,11 +212,11 @@ pub fn derive_ref_into_asset_owner(input: TokenStream) -> TokenStream {
 }
 
 /// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
-/// from your token to a `pass_conditions::account::Owner` type.
+/// from your token to a `permission::account::Owner` type.
 ///
 /// Requires `account_id` field in the token.
 ///
-/// Implements [`From`] for `pass_conditions::asset::Owner`
+/// Implements [`From`] for `permission::asset::Owner`
 /// and not [`Into`] for your type. [`Into`] will be implemented automatically.
 #[proc_macro_derive(RefIntoAccountOwner)]
 pub fn derive_ref_into_account_owner(input: TokenStream) -> TokenStream {

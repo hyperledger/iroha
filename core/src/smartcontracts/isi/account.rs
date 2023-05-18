@@ -4,7 +4,7 @@
 use iroha_data_model::{asset::AssetsMap, prelude::*, query::error::FindError, role::RoleIds};
 use iroha_telemetry::metrics;
 
-use super::{prelude::*, Context};
+use super::prelude::*;
 use crate::{ValidQuery, WorldStateView};
 
 impl Registrable for iroha_data_model::account::NewAccount {
@@ -12,7 +12,7 @@ impl Registrable for iroha_data_model::account::NewAccount {
 
     #[must_use]
     #[inline]
-    fn build(self, _authority: AccountId) -> Self::Target {
+    fn build(self, _authority: &AccountId) -> Self::Target {
         Self::Target {
             id: self.id,
             signatories: self.signatories,
@@ -40,14 +40,8 @@ pub mod isi {
 
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     impl Execute for Register<Asset> {
-        type Error = Error;
-
         #[metrics(+"register_asset")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_id = self.object.id;
 
             match wsv.asset(&asset_id) {
@@ -96,10 +90,8 @@ pub mod isi {
     }
 
     impl Execute for Unregister<Asset> {
-        type Error = Error;
-
         #[metrics(+"unregister_asset")]
-        fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_id = self.object_id;
             let account_id = asset_id.account_id.clone();
 
@@ -133,14 +125,8 @@ pub mod isi {
     }
 
     impl Execute for Mint<Account, PublicKey> {
-        type Error = Error;
-
-        #[metrics(+"mint_account_pubkey")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        #[metrics(+"mint_account_public_key")]
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let public_key = self.object;
 
@@ -158,14 +144,8 @@ pub mod isi {
     }
 
     impl Execute for Burn<Account, PublicKey> {
-        type Error = Error;
-
-        #[metrics(+"burn_account_pubkey")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        #[metrics(+"burn_account_public_key")]
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let public_key = self.object;
 
@@ -187,14 +167,8 @@ pub mod isi {
     }
 
     impl Execute for Mint<Account, SignatureCheckCondition> {
-        type Error = Error;
-
         #[metrics(+"mint_account_signature_check_condition")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let signature_check_condition = self.object;
 
@@ -205,15 +179,9 @@ pub mod isi {
         }
     }
 
-    impl Execute for SetKeyValue<Account, Name, Value> {
-        type Error = Error;
-
-        #[metrics(+"set_key_value_account_string_value")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+    impl Execute for SetKeyValue<Account> {
+        #[metrics(+"set_account_key_value")]
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.object_id;
 
             let account_metadata_limits = wsv.config.borrow().account_metadata_limits;
@@ -234,15 +202,9 @@ pub mod isi {
         }
     }
 
-    impl Execute for RemoveKeyValue<Account, Name> {
-        type Error = Error;
-
+    impl Execute for RemoveKeyValue<Account> {
         #[metrics(+"remove_account_key_value")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.object_id;
 
             wsv.modify_account(&account_id, |account| {
@@ -261,14 +223,8 @@ pub mod isi {
     }
 
     impl Execute for Grant<Account, PermissionToken> {
-        type Error = Error;
-
-        #[metrics(+"grant_account_permission_token")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        #[metrics(+"grant_account_permission")]
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let permission = self.object;
 
@@ -299,10 +255,8 @@ pub mod isi {
     }
 
     impl Execute for Revoke<Account, PermissionToken> {
-        type Error = Error;
-
-        #[metrics(+"revoke_account_permission_token")]
-        fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
+        #[metrics(+"revoke_account_permission")]
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let permission = self.object;
 
@@ -325,14 +279,8 @@ pub mod isi {
     }
 
     impl Execute for Grant<Account, RoleId> {
-        type Error = Error;
-
         #[metrics(+"grant_account_role")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let role_id = self.object;
 
@@ -374,10 +322,8 @@ pub mod isi {
     }
 
     impl Execute for Revoke<Account, RoleId> {
-        type Error = Error;
-
         #[metrics(+"revoke_account_role")]
-        fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
             let role_id = self.object;
 
@@ -461,8 +407,8 @@ pub mod isi {
 
         #[test]
         fn cannot_forbid_minting_on_asset_mintable_infinitely() -> Result<(), ParseError> {
-            let mut definition =
-                AssetDefinition::quantity("test#hello".parse()?).build("alice@wonderland".parse()?);
+            let authority = "alice@wonderland".parse()?;
+            let mut definition = AssetDefinition::quantity("test#hello".parse()?).build(&authority);
             assert!(super::forbid_minting(&mut definition).is_err());
             Ok(())
         }
@@ -473,16 +419,17 @@ pub mod isi {
 pub mod query {
 
     use eyre::{Result, WrapErr};
-    use iroha_data_model::query::error::QueryExecutionFailure as Error;
+    use iroha_data_model::{
+        evaluate::ExpressionEvaluator, query::error::QueryExecutionFailure as Error,
+    };
 
-    use super::{super::Evaluate, *};
+    use super::*;
 
     impl ValidQuery for FindRolesByAccountId {
         #[metrics(+"find_roles_by_account_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let account_id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let account_id = wsv
+                .evaluate(&self.id)
                 .wrap_err("Failed to evaluate account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%account_id, roles=?wsv.world.roles);
@@ -496,9 +443,8 @@ pub mod query {
     impl ValidQuery for FindPermissionTokensByAccountId {
         #[metrics(+"find_permission_tokens_by_account_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let account_id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let account_id = wsv
+                .evaluate(&self.id)
                 .wrap_err("Failed to evaluate account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%account_id, accounts=?wsv.world.domains);
@@ -525,9 +471,8 @@ pub mod query {
     impl ValidQuery for FindAccountById {
         #[metrics(+"find_account_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.id)
                 .wrap_err("Failed to get id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -538,9 +483,8 @@ pub mod query {
     impl ValidQuery for FindAccountsByName {
         #[metrics(+"find_account_by_name")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let name = self
-                .name
-                .evaluate(&Context::new(wsv))
+            let name = wsv
+                .evaluate(&self.name)
                 .wrap_err("Failed to get account name")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%name);
@@ -559,9 +503,8 @@ pub mod query {
     impl ValidQuery for FindAccountsByDomainId {
         #[metrics(+"find_accounts_by_domain_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .domain_id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.domain_id)
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -572,14 +515,12 @@ pub mod query {
     impl ValidQuery for FindAccountKeyValueByIdAndKey {
         #[metrics(+"find_account_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.id)
                 .wrap_err("Failed to get account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let key = self
-                .key
-                .evaluate(&Context::new(wsv))
+            let key = wsv
+                .evaluate(&self.key)
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id, %key);
@@ -591,9 +532,8 @@ pub mod query {
     impl ValidQuery for FindAccountsWithAsset {
         #[metrics(+"find_accounts_with_asset")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let asset_definition_id = self
-                .asset_definition_id
-                .evaluate(&Context::new(wsv))
+            let asset_definition_id = wsv
+                .evaluate(&self.asset_definition_id)
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%asset_definition_id);

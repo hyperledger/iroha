@@ -16,7 +16,7 @@ impl Registrable for iroha_data_model::domain::NewDomain {
 
     #[must_use]
     #[inline]
-    fn build(self, _authority: AccountId) -> Self::Target {
+    fn build(self, _authority: &AccountId) -> Self::Target {
         Self::Target {
             id: self.id,
             accounts: AccountsMap::default(),
@@ -39,14 +39,8 @@ pub mod isi {
     use super::*;
 
     impl Execute for Register<Account> {
-        type Error = Error;
-
         #[metrics(+"register_account")]
-        fn execute(
-            self,
-            authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account: Account = self.object.build(authority);
             let account_id = account.id().clone();
 
@@ -70,14 +64,8 @@ pub mod isi {
     }
 
     impl Execute for Unregister<Account> {
-        type Error = Error;
-
         #[metrics(+"unregister_account")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let account_id = self.object_id;
 
             wsv.modify_domain(&account_id.domain_id.clone(), |domain| {
@@ -91,14 +79,8 @@ pub mod isi {
     }
 
     impl Execute for Register<AssetDefinition> {
-        type Error = Error;
-
-        #[metrics(+"register_asset_def")]
-        fn execute(
-            self,
-            authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        #[metrics(+"register_asset_definition")]
+        fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_definition = self.object.build(authority);
             asset_definition
                 .id()
@@ -140,14 +122,8 @@ pub mod isi {
     }
 
     impl Execute for Unregister<AssetDefinition> {
-        type Error = Error;
-
-        #[metrics(+"unregister_asset_def")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        #[metrics(+"unregister_asset_definition")]
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
             let mut assets_to_remove = Vec::new();
@@ -199,15 +175,9 @@ pub mod isi {
         }
     }
 
-    impl Execute for SetKeyValue<AssetDefinition, Name, Value> {
-        type Error = Error;
-
-        #[metrics(+"set_key_value_asset_def")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+    impl Execute for SetKeyValue<AssetDefinition> {
+        #[metrics(+"set_key_value_asset_definition")]
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
             let metadata_limits = wsv.config.borrow().asset_definition_metadata_limits;
@@ -227,15 +197,9 @@ pub mod isi {
         }
     }
 
-    impl Execute for RemoveKeyValue<AssetDefinition, Name> {
-        type Error = Error;
-
-        #[metrics(+"remove_key_value_asset_def")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+    impl Execute for RemoveKeyValue<AssetDefinition> {
+        #[metrics(+"remove_key_value_asset_definition")]
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
             wsv.modify_asset_definition(&asset_definition_id.clone(), |asset_definition| {
@@ -253,15 +217,9 @@ pub mod isi {
         }
     }
 
-    impl Execute for SetKeyValue<Domain, Name, Value> {
-        type Error = Error;
-
-        #[metrics(+"set_key_value_domain")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+    impl Execute for SetKeyValue<Domain> {
+        #[metrics(+"set_domain_key_value")]
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let domain_id = self.object_id;
 
             let limits = wsv.config.borrow().domain_metadata_limits;
@@ -280,15 +238,9 @@ pub mod isi {
         }
     }
 
-    impl Execute for RemoveKeyValue<Domain, Name> {
-        type Error = Error;
-
-        #[metrics(+"remove_key_value_domain")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+    impl Execute for RemoveKeyValue<Domain> {
+        #[metrics(+"remove_domain_key_value")]
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let domain_id = self.object_id;
 
             wsv.modify_domain(&domain_id.clone(), |domain| {
@@ -328,9 +280,8 @@ pub mod query {
     impl ValidQuery for FindDomainById {
         #[metrics(+"find_domain_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.id)
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
@@ -341,14 +292,12 @@ pub mod query {
     impl ValidQuery for FindDomainKeyValueByIdAndKey {
         #[metrics(+"find_domain_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.id)
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let key = self
-                .key
-                .evaluate(&Context::new(wsv))
+            let key = wsv
+                .evaluate(&self.key)
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id, %key);
@@ -362,14 +311,12 @@ pub mod query {
     impl ValidQuery for FindAssetDefinitionKeyValueByIdAndKey {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let id = wsv
+                .evaluate(&self.id)
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let key = self
-                .key
-                .evaluate(&Context::new(wsv))
+            let key = wsv
+                .evaluate(&self.key)
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id, %key);

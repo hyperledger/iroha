@@ -9,21 +9,21 @@ pub mod wasm;
 
 use std::collections::BTreeMap;
 
-use iroha_data_model::{prelude::*, query::error::QueryExecutionFailure};
+use iroha_data_model::{
+    evaluate::ExpressionEvaluator, isi::error::InstructionExecutionFailure as Error, prelude::*,
+    query::error::QueryExecutionFailure,
+};
 pub use isi::*;
 
 use crate::wsv::WorldStateView;
 
 /// Trait implementations should provide actions to apply changes on [`WorldStateView`].
 pub trait Execute {
-    /// Error type returned by execute function
-    type Error: std::error::Error;
-
     /// Apply actions to `wsv` on behalf of `authority`.
     ///
     /// # Errors
     /// Concrete to each implementer.
-    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error>;
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error>;
 }
 
 /// This trait should be implemented for all Iroha Queries.
@@ -36,19 +36,20 @@ pub trait ValidQuery: Query {
     /// # Errors
     /// Concrete to each implementer
     fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure>;
+}
 
-    /// Executes query and maps it into value
-    ///
-    /// # Errors
-    /// Concrete to each implementer
-    fn execute_into_value(&self, wsv: &WorldStateView) -> Result<Value, QueryExecutionFailure> {
-        self.execute(wsv).map(Into::into)
+impl ExpressionEvaluator for WorldStateView {
+    fn evaluate<E: Evaluate>(
+        &self,
+        expression: &E,
+    ) -> Result<E::Value, iroha_data_model::evaluate::Error> {
+        expression.evaluate(&Context::new(self))
     }
 }
 
 /// Context of expression evaluation
 #[derive(Clone)]
-pub struct Context<'wsv> {
+struct Context<'wsv> {
     values: BTreeMap<Name, Value>,
     wsv: &'wsv WorldStateView,
 }

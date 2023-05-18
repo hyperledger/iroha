@@ -6,7 +6,7 @@ const DEFAULT_VALIDATOR_PATH: &str = "../default_validator";
 
 fn main() -> Result<()> {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed={}", DEFAULT_VALIDATOR_PATH);
+    println!("cargo:rerun-if-changed={DEFAULT_VALIDATOR_PATH}");
 
     extract_git_hash()?;
 

@@ -1,11 +1,11 @@
 //! Structures and impls related to *runtime* `Validator`s processing.
 
 use derive_more::DebugCustom;
+use iroha_data_model::{account::AccountId, validator as data_model_validator};
 #[cfg(test)]
 use iroha_data_model::{
     isi::InstructionBox, transaction::Executable, validator::NeedsValidationBox,
 };
-use iroha_data_model::{prelude::Account, validator as data_model_validator, Identifiable};
 use iroha_logger::trace;
 
 use super::wsv::WorldStateView;
@@ -70,7 +70,7 @@ impl Validator {
     pub fn validate(
         &self,
         wsv: &WorldStateView,
-        authority: &<Account as Identifiable>::Id,
+        authority: &AccountId,
         operation: impl Into<data_model_validator::NeedsValidationBox>,
     ) -> Result<()> {
         let operation = operation.into();
@@ -88,11 +88,9 @@ impl Validator {
             &operation,
         )?;
 
-        Result::<(), data_model_validator::DenialReason>::from(verdict).map_err(|reason| {
-            Error::ValidatorDeny {
-                operation: operation.clone(),
-                reason,
-            }
+        verdict.map_err(|reason| Error::ValidatorDeny {
+            operation: operation.clone(),
+            reason,
         })
     }
 }
@@ -139,19 +137,17 @@ impl MockValidator {
     pub fn validate(
         &self,
         wsv: &WorldStateView,
-        authority: &<Account as Identifiable>::Id,
+        authority: &AccountId,
         operation: impl Into<data_model_validator::NeedsValidationBox>,
     ) -> Result<()> {
         match operation.into() {
-            NeedsValidationBox::Instruction(isi) => {
-                Self::execute_instruction(wsv, authority.clone(), isi)
-            }
+            NeedsValidationBox::Instruction(isi) => Self::execute_instruction(wsv, authority, isi),
             NeedsValidationBox::Transaction(tx) => {
                 let Executable::Instructions(instructions) = tx.payload.instructions else {
                     return Ok(());
                 };
                 for isi in instructions {
-                    Self::execute_instruction(wsv, authority.clone(), isi)?;
+                    Self::execute_instruction(wsv, authority, isi)?;
                 }
                 Ok(())
             }
@@ -161,7 +157,7 @@ impl MockValidator {
 
     fn execute_instruction(
         wsv: &WorldStateView,
-        authority: <Account as Identifiable>::Id,
+        authority: &AccountId,
         instruction: InstructionBox,
     ) -> Result<()> {
         use super::smartcontracts::Execute as _;

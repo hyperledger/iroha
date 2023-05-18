@@ -212,11 +212,19 @@ mod internal {
             check_command_output(&command_output, "cargo fmt")
         }
 
-        fn check_smartcontract(&self) -> Result<()> {
-            let command_output = cargo_command()
+        fn get_base_command(&self, cmd: &'static str) -> std::process::Command {
+            let mut command = cargo_command();
+            command
                 .current_dir(&self.absolute_path)
-                .arg("check")
-                .args(Self::build_options())
+                .arg(cmd)
+                .args(Self::build_options());
+
+            command
+        }
+
+        fn check_smartcontract(&self) -> Result<()> {
+            let command_output = self
+                .get_base_command("check")
                 .output()
                 .wrap_err("Failed to run `cargo check`")?;
 
@@ -226,11 +234,9 @@ mod internal {
         fn build_smartcontract(&self) -> Result<Output> {
             let out_dir = tempfile::tempdir().wrap_err("Failed to create temporary directory")?;
 
-            let command_output = cargo_command()
-                .current_dir(&self.absolute_path)
+            let command_output = self
+                .get_base_command("build")
                 .env("CARGO_TARGET_DIR", self.out_dir.as_ref())
-                .arg("build")
-                .args(Self::build_options())
                 .args(["--out-dir", &out_dir.path().display().to_string()])
                 .output()
                 .wrap_err("Failed to run `cargo build`")?;

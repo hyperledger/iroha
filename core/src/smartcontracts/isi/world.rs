@@ -10,7 +10,7 @@ impl Registrable for NewRole {
 
     #[must_use]
     #[inline]
-    fn build(self, _authority: AccountId) -> Self::Target {
+    fn build(self, _authority: &AccountId) -> Self::Target {
         self.inner
     }
 }
@@ -23,14 +23,8 @@ pub mod isi {
     use super::*;
 
     impl Execute for Register<Peer> {
-        type Error = Error;
-
         #[metrics(+"register_peer")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let peer_id = self.object.id;
 
             wsv.modify_world(|world| {
@@ -47,14 +41,8 @@ pub mod isi {
     }
 
     impl Execute for Unregister<Peer> {
-        type Error = Error;
-
         #[metrics(+"unregister_peer")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let peer_id = self.object_id;
             wsv.modify_world(|world| {
                 if world.trusted_peers_ids.remove(&peer_id).is_none() {
@@ -67,14 +55,8 @@ pub mod isi {
     }
 
     impl Execute for Register<Domain> {
-        type Error = Error;
-
         #[metrics("register_domain")]
-        fn execute(
-            self,
-            authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let domain: Domain = self.object.build(authority);
             let domain_id = domain.id().clone();
 
@@ -100,14 +82,8 @@ pub mod isi {
     }
 
     impl Execute for Unregister<Domain> {
-        type Error = Error;
-
         #[metrics("unregister_domain")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let domain_id = self.object_id;
 
             wsv.modify_world(|world| {
@@ -123,14 +99,8 @@ pub mod isi {
     }
 
     impl Execute for Register<Role> {
-        type Error = Error;
-
         #[metrics(+"register_role")]
-        fn execute(
-            self,
-            authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let role = self.object.build(authority);
 
             for permission in &role.permissions {
@@ -160,14 +130,8 @@ pub mod isi {
     }
 
     impl Execute for Unregister<Role> {
-        type Error = Error;
-
         #[metrics("unregister_role")]
-        fn execute(
-            self,
-            authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let role_id = self.object_id;
 
             let mut accounts_with_role = vec![];
@@ -188,7 +152,7 @@ pub mod isi {
                     object: role_id.clone(),
                     destination_id: account_id,
                 };
-                revoke.execute(authority.clone(), wsv)?
+                revoke.execute(authority, wsv)?
             }
 
             wsv.modify_world(|world| {
@@ -202,14 +166,8 @@ pub mod isi {
     }
 
     impl Execute for Register<PermissionTokenDefinition> {
-        type Error = Error;
-
         #[metrics(+"register_token")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let definition = self.object;
             let definition_id = definition.id().clone();
 
@@ -233,14 +191,8 @@ pub mod isi {
     }
 
     impl Execute for Unregister<PermissionTokenDefinition> {
-        type Error = Error;
-
         #[metrics("unregister_permission_token")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let definition_id = self.object_id;
 
             remove_token_from_roles(wsv, &definition_id)?;
@@ -336,14 +288,8 @@ pub mod isi {
     }
 
     impl Execute for SetParameter {
-        type Error = Error;
-
         #[metrics(+"set_parameter")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let parameter = self.parameter;
 
             wsv.modify_world(|world| {
@@ -358,14 +304,8 @@ pub mod isi {
     }
 
     impl Execute for NewParameter {
-        type Error = Error;
-
         #[metrics(+"new_parameter")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             let parameter = self.parameter;
 
             wsv.modify_world(|world| {
@@ -382,14 +322,8 @@ pub mod isi {
     }
 
     impl Execute for Upgrade<Validator> {
-        type Error = Error;
-
         #[metrics(+"upgrade_validator")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView,
-        ) -> Result<(), Self::Error> {
+        fn execute(self, _authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
             #[cfg(test)]
             use crate::validator::MockValidator as Validator;
             #[cfg(not(test))]
@@ -447,9 +381,8 @@ pub mod query {
     impl ValidQuery for FindRoleByRoleId {
         #[metrics(+"find_role_by_role_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let role_id = self
-                .id
-                .evaluate(&Context::new(wsv))
+            let role_id = wsv
+                .evaluate(&self.id)
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%role_id);
 
@@ -490,9 +423,8 @@ pub mod query {
     impl ValidQuery for DoesAccountHavePermissionToken {
         #[metrics("does_account_have_permission")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let account_id = self
-                .account_id
-                .evaluate(&Context::new(wsv))
+            let account_id = wsv
+                .evaluate(&self.account_id)
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
 
             wsv.map_account(&account_id, |account| {
