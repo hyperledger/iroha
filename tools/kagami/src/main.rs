@@ -887,7 +887,7 @@ mod swarm {
         Outcome, RunArgs,
     };
 
-    const GIT_REVISION: &str = git_version::git_version!();
+    const GIT_REVISION: &str = env!("VERGEN_GIT_SHA");
     const GIT_ORIGIN: &str = "https://github.com/hyperledger/iroha.git";
     const DIR_CONFIG: &str = "config";
     const DIR_CLONE: &str = "iroha-cloned";
@@ -1066,12 +1066,10 @@ mod swarm {
                     let clone_dir = target.path.join(DIR_CLONE);
                     let clone_dir = AbsolutePath::absolutize(clone_dir)?;
 
-                    let spinner = reporter.spinner_repo_clone(GIT_ORIGIN);
+                    reporter.log_cloning_repo();
 
                     shallow_git_clone(GIT_ORIGIN, revision, &clone_dir)
                         .wrap_err("failed to clone the repo")?;
-
-                    let reporter = spinner.done()?;
 
                     (ResolvedImageSource::Build { path: clone_dir }, reporter)
                 }
@@ -1092,34 +1090,42 @@ mod swarm {
         revision: impl AsRef<str>,
         dir: &AbsolutePath,
     ) -> Result<()> {
+        use duct::{cmd, Expression};
+
+        trait CurrentDirExt {
+            fn current_dir(&mut self, dir: PathBuf) -> Self;
+        }
+
+        impl CurrentDirExt for Expression {
+            fn current_dir(&mut self, dir: PathBuf) -> Self {
+                self.before_spawn(move |cmd| {
+                    // idk how to avoid cloning here, cuz the closure is `Fn`, not `FnOnce`
+                    cmd.current_dir(dir.clone());
+                    Ok(())
+                })
+            }
+        }
+
         std::fs::create_dir(dir)?;
 
-        std::process::Command::new("git")
-            .arg("init")
-            .current_dir(dir)
-            .output()?;
+        let dir = dir.to_path_buf();
 
-        std::process::Command::new("git")
-            .arg("remote")
-            .arg("add")
-            .arg("origin")
-            .arg(remote.as_ref())
-            .current_dir(dir)
-            .output()?;
-
-        std::process::Command::new("git")
-            .arg("fetch")
-            .arg("--depth=1")
-            .arg("origin")
-            .arg(revision.as_ref())
-            .current_dir(dir)
-            .output()?;
-
-        std::process::Command::new("git")
-            .arg("checkout")
-            .arg("FETCH_HEAD")
-            .current_dir(dir)
-            .output()?;
+        cmd!("git", "init").current_dir(dir.clone()).run()?;
+        cmd!("git", "remote", "add", "origin", remote.as_ref())
+            .current_dir(dir.clone())
+            .run()?;
+        cmd!("git", "fetch", "--depth=1", "origin", revision.as_ref())
+            .current_dir(dir.clone())
+            .run()?;
+        cmd!(
+            "git",
+            "-c",
+            "advice.detachedHead=false",
+            "checkout",
+            "FETCH_HEAD"
+        )
+        .current_dir(dir.clone())
+        .run()?;
 
         Ok(())
     }
@@ -1388,7 +1394,7 @@ mod swarm {
     }
 
     mod key_gen {
-        use iroha_crypto::{Error, KeyGenConfiguration, KeyPair};
+        use iroha_crypto::{error::Error, KeyGenConfiguration, KeyPair};
 
         /// If there is no base seed, the additional one will be ignored
         pub fn generate(
@@ -1919,8 +1925,8 @@ mod swarm {
                 })
             }
 
-            pub(super) fn spinner_repo_clone(self, remote: impl AsRef<str>) -> SpinnerRepoClone {
-                SpinnerRepoClone::new(self, remote)
+            pub(super) fn log_cloning_repo(&self) {
+                println!("{INFO} Cloning git repo...");
             }
 
             pub(super) fn spinner_validator(self) -> SpinnerValidator {
@@ -1929,8 +1935,8 @@ mod swarm {
 
             pub(super) fn log_complete(&self, dir: &AbsolutePath) {
                 println!(
-                    "{SUCCESS} Docker compose configuration is ready at: {}\
-                        \n  You can now run `{}` in it",
+                    "{SUCCESS} Docker compose configuration is ready at:\n\n    {}\
+                        \n\n  You could `{}` in it.",
                     dir.display().green().bold(),
                     "docker compose up".blue()
                 );
@@ -1945,7 +1951,7 @@ mod swarm {
         impl Spinner {
             fn new(message: impl AsRef<str>, reporter: Reporter) -> Self {
                 let inner = spinoff::Spinner::new(
-                    spinoff::spinners::Aesthetic,
+                    spinoff::spinners::Dots,
                     message.as_ref().to_owned(),
                     spinoff::Color::White,
                 );
@@ -1956,21 +1962,6 @@ mod swarm {
             fn done(self, message: impl AsRef<str>) -> Result<Reporter> {
                 self.inner.stop_and_persist(SUCCESS, message.as_ref());
                 Ok(self.reporter)
-            }
-        }
-
-        pub(super) struct SpinnerRepoClone(Spinner);
-
-        impl SpinnerRepoClone {
-            fn new(reporter: Reporter, remote: impl AsRef<str>) -> Self {
-                Self(Spinner::new(
-                    format!("Cloning repo {}...", remote.as_ref().magenta().bold()),
-                    reporter,
-                ))
-            }
-
-            pub(super) fn done(self) -> Result<Reporter> {
-                self.0.done("Cloned the repo")
             }
         }
 
@@ -1985,7 +1976,7 @@ mod swarm {
             }
 
             pub(super) fn done(self) -> Result<Reporter> {
-                self.0.done("Constructed the default validator")
+                self.0.done("Constructed the validator")
             }
         }
     }
