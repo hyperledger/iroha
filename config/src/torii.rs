@@ -21,10 +21,13 @@ pub const DEFAULT_TORII_MAX_CONTENT_LENGTH: u32 = 2_u32.pow(12) * 4000;
 #[config(env_prefix = "TORII_")]
 pub struct Configuration {
     /// Torii address for p2p communication for consensus and block synchronization purposes.
+    #[config(serde_as_str)]
     pub p2p_addr: SocketAddr,
     /// Torii address for client API.
+    #[config(serde_as_str)]
     pub api_url: SocketAddr,
     /// Torii address for reporting internal status and metrics for administration.
+    #[config(serde_as_str)]
     pub telemetry_url: SocketAddr,
     /// Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
     pub max_transaction_size: u32,
