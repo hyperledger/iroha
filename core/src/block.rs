@@ -26,7 +26,6 @@ use sealed::sealed;
 use crate::{
     prelude::*,
     sumeragi::network_topology::{Role, Topology},
-    tx::TransactionValidator,
 };
 
 /// Transaction data is permanently recorded in chunks called
@@ -46,39 +45,36 @@ pub struct PendingBlock {
 }
 
 /// Builder for `PendingBlock`
-pub struct BlockBuilder<'a> {
+pub struct BlockBuilder {
     /// Block's transactions.
     pub transactions: Vec<VersionedAcceptedTransaction>,
     /// Block's event recommendations.
     pub event_recommendations: Vec<Event>,
-    /// The height of the block.
-    pub height: u64,
-    /// The hash of the previous block if there is one.
-    pub previous_block_hash: Option<HashOf<VersionedCommittedBlock>>,
     /// The view change index this block was committed with. Produced by consensus.
     pub view_change_index: u64,
     /// The topology thihs block was committed with. Produced by consensus.
     pub committed_with_topology: Topology,
     /// The keypair used to sign this block.
     pub key_pair: KeyPair,
-    /// The transaction validator to be used when validating the block.
-    pub transaction_validator: &'a TransactionValidator,
     /// The world state to be used when validating the block.
     pub wsv: WorldStateView,
 }
 
-impl BlockBuilder<'_> {
+impl BlockBuilder {
     /// Create a new [`PendingBlock`] from transactions.
     pub fn build(self) -> PendingBlock {
         let timestamp = crate::current_time().as_millis();
+        let height = self.wsv.height() + 1;
+        let previous_block_hash = self.wsv.latest_block_hash();
+        let transaction_validator = self.wsv.transaction_validator();
         // TODO: Need to check if the `transactions` vector is empty. It shouldn't be allowed.
 
         let mut header = BlockHeader {
             timestamp,
             consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
-            height: self.height,
+            height,
             view_change_index: self.view_change_index,
-            previous_block_hash: self.previous_block_hash,
+            previous_block_hash,
             transactions_hash: None,
             rejected_transactions_hash: None,
             committed_with_topology: self.committed_with_topology.sorted_peers,
@@ -88,10 +84,7 @@ impl BlockBuilder<'_> {
         let mut rejected = Vec::new();
 
         for tx in self.transactions {
-            match self
-                .transaction_validator
-                .validate(tx.into_v1(), header.is_genesis(), &self.wsv)
-            {
+            match transaction_validator.validate(tx.into_v1(), header.is_genesis(), &self.wsv) {
                 Ok(tx) => txs.push(tx),
                 Err(tx) => {
                     iroha_logger::warn!(
@@ -270,13 +263,7 @@ impl PendingBlock {
 pub trait Revalidate: Sized {
     /// # Errors
     /// - When the block is deemed invalid.
-    fn revalidate<const IS_GENESIS: bool>(
-        &self,
-        transaction_validator: &TransactionValidator,
-        wsv: WorldStateView,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
-        block_height: u64,
-    ) -> Result<(), eyre::Report>;
+    fn revalidate<const IS_GENESIS: bool>(&self, wsv: WorldStateView) -> Result<(), eyre::Report>;
 
     /// Return whether or not the block contains transactions already committed.
     fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool;
@@ -287,20 +274,8 @@ pub trait Revalidate: Sized {
 pub trait InGenesis: Sized + Revalidate {
     /// # Errors
     /// - When the block is deemed invalid.
-    fn revalidate(
-        &self,
-        transaction_validator: &TransactionValidator,
-        wsv: WorldStateView,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
-        block_height: u64,
-    ) -> Result<(), eyre::Report> {
-        <Self as Revalidate>::revalidate::<true>(
-            self,
-            transaction_validator,
-            wsv,
-            latest_block,
-            block_height,
-        )
+    fn revalidate(&self, wsv: WorldStateView) -> Result<(), eyre::Report> {
+        <Self as Revalidate>::revalidate::<true>(self, wsv)
     }
 }
 
@@ -309,20 +284,8 @@ pub trait InGenesis: Sized + Revalidate {
 pub trait InBlock: Sized + Revalidate {
     /// # Errors
     /// - When the block is deemed invalid.
-    fn revalidate(
-        &self,
-        transaction_validator: &TransactionValidator,
-        wsv: WorldStateView,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
-        block_height: u64,
-    ) -> Result<(), eyre::Report> {
-        <Self as Revalidate>::revalidate::<false>(
-            self,
-            transaction_validator,
-            wsv,
-            latest_block,
-            block_height,
-        )
+    fn revalidate(&self, wsv: WorldStateView) -> Result<(), eyre::Report> {
+        <Self as Revalidate>::revalidate::<false>(self, wsv)
     }
 }
 
@@ -342,13 +305,11 @@ impl Revalidate for PendingBlock {
     /// - Block header transaction hashes don't match with computed transaction hashes
     /// - Error during revalidation of individual transactions
     #[allow(clippy::too_many_lines)]
-    fn revalidate<const IS_GENESIS: bool>(
-        &self,
-        transaction_validator: &TransactionValidator,
-        wsv: WorldStateView,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
-        block_height: u64,
-    ) -> Result<(), eyre::Report> {
+    fn revalidate<const IS_GENESIS: bool>(&self, wsv: WorldStateView) -> Result<(), eyre::Report> {
+        let latest_block_hash = wsv.latest_block_hash();
+        let block_height = wsv.height();
+        let transaction_validator = wsv.transaction_validator();
+
         if self.transactions.is_empty() && self.rejected_transactions.is_empty() {
             bail!("Block is empty");
         }
@@ -357,10 +318,10 @@ impl Revalidate for PendingBlock {
             bail!("Block has committed transactions");
         }
 
-        if latest_block != self.header.previous_block_hash {
+        if latest_block_hash != self.header.previous_block_hash {
             bail!(
                     "Mismatch between the actual and expected hashes of the latest block. Expected: {:?}, actual: {:?}",
-                    latest_block,
+                    latest_block_hash,
                     &self.header.previous_block_hash
                 );
         }
@@ -490,13 +451,11 @@ impl Revalidate for VersionedCommittedBlock {
     /// - Block header transaction hashes don't match with computed transaction hashes
     /// - Error during revalidation of individual transactions
     #[allow(clippy::too_many_lines)]
-    fn revalidate<const IS_GENESIS: bool>(
-        &self,
-        transaction_validator: &TransactionValidator,
-        wsv: WorldStateView,
-        latest_block: Option<HashOf<VersionedCommittedBlock>>,
-        block_height: u64,
-    ) -> Result<(), eyre::Report> {
+    fn revalidate<const IS_GENESIS: bool>(&self, wsv: WorldStateView) -> Result<(), eyre::Report> {
+        let latest_block_hash = wsv.latest_block_hash();
+        let block_height = wsv.height();
+        let transaction_validator = wsv.transaction_validator();
+
         if self.has_committed_transactions(&wsv) {
             bail!("Block has committed transactions");
         }
@@ -506,10 +465,10 @@ impl Revalidate for VersionedCommittedBlock {
                     bail!("Block is empty");
                 }
 
-                if latest_block != block.header.previous_block_hash {
+                if latest_block_hash != block.header.previous_block_hash {
                     bail!(
                     "Mismatch between the actual and expected hashes of the latest block. Expected: {:?}, actual: {:?}",
-                    latest_block,
+                    latest_block_hash,
                     &block.header.previous_block_hash
                 );
                 }
@@ -710,30 +669,24 @@ mod tests {
             RegisterBox::new(AssetDefinition::quantity(asset_definition_id)).into();
 
         // Making two transactions that have the same instruction
-        let transaction_limits = TransactionLimits {
-            max_instruction_number: 100,
-            max_wasm_size_bytes: 0,
-        };
-        let transaction_validator = TransactionValidator::new(transaction_limits);
         let tx = TransactionBuilder::new(alice_id, [create_asset_definition], 4000)
             .sign(alice_keys.clone())
             .expect("Valid");
-        let tx: VersionedAcceptedTransaction =
-            <AcceptedTransaction as InBlock>::accept(tx, &transaction_limits)
-                .map(Into::into)
-                .expect("Valid");
+        let tx: VersionedAcceptedTransaction = <AcceptedTransaction as InBlock>::accept(
+            tx,
+            &wsv.transaction_validator().transaction_limits,
+        )
+        .map(Into::into)
+        .expect("Valid");
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx.clone(), tx];
         let valid_block = BlockBuilder {
             transactions,
             event_recommendations: Vec::new(),
-            height: 1,
-            previous_block_hash: None,
             view_change_index: 0,
             committed_with_topology: Topology::new(Vec::new()),
             key_pair: alice_keys,
-            transaction_validator: &transaction_validator,
             wsv,
         }
         .build();
