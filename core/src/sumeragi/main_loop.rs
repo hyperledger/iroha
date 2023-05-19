@@ -2,7 +2,6 @@
 #![allow(clippy::cognitive_complexity)]
 use std::sync::mpsc;
 
-use iroha_crypto::HashOf;
 use iroha_data_model::{block::*, transaction::error::TransactionExpired};
 use iroha_p2p::UpdateTopology;
 use parking_lot::Mutex;
@@ -51,14 +50,6 @@ pub struct Sumeragi {
     /// Only used in testing. Causes the genesis peer to withhold blocks when it
     /// is the proxy tail.
     pub debug_force_soft_fork: bool,
-    /// The view change index of latest [`VersionedCommittedBlock`]
-    pub latest_block_view_change_index: u64,
-    /// The hash of the latest [`VersionedCommittedBlock`]
-    pub latest_block_hash: Option<HashOf<VersionedCommittedBlock>>,
-    /// Hash of the previous [`VersionedCommittedBlock`]
-    pub previous_block_hash: Option<HashOf<VersionedCommittedBlock>>,
-    /// Current block height
-    pub latest_block_height: u64,
     /// The current network topology.
     pub current_topology: Topology,
     /// The sumeragi internal `WorldStateView`. This will probably
@@ -156,7 +147,7 @@ impl Sumeragi {
                     packet.view_change_proofs,
                     &current_topology.sorted_peers,
                     current_topology.max_faults(),
-                    self.latest_block_hash,
+                    self.wsv.latest_block_hash(),
                 ) {
                     trace!(%error, "Failed to add proofs into view change proof chain")
                 }
@@ -209,8 +200,8 @@ impl Sumeragi {
                                     &block,
                                     &self.wsv.transaction_validator(),
                                     self.wsv.clone(),
-                                    self.latest_block_hash,
-                                    self.latest_block_height,
+                                    self.wsv.latest_block_hash(),
+                                    self.wsv.height(),
                                 ) {
                                     Ok(()) => block,
                                     Err(error) => {
@@ -228,8 +219,8 @@ impl Sumeragi {
                                 &block,
                                 &self.wsv.transaction_validator(),
                                 self.wsv.clone(),
-                                self.latest_block_hash,
-                                self.latest_block_height,
+                                self.wsv.latest_block_hash(),
+                                self.wsv.height(),
                             ) {
                                 Ok(()) => block,
                                 Err(error) => {
@@ -261,8 +252,8 @@ impl Sumeragi {
 
         info!("Initializing iroha using the genesis block.");
 
-        assert_eq!(self.latest_block_height, 0);
-        assert_eq!(self.latest_block_hash, None);
+        assert_eq!(self.wsv.height(), 0);
+        assert_eq!(self.wsv.latest_block_hash(), None);
 
         let transactions = genesis_network.transactions;
         // Don't start genesis round. Instead just commit the genesis block.
@@ -302,43 +293,11 @@ impl Sumeragi {
     }
 
     fn commit_block(&mut self, block: impl Into<VersionedCommittedBlock>) {
-        let committed_block = Arc::new(block.into());
-
-        self.finalized_wsv = self.wsv.clone();
-        self.update_state(&Arc::clone(&committed_block), Kura::store_block);
-        self.previous_block_hash = self.latest_block_hash;
-
-        info!(
-            addr=%self.peer_id.address,
-            role=%self.current_topology.role(&self.peer_id),
-            block_height=%self.latest_block_height,
-            block_hash=%committed_block.hash(),
-            "Committing block"
-        );
-
-        self.update_topology(&committed_block);
-
-        self.cache_transaction();
+        self.update_state::<NewBlockStrategy>(block);
     }
 
     fn replace_top_block(&mut self, block: impl Into<VersionedCommittedBlock>) {
-        let committed_block = Arc::new(block.into());
-
-        self.wsv = self.finalized_wsv.clone();
-        self.update_state(&Arc::clone(&committed_block), Kura::replace_top_block);
-        // state.previous_block_hash stays the same.
-
-        info!(
-            addr=%self.peer_id.address,
-            role=%self.current_topology.role(&self.peer_id),
-            block_height=%self.latest_block_height,
-            block_hash=%committed_block.hash(),
-            "Replacing top block"
-        );
-
-        self.update_topology(&committed_block);
-
-        self.cache_transaction()
+        self.update_state::<ReplaceTopBlockStrategy>(block);
     }
 
     fn update_topology(&mut self, committed_block: &VersionedCommittedBlock) {
@@ -363,11 +322,22 @@ impl Sumeragi {
         self.connect_peers(&self.current_topology);
     }
 
-    fn update_state(
+    fn update_state<Strategy: ApplyBlockStrategy>(
         &mut self,
-        committed_block: &Arc<VersionedCommittedBlock>,
-        kura_store_block: fn(&Kura, Arc<VersionedCommittedBlock>),
+        block: impl Into<VersionedCommittedBlock>,
     ) {
+        let committed_block = Arc::new(block.into());
+
+        info!(
+            addr=%self.peer_id.address,
+            role=%self.current_topology.role(&self.peer_id),
+            block_height=%self.wsv.height(),
+            block_hash=%committed_block.hash(),
+            "{}", Strategy::LOG_MESSAGE,
+        );
+
+        Strategy::before_update_hook(self);
+
         self.wsv
             .apply(committed_block.as_ref())
             .expect("Failed to apply block on WSV. Bailing.");
@@ -378,9 +348,9 @@ impl Sumeragi {
         self.update_params();
 
         // https://github.com/hyperledger/iroha/issues/3396
-        // Iroha should emit `BlockCommitted` event only after Kura stored the block.
-        // However, WSV update should happen first, in order to avoid storing a corrupted block
-        kura_store_block(&self.kura, Arc::clone(committed_block));
+        // Kura should store the block only upon successful application to the internal WSV to avoid storing a corrupted block.
+        // Public-facing WSV update should happen after that and be followed by `BlockCommited` event to prevent client access to uncommitted data.
+        Strategy::kura_store_block(&self.kura, Arc::clone(&committed_block));
 
         // Update WSV copy that is public facing
         *self.public_wsv.lock() = self.wsv.clone();
@@ -389,10 +359,9 @@ impl Sumeragi {
         // AFTER public facing WSV update
         self.send_events(committed_block.as_ref());
 
-        let header = &committed_block.as_v1().header;
-        self.latest_block_height = header.height;
-        self.latest_block_hash = Some(committed_block.hash());
-        self.latest_block_view_change_index = header.view_change_index;
+        self.update_topology(committed_block.as_ref());
+
+        self.cache_transaction()
     }
 
     fn update_params(&mut self) {
@@ -423,7 +392,7 @@ fn suggest_view_change(
 ) {
     let suspect_proof = {
         let mut proof = Proof {
-            latest_block_hash: sumeragi.latest_block_hash,
+            latest_block_hash: sumeragi.wsv.latest_block_hash(),
             view_change_index: current_view_change_index,
             signatures: Vec::new(),
         };
@@ -437,7 +406,7 @@ fn suggest_view_change(
         .insert_proof(
             &sumeragi.current_topology.sorted_peers,
             sumeragi.current_topology.max_faults(),
-            sumeragi.latest_block_hash,
+            sumeragi.wsv.latest_block_hash(),
             suspect_proof,
         )
         .unwrap_or_else(|err| error!("{err}"));
@@ -453,11 +422,11 @@ fn prune_view_change_proofs_and_calculate_current_index(
     sumeragi: &Sumeragi,
     view_change_proof_chain: &mut ProofChain,
 ) -> u64 {
-    view_change_proof_chain.prune(sumeragi.latest_block_hash);
+    view_change_proof_chain.prune(sumeragi.wsv.latest_block_hash());
     view_change_proof_chain.verify_with_state(
         &sumeragi.current_topology.sorted_peers,
         sumeragi.current_topology.max_faults(),
-        sumeragi.latest_block_hash,
+        sumeragi.wsv.latest_block_hash(),
     ) as u64
 }
 
@@ -487,8 +456,8 @@ fn handle_message(
                 &block.clone(),
                 &sumeragi.wsv.transaction_validator(),
                 sumeragi.wsv.clone(),
-                sumeragi.latest_block_hash,
-                sumeragi.latest_block_height,
+                sumeragi.wsv.latest_block_hash(),
+                sumeragi.wsv.height(),
             )
             .or_else(|_|
                 /* If the block fails validation we must check again using the finaziled wsv.
@@ -498,8 +467,8 @@ fn handle_message(
                     &block,
                     &sumeragi.finalized_wsv.transaction_validator(),
                     sumeragi.finalized_wsv.clone(),
-                    sumeragi.previous_block_hash,
-                    sumeragi.latest_block_height.saturating_sub(1),
+                    sumeragi.finalized_wsv.latest_block_hash(),
+                    sumeragi.wsv.height().saturating_sub(1),
                 )) {
                 Ok(()) => block,
                 Err(error) => {
@@ -509,15 +478,15 @@ fn handle_message(
             };
 
             let header = &block.as_v1().header();
-            if sumeragi.previous_block_hash == header.previous_block_hash
-                && sumeragi.latest_block_height == header.height
-                && sumeragi.latest_block_hash != Some(block.hash())
-                && sumeragi.latest_block_view_change_index < header.view_change_index
+            if sumeragi.finalized_wsv.latest_block_hash() == header.previous_block_hash
+                && sumeragi.wsv.height() == header.height
+                && sumeragi.wsv.latest_block_hash() != Some(block.hash())
+                && sumeragi.wsv.latest_block_view_change_index() < header.view_change_index
             {
                 error!(
                     %addr, %role,
-                    peer_latest_block_hash=?sumeragi.latest_block_hash,
-                    peer_latest_block_view_change_index=?sumeragi.latest_block_view_change_index,
+                    peer_latest_block_hash=?sumeragi.wsv.latest_block_hash(),
+                    peer_latest_block_view_change_index=?sumeragi.wsv.latest_block_view_change_index(),
                     consensus_latest_block_hash=%block.hash(),
                     consensus_latest_block_view_change_index=%header.view_change_index,
                     "Soft fork occurred: peer in inconsistent state. Rolling back and replacing top block."
@@ -525,20 +494,20 @@ fn handle_message(
                 sumeragi.replace_top_block(block);
                 return;
             }
-            if sumeragi.latest_block_hash != header.previous_block_hash {
+            if sumeragi.wsv.latest_block_hash() != header.previous_block_hash {
                 error!(
                     %addr, %role,
                     actual = ?header.previous_block_hash,
-                    expected = ?sumeragi.latest_block_hash,
+                    expected = ?sumeragi.wsv.latest_block_hash(),
                     "Mismatch between the actual and expected hashes of the latest block."
                 );
                 return;
             }
-            if sumeragi.latest_block_height + 1 != header.height {
+            if sumeragi.wsv.height() + 1 != header.height {
                 error!(
                     %addr, %role,
                     actual = header.height,
-                    expected = sumeragi.latest_block_height + 1,
+                    expected = sumeragi.wsv.height() + 1,
                     "Mismatch between the actual and expected height of the block."
                 );
                 return;
@@ -677,8 +646,8 @@ fn process_message_independent(
                     let new_block = BlockBuilder {
                         transactions,
                         event_recommendations,
-                        height: sumeragi.latest_block_height + 1,
-                        previous_block_hash: sumeragi.latest_block_hash,
+                        height: sumeragi.wsv.height() + 1,
+                        previous_block_hash: sumeragi.wsv.latest_block_hash(),
                         view_change_index: current_view_change_index,
                         committed_with_topology: sumeragi.current_topology.clone(),
                         key_pair: sumeragi.key_pair.clone(),
@@ -824,8 +793,8 @@ pub(crate) fn run(
     sumeragi.connect_peers(&sumeragi.current_topology);
 
     let span = span!(tracing::Level::TRACE, "genesis").entered();
-    let is_genesis_peer = if sumeragi.latest_block_height == 0
-        || sumeragi.latest_block_hash.is_none()
+    let is_genesis_peer = if sumeragi.wsv.height() == 0
+        || sumeragi.wsv.latest_block_hash().is_none()
     {
         if let Some(genesis_network) = genesis_network {
             sumeragi.sumeragi_init_commit_genesis(genesis_network);
@@ -841,8 +810,6 @@ pub(crate) fn run(
     };
     span.exit();
 
-    // Assert initialization was done properly.
-    assert_eq!(sumeragi.latest_block_hash, sumeragi.wsv.latest_block_hash());
     trace!(
         me=%sumeragi.peer_id.public_key,
         role_in_next_round=%sumeragi.current_topology.role(&sumeragi.peer_id),
@@ -908,7 +875,7 @@ pub(crate) fn run(
             sumeragi.pipeline_time(),
             current_view_change_index,
             &mut old_view_change_index,
-            sumeragi.latest_block_height,
+            sumeragi.wsv.height(),
             &mut old_latest_block_height,
             &mut sumeragi.current_topology,
             &mut voting_block,
@@ -1019,8 +986,8 @@ fn vote_for_block(
             &block,
             &sumeragi.wsv.transaction_validator(),
             sumeragi.wsv.clone(),
-            sumeragi.latest_block_hash,
-            sumeragi.latest_block_height,
+            sumeragi.wsv.latest_block_hash(),
+            sumeragi.wsv.height(),
         ) {
             Ok(()) => block,
             Err(err) => {
@@ -1085,5 +1052,53 @@ fn early_return(
             Err(EarlyReturn::ShutdownMessageReceived)
         }
         Err(TryRecvError::Empty) => Ok(()),
+    }
+}
+
+/// Strategy to apply block to sumeragi.
+trait ApplyBlockStrategy {
+    const LOG_MESSAGE: &'static str;
+
+    /// Perform necessary changes in sumeragi before applying block.
+    /// Like updating `wsv` or `finalized_wsv`.
+    fn before_update_hook(sumeragi: &mut Sumeragi);
+
+    /// Operation to invoke in kura to store block.
+    fn kura_store_block(kura: &Kura, block: Arc<VersionedCommittedBlock>);
+}
+
+/// Commit new block strategy. Used during normal consensus rounds.
+struct NewBlockStrategy;
+
+impl ApplyBlockStrategy for NewBlockStrategy {
+    const LOG_MESSAGE: &'static str = "Committing block";
+
+    #[inline]
+    fn before_update_hook(sumeragi: &mut Sumeragi) {
+        // Save current wsv state in case of rollback in the future
+        sumeragi.finalized_wsv = sumeragi.wsv.clone();
+    }
+
+    #[inline]
+    fn kura_store_block(kura: &Kura, block: Arc<VersionedCommittedBlock>) {
+        kura.store_block(block)
+    }
+}
+
+/// Replace top block strategy. Used in case of soft-fork.
+struct ReplaceTopBlockStrategy;
+
+impl ApplyBlockStrategy for ReplaceTopBlockStrategy {
+    const LOG_MESSAGE: &'static str = "Replacing top block";
+
+    #[inline]
+    fn before_update_hook(sumeragi: &mut Sumeragi) {
+        // Rollback to previous wsv state before applying block
+        sumeragi.wsv = sumeragi.finalized_wsv.clone();
+    }
+
+    #[inline]
+    fn kura_store_block(kura: &Kura, block: Arc<VersionedCommittedBlock>) {
+        kura.replace_top_block(block)
     }
 }
