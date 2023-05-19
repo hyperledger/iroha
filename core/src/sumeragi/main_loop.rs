@@ -432,62 +432,45 @@ fn handle_message(
             let block_hash = block.hash();
             info!(%addr, %role, hash=%block_hash, "Block sync update received");
 
-            let block = match <VersionedCommittedBlock as InBlock>::revalidate(
-                &block.clone(),
-                sumeragi.wsv.clone(),
-            )
-            .or_else(|_|
-                /* If the block fails validation we must check again using the finaziled wsv.
-                When a soft-fork occurs the consensus-block may be valid on the previous
-                wsv but not the current one. */
-                <VersionedCommittedBlock as InBlock>::revalidate(
-                    &block,
-                    sumeragi.finalized_wsv.clone(),
-                )) {
-                Ok(()) => block,
-                Err(error) => {
-                    error!(%addr, %role, %block_hash, ?error, "Block not valid.");
-                    return;
+            match handle_block_sync(block, &sumeragi.wsv, &sumeragi.finalized_wsv) {
+                Ok(BlockSyncOk::CommitBlock(block)) => sumeragi.commit_block(block),
+                Ok(BlockSyncOk::ReplaceTopBlock(block)) => {
+                    warn!(
+                        %addr, %role,
+                        peer_latest_block_hash=?sumeragi.wsv.latest_block_hash(),
+                        peer_latest_block_view_change_index=?sumeragi.wsv.latest_block_view_change_index(),
+                        consensus_latest_block_hash=%block.hash(),
+                        consensus_latest_block_view_change_index=%block.as_v1().header.view_change_index,
+                        "Soft fork occurred: peer in inconsistent state. Rolling back and replacing top block."
+                    );
+                    sumeragi.replace_top_block(block)
                 }
-            };
-
-            let header = &block.as_v1().header();
-            if sumeragi.finalized_wsv.latest_block_hash() == header.previous_block_hash
-                && sumeragi.wsv.height() == header.height
-                && sumeragi.wsv.latest_block_hash() != Some(block.hash())
-                && sumeragi.wsv.latest_block_view_change_index() < header.view_change_index
-            {
-                error!(
-                    %addr, %role,
-                    peer_latest_block_hash=?sumeragi.wsv.latest_block_hash(),
-                    peer_latest_block_view_change_index=?sumeragi.wsv.latest_block_view_change_index(),
-                    consensus_latest_block_hash=%block.hash(),
-                    consensus_latest_block_view_change_index=%header.view_change_index,
-                    "Soft fork occurred: peer in inconsistent state. Rolling back and replacing top block."
-                );
-                sumeragi.replace_top_block(block);
-                return;
+                Err(BlockSyncError::BlockNotValid(error)) => {
+                    error!(%addr, %role, %block_hash, ?error, "Block not valid.")
+                }
+                Err(BlockSyncError::SoftForkBlockNotValid(error)) => {
+                    error!(%addr, %role, %block_hash, ?error, "Soft-fork block not valid.")
+                }
+                Err(BlockSyncError::SoftForkBlockSmallViewChangeIndex {
+                    peer_view_change_index,
+                    block_view_change_index,
+                }) => {
+                    debug!(
+                        %addr, %role,
+                        peer_latest_block_hash=?sumeragi.wsv.latest_block_hash(),
+                        peer_latest_block_view_change_index=?peer_view_change_index,
+                        consensus_latest_block_hash=%block_hash,
+                        consensus_latest_block_view_change_index=%block_view_change_index,
+                        "Soft fork doesn't occurred: block has the same or smaller view change index"
+                    );
+                }
+                Err(BlockSyncError::BlockNotProperHeight {
+                    peer_height,
+                    block_height,
+                }) => {
+                    warn!(%addr, %role, %block_hash, %block_height, %peer_height, "Other peer send irrelevant or outdated block to the peer (it's neither `peer_height` nor `peer_height + 1`).")
+                }
             }
-            if sumeragi.wsv.latest_block_hash() != header.previous_block_hash {
-                error!(
-                    %addr, %role,
-                    actual = ?header.previous_block_hash,
-                    expected = ?sumeragi.wsv.latest_block_hash(),
-                    "Mismatch between the actual and expected hashes of the latest block."
-                );
-                return;
-            }
-            if sumeragi.wsv.height() + 1 != header.height {
-                error!(
-                    %addr, %role,
-                    actual = header.height,
-                    expected = sumeragi.wsv.height() + 1,
-                    "Mismatch between the actual and expected height of the block."
-                );
-                return;
-            }
-
-            sumeragi.commit_block(block);
         }
         (Message::BlockCommitted(BlockCommitted { hash, signatures }), _) => {
             if role == Role::ProxyTail && current_topology.is_consensus_required()
@@ -1065,5 +1048,212 @@ impl ApplyBlockStrategy for ReplaceTopBlockStrategy {
     #[inline]
     fn kura_store_block(kura: &Kura, block: Arc<VersionedCommittedBlock>) {
         kura.replace_top_block(block)
+    }
+}
+
+#[derive(Debug)]
+enum BlockSyncOk {
+    CommitBlock(VersionedCommittedBlock),
+    ReplaceTopBlock(VersionedCommittedBlock),
+}
+
+#[derive(Debug)]
+enum BlockSyncError {
+    BlockNotValid(eyre::Report),
+    SoftForkBlockNotValid(eyre::Report),
+    SoftForkBlockSmallViewChangeIndex {
+        peer_view_change_index: u64,
+        block_view_change_index: u64,
+    },
+    BlockNotProperHeight {
+        peer_height: u64,
+        block_height: u64,
+    },
+}
+
+fn handle_block_sync(
+    block: VersionedCommittedBlock,
+    wsv: &WorldStateView,
+    finalized_wsv: &WorldStateView,
+) -> Result<BlockSyncOk, BlockSyncError> {
+    let block_height = block.as_v1().header.height;
+    if wsv.height() + 1 == block_height {
+        // Normal branch for adding new block on top of current
+        InBlock::revalidate(&block, wsv.clone())
+            .map(|_| BlockSyncOk::CommitBlock(block))
+            .map_err(BlockSyncError::BlockNotValid)
+    } else if wsv.height() == block_height {
+        // Soft fork branch for replacing current block with valid one
+        InBlock::revalidate(&block, finalized_wsv.clone())
+            .map_err(BlockSyncError::SoftForkBlockNotValid)
+            .and_then(|_| {
+                let peer_view_change_index = wsv.latest_block_view_change_index();
+                let block_view_change_index = block.as_v1().header.view_change_index;
+                if peer_view_change_index < block_view_change_index {
+                    Ok(BlockSyncOk::ReplaceTopBlock(block))
+                } else {
+                    Err(BlockSyncError::SoftForkBlockSmallViewChangeIndex {
+                        peer_view_change_index,
+                        block_view_change_index,
+                    })
+                }
+            })
+    } else {
+        // Error branch other peer send irrelevant block
+        Err(BlockSyncError::BlockNotProperHeight {
+            peer_height: wsv.height(),
+            block_height,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use iroha_data_model::transaction::InBlock;
+
+    use super::*;
+    use crate::smartcontracts::Registrable;
+
+    fn create_data_for_test() -> (WorldStateView, Arc<Kura>, VersionedCommittedBlock) {
+        // Predefined world state
+        let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+        let alice_keys = KeyPair::generate().expect("Valid");
+        let account =
+            Account::new(alice_id.clone(), [alice_keys.public_key().clone()]).build(&alice_id);
+        let domain_id = DomainId::from_str("wonderland").expect("Valid");
+        let mut domain = Domain::new(domain_id).build(&alice_id);
+        assert!(domain.add_account(account).is_none());
+        let world = World::with([domain], Vec::new());
+        let kura = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world, Arc::clone(&kura));
+
+        // Creating an instruction
+        let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+        let create_asset_definition: InstructionBox =
+            RegisterBox::new(AssetDefinition::quantity(asset_definition_id)).into();
+
+        // Making two transactions that have the same instruction
+        let tx = TransactionBuilder::new(alice_id, [create_asset_definition], 4000)
+            .sign(alice_keys.clone())
+            .expect("Valid");
+        let tx: VersionedAcceptedTransaction =
+            AcceptedTransaction::accept(tx, &wsv.transaction_validator().transaction_limits)
+                .map(Into::into)
+                .expect("Valid");
+
+        // Creating a block of two identical transactions and validating it
+        let transactions = vec![tx.clone(), tx];
+        let block = BlockBuilder {
+            transactions,
+            event_recommendations: Vec::new(),
+            view_change_index: 0,
+            committed_with_topology: Topology::new(Vec::new()),
+            key_pair: alice_keys,
+            wsv: wsv.clone(),
+        }
+        .build();
+
+        let block = VersionedCommittedBlock::from(block.commit_unchecked());
+
+        (wsv, kura, block)
+    }
+
+    #[test]
+    fn block_sync_invalid_block() {
+        let (finalized_wsv, _, mut block) = create_data_for_test();
+        let wsv = finalized_wsv.clone();
+
+        // Malform block to make it invalid
+        block.as_mut_v1().transactions.clear();
+
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
+        assert!(matches!(result, Err(BlockSyncError::BlockNotValid(_))))
+    }
+
+    #[test]
+    fn block_sync_invalid_soft_fork_block() {
+        let (finalized_wsv, kura, mut block) = create_data_for_test();
+        let wsv = finalized_wsv.clone();
+
+        kura.store_block(block.clone());
+        wsv.apply(&block).expect("Failed to apply block");
+
+        // Malform block to make it invalid
+        block.as_mut_v1().transactions.clear();
+
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
+        assert!(matches!(
+            result,
+            Err(BlockSyncError::SoftForkBlockNotValid(_))
+        ))
+    }
+
+    #[test]
+    fn block_sync_not_proper_height() {
+        let (finalized_wsv, _, mut block) = create_data_for_test();
+        let wsv = finalized_wsv.clone();
+
+        // Change block height
+        block.as_mut_v1().header.height = 42;
+
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
+        assert!(matches!(
+            result,
+            Err(BlockSyncError::BlockNotProperHeight {
+                peer_height: 0,
+                block_height: 42
+            })
+        ))
+    }
+
+    #[test]
+    fn block_sync_commit_block() {
+        let (finalized_wsv, _, block) = create_data_for_test();
+        let wsv = finalized_wsv.clone();
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
+        assert!(matches!(result, Ok(BlockSyncOk::CommitBlock(_))))
+    }
+
+    #[test]
+    fn block_sync_replace_top_block() {
+        let (finalized_wsv, kura, mut block) = create_data_for_test();
+        let wsv = finalized_wsv.clone();
+
+        kura.store_block(block.clone());
+        wsv.apply(&block).expect("Failed to apply block to wsv");
+        assert_eq!(wsv.latest_block_view_change_index(), 0);
+
+        // Increase block view change index
+        block.as_mut_v1().header.view_change_index = 42;
+
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
+        assert!(matches!(result, Ok(BlockSyncOk::ReplaceTopBlock(_))))
+    }
+
+    #[test]
+    fn block_sync_small_view_change_index() {
+        let (finalized_wsv, kura, mut block) = create_data_for_test();
+        let wsv = finalized_wsv.clone();
+
+        // Increase block view change index
+        block.as_mut_v1().header.view_change_index = 42;
+
+        kura.store_block(block.clone());
+        wsv.apply(&block).expect("Failed to apply block to wsv");
+        assert_eq!(wsv.latest_block_view_change_index(), 42);
+
+        // Decrease block view change index back
+        block.as_mut_v1().header.view_change_index = 0;
+
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
+        assert!(matches!(
+            result,
+            Err(BlockSyncError::SoftForkBlockSmallViewChangeIndex {
+                peer_view_change_index: 42,
+                block_view_change_index: 0
+            })
+        ))
     }
 }
