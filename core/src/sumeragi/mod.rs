@@ -230,21 +230,19 @@ impl SumeragiHandle {
 
         info!("Sumeragi has finished loading blocks and setting up the WSV");
 
-        let latest_block_view_change_index = wsv.latest_block_view_change_index();
-        let latest_block_height = wsv.height();
-        let latest_block_hash = wsv.latest_block_hash();
-        let previous_block_hash = wsv.previous_block_hash();
-
-        let current_topology = if latest_block_height == 0 {
-            assert!(!configuration.trusted_peers.peers.is_empty());
-            Topology::new(configuration.trusted_peers.peers.clone())
-        } else {
-            let block_ref = kura.get_block_by_height(latest_block_height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
-            let mut topology = Topology {
-                sorted_peers: block_ref.as_v1().header.committed_with_topology.clone(),
-            };
-            topology.rotate_set_a();
-            topology
+        let current_topology = match wsv.height() {
+            0 => {
+                assert!(!configuration.trusted_peers.peers.is_empty());
+                Topology::new(configuration.trusted_peers.peers.clone())
+            }
+            height => {
+                let block_ref = kura.get_block_by_height(height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
+                let mut topology = Topology {
+                    sorted_peers: block_ref.as_v1().header.committed_with_topology.clone(),
+                };
+                topology.rotate_set_a();
+                topology
+            }
         };
 
         let public_wsv = Arc::new(Mutex::new(wsv.clone()));
@@ -267,10 +265,6 @@ impl SumeragiHandle {
             network: network.clone(),
             message_receiver,
             debug_force_soft_fork,
-            latest_block_view_change_index,
-            latest_block_hash,
-            previous_block_hash,
-            latest_block_height,
             current_topology,
             wsv,
             finalized_wsv,
