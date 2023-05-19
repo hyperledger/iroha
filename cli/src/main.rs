@@ -112,6 +112,8 @@ async fn main() -> Result<(), color_eyre::Report> {
     let config = iroha::combine_configs(&args)?;
     let telemetry = iroha_logger::init(&config.logger)?;
     if !config.disable_panic_terminal_colors {
+        // FIXME: it shouldn't be logged here; it is a part of configuration domain
+        //        this message can be very simply broken by the changes in the configuration
         iroha_logger::warn!("The configuration parameter `DISABLE_PANIC_TERMINAL_COLORS` is deprecated. Set `TERMINAL_COLORS=false` instead. ")
     }
     iroha_logger::info!(
