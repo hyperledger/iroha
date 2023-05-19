@@ -22,7 +22,10 @@ use super::{ClapArgs, Outcome};
 
 const GIT_REVISION: &str = env!("VERGEN_GIT_SHA");
 const GIT_ORIGIN: &str = "https://github.com/hyperledger/iroha.git";
+/// Config directory that is generated in the output directory
 const DIR_CONFIG: &str = "config";
+/// Config directory inside of the docker image
+const DIR_CONFIG_IN_DOCKER: &str = "/config";
 const DIR_CLONE: &str = "iroha-cloned";
 const FILE_VALIDATOR: &str = "validator.wasm";
 const FILE_CONFIG: &str = "config.json";
@@ -431,7 +434,7 @@ impl DockerComposeBuilder {
                 .to_str()
                 .wrap_err("config directory path is not a valid string")?
                 .to_owned(),
-            DIR_CONFIG.to_owned(),
+            DIR_CONFIG_IN_DOCKER.to_owned(),
         )];
 
         let services = peers
