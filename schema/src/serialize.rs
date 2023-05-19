@@ -138,12 +138,14 @@ impl Serialize for WithContext<'_, '_, EnumVariant> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if let Some(type_id) = self.data.ty {
             let mut map = serializer.serialize_map(Some(3))?;
-            map.serialize_entry("name", &self.data.tag)?;
+            map.serialize_entry("tag", &self.data.tag)?;
+            map.serialize_entry("discriminant", &self.data.discriminant)?;
             map.serialize_entry("type", self.type_name(type_id))?;
             map.end()
         } else {
             let mut map = serializer.serialize_map(Some(2))?;
-            map.serialize_entry("name", &self.data.tag)?;
+            map.serialize_entry("tag", &self.data.tag)?;
+            map.serialize_entry("discriminant", &self.data.discriminant)?;
             map.end()
         }
     }
