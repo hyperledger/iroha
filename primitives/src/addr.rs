@@ -404,8 +404,8 @@ ffi::ffi_item! {
         PartialOrd,
         Ord,
         Hash,
-        Deserialize,
-        Serialize,
+        SerializeDisplay,
+        DeserializeFromStr,
         Encode,
         Decode,
         IntoSchema,
@@ -779,6 +779,14 @@ mod test {
                 port: 9019
             })
         );
+
+        assert_eq!(
+            serde_json::from_str::<SocketAddr>("\"localhost:9019\"").unwrap(),
+            SocketAddr::Host(SocketAddrHost {
+                host: "localhost".into(),
+                port: 9019
+            })
+        );
     }
 
     #[test]
@@ -801,6 +809,27 @@ mod test {
         assert_eq!(
             serde_json::from_str::<SocketAddr>(&serde_json::to_string(&v6).unwrap()).unwrap(),
             v6
+        );
+
+        let host = SocketAddr::Host(SocketAddrHost {
+            host: "localhost".into(),
+            port: 9019,
+        });
+
+        assert_eq!(
+            serde_json::from_str::<SocketAddr>(&serde_json::to_string(&host).unwrap()).unwrap(),
+            host
+        );
+    }
+
+    #[test]
+    fn host() {
+        assert_eq!(
+            SocketAddrHost::from_str("localhost:9019").unwrap(),
+            SocketAddrHost {
+                host: "localhost".into(),
+                port: 9019
+            }
         );
     }
 }
