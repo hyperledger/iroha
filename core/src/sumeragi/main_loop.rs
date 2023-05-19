@@ -11,17 +11,6 @@ use super::*;
 use crate::{block::*, sumeragi::tracing::instrument};
 
 /// `Sumeragi` is the implementation of the consensus.
-///
-/// TODO: paraphrase
-///
-/// `sumeragi_state_data` is a [`Mutex`] instead of a `RWLock`
-/// because it communicates more clearly the correct use of the
-/// lock. The most frequent action on this lock is the main loop
-/// writing to it. This means that if anyone holds this lock they are
-/// blocking the sumeragi thread. A `RWLock` will tempt someone to
-/// hold a read lock because they think they are being smart, whilst a
-/// [`Mutex`] screams *DO NOT HOLD ME*. That is why the [`State`] is
-/// wrapped in a mutex, it's more self-documenting.
 pub struct Sumeragi {
     /// The pair of keys used for communication given this Sumeragi instance.
     pub key_pair: KeyPair,
@@ -198,10 +187,7 @@ impl Sumeragi {
                                 let _enter = span.enter();
                                 match <PendingBlock as InGenesis>::revalidate(
                                     &block,
-                                    &self.wsv.transaction_validator(),
                                     self.wsv.clone(),
-                                    self.wsv.latest_block_hash(),
-                                    self.wsv.height(),
                                 ) {
                                     Ok(()) => block,
                                     Err(error) => {
@@ -217,10 +203,7 @@ impl Sumeragi {
                             // Omit signature verification during genesis round
                             match <VersionedCommittedBlock as InGenesis>::revalidate(
                                 &block,
-                                &self.wsv.transaction_validator(),
                                 self.wsv.clone(),
-                                self.wsv.latest_block_hash(),
-                                self.wsv.height(),
                             ) {
                                 Ok(()) => block,
                                 Err(error) => {
@@ -265,12 +248,9 @@ impl Sumeragi {
         let block = BlockBuilder {
             transactions,
             event_recommendations: Vec::new(),
-            height: 1,
-            previous_block_hash: None,
             view_change_index: 0,
             committed_with_topology: self.current_topology.clone(),
             key_pair: self.key_pair.clone(),
-            transaction_validator: &self.wsv.transaction_validator(),
             wsv: self.wsv.clone(),
         }
         .build();
@@ -454,10 +434,7 @@ fn handle_message(
 
             let block = match <VersionedCommittedBlock as InBlock>::revalidate(
                 &block.clone(),
-                &sumeragi.wsv.transaction_validator(),
                 sumeragi.wsv.clone(),
-                sumeragi.wsv.latest_block_hash(),
-                sumeragi.wsv.height(),
             )
             .or_else(|_|
                 /* If the block fails validation we must check again using the finaziled wsv.
@@ -465,10 +442,7 @@ fn handle_message(
                 wsv but not the current one. */
                 <VersionedCommittedBlock as InBlock>::revalidate(
                     &block,
-                    &sumeragi.finalized_wsv.transaction_validator(),
                     sumeragi.finalized_wsv.clone(),
-                    sumeragi.finalized_wsv.latest_block_hash(),
-                    sumeragi.wsv.height().saturating_sub(1),
                 )) {
                 Ok(()) => block,
                 Err(error) => {
@@ -646,12 +620,9 @@ fn process_message_independent(
                     let new_block = BlockBuilder {
                         transactions,
                         event_recommendations,
-                        height: sumeragi.wsv.height() + 1,
-                        previous_block_hash: sumeragi.wsv.latest_block_hash(),
                         view_change_index: current_view_change_index,
                         committed_with_topology: sumeragi.current_topology.clone(),
                         key_pair: sumeragi.key_pair.clone(),
-                        transaction_validator: &sumeragi.wsv.transaction_validator(),
                         wsv: sumeragi.wsv.clone(),
                     }
                     .build();
@@ -982,13 +953,7 @@ fn vote_for_block(
         let span = span!(Level::TRACE, "block revalidation");
         let _enter = span.enter();
 
-        match <PendingBlock as InBlock>::revalidate(
-            &block,
-            &sumeragi.wsv.transaction_validator(),
-            sumeragi.wsv.clone(),
-            sumeragi.wsv.latest_block_hash(),
-            sumeragi.wsv.height(),
-        ) {
+        match <PendingBlock as InBlock>::revalidate(&block, sumeragi.wsv.clone()) {
             Ok(()) => block,
             Err(err) => {
                 warn!(%addr, %role, ?err);
