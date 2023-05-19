@@ -1,10 +1,9 @@
 use std::{
     fs::File,
     io::Write,
-    num::{NonZeroU16, NonZeroUsize},
+    num::NonZeroU16,
     ops::Deref,
     path::{Path, PathBuf},
-    str::FromStr,
 };
 
 use clap::ValueEnum;
@@ -71,7 +70,7 @@ pub struct Args {
 
 impl Args {
     pub fn run(self) -> Outcome {
-        let ui = ui::UserInterface::new();
+        let ui = UserInterface::new();
 
         let prepare_dir_strategy = if self.output_rewrite {
             PrepareDirectoryStrategy::ForceRecreate
@@ -250,7 +249,7 @@ fn shallow_git_clone(
         "checkout",
         "FETCH_HEAD"
     )
-    .current_dir(dir.clone())
+    .current_dir(dir)
     .run()?;
 
     Ok(())
@@ -273,7 +272,7 @@ impl PrepareConfigurationStrategy {
 
         let ui = match self {
             Self::GenerateOnlyDirectory => {
-                ui.warn_no_default_config(&config_dir);
+                ui.warn_no_default_config(config_dir);
                 ui
             }
             Self::GenerateDefault => {
@@ -295,14 +294,14 @@ impl PrepareConfigurationStrategy {
                 let validator = super::validator::construct_validator()
                     .wrap_err("failed to construct the validator")?;
 
-                let ui = spinner.done()?;
+                let ui = spinner.done();
 
                 File::create(config_dir.join(FILE_GENESIS))?
                     .write_all(raw_genesis_block.as_bytes())?;
                 File::create(config_dir.join(FILE_CONFIG))?.write_all(default_config.as_bytes())?;
                 File::create(config_dir.join(path_validator))?.write_all(validator.as_slice())?;
 
-                ui.log_default_configuration_is_written(&config_dir);
+                ui.log_default_configuration_is_written(config_dir);
                 ui
             }
         };
@@ -336,22 +335,22 @@ impl TargetDirectory {
         strategy: &PrepareDirectoryStrategy,
         ui: &UserInterface,
     ) -> Result<EarlyEnding> {
-        let mut was_removed = false;
-
         // FIXME: use [`std::fs::try_exists`] when it is stable
-        if self.path.exists() {
+        let was_removed = if self.path.exists() {
             match strategy {
                 PrepareDirectoryStrategy::ForceRecreate => {
                     self.remove_dir()?;
                 }
                 PrepareDirectoryStrategy::Prompt => {
-                    if let EarlyEnding::Halt = self.remove_directory_with_prompt(&ui)? {
+                    if let EarlyEnding::Halt = self.remove_directory_with_prompt(ui)? {
                         return Ok(EarlyEnding::Halt);
                     }
                 }
             }
-            was_removed = true;
-        }
+            true
+        } else {
+            false
+        };
 
         self.make_dir_recursive()?;
 
@@ -540,10 +539,7 @@ mod key_gen {
 }
 
 mod peer_generator {
-    use std::{
-        collections::HashMap,
-        num::{NonZeroU16, NonZeroUsize},
-    };
+    use std::{collections::HashMap, num::NonZeroU16};
 
     use color_eyre::{eyre::Context, Report};
     use iroha_crypto::KeyPair;
@@ -828,7 +824,6 @@ mod serialize_docker_compose {
             env::VarError,
             ffi::OsStr,
             path::PathBuf,
-            str::FromStr,
         };
 
         use color_eyre::eyre::Context;
@@ -840,7 +835,7 @@ mod serialize_docker_compose {
 
         use super::{
             CompactPeerEnv, DockerCompose, DockerComposeService, DockerComposeVersion, FullPeerEnv,
-            PairColon, SerializeAsJsonStr, ServiceSource,
+            PairColon, ServiceSource,
         };
         use crate::swarm::serialize_docker_compose::{AlwaysTrue, ServiceCommand};
 
@@ -1030,6 +1025,7 @@ mod ui {
         No,
     }
 
+    #[derive(Copy, Clone)]
     pub(super) enum TargetDirectoryAction {
         Created,
         Recreated,
@@ -1040,6 +1036,7 @@ mod ui {
             Self
         }
 
+        #[allow(clippy::unused_self)]
         pub(super) fn log_target_directory_ready(
             &self,
             dir: &AbsolutePath,
@@ -1056,6 +1053,7 @@ mod ui {
             );
         }
 
+        #[allow(clippy::unused_self)]
         pub(super) fn log_default_configuration_is_written(&self, dir: &AbsolutePath) {
             println!(
                 "{} Generated default configuration in {}",
@@ -1064,6 +1062,7 @@ mod ui {
             );
         }
 
+        #[allow(clippy::unused_self)]
         pub(super) fn warn_no_default_config(&self, dir: &AbsolutePath) {
             println!(
                 "{} {}\n\n    {}\n",
@@ -1076,6 +1075,7 @@ mod ui {
             );
         }
 
+        #[allow(clippy::unused_self)]
         pub(super) fn prompt_remove_target_dir(&self, dir: &AbsolutePath) -> Result<PromptAnswer> {
             inquire::Confirm::new(&format!(
                 "Directory {} already exists. Remove it?",
@@ -1093,6 +1093,7 @@ mod ui {
             })
         }
 
+        #[allow(clippy::unused_self)]
         pub(super) fn log_cloning_repo(&self) {
             println!("{} Cloning git repo...", prefix::info());
         }
@@ -1101,6 +1102,7 @@ mod ui {
             SpinnerValidator::new(self)
         }
 
+        #[allow(clippy::unused_self)]
         pub(super) fn log_complete(&self, dir: &AbsolutePath) {
             println!(
                 "{} Docker compose configuration is ready at:\n\n    {}\
@@ -1128,10 +1130,10 @@ mod ui {
             Self { inner, ui }
         }
 
-        fn done(self, message: impl AsRef<str>) -> Result<UserInterface> {
+        fn done(self, message: impl AsRef<str>) -> UserInterface {
             self.inner
                 .stop_and_persist(&format!("{}", prefix::success()), message.as_ref());
-            Ok(self.ui)
+            self.ui
         }
     }
 
@@ -1142,7 +1144,7 @@ mod ui {
             Self(Spinner::new("Constructing the default validator...", ui))
         }
 
-        pub(super) fn done(self) -> Result<UserInterface> {
+        pub(super) fn done(self) -> UserInterface {
             self.0.done("Constructed the validator")
         }
     }
@@ -1150,11 +1152,7 @@ mod ui {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        num::NonZeroUsize,
-        path::{Path, PathBuf},
-        str::FromStr,
-    };
+    use std::path::{Path, PathBuf};
 
     use super::{AbsolutePath, Absolutize, DockerComposeBuilder, ResolvedImageSource};
 
@@ -1194,7 +1192,7 @@ mod tests {
         let composed = DockerComposeBuilder {
             target_dir: AbsolutePath::from_virtual(&PathBuf::from("/test"), root),
             config_dir: AbsolutePath::from_virtual(&PathBuf::from("/test/config"), root),
-            peers: NonZeroUsize::new(4).unwrap(),
+            peers: 4.try_into().unwrap(),
             source: ResolvedImageSource::Build {
                 path: AbsolutePath::from_virtual(&PathBuf::from("/test/iroha-cloned"), root),
             },
