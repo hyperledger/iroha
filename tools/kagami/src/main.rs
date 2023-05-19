@@ -42,26 +42,42 @@ pub trait RunArgs<T: Write> {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome;
 }
 
-/// Tool generating the cryptographic key pairs, schema, genesis block and configuration reference.
+/// Kagami is a tool used to generate and validate automatically generated data files that are
+/// shipped with Iroha.
 #[derive(Parser, Debug)]
 #[command(name = "kagami", version, author)]
 pub enum Args {
-    /// Generate cryptographic key pairs
+    /// Generate cryptographic key pairs using the given algorithm and either private key or seed
     Crypto(Box<crypto::Args>),
     /// Generate the schema used for code generation in Iroha SDKs
     Schema(schema::Args),
     /// Generate the genesis block that is used in tests
     Genesis(genesis::Args),
-    /// Generate the default client configuration
+    /// Generate the default client/peer configuration
     Config(config::Args),
     /// Generate a Markdown reference of configuration parameters
     Docs(Box<docs::Args>),
     /// Generate a list of predefined permission tokens and their parameters
     Tokens(tokens::Args),
-    /// Generate a validator
+    /// Generate the default validator
     Validator(validator::Args),
     /// Generate a docker-compose configuration for a variable number of peers
-    /// using Dockerhub images, Git repo or a local path.
+    /// using a Dockerhub image, GitHub repo, or a local Iroha repo.
+    ///
+    /// This command builds the docker-compose configuration in a specified directory. If the source
+    /// is a GitHub repo, it will be cloned into the directory. Also, the default configuration is
+    /// built and put into `<target>/config` directory, unless `--no-default-configuration` flag is
+    /// provided. The default configuration is equivalent of running `kagami config peer`,
+    /// `kagami validator`, and`kagami genesis default --compiled-validator-path ./validator.wasm`.
+    ///
+    /// Default configuration building will fail if Kagami is run outside of Iroha repo (tracking
+    /// issue: https://github.com/hyperledger/iroha/issues/3473). If you are going to run it outside
+    /// of the repo, make sure to pass `--no-default-configuration` flag.
+    ///
+    /// Be careful with specifying a Dockerhub image as a source: Kagami Swarm only guarantees that
+    /// the docker-compose configuration it generates is compatible with the same Git revision it
+    /// is built from itself. Therefore, if specified image is not compatible with the version of Swarm
+    /// you are running, the generated configuration might not work.
     Swarm(swarm::Args),
 }
 
@@ -96,13 +112,13 @@ mod crypto {
     #[command(group = ArgGroup::new("generate_from").required(false))]
     #[command(group = ArgGroup::new("format").required(false))]
     pub struct Args {
-        /// Algorithm used to generate the key-pair.
+        /// The algorithm to use for the key-pair generation
         #[clap(default_value_t, long, short)]
         algorithm: AlgorithmArg,
-        /// The `private_key` used to generate the key-pair
+        /// The `private_key` to generate the key-pair from
         #[clap(long, short, group = "generate_from")]
         private_key: Option<String>,
-        /// The `seed` used to generate the key-pair
+        /// The `seed` to generate the key-pair from
         #[clap(long, short, group = "generate_from")]
         seed: Option<String>,
         /// Output the key-pair in JSON format

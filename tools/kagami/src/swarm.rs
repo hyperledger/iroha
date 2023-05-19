@@ -1,7 +1,7 @@
 use std::{
     fs::File,
     io::Write,
-    num::NonZeroUsize,
+    num::{NonZeroU16, NonZeroUsize},
     ops::Deref,
     path::{Path, PathBuf},
     str::FromStr,
@@ -29,7 +29,8 @@ const FILE_CONFIG: &str = "config.json";
 const FILE_GENESIS: &str = "genesis.json";
 const FILE_COMPOSE: &str = "docker-compose.yml";
 const DIR_FORCE_SUGGESTION: &str =
-    "You can pass `--dir-force` flag to remove the directory without prompting";
+    "You can pass `--output-rewrite` flag to remove the directory without prompting";
+const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
 
 #[derive(ClapArgs, Debug)]
 pub struct Args {
@@ -37,21 +38,21 @@ pub struct Args {
     source: ImageSourceArgs,
     /// How many peers to generate within the docker-compose.
     #[arg(long, short)]
-    peers: NonZeroUsize,
+    peers: NonZeroU16,
     /// Target directory where to place generated files.
     ///
     /// If the directory is not empty, Kagami will prompt it's re-creation. If the TTY is not
     /// interactive, Kagami will stop execution with non-zero exit code. In order to re-create
-    /// the directory anyway, pass `--dir-force` flag.
+    /// the directory anyway, pass `--output-rewrite` flag.
     #[arg(long, short)]
-    dir: PathBuf,
+    output: PathBuf,
     /// Re-create the target directory if it already exists.
     #[arg(long)]
-    dir_force: bool,
-    /// Do not create default configuration in the `<dir>/config` directory.
+    output_rewrite: bool,
+    /// Do not create default configuration in the `<output>/config` directory.
     ///
     /// Default `config.json`, `genesis.json` and `validator.wasm` are generated and put into
-    /// the `<dir>/config` directory. That directory is specified in the Docker Compose
+    /// the `<output>/config` directory. That directory is specified in the Docker Compose
     /// `volumes` field.
     ///
     /// If you don't need the defaults, you could set this flag. The `config` directory will be
@@ -69,13 +70,13 @@ impl Args {
     pub fn run(self) -> Outcome {
         let ui = ui::UserInterface::new();
 
-        let prepare_dir_strategy = if self.dir_force {
+        let prepare_dir_strategy = if self.output_rewrite {
             PrepareDirectoryStrategy::ForceRecreate
         } else {
             PrepareDirectoryStrategy::Prompt
         };
         let source = ImageSource::from(self.source);
-        let target_dir = TargetDirectory::new(AbsolutePath::absolutize(self.dir)?);
+        let target_dir = TargetDirectory::new(AbsolutePath::absolutize(self.output)?);
 
         if let EarlyEnding::Halt = target_dir
             .prepare(&prepare_dir_strategy, &ui)
@@ -273,7 +274,7 @@ impl PrepareConfigurationStrategy {
                 ui
             }
             Self::GenerateDefault => {
-                let path_validator = PathBuf::from_str(FILE_VALIDATOR).unwrap();
+                let path_validator = PathBuf::from(FILE_VALIDATOR);
 
                 let raw_genesis_block = {
                     let block = super::genesis::generate_default(Some(path_validator.clone()))
@@ -406,7 +407,7 @@ struct DockerComposeBuilder {
     target_dir: AbsolutePath,
     config_dir: AbsolutePath,
     source: ResolvedImageSource,
-    peers: NonZeroUsize,
+    peers: NonZeroU16,
     seed: Option<Vec<u8>>,
 }
 
@@ -416,7 +417,7 @@ impl DockerComposeBuilder {
 
         let peers = peer_generator::generate_peers(self.peers, base_seed)
             .wrap_err("failed to generate peers")?;
-        let genesis_key_pair = key_gen::generate(base_seed, b"genesis")
+        let genesis_key_pair = key_gen::generate(base_seed, GENESIS_KEYPAIR_SEED)
             .wrap_err("failed to generate genesis key pair")?;
         let service_source = match &self.source {
             ResolvedImageSource::Build { path } => {
@@ -536,7 +537,10 @@ mod key_gen {
 }
 
 mod peer_generator {
-    use std::{collections::HashMap, num::NonZeroUsize};
+    use std::{
+        collections::HashMap,
+        num::{NonZeroU16, NonZeroUsize},
+    };
 
     use color_eyre::{eyre::Context, Report};
     use iroha_crypto::KeyPair;
@@ -566,10 +570,10 @@ mod peer_generator {
     }
 
     pub fn generate_peers(
-        peers: NonZeroUsize,
+        peers: NonZeroU16,
         base_seed: Option<&[u8]>,
     ) -> Result<HashMap<String, Peer>, Report> {
-        (0u16..u16::try_from(peers.get()).expect("Peers count is likely to be in bounds of u16"))
+        (0u16..peers.get())
             .map(|i| {
                 let service_name = format!("{BASE_SERVICE_NAME}{i}");
 
@@ -607,6 +611,7 @@ mod serialize_docker_compose {
     use crate::swarm::peer_generator::Peer;
 
     const COMMAND_SUBMIT_GENESIS: &str = "iroha --submit-genesis";
+    const DOCKER_COMPOSE_VERSION: &str = "3.8";
 
     #[derive(Serialize, Debug)]
     pub struct DockerCompose {
@@ -640,7 +645,7 @@ mod serialize_docker_compose {
         where
             S: Serializer,
         {
-            serializer.serialize_str("3.8")
+            serializer.serialize_str(DOCKER_COMPOSE_VERSION)
         }
     }
 
@@ -815,7 +820,8 @@ mod serialize_docker_compose {
     #[cfg(test)]
     mod test {
         use std::{
-            collections::{BTreeMap, BTreeSet, HashMap},
+            cell::RefCell,
+            collections::{BTreeMap, BTreeSet, HashMap, HashSet},
             env::VarError,
             ffi::OsStr,
             path::PathBuf,
@@ -837,52 +843,67 @@ mod serialize_docker_compose {
 
         struct TestEnv {
             env: HashMap<String, String>,
+            /// Set of env variables that weren't fetched yet
+            untouched: RefCell<HashSet<String>>,
         }
 
         impl From<FullPeerEnv> for TestEnv {
             fn from(peer_env: FullPeerEnv) -> Self {
                 let json = serde_json::to_string(&peer_env).expect("Must be serializable");
-                let env =
+                let env: HashMap<_, _> =
                     serde_json::from_str(&json).expect("Must be deserializable into a hash map");
-                Self { env }
+                let untouched = env.keys().map(Clone::clone).collect();
+                Self {
+                    env,
+                    untouched: RefCell::new(untouched),
+                }
+            }
+        }
+
+        impl From<CompactPeerEnv> for TestEnv {
+            fn from(value: CompactPeerEnv) -> Self {
+                let full: FullPeerEnv = value.into();
+                full.into()
             }
         }
 
         impl FetchEnv for TestEnv {
             fn fetch<K: AsRef<OsStr>>(&self, key: K) -> Result<String, VarError> {
+                let key_str = key
+                    .as_ref()
+                    .to_str()
+                    .ok_or_else(|| VarError::NotUnicode(key.as_ref().into()))?;
+
                 let res = self
                     .env
-                    .get(
-                        key.as_ref()
-                            .to_str()
-                            .ok_or_else(|| VarError::NotUnicode(key.as_ref().into()))?,
-                    )
+                    .get(key_str)
                     .ok_or(VarError::NotPresent)
                     .map(std::clone::Clone::clone);
+
+                if res.is_ok() {
+                    self.untouched.borrow_mut().remove(key_str);
+                }
 
                 res
             }
         }
 
-        // TODO: while this test ensures that the necessary fields are procided in ENV,
-        //       it doesn't check if other fields are provided correctly. E.g. if there is a
-        //       var that has a wrong name, it might be ignored at all
-        //       because ConfigurationProxy doesn't touch it
+        impl TestEnv {
+            fn assert_everything_covered(&self) {
+                assert_eq!(*self.untouched.borrow(), HashSet::new());
+            }
+        }
+
         #[test]
         fn default_config_with_swarm_env_are_exhaustive() {
             let keypair = KeyPair::generate().unwrap();
-            // TODO use compact
-            let env: TestEnv = FullPeerEnv {
-                iroha_public_key: keypair.public_key().clone(),
-                iroha_private_key: SerializeAsJsonStr(keypair.private_key().clone()),
-                iroha_genesis_account_public_key: keypair.public_key().clone(),
-                iroha_genesis_account_private_key: SerializeAsJsonStr(
-                    keypair.private_key().clone(),
-                ),
-                torii_p2p_addr: "127.0.0.1:1337".to_owned(),
-                torii_api_url: "127.0.0.1:1337".to_owned(),
-                torii_telemetry_url: "127.0.0.1:1337".to_owned(),
-                sumeragi_trusted_peers: SerializeAsJsonStr(BTreeSet::new()),
+            let env: TestEnv = CompactPeerEnv {
+                key_pair: keypair.clone(),
+                genesis_key_pair: keypair,
+                p2p_addr: "127.0.0.1:1337".to_owned(),
+                api_url: "127.0.0.1:1337".to_owned(),
+                telemetry_url: "127.0.0.1:1337".to_owned(),
+                trusted_peers: BTreeSet::new(),
             }
             .into();
 
@@ -893,6 +914,8 @@ mod serialize_docker_compose {
                 .build()
                 .wrap_err("failed to build configuration")
                 .expect("default configuration with swarm's env should be exhaustive");
+
+            env.assert_everything_covered();
         }
 
         #[test]
@@ -917,7 +940,7 @@ mod serialize_docker_compose {
                     map.insert(
                         "iroha0".to_owned(),
                         DockerComposeService {
-                            source: ServiceSource::Build(PathBuf::from_str(".").unwrap()),
+                            source: ServiceSource::Build(PathBuf::from(".")),
                             environment: CompactPeerEnv {
                                 key_pair: key_pair.clone(),
                                 genesis_key_pair: key_pair,
@@ -1144,14 +1167,11 @@ mod tests {
 
     #[test]
     fn relative_inner_path_starts_with_dot() {
-        let root = PathBuf::from_str("/").unwrap();
+        let root = PathBuf::from("/");
         let a = AbsolutePath::from_virtual(&PathBuf::from("./a/b/c"), &root);
         let b = AbsolutePath::from_virtual(&PathBuf::from("./"), &root);
 
-        assert_eq!(
-            a.relative_to(&b).unwrap(),
-            PathBuf::from_str("./a/b/c").unwrap()
-        );
+        assert_eq!(a.relative_to(&b).unwrap(), PathBuf::from("./a/b/c"));
     }
 
     #[test]
@@ -1160,10 +1180,7 @@ mod tests {
         let a = AbsolutePath::from_virtual(&PathBuf::from("./a/b/c"), root);
         let b = AbsolutePath::from_virtual(&PathBuf::from("./cde"), root);
 
-        assert_eq!(
-            b.relative_to(&a).unwrap(),
-            PathBuf::from_str("../../../cde").unwrap()
-        );
+        assert_eq!(b.relative_to(&a).unwrap(), PathBuf::from("../../../cde"));
     }
 
     #[test]
