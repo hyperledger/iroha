@@ -114,6 +114,7 @@ async fn main() -> Result<(), color_eyre::Report> {
     if !config.disable_panic_terminal_colors {
         // FIXME: it shouldn't be logged here; it is a part of configuration domain
         //        this message can be very simply broken by the changes in the configuration
+        //        https://github.com/hyperledger/iroha/issues/3506
         iroha_logger::warn!("The configuration parameter `DISABLE_PANIC_TERMINAL_COLORS` is deprecated. Set `TERMINAL_COLORS=false` instead. ")
     }
     iroha_logger::info!(

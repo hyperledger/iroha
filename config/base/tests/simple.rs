@@ -140,8 +140,8 @@ impl FetchEnv for TestEnv {
 fn test_env_factory() -> TestEnv {
     let string_wrapper_json = "string";
     let string = "cool string";
-    let data_json = "{\"key\": \"key\", \"value\": 34}";
-    let inner_json = "{\"a\": \"\", \"b\": 0}";
+    let data_json = r#"{"key": "key", "value": 34}"#;
+    let inner_json = r#"{"a": "", "b": 0}"#;
     let mut env = TestEnv::new();
     env.set_var("CONF_STRING_WRAPPER", string_wrapper_json);
     env.set_var("CONF_STRING", string);
