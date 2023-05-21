@@ -11,7 +11,6 @@ use std::{
     str::FromStr as _,
 };
 
-// use clap::ArgGroup;
 use clap::{Args as ClapArgs, Parser};
 use color_eyre::eyre::WrapErr as _;
 use iroha_data_model::{prelude::*, ValueKind};
@@ -494,7 +493,8 @@ mod genesis {
             let mut acc = Vec::new();
             for domain in 0..domains {
                 for account in 0..accounts_per_domain {
-                    // FIXME it actually generates (assets_per_domain * accounts_per_domain) assets per domain
+                    // FIXME: it actually generates (assets_per_domain * accounts_per_domain) assets per domain
+                    //        https://github.com/hyperledger/iroha/issues/3508
                     for asset in 0..assets_per_domain {
                         let mint = MintBox::new(
                             13_u32.to_value(),
@@ -863,6 +863,7 @@ mod validator {
             .wrap_err("Failed to create temp dir for runtime validator output")?;
 
         // FIXME: will it work when Kagami is run outside of the iroha dir?
+        //        https://github.com/hyperledger/iroha/issues/3473
         let wasm_blob = iroha_wasm_builder::Builder::new("../../default_validator")
             .out_dir(build_dir.path())
             .build()?
