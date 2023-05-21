@@ -193,6 +193,7 @@ fn configuration_proxy_from_env_returns_err_on_parsing_error() {
     #[derive(LoadFromEnv, Debug)]
     #[config(env_prefix = "")]
     struct Target {
+        #[allow(dead_code)]
         foo: Option<u64>,
     }
 
@@ -208,5 +209,5 @@ fn configuration_proxy_from_env_returns_err_on_parsing_error() {
     }
 
     let err = Target::from_env(&Env).expect_err("Must not be parsed");
-    assert_eq!(format!("{err}"), "Failed to deserialize env var `FOO` as JSON:  --> 1:1\n  |\n1 | not u64 for sure\n  | ^---\n  |\n  = expected array, boolean, null, number, object, or string");
+    assert_eq!(format!("{err}"), "Failed to deserialize env var `FOO` as JSON5:  --> 1:1\n  |\n1 | not u64 for sure\n  | ^---\n  |\n  = expected array, boolean, null, number, object, or string");
 }
