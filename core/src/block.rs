@@ -15,8 +15,13 @@ use std::error::Error;
 use eyre::{bail, eyre, Context, Result};
 use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
-use iroha_data_model::{block::*, events::prelude::*, transaction::prelude::*};
+use iroha_data_model::{
+    block::*,
+    events::prelude::*,
+    transaction::{prelude::*, Accept as _},
+};
 use parity_scale_codec::{Decode, Encode};
+use sealed::sealed;
 
 use crate::{
     prelude::*,
@@ -257,8 +262,11 @@ impl PendingBlock {
     }
 }
 
-/// This trait represents the ability to revalidate a block. Should be
-/// implemented for both `PendingBlock` and `VersionedCommittedBlock`.
+/// This sealed trait represents the ability to revalidate a block. Should be
+/// implemented for both [`PendingBlock`] and [`VersionedCommittedBlock`].
+/// Public users should only use this trait's extensions [`InGenesis`] and
+/// [`InBlock`].
+#[sealed]
 pub trait Revalidate: Sized {
     /// # Errors
     /// - When the block is deemed invalid.
@@ -274,6 +282,55 @@ pub trait Revalidate: Sized {
     fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool;
 }
 
+/// This trait extends the [`Revalidate`] trait for usage only in the
+/// genesis context.
+pub trait InGenesis: Sized + Revalidate {
+    /// # Errors
+    /// - When the block is deemed invalid.
+    fn revalidate(
+        &self,
+        transaction_validator: &TransactionValidator,
+        wsv: WorldStateView,
+        latest_block: Option<HashOf<VersionedCommittedBlock>>,
+        block_height: u64,
+    ) -> Result<(), eyre::Report> {
+        <Self as Revalidate>::revalidate::<true>(
+            self,
+            transaction_validator,
+            wsv,
+            latest_block,
+            block_height,
+        )
+    }
+}
+
+/// This trait extends the [`Revalidate`] trait for usage only in the
+/// non-genesis context.
+pub trait InBlock: Sized + Revalidate {
+    /// # Errors
+    /// - When the block is deemed invalid.
+    fn revalidate(
+        &self,
+        transaction_validator: &TransactionValidator,
+        wsv: WorldStateView,
+        latest_block: Option<HashOf<VersionedCommittedBlock>>,
+        block_height: u64,
+    ) -> Result<(), eyre::Report> {
+        <Self as Revalidate>::revalidate::<false>(
+            self,
+            transaction_validator,
+            wsv,
+            latest_block,
+            block_height,
+        )
+    }
+}
+
+impl InBlock for PendingBlock {}
+
+impl InGenesis for PendingBlock {}
+
+#[sealed]
 impl Revalidate for PendingBlock {
     /// Revalidate a block against the current state of the world.
     ///
@@ -346,7 +403,7 @@ impl Revalidate for PendingBlock {
             .map(|tx_v| {
                 let tx = SignedTransaction {
                     payload: tx_v.payload,
-                    signatures: tx_v.signatures.into(),
+                    signatures: tx_v.signatures,
                 };
                 AcceptedTransaction::accept::<IS_GENESIS>(
                     tx,
@@ -379,7 +436,7 @@ impl Revalidate for PendingBlock {
             .map(|tx_r| {
                 let tx = SignedTransaction {
                     payload: tx_r.payload,
-                    signatures: tx_r.signatures.into(),
+                    signatures: tx_r.signatures,
                 };
                 AcceptedTransaction::accept::<IS_GENESIS>(
                     tx,
@@ -417,6 +474,11 @@ impl Revalidate for PendingBlock {
     }
 }
 
+impl InBlock for VersionedCommittedBlock {}
+
+impl InGenesis for VersionedCommittedBlock {}
+
+#[sealed]
 impl Revalidate for VersionedCommittedBlock {
     /// Revalidate a block against the current state of the world.
     ///
@@ -490,7 +552,7 @@ impl Revalidate for VersionedCommittedBlock {
                     .map(|tx_v| {
                         let tx = SignedTransaction {
                             payload: tx_v.payload,
-                            signatures: tx_v.signatures.into(),
+                            signatures: tx_v.signatures,
                         };
                         AcceptedTransaction::accept::<IS_GENESIS>(
                             tx,
@@ -523,7 +585,7 @@ impl Revalidate for VersionedCommittedBlock {
                     .map(|tx_r| {
                         let tx = SignedTransaction {
                             payload: tx_r.payload,
-                            signatures: tx_r.signatures.into(),
+                            signatures: tx_r.signatures,
                         };
                         AcceptedTransaction::accept::<IS_GENESIS>(
                             tx,
@@ -612,7 +674,7 @@ mod tests {
 
     use std::str::FromStr;
 
-    use iroha_data_model::prelude::*;
+    use iroha_data_model::{prelude::*, transaction::InBlock};
 
     use super::*;
     use crate::{kura::Kura, smartcontracts::isi::Registrable as _};
@@ -633,10 +695,10 @@ mod tests {
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let alice_keys = KeyPair::generate().expect("Valid");
-        let account = Account::new(alice_id.clone(), [alice_keys.public_key().clone()])
-            .build(alice_id.clone());
+        let account =
+            Account::new(alice_id.clone(), [alice_keys.public_key().clone()]).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
-        let mut domain = Domain::new(domain_id).build(alice_id.clone());
+        let mut domain = Domain::new(domain_id).build(&alice_id);
         assert!(domain.add_account(account).is_none());
         let world = World::with([domain], Vec::new());
         let kura = Kura::blank_kura_for_testing();
@@ -657,7 +719,7 @@ mod tests {
             .sign(alice_keys.clone())
             .expect("Valid");
         let tx: VersionedAcceptedTransaction =
-            AcceptedTransaction::accept::<false>(tx, &transaction_limits)
+            <AcceptedTransaction as InBlock>::accept(tx, &transaction_limits)
                 .map(Into::into)
                 .expect("Valid");
 

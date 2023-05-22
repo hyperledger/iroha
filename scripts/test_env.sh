@@ -7,7 +7,7 @@ TEST=${TEST:-"./test"}
 HOST=${HOST:-"127.0.0.1"}
 IROHA2_CONFIG_PATH="$TEST/peers/config.json"
 IROHA2_GENESIS_PATH="$TEST/peers/genesis.json"
-IROHA2_PEER_COUNT=${IROHA2_PEER_COUNT:-"4"}
+IROHA_PEER_COUNT=${IROHA_PEER_COUNT:-"4"}
 
 declare -A public_keys
 
@@ -64,8 +64,7 @@ function trusted_peer_entry {
 
 function generate_trusted_peers {
     printf "["
-    for iter in $(seq 0 $(($1-2)))
-    do
+    for iter in $(seq 0 $(($1-2))); do
         trusted_peer_entry "$iter"
        printf ","
     done
@@ -87,6 +86,8 @@ function set_up_peers_common {
 
 function bulk_export {
     export KURA_BLOCK_STORE_PATH
+    export LOG_FILE_PATH
+    export MAX_LOG_LEVEL
     export TORII_P2P_ADDR
     export TORII_API_URL
     export TORII_TELEMETRY_URL
@@ -116,13 +117,12 @@ function run_peer () {
     IROHA_PRIVATE_KEY="${private_keys[$1]}"
     SUMERAGI_DEBUG_FORCE_SOFT_FORK="false"
     TOKIO_CONSOLE_ADDR="$HOST:${tokio_console_ports[$1]}"
-    exec -a "iroha$1" "$TEST/peers/iroha" "$2" > "$PEER/.log" & disown
+    exec -a "iroha$1" "$TEST/peers/iroha" "$2" &> "$PEER/.log" & disown
 }
 
 function run_n_peers {
     generate_genesis_key_pair
-    for peer in $(seq 0 $(($1-1)))
-    do
+    for peer in $(seq 0 $(($1-1))); do
        generate_p2p_port $peer
        generate_api_port $peer
        generate_telemetry_port $peer
@@ -130,35 +130,33 @@ function run_n_peers {
        generate_tokio_console_port $peer
     done
     SUMERAGI_TRUSTED_PEERS="$(generate_trusted_peers $1)"
-    for peer in $(seq 1 $(($1-1)))
-    do
+    for peer in $(seq 1 $(($1-1))); do
         run_peer $peer
     done
     run_peer 0 --submit-genesis
 }
 
-function clean_up_peers {
-    # Note: We want an exact match, hence '^' in the beginning and '$'
-    # at the end.  If any of the peers has stopped working we want to
-    # signal a failure, but kill all the remaining peers.
-    pkill '^iroha'
+function clean_up_n_peers {
+    for peer in $(seq 0 $(($1-1))); do
+        pkill "iroha$peer";
+    done
 }
+
+declare -i N_PEERS
+if [ -z "$2" ]; then
+    echo "Number of peers is not provided, using default value of $IROHA_PEER_COUNT"
+    N_PEERS="$IROHA_PEER_COUNT"
+else
+    N_PEERS="$2"
+fi
+
+if [ "$N_PEERS" -le 0 ]; then
+    echo "Expected number of peers as non-zero positive number (> 0)."
+    exit 1
+fi
 
 case $1 in
     setup)
-        declare -i N_PEERS
-        if [ -z "$2" ]; then
-            echo "Number of peers is not provided, using default value of $IROHA2_PEER_COUNT"
-            N_PEERS="$IROHA2_PEER_COUNT"
-        else
-            N_PEERS="$2"
-        fi
-
-        if [ "$N_PEERS" -le 0 ]; then
-            echo "Expected number of peers as non-zero positive number (> 0)."
-            exit 1
-        fi
-
         echo "Starting iroha network with $N_PEERS peers"
 
         ## Set client up to communicate with the first peer.
@@ -181,7 +179,11 @@ case $1 in
         run_n_peers "$N_PEERS"
         ;;
     cleanup)
-        clean_up_peers
+        # NOTE: It's not desirable for cleanup script to exit on the first failed command
+        # because we're left with lingering peers processes that we have to manually kill
+        set +e
+
+        clean_up_n_peers N_PEERS
         rm -rf "$TEST"
         ;;
 

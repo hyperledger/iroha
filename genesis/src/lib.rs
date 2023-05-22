@@ -23,6 +23,7 @@ use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     asset::AssetDefinition,
     prelude::{Metadata, *},
+    transaction::InGenesis,
     validator::Validator,
 };
 use iroha_primitives::small::{smallvec, SmallVec};
@@ -245,7 +246,7 @@ impl GenesisTransaction {
             TransactionBuilder::new(AccountId::genesis(), self.isi, GENESIS_TRANSACTIONS_TTL_MS)
                 .sign(genesis_key_pair)?;
 
-        AcceptedTransaction::accept::<true>(transaction, limits)
+        <AcceptedTransaction as InGenesis>::accept(transaction, limits)
             .wrap_err("Failed to accept transaction")
             .map(Into::into)
     }

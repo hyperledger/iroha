@@ -18,6 +18,7 @@ pub mod world;
 
 use eyre::Result;
 use iroha_data_model::{
+    evaluate::ExpressionEvaluator,
     isi::{
         error::{EvaluationError, InstructionExecutionFailure as Error},
         *,
@@ -27,7 +28,7 @@ use iroha_data_model::{
 use iroha_logger::prelude::{Span, *};
 use iroha_primitives::fixed::Fixed;
 
-use super::{Context, Evaluate, Execute};
+use super::Execute;
 use crate::{prelude::*, wsv::WorldStateView};
 
 /// Trait for proxy objects used for registration.
@@ -36,101 +37,102 @@ pub trait Registrable {
     type Target;
 
     /// Construct [`Self::Target`]
-    fn build(self, authority: AccountId) -> Self::Target;
+    fn build(self, authority: &AccountId) -> Self::Target;
 }
 
 impl Execute for InstructionBox {
-    type Error = Error;
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        iroha_logger::debug!(isi=%self, "Executing");
 
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
-    ) -> Result<(), Self::Error> {
-        use InstructionBox::*;
-        match self {
-            Register(register_box) => register_box.execute(authority, wsv),
-            Unregister(unregister_box) => unregister_box.execute(authority, wsv),
-            Mint(mint_box) => mint_box.execute(authority, wsv),
-            Burn(burn_box) => burn_box.execute(authority, wsv),
-            Transfer(transfer_box) => transfer_box.execute(authority, wsv),
-            If(if_box) => if_box.execute(authority, wsv),
-            Pair(pair_box) => pair_box.execute(authority, wsv),
-            Sequence(sequence) => sequence.execute(authority, wsv),
-            Fail(fail_box) => fail_box.execute(authority, wsv),
-            SetKeyValue(set_key_value) => set_key_value.execute(authority, wsv),
-            RemoveKeyValue(remove_key_value) => remove_key_value.execute(authority, wsv),
-            Grant(grant_box) => grant_box.execute(authority, wsv),
-            Revoke(revoke_box) => revoke_box.execute(authority, wsv),
-            ExecuteTrigger(execute_trigger) => execute_trigger.execute(authority, wsv),
-            SetParameter(parameter_box) => parameter_box.execute(authority, wsv),
-            NewParameter(parameter_box) => parameter_box.execute(authority, wsv),
-            Upgrade(upgrade_box) => upgrade_box.execute(authority, wsv),
+        macro_rules! match_all {
+            ($($isi:ident),+ $(,)?) => {
+
+                match self { $(
+                    InstructionBox::$isi(isi) => isi.execute(authority, wsv), )+
+                }
+            };
+        }
+
+        match_all! {
+            Register,
+            Unregister,
+            Mint,
+            Burn,
+            Transfer,
+            If,
+            Pair,
+            Sequence,
+            Fail,
+            SetKeyValue,
+            RemoveKeyValue,
+            Grant,
+            Revoke,
+            ExecuteTrigger,
+            SetParameter,
+            NewParameter,
+            Upgrade,
         }
     }
 }
 
 impl Execute for RegisterBox {
-    type Error = Error;
-
     #[iroha_logger::log(name = "register", skip_all, fields(id))]
-    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
-        let context = Context::new(wsv);
-        let object_id = self.object.evaluate(&context)?;
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        let object_id = wsv.evaluate(&self.object)?;
         Span::current().record("id", &object_id.to_string());
-        iroha_logger::trace!(%authority, "Executing");
         match object_id {
-            RegistrableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
-            RegistrableBox::Domain(domain) => {
-                Register::<Domain>::new(*domain).execute(authority, wsv)
+            RegistrableBox::Peer(object) => {
+                Register::<Peer> { object: *object }.execute(authority, wsv)
             }
-            RegistrableBox::Account(account) => {
-                Register::<Account>::new(*account).execute(authority, wsv)
+            RegistrableBox::Domain(object) => {
+                Register::<Domain> { object: *object }.execute(authority, wsv)
             }
-            RegistrableBox::AssetDefinition(asset_definition) => {
-                Register::<AssetDefinition>::new(*asset_definition).execute(authority, wsv)
+            RegistrableBox::Account(object) => {
+                Register::<Account> { object: *object }.execute(authority, wsv)
             }
-            RegistrableBox::Asset(asset) => Register::<Asset>::new(*asset).execute(authority, wsv),
-            RegistrableBox::Trigger(trigger) => {
-                Register::<Trigger<FilterBox, Executable>>::new(*trigger).execute(authority, wsv)
+            RegistrableBox::AssetDefinition(object) => {
+                Register::<AssetDefinition> { object: *object }.execute(authority, wsv)
             }
-            RegistrableBox::Role(role) => Register::<Role>::new(*role).execute(authority, wsv),
-            RegistrableBox::PermissionTokenDefinition(token_definition) => {
-                Register::<PermissionTokenDefinition>::new(*token_definition)
+            RegistrableBox::Asset(object) => {
+                Register::<Asset> { object: *object }.execute(authority, wsv)
+            }
+            RegistrableBox::Trigger(object) => {
+                Register::<Trigger<FilterBox, Executable>> { object: *object }
                     .execute(authority, wsv)
+            }
+            RegistrableBox::Role(object) => {
+                Register::<Role> { object: *object }.execute(authority, wsv)
+            }
+            RegistrableBox::PermissionTokenDefinition(object) => {
+                Register::<PermissionTokenDefinition> { object: *object }.execute(authority, wsv)
             }
         }
     }
 }
 
 impl Execute for UnregisterBox {
-    type Error = Error;
-
     #[iroha_logger::log(name = "unregister", skip_all, fields(id))]
-    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
-        let context = Context::new(wsv);
-        let object_id = self.object_id.evaluate(&context)?;
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        let object_id = wsv.evaluate(&self.object_id)?;
         Span::current().record("id", &object_id.to_string());
-        iroha_logger::trace!(%authority, "Executing");
         match object_id {
-            IdBox::AccountId(account_id) => {
-                Unregister::<Account>::new(account_id).execute(authority, wsv)
+            IdBox::AccountId(object_id) => {
+                Unregister::<Account> { object_id }.execute(authority, wsv)
             }
-            IdBox::AssetId(asset_id) => Unregister::<Asset>::new(asset_id).execute(authority, wsv),
-            IdBox::AssetDefinitionId(asset_definition_id) => {
-                Unregister::<AssetDefinition>::new(asset_definition_id).execute(authority, wsv)
+            IdBox::AssetId(object_id) => Unregister::<Asset> { object_id }.execute(authority, wsv),
+            IdBox::AssetDefinitionId(object_id) => {
+                Unregister::<AssetDefinition> { object_id }.execute(authority, wsv)
             }
-            IdBox::DomainId(domain_id) => {
-                Unregister::<Domain>::new(domain_id).execute(authority, wsv)
+            IdBox::DomainId(object_id) => {
+                Unregister::<Domain> { object_id }.execute(authority, wsv)
             }
-            IdBox::PeerId(peer_id) => Unregister::<Peer>::new(peer_id).execute(authority, wsv),
-            IdBox::PermissionTokenDefinitionId(definition_id) => {
-                Unregister::<PermissionTokenDefinition>::new(definition_id).execute(authority, wsv)
+            IdBox::PeerId(object_id) => Unregister::<Peer> { object_id }.execute(authority, wsv),
+            IdBox::PermissionTokenDefinitionId(object_id) => {
+                Unregister::<PermissionTokenDefinition> { object_id }.execute(authority, wsv)
             }
-            IdBox::RoleId(role_id) => Unregister::<Role>::new(role_id).execute(authority, wsv),
-            IdBox::TriggerId(trigger_id) => {
-                Unregister::<Trigger<FilterBox, Executable>>::new(trigger_id)
-                    .execute(authority, wsv)
+            IdBox::RoleId(object_id) => Unregister::<Role> { object_id }.execute(authority, wsv),
+            IdBox::TriggerId(object_id) => {
+                Unregister::<Trigger<FilterBox, Executable>> { object_id }.execute(authority, wsv)
             }
             IdBox::ParameterId(_) => Err(Error::Evaluate(InstructionType::Unregister.into())),
         }
@@ -138,39 +140,54 @@ impl Execute for UnregisterBox {
 }
 
 impl Execute for MintBox {
-    type Error = Error;
-
     #[iroha_logger::log(name = "Mint", skip_all, fields(destination))]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
-    ) -> Result<(), Self::Error> {
-        let context = Context::new(wsv);
-        let destination_id = self.destination_id.evaluate(&context)?;
-        let object = self.object.evaluate(&context)?;
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        let destination_id = wsv.evaluate(&self.destination_id)?;
+        let object = wsv.evaluate(&self.object)?;
         Span::current().record("destination", &destination_id.to_string());
         iroha_logger::trace!(?object, %authority);
         match (destination_id, object) {
-            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::U32(quantity))) => {
-                Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
+            (IdBox::AssetId(destination_id), Value::Numeric(NumericValue::U32(object))) => {
+                Mint::<Asset, u32> {
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv)
             }
-            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::U128(quantity))) => {
-                Mint::<Asset, u128>::new(quantity, asset_id).execute(authority, wsv)
+            (IdBox::AssetId(destination_id), Value::Numeric(NumericValue::U128(object))) => {
+                Mint::<Asset, u128> {
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv)
             }
-            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::Fixed(quantity))) => {
-                Mint::<Asset, Fixed>::new(quantity, asset_id).execute(authority, wsv)
+            (IdBox::AssetId(destination_id), Value::Numeric(NumericValue::Fixed(object))) => {
+                Mint::<Asset, Fixed> {
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv)
             }
-            (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
-                Mint::<Account, PublicKey>::new(public_key, account_id).execute(authority, wsv)
+            (IdBox::AccountId(destination_id), Value::PublicKey(object)) => {
+                Mint::<Account, PublicKey> {
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv)
             }
-            (IdBox::AccountId(account_id), Value::SignatureCheckCondition(condition)) => {
-                Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
-                    .execute(authority, wsv)
+            (IdBox::AccountId(destination_id), Value::SignatureCheckCondition(object)) => {
+                Mint::<Account, SignatureCheckCondition> {
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv)
             }
-            (IdBox::TriggerId(trigger_id), Value::Numeric(NumericValue::U32(quantity))) => {
-                Mint::<Trigger<FilterBox, Executable>, u32>::new(quantity, trigger_id)
-                    .execute(authority, wsv)
+            (IdBox::TriggerId(destination_id), Value::Numeric(NumericValue::U32(object))) => {
+                Mint::<Trigger<FilterBox, Executable>, u32> {
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv)
             }
             _ => Err(Error::Evaluate(InstructionType::Mint.into())),
         }
@@ -178,38 +195,38 @@ impl Execute for MintBox {
 }
 
 impl Execute for BurnBox {
-    type Error = Error;
-
     #[iroha_logger::log(name = "burn", skip_all, fields(destination))]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
-    ) -> Result<(), Self::Error> {
-        let context = Context::new(wsv);
-        let destination_id = self.destination_id.evaluate(&context)?;
-        let object = self.object.evaluate(&context)?;
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        let destination_id = wsv.evaluate(&self.destination_id)?;
+        let object = wsv.evaluate(&self.object)?;
         Span::current().record("destination", &destination_id.to_string());
         iroha_logger::trace!(?object, %authority);
-        match (
-            self.destination_id.evaluate(&context)?,
-            self.object.evaluate(&context)?,
-        ) {
-            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::U32(quantity))) => {
-                Burn::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
+        match (destination_id, object) {
+            (IdBox::AssetId(destination_id), Value::Numeric(NumericValue::U32(object))) => {
+                Burn::<Asset, u32> {
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv)
             }
-            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::U128(quantity))) => {
-                Burn::new(quantity, asset_id).execute(authority, wsv)
+            (IdBox::AssetId(destination_id), Value::Numeric(NumericValue::U128(object))) => Burn {
+                object,
+                destination_id,
             }
-            (IdBox::AssetId(asset_id), Value::Numeric(NumericValue::Fixed(quantity))) => {
-                Burn::new(quantity, asset_id).execute(authority, wsv)
+            .execute(authority, wsv),
+            (IdBox::AssetId(destination_id), Value::Numeric(NumericValue::Fixed(object))) => Burn {
+                object,
+                destination_id,
             }
-            (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
-                Burn::new(public_key, account_id).execute(authority, wsv)
+            .execute(authority, wsv),
+            (IdBox::AccountId(destination_id), Value::PublicKey(object)) => Burn {
+                object,
+                destination_id,
             }
-            // Not implemented yet.
+            .execute(authority, wsv),
+            // TODO: Not implemented yet.
             // (IdBox::AccountId(account_id), Value::SignatureCheckCondition(condition)) => {
-            //     Burn::<Account, SignatureCheckCondition>::new(condition, account_id).execute(authority, wsv)
+            //     Burn::<Account, SignatureCheckCondition>{condition, account_id}.execute(authority, wsv)
             // }
             _ => Err(Error::Evaluate(InstructionType::Burn.into())),
         }
@@ -217,98 +234,92 @@ impl Execute for BurnBox {
 }
 
 impl Execute for TransferBox {
-    type Error = Error;
-
     #[iroha_logger::log(name = "transfer", skip_all, fields(from, to))]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
-    ) -> Result<(), Self::Error> {
-        let context = Context::new(wsv);
-        let (IdBox::AssetId(source_asset_id), IdBox::AccountId(destination_account_id)) = (
-            self.source_id.evaluate(&context)?,
-            self.destination_id.evaluate(&context)?,
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        let (IdBox::AssetId(source_id), IdBox::AccountId(destination_id)) = (
+            wsv.evaluate(&self.source_id)?,
+            wsv.evaluate(&self.destination_id)?,
         ) else {
             return Err(Error::Evaluate(InstructionType::Transfer.into()));
         };
 
-        let value = self.object.evaluate(&context)?;
-        Span::current().record("from", source_asset_id.to_string());
-        Span::current().record("to", destination_account_id.to_string());
+        let value = wsv.evaluate(&self.object)?;
+        Span::current().record("from", source_id.to_string());
+        Span::current().record("to", destination_id.to_string());
         iroha_logger::trace!(%value, %authority);
 
         match value {
-            Value::Numeric(NumericValue::U32(quantity)) => {
-                Transfer::new(source_asset_id, quantity, destination_account_id)
-                    .execute(authority, wsv)
+            Value::Numeric(NumericValue::U32(object)) => Transfer {
+                source_id,
+                object,
+                destination_id,
             }
-            Value::Numeric(NumericValue::U128(quantity)) => {
-                Transfer::new(source_asset_id, quantity, destination_account_id)
-                    .execute(authority, wsv)
+            .execute(authority, wsv),
+            Value::Numeric(NumericValue::U128(object)) => Transfer {
+                source_id,
+                object,
+                destination_id,
             }
-            Value::Numeric(NumericValue::Fixed(quantity)) => {
-                Transfer::new(source_asset_id, quantity, destination_account_id)
-                    .execute(authority, wsv)
+            .execute(authority, wsv),
+            Value::Numeric(NumericValue::Fixed(object)) => Transfer {
+                source_id,
+                object,
+                destination_id,
             }
+            .execute(authority, wsv),
             _ => Err(Error::Evaluate(InstructionType::Transfer.into())),
         }
     }
 }
 
 impl Execute for SetKeyValueBox {
-    type Error = Error;
-
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
-    ) -> Result<(), Self::Error> {
-        let context = Context::new(wsv);
-        let key = self.key.evaluate(&context)?;
-        let value = self.value.evaluate(&context)?;
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        let key = wsv.evaluate(&self.key)?;
+        let value = wsv.evaluate(&self.value)?;
         iroha_logger::trace!(?key, ?value, %authority);
-        match self.object_id.evaluate(&context)? {
-            IdBox::AssetId(asset_id) => {
-                SetKeyValue::<Asset, Name, Value>::new(asset_id, key, value).execute(authority, wsv)
+        match wsv.evaluate(&self.object_id)? {
+            IdBox::AssetId(object_id) => SetKeyValue::<Asset> {
+                object_id,
+                key,
+                value,
             }
-            IdBox::AssetDefinitionId(definition_id) => {
-                SetKeyValue::<AssetDefinition, Name, Value>::new(definition_id, key, value)
-                    .execute(authority, wsv)
+            .execute(authority, wsv),
+            IdBox::AssetDefinitionId(object_id) => SetKeyValue::<AssetDefinition> {
+                object_id,
+                key,
+                value,
             }
-            IdBox::AccountId(account_id) => {
-                SetKeyValue::<Account, Name, Value>::new(account_id, key, value)
-                    .execute(authority, wsv)
+            .execute(authority, wsv),
+            IdBox::AccountId(object_id) => SetKeyValue::<Account> {
+                object_id,
+                key,
+                value,
             }
-            IdBox::DomainId(id) => {
-                SetKeyValue::<Domain, Name, Value>::new(id, key, value).execute(authority, wsv)
+            .execute(authority, wsv),
+            IdBox::DomainId(object_id) => SetKeyValue::<Domain> {
+                object_id,
+                key,
+                value,
             }
+            .execute(authority, wsv),
             _ => Err(Error::Evaluate(InstructionType::SetKeyValue.into())),
         }
     }
 }
 
 impl Execute for RemoveKeyValueBox {
-    type Error = Error;
-
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
-    ) -> Result<(), Self::Error> {
-        let context = Context::new(wsv);
-        let key = self.key.evaluate(&context)?;
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        let key = wsv.evaluate(&self.key)?;
         iroha_logger::trace!(?key, %authority);
-        match self.object_id.evaluate(&context)? {
-            IdBox::AssetId(asset_id) => {
-                RemoveKeyValue::<Asset, Name>::new(asset_id, key).execute(authority, wsv)
+        match wsv.evaluate(&self.object_id)? {
+            IdBox::AssetId(object_id) => {
+                RemoveKeyValue::<Asset> { object_id, key }.execute(authority, wsv)
             }
-            IdBox::AssetDefinitionId(definition_id) => {
-                RemoveKeyValue::<AssetDefinition, Name>::new(definition_id, key)
-                    .execute(authority, wsv)
+            IdBox::AssetDefinitionId(object_id) => {
+                RemoveKeyValue::<AssetDefinition> { object_id, key }.execute(authority, wsv)
             }
-            IdBox::AccountId(account_id) => {
-                RemoveKeyValue::<Account, Name>::new(account_id, key).execute(authority, wsv)
+            IdBox::AccountId(object_id) => {
+                RemoveKeyValue::<Account> { object_id, key }.execute(authority, wsv)
             }
             _ => Err(Error::Evaluate(InstructionType::RemoveKeyValue.into())),
         }
@@ -316,16 +327,9 @@ impl Execute for RemoveKeyValueBox {
 }
 
 impl Execute for Conditional {
-    type Error = Error;
-
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
-    ) -> Result<(), Self::Error> {
-        let context = Context::new(wsv);
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
         iroha_logger::trace!(?self);
-        if self.condition.evaluate(&context)? {
+        if wsv.evaluate(&self.condition)? {
             self.then.execute(authority, wsv)?;
         } else if let Some(otherwise) = self.otherwise {
             otherwise.execute(authority, wsv)?;
@@ -335,74 +339,56 @@ impl Execute for Conditional {
 }
 
 impl Execute for Pair {
-    type Error = Error;
-
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
         iroha_logger::trace!(?self);
 
-        self.left_instruction.execute(authority.clone(), wsv)?;
+        self.left_instruction.execute(authority, wsv)?;
         self.right_instruction.execute(authority, wsv)?;
         Ok(())
     }
 }
 
 impl Execute for SequenceBox {
-    type Error = Error;
-
     #[iroha_logger::log(skip_all, name = "Sequence", fields(count))]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
         Span::current().record("count", self.instructions.len());
         for instruction in self.instructions {
             iroha_logger::trace!(%instruction);
-            instruction.execute(authority.clone(), wsv)?;
+            instruction.execute(authority, wsv)?;
         }
         Ok(())
     }
 }
 
 impl Execute for FailBox {
-    type Error = Error;
-
-    fn execute(
-        self,
-        _authority: <Account as Identifiable>::Id,
-        _wsv: &WorldStateView,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, _authority: &AccountId, _wsv: &WorldStateView) -> Result<(), Error> {
         iroha_logger::trace!(?self);
 
-        Err(Error::FailBox(self.message))
+        Err(Error::Fail(self.message))
     }
 }
 
 impl Execute for GrantBox {
-    type Error = Error;
-
     #[iroha_logger::log(name = "grant", skip_all, fields(object))]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
-    ) -> Result<(), Self::Error> {
-        let context = Context::new(wsv);
-        let destination_id = self.destination_id.evaluate(&context)?;
-        let object = self.object.evaluate(&context)?;
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        let destination_id = wsv.evaluate(&self.destination_id)?;
+        let object = wsv.evaluate(&self.object)?;
         Span::current().record("object", &object.to_string());
         iroha_logger::trace!(%destination_id, %authority);
         match (destination_id, object) {
-            (IdBox::AccountId(account_id), Value::PermissionToken(permission_token)) => {
-                Grant::<Account, PermissionToken>::new(permission_token, account_id)
-                    .execute(authority, wsv)
+            (IdBox::AccountId(destination_id), Value::PermissionToken(object)) => {
+                Grant::<Account, PermissionToken> {
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv)
             }
-            (IdBox::AccountId(account_id), Value::Id(IdBox::RoleId(role_id))) => {
-                Grant::<Account, RoleId>::new(role_id, account_id).execute(authority, wsv)
+            (IdBox::AccountId(destination_id), Value::Id(IdBox::RoleId(object))) => {
+                Grant::<Account, RoleId> {
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv)
             }
             _ => Err(Error::Evaluate(InstructionType::Grant.into())),
         }
@@ -410,26 +396,26 @@ impl Execute for GrantBox {
 }
 
 impl Execute for RevokeBox {
-    type Error = Error;
-
     #[iroha_logger::log(name = "revoke", skip_all, fields(object))]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView,
-    ) -> Result<(), Self::Error> {
-        let context = Context::new(wsv);
-        let destination_id = self.destination_id.evaluate(&context)?;
-        let object = self.object.evaluate(&context)?;
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        let destination_id = wsv.evaluate(&self.destination_id)?;
+        let object = wsv.evaluate(&self.object)?;
         Span::current().record("object", &object.to_string());
         iroha_logger::trace!(?destination_id, ?object, %authority);
         match (destination_id, object) {
-            (IdBox::AccountId(account_id), Value::PermissionToken(permission_token)) => {
-                Revoke::<Account, PermissionToken>::new(permission_token, account_id)
-                    .execute(authority, wsv)
+            (IdBox::AccountId(destination_id), Value::PermissionToken(object)) => {
+                Revoke::<Account, PermissionToken> {
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv)
             }
-            (IdBox::AccountId(account_id), Value::Id(IdBox::RoleId(role_id))) => {
-                Revoke::<Account, RoleId>::new(role_id, account_id).execute(authority, wsv)
+            (IdBox::AccountId(destination_id), Value::Id(IdBox::RoleId(object))) => {
+                Revoke::<Account, RoleId> {
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv)
             }
             _ => Err(Error::Evaluate(InstructionType::Revoke.into())),
         }
@@ -437,34 +423,25 @@ impl Execute for RevokeBox {
 }
 
 impl Execute for SetParameterBox {
-    type Error = Error;
-
-    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
-        let context = Context::new(wsv);
-        let parameter = self.parameter.evaluate(&context)?;
-        SetParameter::new(parameter).execute(authority, wsv)
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        let parameter = wsv.evaluate(&self.parameter)?;
+        SetParameter { parameter }.execute(authority, wsv)
     }
 }
 
 impl Execute for NewParameterBox {
-    type Error = Error;
-
-    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
-        let context = Context::new(wsv);
-        let parameter = self.parameter.evaluate(&context)?;
-        NewParameter::new(parameter).execute(authority, wsv)
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        let parameter = wsv.evaluate(&self.parameter)?;
+        NewParameter { parameter }.execute(authority, wsv)
     }
 }
 
 impl Execute for UpgradeBox {
-    type Error = Error;
-
-    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
-        let context = Context::new(wsv);
-        let object = self.object.evaluate(&context)?;
+    fn execute(self, authority: &AccountId, wsv: &WorldStateView) -> Result<(), Error> {
+        let object = wsv.evaluate(&self.object)?;
         match object {
-            UpgradableBox::Validator(validator) => {
-                Upgrade::<Validator>::new(validator).execute(authority, wsv)
+            UpgradableBox::Validator(object) => {
+                Upgrade::<Validator> { object }.execute(authority, wsv)
             }
         }
     }
@@ -495,11 +472,11 @@ mod tests {
         let (public_key, _) = KeyPair::generate()?.into();
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         RegisterBox::new(Domain::new(DomainId::from_str("wonderland")?))
-            .execute(genesis_account_id.clone(), &wsv)?;
+            .execute(&genesis_account_id, &wsv)?;
         RegisterBox::new(Account::new(account_id, [public_key]))
-            .execute(genesis_account_id.clone(), &wsv)?;
+            .execute(&genesis_account_id, &wsv)?;
         RegisterBox::new(AssetDefinition::store(asset_definition_id))
-            .execute(genesis_account_id, &wsv)?;
+            .execute(&genesis_account_id, &wsv)?;
         Ok(wsv)
     }
 
@@ -515,7 +492,7 @@ mod tests {
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(account_id, &wsv)?;
+        .execute(&account_id, &wsv)?;
         let asset = wsv.asset(&asset_id)?;
         let metadata: &Metadata = asset.try_as_ref()?;
         let bytes = metadata
@@ -542,7 +519,7 @@ mod tests {
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(account_id.clone(), &wsv)?;
+        .execute(&account_id, &wsv)?;
         let bytes = wsv.map_account(&account_id, |account| {
             account
                 .metadata()
@@ -571,7 +548,7 @@ mod tests {
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(account_id, &wsv)?;
+        .execute(&account_id, &wsv)?;
         let bytes = wsv
             .asset_definition(&definition_id)?
             .metadata()
@@ -599,7 +576,7 @@ mod tests {
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
-        .execute(account_id, &wsv)?;
+        .execute(&account_id, &wsv)?;
         let bytes = wsv
             .domain(&domain_id)?
             .metadata()
@@ -625,7 +602,7 @@ mod tests {
 
         assert!(matches!(
             ExecuteTriggerBox::new(trigger_id)
-                .execute(account_id, &wsv)
+                .execute(&account_id, &wsv)
                 .expect_err("Error expected"),
             Error::Find(_)
         ));
@@ -647,7 +624,7 @@ mod tests {
             .into();
         let register_account =
             RegisterBox::new(Account::new(fake_account_id.clone(), [public_key]));
-        register_account.execute(account_id.clone(), &wsv)?;
+        register_account.execute(&account_id, &wsv)?;
 
         // register the trigger
         let register_trigger = RegisterBox::new(Trigger::new(
@@ -663,15 +640,15 @@ mod tests {
             ),
         ));
 
-        register_trigger.execute(account_id.clone(), &wsv)?;
+        register_trigger.execute(&account_id, &wsv)?;
 
         // execute with the valid account
-        ExecuteTriggerBox::new(trigger_id.clone()).execute(account_id, &wsv)?;
+        ExecuteTriggerBox::new(trigger_id.clone()).execute(&account_id, &wsv)?;
 
         // execute with the fake account
         assert!(matches!(
             ExecuteTriggerBox::new(trigger_id)
-                .execute(fake_account_id, &wsv)
+                .execute(&fake_account_id, &wsv)
                 .expect_err("Error expected"),
             Error::Validate(_)
         ));

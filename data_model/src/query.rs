@@ -19,7 +19,7 @@ use self::{
     account::*, asset::*, block::*, domain::*, peer::*, permission::*, role::*, transaction::*,
     trigger::*,
 };
-use crate::{account::Account, Identifiable, Value};
+use crate::{account::Account, sealed, Identifiable, Value};
 
 macro_rules! queries {
     ($($($meta:meta)* $item:item)+) => {
@@ -40,7 +40,7 @@ macro_rules! queries {
 }
 
 /// Trait for typesafe query output
-pub trait Query: Into<QueryBox> {
+pub trait Query: Into<QueryBox> + sealed::Sealed {
     /// Output type of query
     type Output: Into<Value> + TryFrom<Value>;
 }

@@ -7,13 +7,15 @@ edition.workspace = true
 license.workspace = true
 
 [features]
+default = ["default-validator"]
 # Enables debugging tools such as `dbg()` and `DebugUnwrapExt`
 debug = ["iroha_wasm/debug"]
+# Enables predefined default validator
+default-validator = []
 
 [dependencies]
 iroha_wasm = { version = "2.0.0-pre-rc.13", path = ".." }
 iroha_validator_derive = { version = "2.0.0-pre-rc.13", path = "derive" }
-iroha_macro = { version = "2.0.0-pre-rc.13", path = "../../macro", default-features = false }
 
 [dev-dependencies]
 webassembly-test.workspace = true

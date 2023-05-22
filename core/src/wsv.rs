@@ -302,7 +302,7 @@ impl WorldStateView {
         authority: &AccountId,
     ) -> Result<()> {
         instructions.into_iter().try_for_each(|instruction| {
-            instruction.execute(authority.clone(), self)?;
+            instruction.execute(authority, self)?;
             Ok::<_, eyre::Report>(())
         })
     }
@@ -1140,10 +1140,10 @@ impl WorldStateView {
     /// then *trigger* will be executed on the **current** block
     /// - If this method is called by ISI inside *trigger*,
     /// then *trigger* will be executed on the **next** block
-    pub fn execute_trigger(&self, trigger_id: TriggerId, authority: AccountId) {
+    pub fn execute_trigger(&self, trigger_id: TriggerId, authority: &AccountId) {
         let event = ExecuteTriggerEvent {
             trigger_id,
-            authority,
+            authority: authority.clone(),
         };
 
         self.world

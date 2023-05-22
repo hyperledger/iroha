@@ -13,6 +13,7 @@ use eyre::{eyre, Error, Result, WrapErr};
 use http::header::HeaderName;
 use tungstenite::{stream::MaybeTlsStream, WebSocket};
 pub use tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
+use url::Url;
 
 use crate::http::{Method, RequestBuilder, Response};
 
@@ -72,7 +73,7 @@ impl DefaultRequest {
 }
 
 impl RequestBuilder for DefaultRequestBuilder {
-    fn new(method: Method, url: impl AsRef<str>) -> Self {
+    fn new(method: Method, url: Url) -> Self {
         Self {
             inner: Ok(AttoHttpRequestBuilder::new(method, url)),
             body: None,
@@ -143,7 +144,7 @@ impl DefaultWebSocketStreamRequest {
 }
 
 impl RequestBuilder for DefaultWebSocketRequestBuilder {
-    fn new(method: Method, url: impl AsRef<str>) -> Self {
+    fn new(method: Method, url: Url) -> Self {
         Self(Ok(http::Request::builder()
             .method(method)
             .uri(url.as_ref())))

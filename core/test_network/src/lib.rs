@@ -24,7 +24,7 @@ use iroha_core::prelude::*;
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
 use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
-use iroha_primitives::small;
+use iroha_primitives::{addr::SocketAddr, socket_addr};
 use rand::seq::IteratorRandom;
 use tempfile::TempDir;
 use tokio::{
@@ -351,11 +351,11 @@ pub struct Peer {
     /// The id of the peer
     pub id: PeerId,
     /// API address
-    pub api_address: String,
+    pub api_address: SocketAddr,
     /// P2P address
-    pub p2p_address: String,
+    pub p2p_address: SocketAddr,
     /// Telemetry address
-    pub telemetry_address: String,
+    pub telemetry_address: SocketAddr,
     /// The key-pair for the peer
     pub key_pair: KeyPair,
     /// Shutdown handle
@@ -594,9 +594,9 @@ impl PeerBuilder {
     pub fn build(&mut self) -> Result<Peer> {
         let mut peer = Peer::new()?;
         if let Some(port) = self.port.take() {
-            peer.p2p_address = format!("127.0.0.1:{port}");
-            peer.api_address = format!("127.0.0.1:{}", port + 1);
-            peer.telemetry_address = format!("127.0.0.1:{}", port + 2);
+            peer.p2p_address = socket_addr!(127,0,0,1; port);
+            peer.api_address = socket_addr!(127,0,0,1; port + 1);
+            peer.telemetry_address = socket_addr!(127,0,0,1; port + 2);
             // prevent field desync
             peer.id.address = peer.p2p_address.clone();
         }
@@ -658,11 +658,8 @@ impl PeerBuilder {
 
 type PeerWithRuntimeAndClient = (Runtime, Peer, Client);
 
-fn local_unique_port() -> Result<String> {
-    Ok(format!(
-        "127.0.0.1:{}",
-        unique_port::get_unique_free_port().map_err(Error::msg)?
-    ))
+fn local_unique_port() -> Result<SocketAddr> {
+    Ok(socket_addr!(127,0,0,1; unique_port::get_unique_free_port().map_err(Error::msg)?))
 }
 
 /// Runtime used for testing.
@@ -684,21 +681,21 @@ pub trait TestConfiguration {
 /// Client configuration mocking trait.
 pub trait TestClientConfiguration {
     /// Creates test client configuration
-    fn test(api_url: &str, telemetry_url: &str) -> Self;
+    fn test(api_url: &SocketAddr, telemetry_url: &SocketAddr) -> Self;
 }
 
 /// Client mocking trait
 pub trait TestClient: Sized {
     /// Create test client from api url
-    fn test(api_url: &str, telemetry_url: &str) -> Self;
+    fn test(api_url: &SocketAddr, telemetry_url: &SocketAddr) -> Self;
 
     /// Create test client from api url and keypair
-    fn test_with_key(api_url: &str, telemetry_url: &str, keys: KeyPair) -> Self;
+    fn test_with_key(api_url: &SocketAddr, telemetry_url: &SocketAddr, keys: KeyPair) -> Self;
 
     /// Create test client from api url, keypair, and account id
     fn test_with_account(
-        api_url: &str,
-        telemetry_url: &str,
+        api_url: &SocketAddr,
+        telemetry_url: &SocketAddr,
         keys: KeyPair,
         account_id: &AccountId,
     ) -> Self;
@@ -800,29 +797,25 @@ impl TestConfiguration for Configuration {
 }
 
 impl TestClientConfiguration for ClientConfiguration {
-    fn test(api_url: &str, telemetry_url: &str) -> Self {
+    fn test(api_url: &SocketAddr, telemetry_url: &SocketAddr) -> Self {
         let mut configuration = iroha_client::samples::get_client_config(&get_key_pair());
-        configuration.torii_api_url = if api_url.starts_with("http") {
-            small::SmallStr::from_str(api_url)
-        } else {
-            small::SmallStr::from_str(&("http://".to_owned() + api_url))
-        };
-        configuration.torii_telemetry_url = if telemetry_url.starts_with("http") {
-            small::SmallStr::from_str(telemetry_url)
-        } else {
-            small::SmallStr::from_str(&("http://".to_owned() + telemetry_url))
-        };
+        configuration.torii_api_url = format!("http://{api_url}")
+            .parse()
+            .expect("Should be valid url");
+        configuration.torii_telemetry_url = format!("http://{telemetry_url}")
+            .parse()
+            .expect("Should be valid url");
         configuration
     }
 }
 
 impl TestClient for Client {
-    fn test(api_url: &str, telemetry_url: &str) -> Self {
+    fn test(api_url: &SocketAddr, telemetry_url: &SocketAddr) -> Self {
         Client::new(&ClientConfiguration::test(api_url, telemetry_url))
             .expect("Invalid client configuration")
     }
 
-    fn test_with_key(api_url: &str, telemetry_url: &str, keys: KeyPair) -> Self {
+    fn test_with_key(api_url: &SocketAddr, telemetry_url: &SocketAddr, keys: KeyPair) -> Self {
         let mut configuration = ClientConfiguration::test(api_url, telemetry_url);
         let (public_key, private_key) = keys.into();
         configuration.public_key = public_key;
@@ -831,8 +824,8 @@ impl TestClient for Client {
     }
 
     fn test_with_account(
-        api_url: &str,
-        telemetry_url: &str,
+        api_url: &SocketAddr,
+        telemetry_url: &SocketAddr,
         keys: KeyPair,
         account_id: &AccountId,
     ) -> Self {

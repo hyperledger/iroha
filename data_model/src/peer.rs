@@ -11,6 +11,7 @@ use core::{
 use derive_more::Display;
 use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
+use iroha_primitives::addr::SocketAddr;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -36,7 +37,7 @@ pub mod model {
         /// Address of the [`Peer`]'s entrypoint.
         // TODO: Derive with getset once FFI impl is fixed
         #[getset(skip)]
-        pub address: String,
+        pub address: SocketAddr,
         /// Public Key of the [`Peer`].
         pub public_key: PublicKey,
     }
@@ -57,18 +58,18 @@ pub mod model {
 }
 
 impl PeerId {
-    /// Construct `Id` given `public_key` and `address`.
+    /// Construct `PeerId` given `public_key` and `address`.
     #[inline]
-    pub fn new(address: &str, public_key: &PublicKey) -> Self {
+    pub fn new(address: &SocketAddr, public_key: &PublicKey) -> Self {
         Self {
-            address: String::from(address),
+            address: address.clone(),
             public_key: public_key.clone(),
         }
     }
     /// Serialize the data contained in this Id for use in hashing.
     pub fn payload(&self) -> Vec<u8> {
         let mut data = Vec::new();
-        data.extend(self.address.bytes());
+        data.extend(self.address.payload());
         data.extend(self.public_key.payload());
         data
     }

@@ -36,51 +36,59 @@ impl ValidQueryRequest {
 
 impl ValidQuery for QueryBox {
     fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-        use QueryBox::*;
+        iroha_logger::debug!(query=%self, "Executing");
 
-        match self {
-            FindAllAccounts(query) => query.execute_into_value(wsv),
-            FindAccountById(query) => query.execute_into_value(wsv),
-            FindAccountsByName(query) => query.execute_into_value(wsv),
-            FindAccountsByDomainId(query) => query.execute_into_value(wsv),
-            FindAccountsWithAsset(query) => query.execute_into_value(wsv),
-            FindAllAssets(query) => query.execute_into_value(wsv),
-            FindAllAssetsDefinitions(query) => query.execute_into_value(wsv),
-            FindAssetById(query) => query.execute_into_value(wsv),
-            FindAssetDefinitionById(query) => query.execute_into_value(wsv),
-            FindAssetsByName(query) => query.execute_into_value(wsv),
-            FindAssetsByAccountId(query) => query.execute_into_value(wsv),
-            FindAssetsByAssetDefinitionId(query) => query.execute_into_value(wsv),
-            FindAssetsByDomainId(query) => query.execute_into_value(wsv),
-            FindAssetsByDomainIdAndAssetDefinitionId(query) => query.execute_into_value(wsv),
-            FindAssetQuantityById(query) => query.execute_into_value(wsv),
-            FindTotalAssetQuantityByAssetDefinitionId(query) => query.execute_into_value(wsv),
-            IsAssetDefinitionOwner(query) => query.execute_into_value(wsv),
-            FindAllDomains(query) => query.execute_into_value(wsv),
-            FindDomainById(query) => query.execute_into_value(wsv),
-            FindDomainKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
-            FindAllPeers(query) => query.execute_into_value(wsv),
-            FindAssetKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
-            FindAccountKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
-            FindAllBlocks(query) => query.execute_into_value(wsv),
-            FindAllBlockHeaders(query) => query.execute_into_value(wsv),
-            FindBlockHeaderByHash(query) => query.execute_into_value(wsv),
-            FindAllTransactions(query) => query.execute_into_value(wsv),
-            FindTransactionsByAccountId(query) => query.execute_into_value(wsv),
-            FindTransactionByHash(query) => query.execute_into_value(wsv),
-            FindPermissionTokensByAccountId(query) => query.execute_into_value(wsv),
-            FindAllPermissionTokenDefinitions(query) => query.execute_into_value(wsv),
-            DoesAccountHavePermissionToken(query) => query.execute_into_value(wsv),
-            FindAssetDefinitionKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
-            FindAllActiveTriggerIds(query) => query.execute_into_value(wsv),
-            FindTriggerById(query) => query.execute_into_value(wsv),
-            FindTriggerKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
-            FindTriggersByDomainId(query) => query.execute_into_value(wsv),
-            FindAllRoles(query) => query.execute_into_value(wsv),
-            FindAllRoleIds(query) => query.execute_into_value(wsv),
-            FindRolesByAccountId(query) => query.execute_into_value(wsv),
-            FindRoleByRoleId(query) => query.execute_into_value(wsv),
-            FindAllParameters(query) => query.execute_into_value(wsv),
+        macro_rules! match_all {
+            ( $( $query:ident ),+ $(,)? ) => {
+                match self { $(
+                    QueryBox::$query(query) => query.execute(wsv).map(Into::into), )+
+                }
+            };
+        }
+
+        match_all! {
+            FindAllAccounts,
+            FindAccountById,
+            FindAccountsByName,
+            FindAccountsByDomainId,
+            FindAccountsWithAsset,
+            FindAllAssets,
+            FindAllAssetsDefinitions,
+            FindAssetById,
+            FindAssetDefinitionById,
+            FindAssetsByName,
+            FindAssetsByAccountId,
+            FindAssetsByAssetDefinitionId,
+            FindAssetsByDomainId,
+            FindAssetsByDomainIdAndAssetDefinitionId,
+            FindAssetQuantityById,
+            FindTotalAssetQuantityByAssetDefinitionId,
+            IsAssetDefinitionOwner,
+            FindAllDomains,
+            FindDomainById,
+            FindDomainKeyValueByIdAndKey,
+            FindAllPeers,
+            FindAssetKeyValueByIdAndKey,
+            FindAccountKeyValueByIdAndKey,
+            FindAllBlocks,
+            FindAllBlockHeaders,
+            FindBlockHeaderByHash,
+            FindAllTransactions,
+            FindTransactionsByAccountId,
+            FindTransactionByHash,
+            FindPermissionTokensByAccountId,
+            FindAllPermissionTokenDefinitions,
+            DoesAccountHavePermissionToken,
+            FindAssetDefinitionKeyValueByIdAndKey,
+            FindAllActiveTriggerIds,
+            FindTriggerById,
+            FindTriggerKeyValueByIdAndKey,
+            FindTriggersByDomainId,
+            FindAllRoles,
+            FindAllRoleIds,
+            FindRolesByAccountId,
+            FindRoleByRoleId,
+            FindAllParameters,
         }
     }
 }
@@ -92,7 +100,10 @@ mod tests {
     use std::str::FromStr;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::{block::VersionedCommittedBlock, transaction::TransactionLimits};
+    use iroha_data_model::{
+        block::VersionedCommittedBlock,
+        transaction::{InBlock, TransactionLimits},
+    };
     use once_cell::sync::Lazy;
 
     use super::*;
@@ -107,15 +118,13 @@ mod tests {
 
     fn world_with_test_domains() -> World {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
-        let mut domain = Domain::new(domain_id).build(ALICE_ID.clone());
-        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()])
-            .build(ALICE_ID.clone());
+        let mut domain = Domain::new(domain_id).build(&ALICE_ID);
+        let account =
+            Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()]).build(&ALICE_ID);
         assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
-            .add_asset_definition(
-                AssetDefinition::quantity(asset_definition_id).build(ALICE_ID.clone())
-            )
+            .add_asset_definition(AssetDefinition::quantity(asset_definition_id).build(&ALICE_ID))
             .is_none());
         World::with([domain], PeersIds::new())
     }
@@ -123,12 +132,12 @@ mod tests {
     fn world_with_test_asset_with_metadata() -> World {
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         let mut domain =
-            Domain::new(DomainId::from_str("wonderland").expect("Valid")).build(ALICE_ID.clone());
-        let mut account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()])
-            .build(ALICE_ID.clone());
+            Domain::new(DomainId::from_str("wonderland").expect("Valid")).build(&ALICE_ID);
+        let mut account =
+            Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()]).build(&ALICE_ID);
         assert!(domain
             .add_asset_definition(
-                AssetDefinition::quantity(asset_definition_id.clone()).build(ALICE_ID.clone())
+                AssetDefinition::quantity(asset_definition_id.clone()).build(&ALICE_ID)
             )
             .is_none());
 
@@ -156,16 +165,14 @@ mod tests {
             MetadataLimits::new(10, 100),
         )?;
 
-        let mut domain = Domain::new(DomainId::from_str("wonderland")?).build(ALICE_ID.clone());
+        let mut domain = Domain::new(DomainId::from_str("wonderland")?).build(&ALICE_ID);
         let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()])
             .with_metadata(metadata)
-            .build(ALICE_ID.clone());
+            .build(&ALICE_ID);
         assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
-            .add_asset_definition(
-                AssetDefinition::quantity(asset_definition_id).build(ALICE_ID.clone())
-            )
+            .add_asset_definition(AssetDefinition::quantity(asset_definition_id).build(&ALICE_ID))
             .is_none());
         Ok(World::with([domain], PeersIds::new()))
     }
@@ -190,13 +197,15 @@ mod tests {
         let valid_tx = {
             let tx =
                 TransactionBuilder::new(ALICE_ID.clone(), vec![], 4000).sign(ALICE_KEYS.clone())?;
-            VersionedAcceptedTransaction::from(AcceptedTransaction::accept::<false>(tx, &limits)?)
+            VersionedAcceptedTransaction::from(<AcceptedTransaction as InBlock>::accept(
+                tx, &limits,
+            )?)
         };
         let invalid_tx = {
             let isi: InstructionBox = FailBox::new("fail").into();
             let tx = TransactionBuilder::new(ALICE_ID.clone(), vec![isi.clone(), isi], 4000)
                 .sign(ALICE_KEYS.clone())?;
-            AcceptedTransaction::accept::<false>(tx, &huge_limits)?.into()
+            <AcceptedTransaction as InBlock>::accept(tx, &huge_limits)?.into()
         };
 
         let mut transactions = vec![valid_tx; valid_tx_per_block];
@@ -366,7 +375,7 @@ mod tests {
         };
 
         let va_tx: VersionedAcceptedTransaction =
-            AcceptedTransaction::accept::<false>(signed_tx, &tx_limits)?.into();
+            <AcceptedTransaction as InBlock>::accept(signed_tx, &tx_limits)?.into();
 
         let vcb: VersionedCommittedBlock = BlockBuilder {
             transactions: vec![va_tx.clone()],
@@ -412,14 +421,14 @@ mod tests {
             )?;
             let mut domain = Domain::new(DomainId::from_str("wonderland")?)
                 .with_metadata(metadata)
-                .build(ALICE_ID.clone());
-            let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()])
-                .build(ALICE_ID.clone());
+                .build(&ALICE_ID);
+            let account =
+                Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()]).build(&ALICE_ID);
             assert!(domain.add_account(account).is_none());
             let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
             assert!(domain
                 .add_asset_definition(
-                    AssetDefinition::quantity(asset_definition_id).build(ALICE_ID.clone())
+                    AssetDefinition::quantity(asset_definition_id).build(&ALICE_ID)
                 )
                 .is_none());
             WorldStateView::new(World::with([domain], PeersIds::new()), kura)

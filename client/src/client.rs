@@ -18,12 +18,12 @@ use iroha_data_model::{
     query::error::QueryExecutionFailure, transaction::TransactionPayload,
 };
 use iroha_logger::prelude::*;
-use iroha_primitives::small::SmallStr;
 use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
 use parity_scale_codec::DecodeAll;
 use rand::Rng;
 use serde::de::DeserializeOwned;
+use url::Url;
 
 use self::{blocks_api::AsyncBlockStream, events_api::AsyncEventStream};
 use crate::{
@@ -251,9 +251,9 @@ where
 #[display(fmt = "{}@{torii_url}", "key_pair.public_key()")]
 pub struct Client {
     /// Url for accessing iroha node
-    torii_url: SmallStr,
+    torii_url: Url,
     /// Url to report status for administration
-    telemetry_url: SmallStr,
+    telemetry_url: Url,
     /// The limits to which transactions must adhere to
     transaction_limits: TransactionLimits,
     /// Accounts keypair
@@ -556,7 +556,7 @@ impl Client {
         Ok((
             B::new(
                 HttpMethod::POST,
-                format!("{}/{}", &self.torii_url, uri::TRANSACTION),
+                self.torii_url.join(uri::TRANSACTION).expect("Valid URI"),
             )
             .headers(self.headers.clone())
             .body(transaction_bytes),
@@ -698,7 +698,7 @@ impl Client {
         Ok((
             B::new(
                 HttpMethod::POST,
-                format!("{}/{}", &self.torii_url, uri::QUERY),
+                self.torii_url.join(uri::QUERY).expect("Valid URI"),
             )
             .params(pagination)
             .params(sorting)
@@ -899,7 +899,7 @@ impl Client {
         events_api::flow::Init::new(
             event_filter,
             self.headers.clone(),
-            format!("{}/{}", &self.torii_url, uri::SUBSCRIPTION),
+            self.torii_url.join(uri::SUBSCRIPTION).expect("Valid URI"),
         )
     }
 
@@ -933,7 +933,7 @@ impl Client {
         blocks_api::flow::Init::new(
             height,
             self.headers.clone(),
-            format!("{}/{}", &self.torii_url, uri::BLOCKS_STREAM),
+            self.torii_url.join(uri::BLOCKS_STREAM).expect("Valid URI"),
         )
     }
 
@@ -965,7 +965,9 @@ impl Client {
         for _ in 0..retry_count {
             let response = DefaultRequestBuilder::new(
                 HttpMethod::GET,
-                format!("{}/{}", &self.torii_url, uri::PENDING_TRANSACTIONS),
+                self.torii_url
+                    .join(uri::PENDING_TRANSACTIONS)
+                    .expect("Valid URI"),
             )
             .params(pagination.clone())
             .headers(self.headers.clone())
@@ -1021,7 +1023,7 @@ impl Client {
     fn get_config<T: DeserializeOwned>(&self, get_config: &GetConfiguration) -> Result<T> {
         let resp = DefaultRequestBuilder::new(
             HttpMethod::GET,
-            format!("{}/{}", &self.torii_url, uri::CONFIGURATION),
+            self.torii_url.join(uri::CONFIGURATION).expect("Valid URI"),
         )
         .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
         .body(serde_json::to_vec(get_config).wrap_err("Failed to serialize")?)
@@ -1045,7 +1047,7 @@ impl Client {
     pub fn set_config(&self, post_config: PostConfiguration) -> Result<bool> {
         let body = serde_json::to_vec(&post_config)
             .wrap_err(format!("Failed to serialize {post_config:?}"))?;
-        let url = &format!("{}/{}", self.torii_url, uri::CONFIGURATION);
+        let url = self.torii_url.join(uri::CONFIGURATION).expect("Valid URI");
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
             .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
             .body(body)
@@ -1105,7 +1107,7 @@ impl Client {
         (
             B::new(
                 HttpMethod::GET,
-                format!("{}/{}", &self.telemetry_url, uri::STATUS),
+                self.telemetry_url.join(uri::STATUS).expect("Valid URI"),
             )
             .headers(self.headers.clone()),
             StatusResponseHandler,
@@ -1296,7 +1298,7 @@ pub mod events_api {
             /// HTTP request headers
             headers: HashMap<String, String>,
             /// TORII URL
-            url: String,
+            url: Url,
         }
 
         impl Init {
@@ -1308,12 +1310,12 @@ pub mod events_api {
             pub(in super::super) fn new(
                 filter: FilterBox,
                 headers: HashMap<String, String>,
-                url: impl AsRef<str>,
+                url: Url,
             ) -> Result<Self> {
                 Ok(Self {
                     filter,
                     headers,
-                    url: transform_ws_url(url.as_ref())?,
+                    url: transform_ws_url(url)?,
                 })
             }
         }
@@ -1378,7 +1380,7 @@ mod blocks_api {
             /// HTTP request headers
             headers: HashMap<String, String>,
             /// TORII URL
-            url: String,
+            url: Url,
         }
 
         impl Init {
@@ -1390,12 +1392,12 @@ mod blocks_api {
             pub(in super::super) fn new(
                 height: u64,
                 headers: HashMap<String, String>,
-                url: impl AsRef<str>,
+                url: Url,
             ) -> Result<Self> {
                 Ok(Self {
                     height,
                     headers,
-                    url: transform_ws_url(url.as_ref())?,
+                    url: transform_ws_url(url)?,
                 })
             }
         }
@@ -1624,8 +1626,9 @@ mod tests {
 
     use iroha_config::{
         client::{BasicAuth, ConfigurationProxy, WebLogin},
-        torii::{uri::DEFAULT_API_URL, DEFAULT_TORII_TELEMETRY_URL},
+        torii::{uri::DEFAULT_API_ADDR, DEFAULT_TORII_TELEMETRY_ADDR},
     };
+    use iroha_primitives::small::SmallStr;
 
     use super::*;
 
@@ -1646,8 +1649,12 @@ mod tests {
                     .parse()
                     .expect("This account ID should be valid"),
             ),
-            torii_api_url: Some(SmallStr::from_str(DEFAULT_API_URL)),
-            torii_telemetry_url: Some(SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL)),
+            torii_api_url: Some(format!("http://{DEFAULT_API_ADDR}").parse().unwrap()),
+            torii_telemetry_url: Some(
+                format!("http://{DEFAULT_TORII_TELEMETRY_ADDR}")
+                    .parse()
+                    .unwrap(),
+            ),
             add_transaction_nonce: Some(true),
             ..ConfigurationProxy::default()
         }
@@ -1691,8 +1698,8 @@ mod tests {
                     .parse()
                     .expect("This account ID should be valid"),
             ),
-            torii_api_url: Some(SmallStr::from_str(DEFAULT_API_URL)),
-            torii_telemetry_url: Some(SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL)),
+            torii_api_url: Some(format!("http://{DEFAULT_API_ADDR}").parse().unwrap()),
+            torii_telemetry_url: Some(format!("http://{DEFAULT_TORII_TELEMETRY_ADDR}").parse().unwrap()),
             basic_auth: Some(Some(basic_auth)),
             ..ConfigurationProxy::default()
         }

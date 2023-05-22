@@ -17,13 +17,14 @@
 use std::str::FromStr;
 
 use eyre::Result;
+use iroha_data_model::evaluate::ExpressionEvaluator;
 pub use iroha_data_model::prelude::*;
 use iroha_logger::debug;
 use iroha_primitives::must_use::MustUse;
 
 use crate::{
     prelude::*,
-    smartcontracts::{wasm, Context, Execute as _},
+    smartcontracts::{wasm, Execute as _},
 };
 
 /// Used to validate transaction and thus move transaction lifecycle forward
@@ -126,7 +127,7 @@ impl TransactionValidator {
                     for instruction in instructions {
                         instruction
                             .clone()
-                            .execute(account_id.clone(), wsv)
+                            .execute(account_id, wsv)
                             .map_err(|reason| InstructionExecutionFail {
                                 instruction,
                                 reason: reason.to_string(),
@@ -205,7 +206,6 @@ impl TransactionValidator {
             payload,
             signatures,
         } = tx;
-        let signatures = signatures.into_iter().collect();
 
         let signed_tx = SignedTransaction {
             payload,
@@ -245,8 +245,7 @@ impl CheckSignatureCondition for AcceptedTransaction {
             .cloned();
 
         wsv.map_account(account_id, |account| {
-            check_signature_condition(account, signatories)
-                .evaluate(&Context::new(wsv))
+            wsv.evaluate(&check_signature_condition(account, signatories))
                 .map(MustUse::new)
                 .map_err(Into::into)
         })?
@@ -265,8 +264,8 @@ fn check_signature_condition(
     account: &Account,
     signatories: impl IntoIterator<Item = PublicKey>,
 ) -> EvaluatesTo<bool> {
-    let where_expr = Where::new(EvaluatesTo::new_evaluates_to_value(Box::new(
-        account.signature_check_condition.as_expression().clone(),
+    let where_expr = Where::new(EvaluatesTo::new_evaluates_to_value(Clone::clone(
+        &*account.signature_check_condition.0.expression.clone(),
     )))
     .with_value(
         Name::from_str(iroha_data_model::account::ACCOUNT_SIGNATORIES_VALUE)

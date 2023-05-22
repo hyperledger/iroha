@@ -7,7 +7,7 @@ use iroha_core::{
     block::*, prelude::*, smartcontracts::isi::Registrable as _,
     sumeragi::network_topology::Topology, tx::TransactionValidator, wsv::World,
 };
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, transaction::InBlock};
 
 const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
@@ -67,8 +67,8 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
                 Name::from_str(START_ACCOUNT).expect("Valid"),
                 domain_id.clone(),
             );
-            let mut domain = Domain::new(domain_id).build(account_id.clone());
-            let account = Account::new(account_id.clone(), [public_key]).build(account_id);
+            let mut domain = Domain::new(domain_id).build(&account_id);
+            let account = Account::new(account_id.clone(), [public_key]).build(&account_id);
             assert!(domain.add_account(account).is_none());
             World::with([domain], BTreeSet::new())
         },
@@ -83,7 +83,8 @@ fn accept_transaction(criterion: &mut Criterion) {
     let mut failures_count = 0;
     let _ = criterion.bench_function("accept", |b| {
         b.iter(|| {
-            match AcceptedTransaction::accept::<false>(transaction.clone(), &TRANSACTION_LIMITS) {
+            match <AcceptedTransaction as InBlock>::accept(transaction.clone(), &TRANSACTION_LIMITS)
+            {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
             }
@@ -109,7 +110,7 @@ fn sign_transaction(criterion: &mut Criterion) {
 
 fn validate_transaction(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction = AcceptedTransaction::accept::<false>(
+    let transaction = <AcceptedTransaction as InBlock>::accept(
         build_test_transaction(keys.clone()),
         &TRANSACTION_LIMITS,
     )
@@ -135,7 +136,7 @@ fn validate_transaction(criterion: &mut Criterion) {
 fn sign_blocks(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let transaction =
-        AcceptedTransaction::accept::<false>(build_test_transaction(keys), &TRANSACTION_LIMITS)
+        <AcceptedTransaction as InBlock>::accept(build_test_transaction(keys), &TRANSACTION_LIMITS)
             .expect("Failed to accept transaction.");
     let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");

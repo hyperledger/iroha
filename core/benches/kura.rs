@@ -6,7 +6,7 @@ use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{block::*, kura::BlockStore, prelude::*, tx::TransactionValidator, wsv::World};
 use iroha_crypto::KeyPair;
-use iroha_data_model::{block::VersionedCommittedBlock, prelude::*};
+use iroha_data_model::{block::VersionedCommittedBlock, prelude::*, transaction::InBlock};
 use iroha_version::scale::EncodeVersioned;
 use tokio::{fs, runtime::Runtime};
 
@@ -33,7 +33,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
         max_instruction_number: 4096,
         max_wasm_size_bytes: 0,
     };
-    let tx = AcceptedTransaction::accept::<false>(tx, &transaction_limits)
+    let tx = <AcceptedTransaction as InBlock>::accept(tx, &transaction_limits)
         .expect("Failed to accept Transaction.")
         .into();
     let dir = tempfile::tempdir().expect("Could not create tempfile.");

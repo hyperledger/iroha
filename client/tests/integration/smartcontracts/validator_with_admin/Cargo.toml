@@ -12,5 +12,4 @@ crate-type = ['cdylib']
 
 [dependencies]
 iroha_validator.workspace = true
-iroha_default_validator.workspace = true
 panic-halt.workspace = true

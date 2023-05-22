@@ -3,6 +3,7 @@
 //! types are included in the schema.
 #![allow(clippy::arithmetic_side_effects)]
 
+use iroha_crypto::MerkleTree;
 use iroha_data_model::{block::stream::prelude::*, query::error::QueryExecutionFailure};
 use iroha_genesis::RawGenesisBlock;
 use iroha_schema::prelude::*;
@@ -53,6 +54,8 @@ pub fn build_schemas() -> MetaMap {
         VersionedSignedQuery,
         VersionedPendingTransactions,
         UpgradableBox,
+        RegistrableBox,
+        MerkleTree<VersionedSignedTransaction>,
     }
 }
 
@@ -104,7 +107,6 @@ types!(
     Box<Asset>,
     Box<AssetDefinition>,
     Box<Domain>,
-    Box<Expression>,
     Box<FindError>,
     Box<GenericPredicateBox<ValuePredicate>>,
     Box<NewAccount>,
@@ -118,6 +120,7 @@ types!(
     Box<Role>,
     Box<Value>,
     Box<ValuePredicate>,
+    Box<Trigger<FilterBox, Executable>>,
     BurnBox,
     CommittedBlock,
     Conditional,
@@ -252,6 +255,7 @@ types!(
     IsAssetDefinitionOwner,
     LengthLimits,
     Less,
+    MerkleTree<VersionedSignedTransaction>,
     Metadata,
     MetadataChanged<AccountId>,
     MetadataChanged<AssetDefinitionId>,
@@ -322,6 +326,7 @@ types!(
     QueryResult,
     RaiseTo,
     RegisterBox,
+    RegistrableBox,
     RejectedTransaction,
     RemoveKeyValueBox,
     Repeats,
@@ -463,11 +468,6 @@ mod tests {
 
     use super::IntoSchema;
 
-    // NOTE: These type parameters should not be have their schema exposed
-    // By default `PhantomData` wrapped types schema will not be included
-    const SCHEMALESS_TYPES: [&str; 2] =
-        ["MerkleTree<VersionedSignedTransaction>", "RegistrableBox"];
-
     fn is_const_generic(generic: &str) -> bool {
         generic.parse::<usize>().is_ok()
     }
@@ -530,7 +530,7 @@ mod tests {
                             continue;
                         }
 
-                        if !SCHEMALESS_TYPES.contains(&generic) && !type_names.contains(generic) {
+                        if !type_names.contains(generic) {
                             missing_schemas
                                 .entry(type_name)
                                 .or_insert_with(Vec::new)
@@ -542,7 +542,6 @@ mod tests {
                 let generic = type_name[start..end].trim();
                 if !generic.is_empty()
                     && !is_const_generic(generic)
-                    && !SCHEMALESS_TYPES.contains(&generic)
                     && !type_names.contains(generic)
                 {
                     missing_schemas
@@ -575,7 +574,7 @@ mod tests {
                 extra_types.insert(schema);
             }
         }
-        assert!(extra_types.is_empty(), "Extra types: {:#?}", extra_types);
+        assert!(extra_types.is_empty(), "Extra types: {extra_types:#?}");
 
         let mut missing_types = HashSet::new();
         for (type_id, schema) in &schemas_types {
@@ -585,8 +584,7 @@ mod tests {
         }
         assert!(
             missing_types.is_empty(),
-            "Missing types: {:#?}",
-            missing_types
+            "Missing types: {missing_types:#?}",
         );
     }
 

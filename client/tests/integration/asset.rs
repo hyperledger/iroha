@@ -273,8 +273,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         test_client
             .submit_transaction_blocking(grant_asset_transfer_tx)
             .expect(&format!(
-                "Failed to grant permission alice to transfer {}.",
-                asset_id
+                "Failed to grant permission alice to transfer {asset_id}",
             ));
     };
 
