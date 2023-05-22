@@ -23,10 +23,7 @@ use iroha_data_model::{
 use parity_scale_codec::{Decode, Encode};
 use sealed::sealed;
 
-use crate::{
-    prelude::*,
-    sumeragi::network_topology::{Role, Topology},
-};
+use crate::{prelude::*, sumeragi::network_topology::Topology};
 
 /// Transaction data is permanently recorded in chunks called
 /// blocks.
@@ -164,25 +161,12 @@ impl PendingBlock {
     /// Not enough signatures
     #[inline]
     pub fn commit(mut self, topology: &Topology) -> Result<CommittedBlock, (Self, eyre::Report)> {
-        let verified_signatures = self.retain_verified_signatures();
-
-        if topology
-            .filter_signatures_by_roles(
-                &[
-                    Role::ValidatingPeer,
-                    Role::Leader,
-                    Role::ProxyTail,
-                    Role::ObservingPeer,
-                ],
-                verified_signatures,
-            )
-            .len()
-            .lt(&topology.min_votes_for_commit())
+        let hash = self.partial_hash();
+        if let Err(err) = topology
+            .verify_signatures(&mut self.signatures, hash)
+            .wrap_err("Error during signature verification")
         {
-            return Err((
-                self,
-                eyre!("The block doesn't have enough valid signatures to be committed."),
-            ));
+            return Err((self, err));
         }
 
         Ok(self.commit_unchecked())
@@ -456,6 +440,11 @@ impl Revalidate for VersionedCommittedBlock {
         let block_height = wsv.height();
         let transaction_validator = wsv.transaction_validator();
 
+        assert!(
+            (block_height == 0) == IS_GENESIS,
+            "Height of 0 only allowed when IN_GENESIS round (height: {block_height}, is_genesis: {IS_GENESIS}). This is a bug."
+        );
+
         if self.has_committed_transactions(&wsv) {
             bail!("Block has committed transactions");
         }
@@ -479,6 +468,39 @@ impl Revalidate for VersionedCommittedBlock {
                     block_height + 1,
                     block.header.height
                 );
+                }
+
+                if !IS_GENESIS {
+                    // Recrate topology with witch block must be committed at given view change index
+                    // And then verify committed_with_topology field and block signatures
+                    let topology = {
+                        let last_committed_block = wsv
+                            .latest_block_ref()
+                            .expect("Not in genesis round so must have at least genesis block");
+                        let new_peers = wsv.peers_ids().iter().map(|id| id.clone()).collect();
+                        let view_change_index = block
+                            .header
+                            .view_change_index
+                            .try_into()
+                            .wrap_err("View change index is too large to fit into usize")?;
+                        Topology::recreate_topology(
+                            &last_committed_block,
+                            view_change_index,
+                            new_peers,
+                        )
+                    };
+
+                    if topology.sorted_peers != block.header.committed_with_topology {
+                        bail!(
+                            "Mismatch between expected and actual block topology. Expected: {:?}, actual: {:?}",
+                            topology, block.header.committed_with_topology
+                        )
+                    }
+
+                    topology.verify_signatures(
+                        &mut block.signatures.clone(),
+                        block.partial_hash().internal.typed(),
+                    )?;
                 }
 
                 // Validate that header transactions hashes are matched with actual hashes
