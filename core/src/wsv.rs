@@ -44,7 +44,7 @@ use crate::{
     smartcontracts::{
         triggers::{
             self,
-            set::{LoadedExecutable, Set as TriggerSet},
+            set::{LoadedExecutable, LoadedWasm, Set as TriggerSet},
         },
         wasm, Execute,
     },
@@ -268,7 +268,7 @@ impl WorldStateView {
             Instructions(instructions) => {
                 self.process_instructions(instructions.iter().cloned(), authority)
             }
-            Wasm(module) => {
+            Wasm(LoadedWasm { module, .. }) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::new()
                     .with_configuration(self.config.borrow().wasm_runtime_config)
                     .with_engine(engine)

@@ -2077,6 +2077,7 @@
   "HashOf<MerkleTree<VersionedSignedTransaction>>": "Hash",
   "HashOf<VersionedCommittedBlock>": "Hash",
   "HashOf<VersionedSignedTransaction>": "Hash",
+  "HashOf<WasmSmartContract>": "Hash",
   "IdBox": {
     "Enum": [
       {
@@ -2635,7 +2636,7 @@
       {
         "tag": "WasmInternalRepr",
         "discriminant": 0,
-        "type": "Vec<u8>"
+        "type": "WasmInternalRepr"
       },
       {
         "tag": "Instructions",
@@ -4520,6 +4521,18 @@
       {
         "name": "reason",
         "type": "String"
+      }
+    ]
+  },
+  "WasmInternalRepr": {
+    "Struct": [
+      {
+        "name": "serialized",
+        "type": "Vec<u8>"
+      },
+      {
+        "name": "blob_hash",
+        "type": "HashOf<WasmSmartContract>"
       }
     ]
   },
