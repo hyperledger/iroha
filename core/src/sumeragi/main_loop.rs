@@ -289,15 +289,11 @@ impl Sumeragi {
                 .clone(),
         );
 
-        topology.lift_up_peers(
-            &committed_block
-                .signatures()
-                .into_iter()
-                .map(|s| s.public_key().clone())
-                .collect::<Vec<PublicKey>>(),
+        topology.update_topology(
+            committed_block,
+            self.wsv.peers_ids().iter().map(|id| id.clone()).collect(),
         );
-        topology.rotate_set_a();
-        topology.update_peer_list(self.wsv.peers_ids().iter().map(|id| id.clone()).collect());
+
         self.current_topology = topology;
         self.connect_peers(&self.current_topology);
     }
@@ -1077,12 +1073,14 @@ fn handle_block_sync(
     finalized_wsv: &WorldStateView,
 ) -> Result<BlockSyncOk, BlockSyncError> {
     let block_height = block.as_v1().header.height;
-    if wsv.height() + 1 == block_height {
+    let wsv_height = wsv.height();
+    if wsv_height + 1 == block_height {
         // Normal branch for adding new block on top of current
         InBlock::revalidate(&block, wsv.clone())
             .map(|_| BlockSyncOk::CommitBlock(block))
             .map_err(BlockSyncError::BlockNotValid)
-    } else if wsv.height() == block_height {
+    } else if wsv_height == block_height && block_height > 1 {
+        // Soft-fork on genesis block isn't possible
         // Soft fork branch for replacing current block with valid one
         InBlock::revalidate(&block, finalized_wsv.clone())
             .map_err(BlockSyncError::SoftForkBlockNotValid)
@@ -1101,7 +1099,7 @@ fn handle_block_sync(
     } else {
         // Error branch other peer send irrelevant block
         Err(BlockSyncError::BlockNotProperHeight {
-            peer_height: wsv.height(),
+            peer_height: wsv_height,
             block_height,
         })
     }
@@ -1129,6 +1127,37 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(world, Arc::clone(&kura));
 
+        // Create "genesis" block
+        // Creating an instruction
+        let fail_box: InstructionBox = FailBox::new("Dummy isi").into();
+
+        // Making two transactions that have the same instruction
+        let tx = TransactionBuilder::new(alice_id.clone(), [fail_box], 4000)
+            .sign(alice_keys.clone())
+            .expect("Valid");
+        let tx: VersionedAcceptedTransaction =
+            AcceptedTransaction::accept(tx, &wsv.transaction_validator().transaction_limits)
+                .map(Into::into)
+                .expect("Valid");
+
+        // Creating a block of two identical transactions and validating it
+        let transactions = vec![tx.clone(), tx];
+        let block = BlockBuilder {
+            transactions,
+            event_recommendations: Vec::new(),
+            view_change_index: 0,
+            committed_with_topology: Topology::new(Vec::new()),
+            key_pair: alice_keys.clone(),
+            wsv: wsv.clone(),
+        }
+        .build();
+
+        let genesis_block = VersionedCommittedBlock::from(block.commit_unchecked());
+
+        kura.store_block(genesis_block.clone());
+        wsv.apply(&genesis_block).expect("Failed to apply block");
+
+        // Create block for testing purposes
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
         let create_asset_definition: InstructionBox =
@@ -1202,7 +1231,7 @@ mod tests {
         assert!(matches!(
             result,
             Err(BlockSyncError::BlockNotProperHeight {
-                peer_height: 0,
+                peer_height: 1,
                 block_height: 42
             })
         ))
@@ -1253,6 +1282,26 @@ mod tests {
             Err(BlockSyncError::SoftForkBlockSmallViewChangeIndex {
                 peer_view_change_index: 42,
                 block_view_change_index: 0
+            })
+        ))
+    }
+
+    #[test]
+    fn block_sync_genesis_block_do_not_replace() {
+        let (finalized_wsv, _, mut block) = create_data_for_test();
+        let wsv = finalized_wsv.clone();
+
+        // Change block height and view change index
+        // Soft-fork on genesis block is not possible
+        block.as_mut_v1().header.height = 1;
+        block.as_mut_v1().header.view_change_index = 42;
+
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
+        assert!(matches!(
+            result,
+            Err(BlockSyncError::BlockNotProperHeight {
+                peer_height: 1,
+                block_height: 1,
             })
         ))
     }
