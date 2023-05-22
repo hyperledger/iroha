@@ -436,7 +436,8 @@ impl DockerComposeBuilder {
             DIR_CONFIG_IN_DOCKER.to_owned(),
         )];
 
-        let trusted_peers: BTreeSet<PeerId> = peers.values().map(|peer| peer.id()).collect();
+        let trusted_peers: BTreeSet<PeerId> =
+            peers.values().map(peer_generator::Peer::id).collect();
 
         let mut peers_iter = peers.iter();
 
@@ -799,13 +800,13 @@ mod serialize_docker_compose {
 
     impl From<CompactPeerEnv> for FullPeerEnv {
         fn from(value: CompactPeerEnv) -> Self {
-            let (genesis_public_key, genesis_private_key) = match value.genesis_key_pair {
-                Some(key_pair) => (
-                    Some(key_pair.public_key().clone()),
-                    Some(SerializeAsJsonStr(key_pair.private_key().clone())),
-                ),
-                None => (None, None),
-            };
+            let (genesis_public_key, genesis_private_key) =
+                value.genesis_key_pair.map_or((None, None), |key_pair| {
+                    (
+                        Some(key_pair.public_key().clone()),
+                        Some(SerializeAsJsonStr(key_pair.private_key().clone())),
+                    )
+                });
 
             Self {
                 iroha_public_key: value.key_pair.public_key().clone(),
