@@ -283,21 +283,18 @@ the docker-compose configuration it generates is compatible with the same Git re
 is built from itself. Therefore, if specified image is not compatible with the version of Swarm
 you are running, the generated configuration might not work.
 
-**Usage:** `kagami swarm [OPTIONS] --peers <PEERS> --output <OUTPUT> <--dockerhub <CHANNEL>|--github|--path <PATH>>`
+**Usage:** `kagami swarm [OPTIONS] --peers <PEERS> --outdir <OUTDIR> <--image <IMAGE>|--build <PATH>|--build-from-github>`
 
 ###### **Options:**
 
-* `--dockerhub <CHANNEL>` — Use an image published on Dockerhub
-
-  Possible values: `dev`, `stable`, `lts`
-
-* `--github` — Clone `hyperledger/iroha` repo from the revision Kagami is built itself, and use the cloned source code to build images from
-* `--path <PATH>` — Use local path location of the Iroha source code to build images from
+* `--image <IMAGE>` — Use specified docker image
+* `--build <PATH>` — Use local path location of the Iroha source code to build images from
+* `--build-from-github` — Clone `hyperledger/iroha` repo from the revision Kagami is built itself, and use the cloned source code to build images from
 * `-p`, `--peers <PEERS>` — How many peers to generate within the docker-compose
-* `-o`, `--output <OUTPUT>` — Target directory where to place generated files
-* `--output-rewrite` — Re-create the target directory if it already exists
-* `--no-default-configuration` — Do not create default configuration in the `<output>/config` directory
-* `--seed <SEED>` — Might be useful for deterministic key generation
+* `--outdir <OUTDIR>` — Target directory where to place generated files
+* `--outdir-force` — Re-create the target directory if it already exists
+* `--no-default-configuration` — Do not create default configuration in the `<outdir>/config` directory
+* `-s`, `--seed <SEED>` — Might be useful for deterministic key generation
 
 
 
