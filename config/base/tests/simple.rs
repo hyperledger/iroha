@@ -130,10 +130,10 @@ impl FetchEnv for TestEnv {
             .get(
                 key.as_ref()
                     .to_str()
-                    .ok_or(VarError::NotUnicode(key.as_ref().to_owned()))?,
+                    .ok_or_else(|| VarError::NotUnicode(key.as_ref().to_owned()))?,
             )
             .ok_or(VarError::NotPresent)
-            .map(|x| x.clone())
+            .map(Clone::clone)
     }
 }
 
