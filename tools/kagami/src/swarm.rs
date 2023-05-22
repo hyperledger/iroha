@@ -7,7 +7,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use clap::ValueEnum;
 use color_eyre::{
     eyre::{eyre, Context, ContextCompat},
     Result,
@@ -31,7 +30,7 @@ const FILE_CONFIG: &str = "config.json";
 const FILE_GENESIS: &str = "genesis.json";
 const FILE_COMPOSE: &str = "docker-compose.yml";
 const DIR_FORCE_SUGGESTION: &str =
-    "You can pass `--output-rewrite` flag to remove the directory without prompting";
+    "You can pass `--outdir-force` flag to remove the directory without prompting";
 const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
 
 #[derive(ClapArgs, Debug)]
@@ -45,16 +44,16 @@ pub struct Args {
     ///
     /// If the directory is not empty, Kagami will prompt it's re-creation. If the TTY is not
     /// interactive, Kagami will stop execution with non-zero exit code. In order to re-create
-    /// the directory anyway, pass `--output-rewrite` flag.
-    #[arg(long, short)]
-    output: PathBuf,
+    /// the directory anyway, pass `--outdir-force` flag.
+    #[arg(long)]
+    outdir: PathBuf,
     /// Re-create the target directory if it already exists.
     #[arg(long)]
-    output_rewrite: bool,
-    /// Do not create default configuration in the `<output>/config` directory.
+    outdir_force: bool,
+    /// Do not create default configuration in the `<outdir>/config` directory.
     ///
     /// Default `config.json`, `genesis.json` and `validator.wasm` are generated and put into
-    /// the `<output>/config` directory. That directory is specified in the Docker Compose
+    /// the `<outdir>/config` directory. That directory is specified in the Docker Compose
     /// `volumes` field.
     ///
     /// If you don't need the defaults, you could set this flag. The `config` directory will be
@@ -64,7 +63,7 @@ pub struct Args {
     /// Might be useful for deterministic key generation.
     ///
     /// It could be any string. Its UTF-8 bytes will be used as a seed.
-    #[arg(long)]
+    #[arg(long, short)]
     seed: Option<String>,
 }
 
@@ -72,13 +71,13 @@ impl Args {
     pub fn run(self) -> Outcome {
         let ui = UserInterface::new();
 
-        let prepare_dir_strategy = if self.output_rewrite {
+        let prepare_dir_strategy = if self.outdir_force {
             PrepareDirectoryStrategy::ForceRecreate
         } else {
             PrepareDirectoryStrategy::Prompt
         };
         let source = ImageSource::from(self.source);
-        let target_dir = TargetDirectory::new(AbsolutePath::absolutize(self.output)?);
+        let target_dir = TargetDirectory::new(AbsolutePath::absolutize(self.outdir)?);
 
         if let EarlyEnding::Halt = target_dir
             .prepare(&prepare_dir_strategy, &ui)
@@ -119,45 +118,30 @@ impl Args {
     }
 }
 
-#[derive(Clone, ValueEnum, Debug)]
-enum Channel {
-    Dev,
-    Stable,
-    Lts,
-}
-
-impl Channel {
-    const fn as_dockerhub_image(&self) -> &'static str {
-        match self {
-            Self::Dev => "hyperledger/iroha2:dev",
-            Self::Stable => "hyperledger/iroha2:stable",
-            Self::Lts => "hyperledger/iroha2:lts",
-        }
-    }
-}
-
 #[derive(ClapArgs, Clone, Debug)]
 #[group(required = true, multiple = false)]
 struct ImageSourceArgs {
-    /// Use an image published on Dockerhub.
-    #[arg(long, value_name = "CHANNEL")]
-    dockerhub: Option<Channel>,
-    /// Clone `hyperledger/iroha` repo from the revision Kagami is built itself,
-    /// and use the cloned source code to build images from.
+    /// Use specified docker image.
     #[arg(long)]
-    github: bool,
+    image: Option<String>,
     /// Use local path location of the Iroha source code to build images from.
     ///
     /// If the path is relative, it will be resolved relative to the CWD.
     #[arg(long, value_name = "PATH")]
-    path: Option<PathBuf>,
+    build: Option<PathBuf>,
+    /// Clone `hyperledger/iroha` repo from the revision Kagami is built itself,
+    /// and use the cloned source code to build images from.
+    #[arg(long)]
+    build_from_github: bool,
 }
 
 /// Parsed version of [`ImageSourceArgs`]
 #[derive(Clone, Debug)]
 enum ImageSource {
-    Dockerhub(Channel),
-    Github {
+    Image {
+        name: String,
+    },
+    GitHub {
         revision: String,
     },
     /// Raw path passed from user
@@ -168,14 +152,16 @@ impl From<ImageSourceArgs> for ImageSource {
     fn from(args: ImageSourceArgs) -> Self {
         match args {
             ImageSourceArgs {
-                dockerhub: Some(channel),
+                image: Some(name), ..
+            } => Self::Image { name },
+            ImageSourceArgs {
+                build_from_github: true,
                 ..
-            } => Self::Dockerhub(channel),
-            ImageSourceArgs { github: true, .. } => Self::Github {
+            } => Self::GitHub {
                 revision: GIT_REVISION.to_owned(),
             },
             ImageSourceArgs {
-                path: Some(path), ..
+                build: Some(path), ..
             } => Self::Path(path),
             _ => unreachable!("Clap must ensure the invariant"),
         }
@@ -183,14 +169,14 @@ impl From<ImageSourceArgs> for ImageSource {
 }
 
 impl ImageSource {
-    /// Has a side effect: if self is [`Self::Github`], it clones the repo into
+    /// Has a side effect: if self is [`Self::GitHub`], it clones the repo into
     /// the target directory.
     fn resolve(self, target: &TargetDirectory, ui: &UserInterface) -> Result<ResolvedImageSource> {
         let source = match self {
             Self::Path(path) => ResolvedImageSource::Build {
                 path: AbsolutePath::absolutize(path).wrap_err("failed to resolve build path")?,
             },
-            Self::Github { revision } => {
+            Self::GitHub { revision } => {
                 let clone_dir = target.path.join(DIR_CLONE);
                 let clone_dir = AbsolutePath::absolutize(clone_dir)?;
 
@@ -201,9 +187,7 @@ impl ImageSource {
 
                 ResolvedImageSource::Build { path: clone_dir }
             }
-            Self::Dockerhub(channel) => ResolvedImageSource::Image {
-                name: channel.as_dockerhub_image().to_owned(),
-            },
+            Self::Image { name } => ResolvedImageSource::Image { name },
         };
 
         Ok(source)
