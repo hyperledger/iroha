@@ -6,7 +6,7 @@ use iroha_data_model::{
 };
 use iroha_telemetry::metrics;
 
-pub(crate) mod set;
+pub mod set;
 
 /// All instructions related to triggers.
 /// - registering a trigger

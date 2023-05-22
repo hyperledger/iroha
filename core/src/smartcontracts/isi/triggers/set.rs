@@ -12,12 +12,13 @@ use core::cmp::min;
 use std::{fmt, sync::RwLock};
 
 use dashmap::DashMap;
+use iroha_crypto::HashOf;
 use iroha_data_model::{
     events::Filter as EventFilter,
     isi::error::{InstructionExecutionFailure, MathError},
     prelude::*,
     query::error::FindError,
-    trigger::{action::ActionTrait, OptimizedExecutable},
+    trigger::{action::ActionTrait, OptimizedExecutable, WasmInternalRepr},
 };
 use thiserror::Error;
 
@@ -181,9 +182,10 @@ impl Set {
         } = trigger.action;
 
         let loaded_executable = match executable {
-            Executable::Wasm(bytes) => {
-                LoadedExecutable::Wasm(wasm::load_module(&self.engine, bytes)?)
-            }
+            Executable::Wasm(bytes) => LoadedExecutable::Wasm(LoadedWasm {
+                blob_hash: HashOf::new(&bytes),
+                module: wasm::load_module(&self.engine, bytes)?,
+            }),
             Executable::Instructions(instructions) => LoadedExecutable::Instructions(instructions),
         };
 
@@ -585,9 +587,23 @@ impl Set {
     }
 }
 
+/// WASM blob loaded with `wasmtime`
+#[derive(Clone)]
+pub struct LoadedWasm {
+    /// Loaded Module
+    pub module: wasmtime::Module,
+    /// Hash of original WASM blob on blockchain
+    pub blob_hash: HashOf<WasmSmartContract>,
+}
+
+/// Same as [`Executable`](iroha_data_model::transaction::Executable), but instead of
+/// [`Wasm`](iroha_data_model::transaction::Executable::Wasm) contains WASM module as loaded
+/// by `wasmtime`
 #[derive(Clone)]
 pub enum LoadedExecutable {
-    Wasm(wasmtime::Module),
+    /// Loaded WASM
+    Wasm(LoadedWasm),
+    /// Vector of ISI
     Instructions(Vec<InstructionBox>),
 }
 
@@ -608,11 +624,14 @@ impl core::fmt::Debug for LoadedExecutable {
 impl From<LoadedExecutable> for OptimizedExecutable {
     fn from(executable: LoadedExecutable) -> Self {
         match executable {
-            LoadedExecutable::Wasm(module) => OptimizedExecutable::WasmInternalRepr(
-                module
-                    .serialize()
-                    .expect("Serialization of optimized wasm module should always succeed"),
-            ),
+            LoadedExecutable::Wasm(LoadedWasm { module, blob_hash }) => {
+                OptimizedExecutable::WasmInternalRepr(WasmInternalRepr {
+                    serialized: module
+                        .serialize()
+                        .expect("Serialization of optimized wasm module should always succeed"),
+                    blob_hash,
+                })
+            }
             LoadedExecutable::Instructions(instructions) => {
                 OptimizedExecutable::Instructions(instructions)
             }

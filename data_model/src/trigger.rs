@@ -74,9 +74,20 @@ pub mod model {
         pub action: action::Action<F, E>,
     }
 
+    /// Internal representation of Wasm blob provided by preloading it with `wasmtime` crate.
+    #[derive(
+        Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
+    pub struct WasmInternalRepr {
+        /// Serialized with `wasmtime::Module::serialize`
+        pub serialized: Vec<u8>,
+        /// Hash of original WASM blob on blockchain
+        pub blob_hash: iroha_crypto::HashOf<crate::transaction::WasmSmartContract>,
+    }
+
     /// Same as [`Executable`] but instead of [`Wasm`](Executable::Wasm) contains
-    /// [`WasmInternalRepr`](OptimizedExecutable::WasmInternalRepr) with
-    /// serialized optimized representation from `wasmtime` library.
+    /// [`WasmInternalRepr`] with serialized optimized representation
+    /// from `wasmtime` library.
     #[derive(
         Debug,
         Clone,
@@ -93,8 +104,8 @@ pub mod model {
     // TODO: Made opaque temporarily
     #[ffi_type(opaque)]
     pub enum OptimizedExecutable {
-        /// Internal representation of Wasm blob provided by preloading it with `wasmtime` crate.
-        WasmInternalRepr(Vec<u8>),
+        /// WASM serialized with `wasmtime`.
+        WasmInternalRepr(WasmInternalRepr),
         /// Vector of [`instructions`](InstructionBox).
         Instructions(Vec<InstructionBox>),
     }
