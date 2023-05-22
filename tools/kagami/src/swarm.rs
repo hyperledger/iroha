@@ -547,6 +547,7 @@ mod peer_generator {
     use color_eyre::{eyre::Context, Report};
     use iroha_crypto::KeyPair;
     use iroha_data_model::prelude::PeerId;
+    use iroha_primitives::addr::{SocketAddr, SocketAddrHost};
 
     const BASE_PORT_P2P: u16 = 1337;
     const BASE_PORT_API: u16 = 8080;
@@ -563,11 +564,14 @@ mod peer_generator {
 
     impl Peer {
         pub fn id(&self) -> PeerId {
-            PeerId::new(&self.url(self.port_p2p), self.key_pair.public_key())
+            PeerId::new(&self.addr(self.port_p2p), self.key_pair.public_key())
         }
 
-        pub fn url(&self, port: u16) -> String {
-            format!("{}:{}", self.name, port)
+        pub fn addr(&self, port: u16) -> SocketAddr {
+            SocketAddr::Host(SocketAddrHost {
+                host: self.name.clone().into(),
+                port,
+            })
         }
     }
 
@@ -608,6 +612,7 @@ mod serialize_docker_compose {
     use color_eyre::eyre::{eyre, Context};
     use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
     use iroha_data_model::prelude::PeerId;
+    use iroha_primitives::addr::SocketAddr;
     use serde::{ser::Error as _, Serialize, Serializer};
 
     use crate::swarm::peer_generator::Peer;
@@ -687,9 +692,9 @@ mod serialize_docker_compose {
                 trusted_peers,
                 key_pair: peer.key_pair.clone(),
                 genesis_key_pair,
-                p2p_addr: peer.url(peer.port_p2p),
-                api_url: peer.url(peer.port_api),
-                telemetry_url: peer.url(peer.port_telemetry),
+                p2p_addr: peer.addr(peer.port_p2p),
+                api_addr: peer.addr(peer.port_api),
+                telemetry_addr: peer.addr(peer.port_telemetry),
             };
 
             Self {
@@ -772,9 +777,9 @@ mod serialize_docker_compose {
     struct FullPeerEnv {
         iroha_public_key: PublicKey,
         iroha_private_key: SerializeAsJsonStr<PrivateKey>,
-        torii_p2p_addr: String,
-        torii_api_url: String,
-        torii_telemetry_url: String,
+        torii_p2p_addr: SocketAddr,
+        torii_api_url: SocketAddr,
+        torii_telemetry_url: SocketAddr,
         #[serde(skip_serializing_if = "Option::is_none")]
         iroha_genesis_account_public_key: Option<PublicKey>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -786,9 +791,9 @@ mod serialize_docker_compose {
         key_pair: KeyPair,
         /// Genesis key pair is only needed for a peer that is submitting the genesis block
         genesis_key_pair: Option<KeyPair>,
-        p2p_addr: String,
-        api_url: String,
-        telemetry_url: String,
+        p2p_addr: SocketAddr,
+        api_addr: SocketAddr,
+        telemetry_addr: SocketAddr,
         trusted_peers: BTreeSet<PeerId>,
     }
 
@@ -808,8 +813,8 @@ mod serialize_docker_compose {
                 iroha_genesis_account_public_key: genesis_public_key,
                 iroha_genesis_account_private_key: genesis_private_key,
                 torii_p2p_addr: value.p2p_addr,
-                torii_api_url: value.api_url,
-                torii_telemetry_url: value.telemetry_url,
+                torii_api_url: value.api_addr,
+                torii_telemetry_url: value.telemetry_addr,
                 sumeragi_trusted_peers: SerializeAsJsonStr(value.trusted_peers),
             }
         }
@@ -841,6 +846,7 @@ mod serialize_docker_compose {
             env::VarError,
             ffi::OsStr,
             path::PathBuf,
+            str::FromStr,
         };
 
         use color_eyre::eyre::Context;
@@ -849,6 +855,7 @@ mod serialize_docker_compose {
             iroha::ConfigurationProxy,
         };
         use iroha_crypto::{KeyGenConfiguration, KeyPair};
+        use iroha_primitives::addr::SocketAddr;
 
         use super::{
             CompactPeerEnv, DockerCompose, DockerComposeService, DockerComposeVersion, FullPeerEnv,
@@ -915,9 +922,9 @@ mod serialize_docker_compose {
             let env: TestEnv = CompactPeerEnv {
                 key_pair: keypair.clone(),
                 genesis_key_pair: Some(keypair),
-                p2p_addr: "127.0.0.1:1337".to_owned(),
-                api_url: "127.0.0.1:1337".to_owned(),
-                telemetry_url: "127.0.0.1:1337".to_owned(),
+                p2p_addr: SocketAddr::from_str("127.0.0.1:1337").unwrap(),
+                api_addr: SocketAddr::from_str("127.0.0.1:1338").unwrap(),
+                telemetry_addr: SocketAddr::from_str("127.0.0.1:1339").unwrap(),
                 trusted_peers: BTreeSet::new(),
             }
             .into();
@@ -959,9 +966,9 @@ mod serialize_docker_compose {
                             environment: CompactPeerEnv {
                                 key_pair: key_pair.clone(),
                                 genesis_key_pair: Some(key_pair),
-                                p2p_addr: "iroha0:1337".to_owned(),
-                                api_url: "iroha0:1337".to_owned(),
-                                telemetry_url: "iroha0:1337".to_owned(),
+                                p2p_addr: SocketAddr::from_str("iroha1:1339").unwrap(),
+                                api_addr: SocketAddr::from_str("iroha1:1338").unwrap(),
+                                telemetry_addr: SocketAddr::from_str("iroha1:1337").unwrap(),
                                 trusted_peers: BTreeSet::new(),
                             }
                             .into(),
@@ -985,28 +992,28 @@ mod serialize_docker_compose {
 
             let actual = serde_yaml::to_string(&compose).expect("Should be serialisable");
             let expected = expect_test::expect![[r#"
-                    version: '3.8'
-                    services:
-                      iroha0:
-                        build: .
-                        environment:
-                          IROHA_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
-                          IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8"}'
-                          TORII_P2P_ADDR: iroha0:1337
-                          TORII_API_URL: iroha0:1337
-                          TORII_TELEMETRY_URL: iroha0:1337
-                          IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
-                          IROHA_GENESIS_ACCOUNT_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8"}'
-                          SUMERAGI_TRUSTED_PEERS: '[]'
-                        ports:
-                        - 1337:1337
-                        - 8080:8080
-                        - 8081:8081
-                        volumes:
-                        - ./configs/peer/legacy_stable:/config
-                        init: true
-                        command: iroha --submit-genesis
-                "#]];
+                version: '3.8'
+                services:
+                  iroha0:
+                    build: .
+                    environment:
+                      IROHA_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
+                      IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8"}'
+                      TORII_P2P_ADDR: iroha1:1339
+                      TORII_API_URL: iroha1:1338
+                      TORII_TELEMETRY_URL: iroha1:1337
+                      IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
+                      IROHA_GENESIS_ACCOUNT_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8"}'
+                      SUMERAGI_TRUSTED_PEERS: '[]'
+                    ports:
+                    - 1337:1337
+                    - 8080:8080
+                    - 8081:8081
+                    volumes:
+                    - ./configs/peer/legacy_stable:/config
+                    init: true
+                    command: iroha --submit-genesis
+            "#]];
             expected.assert_eq(&actual);
         }
 
@@ -1018,9 +1025,9 @@ mod serialize_docker_compose {
                 )
                 .unwrap(),
                 genesis_key_pair: None,
-                p2p_addr: "iroha0:1337".to_owned(),
-                api_url: "iroha0:1337".to_owned(),
-                telemetry_url: "iroha0:1337".to_owned(),
+                p2p_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
+                api_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
+                telemetry_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
                 trusted_peers: BTreeSet::new(),
             }
             .into();
