@@ -294,7 +294,7 @@ impl MeasurerUnit {
         let transfer_rose = TransferBox::new(
             asset_id(self.name),
             1_u32.to_value(),
-            asset_id(self.next_name),
+            account_id(self.next_name),
         );
 
         Conditional::new(enough_to_transfer, transfer_rose).into()
