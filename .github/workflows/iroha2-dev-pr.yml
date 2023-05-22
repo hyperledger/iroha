@@ -68,12 +68,15 @@ jobs:
           # generate report without tests
           # https://github.com/taiki-e/cargo-llvm-cov#merge-coverages-generated-under-different-test-conditions
           mold --run cargo llvm-cov --doctests --no-run --all-features --workspace --lcov --output-path lcov.info
-      - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v3
+      - name: Upload coverage to coveralls.io
+        uses: coverallsapp/github-action@v2
         with:
-          files: lcov.info
+          file: lcov.info
+          compare-ref: ${{ github.base_ref }}
+          compare-sha: ${{ github.event.pull_request.base.sha}}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          allow-empty: true
           fail_ci_if_error: true
-          commit_parent: ${{ github.event.pull_request.base.sha }}
 
   integration:
     runs-on: [self-hosted, Linux, iroha2ci]
