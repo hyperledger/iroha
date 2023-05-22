@@ -507,7 +507,7 @@ pub mod string {
                     .expect("Should not panic")
                     .into();
                 let id = IdBox::PeerId(peer::PeerId {
-                    address: "123".to_owned(),
+                    address: "localhost:123".parse().unwrap(),
                     public_key,
                 });
                 assert!(StringPredicate::contains("123").applies(&id));
@@ -1202,7 +1202,12 @@ pub mod value {
 
                 assert!(
                     !pred.applies(&Value::Identifiable(IdentifiableBox::Peer(Box::new(
-                        Peer::new(peer::PeerId::new("123", &public_key))
+                        Peer {
+                            id: peer::PeerId {
+                                address: "localhost:123".parse().unwrap(),
+                                public_key
+                            }
+                        }
                     ))))
                 );
             }

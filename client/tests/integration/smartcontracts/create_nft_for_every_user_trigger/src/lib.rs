@@ -2,30 +2,21 @@
 //!
 //! This module isn't included in the build-tree,
 //! but instead it is being built by a `client/build.rs`
-
 #![no_std]
-#![no_main]
-#![allow(clippy::all)]
 
 extern crate alloc;
 #[cfg(not(test))]
 extern crate panic_halt;
 
-use alloc::{format, string::ToString, vec::Vec};
+use alloc::{format, string::ToString};
 
-use iroha_wasm::{
-    data_model::{prelude::*, Registered},
-    debug::DebugUnwrapExt as _,
-    ExecuteOnHost as _,
-};
+use iroha_wasm::{data_model::prelude::*, prelude::*};
 
-#[iroha_wasm::entrypoint]
-fn trigger_entrypoint() {
+#[iroha_wasm::main]
+fn main() {
     iroha_wasm::info!("Executing trigger");
 
-    let query = QueryBox::from(FindAllAccounts);
-    let accounts: Vec<Account> = query.execute().try_into().dbg_unwrap();
-
+    let accounts = FindAllAccounts.execute();
     let limits = MetadataLimits::new(256, 256);
 
     for account in accounts {
@@ -46,18 +37,17 @@ fn trigger_entrypoint() {
             .mintable_once()
             .with_metadata(metadata);
         let account_nft_id = <Asset as Identifiable>::Id::new(nft_id, account.id().clone());
-        let account_nft = <Asset as Registered>::With::new(account_nft_id, Metadata::new());
+        let account_nft = Asset::new(account_nft_id, Metadata::new());
 
-        InstructionBox::from(RegisterBox::new(nft_definition)).execute();
-        InstructionBox::from(RegisterBox::new(account_nft)).execute();
+        RegisterBox::new(nft_definition).execute();
+        RegisterBox::new(account_nft).execute();
     }
 
     iroha_wasm::info!("Smart contract executed successfully");
 }
 
 fn generate_new_nft_id(account_id: &<Account as Identifiable>::Id) -> AssetDefinitionId {
-    let query = QueryBox::from(FindAssetsByAccountId::new(account_id.clone()));
-    let assets: Vec<Asset> = query.execute().try_into().dbg_unwrap();
+    let assets = FindAssetsByAccountId::new(account_id.clone()).execute();
 
     let new_number = assets
         .into_iter()

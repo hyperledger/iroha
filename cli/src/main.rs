@@ -118,9 +118,8 @@ async fn main() -> Result<(), color_eyre::Report> {
         iroha_logger::warn!("The configuration parameter `DISABLE_PANIC_TERMINAL_COLORS` is deprecated. Set `TERMINAL_COLORS=false` instead. ")
     }
     iroha_logger::info!(
-        git_commit_sha = env!("VERGEN_GIT_SHA"),
-        "Hyperledgerいろは2にようこそ！(translation) Welcome to Hyperledger Iroha {}!",
-        env!("CARGO_PKG_VERSION")
+        version = %env!("CARGO_PKG_VERSION"), git_commit_sha = env!("VERGEN_GIT_SHA"),
+        "Hyperledgerいろは2にようこそ！(translation) Welcome to Hyperledger Iroha!"
     );
 
     let genesis = if let Some(genesis_path) = &args.genesis_path {

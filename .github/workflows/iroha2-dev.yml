@@ -55,6 +55,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   load-rs:
+    # TODO: Temporary workaround for failing CI job
     continue-on-error: true
     runs-on: ubuntu-latest
     container:
@@ -64,7 +65,7 @@ jobs:
         run: |
           sleep 10s
           echo "wait to other workflow"
-      - uses: convictional/trigger-workflow-and-wait@v1.6.2
+      - uses: convictional/trigger-workflow-and-wait@v1.6.5
         with:
           owner: soramitsu
           repo: iroha2-longevity-load-rs

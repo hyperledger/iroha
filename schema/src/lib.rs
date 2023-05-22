@@ -177,6 +177,8 @@ pub struct EnumMeta {
 pub struct EnumVariant {
     /// Enum variant name
     pub tag: String,
+    /// Its discriminant (or identifier)
+    pub discriminant: u8,
     /// Its type
     pub ty: Option<core::any::TypeId>,
 }

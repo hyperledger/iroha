@@ -2,6 +2,7 @@
 
 use eyre::{Result, WrapErr};
 use iroha_data_model::{
+    evaluate::ExpressionEvaluator,
     prelude::*,
     query::error::{FindError, QueryExecutionFailure},
 };
@@ -21,9 +22,8 @@ impl ValidQuery for FindAllTransactions {
 impl ValidQuery for FindTransactionsByAccountId {
     #[metrics(+"find_transactions_by_account_id")]
     fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
-        let id = self
-            .account_id
-            .evaluate(&Context::new(wsv))
+        let id = wsv
+            .evaluate(&self.account_id)
             .wrap_err("Failed to get account id")
             .map_err(|e| QueryExecutionFailure::Evaluate(e.to_string()))?;
         iroha_logger::trace!(%id);
@@ -34,9 +34,8 @@ impl ValidQuery for FindTransactionsByAccountId {
 impl ValidQuery for FindTransactionByHash {
     #[metrics(+"find_transaction_by_hash")]
     fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
-        let hash = self
-            .hash
-            .evaluate(&Context::new(wsv))
+        let hash = wsv
+            .evaluate(&self.hash)
             .wrap_err("Failed to get hash")
             .map_err(|e| QueryExecutionFailure::Evaluate(e.to_string()))?;
         iroha_logger::trace!(%hash);

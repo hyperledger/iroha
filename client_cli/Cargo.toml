@@ -22,6 +22,7 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 iroha_client = { version = "=2.0.0-pre-rc.13", path = "../client" }
 iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model" }
+iroha_primitives = { version = "=2.0.0-pre-rc.13", path = "../primitives" }
 iroha_crypto = { version = "=2.0.0-pre-rc.13", path = "../crypto" }
 iroha_config = { version = "=2.0.0-pre-rc.13", path = "../config" }
 

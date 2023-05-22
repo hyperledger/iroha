@@ -193,7 +193,7 @@ impl Sumeragi {
             match self.message_receiver.try_recv() {
                 Ok(packet) => {
                     let block = match packet.message {
-                        Message::BlockCreated(block_created) => {
+                        Message::BlockCreated(BlockCreated { block }) => {
                             // If we receive a committed genesis block that is
                             // valid, use it without question.  During the
                             // genesis round we blindly take on the network
@@ -205,13 +205,14 @@ impl Sumeragi {
                                     "Genesis Round Peer is revalidating the block."
                                 );
                                 let _enter = span.enter();
-                                match block_created.validate_and_extract_block::<true>(
+                                match <PendingBlock as InGenesis>::revalidate(
+                                    &block,
                                     &self.wsv.transaction_validator(),
                                     self.wsv.clone(),
                                     self.latest_block_hash,
                                     self.latest_block_height,
                                 ) {
-                                    Ok(block) => block,
+                                    Ok(()) => block,
                                     Err(error) => {
                                         error!(?error);
                                         continue;
@@ -221,15 +222,16 @@ impl Sumeragi {
                             // Omit signature verification during genesis round
                             block.commit_unchecked().into()
                         }
-                        Message::BlockSyncUpdate(block_sync_update) => {
+                        Message::BlockSyncUpdate(BlockSyncUpdate { block }) => {
                             // Omit signature verification during genesis round
-                            match block_sync_update.validate_and_extract_block::<true>(
+                            match <VersionedCommittedBlock as InGenesis>::revalidate(
+                                &block,
                                 &self.wsv.transaction_validator(),
                                 self.wsv.clone(),
                                 self.latest_block_hash,
                                 self.latest_block_height,
                             ) {
-                                Ok(block) => block,
+                                Ok(()) => block,
                                 Err(error) => {
                                     error!(?error);
                                     continue;
@@ -360,14 +362,7 @@ impl Sumeragi {
                 .collect::<Vec<PublicKey>>(),
         );
         topology.rotate_set_a();
-        topology.update_peer_list(
-            &self
-                .wsv
-                .peers_ids()
-                .iter()
-                .map(|id| id.clone())
-                .collect::<Vec<PeerId>>(),
-        );
+        topology.update_peer_list(self.wsv.peers_ids().iter().map(|id| id.clone()).collect());
         self.current_topology = topology;
         self.connect_peers(&self.current_topology);
     }
@@ -479,29 +474,29 @@ fn handle_message(
         (Message::ViewChangeSuggested, _) => {
             trace!("Received view change suggestion.");
         }
-        (Message::BlockSyncUpdate(block_sync_update), _) => {
-            let block_hash = block_sync_update.hash();
+        (Message::BlockSyncUpdate(BlockSyncUpdate { block }), _) => {
+            let block_hash = block.hash();
             info!(%addr, %role, hash=%block_hash, "Block sync update received");
 
-            let block = match block_sync_update
-                .clone()
-                .validate_and_extract_block::<false>(
-                    &sumeragi.wsv.transaction_validator(),
-                    sumeragi.wsv.clone(),
-                    sumeragi.latest_block_hash,
-                    sumeragi.latest_block_height,
-                )
-                .or_else(|_|
+            let block = match <VersionedCommittedBlock as InBlock>::revalidate(
+                &block.clone(),
+                &sumeragi.wsv.transaction_validator(),
+                sumeragi.wsv.clone(),
+                sumeragi.latest_block_hash,
+                sumeragi.latest_block_height,
+            )
+            .or_else(|_|
                 /* If the block fails validation we must check again using the finaziled wsv.
                 When a soft-fork occurs the consensus-block may be valid on the previous
                 wsv but not the current one. */
-                block_sync_update.validate_and_extract_block::<false>(
+                <VersionedCommittedBlock as InBlock>::revalidate(
+                    &block,
                     &sumeragi.finalized_wsv.transaction_validator(),
                     sumeragi.finalized_wsv.clone(),
                     sumeragi.previous_block_hash,
                     sumeragi.latest_block_height.saturating_sub(1),
                 )) {
-                Ok(block) => block,
+                Ok(()) => block,
                 Err(error) => {
                     error!(%addr, %role, %block_hash, ?error, "Block not valid.");
                     return;
@@ -891,7 +886,6 @@ pub(crate) fn run(
             &mut sumeragi.transaction_cache,
             &mut expired_transactions,
         );
-        debug!("Transaction cache: {:?}", sumeragi.transaction_cache);
         sumeragi.send_events(
             expired_transactions
                 .iter()
@@ -1003,8 +997,11 @@ fn expired_event(txn: &impl Transaction) -> Event {
     .into()
 }
 
-fn vote_for_block(sumeragi: &Sumeragi, block_created: BlockCreated) -> Option<VotingBlock> {
-    let block_hash = block_created.hash();
+fn vote_for_block(
+    sumeragi: &Sumeragi,
+    BlockCreated { block }: BlockCreated,
+) -> Option<VotingBlock> {
+    let block_hash = block.partial_hash();
     let addr = &sumeragi.peer_id.address;
     let role = sumeragi.current_topology.role(&sumeragi.peer_id);
     trace!(%addr, %role, block_hash=%block_hash, "Block received, voting...");
@@ -1013,13 +1010,14 @@ fn vote_for_block(sumeragi: &Sumeragi, block_created: BlockCreated) -> Option<Vo
         let span = span!(Level::TRACE, "block revalidation");
         let _enter = span.enter();
 
-        match block_created.validate_and_extract_block::<false>(
+        match <PendingBlock as InBlock>::revalidate(
+            &block,
             &sumeragi.wsv.transaction_validator(),
             sumeragi.wsv.clone(),
             sumeragi.latest_block_hash,
             sumeragi.latest_block_height,
         ) {
-            Ok(block) => block,
+            Ok(()) => block,
             Err(err) => {
                 warn!(%addr, %role, ?err);
                 return None;

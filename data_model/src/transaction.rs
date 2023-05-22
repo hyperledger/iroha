@@ -3,14 +3,14 @@
 // TODO: Remove when a proper `Display` will be implemented for `Transaction`
 #![allow(clippy::use_debug)]
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_set, format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{
     cmp::Ordering,
     fmt::{Display, Formatter, Result as FmtResult},
     iter::IntoIterator,
 };
 #[cfg(feature = "std")]
-use std::{collections::btree_set, time::Duration};
+use std::time::Duration;
 
 use derive_more::{DebugCustom, Display};
 use getset::Getters;
@@ -22,12 +22,17 @@ use iroha_schema::IntoSchema;
 use iroha_version::declare_versioned_with_scale;
 use iroha_version::{declare_versioned, version, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
+#[cfg(feature = "transparent_api")]
+use sealed::sealed;
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
 use crate::{
-    account::Account, isi::InstructionBox, metadata::UnlimitedMetadata, name::Name, Identifiable,
-    Value,
+    account::Account,
+    isi::{Instruction, InstructionBox},
+    metadata::UnlimitedMetadata,
+    name::Name,
+    Identifiable, Value,
 };
 
 /// Default maximum number of instructions and expressions per transaction
@@ -69,7 +74,7 @@ pub trait Transaction {
             Executable::Instructions(instructions) => {
                 let instruction_count: u64 = instructions
                     .iter()
-                    .map(InstructionBox::len)
+                    .map(Instruction::len)
                     .sum::<usize>()
                     .try_into()
                     .expect("`usize` should always fit in `u64`");
@@ -139,6 +144,60 @@ pub trait Sign {
         self,
         key_pair: iroha_crypto::KeyPair,
     ) -> Result<SignedTransaction, iroha_crypto::error::Error>;
+}
+
+/// Sealed trait for accepting transactions. Downstream users
+/// should only use its extension traits [`InGenesis`] and
+/// [`InBlock`] according to the use case.
+#[sealed]
+#[cfg(all(feature = "std", feature = "transparent_api"))]
+pub trait Accept: Sized {
+    /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
+    ///
+    /// # Errors
+    ///
+    /// - if it does not adhere to limits
+    /// - if signature verification fails
+    fn accept<const IS_GENESIS: bool>(
+        transaction: SignedTransaction,
+        limits: &TransactionLimits,
+    ) -> Result<Self, error::AcceptTransactionFailure>;
+}
+
+/// Trait for accepting transactions in block context.
+#[cfg(all(feature = "std", feature = "transparent_api"))]
+pub trait InBlock: Sized + Accept {
+    /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`]
+    /// in block context.
+    ///
+    /// # Errors
+    ///
+    /// - if it does not adhere to limits
+    /// - if signature verification fails
+    fn accept(
+        transaction: SignedTransaction,
+        limits: &TransactionLimits,
+    ) -> Result<Self, error::AcceptTransactionFailure> {
+        <Self as Accept>::accept::<false>(transaction, limits)
+    }
+}
+
+/// Trait for accepting transactions in genesis context.
+#[cfg(all(feature = "std", feature = "transparent_api"))]
+pub trait InGenesis: Sized + Accept {
+    /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`]
+    /// in genesis context.
+    ///
+    /// # Errors
+    ///
+    /// - if it does not adhere to limits
+    /// - if signature verification fails
+    fn accept(
+        transaction: SignedTransaction,
+        limits: &TransactionLimits,
+    ) -> Result<Self, error::AcceptTransactionFailure> {
+        <Self as Accept>::accept::<true>(transaction, limits)
+    }
 }
 
 #[model]
@@ -281,7 +340,7 @@ pub mod model {
         /// [`Transaction`] payload.
         pub payload: TransactionPayload,
         /// [`SignatureOf`]<[`TransactionPayload`]>.
-        pub signatures: btree_set::BTreeSet<SignatureOf<TransactionPayload>>,
+        pub signatures: SignaturesOf<TransactionPayload>,
     }
 
     /// Transaction Value used in Instructions and Queries
@@ -468,7 +527,7 @@ impl Sign for TransactionBuilder {
         key_pair: iroha_crypto::KeyPair,
     ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
         let signature = SignatureOf::new(key_pair, &self.payload)?;
-        let signatures = btree_set::BTreeSet::from([signature]);
+        let signatures = signature.into();
 
         Ok(SignedTransaction {
             payload: self.payload,
@@ -521,23 +580,19 @@ impl Transaction for VersionedSignedTransaction {
 impl From<VersionedValidTransaction> for VersionedSignedTransaction {
     fn from(transaction: VersionedValidTransaction) -> Self {
         match transaction {
-            VersionedValidTransaction::V1(transaction) => {
-                let signatures = transaction.signatures.into();
-
-                SignedTransaction {
-                    payload: transaction.payload,
-                    signatures,
-                }
-                .into()
+            VersionedValidTransaction::V1(transaction) => SignedTransaction {
+                payload: transaction.payload,
+                signatures: transaction.signatures,
             }
+            .into(),
         }
     }
 }
 
 impl SignedTransaction {
     /// Return signatures
-    pub fn signatures(&self) -> impl ExactSizeIterator<Item = &SignatureOf<TransactionPayload>> {
-        self.signatures.iter()
+    pub fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
+        &self.signatures
     }
 }
 
@@ -734,15 +789,11 @@ impl Transaction for RejectedTransaction {
 impl From<VersionedRejectedTransaction> for VersionedSignedTransaction {
     fn from(transaction: VersionedRejectedTransaction) -> Self {
         match transaction {
-            VersionedRejectedTransaction::V1(transaction) => {
-                let signatures = transaction.signatures.into();
-
-                SignedTransaction {
-                    payload: transaction.payload,
-                    signatures,
-                }
-                .into()
+            VersionedRejectedTransaction::V1(transaction) => SignedTransaction {
+                payload: transaction.payload,
+                signatures: transaction.signatures,
             }
+            .into(),
         }
     }
 }
@@ -795,7 +846,8 @@ impl Transaction for AcceptedTransaction {
 }
 
 #[cfg(feature = "transparent_api")]
-impl AcceptedTransaction {
+#[sealed]
+impl Accept for AcceptedTransaction {
     /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
     ///
     /// # Errors
@@ -803,25 +855,28 @@ impl AcceptedTransaction {
     /// - if it does not adhere to limits
     /// - if signature verification fails
     #[cfg(feature = "std")]
-    pub fn accept<const IS_GENESIS: bool>(
+    fn accept<const IS_GENESIS: bool>(
         transaction: SignedTransaction,
         limits: &TransactionLimits,
     ) -> Result<Self, error::AcceptTransactionFailure> {
+        transaction.signatures.verify(&transaction.payload)?;
+
         if !IS_GENESIS {
             transaction.check_limits(limits)?
         }
-        let signatures: SignaturesOf<_> = transaction
-            .signatures
-            .try_into()
-            .expect("Transaction should have at least one signature");
-        signatures.verify(&transaction.payload)?;
 
         Ok(Self {
             payload: transaction.payload,
-            signatures,
+            signatures: transaction.signatures,
         })
     }
 }
+
+#[cfg(feature = "transparent_api")]
+impl InGenesis for AcceptedTransaction {}
+
+#[cfg(feature = "transparent_api")]
+impl InBlock for AcceptedTransaction {}
 
 #[cfg(feature = "transparent_api")]
 impl From<VersionedAcceptedTransaction> for VersionedSignedTransaction {
@@ -837,7 +892,7 @@ impl From<AcceptedTransaction> for SignedTransaction {
     fn from(transaction: AcceptedTransaction) -> Self {
         SignedTransaction {
             payload: transaction.payload,
-            signatures: transaction.signatures.into_iter().collect(),
+            signatures: transaction.signatures,
         }
     }
 }
@@ -892,7 +947,7 @@ pub mod error {
         /// Error type for transaction from [`Transaction`] to [`AcceptedTransaction`]
         #[derive(Debug, Display, FromVariant)]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
-        pub(crate) enum AcceptTransactionFailure {
+        pub enum AcceptTransactionFailure {
             /// Failure during limits check
             TransactionLimit(#[cfg_attr(feature = "std", source)] TransactionLimitError),
             /// Failure during signature verification
@@ -1275,7 +1330,7 @@ mod tests {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        let result = AcceptedTransaction::accept::<false>(tx, &tx_limits);
+        let result = <AcceptedTransaction as InBlock>::accept(tx, &tx_limits);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -1309,7 +1364,7 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
 
-        assert!(AcceptedTransaction::accept::<true>(tx, &tx_limits).is_ok());
+        assert!(<AcceptedTransaction as InGenesis>::accept(tx, &tx_limits).is_ok());
     }
 
     #[test]

@@ -14,7 +14,6 @@ use iroha_config::{
     wasm::{Configuration, ConfigurationProxy},
 };
 use iroha_data_model::{prelude::*, validator};
-use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
 use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span, Level as LogLevel};
 use parity_scale_codec::{DecodeAll, Encode};
@@ -266,20 +265,35 @@ impl<'wrld> Runtime<'wrld> {
         let memory = Self::get_memory(&mut caller)?;
 
         let query: QueryBox = Self::decode_from_memory(&memory, &caller, offset, len)?;
+        iroha_logger::debug!(%query, "Executing");
 
-        let wsv = caller.data().wsv;
-        wsv.validator_view()
-            .validate(wsv, &caller.data().account_id, query.clone())
-            .map_err(|error| NotPermittedFail {
-                reason: error.to_string(),
-            })
-            .map_err(TransactionRejectionReason::NotPermitted)
-            .map_err(|err| Trap::new(err.to_string()))?;
+        let State {
+            wsv,
+            account_id,
+            operation_to_validate,
+            ..
+        } = caller.data();
+
+        let called_from_validator = operation_to_validate.is_some();
+        if called_from_validator {
+            // NOTE: Validator has already validated the query
+        } else {
+            // NOTE: Smart contract (not validator) is trying to execute the query, validate it first
+            // TODO: Validation should be skipped when executing smart contract.
+            // There should be two steps validation and execution. First smart contract
+            // is validated and then it's executed. Here it's validating in both steps.
+            // Add a flag indicating whether smart contract is being validated or executed
+            wsv.validator_view()
+                .validate(wsv, account_id, query.clone())
+                .map_err(|error| NotPermittedFail {
+                    reason: error.to_string(),
+                })
+                .map_err(TransactionRejectionReason::NotPermitted)
+                .map_err(|err| Trap::new(err.to_string()))?;
+        }
 
         let res_bytes = Self::encode_with_length_prefix(
-            &query
-                .execute(caller.data().wsv)
-                .map_err(|e| Trap::new(e.to_string()))?,
+            &query.execute(wsv).map_err(|e| Trap::new(e.to_string()))?,
         )?;
 
         let res_offset =
@@ -306,8 +320,8 @@ impl<'wrld> Runtime<'wrld> {
     ) -> Result<(), Trap> {
         let memory = Self::get_memory(&mut caller)?;
 
-        let instruction: InstructionBox = Self::decode_from_memory(&memory, &caller, offset, len)?;
-        debug!(%instruction, "Executing");
+        let isi: InstructionBox = Self::decode_from_memory(&memory, &caller, offset, len)?;
+        iroha_logger::debug!(%isi, "Executing");
 
         let State {
             wsv,
@@ -317,24 +331,24 @@ impl<'wrld> Runtime<'wrld> {
             ..
         } = caller.data_mut();
 
-        let is_validator = operation_to_validate.is_some();
-        if is_validator {
-            // If validator wants to execute instruction,
-            // we allow this without additional validation.
-            // Otherwise it would be infinite recursion.
-            instruction
-                .execute(account_id.clone(), wsv)
+        let called_from_validator = operation_to_validate.is_some();
+        if called_from_validator {
+            // NOTE: Validator has already validated the isi, don't validate again
+            isi.execute(account_id, wsv)
                 .map_err(|error| Trap::new(error.to_string()))
         } else {
-            // Else we want to validate instruction first.
-            // Note that validator will execute instruction by itself.
+            // NOTE: Smart contract (not validator) is trying to execute the isi, validate it first
             if let Some(validator) = validator {
                 validator
                     .check_instruction_limits()
                     .map_err(|error| Trap::new(error.to_string()))?;
             }
+            // TODO: Validation should be skipped when executing smart contract.
+            // There should be two steps validation and execution. First smart contract
+            // is validated and then it's executed. Here it's validating in both steps.
+            // Add a flag indicating whether smart contract is being validated or executed
             wsv.validator_view()
-                .validate(wsv, account_id, instruction)
+                .validate(wsv, account_id, isi)
                 .map_err(|error| NotPermittedFail {
                     reason: error.to_string(),
                 })
@@ -854,10 +868,10 @@ mod tests {
     use super::*;
     use crate::{kura::Kura, smartcontracts::isi::Registrable as _, PeersIds, World};
 
-    fn world_with_test_account(account_id: AccountId) -> World {
+    fn world_with_test_account(account_id: &AccountId) -> World {
         let domain_id = account_id.domain_id.clone();
         let (public_key, _) = KeyPair::generate().unwrap().into();
-        let account = Account::new(account_id.clone(), [public_key]).build(account_id.clone());
+        let account = Account::new(account_id.clone(), [public_key]).build(account_id);
         let mut domain = Domain::new(domain_id).build(account_id);
         assert!(domain.add_account(account).is_none());
 
@@ -907,7 +921,7 @@ mod tests {
     fn execute_instruction_exported() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura);
+        let wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
 
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
@@ -945,7 +959,7 @@ mod tests {
     fn execute_query_exported() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura);
+        let wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
         let query_hex = encode_hex(QueryBox::from(FindAccountById::new(account_id.clone())));
 
         let wat = format!(
@@ -983,7 +997,7 @@ mod tests {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
 
-        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura);
+        let wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
 
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
@@ -1030,7 +1044,7 @@ mod tests {
     fn instructions_not_allowed() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura);
+        let wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
 
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
@@ -1077,7 +1091,7 @@ mod tests {
     fn queries_not_allowed() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()), kura);
+        let wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
         let query_hex = encode_hex(QueryBox::from(FindAccountById::new(account_id.clone())));
 
         let wat = format!(

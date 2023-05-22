@@ -2,6 +2,7 @@ use core::borrow::Borrow;
 
 use eyre::{eyre, Result};
 pub use http::{Method, Response, StatusCode};
+use url::Url;
 
 /// General HTTP request builder.
 ///
@@ -13,7 +14,7 @@ pub use http::{Method, Response, StatusCode};
 pub trait RequestBuilder {
     /// Create a new builder with specified method and URL. Entrypoint for most client operations.
     #[must_use]
-    fn new(method: Method, url: impl AsRef<str>) -> Self;
+    fn new(method: Method, url: Url) -> Self;
 
     /// Add multiple query params at once. Uses [`RequestBuilder::param`] for each param.
     #[must_use]
@@ -70,6 +71,8 @@ pub trait RequestBuilder {
 
 /// Generalization of `WebSocket` client's functionality
 pub mod ws {
+    use url::Url;
+
     use super::{eyre, RequestBuilder, Result};
 
     /// `WebSocket` connection flow stages.
@@ -115,7 +118,7 @@ pub mod ws {
     ///
     ///     fn init(self) -> InitData<R, Self::Next> {
     ///         InitData::new(
-    ///             R::new(Method::GET, "http://localhost:3000"),
+    ///             R::new(Method::GET, "http://localhost:3000".parse().expect("`localhost` is a valid URL, port `3000` is sensible, `http` is supported")),
     ///             vec![1, 2, 3],
     ///             Events,
     ///         )
@@ -145,6 +148,7 @@ pub mod ws {
     ///
     /// ```rust
     /// use eyre::Result;
+    /// use url::Url;
     /// use iroha_data_model::prelude::Event;
     /// use iroha_client::{
     ///     client::events_api::flow as events_api_flow,
@@ -158,7 +162,7 @@ pub mod ws {
     /// struct MyBuilder;
     ///
     /// impl RequestBuilder for MyBuilder {
-    ///     fn new(_: Method, url: impl AsRef<str>) -> Self {
+    ///     fn new(_: Method, url: Url) -> Self {
     ///          todo!()
     ///     }
     ///
@@ -288,16 +292,19 @@ pub mod ws {
     /// Replaces `http(s)://` with `ws(s)://`
     ///
     /// # Errors
-    /// Fails if passed URI doesn't have a valid protocol
-    pub fn transform_ws_url(uri: &str) -> Result<String> {
-        let ws_uri = if let Some(https_uri) = uri.strip_prefix("https://") {
-            "wss://".to_owned() + https_uri
-        } else if let Some(http_uri) = uri.strip_prefix("http://") {
-            "ws://".to_owned() + http_uri
-        } else {
-            return Err(eyre!("No schema in web socket uri provided. {}", uri));
-        };
+    /// Fails if passed URL doesn't have a valid protocol
+    pub fn transform_ws_url(mut url: Url) -> Result<Url> {
+        match url.scheme() {
+            "https" => url.set_scheme("wss").expect("Valid substitution"),
+            "http" => url.set_scheme("ws").expect("Valid substitution"),
+            _ => {
+                return Err(eyre!(
+                    "Provided URL scheme is neither `http` nor `https`: {}",
+                    url
+                ))
+            }
+        }
 
-        Ok(ws_uri)
+        Ok(url)
     }
 }
