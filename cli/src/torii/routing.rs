@@ -32,6 +32,7 @@ use iroha_data_model::{
     query::error::QueryExecutionFailure,
     transaction::InBlock,
 };
+use iroha_logger::prelude::*;
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
 use pagination::{paginate, Paginate};
@@ -66,19 +67,23 @@ impl VerifiedQuery {
     pub fn validate(
         self,
         wsv: &mut WorldStateView,
-    ) -> Result<(ValidQueryRequest, PredicateBox), QueryExecutionFailure> {
-        let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
-            account.signatories.contains(self.signature.public_key())
-        })?;
+    ) -> Result<(ValidQueryRequest, PredicateBox), ValidationFail> {
+        let account_has_public_key = wsv
+            .map_account(&self.payload.account_id, |account| {
+                account.signatories.contains(self.signature.public_key())
+            })
+            .map_err(QueryExecutionFailure::from)?;
         if !account_has_public_key {
             return Err(QueryExecutionFailure::Signature(String::from(
                 "Signature public key doesn't correspond to the account.",
-            )));
+            ))
+            .into());
         }
-        wsv.validator_view()
-            .clone() // Cloning validator is a cheap operation
-            .validate(wsv, &self.payload.account_id, self.payload.query.clone())
-            .map_err(|err| QueryExecutionFailure::Permission(err.to_string()))?;
+        wsv.validator_view().clone().validate(
+            wsv,
+            &self.payload.account_id,
+            self.payload.query.clone(),
+        )?;
         Ok((
             ValidQueryRequest::new(self.payload.query),
             self.payload.filter,
@@ -135,12 +140,12 @@ pub(crate) async fn handle_queries(
     request: VersionedSignedQuery,
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
     let VersionedSignedQuery::V1(request) = request;
-    let request: VerifiedQuery = request.try_into()?;
+    let request: VerifiedQuery = request.try_into().map_err(ValidationFail::from)?;
 
     let (result, filter) = {
         let mut wsv = sumeragi.wsv_clone();
         let (valid_request, filter) = request.validate(&mut wsv)?;
-        let original_result = valid_request.execute(&wsv)?;
+        let original_result = valid_request.execute(&wsv).map_err(ValidationFail::from)?;
         (filter.filter(original_result), filter)
     };
 
@@ -155,7 +160,8 @@ pub(crate) async fn handle_queries(
 
     let total = total
         .try_into()
-        .map_err(|e: TryFromIntError| QueryExecutionFailure::Conversion(e.to_string()))?;
+        .map_err(|e: TryFromIntError| QueryExecutionFailure::Conversion(e.to_string()))
+        .map_err(ValidationFail::from)?;
     let result = QueryResult(result);
     let paginated_result = PaginatedQueryResult {
         result,

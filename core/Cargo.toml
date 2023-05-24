@@ -48,6 +48,7 @@ iroha_futures = { version = "=2.0.0-pre-rc.16", path = "../futures" }
 iroha_telemetry = { version = "=2.0.0-pre-rc.16", path = "../telemetry" }
 iroha_primitives = { version = "=2.0.0-pre-rc.16", path = "../primitives" }
 iroha_genesis = { version = "=2.0.0-pre-rc.16", path = "../genesis" }
+iroha_wasm_codec = { version = "=2.0.0-pre-rc.16", path = "../wasm_codec" }
 
 async-trait = "0.1.60"
 dashmap = "5.4.0"

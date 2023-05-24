@@ -2,8 +2,11 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    boxed::Box,
     collections::BTreeMap,
+    format,
     string::{String, ToString},
+    vec::Vec,
 };
 #[cfg(feature = "std")]
 use std::collections::BTreeMap;
@@ -11,13 +14,13 @@ use std::collections::BTreeMap;
 use derive_more::Display;
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
+use iroha_schema::IntoSchema;
 
 pub use self::model::*;
 use crate::{
     expression::{prelude::*, Expression},
-    isi::error::MathError,
+    isi::error::{BinaryOpIncompatibleNumericValueTypesError, MathError},
     prelude::*,
-    query::error::QueryExecutionFailure,
 };
 
 /// Expression evaluator
@@ -27,7 +30,7 @@ pub trait ExpressionEvaluator {
     /// # Errors
     ///
     /// - if expression is malformed
-    fn evaluate<E: Evaluate>(&self, expression: &E) -> Result<E::Value, Error>;
+    fn evaluate<E: Evaluate>(&self, expression: &E) -> Result<E::Value, EvaluationError>;
 }
 
 /// Context of expression evaluation, holding (name, value) pairs for resolving identifiers.
@@ -37,7 +40,7 @@ pub trait ExpressionEvaluator {
 ///
 /// Say you have an expression such as: `SELECT name FROM table WHERE name = "alice"`. This
 /// compound expression is made up of two basic expressions, namely `SELECT FROM` and `WHERE`.
-/// To evaluate any expresion you have to substitute concrete values for variable names.
+/// To evaluate any expression you have to substitute concrete values for variable names.
 /// In this case, `WHERE` should be evaluated first which would place `name = "alice"`
 /// inside the context. This context will then be used to evaluate `SELECT FROM`.
 /// Starting expression would then be evaluated to `SELECT "alice" FROM table`
@@ -47,7 +50,7 @@ pub trait Context: Clone {
     /// # Errors
     ///
     /// If query execution fails
-    fn query(&self, query: &QueryBox) -> Result<Value, QueryExecutionFailure>;
+    fn query(&self, query: &QueryBox) -> Result<Value, ValidationFail>;
 
     /// Return a reference to the [`Value`] corresponding to the [`Name`].
     fn get(&self, name: &Name) -> Option<&Value>;
@@ -66,7 +69,7 @@ pub trait Evaluate {
     ///
     /// # Errors
     /// Concrete to each implementer.
-    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error>;
+    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError>;
 
     /// Number of underneath expressions.
     fn len(&self) -> usize;
@@ -78,10 +81,10 @@ where
 {
     type Value = V;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
         let expr = self.expression.evaluate(context)?;
 
-        V::try_from(expr).map_err(|error| Error::Conversion(error.to_string()))
+        V::try_from(expr).map_err(|error| EvaluationError::Conversion(error.to_string()))
     }
 
     fn len(&self) -> usize {
@@ -92,7 +95,7 @@ where
 impl Evaluate for Expression {
     type Value = Value;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
         macro_rules! match_evals {
             ($($non_value: ident),+ $(,)?) => {
                 match self { $(
@@ -162,11 +165,11 @@ impl Evaluate for Expression {
 impl Evaluate for ContextValue {
     type Value = Value;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
         context
             .get(&self.value_name)
             .cloned()
-            .ok_or_else(|| Error::Find(self.value_name.to_string()))
+            .ok_or_else(|| EvaluationError::Find(self.value_name.to_string()))
     }
 
     fn len(&self) -> usize {
@@ -180,7 +183,7 @@ mod numeric {
     impl Evaluate for Add {
         type Value = NumericValue;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             use NumericValue::*;
             let left = self.left.evaluate(context)?;
             let right = self.right.evaluate(context)?;
@@ -198,8 +201,8 @@ mod numeric {
                     .checked_add(right)
                     .map(NumericValue::from)
                     .map_err(MathError::from)?,
-                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                    left, right,
+                (left, right) => Err(MathError::from(
+                    BinaryOpIncompatibleNumericValueTypesError { left, right },
                 ))?,
             };
 
@@ -214,7 +217,7 @@ mod numeric {
     impl Evaluate for Subtract {
         type Value = NumericValue;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             use NumericValue::*;
             let left = self.left.evaluate(context)?;
             let right = self.right.evaluate(context)?;
@@ -232,8 +235,8 @@ mod numeric {
                     .checked_sub(right)
                     .map(NumericValue::from)
                     .map_err(MathError::from)?,
-                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                    left, right,
+                (left, right) => Err(MathError::from(
+                    BinaryOpIncompatibleNumericValueTypesError { left, right },
                 ))?,
             };
 
@@ -248,7 +251,7 @@ mod numeric {
     impl Evaluate for Multiply {
         type Value = NumericValue;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             use NumericValue::*;
             let left = self.left.evaluate(context)?;
             let right = self.right.evaluate(context)?;
@@ -266,8 +269,8 @@ mod numeric {
                     .checked_mul(right)
                     .map(NumericValue::from)
                     .map_err(MathError::from)?,
-                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                    left, right,
+                (left, right) => Err(MathError::from(
+                    BinaryOpIncompatibleNumericValueTypesError { left, right },
                 ))?,
             };
 
@@ -282,7 +285,7 @@ mod numeric {
     impl Evaluate for RaiseTo {
         type Value = NumericValue;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             use NumericValue::*;
             let value = self.left.evaluate(context)?;
             let exp = self.right.evaluate(context)?;
@@ -297,8 +300,8 @@ mod numeric {
                     .ok_or(MathError::Overflow)
                     .map(NumericValue::from)?,
                 // TODO (#2945): Extend `RaiseTo` to support `Fixed`
-                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                    left, right,
+                (left, right) => Err(MathError::from(
+                    BinaryOpIncompatibleNumericValueTypesError { left, right },
                 ))?,
             };
 
@@ -313,7 +316,7 @@ mod numeric {
     impl Evaluate for Divide {
         type Value = NumericValue;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             use NumericValue::*;
             let left = self.left.evaluate(context)?;
             let right = self.right.evaluate(context)?;
@@ -331,8 +334,8 @@ mod numeric {
                     .checked_div(right)
                     .map(NumericValue::from)
                     .map_err(MathError::from)?,
-                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                    left, right,
+                (left, right) => Err(MathError::from(
+                    BinaryOpIncompatibleNumericValueTypesError { left, right },
                 ))?,
             };
 
@@ -347,7 +350,7 @@ mod numeric {
     impl Evaluate for Mod {
         type Value = NumericValue;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             use NumericValue::*;
             let left = self.left.evaluate(context)?;
             let right = self.right.evaluate(context)?;
@@ -361,8 +364,8 @@ mod numeric {
                     .checked_rem(right)
                     .ok_or(MathError::DivideByZero)
                     .map(NumericValue::from)?,
-                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                    left, right,
+                (left, right) => Err(MathError::from(
+                    BinaryOpIncompatibleNumericValueTypesError { left, right },
                 ))?,
             };
 
@@ -381,7 +384,7 @@ mod logical {
     impl Evaluate for Greater {
         type Value = bool;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             use NumericValue::*;
             let left = self.left.evaluate(context)?;
             let right = self.right.evaluate(context)?;
@@ -390,8 +393,8 @@ mod logical {
                 (U32(left), U32(right)) => left > right,
                 (U128(left), U128(right)) => left > right,
                 (Fixed(left), Fixed(right)) => left > right,
-                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                    left, right,
+                (left, right) => Err(MathError::from(
+                    BinaryOpIncompatibleNumericValueTypesError { left, right },
                 ))?,
             };
 
@@ -406,7 +409,7 @@ mod logical {
     impl Evaluate for Less {
         type Value = bool;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             use NumericValue::*;
             let left = self.left.evaluate(context)?;
             let right = self.right.evaluate(context)?;
@@ -415,8 +418,8 @@ mod logical {
                 (U32(left), U32(right)) => left < right,
                 (U128(left), U128(right)) => left < right,
                 (Fixed(left), Fixed(right)) => left < right,
-                (left, right) => Err(MathError::BinaryOpIncompatibleNumericValueTypes(
-                    left, right,
+                (left, right) => Err(MathError::from(
+                    BinaryOpIncompatibleNumericValueTypesError { left, right },
                 ))?,
             };
 
@@ -431,7 +434,7 @@ mod logical {
     impl Evaluate for Not {
         type Value = bool;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             let expression = self.expression.evaluate(context)?;
             Ok(!expression)
         }
@@ -444,7 +447,7 @@ mod logical {
     impl Evaluate for And {
         type Value = bool;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             let left = self.left.evaluate(context)?;
             let right = self.right.evaluate(context)?;
             Ok(left && right)
@@ -458,7 +461,7 @@ mod logical {
     impl Evaluate for Or {
         type Value = bool;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             let left = self.left.evaluate(context)?;
             let right = self.right.evaluate(context)?;
             Ok(left || right)
@@ -472,7 +475,7 @@ mod logical {
     impl Evaluate for Contains {
         type Value = bool;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             let collection = self.collection.evaluate(context)?;
             let element = self.element.evaluate(context)?;
             Ok(collection.contains(&element))
@@ -486,7 +489,7 @@ mod logical {
     impl Evaluate for ContainsAll {
         type Value = bool;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             let collection = self.collection.evaluate(context)?;
             let elements = self.elements.evaluate(context)?;
             Ok(elements.iter().all(|element| collection.contains(element)))
@@ -500,7 +503,7 @@ mod logical {
     impl Evaluate for ContainsAny {
         type Value = bool;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             let collection = self.collection.evaluate(context)?;
             let elements = self.elements.evaluate(context)?;
             Ok(elements.iter().any(|element| collection.contains(element)))
@@ -514,7 +517,7 @@ mod logical {
     impl Evaluate for Equal {
         type Value = bool;
 
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
             let left = self.left.evaluate(context)?;
             let right = self.right.evaluate(context)?;
             Ok(left == right)
@@ -529,7 +532,7 @@ mod logical {
 impl Evaluate for If {
     type Value = Value;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
+    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
         let condition = self.condition.evaluate(context)?;
         if condition {
             self.then.evaluate(context)
@@ -547,8 +550,8 @@ impl Evaluate for If {
 impl Evaluate for Where {
     type Value = Value;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
-        let additional_context: Result<BTreeMap<Name, Value>, Error> = self
+    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
+        let additional_context: Result<BTreeMap<Name, Value>, EvaluationError> = self
             .values
             .clone()
             .into_iter()
@@ -572,8 +575,10 @@ impl Evaluate for Where {
 impl Evaluate for QueryBox {
     type Value = Value;
 
-    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, Error> {
-        context.query(self).map_err(Error::Query)
+    fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
+        context
+            .query(self)
+            .map_err(|err| EvaluationError::Validation(Box::new(err)))
     }
 
     fn len(&self) -> usize {
@@ -583,20 +588,39 @@ impl Evaluate for QueryBox {
 
 #[model]
 pub mod model {
+    #[cfg(not(feature = "std"))]
+    use alloc::boxed::Box;
+
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
     use super::*;
 
     /// Expression evaluation error
-    #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant)]
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        FromVariant,
+        Serialize,
+        Deserialize,
+        Encode,
+        Decode,
+        IntoSchema,
+    )]
     #[cfg_attr(feature = "std", derive(thiserror::Error))]
     // TODO: Only temporarily opaque because of problems with FFI
     #[ffi_type(opaque)]
-    pub enum Error {
+    pub enum EvaluationError {
         /// Failed due to math exception
-        #[display(fmt = "Math error. {_0}")]
+        #[display(fmt = "Math error")]
         Math(#[cfg_attr(feature = "std", source)] MathError),
-        /// Query Error
-        #[display(fmt = "Query failed. {_0}")]
-        Query(#[cfg_attr(feature = "std", source)] QueryExecutionFailure),
+        /// Validation error
+        #[display(fmt = "Validation failed")]
+        Validation(#[cfg_attr(feature = "std", source)] Box<ValidationFail>),
         /// Value not found in context.
         #[display(fmt = "{_0}: Value not found in context")]
         Find(
@@ -604,8 +628,8 @@ pub mod model {
             #[skip_try_from]
             String,
         ),
-        /// Conversion Error
-        #[display(fmt = "Conversion Error: {_0}")]
+        /// Conversion EvaluationError
+        #[display(fmt = "Conversion EvaluationError: {_0}")]
         Conversion(
             #[skip_from]
             #[skip_try_from]
@@ -649,7 +673,7 @@ mod tests {
     }
 
     impl super::Context for TestContext {
-        fn query(&self, _: &QueryBox) -> Result<Value, QueryExecutionFailure> {
+        fn query(&self, _: &QueryBox) -> Result<Value, ValidationFail> {
             unimplemented!("This has to be tested on iroha_core")
         }
 
@@ -665,7 +689,7 @@ mod tests {
     /// Example taken from [whitepaper](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md#261-multisignature-transactions)
     #[test]
     #[allow(clippy::too_many_lines)]
-    fn conditional_multisignature_quorum() -> Result<(), Error> {
+    fn conditional_multisignature_quorum() -> Result<(), EvaluationError> {
         let asset_quantity_high = 750_u32.to_value();
         let asset_quantity_low = 300_u32.to_value();
         let (public_key_teller_1, _) = KeyPair::generate().expect("Valid").into();
@@ -762,7 +786,7 @@ mod tests {
     }
 
     #[test]
-    fn where_expression() -> Result<(), Error> {
+    fn where_expression() -> Result<(), EvaluationError> {
         assert_eq!(
             Where::new(EvaluatesTo::new_unchecked(ContextValue::new(
                 Name::from_str("test_value").expect("Can't fail.")
@@ -778,7 +802,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_where_expression() -> Result<(), Error> {
+    fn nested_where_expression() -> Result<(), EvaluationError> {
         let expression = Where::new(EvaluatesTo::new_unchecked(ContextValue::new(
             Name::from_str("a").expect("Can't fail."),
         )))
@@ -798,7 +822,7 @@ mod tests {
     }
 
     #[test]
-    fn if_condition_branches_correctly() -> Result<(), Error> {
+    fn if_condition_branches_correctly() -> Result<(), EvaluationError> {
         assert_eq!(
             If::new(true, 1_u32, 2_u32).evaluate(&TestContext::new())?,
             1_u32.to_value()
@@ -812,7 +836,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::unnecessary_wraps)]
-    fn incorrect_types_are_caught() -> Result<(), Error> {
+    fn incorrect_types_are_caught() -> Result<(), EvaluationError> {
         fn assert_eval<I>(inst: &I, err_msg: &str)
         where
             I: Evaluate + Debug,
@@ -870,7 +894,7 @@ mod tests {
     }
 
     #[test]
-    fn operations_are_correctly_calculated() -> Result<(), Error> {
+    fn operations_are_correctly_calculated() -> Result<(), EvaluationError> {
         assert_eq!(
             Add::new(1_u32, 2_u32).evaluate(&TestContext::new())?,
             3_u32.into()

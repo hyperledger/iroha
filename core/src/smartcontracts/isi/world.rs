@@ -18,7 +18,11 @@ impl Registrable for NewRole {
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
     use eyre::Result;
-    use iroha_data_model::{prelude::*, query::error::FindError};
+    use iroha_data_model::{
+        isi::error::{InvalidParameterError, RepetitionError},
+        prelude::*,
+        query::error::FindError,
+    };
 
     use super::*;
 
@@ -29,10 +33,11 @@ pub mod isi {
 
             let world = wsv.world_mut();
             if !world.trusted_peers_ids.insert(peer_id.clone()) {
-                return Err(Error::Repetition(
-                    InstructionType::Register,
-                    IdBox::PeerId(peer_id),
-                ));
+                return Err(RepetitionError {
+                    instruction_type: InstructionType::Register,
+                    id: IdBox::PeerId(peer_id),
+                }
+                .into());
             }
 
             wsv.emit_events(Some(PeerEvent::Added(peer_id)));
@@ -69,10 +74,11 @@ pub mod isi {
 
             let world = wsv.world_mut();
             if world.domains.contains_key(&domain_id) {
-                return Err(Error::Repetition(
-                    InstructionType::Register,
-                    IdBox::DomainId(domain_id),
-                ));
+                return Err(RepetitionError {
+                    instruction_type: InstructionType::Register,
+                    id: IdBox::DomainId(domain_id),
+                }
+                .into());
             }
 
             world.domains.insert(domain_id, domain.clone());
@@ -116,10 +122,11 @@ pub mod isi {
             }
 
             if wsv.roles().contains_key(role.id()) {
-                return Err(Error::Repetition(
-                    InstructionType::Register,
-                    IdBox::RoleId(role.id),
-                ));
+                return Err(RepetitionError {
+                    instruction_type: InstructionType::Register,
+                    id: IdBox::RoleId(role.id),
+                }
+                .into());
             }
 
             let world = wsv.world_mut();
@@ -180,10 +187,11 @@ pub mod isi {
                 .permission_token_definitions
                 .contains_key(&definition_id)
             {
-                return Err(Error::Repetition(
-                    InstructionType::Register,
-                    IdBox::PermissionTokenDefinitionId(definition_id),
-                ));
+                return Err(RepetitionError {
+                    instruction_type: InstructionType::Register,
+                    id: IdBox::PermissionTokenDefinitionId(definition_id),
+                }
+                .into());
             }
 
             world
@@ -321,10 +329,11 @@ pub mod isi {
 
             let world = wsv.world_mut();
             if !world.parameters.insert(parameter) {
-                return Err(Error::Repetition(
-                    InstructionType::NewParameter,
-                    IdBox::ParameterId(parameter_id),
-                ));
+                return Err(RepetitionError {
+                    instruction_type: InstructionType::NewParameter,
+                    id: IdBox::ParameterId(parameter_id),
+                }
+                .into());
             }
 
             wsv.emit_events(Some(ConfigurationEvent::Created(parameter_id)));
@@ -345,7 +354,7 @@ pub mod isi {
             let engine = wsv.engine.clone(); // Cloning engine is cheap
             let world = wsv.world_mut();
             let new_validator = Validator::new(raw_validator, &engine)
-                .map_err(|err| ValidationError::new(format!("Failed to load wasm blob: {err}")))?;
+                .map_err(|err| InvalidParameterError::Wasm(err.to_string()))?;
             let _ = world.upgraded_validator.insert(new_validator);
 
             wsv.emit_events(Some(ValidatorEvent::Upgraded));

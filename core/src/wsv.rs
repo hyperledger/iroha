@@ -72,7 +72,7 @@ pub struct World {
     /// Runtime Validator
     pub(crate) validator: Option<Validator>,
     /// New version of Validator, which will replace `validator` on the next
-    /// [`validator_view()`}(WorldStateView::validator_view call.
+    /// [`validator_view()`](WorldStateView::validator_view) call.
     pub(crate) upgraded_validator: Option<Validator>,
 }
 

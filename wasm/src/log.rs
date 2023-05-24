@@ -55,7 +55,7 @@ mod host {
         /// # Warning
         ///
         /// This function doesn't take ownership of the provided allocation
-        pub(super) fn log(log_level: u8, ptr: *const u8, len: usize);
+        pub(super) fn log(ptr: *const u8, len: usize);
     }
 }
 
@@ -70,7 +70,7 @@ fn query_max_log_level() -> Level {
 }
 
 /// Log `obj` with desired log level
-pub fn log<T: Encode + ?Sized>(log_level: Level, obj: &T) {
+pub fn log<T: alloc::string::ToString + ?Sized>(log_level: Level, obj: &T) {
     #[cfg(not(test))]
     use host::log as host_log;
     #[cfg(test)]
@@ -79,11 +79,12 @@ pub fn log<T: Encode + ?Sized>(log_level: Level, obj: &T) {
     if log_level >= MAX_LOG_LEVEL.get() {
         let log_level_id = log_level as u8;
 
-        let bytes = obj.encode();
+        let msg = obj.to_string();
+        let bytes = (log_level_id, msg).encode();
         let ptr = bytes.as_ptr();
         let len = bytes.len();
 
-        unsafe { host_log(log_level_id, ptr, len) }
+        unsafe { host_log(ptr, len) }
     }
 }
 
@@ -149,9 +150,10 @@ mod tests {
     }
 
     #[no_mangle]
-    pub unsafe extern "C" fn _log_mock(log_level: u8, ptr: *const u8, len: usize) {
+    pub unsafe extern "C" fn _log_mock(ptr: *const u8, len: usize) {
+        let (log_level, msg) = _decode_from_raw::<(u8, String)>(ptr, len);
         assert_eq!(log_level, 3);
-        assert_eq!(_decode_from_raw::<String>(ptr, len), get_log_message());
+        assert_eq!(msg, get_log_message());
     }
 
     #[no_mangle]

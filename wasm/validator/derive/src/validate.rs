@@ -197,7 +197,7 @@ fn gen_validate_impl(isi_name: IsiName, pass_condition: &Type) -> proc_macro2::T
         fn #fn_name(
             &self,
             authority: &<::iroha_validator::data_model::account::Account as ::iroha_validator::data_model::prelude::Identifiable>::Id
-        ) -> ::iroha_validator::data_model::validator::Verdict {
+        ) -> ::iroha_validator::data_model::validator::Result {
             let condition = <#pass_condition as ::core::convert::From<&Self>>::from(&self);
             <
                 #pass_condition

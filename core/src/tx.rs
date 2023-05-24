@@ -17,9 +17,9 @@
 use std::str::FromStr;
 
 use eyre::Result;
-use iroha_data_model::evaluate::ExpressionEvaluator;
 pub use iroha_data_model::prelude::*;
-use iroha_logger::debug;
+use iroha_data_model::{evaluate::ExpressionEvaluator, query::error::FindError, ValidationFail};
+use iroha_logger::{debug, error};
 use iroha_primitives::must_use::MustUse;
 
 use crate::{
@@ -103,16 +103,16 @@ impl TransactionValidator {
         if !wsv
             .domain(&account_id.domain_id)
             .map_err(|_e| {
-                TransactionRejectionReason::from(NotPermittedFail {
-                    reason: "Domain not found in Iroha".to_owned(),
-                })
+                TransactionRejectionReason::AccountDoesNotExist(FindError::Domain(
+                    account_id.domain_id.clone(),
+                ))
             })?
             .accounts
             .contains_key(account_id)
         {
-            return Err(TransactionRejectionReason::from(NotPermittedFail {
-                reason: "Account not found in Iroha".to_owned(),
-            }));
+            return Err(TransactionRejectionReason::AccountDoesNotExist(
+                FindError::Account(account_id.clone()),
+            ));
         }
 
         if !is_genesis {
@@ -175,21 +175,19 @@ impl TransactionValidator {
         wasm: WasmSmartContract,
     ) -> Result<(), TransactionRejectionReason> {
         debug!("Validating wasm");
-        let mut wasm_runtime = wasm::RuntimeBuilder::new()
+
+        wasm::RuntimeBuilder::new()
             .build()
-            .map_err(|reason| WasmExecutionFail {
-                reason: reason.to_string(),
+            .and_then(|mut wasm_runtime| {
+                wasm_runtime.validate(
+                    wsv,
+                    account_id,
+                    wasm,
+                    self.transaction_limits.max_instruction_number,
+                )
             })
-            .map_err(TransactionRejectionReason::WasmExecution)?;
-        wasm_runtime
-            .validate(
-                wsv,
-                account_id,
-                wasm,
-                self.transaction_limits.max_instruction_number,
-            )
-            .map_err(|reason| WasmExecutionFail {
-                reason: reason.to_string(),
+            .map_err(|error| WasmExecutionFail {
+                reason: format!("{:?}", eyre::Report::from(error)),
             })
             .map_err(TransactionRejectionReason::WasmExecution)
     }
@@ -215,10 +213,15 @@ impl TransactionValidator {
         wsv.validator_view()
             .clone() // Cloning validator is a cheap operation
             .validate(wsv, authority, signed_tx)
-            .map_err(|err| {
-                TransactionRejectionReason::NotPermitted(NotPermittedFail {
-                    reason: err.to_string(),
-                })
+            .map_err(|error| {
+                if let ValidationFail::InternalError(msg) = &error {
+                    error!(
+                        error = msg,
+                        "Internal error occurred during transaction validation, \
+                         is Runtime Validator correct?"
+                    )
+                }
+                error.into()
             })
     }
 }

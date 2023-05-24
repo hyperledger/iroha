@@ -20,7 +20,7 @@ use eyre::Result;
 use iroha_data_model::{
     evaluate::ExpressionEvaluator,
     isi::{
-        error::{EvaluationError, InstructionExecutionFailure as Error},
+        error::{InstructionEvaluationError, InstructionExecutionFailure as Error},
         *,
     },
     prelude::*,
@@ -650,7 +650,7 @@ mod tests {
             ExecuteTriggerBox::new(trigger_id)
                 .execute(&fake_account_id, &mut wsv)
                 .expect_err("Error expected"),
-            Error::Validate(_)
+            Error::InvariantViolation(_)
         ));
 
         Ok(())

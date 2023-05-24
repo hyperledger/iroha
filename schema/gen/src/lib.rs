@@ -273,7 +273,7 @@ types!(
     NewRole,
     NonTrivial<PredicateBox>,
     Not,
-    NotPermittedFail,
+    ValidationFail,
     NumericValue,
     Option<DomainId>,
     Option<Duration>,

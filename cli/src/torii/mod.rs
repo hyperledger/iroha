@@ -47,7 +47,7 @@ pub struct Torii {
 pub enum Error {
     /// Failed to execute or validate query
     #[error("Failed to execute or validate query")]
-    Query(#[from] iroha_data_model::query::error::QueryExecutionFailure),
+    Query(#[from] iroha_data_model::ValidationFail),
     /// Failed to accept transaction
     #[error("Failed to accept transaction: {0}")]
     AcceptTransaction(#[from] iroha_data_model::transaction::error::AcceptTransactionFailure),
@@ -67,16 +67,29 @@ pub enum Error {
 }
 
 /// Status code for query error response.
-pub(crate) const fn query_status_code(
-    query_error: &iroha_data_model::query::error::QueryExecutionFailure,
-) -> StatusCode {
-    use iroha_data_model::query::error::QueryExecutionFailure::*;
+pub(crate) fn query_status_code(validation_error: &iroha_data_model::ValidationFail) -> StatusCode {
+    use iroha_data_model::{
+        isi::error::InstructionExecutionFailure, query::error::QueryExecutionFailure::*,
+        ValidationFail::*,
+    };
 
-    match query_error {
-        Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
-        Signature(_) | Unauthorized => StatusCode::UNAUTHORIZED,
-        Permission(_) => StatusCode::FORBIDDEN,
-        Find(_) => StatusCode::NOT_FOUND,
+    match validation_error {
+        NotPermitted(_) => StatusCode::FORBIDDEN,
+        QueryFailed(query_error)
+        | InstructionFailed(InstructionExecutionFailure::Query(query_error)) => match query_error {
+            Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
+            Signature(_) | Unauthorized => StatusCode::UNAUTHORIZED,
+            Find(_) => StatusCode::NOT_FOUND,
+        },
+        TooComplex => StatusCode::UNPROCESSABLE_ENTITY,
+        InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        InstructionFailed(error) => {
+            iroha_logger::error!(
+                ?error,
+                "Query validation failed with unexpected error. This means a bug inside Runtime Validator",
+            );
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
     }
 }
 
@@ -93,7 +106,7 @@ impl Reply for Error {
 }
 
 impl Error {
-    const fn status_code(&self) -> StatusCode {
+    fn status_code(&self) -> StatusCode {
         use Error::*;
         match self {
             Query(e) => query_status_code(e),

@@ -32,8 +32,11 @@ impl Registrable for iroha_data_model::account::NewAccount {
 /// - Revoke permissions or roles
 pub mod isi {
     use iroha_data_model::{
-        isi::{error::MintabilityError, InstructionType},
-        query::error::QueryExecutionFailure,
+        isi::{
+            error::{MintabilityError, RepetitionError},
+            InstructionType,
+        },
+        query::error::{PermissionTokenFindError, QueryExecutionFailure},
     };
 
     use super::*;
@@ -81,10 +84,11 @@ pub mod isi {
                     }
                     _ => Err(err.into()),
                 },
-                Ok(_) => Err(Error::Repetition(
-                    InstructionType::Register,
-                    IdBox::AssetId(asset_id.clone()),
-                )),
+                Ok(_) => Err(RepetitionError {
+                    instruction_type: InstructionType::Register,
+                    id: IdBox::AssetId(asset_id.clone()),
+                }
+                .into()),
             }
         }
     }
@@ -137,9 +141,10 @@ pub mod isi {
                 .map_err(Error::from)
                 .and_then(|account| {
                     if account.signatories.contains(&public_key) {
-                        return Err(ValidationError::new(
-                            "Account already contains this signatory",
-                        )
+                        return Err(RepetitionError {
+                            instruction_type: InstructionType::Mint,
+                            id: account_id.clone().into(),
+                        }
                         .into());
                     }
 
@@ -163,14 +168,13 @@ pub mod isi {
                 .map_err(Error::from)
                 .and_then(|account| {
                     if account.signatories.len() < 2 {
-                        return Err(ValidationError::new(
-                            "Public keys cannot be burned to nothing. \
-                         If you want to delete the account, please use an unregister instruction.",
-                        )
-                        .into());
+                        return Err(Error::InvariantViolation(String::from(
+                            "Public keys cannot be burned to nothing, \
+                            if you want to delete the account, please use an unregister instruction",
+                        )));
                     }
                     if !account.remove_signatory(&public_key) {
-                        return Err(ValidationError::new("Public key not found").into());
+                        return Err(FindError::PublicKey(public_key).into());
                     }
                     Ok(())
                 })?;
@@ -265,7 +269,11 @@ pub mod isi {
             permissions::check_permission_token_parameters(&permission, definition)?;
 
             if wsv.account_contains_inherent_permission(&account_id, &permission) {
-                return Err(ValidationError::new("Permission already exists").into());
+                return Err(RepetitionError {
+                    instruction_type: InstructionType::Grant,
+                    id: permission.definition_id.into(),
+                }
+                .into());
             }
 
             wsv.add_account_permission(&account_id, permission);
@@ -294,10 +302,14 @@ pub mod isi {
                 .permission_token_definitions()
                 .contains_key(&permission.definition_id)
             {
-                error!(%permission, "Revoking non-existent token");
+                return Err(FindError::PermissionTokenDefinition(permission.definition_id).into());
             }
             if !wsv.remove_account_permission(&account_id, &permission) {
-                return Err(ValidationError::new("Permission not found").into());
+                return Err(FindError::PermissionToken(PermissionTokenFindError {
+                    account_id: account_id.clone(),
+                    permission_token_id: permission.definition_id,
+                })
+                .into());
             }
 
             wsv.emit_events(Some(AccountEvent::PermissionRemoved(
@@ -331,10 +343,11 @@ pub mod isi {
                 .map_err(Error::from)
                 .and_then(|account| {
                     if !account.add_role(role_id.clone()) {
-                        return Err(Error::Repetition(
-                            InstructionType::Grant,
-                            IdBox::RoleId(role_id.clone()),
-                        ));
+                        return Err(RepetitionError {
+                            instruction_type: InstructionType::Grant,
+                            id: IdBox::RoleId(role_id.clone()),
+                        }
+                        .into());
                     }
                     Ok(())
                 })?;

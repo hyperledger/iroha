@@ -58,7 +58,7 @@ mod validate;
 /// use iroha_validator::prelude::*;
 ///
 /// #[entrypoint(params = "[operation]")]
-/// pub fn validate(operation: NeedsValidationBox) -> Verdict {
+/// pub fn validate(operation: NeedsValidationBox) -> Result {
 ///     if let NeedsValidationBox::Query(_) = operation {
 ///         deny!("No queries are allowed")
 ///     }
@@ -73,7 +73,7 @@ mod validate;
 /// use iroha_validator::prelude::*;
 ///
 /// #[entrypoint(params = "[authority, operation]")]
-/// pub fn validate(authority: AccountId, _: NeedsValidationBox) -> Verdict {
+/// pub fn validate(authority: AccountId, _: NeedsValidationBox) -> Result {
 ///     let admin_domain = parse!("admin_domain" as AccountId);
 ///
 ///     if authority.domain_id != admin_domain {
@@ -104,7 +104,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 ///
 /// #[entrypoint(params = "[authority, operation]")]
-/// fn validate(authority: <Account as Identifiable>::Id, operation: NeedsValidationBox) -> Verdict {
+/// fn validate(authority: <Account as Identifiable>::Id, operation: NeedsValidationBox) -> Result {
 ///     let NeedsValidationBox::Instruction(instruction) = operation else {
 ///         pass!();
 ///     };

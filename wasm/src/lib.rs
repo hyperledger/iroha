@@ -14,11 +14,7 @@ extern crate alloc;
 use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use core::ops::RangeFrom;
 
-use data_model::{
-    prelude::*,
-    query::{error::QueryExecutionFailure, QueryBox},
-    validator::NeedsValidationBox,
-};
+use data_model::{prelude::*, query::QueryBox, validator::NeedsValidationBox};
 use debug::DebugExpectExt as _;
 pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::main;
@@ -51,18 +47,28 @@ unsafe extern "C" fn _iroha_wasm_dealloc(offset: *mut u8, len: usize) {
 /// Implementing instructions can be executed on the host
 pub trait ExecuteOnHost: Instruction {
     /// Execute instruction on the host
-    fn execute(&self);
+    ///
+    /// # Errors
+    ///
+    /// - If instruction validation failed
+    /// - If instruction execution failed
+    fn execute(&self) -> Result<(), ValidationFail>;
 }
 
 /// Implementing queries can be executed on the host
 pub trait QueryHost: Query {
     /// Execute query on the host
-    fn execute(&self) -> Self::Output;
+    ///
+    /// # Errors
+    ///
+    /// - If query validation failed
+    /// - If query execution failed
+    fn execute(&self) -> Result<Self::Output, ValidationFail>;
 }
 
 // TODO: Remove the Clone bound. It can be done by custom serialization to InstructionBox
 impl<I: Instruction + Into<InstructionBox> + Encode + Clone> ExecuteOnHost for I {
-    fn execute(&self) {
+    fn execute(&self) -> Result<(), ValidationFail> {
         #[cfg(not(test))]
         use host::execute_instruction as host_execute_instruction;
         #[cfg(test)]
@@ -71,7 +77,12 @@ impl<I: Instruction + Into<InstructionBox> + Encode + Clone> ExecuteOnHost for I
         // TODO: Redundant conversion into `InstructionBox`
         let isi_box: InstructionBox = self.clone().into();
         // Safety: `host_execute_instruction` doesn't take ownership of it's pointer parameter
-        unsafe { encode_and_execute(&isi_box, host_execute_instruction) };
+        unsafe {
+            decode_with_length_prefix_from_raw(encode_and_execute(
+                &isi_box,
+                host_execute_instruction,
+            ))
+        }
     }
 }
 
@@ -81,7 +92,7 @@ where
     Q::Output: DecodeAll,
     <Q::Output as TryFrom<Value>>::Error: core::fmt::Debug,
 {
-    fn execute(&self) -> Q::Output {
+    fn execute(&self) -> Result<Q::Output, ValidationFail> {
         #[cfg(not(test))]
         use host::execute_query as host_execute_query;
         #[cfg(test)]
@@ -91,11 +102,11 @@ where
         let query_box: QueryBox = self.clone().into();
         // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
         //         - ownership of the returned result is transferred into `_decode_from_raw`
-        let value: Value = unsafe {
+        let res: Result<Value, ValidationFail> = unsafe {
             decode_with_length_prefix_from_raw(encode_and_execute(&query_box, host_execute_query))
         };
 
-        value.try_into().expect("Query returned invalid type")
+        res.map(|value| value.try_into().expect("Query returned invalid type"))
     }
 }
 
@@ -107,7 +118,7 @@ impl iroha_data_model::evaluate::ExpressionEvaluator for Host {
     fn evaluate<E: Evaluate>(
         &self,
         expression: &E,
-    ) -> Result<E::Value, iroha_data_model::evaluate::Error> {
+    ) -> Result<E::Value, iroha_data_model::evaluate::EvaluationError> {
         expression.evaluate(&Context::new())
     }
 }
@@ -129,8 +140,8 @@ impl Context {
 }
 
 impl iroha_data_model::evaluate::Context for Context {
-    fn query(&self, query: &QueryBox) -> Result<Value, QueryExecutionFailure> {
-        Ok(query.execute())
+    fn query(&self, query: &QueryBox) -> Result<Value, ValidationFail> {
+        query.execute()
     }
 
     fn get(&self, name: &Name) -> Option<&Value> {
@@ -158,7 +169,7 @@ pub fn query_authority() -> <Account as Identifiable>::Id {
 /// # Traps
 ///
 /// Host side will generate a trap if this function was not called from a trigger.
-pub fn query_triggering_event() -> Event {
+pub fn query_triggering_event() -> Option<Event> {
     #[cfg(not(test))]
     use host::query_triggering_event as host_query_triggering_event;
     #[cfg(test)]
@@ -203,7 +214,7 @@ mod host {
         ///
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
-        pub(super) fn execute_instruction(ptr: *const u8, len: usize);
+        pub(super) fn execute_instruction(ptr: *const u8, len: usize) -> *const u8;
 
         /// Get the authority account id
         ///
@@ -351,7 +362,9 @@ mod tests {
 
     use super::*;
 
-    const QUERY_RESULT: Value = Value::Numeric(NumericValue::U32(1234_u32));
+    const QUERY_RESULT: Result<Value, ValidationFail> =
+        Ok(Value::Numeric(NumericValue::U32(1234_u32)));
+    const ISI_RESULT: Result<(), ValidationFail> = Ok(());
     const EXPRESSION_RESULT: NumericValue = NumericValue::U32(5_u32);
 
     fn get_test_instruction() -> InstructionBox {
@@ -370,11 +383,13 @@ mod tests {
     fn get_test_expression() -> EvaluatesTo<NumericValue> {
         Add::new(1_u32, 2_u32).into()
     }
-    fn get_test_event() -> Event {
-        DataEvent::Account(AccountEvent::Deleted(
-            "alice@wonderland".parse().expect("Valid"),
-        ))
-        .into()
+    fn get_test_event() -> Option<Event> {
+        Some(
+            DataEvent::Account(AccountEvent::Deleted(
+                "alice@wonderland".parse().expect("Valid"),
+            ))
+            .into(),
+        )
     }
     fn get_test_operation() -> NeedsValidationBox {
         let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
@@ -386,10 +401,15 @@ mod tests {
     }
 
     #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_execute_instruction_mock(ptr: *const u8, len: usize) {
+    pub unsafe extern "C" fn _iroha_wasm_execute_instruction_mock(
+        ptr: *const u8,
+        len: usize,
+    ) -> *const u8 {
         let bytes = slice::from_raw_parts(ptr, len);
         let instruction = InstructionBox::decode_all(&mut &*bytes);
         assert_eq!(get_test_instruction(), instruction.unwrap());
+
+        ManuallyDrop::new(encode_with_length_prefix(&ISI_RESULT)).as_ptr()
     }
 
     #[no_mangle]
@@ -421,7 +441,7 @@ mod tests {
 
     #[webassembly_test]
     fn execute_instruction() {
-        get_test_instruction().execute()
+        get_test_instruction().execute().unwrap();
     }
 
     #[webassembly_test]

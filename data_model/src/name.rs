@@ -12,7 +12,7 @@ use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::{ParseError, ValidationError};
+use crate::{isi::error::InvalidParameterError, ParseError};
 
 #[model]
 pub mod model {
@@ -47,18 +47,18 @@ impl Name {
     /// Fails if `range` does not
     pub fn validate_len(
         &self,
-        range: impl Into<RangeInclusive<usize>>,
-    ) -> Result<(), ValidationError> {
+        range: impl Into<RangeInclusive<u32>>,
+    ) -> Result<(), InvalidParameterError> {
         let range = range.into();
-        if range.contains(&self.0.chars().count()) {
-            Ok(())
-        } else {
-            Err(ValidationError::new(format!(
-                "Name must be between {} and {} characters in length.",
-                &range.start(),
-                &range.end()
-            )))
-        }
+        let Ok(true) = &self
+            .0
+            .chars()
+            .count()
+            .try_into()
+            .map(|len| range.contains(&len)) else {
+            return Err(InvalidParameterError::NameLength(range));
+        };
+        Ok(())
     }
 
     /// Check if `candidate` string would be valid [`Name`].
@@ -66,7 +66,7 @@ impl Name {
     /// # Errors
     /// Fails if not valid [`Name`].
     fn validate_str(candidate: &str) -> Result<(), ParseError> {
-        const FORBIDDEN_CHARS: [char; 4] = ['@', '#', '$', '%'];
+        const FORBIDDEN_CHARS: [char; 3] = ['@', '#', '$'];
 
         if candidate.is_empty() {
             return Err(ParseError {
@@ -82,8 +82,7 @@ impl Name {
             #[allow(clippy::non_ascii_literal)]
             return Err(ParseError {
                 reason: "The `@` character is reserved for `account@domain` constructs, \
-                        `#` — for `asset#domain`, `$` — for `trigger$domain` \
-                        and `%` — for `validator%account`.",
+                        `#` — for `asset#domain` and `$` — for `trigger$domain`.",
             });
         }
         Ok(())
@@ -145,7 +144,7 @@ mod tests {
 
     use super::*;
 
-    const INVALID_NAMES: [&str; 6] = ["", " ", "@", "#", "$", "%"];
+    const INVALID_NAMES: [&str; 5] = ["", " ", "@", "#", "$"];
 
     #[test]
     fn deserialize_name() {

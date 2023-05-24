@@ -22,16 +22,16 @@ pub trait Token:
 /// instructions containing implementing token.
 pub trait ValidateGrantRevoke {
     #[allow(missing_docs, clippy::missing_errors_doc)]
-    fn validate_grant(&self, authority: &<Account as Identifiable>::Id) -> Verdict;
+    fn validate_grant(&self, authority: &<Account as Identifiable>::Id) -> Result;
 
     #[allow(missing_docs, clippy::missing_errors_doc)]
-    fn validate_revoke(&self, authority: &<Account as Identifiable>::Id) -> Verdict;
+    fn validate_revoke(&self, authority: &<Account as Identifiable>::Id) -> Result;
 }
 
 /// Predicate-like trait used for pass conditions to identify if [`Grant`] or [`Revoke`] should be allowed.
 pub trait PassCondition {
     #[allow(missing_docs, clippy::missing_errors_doc)]
-    fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict;
+    fn validate(&self, authority: &<Account as Identifiable>::Id) -> Result;
 }
 
 /// Error type for `TryFrom<PermissionToken>` implementations.
@@ -81,9 +81,11 @@ pub mod asset {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
+        fn validate(&self, authority: &<Account as Identifiable>::Id) -> Result {
             if self.asset_id.account_id() != authority {
-                return Err("Can't access asset owned by another account".to_owned());
+                return Err(ValidationFail::NotPermitted(
+                    "Can't access asset owned by another account".to_owned(),
+                ));
             }
 
             Ok(())
@@ -99,7 +101,7 @@ pub mod asset_definition {
     fn is_asset_definition_owner(
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
         authority: &<Account as Identifiable>::Id,
-    ) -> bool {
+    ) -> Result<bool> {
         IsAssetDefinitionOwner::new(asset_definition_id.clone(), authority.clone()).execute()
     }
 
@@ -110,9 +112,11 @@ pub mod asset_definition {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-            if !is_asset_definition_owner(self.asset_definition_id, authority) {
-                return Err("Can't access asset definition owned by another account".to_owned());
+        fn validate(&self, authority: &<Account as Identifiable>::Id) -> Result {
+            if !is_asset_definition_owner(self.asset_definition_id, authority)? {
+                return Err(ValidationFail::NotPermitted(
+                    "Can't access asset definition owned by another account".to_owned(),
+                ));
             }
 
             Ok(())
@@ -132,9 +136,11 @@ pub mod account {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
+        fn validate(&self, authority: &<Account as Identifiable>::Id) -> Result {
             if self.account_id != authority {
-                return Err("Can't access another account".to_owned());
+                return Err(ValidationFail::NotPermitted(
+                    "Can't access another account".to_owned(),
+                ));
             }
 
             Ok(())
@@ -148,13 +154,18 @@ pub mod trigger {
 
     /// Check if `authority` is the owner of `trigger_id`.
     ///
-    /// Wrapper around [`IsAssetDefinitionOwner`](crate::data_model::prelude::IsAssetDefinitionOwner) query.
+    /// Wrapper around [`FindTriggerById`](crate::data_model::prelude::FindTriggerById) query.
+    ///
+    /// # Errors
+    ///
+    /// Fails if query fails
     pub fn is_trigger_owner(
         trigger_id: <Trigger<FilterBox, Executable> as Identifiable>::Id,
         authority: &<Account as Identifiable>::Id,
-    ) -> bool {
-        let trigger = FindTriggerById::new(trigger_id).execute();
-        trigger.action().technical_account() == authority
+    ) -> Result<bool> {
+        FindTriggerById::new(trigger_id)
+            .execute()
+            .map(|trigger| trigger.action().technical_account() == authority)
     }
 
     /// Pass condition that checks if `authority` is the owner of `trigger_id`.
@@ -164,11 +175,11 @@ pub mod trigger {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
-            if !is_trigger_owner(self.trigger_id.clone(), authority) {
-                return Err(
+        fn validate(&self, authority: &<Account as Identifiable>::Id) -> Result {
+            if !is_trigger_owner(self.trigger_id.clone(), authority)? {
+                return Err(ValidationFail::NotPermitted(
                     "Can't give permission to access trigger owned by another account".to_owned(),
-                );
+                ));
             }
 
             Ok(())
@@ -181,7 +192,7 @@ pub mod trigger {
 pub struct AlwaysPass;
 
 impl PassCondition for AlwaysPass {
-    fn validate(&self, _: &<Account as Identifiable>::Id) -> Verdict {
+    fn validate(&self, _: &<Account as Identifiable>::Id) -> Result {
         Ok(())
     }
 }
@@ -200,8 +211,10 @@ impl<T: Token> From<&T> for AlwaysPass {
 pub struct OnlyGenesis;
 
 impl PassCondition for OnlyGenesis {
-    fn validate(&self, _: &<Account as Identifiable>::Id) -> Verdict {
-        Err("This operation is always denied and only allowed inside the genesis block".to_owned())
+    fn validate(&self, _: &<Account as Identifiable>::Id) -> Result {
+        Err(ValidationFail::NotPermitted(
+            "This operation is always denied and only allowed inside the genesis block".to_owned(),
+        ))
     }
 }
 

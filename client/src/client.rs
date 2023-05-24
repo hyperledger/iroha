@@ -15,7 +15,7 @@ use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConf
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
     block::VersionedCommittedBlock, predicate::PredicateBox, prelude::*,
-    query::error::QueryExecutionFailure, transaction::TransactionPayload,
+    transaction::TransactionPayload,
 };
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
@@ -81,14 +81,15 @@ where
                 StatusCode::BAD_REQUEST
                 | StatusCode::UNAUTHORIZED
                 | StatusCode::FORBIDDEN
-                | StatusCode::NOT_FOUND => {
-                    let res = QueryExecutionFailure::decode_all(&mut resp.body().as_ref());
+                | StatusCode::NOT_FOUND
+                | StatusCode::UNPROCESSABLE_ENTITY => {
+                    let res = ValidationFail::decode_all(&mut resp.body().as_ref());
                     let err = res.wrap_err(
                         "Failed to decode error-response from Iroha. \
                          You are likely using a version of the client library \
                          that is incompatible with the version of the peer software",
                     )?;
-                    Err(ClientQueryError::QueryError(err))
+                    Err(ClientQueryError::Validation(err))
                 }
                 _ => Err(ResponseReport::with_msg("Unexpected query response", resp).into()),
             }
@@ -103,19 +104,12 @@ where
 /// Different errors as a result of query response handling
 #[derive(Debug, thiserror::Error)]
 pub enum ClientQueryError {
-    /// Certain Iroha query error
-    #[error("Query error: {0}")]
-    QueryError(QueryExecutionFailure),
+    /// Query validation error
+    #[error("Query validation error")]
+    Validation(#[from] ValidationFail),
     /// Some other error
-    #[error("Other error: {0}")]
-    Other(eyre::Error),
-}
-
-impl From<eyre::Error> for ClientQueryError {
-    #[inline]
-    fn from(err: eyre::Error) -> Self {
-        Self::Other(err)
-    }
+    #[error("Other error")]
+    Other(#[from] eyre::Error),
 }
 
 impl From<ResponseReport> for ClientQueryError {
@@ -518,8 +512,8 @@ impl Client {
             if let Event::Pipeline(this_event) = event? {
                 match this_event.status() {
                     PipelineStatus::Validating => {}
-                    PipelineStatus::Rejected(reason) => {
-                        return Err(reason.clone()).wrap_err("Transaction rejected")
+                    PipelineStatus::Rejected(ref reason) => {
+                        return Err(reason.clone().into());
                     }
                     PipelineStatus::Committed => return Ok(hash.transmute()),
                 }
@@ -1184,8 +1178,8 @@ pub mod stream_api {
         fn drop(&mut self) {
             let mut close = || -> eyre::Result<()> {
                 self.stream.close(None)?;
-                let mes = self.stream.read_message()?;
-                if !mes.is_close() {
+                let msg = self.stream.read_message()?;
+                if !msg.is_close() {
                     return Err(eyre!(
                         "Server hasn't sent `Close` message for websocket handshake"
                     ));
@@ -1245,8 +1239,8 @@ pub mod stream_api {
         pub async fn close(mut self) {
             let close = async {
                 self.stream.close(None).await?;
-                if let Some(mes) = self.stream.next().await {
-                    if !mes?.is_close() {
+                if let Some(msg) = self.stream.next().await {
+                    if !msg?.is_close() {
                         eyre::bail!("Server hasn't sent `Close` message for websocket handshake");
                     }
                 }
@@ -1718,6 +1712,7 @@ mod tests {
     #[cfg(test)]
     mod query_errors_handling {
         use http::Response;
+        use iroha_data_model::{query::error::QueryExecutionFailure, ValidationFail};
 
         use super::*;
 
@@ -1727,24 +1722,24 @@ mod tests {
             let responses = vec![
                 (
                     StatusCode::UNAUTHORIZED,
-                    QueryExecutionFailure::Signature("whatever".to_owned()),
+                    ValidationFail::QueryFailed(QueryExecutionFailure::Signature(
+                        "whatever".to_owned(),
+                    )),
                 ),
-                (
-                    StatusCode::FORBIDDEN,
-                    QueryExecutionFailure::Permission("whatever".to_owned()),
-                ),
+                (StatusCode::UNPROCESSABLE_ENTITY, ValidationFail::TooComplex),
                 (
                     StatusCode::NOT_FOUND,
                     // Here should be `Find`, but actually handler doesn't care
-                    QueryExecutionFailure::Evaluate("whatever".to_owned()),
+                    ValidationFail::QueryFailed(QueryExecutionFailure::Evaluate(
+                        "whatever".to_owned(),
+                    )),
                 ),
             ];
-
             for (status_code, err) in responses {
                 let resp = Response::builder().status(status_code).body(err.encode())?;
 
                 match sut.handle(resp) {
-                    Err(ClientQueryError::QueryError(actual)) => {
+                    Err(ClientQueryError::Validation(actual)) => {
                         // PartialEq isn't implemented, so asserting by encoded repr
                         assert_eq!(actual.encode(), err.encode());
                     }

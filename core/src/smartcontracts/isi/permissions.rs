@@ -20,7 +20,7 @@ use super::*;
 pub fn check_permission_token_parameters(
     token: &PermissionToken,
     definition: &PermissionTokenDefinition,
-) -> std::result::Result<(), EvaluationError> {
+) -> std::result::Result<(), InstructionEvaluationError> {
     use iroha_data_model::ValueKind;
     use itertools::{
         EitherOrBoth::{Both, Left, Right},
@@ -40,7 +40,7 @@ pub fn check_permission_token_parameters(
                     return Err(missing_parameter(expected_key));
                 }
                 if kind != *expected_kind {
-                    return Err(EvaluationError::PermissionParameter(format!(
+                    return Err(InstructionEvaluationError::PermissionParameter(format!(
                         "Permission token parameter `{key}` type mismatch: \
                          expected `{expected_kind}`, got `{kind}`"
                     )));
@@ -48,7 +48,7 @@ pub fn check_permission_token_parameters(
             }
             // No more parameters in the definition
             Left((key, _)) => {
-                return Err(EvaluationError::PermissionParameter(format!(
+                return Err(InstructionEvaluationError::PermissionParameter(format!(
                     "Undefined permission token parameter: `{key}`"
                 )));
             }
@@ -62,6 +62,8 @@ pub fn check_permission_token_parameters(
     Ok(())
 }
 
-fn missing_parameter(key: &Name) -> EvaluationError {
-    EvaluationError::PermissionParameter(format!("Permission parameter `{key}` is missing"))
+fn missing_parameter(key: &Name) -> InstructionEvaluationError {
+    InstructionEvaluationError::PermissionParameter(format!(
+        "Permission parameter `{key}` is missing"
+    ))
 }
