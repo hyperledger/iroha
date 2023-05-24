@@ -92,7 +92,9 @@ fn permissions_disallow_asset_transfer() {
     //Then
     assert!(matches!(
         rejection_reason,
-        &PipelineRejectionReason::Transaction(TransactionRejectionReason::NotPermitted(_))
+        &PipelineRejectionReason::Transaction(TransactionRejectionReason::Validation(
+            ValidationFail::NotPermitted(_)
+        ))
     ));
     let alice_assets = get_assets(&mut iroha_client, &alice_id);
     assert_eq!(alice_assets, alice_start_assets);
@@ -146,7 +148,9 @@ fn permissions_disallow_asset_burn() {
     //Then
     assert!(matches!(
         rejection_reason,
-        &PipelineRejectionReason::Transaction(TransactionRejectionReason::NotPermitted(_))
+        &PipelineRejectionReason::Transaction(TransactionRejectionReason::Validation(
+            ValidationFail::NotPermitted(_)
+        ))
     ));
 
     let alice_assets = get_assets(&mut iroha_client, &alice_id);

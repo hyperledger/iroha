@@ -9,10 +9,7 @@ extern crate self as iroha_validator;
 
 #[cfg(feature = "default-validator")]
 pub use default::DefaultValidator;
-use iroha_wasm::data_model::{
-    validator::{DenialReason, Verdict},
-    visit::Visit,
-};
+use iroha_wasm::data_model::{validator::Result, visit::Visit, ValidationFail};
 pub use iroha_wasm::{self, data_model};
 
 #[cfg(feature = "default-validator")]
@@ -22,37 +19,41 @@ pub mod permission;
 /// Shortcut for `return Ok(())`.
 #[macro_export]
 macro_rules! pass {
-    ($validator:ident) => {
+    ($validator:ident) => {{
         #[cfg(debug_assertions)]
-        if let Err(_error) = $validator.verdict() {
-            panic!("Validator already denied");
+        {
+            if let Err(_error) = $validator.verdict() {
+                panic!("Validator already denied");
+            }
         }
 
-        return
-    };
+        return;
+    }};
 }
 
-/// Shortcut for `return Err(DenialReason)`.
+/// Shortcut for `return Err(ValidationFail)`.
 ///
 /// Supports [`format!`](alloc::format) syntax as well as any expression returning [`String`](alloc::string::String).
 #[macro_export]
 macro_rules! deny {
-    ($validator:ident, $l:literal $(,)?) => {
+    ($validator:ident, $l:literal $(,)?) => {{
         #[cfg(debug_assertions)]
         if let Err(_error) = $validator.verdict() {
             unreachable!("Validator already denied");
         }
-        $validator.deny(::alloc::fmt::format(::core::format_args!($l)));
-        return
-    };
-    ($validator:ident, $e:expr $(,)?) => {
+        $validator.deny(::iroha_wasm::data_model::ValidationFail::NotPermitted(
+            ::alloc::fmt::format(::core::format_args!($l)),
+        ));
+        return;
+    }};
+    ($validator:ident, $e:expr $(,)?) => {{
         #[cfg(debug_assertions)]
         if let Err(_error) = $validator.verdict() {
             unreachable!("Validator already denied");
         }
         $validator.deny($e);
-        return
-    };
+        return;
+    }};
 }
 
 /// Macro to parse literal as a type. Panics if failed.
@@ -110,9 +111,9 @@ macro_rules! declare_tokens {
 /// Validator of Iroha operations
 pub trait Validate: Visit {
     /// Validator verdict.
-    fn verdict(&self) -> &Verdict;
+    fn verdict(&self) -> &Result;
     /// Set validator verdict to deny
-    fn deny(&mut self, reason: DenialReason);
+    fn deny(&mut self, reason: ValidationFail);
 }
 
 pub mod prelude {
@@ -120,11 +121,7 @@ pub mod prelude {
 
     pub use iroha_validator_derive::{entrypoint, Token, ValidateGrantRevoke};
     pub use iroha_wasm::{
-        data_model::{
-            prelude::*,
-            validator::{DenialReason, Verdict},
-            visit::Visit,
-        },
+        data_model::{prelude::*, validator::Result, visit::Visit, ValidationFail},
         prelude::*,
         Context,
     };

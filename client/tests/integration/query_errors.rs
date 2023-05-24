@@ -22,7 +22,9 @@ fn non_existent_account_is_specific_error() {
         .expect_err("Should error");
 
     match err {
-        ClientQueryError::QueryError(QueryExecutionFailure::Find(err)) => match *err {
+        ClientQueryError::Validation(ValidationFail::QueryFailed(QueryExecutionFailure::Find(
+            err,
+        ))) => match *err {
             FindError::Domain(id) => assert_eq!(id.name.as_ref(), "regalia"),
             x => panic!("FindError::Domain expected, got {x:?}"),
         },

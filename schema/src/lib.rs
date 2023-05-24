@@ -15,6 +15,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::ops::RangeInclusive;
 
 /// Derive schema. It will make your structure schemaable
 pub use iroha_schema_derive::*;
@@ -487,6 +488,28 @@ impl<T: IntoSchema, const L: usize> IntoSchema for [T; L] {
             }));
 
             T::update_schema_map(map);
+        }
+    }
+}
+
+impl<T: TypeId> TypeId for RangeInclusive<T> {
+    fn id() -> String {
+        format!("RangeInclusive<{}>", T::id())
+    }
+}
+
+impl<T: IntoSchema> IntoSchema for RangeInclusive<T> {
+    fn type_name() -> String {
+        format!("RangeInclusive<{}>", T::type_name())
+    }
+
+    fn update_schema_map(metamap: &mut MetaMap) {
+        if !metamap.contains_key::<Self>() {
+            metamap.insert::<Self>(Metadata::Tuple(UnnamedFieldsMeta {
+                types: vec![core::any::TypeId::of::<T>(), core::any::TypeId::of::<T>()],
+            }));
+
+            T::update_schema_map(metamap);
         }
     }
 }

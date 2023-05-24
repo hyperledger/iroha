@@ -18,7 +18,7 @@ use asset_definition::{
 };
 use data_model::evaluate::ExpressionEvaluator;
 use domain::{visit_remove_domain_key_value, visit_set_domain_key_value, visit_unregister_domain};
-use iroha_wasm::data_model::{validator::DenialReason, visit::Visit};
+use iroha_wasm::data_model::visit::Visit;
 use parameter::{visit_new_parameter, visit_set_parameter};
 use peer::visit_unregister_peer;
 use permission_token::{
@@ -115,10 +115,10 @@ pub(crate) use map_all_crate_tokens;
 pub(crate) use tokens;
 
 impl Validate for DefaultValidator {
-    fn verdict(&self) -> &Verdict {
+    fn verdict(&self) -> &Result {
         &self.verdict
     }
-    fn deny(&mut self, reason: DenialReason) {
+    fn deny(&mut self, reason: ValidationFail) {
         self.verdict = Err(reason);
     }
 }
@@ -130,7 +130,7 @@ impl Validate for DefaultValidator {
 /// The defaults are not guaranteed to be stable.
 #[derive(Debug, Clone)]
 pub struct DefaultValidator {
-    pub verdict: Verdict,
+    pub verdict: Result,
     host: iroha_wasm::Host,
 }
 
@@ -149,7 +149,7 @@ impl ExpressionEvaluator for DefaultValidator {
     fn evaluate<E: Evaluate>(
         &self,
         expression: &E,
-    ) -> Result<E::Value, iroha_wasm::data_model::evaluate::Error> {
+    ) -> core::result::Result<E::Value, iroha_wasm::data_model::evaluate::EvaluationError> {
         self.host.evaluate(expression)
     }
 }
@@ -254,14 +254,22 @@ pub fn visit_instruction<V: Validate + ?Sized>(
     isi: &InstructionBox,
 ) {
     macro_rules! isi_validators {
-        ( single { $($validator:ident($isi:ident)),+ $(,)? } composite {$($composite_validator:ident($composite_isi:ident)),+ $(,)?} ) => {
+        (
+            single {$(
+                $validator:ident($isi:ident)
+            ),+ $(,)?}
+            composite {$(
+                $composite_validator:ident($composite_isi:ident)
+            ),+ $(,)?}
+        ) => {
             match isi {
                 InstructionBox::NewParameter(isi) => {
                     let parameter = evaluate_expr!(validator, authority, <isi as NewParameter>::parameter());
                     validator.visit_new_parameter(authority, NewParameter{parameter});
 
                     if validator.verdict().is_ok() {
-                        isi.execute();
+                        let res = isi.execute();
+                        isi_validators!(@handle_isi_result res);
                     }
                 }
                 InstructionBox::SetParameter(isi) => {
@@ -269,7 +277,8 @@ pub fn visit_instruction<V: Validate + ?Sized>(
                     validator.visit_set_parameter(authority, SetParameter{parameter});
 
                     if validator.verdict().is_ok() {
-                        isi.execute();
+                        let res = isi.execute();
+                        isi_validators!(@handle_isi_result res);
                     }
                 }
                 InstructionBox::ExecuteTrigger(isi) => {
@@ -277,20 +286,27 @@ pub fn visit_instruction<V: Validate + ?Sized>(
                     validator.visit_execute_trigger(authority, ExecuteTrigger{trigger_id});
 
                     if validator.verdict().is_ok() {
-                        isi.execute();
+                        let res = isi.execute();
+                        isi_validators!(@handle_isi_result res);
                     }
                 } $(
                 InstructionBox::$isi(isi) => {
                     validator.$validator(authority, isi);
 
                     if validator.verdict().is_ok() {
-                        isi.execute();
+                        let res = isi.execute();
+                        isi_validators!(@handle_isi_result res);
                     }
                 } )+ $(
                 // NOTE: `visit_and_execute_instructions` is reentrant, so don't execute composite instructions
                 InstructionBox::$composite_isi(isi) => validator.$composite_validator(authority, isi), )+
             }
         };
+        (@handle_isi_result $res:ident) => {
+            if let Err(err) = $res {
+                validator.deny(err);
+            }
+        }
     }
 
     isi_validators! {
@@ -681,7 +697,7 @@ pub mod asset_definition {
     pub(super) fn is_asset_definition_owner(
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
         authority: &<Account as Identifiable>::Id,
-    ) -> bool {
+    ) -> Result<bool> {
         IsAssetDefinitionOwner::new(asset_definition_id.clone(), authority.clone()).execute()
     }
 
@@ -692,8 +708,10 @@ pub mod asset_definition {
     ) {
         let asset_definition_id = isi.object_id;
 
-        if is_asset_definition_owner(&asset_definition_id, authority) {
-            pass!(validator);
+        match is_asset_definition_owner(&asset_definition_id, authority) {
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+            Err(err) => deny!(validator, err),
         }
         let can_unregister_asset_definition_token = tokens::CanUnregisterAssetDefinition {
             asset_definition_id,
@@ -719,8 +737,10 @@ pub mod asset_definition {
         if &source_id == authority {
             pass!(validator);
         }
-        if is_asset_definition_owner(destination_id.id(), authority) {
-            pass!(validator);
+        match is_asset_definition_owner(destination_id.id(), authority) {
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+            Err(err) => deny!(validator, err),
         }
 
         deny!(
@@ -736,8 +756,10 @@ pub mod asset_definition {
     ) {
         let asset_definition_id = isi.object_id;
 
-        if is_asset_definition_owner(&asset_definition_id, authority) {
-            pass!(validator);
+        match is_asset_definition_owner(&asset_definition_id, authority) {
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+            Err(err) => deny!(validator, err),
         }
         let can_set_key_value_in_asset_definition_token = tokens::CanSetKeyValueInAssetDefinition {
             asset_definition_id,
@@ -759,8 +781,10 @@ pub mod asset_definition {
     ) {
         let asset_definition_id = isi.object_id;
 
-        if is_asset_definition_owner(&asset_definition_id, authority) {
-            pass!(validator);
+        match is_asset_definition_owner(&asset_definition_id, authority) {
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+            Err(err) => deny!(validator, err),
         }
         let can_remove_key_value_in_asset_definition_token =
             tokens::CanRemoveKeyValueInAssetDefinition {
@@ -888,8 +912,10 @@ pub mod asset {
     ) {
         let asset = isi.object;
 
-        if asset_definition::is_asset_definition_owner(asset.id().definition_id(), authority) {
-            pass!(validator);
+        match asset_definition::is_asset_definition_owner(asset.id().definition_id(), authority) {
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+            Err(err) => deny!(validator, err),
         }
         let can_register_assets_with_definition_token = tokens::CanRegisterAssetsWithDefinition {
             asset_definition_id: asset.id().definition_id().clone(),
@@ -914,8 +940,10 @@ pub mod asset {
         if is_asset_owner(&asset_id, authority) {
             pass!(validator);
         }
-        if asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
-            pass!(validator);
+        match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+            Err(err) => deny!(validator, err),
         }
         let can_unregister_assets_with_definition_token =
             tokens::CanUnregisterAssetsWithDefinition {
@@ -939,8 +967,10 @@ pub mod asset {
     ) {
         let asset_id = isi.destination_id;
 
-        if asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
-            pass!(validator);
+        match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+            Err(err) => deny!(validator, err),
         }
         let can_mint_assets_with_definition_token = tokens::CanMintAssetsWithDefinition {
             asset_definition_id: asset_id.definition_id().clone(),
@@ -965,8 +995,10 @@ pub mod asset {
         if is_asset_owner(&asset_id, authority) {
             pass!(validator);
         }
-        if asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
-            pass!(validator);
+        match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+            Err(err) => deny!(validator, err),
         }
         let can_burn_assets_with_definition_token = tokens::CanBurnAssetsWithDefinition {
             asset_definition_id: asset_id.definition_id().clone(),
@@ -992,8 +1024,10 @@ pub mod asset {
         if is_asset_owner(&asset_id, authority) {
             pass!(validator);
         }
-        if asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
-            pass!(validator);
+        match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+            Err(err) => deny!(validator, err),
         }
         let can_transfer_assets_with_definition_token = tokens::CanTransferAssetsWithDefinition {
             asset_definition_id: asset_id.definition_id().clone(),
@@ -1085,17 +1119,23 @@ pub mod parameter {
         pub struct CanCreateParameters;
 
         impl ValidateGrantRevoke for CanCreateParameters {
-            fn validate_grant(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
+            fn validate_grant(&self, authority: &<Account as Identifiable>::Id) -> Result {
                 if !CanGrantPermissionToCreateParameters.is_owned_by(authority) {
-                    return Err("Can't grant permission to create new configuration parameters without permission from genesis".to_owned());
+                    return Err(ValidationFail::NotPermitted(
+                        "Can't grant permission to create new configuration parameters without permission from genesis"
+                            .to_owned()
+                    ));
                 }
 
                 Ok(())
             }
 
-            fn validate_revoke(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
+            fn validate_revoke(&self, authority: &<Account as Identifiable>::Id) -> Result {
                 if !CanRevokePermissionToCreateParameters.is_owned_by(authority) {
-                    return Err("Can't revoke permission to create new configuration parameters without permission from genesis".to_owned());
+                    return Err(ValidationFail::NotPermitted(
+                        "Can't revoke permission to create new configuration parameters without permission from genesis"
+                            .to_owned()
+                    ));
                 }
 
                 Ok(())
@@ -1117,17 +1157,23 @@ pub mod parameter {
         pub struct CanSetParameters;
 
         impl ValidateGrantRevoke for CanSetParameters {
-            fn validate_grant(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
+            fn validate_grant(&self, authority: &<Account as Identifiable>::Id) -> Result {
                 if !CanGrantPermissionToSetParameters.is_owned_by(authority) {
-                    return Err("Can't grant permission to set configuration parameters without permission from genesis".to_owned());
+                    return Err(ValidationFail::NotPermitted(
+                        "Can't grant permission to set configuration parameters without permission from genesis"
+                            .to_owned()
+                    ));
                 }
 
                 Ok(())
             }
 
-            fn validate_revoke(&self, authority: &<Account as Identifiable>::Id) -> Verdict {
+            fn validate_revoke(&self, authority: &<Account as Identifiable>::Id) -> Result {
                 if !CanRevokePermissionToSetParameters.is_owned_by(authority) {
-                    return Err("Can't revoke permission to set configuration parameters without permission from genesis".to_owned());
+                    return Err(ValidationFail::NotPermitted(
+                        "Can't revoke permission to set configuration parameters without permission from genesis"
+                            .to_owned()
+                    ));
                 }
 
                 Ok(())
@@ -1187,7 +1233,12 @@ pub mod role {
         ($validator:ident, $self:ident, $authority:ident, $method:ident) => {
             let role_id = $self.object;
 
-            let find_role_query_res = QueryBox::from(FindRoleByRoleId::new(role_id)).execute();
+            let find_role_query_res = match FindRoleByRoleId::new(role_id).execute() {
+                Ok(res) => res,
+                Err(error) => {
+                    deny!($validator, error);
+                }
+            };
             let role = Role::try_from(find_role_query_res)
                 .dbg_expect("Failed to convert `FindRoleByRoleId` query result to `Role`");
 
@@ -1301,8 +1352,10 @@ pub mod trigger {
     ) {
         let trigger_id = isi.object_id;
 
-        if is_trigger_owner(trigger_id.clone(), authority) {
-            pass!(validator);
+        match is_trigger_owner(trigger_id.clone(), authority) {
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+            Err(err) => deny!(validator, err),
         }
         let can_unregister_user_trigger_token = tokens::CanUnregisterUserTrigger { trigger_id };
         if can_unregister_user_trigger_token.is_owned_by(authority) {
@@ -1322,8 +1375,10 @@ pub mod trigger {
     ) {
         let trigger_id = isi.destination_id;
 
-        if is_trigger_owner(trigger_id.clone(), authority) {
-            pass!(validator);
+        match is_trigger_owner(trigger_id.clone(), authority) {
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+            Err(err) => deny!(validator, err),
         }
         let can_mint_user_trigger_token = tokens::CanMintUserTrigger { trigger_id };
         if can_mint_user_trigger_token.is_owned_by(authority) {
@@ -1343,8 +1398,10 @@ pub mod trigger {
     ) {
         let trigger_id = isi.trigger_id;
 
-        if is_trigger_owner(trigger_id.clone(), authority) {
-            pass!(validator);
+        match is_trigger_owner(trigger_id.clone(), authority) {
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+            Err(err) => deny!(validator, err),
         }
         let can_execute_trigger_token = tokens::CanExecuteUserTrigger { trigger_id };
         if can_execute_trigger_token.is_owned_by(authority) {

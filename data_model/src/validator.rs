@@ -18,12 +18,6 @@ use crate::{
     FromVariant,
 };
 
-/// Reason for denying the execution of a particular instruction.
-pub type DenialReason = String;
-
-/// Validation verdict. All *validators* should return this type.
-pub type Verdict = Result<(), DenialReason>;
-
 #[model]
 pub mod model {
     use super::*;
@@ -64,7 +58,18 @@ pub mod model {
 
     /// Boxed version of [`NeedsPermission`]
     #[derive(
-        Debug, Display, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize,
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
     )]
     #[ffi_type]
     pub enum NeedsValidationBox {
@@ -77,7 +82,10 @@ pub mod model {
     }
 }
 
+/// Result type that every validator should return.
+pub type Result<T = (), E = crate::ValidationFail> = core::result::Result<T, E>;
+
 pub mod prelude {
     //! The prelude re-exports most commonly used traits, structs and macros from this crate.
-    pub use super::{NeedsValidationBox, Validator, Verdict};
+    pub use super::{NeedsValidationBox, Validator};
 }

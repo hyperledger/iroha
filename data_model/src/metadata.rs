@@ -76,24 +76,17 @@ pub mod model {
 }
 
 /// Metadata related errors.
-#[derive(Debug, Display, Clone, PartialEq, Eq)]
-pub enum Error {
-    /// Metadata entry too big.
-    #[display(fmt = "Metadata entry too big {limits} - {actual}")]
-    EntrySize {
-        /// The limits that were set for this entry
-        limits: Limits,
-        /// The actual *entry* size in bytes
-        actual: usize,
-    },
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode, IntoSchema,
+)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
+pub enum MetadataError {
+    /// Metadata entry is too big
+    #[display(fmt = "Metadata entry is too big")]
+    EntryTooBig(#[cfg_attr(feature = "std", source)] SizeError),
     /// Metadata exceeds overall length limit
-    #[display(fmt = "Metadata exceeds overall length limit {limits} - {actual}")]
-    OverallSize {
-        /// The limits that were set for this entry
-        limits: Limits,
-        /// The actual *overall* size of metadata
-        actual: usize,
-    },
+    #[display(fmt = "Metadata exceeds overall length limit")]
+    OverallSize(#[cfg_attr(feature = "std", source)] SizeError),
     /// Empty path
     #[display(fmt = "Path specification empty")]
     EmptyPath,
@@ -105,8 +98,29 @@ pub enum Error {
     InvalidSegment(Name),
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for Error {}
+/// Size limits exhaustion error
+#[derive(
+    Debug,
+    Display,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    IntoSchema,
+)]
+#[display(fmt = "Limits are {limits}, while the actual value is {actual}")]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
+pub struct SizeError {
+    /// The limits that were set for this entry
+    limits: Limits,
+    /// The actual *entry* size in bytes
+    actual: u64,
+}
 
 impl Limits {
     /// Constructor.
@@ -184,23 +198,27 @@ impl Metadata {
         path: &Path,
         value: Value,
         limits: Limits,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Value>, MetadataError> {
         if self.map.len() >= limits.max_len as usize {
-            return Err(Error::OverallSize {
+            return Err(MetadataError::OverallSize(SizeError {
                 limits,
-                actual: self.map.len(),
-            });
+                actual: self
+                    .map
+                    .len()
+                    .try_into()
+                    .expect("`usize` should always fit into `u64`"),
+            }));
         }
-        let key = path.last().ok_or(Error::EmptyPath)?;
+        let key = path.last().ok_or(MetadataError::EmptyPath)?;
         let mut layer = self;
         for k in path.iter().take(path.len() - 1) {
             layer = match layer
                 .map
                 .get_mut(k)
-                .ok_or_else(|| Error::MissingSegment(k.clone()))?
+                .ok_or_else(|| MetadataError::MissingSegment(k.clone()))?
             {
                 Value::LimitedMetadata(data) => data,
-                _ => return Err(Error::InvalidSegment(k.clone())),
+                _ => return Err(MetadataError::InvalidSegment(k.clone())),
             };
         }
         layer.insert_with_limits(key.clone(), value, limits)
@@ -216,12 +234,16 @@ impl Metadata {
         key: Name,
         value: Value,
         limits: Limits,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Value>, MetadataError> {
         if self.map.len() >= limits.max_len as usize && !self.map.contains_key(&key) {
-            return Err(Error::OverallSize {
+            return Err(MetadataError::OverallSize(SizeError {
                 limits,
-                actual: self.map.len(),
-            });
+                actual: self
+                    .map
+                    .len()
+                    .try_into()
+                    .expect("`usize` should always fit into `u64`"),
+            }));
         }
         check_size_limits(&key, value.clone(), limits)?;
         Ok(self.map.insert(key, value))
@@ -258,14 +280,16 @@ impl Metadata {
     }
 }
 
-fn check_size_limits(key: &Name, value: Value, limits: Limits) -> Result<(), Error> {
+fn check_size_limits(key: &Name, value: Value, limits: Limits) -> Result<(), MetadataError> {
     let entry_bytes: Vec<u8> = (key, value).encode();
     let byte_size = entry_bytes.len();
     if byte_size > limits.max_entry_byte_size as usize {
-        return Err(Error::EntrySize {
+        return Err(MetadataError::EntryTooBig(SizeError {
             limits,
-            actual: byte_size,
-        });
+            actual: byte_size
+                .try_into()
+                .expect("`usize` should always fit into `u64`"),
+        }));
     }
     Ok(())
 }
@@ -292,7 +316,7 @@ mod tests {
     #[derive(Debug, Display, Clone, FromVariant)]
     pub enum TestError {
         Parse(ParseError),
-        Metadata(Error),
+        Metadata(MetadataError),
     }
 
     #[test]

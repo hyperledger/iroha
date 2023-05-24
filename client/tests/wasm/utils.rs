@@ -15,7 +15,7 @@ pub fn wasm_template(hex_val: &str) -> String {
         r#"
         ;; Import host function to execute instruction
         (import "iroha" "{execute_instruction}"
-            (func $exec_isi (param i32 i32)))
+            (func $exec_isi (param i32 i32) (result i32)))
 
         ;; Import host function to execute query
         (import "iroha" "{execute_query}"
@@ -35,9 +35,14 @@ pub fn wasm_template(hex_val: &str) -> String {
             (global.set $mem_size
                 (i32.add (global.get $mem_size) (local.get $size)))
         )
+
+        ;; Export mock deallocator to host. This allocator does nothing!
+        (func (export "{dealloc_fn_name}") (param $size i32) (param $len i32)
+           nop)
         "#,
         memory_name = "memory",
         alloc_fn_name = "_iroha_wasm_alloc",
+        dealloc_fn_name = "_iroha_wasm_dealloc",
         execute_instruction = "execute_instruction",
         execute_query = "execute_query",
         hex_val = escape_hex(hex_val),

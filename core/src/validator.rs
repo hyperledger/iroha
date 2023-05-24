@@ -1,7 +1,7 @@
 //! Structures and impls related to *runtime* `Validator`s processing.
 
 use derive_more::DebugCustom;
-use iroha_data_model::{account::AccountId, validator as data_model_validator};
+use iroha_data_model::{account::AccountId, validator as data_model_validator, ValidationFail};
 #[cfg(test)]
 use iroha_data_model::{
     isi::InstructionBox, transaction::Executable, validator::NeedsValidationBox,
@@ -11,24 +11,24 @@ use iroha_logger::trace;
 use super::wsv::WorldStateView;
 use crate::smartcontracts::wasm;
 
-/// [`Chain`] error type.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// [`wasm`] module error.
-    #[error("WASM error: {0}")]
-    Wasm(#[from] wasm::Error),
-    /// Validator denied the operation.
-    #[error("Validator denied the operation `{operation}`: `{reason}`")]
-    ValidatorDeny {
-        /// Denial reason.
-        reason: data_model_validator::DenialReason,
-        /// Denied operation.
-        operation: data_model_validator::NeedsValidationBox,
-    },
+impl From<wasm::Error> for ValidationFail {
+    fn from(err: wasm::Error) -> Self {
+        match err {
+            wasm::Error::ExportFnCall(call_error) => {
+                use wasm::ExportFnCallError::*;
+
+                match call_error {
+                    ExecutionLimitsExceeded(_) => Self::TooComplex,
+                    HostExecution(_) | Other(_) => Self::InternalError(call_error.to_string()),
+                }
+            }
+            _ => Self::InternalError(err.to_string()),
+        }
+    }
 }
 
 /// Result type for [`Validator`] operations.
-pub type Result<T, E = Error> = core::result::Result<T, E>;
+pub type Result<T, E = ValidationFail> = core::result::Result<T, E>;
 
 /// Validator that verifies the operation is valid.
 ///
@@ -80,17 +80,12 @@ impl Validator {
             .build()?;
 
         trace!("Running validator");
-        let verdict = runtime.execute_validator_module(
+        runtime.execute_validator_module(
             wsv,
             authority,
             &self.loaded_validator.module,
             &operation,
-        )?;
-
-        verdict.map_err(|reason| Error::ValidatorDeny {
-            operation: operation.clone(),
-            reason,
-        })
+        )?
     }
 }
 
@@ -164,13 +159,7 @@ impl MockValidator {
     ) -> Result<()> {
         use super::smartcontracts::Execute as _;
 
-        instruction
-            .clone()
-            .execute(authority, wsv)
-            .map_err(|err| Error::ValidatorDeny {
-                reason: err.to_string(),
-                operation: instruction.into(),
-            })
+        instruction.execute(authority, wsv).map_err(Into::into)
     }
 }
 

@@ -16,7 +16,8 @@ use iroha_wasm::{data_model::prelude::*, prelude::*};
 fn main() {
     iroha_wasm::info!("Executing trigger");
 
-    let accounts = FindAllAccounts.execute();
+    let accounts = FindAllAccounts.execute().dbg_unwrap();
+
     let limits = MetadataLimits::new(256, 256);
 
     for account in accounts {
@@ -39,15 +40,17 @@ fn main() {
         let account_nft_id = <Asset as Identifiable>::Id::new(nft_id, account.id().clone());
         let account_nft = Asset::new(account_nft_id, Metadata::new());
 
-        RegisterBox::new(nft_definition).execute();
-        RegisterBox::new(account_nft).execute();
+        RegisterBox::new(nft_definition).execute().dbg_unwrap();
+        RegisterBox::new(account_nft).execute().dbg_unwrap();
     }
 
     iroha_wasm::info!("Smart contract executed successfully");
 }
 
 fn generate_new_nft_id(account_id: &<Account as Identifiable>::Id) -> AssetDefinitionId {
-    let assets = FindAssetsByAccountId::new(account_id.clone()).execute();
+    let assets = FindAssetsByAccountId::new(account_id.clone())
+        .execute()
+        .dbg_unwrap();
 
     let new_number = assets
         .into_iter()

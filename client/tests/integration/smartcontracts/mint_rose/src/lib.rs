@@ -18,5 +18,7 @@ fn main(authority: <Account as Identifiable>::Id) {
         .dbg_expect("Failed to parse `rose#wonderland` asset definition id");
     let rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, authority);
 
-    MintBox::new(1_u32, rose_id).execute();
+    MintBox::new(1_u32, rose_id)
+        .execute()
+        .dbg_expect("Failed to mint rose");
 }

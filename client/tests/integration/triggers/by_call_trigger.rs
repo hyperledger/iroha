@@ -4,7 +4,7 @@ use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_client::client::{self, Client};
-use iroha_data_model::{prelude::*, trigger::OptimizedExecutable};
+use iroha_data_model::{prelude::*, query::error::FindError, trigger::OptimizedExecutable};
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::info;
 use test_network::*;
@@ -182,16 +182,28 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     // Executing trigger first time
-    let execute_trigger = ExecuteTriggerBox::new(trigger_id);
+    let execute_trigger = ExecuteTriggerBox::new(trigger_id.clone());
     test_client.submit_blocking(execute_trigger.clone())?;
 
     // Executing trigger second time
-    assert!(test_client
-        .submit_blocking(execute_trigger)
-        .expect_err("Error expected")
-        .root_cause()
-        .downcast_ref::<NotPermittedFail>()
-        .is_some());
+
+    // NOTE: Keep this for debugging purposes
+    // let error = test_client
+    //     .submit_blocking(execute_trigger)
+    //     .expect_err("Error expected");
+    // iroha_logger::info!(?error);
+
+    assert!(matches!(
+        test_client
+            .submit_blocking(execute_trigger)
+            .expect_err("Error expected")
+            .chain()
+            .last()
+            .expect("At least two error causes expected")
+            .downcast_ref::<Box<FindError>>()
+            .map(std::ops::Deref::deref),
+        Some(FindError::Trigger(id)) if *id == trigger_id
+    ));
 
     // Checking results
     let new_asset_value = get_asset_value(&mut test_client, asset_id)?;

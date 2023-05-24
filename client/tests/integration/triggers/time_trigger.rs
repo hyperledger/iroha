@@ -258,7 +258,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
 
         assert!(
             count >= EXPECTED_COUNT,
-            "{account_id} has {count} NFT, but at least {EXPECTED_COUNT} expected",
+            "{account_id} has {count} NFTs, but at least {EXPECTED_COUNT} expected",
         );
     }
 

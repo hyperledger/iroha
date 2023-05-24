@@ -16,7 +16,6 @@ extern crate alloc;
 
 #[cfg(not(feature = "std"))]
 use alloc::{
-    borrow::Cow,
     boxed::Box,
     format,
     string::{String, ToString},
@@ -29,8 +28,6 @@ use core::{
     ops::{ControlFlow, RangeInclusive},
     str::FromStr,
 };
-#[cfg(feature = "std")]
-use std::borrow::Cow;
 
 use block::VersionedCommittedBlock;
 #[cfg(not(target_arch = "aarch64"))]
@@ -204,27 +201,8 @@ pub struct ParseError {
     reason: &'static str,
 }
 
-/// Validation of the data model entity failed.
-#[derive(Debug, Display, Clone, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct ValidationError {
-    reason: Cow<'static, str>,
-}
-
 #[cfg(feature = "std")]
 impl std::error::Error for ParseError {}
-
-#[cfg(feature = "std")]
-impl std::error::Error for ValidationError {}
-
-impl ValidationError {
-    /// Construct [`ValidationError`].
-    pub fn new(reason: impl Into<Cow<'static, str>>) -> Self {
-        Self {
-            reason: reason.into(),
-        }
-    }
-}
 
 #[allow(clippy::missing_errors_doc)]
 /// [`AsMut`] but reference conversion can fail.
@@ -938,6 +916,94 @@ pub mod model {
         /// Maximal length in number of chars (inclusive).
         pub(super) max: u32,
     }
+
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type]
+    #[cfg_attr(feature = "std", derive(thiserror::Error))]
+    #[display(fmt = "Validator denied the operation {operation}")]
+    pub struct ValidatorDeny {
+        /// Denial reason.
+        #[cfg_attr(feature = "std", source)]
+        pub reason: ValidationFail,
+        /// Denied operation.
+        pub operation: crate::validator::NeedsValidationBox,
+    }
+
+    /// Operation validation failed.
+    ///
+    /// # Note
+    ///
+    /// Keep in mind that *Validation* is not the right term
+    /// (because *Runtime Validator* actually does execution too) and other names
+    /// (like *Verification* or *Execution*) are being discussed.
+    ///
+    /// TODO: Move to `validator` module
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type(opaque)]
+    #[cfg_attr(feature = "std", derive(thiserror::Error))]
+    pub enum ValidationFail {
+        /// Some operation is not permitted.
+        #[display(fmt = "Operation is not permitted: {_0}")]
+        NotPermitted(
+            #[skip_from]
+            #[skip_try_from]
+            String,
+        ),
+        /// Instruction execution failed.
+        #[display(fmt = "Instruction execution failed")]
+        InstructionFailed(
+            #[cfg_attr(feature = "std", source)] isi::error::InstructionExecutionFailure,
+        ),
+        /// Query execution failed.
+        #[display(fmt = "Query execution failed")]
+        QueryFailed(#[cfg_attr(feature = "std", source)] query::error::QueryExecutionFailure),
+        /// Submitted operation is too complex. For example it's a very big WASM binary.
+        ///
+        /// It's different from [`TransactionRejectionReason::LimitCheck`] because it depends on
+        /// validator.
+        #[display(
+            fmt = "Operation is too complex, perhaps `WASM_RUNTIME_CONFIG` blockchain parameters should be increased"
+        )]
+        TooComplex,
+        /// Internal error occurred while validating the operation.
+        /// Usually means a bug inside **Runtime Validator** or **Iroha** implementation.
+        #[display(fmt = "Internal error occurred, please contact the support \
+                         or check the logs if you are the node owner")]
+        InternalError(
+            /// Contained error message if its used internally. Empty for external users.
+            /// Never serialized to not to expose internal errors to the end user.
+            #[codec(skip)]
+            #[serde(skip)]
+            #[skip_from]
+            #[skip_try_from]
+            String,
+        ),
+    }
 }
 
 impl Identifiable for TriggerBox {
@@ -1531,10 +1597,10 @@ impl LengthLimits {
     }
 }
 
-impl From<LengthLimits> for RangeInclusive<usize> {
+impl From<LengthLimits> for RangeInclusive<u32> {
     #[inline]
     fn from(limits: LengthLimits) -> Self {
-        RangeInclusive::new(limits.min as usize, limits.max as usize)
+        RangeInclusive::new(limits.min, limits.max)
     }
 }
 
@@ -1841,7 +1907,7 @@ pub mod prelude {
         query::prelude::*, role::prelude::*, transaction::prelude::*, trigger::prelude::*,
         validator::prelude::*, EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox,
         LengthLimits, NumericValue, PredicateTrait, RegistrableBox, ToValue, TriggerBox, TryAsMut,
-        TryAsRef, TryToValue, UpgradableBox, ValidationError, Value,
+        TryAsRef, TryToValue, UpgradableBox, ValidationFail, ValidatorDeny, Value,
     };
     #[cfg(feature = "http")]
     pub use super::{pagination::prelude::*, sorting::prelude::*};

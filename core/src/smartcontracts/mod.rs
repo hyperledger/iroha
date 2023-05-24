@@ -42,7 +42,7 @@ impl ExpressionEvaluator for WorldStateView {
     fn evaluate<E: Evaluate>(
         &self,
         expression: &E,
-    ) -> Result<E::Value, iroha_data_model::evaluate::Error> {
+    ) -> Result<E::Value, iroha_data_model::evaluate::EvaluationError> {
         expression.evaluate(&Context::new(self))
     }
 }
@@ -65,8 +65,8 @@ impl<'a> Context<'a> {
 }
 
 impl iroha_data_model::evaluate::Context for Context<'_> {
-    fn query(&self, query: &QueryBox) -> Result<Value, QueryExecutionFailure> {
-        query.execute(self.wsv)
+    fn query(&self, query: &QueryBox) -> Result<Value, ValidationFail> {
+        query.execute(self.wsv).map_err(Into::into)
     }
 
     fn get(&self, name: &Name) -> Option<&Value> {

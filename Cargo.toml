@@ -49,6 +49,8 @@ members = [
   "tools/parity_scale_decoder",
   "version",
   "version/derive",
+  "wasm_codec",
+  "wasm_codec/derive",
   "wasm_builder",
 ]
 

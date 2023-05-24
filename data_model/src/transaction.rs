@@ -322,19 +322,8 @@ pub mod model {
     /// The peer verifies the signatures and checks the limits.
     #[version(n = 1, versioned = "VersionedSignedTransaction")]
     #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
-    #[display(fmt = "{self:?}")] // TODO ?
     #[ffi_type]
     pub struct SignedTransaction {
         /// [`Transaction`] payload.
@@ -593,6 +582,19 @@ impl SignedTransaction {
     /// Return signatures
     pub fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
         &self.signatures
+    }
+}
+
+impl core::fmt::Display for SignedTransaction {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.payload.instructions {
+            Executable::Wasm(_) => write!(f, "<WASM>"),
+            Executable::Instructions(ref instructions) => {
+                crate::utils::format_comma_separated(instructions.iter(), ('[', ']'), f)
+            }
+        }?;
+
+        write!(f, " by `{}`", self.payload.account_id)
     }
 }
 
@@ -975,7 +977,7 @@ pub mod error {
         // SAFETY: `TransactionLimitError` has no trap representation in `String`
         #[ffi_type(unsafe {robust})]
         pub struct TransactionLimitError {
-            /// Reason why signature condition failed
+            /// Reason why transaction exceeds limits
             pub reason: String,
         }
 
@@ -1023,30 +1025,6 @@ pub mod error {
             #[getset(get = "pub")]
             pub instruction: InstructionBox,
             /// Error which happened during execution
-            pub reason: String,
-        }
-
-        /// Transaction was reject because of low authority
-        #[derive(
-            Debug,
-            Display,
-            Clone,
-            PartialEq,
-            Eq,
-            Hash,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-        )]
-        #[display(fmt = "Action not permitted: {reason}")]
-        #[serde(transparent)]
-        #[repr(transparent)]
-        // SAFETY: `NotPermittedFail` has no trap representation in `String`
-        #[ffi_type(unsafe {robust})]
-        pub struct NotPermittedFail {
-            /// The cause of failure.
             pub reason: String,
         }
 
@@ -1120,30 +1098,39 @@ pub mod error {
         // TODO: Temporarily opaque
         #[ffi_type(opaque)]
         pub enum TransactionRejectionReason {
+            /// Account does not exist
+            #[display(fmt = "Account does not exist")]
+            AccountDoesNotExist(
+                #[skip_from] // NOTE: Such implicit conversions would be too unreadable
+                #[skip_try_from]
+                #[cfg_attr(feature = "std", source)]
+                crate::query::error::FindError,
+            ),
             /// Failed to validate transaction limits (e.g. number of instructions)
-            #[display(fmt = "Transaction rejected due to an unsatisfied limit condition: {_0}")]
+            #[display(fmt = "Unsatisfied limit condition")]
             LimitCheck(#[cfg_attr(feature = "std", source)] error::TransactionLimitError),
-            /// Insufficient authorisation.
-            #[display(fmt = "Transaction rejected due to insufficient authorisation: {_0}")]
-            NotPermitted(#[cfg_attr(feature = "std", source)] NotPermittedFail),
+            /// Validation failed.
+            #[display(fmt = "Validation failed")]
+            Validation(#[cfg_attr(feature = "std", source)] crate::ValidationFail),
             /// Failed to verify signature condition specified in the account.
-            #[display(
-                fmt = "Transaction rejected due to an unsatisfied signature condition: {_0}"
-            )]
+            #[display(fmt = "Unsatisfied signature condition")]
             UnsatisfiedSignatureCondition(
                 #[cfg_attr(feature = "std", source)] UnsatisfiedSignatureConditionFail,
             ),
             /// Failed to execute instruction.
-            #[display(fmt = "Transaction rejected due to failure in instruction execution: {_0}")]
+            ///
+            /// In practice should be fully replaced by [`ValidationFail::Execution`]
+            /// and will be removed soon.
+            #[display(fmt = "Failure in instruction execution")]
             InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
             /// Failed to execute WebAssembly binary.
-            #[display(fmt = "Transaction rejected due to failure in WebAssembly execution: {_0}")]
+            #[display(fmt = "Failure in WebAssembly execution")]
             WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
             /// Genesis account can sign only transactions in the genesis block.
             #[display(fmt = "The genesis account can only sign transactions in the genesis block")]
             UnexpectedGenesisAccountSignature,
             /// Transaction gets expired.
-            #[display(fmt = "Transaction rejected due to being expired: {_0}")]
+            #[display(fmt = "Transaction rejected due to being expired")]
             Expired(#[cfg_attr(feature = "std", source)] TransactionExpired),
         }
     }
@@ -1191,16 +1178,13 @@ pub mod error {
     impl std::error::Error for WasmExecutionFail {}
 
     #[cfg(feature = "std")]
-    impl std::error::Error for NotPermittedFail {}
-
-    #[cfg(feature = "std")]
     impl std::error::Error for TransactionExpired {}
 
     pub mod prelude {
         //! The prelude re-exports most commonly used traits, structs and macros from this module.
 
         pub use super::{
-            InstructionExecutionFail, NotPermittedFail, TransactionRejectionReason,
+            InstructionExecutionFail, TransactionRejectionReason,
             UnsatisfiedSignatureConditionFail, WasmExecutionFail,
         };
     }

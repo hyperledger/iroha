@@ -2814,6 +2814,7 @@ dependencies = [
  "iroha_primitives",
  "iroha_telemetry",
  "iroha_version",
+ "iroha_wasm_codec",
  "itertools",
  "once_cell",
  "parity-scale-codec",
@@ -2826,6 +2827,16 @@ dependencies = [
  "thiserror",
  "tokio",
  "wasmtime",
+]
+
+[[package]]
+name = "iroha_core_wasm_codec_derive"
+version = "2.0.0-pre-rc.16"
+dependencies = [
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -3165,6 +3176,15 @@ version = "2.0.0-pre-rc.16"
 dependencies = [
  "eyre",
  "tempfile",
+]
+
+[[package]]
+name = "iroha_wasm_codec"
+version = "2.0.0-pre-rc.16"
+dependencies = [
+ "iroha_core_wasm_codec_derive",
+ "parity-scale-codec",
+ "wasmtime",
 ]
 
 [[package]]

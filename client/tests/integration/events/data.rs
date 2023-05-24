@@ -63,7 +63,8 @@ fn wasm_execution_should_produce_events() -> Result<()> {
         // It's expected that hex values are of even length
         write!(
             isi_calls,
-            "(call $exec_isi (i32.const {ptr_offset}) (i32.const {ptr_len}))",
+            "(call $exec_isi (i32.const {ptr_offset}) (i32.const {ptr_len}))
+             drop",
             ptr_offset = ptr_offset / 2,
             ptr_len = ptr_len / 2,
         )?;

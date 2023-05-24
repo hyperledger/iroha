@@ -62,7 +62,7 @@ pub mod model {
     )]
     #[strum_discriminants(
         name(InstructionType),
-        derive(Display),
+        derive(Display, Hash, Serialize, Deserialize, Encode, Decode, IntoSchema),
         cfg_attr(
             any(feature = "ffi_import", feature = "ffi_export"),
             derive(iroha_ffi::FfiType)
@@ -905,22 +905,36 @@ pub mod error {
 
     #[model]
     pub mod model {
+        use core::ops::RangeInclusive;
+
+        use serde::{Deserialize, Serialize};
+
         use super::*;
 
         /// Instruction execution error type
-        #[derive(Debug, Display, PartialEq, Eq, FromVariant)]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            FromVariant,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
+            IntoSchema,
+        )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         // TODO: Only temporarily opaque because of InstructionExecutionFailure::Repetition
         #[ffi_type(opaque)]
         pub enum InstructionExecutionFailure {
             /// Instruction does not adhere to Iroha DSL specification
-            #[display(fmt = "Evaluation failed: {_0}")]
-            Evaluate(#[cfg_attr(feature = "std", source)] EvaluationError),
-            /// Failed to assert a logical invariant in the sytem (e.g. insufficient amount or insuficient permissions)
-            #[display(fmt = "Validation failed: {_0}")]
-            Validate(#[cfg_attr(feature = "std", source)] ValidationError),
+            #[display(fmt = "Evaluation failed")]
+            Evaluate(#[cfg_attr(feature = "std", source)] InstructionEvaluationError),
             /// Query Error
-            #[display(fmt = "Query failed. {_0}")]
+            #[display(fmt = "Query failed")]
             Query(#[cfg_attr(feature = "std", source)] QueryExecutionFailure),
             /// Conversion Error
             #[display(fmt = "Conversion Error: {_0}")]
@@ -930,20 +944,20 @@ pub mod error {
                 String,
             ),
             /// Failed to find some entity
-            #[display(fmt = "Entity missing: {_0}")]
+            #[display(fmt = "Entity missing")]
             Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
             /// Repeated instruction
             #[display(fmt = "Repetition")]
-            Repetition(InstructionType, IdBox),
+            Repetition(#[cfg_attr(feature = "std", source)] RepetitionError),
             /// Failed to assert mintability
-            #[display(fmt = "{_0}")]
+            #[display(fmt = "Mintability assertion failed")]
             Mintability(#[cfg_attr(feature = "std", source)] MintabilityError),
             /// Failed due to math exception
-            #[display(fmt = "Illegal math operation: {_0}")]
+            #[display(fmt = "Illegal math operation")]
             Math(#[cfg_attr(feature = "std", source)] MathError),
             /// Metadata Error.
-            #[display(fmt = "Metadata error: {_0}")]
-            Metadata(#[cfg_attr(feature = "std", source)] metadata::Error),
+            #[display(fmt = "Metadata error")]
+            Metadata(#[cfg_attr(feature = "std", source)] metadata::MetadataError),
             /// [`Fail`] error
             #[display(fmt = "Execution failed: {_0}")]
             Fail(
@@ -952,39 +966,64 @@ pub mod error {
                 String,
             ),
             /// Invalid instruction parameter
-            #[display(fmt = "Invalid parameter: {_0}")]
-            InvalidParameter(InvalidParameterError),
+            #[display(fmt = "Invalid parameter")]
+            InvalidParameter(#[cfg_attr(feature = "std", source)] InvalidParameterError),
+            /// Instruction tried to violate Iroha invariant (i.e. burn last key)
+            #[display(fmt = "Iroha invariant violation: {_0}")]
+            InvariantViolation(
+                #[skip_from]
+                #[skip_try_from]
+                String,
+            ),
         }
 
         /// Evaluation error. This error indicates instruction is not a valid Iroha DSL
-        #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant)]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            FromVariant,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
+            IntoSchema,
+        )]
+        #[cfg_attr(feature = "std", derive(thiserror::Error))]
         // TODO: Only temporarily opaque because of problems with FFI
         #[ffi_type(opaque)]
-        pub enum EvaluationError {
+        pub enum InstructionEvaluationError {
             /// Asset type assertion error
-            #[display(fmt = "Failed to evaluate expression: {_0}")]
-            Expression(evaluate::Error),
+            #[display(fmt = "Failed to evaluate expression")]
+            Expression(#[cfg_attr(feature = "std", source)] evaluate::EvaluationError),
             /// Parameter type assertion error
-            #[display(fmt = "Instruction not supported: {_0}")]
+            #[display(fmt = "Instruction of type `{_0}` is not supported")]
             Unsupported(InstructionType),
             /// Failed to find parameter in a permission
+            #[display(fmt = "Failed to find parameter in a permission: {_0}")]
             PermissionParameter(String),
-        }
-
-        /// Instruction cannot be executed against current state of Iroha (missing permissions, failed calculation, etc.)
-        #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant)]
-        #[ffi_type(opaque)]
-        pub enum ValidationError {
-            /// Insufficiend permissions
-            #[display(fmt = "Insufficient permissions: {_0}")]
-            Permission(crate::ValidationError),
-            /// Failed to assert type (e.g. asset value is not of expected type)
-            #[display(fmt = "Incorrect type: {_0}")]
-            Type(TypeError),
+            #[display(fmt = "Incorrect value type")]
+            Type(#[cfg_attr(feature = "std", source)] TypeError),
         }
 
         /// Generic structure used to represent a mismatch
-        #[derive(Debug, Display, Clone, PartialEq, Eq, Decode, Encode, IntoSchema)]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            Serialize,
+            Deserialize,
+            Decode,
+            Encode,
+            IntoSchema,
+        )]
+        #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[display(fmt = "Expected {expected:?}, actual {actual:?}")]
         #[ffi_type]
         pub struct Mismatch<T: Debug> {
@@ -995,32 +1034,63 @@ pub mod error {
         }
 
         /// Type error
-        #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant)]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            FromVariant,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
+            IntoSchema,
+        )]
+        #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[ffi_type]
         pub enum TypeError {
             /// Asset type assertion error
             #[display(
-                fmt = "Asset Ids correspond to assets with different underlying types. {_0}"
+                fmt = "Asset Ids correspond to assets with different underlying types, {_0}"
             )]
-            AssetValueType(Mismatch<AssetValueType>),
+            AssetValueType(#[cfg_attr(feature = "std", source)] Mismatch<AssetValueType>),
             /// Parameter type assertion error
-            #[display(fmt = "Value passed to the parameter doesn't have the right type. {_0}")]
-            ParameterValueType(Mismatch<Value>),
+            #[display(fmt = "Value passed to the parameter doesn't have the right type, {_0}")]
+            ParameterValueType(#[cfg_attr(feature = "std", source)] Box<Mismatch<Value>>),
             /// Asset Id mismatch
-            #[display(fmt = "AssetDefinition Ids don't match. {_0}")]
-            AssetDefinitionId(Mismatch<<AssetDefinition as Identifiable>::Id>),
+            #[display(fmt = "AssetDefinition Ids don't match, {_0}")]
+            AssetDefinitionId(
+                #[cfg_attr(feature = "std", source)]
+                Box<Mismatch<<AssetDefinition as Identifiable>::Id>>,
+            ),
         }
 
         /// Math error, which occurs during instruction execution
-        #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant)]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            FromVariant,
+            Hash,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
+            IntoSchema,
+        )]
         // TODO: Only temporarily opaque because of InstructionExecutionFailure::BinaryOpIncompatibleNumericValueTypes
+        #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[ffi_type(opaque)]
         pub enum MathError {
             /// Overflow error inside instruction
-            #[display(fmt = "Overflow occurred.")]
+            #[display(fmt = "Overflow occurred")]
             Overflow,
             /// Not enough quantity
-            #[display(fmt = "Not enough quantity to transfer/burn.")]
+            #[display(fmt = "Not enough quantity to transfer/burn")]
             NotEnoughQuantity,
             /// Divide by zero
             #[display(fmt = "Divide by zero")]
@@ -1035,17 +1105,54 @@ pub mod error {
             #[display(fmt = "Unknown error")]
             Unknown,
             /// Encountered incompatible type of arguments
-            #[display(
-                fmt = "Binary operation does not support provided combination of arguments ({_0}, {_1})"
-            )]
-            BinaryOpIncompatibleNumericValueTypes(NumericValue, NumericValue),
+            #[display(fmt = "Encountered incompatible type of arguments")]
+            BinaryOpIncompatibleNumericValueTypes(
+                #[cfg_attr(feature = "std", source)] BinaryOpIncompatibleNumericValueTypesError,
+            ),
             /// Conversion failed.
             #[display(fmt = "{_0}")]
             FixedPointConversion(String),
         }
 
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            Serialize,
+            Deserialize,
+            Decode,
+            Encode,
+            IntoSchema,
+        )]
+        #[display(
+            fmt = "Binary operation does not support provided combination of arguments ({left}, {right})"
+        )]
+        #[cfg_attr(feature = "std", derive(thiserror::Error))]
+        #[ffi_type]
+        pub struct BinaryOpIncompatibleNumericValueTypesError {
+            pub left: NumericValue,
+            pub right: NumericValue,
+        }
+
         /// Mintability logic error
-        #[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
+            IntoSchema,
+        )]
+        #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[ffi_type]
         #[repr(u8)]
         pub enum MintabilityError {
@@ -1062,50 +1169,65 @@ pub mod error {
         }
 
         /// Invalid instruction parameter error
-        #[derive(Debug, Display, Clone, PartialEq, Eq)]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
+            IntoSchema,
+        )]
+        #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[ffi_type(opaque)]
         #[repr(u8)]
         pub enum InvalidParameterError {
             /// Invalid WASM binary
             #[display(fmt = "Invalid WASM binary: {_0}")]
             Wasm(String),
+            /// Invalid name length (i.e. too long [`AccountId`])
+            #[display(
+                fmt = "Name must be between {} and {} (inclusive) characters in length",
+                "_0.start()",
+                "_0.end()"
+            )]
+            NameLength(RangeInclusive<u32>),
+        }
+
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            Serialize,
+            Deserialize,
+            Decode,
+            Encode,
+            IntoSchema,
+        )]
+        #[display(fmt = "Repetition of of `{instruction_type}` for id `{id}`")]
+        #[cfg_attr(feature = "std", derive(thiserror::Error))]
+        #[ffi_type]
+        pub struct RepetitionError {
+            pub instruction_type: InstructionType,
+            pub id: IdBox,
         }
     }
-
-    #[cfg(feature = "std")]
-    impl std::error::Error for EvaluationError {}
-
-    #[cfg(feature = "std")]
-    impl std::error::Error for self::model::ValidationError {}
-
-    #[cfg(feature = "std")]
-    impl<T: Debug> std::error::Error for Mismatch<T> {}
-
-    #[cfg(feature = "std")]
-    impl std::error::Error for TypeError {}
-
-    #[cfg(feature = "std")]
-    impl std::error::Error for MathError {}
-
-    #[cfg(feature = "std")]
-    impl std::error::Error for MintabilityError {}
-
-    #[cfg(feature = "std")]
-    impl std::error::Error for InvalidParameterError {}
 
     impl From<TypeError> for InstructionExecutionFailure {
         fn from(err: TypeError) -> Self {
-            Self::Validate(ValidationError::Type(err))
+            Self::Evaluate(InstructionEvaluationError::Type(err))
         }
     }
-    impl From<crate::ValidationError> for InstructionExecutionFailure {
-        fn from(err: crate::ValidationError) -> Self {
-            Self::Validate(ValidationError::Permission(err))
-        }
-    }
-    impl From<evaluate::Error> for InstructionExecutionFailure {
-        fn from(err: evaluate::Error) -> Self {
-            Self::Evaluate(EvaluationError::Expression(err))
+    impl From<evaluate::EvaluationError> for InstructionExecutionFailure {
+        fn from(err: evaluate::EvaluationError) -> Self {
+            Self::Evaluate(InstructionEvaluationError::Expression(err))
         }
     }
     impl From<FixedPointOperationError> for MathError {
