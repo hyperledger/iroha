@@ -3,7 +3,7 @@
 #![no_std]
 
 use iroha_validator::{
-    data_model::evaluate::{Error, ExpressionEvaluator},
+    data_model::evaluate::{EvaluationError, ExpressionEvaluator},
     parse,
     prelude::*,
 };
@@ -91,16 +91,19 @@ impl Visit for CustomValidator {
 }
 
 impl Validate for CustomValidator {
-    fn verdict(&self) -> &Verdict {
+    fn verdict(&self) -> &Result {
         self.0.verdict()
     }
-    fn deny(&mut self, reason: DenialReason) {
+    fn deny(&mut self, reason: ValidationFail) {
         self.0.deny(reason);
     }
 }
 
 impl ExpressionEvaluator for CustomValidator {
-    fn evaluate<E: Evaluate>(&self, expression: &E) -> Result<E::Value, Error> {
+    fn evaluate<E: Evaluate>(
+        &self,
+        expression: &E,
+    ) -> core::result::Result<E::Value, EvaluationError> {
         self.0.evaluate(expression)
     }
 }
@@ -108,7 +111,7 @@ impl ExpressionEvaluator for CustomValidator {
 /// Allow operation if authority is `admin@admin` and if not,
 /// fallback to [`DefaultValidator::validate()`].
 #[entrypoint(params = "[authority, operation]")]
-pub fn validate(authority: AccountId, operation: NeedsValidationBox) -> Verdict {
+pub fn validate(authority: AccountId, operation: NeedsValidationBox) -> Result {
     let mut validator = CustomValidator(DefaultValidator::new());
 
     match operation {

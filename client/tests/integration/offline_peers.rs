@@ -10,7 +10,7 @@ use test_network::*;
 use tokio::runtime::Runtime;
 
 #[test]
-fn genesis_block_is_commited_with_some_offline_peers() -> Result<()> {
+fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
     // Given
     let rt = Runtime::test();
 

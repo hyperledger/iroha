@@ -144,7 +144,9 @@ fn find_asset_total_quantity() -> Result<()> {
         ));
         assert!(matches!(
             result,
-            Err(ClientQueryError::QueryError(QueryExecutionFailure::Find(_)))
+            Err(ClientQueryError::Validation(ValidationFail::QueryFailed(
+                QueryExecutionFailure::Find(_)
+            )))
         ));
     }
 
@@ -202,7 +204,9 @@ fn find_asset_total_quantity() -> Result<()> {
     ));
     assert!(matches!(
         result,
-        Err(ClientQueryError::QueryError(QueryExecutionFailure::Find(_)))
+        Err(ClientQueryError::Validation(ValidationFail::QueryFailed(
+            QueryExecutionFailure::Find(_)
+        )))
     ));
 
     Ok(())

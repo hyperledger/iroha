@@ -618,6 +618,18 @@
       }
     ]
   },
+  "BinaryOpIncompatibleNumericValueTypesError": {
+    "Struct": [
+      {
+        "name": "left",
+        "type": "NumericValue"
+      },
+      {
+        "name": "right",
+        "type": "NumericValue"
+      }
+    ]
+  },
   "BlockHeader": {
     "Struct": [
       {
@@ -1183,6 +1195,30 @@
       {
         "name": "expression",
         "type": "Expression"
+      }
+    ]
+  },
+  "EvaluationError": {
+    "Enum": [
+      {
+        "tag": "Math",
+        "discriminant": 0,
+        "type": "MathError"
+      },
+      {
+        "tag": "Validation",
+        "discriminant": 1,
+        "type": "ValidationFail"
+      },
+      {
+        "tag": "Find",
+        "discriminant": 2,
+        "type": "String"
+      },
+      {
+        "tag": "Conversion",
+        "discriminant": 3,
+        "type": "String"
       }
     ]
   },
@@ -1928,9 +1964,19 @@
         "type": "PermissionTokenId"
       },
       {
-        "tag": "Parameter",
+        "tag": "PermissionToken",
         "discriminant": 11,
+        "type": "PermissionTokenFindError"
+      },
+      {
+        "tag": "Parameter",
+        "discriminant": 12,
         "type": "ParameterId"
+      },
+      {
+        "tag": "PublicKey",
+        "discriminant": 13,
+        "type": "PublicKey"
       }
     ]
   },
@@ -2293,6 +2339,30 @@
       }
     ]
   },
+  "InstructionEvaluationError": {
+    "Enum": [
+      {
+        "tag": "Expression",
+        "discriminant": 0,
+        "type": "EvaluationError"
+      },
+      {
+        "tag": "Unsupported",
+        "discriminant": 1,
+        "type": "InstructionType"
+      },
+      {
+        "tag": "PermissionParameter",
+        "discriminant": 2,
+        "type": "String"
+      },
+      {
+        "tag": "Type",
+        "discriminant": 3,
+        "type": "TypeError"
+      }
+    ]
+  },
   "InstructionExecutionFail": {
     "Struct": [
       {
@@ -2302,6 +2372,137 @@
       {
         "name": "reason",
         "type": "String"
+      }
+    ]
+  },
+  "InstructionExecutionFailure": {
+    "Enum": [
+      {
+        "tag": "Evaluate",
+        "discriminant": 0,
+        "type": "InstructionEvaluationError"
+      },
+      {
+        "tag": "Query",
+        "discriminant": 1,
+        "type": "QueryExecutionFailure"
+      },
+      {
+        "tag": "Conversion",
+        "discriminant": 2,
+        "type": "String"
+      },
+      {
+        "tag": "Find",
+        "discriminant": 3,
+        "type": "FindError"
+      },
+      {
+        "tag": "Repetition",
+        "discriminant": 4,
+        "type": "RepetitionError"
+      },
+      {
+        "tag": "Mintability",
+        "discriminant": 5,
+        "type": "MintabilityError"
+      },
+      {
+        "tag": "Math",
+        "discriminant": 6,
+        "type": "MathError"
+      },
+      {
+        "tag": "Metadata",
+        "discriminant": 7,
+        "type": "MetadataError"
+      },
+      {
+        "tag": "Fail",
+        "discriminant": 8,
+        "type": "String"
+      },
+      {
+        "tag": "InvalidParameter",
+        "discriminant": 9,
+        "type": "InvalidParameterError"
+      },
+      {
+        "tag": "InvariantViolation",
+        "discriminant": 10,
+        "type": "String"
+      }
+    ]
+  },
+  "InstructionType": {
+    "Enum": [
+      {
+        "tag": "Register",
+        "discriminant": 0
+      },
+      {
+        "tag": "Unregister",
+        "discriminant": 1
+      },
+      {
+        "tag": "Mint",
+        "discriminant": 2
+      },
+      {
+        "tag": "Burn",
+        "discriminant": 3
+      },
+      {
+        "tag": "Transfer",
+        "discriminant": 4
+      },
+      {
+        "tag": "If",
+        "discriminant": 5
+      },
+      {
+        "tag": "Pair",
+        "discriminant": 6
+      },
+      {
+        "tag": "Sequence",
+        "discriminant": 7
+      },
+      {
+        "tag": "SetKeyValue",
+        "discriminant": 8
+      },
+      {
+        "tag": "RemoveKeyValue",
+        "discriminant": 9
+      },
+      {
+        "tag": "Grant",
+        "discriminant": 10
+      },
+      {
+        "tag": "Revoke",
+        "discriminant": 11
+      },
+      {
+        "tag": "ExecuteTrigger",
+        "discriminant": 12
+      },
+      {
+        "tag": "SetParameter",
+        "discriminant": 13
+      },
+      {
+        "tag": "NewParameter",
+        "discriminant": 14
+      },
+      {
+        "tag": "Upgrade",
+        "discriminant": 15
+      },
+      {
+        "tag": "Fail",
+        "discriminant": 16
       }
     ]
   },
@@ -2326,6 +2527,20 @@
       {
         "name": "limit",
         "type": "u8"
+      }
+    ]
+  },
+  "InvalidParameterError": {
+    "Enum": [
+      {
+        "tag": "Wasm",
+        "discriminant": 0,
+        "type": "String"
+      },
+      {
+        "tag": "NameLength",
+        "discriminant": 1,
+        "type": "RangeInclusive<u32>"
       }
     ]
   },
@@ -2379,6 +2594,44 @@
       {
         "name": "max_entry_byte_size",
         "type": "u32"
+      }
+    ]
+  },
+  "MathError": {
+    "Enum": [
+      {
+        "tag": "Overflow",
+        "discriminant": 0
+      },
+      {
+        "tag": "NotEnoughQuantity",
+        "discriminant": 1
+      },
+      {
+        "tag": "DivideByZero",
+        "discriminant": 2
+      },
+      {
+        "tag": "NegativeValue",
+        "discriminant": 3
+      },
+      {
+        "tag": "DomainViolation",
+        "discriminant": 4
+      },
+      {
+        "tag": "Unknown",
+        "discriminant": 5
+      },
+      {
+        "tag": "BinaryOpIncompatibleNumericValueTypes",
+        "discriminant": 6,
+        "type": "BinaryOpIncompatibleNumericValueTypesError"
+      },
+      {
+        "tag": "FixedPointConversion",
+        "discriminant": 7,
+        "type": "String"
       }
     ]
   },
@@ -2457,6 +2710,34 @@
       }
     ]
   },
+  "MetadataError": {
+    "Enum": [
+      {
+        "tag": "EntryTooBig",
+        "discriminant": 0,
+        "type": "SizeError"
+      },
+      {
+        "tag": "OverallSize",
+        "discriminant": 1,
+        "type": "SizeError"
+      },
+      {
+        "tag": "EmptyPath",
+        "discriminant": 2
+      },
+      {
+        "tag": "MissingSegment",
+        "discriminant": 3,
+        "type": "Name"
+      },
+      {
+        "tag": "InvalidSegment",
+        "discriminant": 4,
+        "type": "Name"
+      }
+    ]
+  },
   "MintBox": {
     "Struct": [
       {
@@ -2466,6 +2747,18 @@
       {
         "name": "destination_id",
         "type": "EvaluatesTo<IdBox>"
+      }
+    ]
+  },
+  "MintabilityError": {
+    "Enum": [
+      {
+        "tag": "MintUnmintable",
+        "discriminant": 0
+      },
+      {
+        "tag": "ForbidMintOnMintable",
+        "discriminant": 1
       }
     ]
   },
@@ -2482,6 +2775,42 @@
       {
         "tag": "Not",
         "discriminant": 2
+      }
+    ]
+  },
+  "Mismatch<AssetDefinitionId>": {
+    "Struct": [
+      {
+        "name": "expected",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "actual",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
+  "Mismatch<AssetValueType>": {
+    "Struct": [
+      {
+        "name": "expected",
+        "type": "AssetValueType"
+      },
+      {
+        "name": "actual",
+        "type": "AssetValueType"
+      }
+    ]
+  },
+  "Mismatch<Value>": {
+    "Struct": [
+      {
+        "name": "expected",
+        "type": "Value"
+      },
+      {
+        "name": "actual",
+        "type": "Value"
       }
     ]
   },
@@ -2588,14 +2917,6 @@
       {
         "name": "expression",
         "type": "EvaluatesTo<bool>"
-      }
-    ]
-  },
-  "NotPermittedFail": {
-    "Struct": [
-      {
-        "name": "reason",
-        "type": "String"
       }
     ]
   },
@@ -2866,6 +3187,18 @@
         "tag": "DefinitionDeleted",
         "discriminant": 1,
         "type": "PermissionTokenDefinition"
+      }
+    ]
+  },
+  "PermissionTokenFindError": {
+    "Struct": [
+      {
+        "name": "account_id",
+        "type": "AccountId"
+      },
+      {
+        "name": "permission_token_id",
+        "type": "PermissionTokenId"
       }
     ]
   },
@@ -3202,28 +3535,23 @@
         "type": "String"
       },
       {
-        "tag": "Permission",
+        "tag": "Evaluate",
         "discriminant": 1,
         "type": "String"
       },
       {
-        "tag": "Evaluate",
-        "discriminant": 2,
-        "type": "String"
-      },
-      {
         "tag": "Find",
-        "discriminant": 3,
+        "discriminant": 2,
         "type": "FindError"
       },
       {
         "tag": "Conversion",
-        "discriminant": 4,
+        "discriminant": 3,
         "type": "String"
       },
       {
         "tag": "Unauthorized",
-        "discriminant": 5
+        "discriminant": 4
       }
     ]
   },
@@ -3258,6 +3586,12 @@
         "name": "right",
         "type": "EvaluatesTo<NumericValue>"
       }
+    ]
+  },
+  "RangeInclusive<u32>": {
+    "Tuple": [
+      "u32",
+      "u32"
     ]
   },
   "RawGenesisBlock": {
@@ -3362,6 +3696,18 @@
         "tag": "Exactly",
         "discriminant": 1,
         "type": "u32"
+      }
+    ]
+  },
+  "RepetitionError": {
+    "Struct": [
+      {
+        "name": "instruction_type",
+        "type": "InstructionType"
+      },
+      {
+        "name": "id",
+        "type": "IdBox"
       }
     ]
   },
@@ -3596,6 +3942,18 @@
       {
         "name": "signatures",
         "type": "SignaturesOf<TransactionPayload>"
+      }
+    ]
+  },
+  "SizeError": {
+    "Struct": [
+      {
+        "name": "limits",
+        "type": "Limits"
+      },
+      {
+        "name": "actual",
+        "type": "u64"
       }
     ]
   },
@@ -3852,37 +4210,42 @@
   "TransactionRejectionReason": {
     "Enum": [
       {
-        "tag": "LimitCheck",
+        "tag": "AccountDoesNotExist",
         "discriminant": 0,
+        "type": "FindError"
+      },
+      {
+        "tag": "LimitCheck",
+        "discriminant": 1,
         "type": "TransactionLimitError"
       },
       {
-        "tag": "NotPermitted",
-        "discriminant": 1,
-        "type": "NotPermittedFail"
+        "tag": "Validation",
+        "discriminant": 2,
+        "type": "ValidationFail"
       },
       {
         "tag": "UnsatisfiedSignatureCondition",
-        "discriminant": 2,
+        "discriminant": 3,
         "type": "UnsatisfiedSignatureConditionFail"
       },
       {
         "tag": "InstructionExecution",
-        "discriminant": 3,
+        "discriminant": 4,
         "type": "InstructionExecutionFail"
       },
       {
         "tag": "WasmExecution",
-        "discriminant": 4,
+        "discriminant": 5,
         "type": "WasmExecutionFail"
       },
       {
         "tag": "UnexpectedGenesisAccountSignature",
-        "discriminant": 5
+        "discriminant": 6
       },
       {
         "tag": "Expired",
-        "discriminant": 6,
+        "discriminant": 7,
         "type": "TransactionExpired"
       }
     ]
@@ -4035,6 +4398,25 @@
       }
     ]
   },
+  "TypeError": {
+    "Enum": [
+      {
+        "tag": "AssetValueType",
+        "discriminant": 0,
+        "type": "Mismatch<AssetValueType>"
+      },
+      {
+        "tag": "ParameterValueType",
+        "discriminant": 1,
+        "type": "Mismatch<Value>"
+      },
+      {
+        "tag": "AssetDefinitionId",
+        "discriminant": 2,
+        "type": "Mismatch<AssetDefinitionId>"
+      }
+    ]
+  },
   "UnregisterBox": {
     "Struct": [
       {
@@ -4077,6 +4459,33 @@
       {
         "name": "signatures",
         "type": "SignaturesOf<TransactionPayload>"
+      }
+    ]
+  },
+  "ValidationFail": {
+    "Enum": [
+      {
+        "tag": "NotPermitted",
+        "discriminant": 0,
+        "type": "String"
+      },
+      {
+        "tag": "InstructionFailed",
+        "discriminant": 1,
+        "type": "InstructionExecutionFailure"
+      },
+      {
+        "tag": "QueryFailed",
+        "discriminant": 2,
+        "type": "QueryExecutionFailure"
+      },
+      {
+        "tag": "TooComplex",
+        "discriminant": 3
+      },
+      {
+        "tag": "InternalError",
+        "discriminant": 4
       }
     ]
   },

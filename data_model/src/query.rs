@@ -1384,7 +1384,20 @@ pub mod error {
         use super::*;
 
         /// Query errors.
-        #[derive(Debug, Display, Clone, PartialEq, Eq, FromVariant, Decode, Encode, IntoSchema)]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            FromVariant,
+            Deserialize,
+            Serialize,
+            Decode,
+            Encode,
+            IntoSchema,
+        )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         pub enum QueryExecutionFailure {
             /// Query has wrong signature.
@@ -1394,9 +1407,6 @@ pub mod error {
                 #[skip_try_from]
                 String,
             ),
-            /// Query is not allowed.
-            #[display(fmt = "Query is not allowed: {_0}")]
-            Permission(validator::DenialReason),
             /// Query has wrong expression.
             #[display(fmt = "Query has a malformed expression: {_0}")]
             Evaluate(
@@ -1405,7 +1415,7 @@ pub mod error {
                 String,
             ),
             /// Query found nothing.
-            #[display(fmt = "Query found nothing: {_0}")]
+            #[display(fmt = "Query found nothing")]
             Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
             /// Query found wrong type of asset.
             #[display(fmt = "Query found wrong type of asset: {_0}")]
@@ -1420,7 +1430,44 @@ pub mod error {
         }
 
         /// Type assertion error
-        #[derive(Debug, Display, Clone, PartialEq, Eq, Decode, Encode, IntoSchema)]
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            Serialize,
+            Deserialize,
+            Decode,
+            Encode,
+            IntoSchema,
+        )]
+        #[ffi_type]
+        #[display(
+            fmt = "Failed to find permission token `{permission_token_id}` for account `{account_id}`"
+        )]
+        #[cfg_attr(feature = "std", derive(thiserror::Error))]
+        pub struct PermissionTokenFindError {
+            pub account_id: AccountId,
+            pub permission_token_id: PermissionTokenId,
+        }
+
+        /// Type assertion error
+        #[derive(
+            Debug,
+            Display,
+            Clone,
+            PartialEq,
+            Eq,
+            Hash,
+            Serialize,
+            Deserialize,
+            Decode,
+            Encode,
+            IntoSchema,
+        )]
+        #[cfg_attr(feature = "std", derive(thiserror::Error))]
         // TODO: Only temporary
         #[ffi_type(opaque)]
         pub enum FindError {
@@ -1449,22 +1496,26 @@ pub mod error {
             #[display(fmt = "Peer {_0} not found")]
             Peer(PeerId),
             /// Trigger not found.
-            #[display(fmt = "Trigger not found.")]
+            #[display(fmt = "Failed to find trigger: `{_0}`")]
             Trigger(TriggerId),
             /// Failed to find Role by id.
             #[display(fmt = "Failed to find role by id: `{_0}`")]
             Role(RoleId),
-            /// Failed to find [`PermissionToken`] by id.
+            /// Failed to find [`PermissionTokenDefinition`] by id.
             #[display(fmt = "Failed to find permission definition token by id: `{_0}`")]
             PermissionTokenDefinition(PermissionTokenId),
+            /// Failed to find [`PermissionToken`] for [`AccountId`].
+            #[cfg_attr(not(feature = "std"), display(fmt = "Failed to find permission token"))]
+            #[cfg_attr(feature = "std", error(transparent))]
+            PermissionToken(PermissionTokenFindError),
             /// Failed to find specified [`Parameter`] variant.
             #[display(fmt = "Failed to find specified parameter variant: `{_0}`")]
             Parameter(ParameterId),
+            /// Failed to find [`PublicKey`] at some account.
+            #[display(fmt = "Failed to find public key: `{_0}`")]
+            PublicKey(PublicKey),
         }
     }
-
-    #[cfg(feature = "std")]
-    impl std::error::Error for FindError {}
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.

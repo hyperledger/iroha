@@ -191,6 +191,7 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
+        Hash,
         EnumString,
         Decode,
         Encode,

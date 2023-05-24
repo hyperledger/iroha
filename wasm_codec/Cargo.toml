@@ -1,0 +1,14 @@
+[package]
+name = "iroha_wasm_codec"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+
+[dependencies]
+iroha_core_wasm_codec_derive = { version = "=2.0.0-pre-rc.16", path = "derive" }
+
+wasmtime = "0.39.1"
+parity-scale-codec = { version = "3.2.1", default-features = false, features = ["derive"] }

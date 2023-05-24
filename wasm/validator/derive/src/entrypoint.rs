@@ -72,7 +72,7 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     let fn_name = &sig.ident;
     assert!(
         matches!(sig.output, syn::ReturnType::Type(_, _)),
-        "Validator entrypoint must have `Verdict` return type"
+        "Validator entrypoint must have `Result` return type"
     );
 
     let args = match syn::parse_macro_input!(attr as Attr) {
@@ -101,11 +101,11 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         /// # Memory safety
         ///
         /// This function transfers the ownership of allocated
-        /// [`Verdict`](::iroha_validator::iroha_wasm::data_model::validator::Verdict)
+        /// [`Result`](::iroha_validator::iroha_wasm::data_model::validator::Result)
         #[no_mangle]
         #[doc(hidden)]
         unsafe extern "C" fn _iroha_wasm_main() -> *const u8 {
-            let verdict: ::iroha_validator::iroha_wasm::data_model::validator::Verdict = #fn_name(#args);
+            let verdict: ::iroha_validator::iroha_wasm::data_model::validator::Result = #fn_name(#args);
             let bytes_box = ::core::mem::ManuallyDrop::new(::iroha_validator::iroha_wasm::encode_with_length_prefix(&verdict));
 
             bytes_box.as_ptr()

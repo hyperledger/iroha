@@ -76,13 +76,17 @@ fn impl_token(
             ) -> bool {
                 let permission_token = #permission_token_conversion_code;
 
-                ::iroha_validator::iroha_wasm::debug::DebugExpectExt::dbg_expect(
+                let value = ::iroha_validator::iroha_wasm::debug::DebugExpectExt::dbg_expect(
                     ::iroha_validator::iroha_wasm::QueryHost::execute(
                         &::iroha_validator::iroha_wasm::data_model::prelude::DoesAccountHavePermissionToken::new(
                             account_id.clone(),
                             permission_token,
                         )
-                    ).try_into(),
+                    ),
+                    "Failed to execute `DoesAccountHavePermissionToken` query"
+                );
+                ::iroha_validator::iroha_wasm::debug::DebugExpectExt::dbg_expect(
+                    value.try_into(),
                     "Failed to convert `DoesAccountHavePermissionToken` query result into `bool`"
                 )
             }

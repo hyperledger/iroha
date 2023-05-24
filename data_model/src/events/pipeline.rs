@@ -152,10 +152,10 @@ pub mod model {
     #[ffi_type]
     pub enum PipelineRejectionReason {
         /// The reason for rejecting the block.
-        #[display(fmt = "Block was rejected: {_0}")]
+        #[display(fmt = "Block was rejected")]
         Block(#[cfg_attr(feature = "std", source)] crate::block::error::BlockRejectionReason),
         /// The reason for rejecting transaction.
-        #[display(fmt = "Transaction was rejected: {_0}")]
+        #[display(fmt = "Transaction was rejected")]
         Transaction(
             #[cfg_attr(feature = "std", source)]
             crate::transaction::error::TransactionRejectionReason,
@@ -243,7 +243,7 @@ mod tests {
     use alloc::{string::ToString as _, vec, vec::Vec};
 
     use super::{super::Filter, PipelineRejectionReason::*, *};
-    use crate::transaction::error::{NotPermittedFail, TransactionRejectionReason::*};
+    use crate::{transaction::error::TransactionRejectionReason::*, ValidationFail};
 
     #[test]
     fn events_are_correctly_filtered() {
@@ -255,9 +255,9 @@ mod tests {
             },
             PipelineEvent {
                 entity_kind: PipelineEntityKind::Transaction,
-                status: PipelineStatus::Rejected(Transaction(NotPermitted(NotPermittedFail {
-                    reason: "Some reason".to_string(),
-                }))),
+                status: PipelineStatus::Rejected(Transaction(Validation(
+                    ValidationFail::TooComplex,
+                ))),
                 hash: Hash::prehashed([0_u8; Hash::LENGTH]),
             },
             PipelineEvent {
@@ -280,9 +280,9 @@ mod tests {
                 },
                 PipelineEvent {
                     entity_kind: PipelineEntityKind::Transaction,
-                    status: PipelineStatus::Rejected(Transaction(NotPermitted(NotPermittedFail {
-                        reason: "Some reason".to_string(),
-                    }))),
+                    status: PipelineStatus::Rejected(Transaction(Validation(
+                        ValidationFail::TooComplex,
+                    ))),
                     hash: Hash::prehashed([0_u8; Hash::LENGTH]),
                 },
             ],

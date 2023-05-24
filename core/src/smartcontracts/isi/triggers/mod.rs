@@ -15,7 +15,9 @@ pub mod set;
 /// - TODO: technical account permissions.
 pub mod isi {
     use iroha_data_model::{
-        events::Filter, isi::error::InvalidParameterError, trigger::prelude::*,
+        events::Filter,
+        isi::error::{InvalidParameterError, RepetitionError},
+        trigger::prelude::*,
     };
 
     use super::{super::prelude::*, *};
@@ -67,10 +69,11 @@ pub mod isi {
             .map_err(|e| InvalidParameterError::Wasm(e.to_string()))?;
 
             if !success {
-                return Err(Error::Repetition(
-                    InstructionType::Register,
-                    trigger_id.into(),
-                ));
+                return Err(RepetitionError {
+                    instruction_type: InstructionType::Register,
+                    id: trigger_id.into(),
+                }
+                .into());
             }
 
             wsv.emit_events(Some(TriggerEvent::Created(trigger_id)));
@@ -89,10 +92,11 @@ pub mod isi {
                 wsv.emit_events(Some(TriggerEvent::Deleted(self.object_id)));
                 Ok(())
             } else {
-                Err(Error::Repetition(
-                    InstructionType::Unregister,
-                    trigger_id.into(),
-                ))
+                Err(RepetitionError {
+                    instruction_type: InstructionType::Unregister,
+                    id: trigger_id.into(),
+                }
+                .into())
             }
         }
     }
@@ -172,7 +176,11 @@ pub mod isi {
                     if allow_execute {
                         Ok(())
                     } else {
-                        Err(ValidationError::new("Unauthorized trigger execution").into())
+                        // TODO: We should check authority on Runtime Validator level
+                        // so currently the error message is not exhaustive
+                        Err(Error::InvariantViolation(String::from(
+                            "Trigger can't be executed manually",
+                        )))
                     }
                 })
                 .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))
