@@ -28,7 +28,7 @@ sphinx-autobuild==0.7.1
 sphinx-intl==0.9.11
 sphinx-rtd-theme==0.4.2
 sphinxcontrib-websupport==1.0.1
-tornado==5.1
+tornado==6.3.2
 typing==3.6.2
 urllib3
 watchdog==0.8.3
