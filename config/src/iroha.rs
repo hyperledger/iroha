@@ -122,7 +122,6 @@ impl ConfigurationProxy {
                                     "`p2p_addr` should not be set to `null` or `None` explicitly.",
                             })?,
                         &self.public_key.clone().expect(
-                            // FIXME: not a useful error for the end user
                             "Iroha `public_key` should have been initialized above at the latest",
                         ),
                     ));
