@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeSet,
+    ffi::OsStr,
     fs::File,
     io::Write,
     num::NonZeroU16,
@@ -194,32 +195,16 @@ fn shallow_git_clone(
     revision: impl AsRef<str>,
     dir: &AbsolutePath,
 ) -> Result<()> {
-    use duct::{cmd, Expression};
-
-    trait CurrentDirExt {
-        fn current_dir(&mut self, dir: PathBuf) -> Self;
-    }
-
-    impl CurrentDirExt for Expression {
-        fn current_dir(&mut self, dir: PathBuf) -> Self {
-            self.before_spawn(move |cmd| {
-                // idk how to avoid cloning here, cuz the closure is `Fn`, not `FnOnce`
-                cmd.current_dir(dir.clone());
-                Ok(())
-            })
-        }
-    }
+    use duct::cmd;
 
     std::fs::create_dir(dir)?;
 
-    let dir = dir.to_path_buf();
-
-    cmd!("git", "init").current_dir(dir.clone()).run()?;
+    cmd!("git", "init").dir(dir).run()?;
     cmd!("git", "remote", "add", "origin", remote.as_ref())
-        .current_dir(dir.clone())
+        .dir(dir)
         .run()?;
     cmd!("git", "fetch", "--depth=1", "origin", revision.as_ref())
-        .current_dir(dir.clone())
+        .dir(dir)
         .run()?;
     cmd!(
         "git",
@@ -228,7 +213,7 @@ fn shallow_git_clone(
         "checkout",
         "FETCH_HEAD"
     )
-    .current_dir(dir)
+    .dir(dir)
     .run()?;
 
     Ok(())
@@ -469,6 +454,12 @@ impl Deref for AbsolutePath {
 impl AsRef<Path> for AbsolutePath {
     fn as_ref(&self) -> &Path {
         self.path.as_path()
+    }
+}
+
+impl AsRef<OsStr> for AbsolutePath {
+    fn as_ref(&self) -> &OsStr {
+        self.path.as_ref()
     }
 }
 
