@@ -138,13 +138,8 @@ struct ImageSourceArgs {
 /// Parsed version of [`ImageSourceArgs`]
 #[derive(Clone, Debug)]
 enum ImageSource {
-    Image {
-        name: String,
-    },
-    GitHub {
-        revision: String,
-    },
-    /// Raw path passed from user
+    Image { name: String },
+    GitHub { revision: String },
     Path(PathBuf),
 }
 
