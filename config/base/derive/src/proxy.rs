@@ -108,7 +108,7 @@ pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
             };
             let mut set_field = quote! {
                 let #ident = #env_fetcher_ident.fetch(#field_env)
-                    // omit a possible unicode error
+                    // treating unicode errors the same as variable absence
                     .ok()
                     .map(|var| {
                         #inner.map_err(|err| #load_from_env_err::json5(#field_env, err))

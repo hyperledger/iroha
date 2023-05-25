@@ -53,11 +53,11 @@ pub struct Args {
     /// Do not create default configuration in the `<outdir>/config` directory.
     ///
     /// Default `config.json`, `genesis.json` and `validator.wasm` are generated and put into
-    /// the `<outdir>/config` directory. That directory is specified in the Docker Compose
-    /// `volumes` field.
+    /// the `<outdir>/config` directory. That directory is specified in the `volumes` field
+    /// of the Docker Compose file.
     ///
-    /// If you don't need the defaults, you could set this flag. The `config` directory will be
-    /// created anyway, but you should put the necessary configuration there by yourself.
+    /// Setting this flag prevents copying of default configuration files into the output folder. The `config` directory will still be
+    /// created, but the necessary configuration should be put there by the user manually.
     #[arg(long)]
     no_default_configuration: bool,
     /// Might be useful for deterministic key generation.

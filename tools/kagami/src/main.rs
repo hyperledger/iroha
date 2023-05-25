@@ -66,8 +66,8 @@ pub enum Args {
     /// This command builds the docker-compose configuration in a specified directory. If the source
     /// is a GitHub repo, it will be cloned into the directory. Also, the default configuration is
     /// built and put into `<target>/config` directory, unless `--no-default-configuration` flag is
-    /// provided. The default configuration is equivalent of running `kagami config peer`,
-    /// `kagami validator`, and`kagami genesis default --compiled-validator-path ./validator.wasm`.
+    /// provided. The default configuration is equivalent to running `kagami config peer`,
+    /// `kagami validator`, and `kagami genesis default --compiled-validator-path ./validator.wasm` consecutively.
     ///
     /// Default configuration building will fail if Kagami is run outside of Iroha repo (tracking
     /// issue: https://github.com/hyperledger/iroha/issues/3473). If you are going to run it outside
