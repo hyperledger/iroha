@@ -98,8 +98,6 @@ impl<T: Write> RunArgs<T> for Args {
 }
 
 mod crypto {
-    use std::fmt::{Display, Formatter};
-
     use clap::{builder::PossibleValue, ArgGroup, ValueEnum};
     use color_eyre::eyre::{eyre, WrapErr as _};
     use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey};
@@ -128,14 +126,8 @@ mod crypto {
         compact: bool,
     }
 
-    #[derive(Clone, Debug, Default)]
+    #[derive(Clone, Debug, Default, derive_more::Display)]
     struct AlgorithmArg(Algorithm);
-
-    impl Display for AlgorithmArg {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            self.0.fmt(f)
-        }
-    }
 
     impl ValueEnum for AlgorithmArg {
         fn value_variants<'a>() -> &'a [Self] {
@@ -217,6 +209,19 @@ mod crypto {
                 },
             )?;
             Ok(keypair)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{Algorithm, AlgorithmArg};
+
+        #[test]
+        fn algorithm_arg_displays_as_algorithm() {
+            assert_eq!(
+                format!("{}", AlgorithmArg(Algorithm::Ed25519)),
+                format!("{}", Algorithm::Ed25519)
+            )
         }
     }
 }
