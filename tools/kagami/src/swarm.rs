@@ -12,6 +12,7 @@ use color_eyre::{
     eyre::{eyre, Context, ContextCompat},
     Result,
 };
+use iroha_crypto::{error::Error as IrohaCryptoError, KeyGenConfiguration, KeyPair};
 use iroha_data_model::prelude::PeerId;
 use path_absolutize::Absolutize;
 use serialize_docker_compose::{DockerCompose, DockerComposeService, ServiceSource};
@@ -383,7 +384,7 @@ impl DockerComposeBuilder {
 
         let peers = peer_generator::generate_peers(self.peers, base_seed)
             .wrap_err("failed to generate peers")?;
-        let genesis_key_pair = key_gen::generate(base_seed, GENESIS_KEYPAIR_SEED)
+        let genesis_key_pair = generate_key_pair(base_seed, GENESIS_KEYPAIR_SEED)
             .wrap_err("failed to generate genesis key pair")?;
         let service_source = match &self.source {
             ResolvedImageSource::Build { path } => {
@@ -496,20 +497,19 @@ impl AbsolutePath {
     }
 }
 
-mod key_gen {
-    use iroha_crypto::{error::Error, KeyGenConfiguration, KeyPair};
+/// Swarm-specific seed-based key pair generation
+pub fn generate_key_pair(
+    base_seed: Option<&[u8]>,
+    additional_seed: &[u8],
+) -> Result<KeyPair, IrohaCryptoError> {
+    let cfg = base_seed
+        .map(|base| {
+            let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
+            KeyGenConfiguration::default().use_seed(seed)
+        })
+        .unwrap_or_default();
 
-    /// If there is no base seed, the additional one will be ignored
-    pub fn generate(base_seed: Option<&[u8]>, additional_seed: &[u8]) -> Result<KeyPair, Error> {
-        let cfg = base_seed
-            .map(|base| {
-                let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
-                KeyGenConfiguration::default().use_seed(seed)
-            })
-            .unwrap_or_default();
-
-        KeyPair::generate_with_configuration(cfg)
-    }
+    KeyPair::generate_with_configuration(cfg)
 }
 
 mod peer_generator {
@@ -554,7 +554,7 @@ mod peer_generator {
             .map(|i| {
                 let service_name = format!("{BASE_SERVICE_NAME}{i}");
 
-                let key_pair = super::key_gen::generate(base_seed, service_name.as_bytes())
+                let key_pair = super::generate_key_pair(base_seed, service_name.as_bytes())
                     .wrap_err("failed to generate key pair")?;
 
                 let peer = Peer {
