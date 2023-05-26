@@ -244,8 +244,15 @@ impl KeyPair {
     /// Fails if decoding fails
     #[cfg(any(feature = "std", feature = "ffi_import"))]
     pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, Error> {
-        let key_gen_option: Option<UrsaKeyGenOption> = configuration
-            .key_gen_option
+        let key_gen_option: Option<UrsaKeyGenOption> =
+            match (configuration.algorithm, configuration.key_gen_option) {
+                (Algorithm::Secp256k1, Some(KeyGenOption::UseSeed(seed))) if seed.len() < 32 => {
+                    return Err(Error::KeyGen(
+                        "secp256k1 seed for must be at least 32 bytes long".to_owned(),
+                    ))
+                }
+                (_, key_gen_option) => key_gen_option,
+            }
             .map(TryInto::try_into)
             .transpose()?;
         let (mut public_key, mut private_key) = match configuration.algorithm {
@@ -487,7 +494,7 @@ pub mod error {
     impl std::error::Error for NoSuchAlgorithm {}
 
     /// Error when dealing with cryptographic functions
-    #[derive(Debug, Display, serde::Deserialize)]
+    #[derive(Debug, Display, serde::Deserialize, PartialEq, Eq)]
     pub enum Error {
         /// Returned when trying to create an algorithm which does not exist
         #[display(fmt = "Algorithm doesn't exist")] // TODO: which algorithm
@@ -915,6 +922,24 @@ mod tests {
                     .expect("Failed to decode private key"),
                 }
             }
+        )
+    }
+
+    #[test]
+    fn secp256k1_key_gen_fails_with_seed_smaller_than_32() {
+        let seed: Vec<_> = (0..12u8).collect();
+
+        let result = KeyPair::generate_with_configuration(
+            KeyGenConfiguration::default()
+                .with_algorithm(Algorithm::Secp256k1)
+                .use_seed(seed),
+        );
+
+        assert_eq!(
+            result,
+            Err(Error::KeyGen(
+                "secp256k1 seed for must be at least 32 bytes long".to_owned()
+            ))
         )
     }
 }
