@@ -52,7 +52,7 @@ Reporting Vulnerabilities
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
 While we try to be proactive in preventing security problems, we do not
-assume they?ll never come up.
+assume they'll never come up.
 
 It is standard practice to responsibly and privately disclose to the
 vendor (Hyperledger organization) a security problem before publicizing,
