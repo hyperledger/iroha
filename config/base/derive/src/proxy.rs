@@ -115,7 +115,7 @@ pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
                                 // FIXME: specify location precisely
                                 //        https://github.com/hyperledger/iroha/issues/3470
                                 #field_env,
-                                err
+                                &err
                             )
                         })
                     })

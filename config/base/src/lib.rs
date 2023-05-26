@@ -375,9 +375,11 @@ pub mod derive {
     }
 
     impl Error {
+        /// This method is needed because a call of [`eyre::eyre!`] cannot be compiled when
+        /// generated in a proc macro. So, this shorthand is needed for proc macros.
         pub fn field_deserialization_from_json(
             field: &'static str,
-            error: serde_json::Error,
+            error: &serde_json::Error,
         ) -> Self {
             Self::FieldDeserialization {
                 field,
@@ -385,7 +387,8 @@ pub mod derive {
             }
         }
 
-        pub fn field_deserialization_from_json5(field: &'static str, error: json5::Error) -> Self {
+        /// See [`Self::field_deserialization_from_json`]
+        pub fn field_deserialization_from_json5(field: &'static str, error: &json5::Error) -> Self {
             Self::FieldDeserialization {
                 field,
                 error: eyre::eyre!("JSON5: {}", error),
@@ -425,8 +428,6 @@ pub mod view {
 
 pub mod proxy {
     //! Module with traits for configuration proxies
-
-    use thiserror::Error;
 
     use super::*;
 

@@ -197,7 +197,7 @@ fn impl_get_recursive(ast: &StructWithFields) -> proc_macro2::TokenStream {
 							|error|
                             ::iroha_config_base::derive::Error::field_deserialization_from_json(
                                 stringify!(#ident),
-                                error
+                                &error
                             )
 						)?
                 }
