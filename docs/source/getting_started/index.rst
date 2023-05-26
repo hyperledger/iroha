@@ -15,7 +15,7 @@ To keep things simple, we will use Docker.
 Prerequisites
 -------------
 For this guide, you need a machine with ``Docker`` installed.
-You can read how to install it on a `Docker's website <https://www.docker.com/community-edition/>`_.
+You can read how to install it on a `Docker's website <https://docs.docker.com/get-docker/>`_.
 
 .. note:: Of course you can build Iroha from scratch, modify its code and launch a customized node!
   If you are curious how to do that — you can check :ref:`build-guide` section.
