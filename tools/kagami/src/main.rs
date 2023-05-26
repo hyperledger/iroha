@@ -99,7 +99,7 @@ impl<T: Write> RunArgs<T> for Args {
 
 mod crypto {
     use clap::{builder::PossibleValue, ArgGroup, ValueEnum};
-    use color_eyre::eyre::{eyre, WrapErr as _};
+    use color_eyre::eyre::WrapErr as _;
     use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey};
 
     use super::*;
@@ -178,37 +178,24 @@ mod crypto {
     impl Args {
         fn key_pair(self) -> color_eyre::Result<KeyPair> {
             let algorithm = self.algorithm.0;
-            let key_gen_configuration = KeyGenConfiguration::default().with_algorithm(algorithm);
-            let keypair: KeyPair = self.seed.map_or_else(
-                || -> color_eyre::Result<_> {
-                    self.private_key.map_or_else(
-                        || {
-                            KeyPair::generate_with_configuration(key_gen_configuration.clone())
-                                .wrap_err("failed to generate key pair")
-                        },
-                        |private_key| {
-                            let private_key = PrivateKey::from_hex(algorithm, private_key.as_ref())
-                                .wrap_err("Failed to decode private key")?;
-                            KeyPair::generate_with_configuration(
-                                key_gen_configuration.clone().use_private_key(private_key),
-                            )
-                            .wrap_err("Failed to generate key pair")
-                        },
-                    )
-                },
-                |seed| -> color_eyre::Result<_> {
+            let config = KeyGenConfiguration::default().with_algorithm(algorithm);
+
+            let key_pair = match (self.seed, self.private_key) {
+                (None, None) => KeyPair::generate_with_configuration(config),
+                (None, Some(private_key_hex)) => {
+                    let private_key = PrivateKey::from_hex(algorithm, private_key_hex.as_ref())
+                        .wrap_err("Failed to decode private key")?;
+                    KeyPair::generate_with_configuration(config.use_private_key(private_key))
+                }
+                (Some(seed), None) => {
                     let seed: Vec<u8> = seed.as_bytes().into();
-                    // `ursa` crashes if provided seed for `secp256k1` shorter than 32 bytes
-                    if seed.len() < 32 && algorithm == Algorithm::Secp256k1 {
-                        return Err(eyre!("secp256k1 seed for must be at least 32 bytes long"));
-                    }
-                    KeyPair::generate_with_configuration(
-                        key_gen_configuration.clone().use_seed(seed),
-                    )
-                    .wrap_err("Failed to generate key pair")
-                },
-            )?;
-            Ok(keypair)
+                    KeyPair::generate_with_configuration(config.use_seed(seed))
+                }
+                _ => unreachable!("Clap group invariant"),
+            }
+            .wrap_err("Failed to generate key pair")?;
+
+            Ok(key_pair)
         }
     }
 
