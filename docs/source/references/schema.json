@@ -267,11 +267,11 @@
     "Struct": [
       {
         "name": "left",
-        "type": "EvaluatesTo<Bool>"
+        "type": "EvaluatesTo<bool>"
       },
       {
         "name": "right",
-        "type": "EvaluatesTo<Bool>"
+        "type": "EvaluatesTo<bool>"
       }
     ]
   },
@@ -664,7 +664,6 @@
     ]
   },
   "BlockSubscriptionRequest": "u64",
-  "Bool": "Bool",
   "BurnBox": {
     "Struct": [
       {
@@ -708,7 +707,7 @@
     "Struct": [
       {
         "name": "condition",
-        "type": "EvaluatesTo<Bool>"
+        "type": "EvaluatesTo<bool>"
       },
       {
         "name": "then",
@@ -1083,14 +1082,6 @@
       }
     ]
   },
-  "EvaluatesTo<Bool>": {
-    "Struct": [
-      {
-        "name": "expression",
-        "type": "Expression"
-      }
-    ]
-  },
   "EvaluatesTo<DomainId>": {
     "Struct": [
       {
@@ -1180,6 +1171,14 @@
     ]
   },
   "EvaluatesTo<Vec<Value>>": {
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
+  },
+  "EvaluatesTo<bool>": {
     "Struct": [
       {
         "name": "expression",
@@ -2200,7 +2199,7 @@
     "Struct": [
       {
         "name": "condition",
-        "type": "EvaluatesTo<Bool>"
+        "type": "EvaluatesTo<bool>"
       },
       {
         "name": "then",
@@ -2595,7 +2594,7 @@
     "Struct": [
       {
         "name": "expression",
-        "type": "EvaluatesTo<Bool>"
+        "type": "EvaluatesTo<bool>"
       }
     ]
   },
@@ -2685,11 +2684,11 @@
     "Struct": [
       {
         "name": "left",
-        "type": "EvaluatesTo<Bool>"
+        "type": "EvaluatesTo<bool>"
       },
       {
         "name": "right",
-        "type": "EvaluatesTo<Bool>"
+        "type": "EvaluatesTo<bool>"
       }
     ]
   },
@@ -3563,7 +3562,7 @@
       }
     ]
   },
-  "SignatureCheckCondition": "EvaluatesTo<Bool>",
+  "SignatureCheckCondition": "EvaluatesTo<bool>",
   "SignatureOf<CommittedBlock>": "Signature",
   "SignatureOf<QueryPayload>": "Signature",
   "SignatureOf<TransactionPayload>": "Signature",
@@ -4131,7 +4130,7 @@
       {
         "tag": "Bool",
         "discriminant": 0,
-        "type": "Bool"
+        "type": "bool"
       },
       {
         "tag": "String",
@@ -4537,6 +4536,7 @@
       }
     ]
   },
+  "bool": "bool",
   "i64": {
     "Int": "FixedWidth"
   },
