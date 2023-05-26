@@ -2894,6 +2894,7 @@ name = "iroha_config_base"
 version = "2.0.0-pre-rc.16"
 dependencies = [
  "crossbeam",
+ "eyre",
  "iroha_config_derive",
  "iroha_crypto",
  "json5",

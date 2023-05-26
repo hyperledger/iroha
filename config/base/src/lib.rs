@@ -313,16 +313,16 @@ pub mod derive {
         #[error("Got unknown field: `{}`", .0.join("."))]
         UnknownField(Vec<String>),
 
-        /// Used in [`Documented`] trait for deserialization errors
-        /// while retaining field info
-        #[error("Failed to (de)serialize the field: {}", .field)]
+        /// Used in [`Documented`] and [`super::proxy::LoadFromEnv`] trait for deserialization
+        /// errors
+        #[error("Failed to deserialize the field `{}`: {}", .field, .error)]
         #[serde(skip)]
         FieldDeserialization {
             /// Field name (known at compile time)
             field: &'static str,
-            /// Serde json error
+            /// Unified error
             #[source]
-            error: serde_json::Error,
+            error: eyre::Report,
         },
 
         /// When a field is missing.
@@ -372,6 +372,25 @@ pub mod derive {
         #[error("Deserializing JSON failed")]
         #[serde(skip)]
         Json5(#[from] json5::Error),
+    }
+
+    impl Error {
+        pub fn field_deserialization_from_json(
+            field: &'static str,
+            error: serde_json::Error,
+        ) -> Self {
+            Self::FieldDeserialization {
+                field,
+                error: eyre::eyre!("JSON: {}", error),
+            }
+        }
+
+        pub fn field_deserialization_from_json5(field: &'static str, error: json5::Error) -> Self {
+            Self::FieldDeserialization {
+                field,
+                error: eyre::eyre!("JSON5: {}", error),
+            }
+        }
     }
 }
 
@@ -496,27 +515,6 @@ pub mod proxy {
             }
 
             Self::from_env(&FetchStdEnv)
-        }
-    }
-
-    /// Errors that might occur during the loading data from environment
-    /// using [`LoadFromEnv`] trait.
-    #[derive(Debug, Error)]
-    pub enum LoadFromEnvError {
-        /// JSON5 deserialization error
-        #[error("Failed to deserialize env var `{}` as JSON5: {}", .env_var, .error)]
-        Json5 {
-            /// The environment variable name
-            env_var: &'static str,
-            /// The actual parsing error
-            error: json5::Error,
-        },
-    }
-
-    impl LoadFromEnvError {
-        /// Shortcut for [`Self::Json5`]
-        pub fn json5(env_var: &'static str, error: json5::Error) -> Self {
-            Self::Json5 { env_var, error }
         }
     }
 
