@@ -16,3 +16,5 @@ serde_json = "1.0.91"
 json5 = "0.4.1"
 thiserror = "1.0.38"
 crossbeam = "0.8.2"
+eyre = "0.6.8"
+
