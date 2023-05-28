@@ -39,20 +39,20 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha_core = { version = "=2.0.0-pre-rc.13", path = "../core" }
-iroha_macro = { version = "=2.0.0-pre-rc.13", path = "../macro" }
-iroha_logger = { version = "=2.0.0-pre-rc.13", path = "../logger" }
-iroha_futures = { version = "=2.0.0-pre-rc.13", path = "../futures" }
-iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model", features = ["http"] }
-iroha_telemetry = { version = "=2.0.0-pre-rc.13", path = "../telemetry", optional = true }
-iroha_version = { version = "=2.0.0-pre-rc.13", path = "../version", features = ["http"] }
-iroha_config = { version = "=2.0.0-pre-rc.13", path = "../config" }
-iroha_crypto = { version = "=2.0.0-pre-rc.13", path = "../crypto" }
-iroha_p2p = { version = "=2.0.0-pre-rc.13", path = "../p2p" }
-iroha_schema_gen = { version = "=2.0.0-pre-rc.13", path = "../schema/gen", optional = true }
-iroha_cli_derive = { version = "=2.0.0-pre-rc.13", path = "derive" }
-iroha_genesis = { version = "=2.0.0-pre-rc.13", path = "../genesis" }
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../wasm_builder" }
+iroha_core = { version = "=2.0.0-pre-rc.16", path = "../core" }
+iroha_macro = { version = "=2.0.0-pre-rc.16", path = "../macro" }
+iroha_logger = { version = "=2.0.0-pre-rc.16", path = "../logger" }
+iroha_futures = { version = "=2.0.0-pre-rc.16", path = "../futures" }
+iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "../data_model", features = ["http"] }
+iroha_telemetry = { version = "=2.0.0-pre-rc.16", path = "../telemetry", optional = true }
+iroha_version = { version = "=2.0.0-pre-rc.16", path = "../version", features = ["http"] }
+iroha_config = { version = "=2.0.0-pre-rc.16", path = "../config" }
+iroha_crypto = { version = "=2.0.0-pre-rc.16", path = "../crypto" }
+iroha_p2p = { version = "=2.0.0-pre-rc.16", path = "../p2p" }
+iroha_schema_gen = { version = "=2.0.0-pre-rc.16", path = "../schema/gen", optional = true }
+iroha_cli_derive = { version = "=2.0.0-pre-rc.16", path = "derive" }
+iroha_genesis = { version = "=2.0.0-pre-rc.16", path = "../genesis" }
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.16", path = "../wasm_builder" }
 
 
 async-trait = "0.1.60"
@@ -74,7 +74,7 @@ thread-local-panic-hook = { version = "0.1.0", optional = true }
 tempfile = "3.3.0"
 
 [build-dependencies]
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../wasm_builder" }
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.16", path = "../wasm_builder" }
 eyre = "0.6.8"
 
 vergen = { version = "8.1.1", default-features = false, features = ["cargo"] }

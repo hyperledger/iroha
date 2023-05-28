@@ -8,7 +8,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-iroha_schema_derive = { version = "=2.0.0-pre-rc.13", path = "derive" }
+iroha_schema_derive = { version = "=2.0.0-pre-rc.16", path = "derive" }
 
 serde = { version = "1.0.151", default-features = false, features = ["derive", "alloc"] }
 fixnum = { version = "0.9.1", default-features = false, features = ["i64"] }
