@@ -21,14 +21,14 @@ fn check_generic() {
         }],
     });
     let expected = vec![
-        (TypeId::of::<bool>(), ("Bool".to_owned(), Bool)),
+        (TypeId::of::<bool>(), ("bool".to_owned(), Bool)),
         (
             TypeId::of::<core::option::Option<bool>>(),
-            ("Option<Bool>".to_owned(), Option(TypeId::of::<bool>())),
+            ("Option<bool>".to_owned(), Option(TypeId::of::<bool>())),
         ),
         (
             TypeId::of::<Foo<bool>>(),
-            ("Foo<Bool>".to_owned(), expected_struct),
+            ("Foo<bool>".to_owned(), expected_struct),
         ),
     ]
     .into_iter()
