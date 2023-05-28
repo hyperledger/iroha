@@ -8,7 +8,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-iroha_config = { version = "=2.0.0-pre-rc.13", path = "../config" }
+iroha_config = { version = "=2.0.0-pre-rc.16", path = "../config" }
 
 color-eyre = "0.6.2"
 serde_json = "1.0.91"

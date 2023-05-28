@@ -16,6 +16,6 @@ proc-macro2 = "1.0.49"
 quote = "1.0.23"
 
 [dev-dependencies]
-iroha_schema = { version = "=2.0.0-pre-rc.13", path = "../"}
+iroha_schema = { version = "=2.0.0-pre-rc.16", path = "../"}
 
 trybuild = "1.0.73"
