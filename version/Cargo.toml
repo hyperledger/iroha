@@ -22,8 +22,8 @@ json = ["serde", "serde_json"]
 http = ["std", "warp"]
 
 [dependencies]
-iroha_version_derive = { version = "=2.0.0-pre-rc.13", path = "derive", default-features = false, optional = true }
-iroha_macro = { version = "=2.0.0-pre-rc.13", path = "../macro", default-features = false }
+iroha_version_derive = { version = "=2.0.0-pre-rc.16", path = "derive", default-features = false, optional = true }
+iroha_macro = { version = "=2.0.0-pre-rc.16", path = "../macro", default-features = false }
 
 parity-scale-codec = { version = "3.2.1", default-features = false, optional = true, features = ["derive"] }
 serde_json = { version = "1.0.91", default-features = false, optional = true, features = ["alloc"] }
@@ -32,5 +32,5 @@ thiserror = { version = "1.0.38", default-features = false, optional = true }
 warp = { version = "0.3.3", default-features = false, optional = true }
 
 [dev-dependencies]
-iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model" }
-iroha_logger = { version = "=2.0.0-pre-rc.13", path = "../logger" }
+iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "../data_model" }
+iroha_logger = { version = "=2.0.0-pre-rc.16", path = "../logger" }

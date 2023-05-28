@@ -9,7 +9,7 @@ license.workspace = true
 
 [dependencies]
 iroha_config_derive = { path = "derive" }
-iroha_crypto = { version = "=2.0.0-pre-rc.13", path = "../../crypto" }
+iroha_crypto = { version = "=2.0.0-pre-rc.16", path = "../../crypto" }
 
 serde = { version = "1.0.151", default-features = false, features = ["derive"] }
 serde_json = "1.0.91"
