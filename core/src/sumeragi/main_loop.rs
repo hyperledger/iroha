@@ -254,6 +254,10 @@ impl Sumeragi {
             wsv: self.wsv.clone(),
         }
         .build();
+        assert!(
+            block.rejected_transactions.is_empty(),
+            "Genesis transaction set contains invalid transactions"
+        );
 
         {
             info!(block_partial_hash = %block.partial_hash(), "Publishing genesis block.");
