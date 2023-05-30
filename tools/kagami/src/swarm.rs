@@ -83,7 +83,7 @@ impl Args {
 
         if let EarlyEnding::Halt = target_dir
             .prepare(&prepare_dir_strategy, &ui)
-            .wrap_err("failed to prepare directory")?
+            .wrap_err("Failed to prepare directory")?
         {
             return Ok(());
         }
@@ -92,7 +92,7 @@ impl Args {
 
         let source = source
             .resolve(&target_dir, &ui)
-            .wrap_err("failed to resolve the source of image")?;
+            .wrap_err("Failed to resolve the source of image")?;
 
         let ui = if self.no_default_configuration {
             PrepareConfigurationStrategy::GenerateOnlyDirectory
@@ -100,7 +100,7 @@ impl Args {
             PrepareConfigurationStrategy::GenerateDefault
         }
         .run(&config_dir, ui)
-        .wrap_err("failed to prepare configuration")?;
+        .wrap_err("Failed to prepare configuration")?;
 
         DockerComposeBuilder {
             target_dir: target_dir.path.clone(),
@@ -110,9 +110,9 @@ impl Args {
             seed: self.seed.map(String::into_bytes),
         }
         .build()
-        .wrap_err("failed to build docker compose")?
+        .wrap_err("Failed to build docker compose")?
         .write_file(&target_dir.path.join(FILE_COMPOSE))
-        .wrap_err("failed to write compose file")?;
+        .wrap_err("Failed to write compose file")?;
 
         ui.log_complete(&target_dir.path);
 
@@ -171,7 +171,7 @@ impl ImageSource {
     fn resolve(self, target: &TargetDirectory, ui: &UserInterface) -> Result<ResolvedImageSource> {
         let source = match self {
             Self::Path(path) => ResolvedImageSource::Build {
-                path: AbsolutePath::absolutize(path).wrap_err("failed to resolve build path")?,
+                path: AbsolutePath::absolutize(path).wrap_err("Failed to resolve build path")?,
             },
             Self::GitHub { revision } => {
                 let clone_dir = target.path.join(DIR_CLONE);
@@ -180,7 +180,7 @@ impl ImageSource {
                 ui.log_cloning_repo();
 
                 shallow_git_clone(GIT_ORIGIN, revision, &clone_dir)
-                    .wrap_err("failed to clone the repo")?;
+                    .wrap_err("Failed to clone the repo")?;
 
                 ResolvedImageSource::Build { path: clone_dir }
             }
@@ -233,7 +233,7 @@ enum PrepareConfigurationStrategy {
 
 impl PrepareConfigurationStrategy {
     fn run(&self, config_dir: &AbsolutePath, ui: UserInterface) -> Result<UserInterface> {
-        std::fs::create_dir(config_dir).wrap_err("failed to create the config directory")?;
+        std::fs::create_dir(config_dir).wrap_err("Failed to create the config directory")?;
 
         let ui = match self {
             Self::GenerateOnlyDirectory => {
@@ -245,7 +245,7 @@ impl PrepareConfigurationStrategy {
 
                 let raw_genesis_block = {
                     let block = super::genesis::generate_default(Some(path_validator.clone()))
-                        .wrap_err("failed to generate genesis")?;
+                        .wrap_err("Failed to generate genesis")?;
                     serde_json::to_string_pretty(&block)?
                 };
 
@@ -257,7 +257,7 @@ impl PrepareConfigurationStrategy {
                 let spinner = ui.spinner_validator();
 
                 let validator = super::validator::construct_validator()
-                    .wrap_err("failed to construct the validator")?;
+                    .wrap_err("Failed to construct the validator")?;
 
                 let ui = spinner.done();
 
@@ -334,7 +334,7 @@ impl TargetDirectory {
     /// `rm -r <dir>`
     fn remove_dir(&self) -> Result<()> {
         std::fs::remove_dir_all(&self.path)
-            .wrap_err_with(|| eyre!("failed to remove the directory: {}", self.path.display()))
+            .wrap_err_with(|| eyre!("Failed to remove the directory: {}", self.path.display()))
     }
 
     /// If user says "no", program should just exit, so it returns [`EarlyEnding::Halt`].
@@ -346,7 +346,7 @@ impl TargetDirectory {
         if let ui::PromptAnswer::Yes =
             ui.prompt_remove_target_dir(&self.path).wrap_err_with(|| {
                 eyre!(
-                    "failed to prompt removal for the directory: {}",
+                    "Failed to prompt removal for the directory: {}",
                     self.path.display()
                 )
             })?
@@ -362,7 +362,7 @@ impl TargetDirectory {
     fn make_dir_recursive(&self) -> Result<()> {
         std::fs::create_dir_all(&self.path).wrap_err_with(|| {
             eyre!(
-                "failed to recursively create the directory: {}",
+                "Failed to recursively create the directory: {}",
                 self.path.display()
             )
         })
@@ -383,9 +383,9 @@ impl DockerComposeBuilder {
         let base_seed = self.seed.as_deref();
 
         let peers = peer_generator::generate_peers(self.peers, base_seed)
-            .wrap_err("failed to generate peers")?;
+            .wrap_err("Failed to generate peers")?;
         let genesis_key_pair = generate_key_pair(base_seed, GENESIS_KEYPAIR_SEED)
-            .wrap_err("failed to generate genesis key pair")?;
+            .wrap_err("Failed to generate genesis key pair")?;
         let service_source = match &self.source {
             ResolvedImageSource::Build { path } => {
                 ServiceSource::Build(path.relative_to(&self.target_dir)?)
@@ -396,7 +396,7 @@ impl DockerComposeBuilder {
             self.config_dir
                 .relative_to(&self.target_dir)?
                 .to_str()
-                .wrap_err("config directory path is not a valid string")?
+                .wrap_err("Config directory path is not a valid string")?
                 .to_owned(),
             DIR_CONFIG_IN_DOCKER.to_owned(),
         )];
@@ -555,7 +555,7 @@ mod peer_generator {
                 let service_name = format!("{BASE_SERVICE_NAME}{i}");
 
                 let key_pair = super::generate_key_pair(base_seed, service_name.as_bytes())
-                    .wrap_err("failed to generate key pair")?;
+                    .wrap_err("Failed to generate key pair")?;
 
                 let peer = Peer {
                     name: service_name.clone(),
@@ -606,11 +606,11 @@ mod serialize_docker_compose {
         }
 
         pub fn write_file(&self, path: &PathBuf) -> Result<(), color_eyre::Report> {
-            let yaml = serde_yaml::to_string(self).wrap_err("failed to serialise YAML")?;
+            let yaml = serde_yaml::to_string(self).wrap_err("Failed to serialise YAML")?;
             File::create(path)
-                .wrap_err(eyre!("failed to create file: {:?}", path))?
+                .wrap_err_with(|| eyre!("Failed to create file: {:?}", path))?
                 .write_all(yaml.as_bytes())
-                .wrap_err("failed to write YAML content")?;
+                .wrap_err("Failed to write YAML content")?;
             Ok(())
         }
     }
@@ -905,8 +905,8 @@ mod serialize_docker_compose {
 
             let _cfg = proxy
                 .build()
-                .wrap_err("failed to build configuration")
-                .expect("default configuration with swarm's env should be exhaustive");
+                .wrap_err("Failed to build configuration")
+                .expect("Default configuration with swarm's env should be exhaustive");
 
             env.assert_everything_covered();
         }
