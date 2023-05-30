@@ -31,7 +31,7 @@ Kagami is a tool used to generate and validate automatically generated data file
 * `schema` — Generate the schema used for code generation in Iroha SDKs
 * `genesis` — Generate the genesis block that is used in tests
 * `config` — Generate the default client/peer configuration
-* `docs` — Generate a Markdown reference of configuration parameters
+* `docs` — Generate a Markdown reference of Iroha configuration parameters
 * `tokens` — Generate a list of predefined permission tokens and their parameters
 * `validator` — Generate the default validator
 * `swarm` — Generate a docker-compose configuration for a variable number of peers
@@ -67,7 +67,7 @@ Generate cryptographic key pairs using the given algorithm and either private ke
    ```
 
 - Generate a key with the `secp256k1` algorithm and a given private
- key (`B32129AF69B829A88AB9BAC60B2A33CC57F8843E93AAE0478E93F2285059C236`):
+  key (`B32129AF69B829A88AB9BAC60B2A33CC57F8843E93AAE0478E93F2285059C236`):
 
    ```bash
    kagami crypto --algorithm secp256k1 --private-key "B32129AF69B829A88AB9BAC60B2A33CC57F8843E93AAE0478E93F2285059C236"
@@ -133,6 +133,12 @@ Generate cryptographic key pairs using the given algorithm and either private ke
 
 Generate the schema used for code generation in Iroha SDKs
 
+**Example:**
+
+```bash
+kagami schema > schema.json
+```
+
 **Usage:** `kagami schema`
 
 
@@ -151,7 +157,7 @@ Generate the genesis block that is used in tests
 - Generate a genesis block in JSON format and write the output to the specified file:
 
    ```bash
-   kagami genesis --inlined-validator >genesis.json
+   kagami genesis --inlined-validator > genesis.json
    ```
 - Generate a synthetic genesis block in JSON format and write the `n` domains, `m` accounts per domain and `p` assets per domain:
 
@@ -217,12 +223,20 @@ Generate the default client/peer configuration
 
 ###### **Subcommands:**
 
-* `client` — 
-* `peer` — 
+* `client` — Generate the default client configuration
+* `peer` — Generate the default peer configuration
 
 
 
 ## `kagami config client`
+
+Generate the default client configuration
+
+**Example:**
+
+```bash
+kagami config client > client-config.json
+```
 
 **Usage:** `kagami config client`
 
@@ -230,13 +244,23 @@ Generate the default client/peer configuration
 
 ## `kagami config peer`
 
+Generate the default peer configuration
+
+**Example:**
+
+```bash
+kagami config peer > peer-config.json
+```
+
 **Usage:** `kagami config peer`
 
 
 
 ## `kagami docs`
 
-Generate a Markdown reference of configuration parameters
+Generate a Markdown reference of Iroha configuration parameters
+
+The output should be identical to the reference configuration (TODO: add GitHub permalink)
 
 **Usage:** `kagami docs`
 
@@ -246,6 +270,12 @@ Generate a Markdown reference of configuration parameters
 
 Generate a list of predefined permission tokens and their parameters
 
+**Example:**
+
+```bash
+kagami tokens > tokens.json
+```
+
 **Usage:** `kagami tokens`
 
 
@@ -253,6 +283,12 @@ Generate a list of predefined permission tokens and their parameters
 ## `kagami validator`
 
 Generate the default validator
+
+**Example:**
+
+```bash
+kagami validator > validator.wasm
+```
 
 **Usage:** `kagami validator`
 
@@ -266,7 +302,7 @@ using a Dockerhub image, GitHub repo, or a local Iroha repo.
 This command builds the docker-compose configuration in a specified directory. If the source
 is a GitHub repo, it will be cloned into the directory. Also, the default configuration is
 built and put into `<target>/config` directory, unless `--no-default-configuration` flag is
-provided. The default configuration is equivalent of running:
+provided. The default configuration is equivalent to running:
 
 ```bash
 kagami config peer
@@ -301,6 +337,12 @@ you are running, the generated configuration might not work.
 ## `kagami help-rendered`
 
 Render CLI help message as Markdown
+
+**Example:**
+
+```bash
+kagami help-rendered > kagami-help.md
+```
 
 **Usage:** `kagami help-rendered`
 

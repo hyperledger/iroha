@@ -70,8 +70,8 @@ pub enum Args {
     ///    kagami crypto --seed <seed>
     ///    ```
     ///
-    ///- Generate a key with the `secp256k1` algorithm and a given private
-    ///  key (`B32129AF69B829A88AB9BAC60B2A33CC57F8843E93AAE0478E93F2285059C236`):
+    /// - Generate a key with the `secp256k1` algorithm and a given private
+    ///   key (`B32129AF69B829A88AB9BAC60B2A33CC57F8843E93AAE0478E93F2285059C236`):
     ///
     ///    ```bash
     ///    kagami crypto --algorithm secp256k1 --private-key "B32129AF69B829A88AB9BAC60B2A33CC57F8843E93AAE0478E93F2285059C236"
@@ -84,7 +84,7 @@ pub enum Args {
     ///    Private key (secp256k1): "B32129AF69B829A88AB9BAC60B2A33CC57F8843E93AAE0478E93F2285059C236"
     ///    ```
     ///
-    ///- Generate a key in JSON format:
+    /// - Generate a key in JSON format:
     ///
     ///    ```bash
     ///    kagami crypto --json
@@ -102,7 +102,7 @@ pub enum Args {
     ///    }
     ///    ```
     ///
-    ///- Generate a key in compact format:
+    /// - Generate a key in compact format:
     ///
     ///    ```bash
     ///    kagami crypto --compact
@@ -118,6 +118,13 @@ pub enum Args {
     #[clap(verbatim_doc_comment)]
     Crypto(Box<crypto::Args>),
     /// Generate the schema used for code generation in Iroha SDKs
+    ///
+    /// **Example:**
+    ///
+    /// ```bash
+    /// kagami schema > schema.json
+    /// ```
+    #[clap(verbatim_doc_comment)]
     Schema(schema::Args),
     /// Generate the genesis block that is used in tests
     ///
@@ -131,7 +138,7 @@ pub enum Args {
     /// - Generate a genesis block in JSON format and write the output to the specified file:
     ///
     ///    ```bash
-    ///    kagami genesis --inlined-validator >genesis.json
+    ///    kagami genesis --inlined-validator > genesis.json
     ///    ```
     /// - Generate a synthetic genesis block in JSON format and write the `n` domains, `m` accounts per domain and `p` assets per domain:
     ///
@@ -148,11 +155,27 @@ pub enum Args {
     Genesis(genesis::Args),
     /// Generate the default client/peer configuration
     Config(config::Args),
-    /// Generate a Markdown reference of configuration parameters
+    /// Generate a Markdown reference of Iroha configuration parameters
+    ///
+    ///The output should be identical to the reference configuration (TODO: add GitHub permalink)
     Docs(Box<docs::Args>),
     /// Generate a list of predefined permission tokens and their parameters
+    ///
+    /// **Example:**
+    ///
+    /// ```bash
+    /// kagami tokens > tokens.json
+    /// ```
+    #[clap(verbatim_doc_comment)]
     Tokens(tokens::Args),
     /// Generate the default validator
+    ///
+    /// **Example:**
+    ///
+    /// ```bash
+    /// kagami validator > validator.wasm
+    /// ```
+    #[clap(verbatim_doc_comment)]
     Validator(validator::Args),
     /// Generate a docker-compose configuration for a variable number of peers
     /// using a Dockerhub image, GitHub repo, or a local Iroha repo.
@@ -179,6 +202,13 @@ pub enum Args {
     #[clap(verbatim_doc_comment)]
     Swarm(swarm::Args),
     /// Render CLI help message as Markdown
+    ///
+    /// **Example:**
+    ///
+    /// ```bash
+    /// kagami help-rendered > kagami-help.md
+    /// ```
+    #[clap(verbatim_doc_comment)]
     HelpRendered,
 }
 
@@ -635,7 +665,23 @@ mod config {
 
     #[derive(Subcommand, Debug, Clone, Copy)]
     pub enum Mode {
+        /// Generate the default client configuration
+        ///
+        /// **Example:**
+        ///
+        /// ```bash
+        /// kagami config client > client-config.json
+        /// ```
+        #[clap(verbatim_doc_comment)]
         Client(client::Args),
+        /// Generate the default peer configuration
+        ///
+        /// **Example:**
+        ///
+        /// ```bash
+        /// kagami config peer > peer-config.json
+        /// ```
+        #[clap(verbatim_doc_comment)]
         Peer(peer::Args),
     }
 

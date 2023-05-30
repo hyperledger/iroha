@@ -20,4 +20,4 @@ For usage reference, run:
 kagami help
 ```
 
-Or you can read the [rendered help message](./CLI.md).
+Or you can read the [rendered help message](./kagami-help.md).
