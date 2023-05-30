@@ -240,6 +240,8 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
                     ) -> Result<Self, D::Error> {
                         #[cfg(feature = "std")]
                         let mut errors = Vec::new();
+                        #[cfg(feature = "std")]
+                        let mut unmatched_enums = Vec::new();
 
                         let content = serde_json::Value::deserialize(deserializer)?;
                         #(
@@ -251,7 +253,14 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
                                     ),
                                     Err(error) => {
                                         #[cfg(feature = "std")]
-                                        errors.push((error, stringify!(#untagged_variants_ty)));
+                                        {
+                                            let msg = error.to_string();
+                                            if msg.starts_with("unknown variant") {
+                                                unmatched_enums.push((msg, stringify!(#untagged_variants_ty)));
+                                            } else {
+                                                errors.push((msg, stringify!(#untagged_variants_ty)));
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -262,19 +271,34 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
                                 Ok(candidate) => return Ok(#deser_helper::Other(candidate)),
                                 Err(error) => {
                                     #[cfg(feature = "std")]
-                                    errors.push((error, stringify!(#internal_repr_ident)));
+                                    {
+                                        let msg = error.to_string();
+                                        if msg.starts_with("unknown variant") {
+                                            unmatched_enums.push((msg, stringify!(#internal_repr_ident)));
+                                        } else {
+                                            errors.push((msg, stringify!(#internal_repr_ident)));
+                                        }
+                                    }
                                 }
                             }
                         }
                         #[cfg(feature = "std")]
                         {
                             let mut message = #no_successful_untagged_variant_match.to_string();
+                            for (error, candidate_type) in unmatched_enums {
+                                message +="Candidate `";
+                                message += &candidate_type;
+                                message += "` unsuitable: ";
+                                message += &error;
+                                message += "\n";
+                            }
+                            message+="\n--------------\n";
                             for (error, candidate_type) in errors {
-                                message +=". ";
                                 message +="Candidate `";
                                 message += &candidate_type;
                                 message += "` failed to deserialize with error: ";
-                                message += &error.to_string();
+                                message += &error;
+                                message += "\n";
                             }
                             Err(::serde::de::Error::custom(message))
                         }
