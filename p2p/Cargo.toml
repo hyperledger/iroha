@@ -9,12 +9,12 @@ license.workspace = true
 categories = ["network-programming"]
 
 [dependencies]
-iroha_logger = { version = "=2.0.0-pre-rc.13", path = "../logger" }
-iroha_crypto = { version = "=2.0.0-pre-rc.13", path = "../crypto" }
-iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../data_model" }
-iroha_primitives = { version = "=2.0.0-pre-rc.13", path = "../primitives" }
-iroha_config_base = { version = "=2.0.0-pre-rc.13", path = "../config/base" }
-iroha_data_model_derive = { version = "=2.0.0-pre-rc.13", path = "../data_model/derive" }
+iroha_logger = { version = "=2.0.0-pre-rc.16", path = "../logger" }
+iroha_crypto = { version = "=2.0.0-pre-rc.16", path = "../crypto" }
+iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "../data_model" }
+iroha_primitives = { version = "=2.0.0-pre-rc.16", path = "../primitives" }
+iroha_config_base = { version = "=2.0.0-pre-rc.16", path = "../config/base" }
+iroha_data_model_derive = { version = "=2.0.0-pre-rc.16", path = "../data_model/derive" }
 
 rand = "0.8.5"
 tokio = { version = "1.23.0", features = ["rt-multi-thread", "macros", "io-util", "net"] }
@@ -28,4 +28,4 @@ derive_more = "0.99.17"
 bytes = "1.4.0"
 
 [dev-dependencies]
-test_network = { version = "=2.0.0-pre-rc.13", path = "../core/test_network" }
+test_network = { version = "=2.0.0-pre-rc.16", path = "../core/test_network" }

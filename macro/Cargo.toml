@@ -19,4 +19,4 @@ default = ["std"]
 std = []
 
 [dependencies]
-iroha_derive = { version = "=2.0.0-pre-rc.13", path = "derive" }
+iroha_derive = { version = "=2.0.0-pre-rc.16", path = "derive" }

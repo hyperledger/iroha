@@ -22,6 +22,6 @@ proc-macro2 = "1.0.49"
 proc-macro-error = "1.0.4"
 
 [dev-dependencies]
-iroha_core = { version = "=2.0.0-pre-rc.13", path = "../../core" }
+iroha_core = { version = "=2.0.0-pre-rc.16", path = "../../core" }
 
 trybuild = "1.0.73"

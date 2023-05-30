@@ -10,13 +10,13 @@ description = "A tool used to generate cryptographic keys, docs, the schema and 
 license.workspace = true
 
 [dependencies]
-iroha_crypto = { version = "=2.0.0-pre-rc.13", path = "../../crypto" }
-iroha_config = { version = "=2.0.0-pre-rc.13", path = "../../config" }
-iroha_data_model = { version = "=2.0.0-pre-rc.13", path = "../../data_model" }
-iroha_schema_gen = { version = "=2.0.0-pre-rc.13", path = "../../schema/gen" }
-iroha_primitives = { version = "2.0.0-pre-rc.13", path = "../../primitives" }
-iroha_genesis = { version = "=2.0.0-pre-rc.13", path = "../../genesis" }
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.13", path = "../../wasm_builder" }
+iroha_crypto = { version = "=2.0.0-pre-rc.16", path = "../../crypto" }
+iroha_config = { version = "=2.0.0-pre-rc.16", path = "../../config" }
+iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "../../data_model" }
+iroha_schema_gen = { version = "=2.0.0-pre-rc.16", path = "../../schema/gen" }
+iroha_primitives = { version = "2.0.0-pre-rc.16", path = "../../primitives" }
+iroha_genesis = { version = "=2.0.0-pre-rc.16", path = "../../genesis" }
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.16", path = "../../wasm_builder" }
 
 color-eyre = "0.6.2"
 clap = { version = "4.2.1", features = ["derive"] }
