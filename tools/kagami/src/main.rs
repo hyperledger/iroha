@@ -201,7 +201,7 @@ pub enum Args {
     /// you are running, the generated configuration might not work.
     #[clap(verbatim_doc_comment)]
     Swarm(swarm::Args),
-    /// Render CLI help message as Markdown
+    /// Render `kagami` documentation and examples as Markdown
     ///
     /// **Example:**
     ///
