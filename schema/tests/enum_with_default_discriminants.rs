@@ -26,7 +26,7 @@ fn default_discriminants() {
         (
             TypeId::of::<core::result::Result<bool, alloc::string::String>>(),
             (
-                "Result<Bool, String>".to_owned(),
+                "Result<bool, String>".to_owned(),
                 Result(ResultMeta {
                     ok: TypeId::of::<bool>(),
                     err: TypeId::of::<alloc::string::String>(),
@@ -37,7 +37,7 @@ fn default_discriminants() {
             TypeId::of::<alloc::string::String>(),
             ("String".to_owned(), String),
         ),
-        (TypeId::of::<bool>(), ("Bool".to_owned(), Bool)),
+        (TypeId::of::<bool>(), ("bool".to_owned(), Bool)),
         (
             TypeId::of::<Foo>(),
             (

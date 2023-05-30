@@ -30,13 +30,13 @@ ffi_export = ["std", "iroha_ffi", "iroha_primitives/ffi_export", "iroha_crypto/f
 transparent_api = []
 
 [dependencies]
-iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.13", default-features = false }
-iroha_data_model_derive = { path = "derive", version = "=2.0.0-pre-rc.13" }
-iroha_crypto = { path = "../crypto", version = "=2.0.0-pre-rc.13", default-features = false }
-iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.13", default-features = false }
-iroha_version = { path = "../version", version = "=2.0.0-pre-rc.13", default-features = false, features = ["derive", "json", "scale"] }
-iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.13" }
-iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.13", optional = true }
+iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.16", default-features = false }
+iroha_data_model_derive = { path = "derive", version = "=2.0.0-pre-rc.16" }
+iroha_crypto = { path = "../crypto", version = "=2.0.0-pre-rc.16", default-features = false }
+iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.16", default-features = false }
+iroha_version = { path = "../version", version = "=2.0.0-pre-rc.16", default-features = false, features = ["derive", "json", "scale"] }
+iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.16" }
+iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.16", optional = true }
 
 dashmap = { version = "5.4.0", optional = true }
 tokio = { version = "1.23.0", features = ["sync", "rt-multi-thread"], optional = true }
@@ -53,7 +53,7 @@ base64 = { version = "0.13.1", default-features = false, features = ["alloc"]}
 sealed = "0.5.0"
 
 [dev-dependencies]
-iroha_client = { path = "../client", version = "=2.0.0-pre-rc.13" }
+iroha_client = { path = "../client", version = "=2.0.0-pre-rc.16" }
 
 trybuild = "1.0.73"
 criterion = "0.3.6"

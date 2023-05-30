@@ -306,12 +306,12 @@ impl IntoSchema for String {
 
 impl TypeId for bool {
     fn id() -> String {
-        "Bool".to_owned()
+        "bool".to_owned()
     }
 }
 impl IntoSchema for bool {
     fn type_name() -> String {
-        "Bool".to_owned()
+        "bool".to_owned()
     }
     fn update_schema_map(map: &mut MetaMap) {
         if !map.contains_key::<Self>() {

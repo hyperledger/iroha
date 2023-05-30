@@ -15,7 +15,7 @@ categories = ["development-tools::ffi"]
 non_robust_ref_mut = []
 
 [dependencies]
-iroha_ffi_derive = { version = "=2.0.0-pre-rc.13", path = "derive" }
+iroha_ffi_derive = { version = "=2.0.0-pre-rc.16", path = "derive" }
 
 derive_more = { version = "0.99.17", default-features = false, features = ["display"] }
 

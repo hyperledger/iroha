@@ -73,7 +73,6 @@ pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
     let env_fetcher_ident = quote! { env_fetcher };
     let fetch_env_trait = quote! { ::iroha_config_base::proxy::FetchEnv };
     let env_trait = quote! { ::iroha_config_base::proxy::LoadFromEnv };
-    let load_from_env_err = quote! {::iroha_config_base::proxy::LoadFromEnvError};
 
     let set_field = ast.fields
         .iter()
@@ -108,10 +107,17 @@ pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
             };
             let mut set_field = quote! {
                 let #ident = #env_fetcher_ident.fetch(#field_env)
-                    // omit a possible unicode error
+                    // treating unicode errors the same as variable absence
                     .ok()
                     .map(|var| {
-                        #inner.map_err(|err| #load_from_env_err::json5(#field_env, err))
+                        #inner.map_err(|err| {
+                            ::iroha_config_base::derive::Error::field_deserialization_from_json5(
+                                // FIXME: specify location precisely
+                                //        https://github.com/hyperledger/iroha/issues/3470
+                                #field_env,
+                                &err
+                            )
+                        })
                     })
                     .transpose()?;
             };
@@ -139,7 +145,7 @@ pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
         .collect::<Vec<_>>();
     quote! {
         impl #env_trait for #name {
-            type ReturnValue = Result<Self, #load_from_env_err>;
+            type ReturnValue = Result<Self, ::iroha_config_base::derive::Error>;
             fn from_env<F: #fetch_env_trait>(#env_fetcher_ident: &F) -> Self::ReturnValue {
                 #(#set_field)*
                 let proxy = #name {

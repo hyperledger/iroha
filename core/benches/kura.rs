@@ -4,7 +4,7 @@ use std::str::FromStr as _;
 
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
-use iroha_core::{block::*, kura::BlockStore, prelude::*, tx::TransactionValidator, wsv::World};
+use iroha_core::{block::*, kura::BlockStore, prelude::*, wsv::World};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{block::VersionedCommittedBlock, prelude::*, transaction::InBlock};
 use iroha_version::scale::EncodeVersioned;
@@ -44,12 +44,9 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     let mut block = BlockBuilder {
         transactions: vec![tx],
         event_recommendations: Vec::new(),
-        height: 1,
-        previous_block_hash: None,
         view_change_index: 0,
         committed_with_topology: iroha_core::sumeragi::network_topology::Topology::new(Vec::new()),
         key_pair: KeyPair::generate().expect("Failed to generate KeyPair"),
-        transaction_validator: &TransactionValidator::new(transaction_limits),
         wsv: WorldStateView::new(World::new(), kura),
     }
     .build();

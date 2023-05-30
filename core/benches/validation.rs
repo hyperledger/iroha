@@ -138,7 +138,6 @@ fn sign_blocks(criterion: &mut Criterion) {
     let transaction =
         <AcceptedTransaction as InBlock>::accept(build_test_transaction(keys), &TRANSACTION_LIMITS)
             .expect("Failed to accept transaction.");
-    let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
 
@@ -149,12 +148,9 @@ fn sign_blocks(criterion: &mut Criterion) {
             let block = BlockBuilder {
                 transactions: vec![transaction.clone().into()],
                 event_recommendations: Vec::new(),
-                height: 1,
-                previous_block_hash: None,
                 view_change_index: 0,
                 committed_with_topology: Topology::new(Vec::new()),
                 key_pair: key_pair.clone(),
-                transaction_validator: &transaction_validator,
                 wsv: WorldStateView::new(World::new(), kura.clone()),
             }
             .build();

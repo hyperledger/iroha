@@ -108,8 +108,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        block::*, kura::Kura, smartcontracts::isi::Registrable as _, tx::TransactionValidator,
-        wsv::World, PeersIds,
+        block::*, kura::Kura, smartcontracts::isi::Registrable as _, wsv::World, PeersIds,
     };
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
@@ -194,6 +193,8 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
 
+        wsv.config.borrow_mut().transaction_limits = limits;
+
         let valid_tx = {
             let tx =
                 TransactionBuilder::new(ALICE_ID.clone(), vec![], 4000).sign(ALICE_KEYS.clone())?;
@@ -214,40 +215,31 @@ mod tests {
         let first_block: VersionedCommittedBlock = BlockBuilder {
             transactions: transactions.clone(),
             event_recommendations: Vec::new(),
-            height: 1,
-            previous_block_hash: None,
             view_change_index: 0,
             committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
             key_pair: ALICE_KEYS.clone(),
-            transaction_validator: &TransactionValidator::new(limits),
             wsv: wsv.clone(),
         }
         .build()
         .commit_unchecked()
         .into();
 
-        let mut curr_hash = first_block.hash();
-
         wsv.apply(&first_block)?;
         kura.store_block(first_block);
 
-        for height in 1u64..blocks {
+        for _ in 1u64..blocks {
             let block: VersionedCommittedBlock = BlockBuilder {
                 transactions: transactions.clone(),
                 event_recommendations: Vec::new(),
-                height,
-                previous_block_hash: Some(curr_hash),
                 view_change_index: 0,
                 committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
                 key_pair: ALICE_KEYS.clone(),
-                transaction_validator: &TransactionValidator::new(limits),
                 wsv: wsv.clone(),
             }
             .build()
             .commit_unchecked()
             .into();
 
-            curr_hash = block.hash();
             wsv.apply(&block)?;
             kura.store_block(block);
         }
@@ -369,23 +361,18 @@ mod tests {
         let tx = TransactionBuilder::new(ALICE_ID.clone(), Vec::new(), 4000);
         let signed_tx = tx.sign(ALICE_KEYS.clone())?;
 
-        let tx_limits = TransactionLimits {
-            max_instruction_number: 4096,
-            max_wasm_size_bytes: 0,
-        };
-
-        let va_tx: VersionedAcceptedTransaction =
-            <AcceptedTransaction as InBlock>::accept(signed_tx, &tx_limits)?.into();
+        let va_tx: VersionedAcceptedTransaction = <AcceptedTransaction as InBlock>::accept(
+            signed_tx,
+            &wsv.transaction_validator().transaction_limits,
+        )?
+        .into();
 
         let vcb: VersionedCommittedBlock = BlockBuilder {
             transactions: vec![va_tx.clone()],
             event_recommendations: Vec::new(),
-            height: 1,
-            previous_block_hash: None,
             view_change_index: 0,
             committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
             key_pair: ALICE_KEYS.clone(),
-            transaction_validator: &TransactionValidator::new(tx_limits),
             wsv: wsv.clone(),
         }
         .build()
