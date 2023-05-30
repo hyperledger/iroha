@@ -462,7 +462,13 @@ pub fn combine_configs(args: &Arguments) -> color_eyre::eyre::Result<Configurati
                 eprintln!("Configuration file not found. Using environment variables as fallback.");
                 ConfigurationProxy::default()
             },
-            |path| ConfigurationProxy::from_path(&path.as_path()),
+            |path| {
+                let path_proxy = ConfigurationProxy::from_path(&path.as_path());
+                // Override the default to ensure that the variables
+                // not specified in the config file don't have to be
+                // explicitly specified in the env.
+                ConfigurationProxy::default().override_with(path_proxy)
+            },
         )
         .override_with(ConfigurationProxy::from_env())
         .build()
