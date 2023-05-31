@@ -44,7 +44,7 @@ parity-scale-codec = { version = "3.2.1", default-features = false, features = [
 derive_more = { version = "0.99.17", default-features = false, features = ["as_ref", "display", "constructor", "from_str", "from", "into"] }
 serde = { version = "1.0.151", default-features = false, features = ["derive"] }
 serde_with = {version = "2.2.0", default-features = false, features = ["macros"]}
-serde_json = { version = "1.0.91", default-features = false }
+serde_json = { version = "1.0.91", default-features = false, features = ["arbitrary_precision"] }
 warp = { version = "0.3.3", default-features = false, optional = true }
 thiserror = { version = "1.0.38", optional = true }
 getset = "0.1.2"
