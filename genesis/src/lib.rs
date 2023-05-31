@@ -226,6 +226,7 @@ impl RawGenesisBlock {
 /// `GenesisTransaction` is a transaction for initialize settings.
 #[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
 #[serde(transparent)]
+#[schema(transparent)]
 #[repr(transparent)]
 pub struct GenesisTransaction {
     /// Instructions

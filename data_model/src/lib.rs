@@ -908,7 +908,7 @@ pub mod model {
         IntoSchema,
     )]
     // SAFETY: VersionedCommittedBlockWrapper has no trap representations in VersionedCommittedBlock
-    #[schema(transparent = "VersionedCommittedBlock")]
+    #[schema(transparent)]
     #[ffi_type(unsafe {robust})]
     #[serde(transparent)]
     #[repr(transparent)]
@@ -933,7 +933,7 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
-    #[schema(transparent = "Box<VersionedCommittedBlock>")]
+    #[schema(transparent)]
     #[as_ref(forward)]
     #[deref(forward)]
     #[from(forward)]

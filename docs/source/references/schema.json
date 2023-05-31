@@ -2041,14 +2041,6 @@
       }
     ]
   },
-  "GenesisTransaction": {
-    "Struct": [
-      {
-        "name": "isi",
-        "type": "Vec<InstructionBox>"
-      }
-    ]
-  },
   "GrantBox": {
     "Struct": [
       {
@@ -3272,7 +3264,7 @@
     "Struct": [
       {
         "name": "transactions",
-        "type": "Vec<GenesisTransaction>"
+        "type": "Vec<Vec<InstructionBox>>"
       },
       {
         "name": "validator",
@@ -4393,9 +4385,6 @@
   "Vec<GenericPredicateBox<ValuePredicate>>": {
     "Vec": "GenericPredicateBox<ValuePredicate>"
   },
-  "Vec<GenesisTransaction>": {
-    "Vec": "GenesisTransaction"
-  },
   "Vec<InstructionBox>": {
     "Vec": "InstructionBox"
   },
@@ -4407,6 +4396,9 @@
   },
   "Vec<Value>": {
     "Vec": "Value"
+  },
+  "Vec<Vec<InstructionBox>>": {
+    "Vec": "Vec<InstructionBox>"
   },
   "Vec<VersionedRejectedTransaction>": {
     "Vec": "VersionedRejectedTransaction"

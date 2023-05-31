@@ -281,7 +281,7 @@ impl<T: parity_scale_codec::Encode> SignatureOf<T> {
 /// to compare signatures only by their [`PublicKey`].
 #[derive(Deref, DerefMut, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 #[serde(transparent, bound(deserialize = ""))]
-#[schema(transparent = "SignatureOf<T>")]
+#[schema(transparent)]
 #[repr(transparent)]
 #[cfg(not(feature = "ffi_import"))]
 pub struct SignatureWrapperOf<T>(
