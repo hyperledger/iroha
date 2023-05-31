@@ -6,9 +6,11 @@ use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
 use quote::quote;
 use syn::{
-    parse::Parse, parse_macro_input, parse_quote, spanned::Spanned, Attribute, Data, DataEnum,
-    DataStruct, DeriveInput, Expr, Field, Fields, FieldsNamed, FieldsUnnamed, GenericParam,
-    Generics, LitStr, Meta, NestedMeta, Type,
+    parse::{Parse, ParseStream, Result},
+    parse_macro_input, parse_quote,
+    spanned::Spanned,
+    Attribute, Data, DataEnum, DataStruct, DeriveInput, Expr, Field, Fields, FieldsNamed,
+    FieldsUnnamed, GenericParam, Generics, LitStr, Meta, NestedMeta, Type,
 };
 
 /// Derive [`iroha_schema::TypeId`]
@@ -60,9 +62,42 @@ fn impl_type_id(input: &mut DeriveInput) -> TokenStream2 {
     }
 }
 
+mod kw {
+    syn::custom_keyword!(transparent);
+}
+
+struct TransparentAttr {
+    _transparent_kw: kw::transparent,
+    equal_ty: Option<(syn::token::Eq, syn::Type)>,
+}
+
+impl Parse for TransparentAttr {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let transparent_kw = input.parse()?;
+
+        let equal_ty = if let Ok(equal) = input.parse() {
+            let ty_str: syn::LitStr = input.parse()?;
+            let ty = syn::parse_str(&ty_str.value())?;
+            Some((equal, ty))
+        } else {
+            None
+        };
+
+        Ok(TransparentAttr {
+            _transparent_kw: transparent_kw,
+            equal_ty,
+        })
+    }
+}
+
 /// Derive [`iroha_schema::IntoSchema`] and [`iroha_schema::TypeId`]
 ///
 /// Check out [`iroha_schema`] documentation
+///
+/// # Panics
+///
+/// - If found invalid `transparent` attribute
+/// - If it's impossible to infer the type for transparent attribute
 #[proc_macro_derive(IntoSchema, attributes(schema))]
 pub fn schema_derive(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
@@ -79,21 +114,28 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
         .attrs
         .iter()
         .find_map(|attr| {
-            if let Ok(Meta::List(list)) = attr.parse_meta() {
-                if list.path.is_ident("schema") {
-                    let type_id = list.nested.first().expect("Missing type_id");
-
-                    if let NestedMeta::Meta(Meta::NameValue(name_value)) = type_id {
-                        if name_value.path.is_ident("transparent") {
-                            if let syn::Lit::Str(transparent_type) = &name_value.lit {
-                                return Some(transparent_type.parse().expect("Invalid bound"));
-                            }
-                        }
-                    }
-                }
-            }
-
-            None
+            attr.path
+                .is_ident("schema")
+                .then(|| {
+                    let token = attr
+                        .tokens
+                        .clone()
+                        .into_iter()
+                        .next()
+                        .expect("Expected tokens in schema attribute");
+                    let stream = if let proc_macro2::TokenTree::Group(group) = token {
+                        group.stream()
+                    } else {
+                        panic!("Expected group in schema attribute")
+                    };
+                    syn::parse::<TransparentAttr>(stream.into()).ok()
+                })
+                .flatten()
+        })
+        .map(|transparent_attr| {
+            transparent_attr
+                .equal_ty
+                .map_or_else(|| infer_transparent_type(&input.data).clone(), |(_, ty)| ty)
         })
         .map_or_else(
             || impl_into_schema(&input),
@@ -131,6 +173,7 @@ fn impl_transparent_into_schema(input: &DeriveInput, transparent_type: &syn::Typ
         }
     }
 }
+
 fn impl_into_schema(input: &DeriveInput) -> TokenStream2 {
     let name = &input.ident;
     let type_name_body = trait_body(name, &input.generics, false);
@@ -146,6 +189,82 @@ fn impl_into_schema(input: &DeriveInput) -> TokenStream2 {
             fn update_schema_map(map: &mut iroha_schema::MetaMap) {
                #metadata
             }
+        }
+    }
+}
+
+fn infer_transparent_type(input: &Data) -> &syn::Type {
+    const TRY_MESSAGE: &str =
+        "try to specify it explicitly using #[schema(transparent = \"Type\")]";
+
+    match input {
+        Data::Enum(data_enum) => {
+            assert!(
+                data_enum.variants.len() == 1,
+                "Enums with only one variant support transparent type inference, {}",
+                TRY_MESSAGE
+            );
+
+            let variant = data_enum.variants.iter().next().unwrap();
+            let syn::Fields::Unnamed(unnamed_fields) = &variant.fields else {
+                panic!(
+                    "Only unnamed fields are supported for transparent type inference, {}",
+                    TRY_MESSAGE,
+                )
+            };
+
+            assert!(
+                unnamed_fields.unnamed.len() == 1,
+                "Enums with only one unnamed field support transparent type inference, {}",
+                TRY_MESSAGE
+            );
+            let field = unnamed_fields.unnamed.iter().next().unwrap();
+
+            &field.ty
+        }
+        Data::Struct(DataStruct {
+            fields: Fields::Named(fields),
+            ..
+        }) => {
+            assert!(
+                fields.named.len() == 1,
+                "Structs with only one named field support transparent type inference, {}",
+                TRY_MESSAGE
+            );
+            let field = fields.named.iter().next().expect("Checked via `len`");
+            &field.ty
+        }
+        Data::Struct(DataStruct {
+            fields: Fields::Unnamed(unnamed_fields),
+            ..
+        }) => {
+            assert!(
+                unnamed_fields.unnamed.len() == 1,
+                "Structs with only one unnamed field support transparent type inference, {}",
+                TRY_MESSAGE
+            );
+            let field = unnamed_fields
+                .unnamed
+                .iter()
+                .next()
+                .expect("Checked via `len`");
+
+            &field.ty
+        }
+        Data::Struct(DataStruct {
+            fields: Fields::Unit,
+            ..
+        }) => {
+            panic!(
+                "Transparent attribute type inference is not supported for unit structs, {}",
+                TRY_MESSAGE,
+            )
+        }
+        Data::Union(_) => {
+            panic!(
+                "Transparent attribute type inference is not supported for unions, {}",
+                TRY_MESSAGE,
+            )
         }
     }
 }
@@ -219,7 +338,7 @@ fn metadata(data: &Data) -> TokenStream2 {
             (vec![], expr)
         }
         #[allow(clippy::unimplemented)]
-        Data::Union(_) => unimplemented!(),
+        Data::Union(_) => unimplemented!("Unimplemented for union"),
     };
 
     quote! {
