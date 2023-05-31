@@ -46,10 +46,11 @@ use iroha_data_model_derive::{
 };
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_primitives::{
-    fixed::{self, FixedPointOperationError},
+    fixed,
     small::{Array as SmallArray, SmallVec},
 };
 use iroha_schema::IntoSchema;
+pub use numeric::model::NumericValue;
 use parity_scale_codec::{Decode, Encode};
 use prelude::{Executable, TransactionQueryResult};
 use serde::{Deserialize, Serialize};
@@ -70,6 +71,7 @@ pub mod ipfs;
 pub mod isi;
 pub mod metadata;
 pub mod name;
+pub mod numeric;
 #[cfg(feature = "http")]
 pub mod pagination;
 pub mod peer;
@@ -853,40 +855,6 @@ pub mod model {
         Validator(validator::Validator),
     }
 
-    /// Enum for all supported numeric values
-    #[derive(
-        DebugCustom,
-        Display,
-        Copy,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Hash,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[ffi_type]
-    pub enum NumericValue {
-        /// `u32` value
-        #[debug(fmt = "{_0}_u32")]
-        U32(u32),
-        /// `u64` value
-        #[debug(fmt = "{_0}_u64")]
-        U64(u64),
-        /// `u128` value
-        #[debug(fmt = "{_0}_u126")]
-        U128(u128),
-        /// `Fixed` value
-        #[debug(fmt = "{_0}_fx")]
-        Fixed(fixed::Fixed),
-    }
-
     /// Cross-platform wrapper for [`VersionedCommittedBlock`].
     #[cfg(not(target_arch = "aarch64"))]
     #[derive(
@@ -1033,27 +1001,6 @@ macro_rules! val_vec {
     () => { Vec::new() };
     ($elem:expr; $n:expr) => { vec![$crate::Value::from($elem); $n] };
     ($($x:expr),+ $(,)?) => { vec![$($crate::Value::from($x),)+] };
-}
-
-impl NumericValue {
-    /// Return `true` if value is zero
-    pub const fn is_zero_value(self) -> bool {
-        use NumericValue::*;
-        match self {
-            U32(value) => value == 0_u32,
-            U64(value) => value == 0_u64,
-            U128(value) => value == 0_u128,
-            Fixed(value) => value.is_zero(),
-        }
-    }
-}
-
-impl TryFrom<f64> for NumericValue {
-    type Error = FixedPointOperationError;
-
-    fn try_from(source: f64) -> Result<Self, Self::Error> {
-        source.try_into().map(Self::Fixed)
-    }
 }
 
 #[cfg(target_arch = "aarch64")]

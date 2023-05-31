@@ -222,6 +222,14 @@ impl Decode for Fixed {
     }
 }
 
+impl core::str::FromStr for Fixed {
+    type Err = FixedPointOperationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        FixNum::from_str(s).map(Self).map_err(Into::into)
+    }
+}
+
 #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
 mod ffi {
     //! Manual implementations of FFI related functionality

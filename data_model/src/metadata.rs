@@ -303,6 +303,7 @@ mod tests {
         assert!(metadata
             .nested_insert_with_limits(&empty_path, "0".to_owned().into(), Limits::new(12, 12))
             .is_err());
+        #[cfg(feature = "transparent_api")]
         assert!(metadata.nested_remove(&empty_path).is_none());
     }
 
@@ -365,6 +366,7 @@ mod tests {
             .nested_insert_with_limits(&bad_path, "Hello World".to_owned().into(), limits)
             .is_err());
         assert!(metadata.nested_get(&bad_path).is_none());
+        #[cfg(feature = "transparent_api")]
         assert!(metadata.nested_remove(&bad_path).is_none());
         Ok(())
     }
