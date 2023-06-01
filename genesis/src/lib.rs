@@ -141,9 +141,7 @@ impl TryFrom<ValidatorMode> for Validator {
     fn try_from(value: ValidatorMode) -> Result<Self> {
         match value {
             ValidatorMode::Inline(validator) => Ok(validator),
-            ValidatorMode::Path(ValidatorPath {
-                validator_path: relative_validator_path,
-            }) => {
+            ValidatorMode::Path(ValidatorPath(relative_validator_path)) => {
                 let wasm = fs::read(&relative_validator_path)
                     .wrap_err(format!("Failed to open {:?}", &relative_validator_path))?;
                 Ok(Validator::new(WasmSmartContract::from_compiled(wasm)))
@@ -153,37 +151,13 @@ impl TryFrom<ValidatorMode> for Validator {
 }
 
 /// Path to the validator relative to genesis location
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ValidatorPath {
-    /// Path to validator.
-    /// If path is absolute it will be used directly otherwise it will be treated as relative to genesis location.
-    pub validator_path: PathBuf,
-}
-
-// Manual implementation because we want `PathBuf` appear as `String` in schema
-impl iroha_schema::TypeId for ValidatorPath {
-    fn id() -> String {
-        "ValidatorPath".to_string()
-    }
-}
-impl iroha_schema::IntoSchema for ValidatorPath {
-    fn type_name() -> String {
-        "ValidatorPath".to_string()
-    }
-    fn update_schema_map(map: &mut iroha_schema::MetaMap) {
-        if !map.contains_key::<Self>() {
-            map.insert::<Self>(iroha_schema::Metadata::Struct(
-                iroha_schema::NamedFieldsMeta {
-                    declarations: vec![iroha_schema::Declaration {
-                        name: String::from(stringify!(validator_relative_path)),
-                        ty: core::any::TypeId::of::<String>(),
-                    }],
-                },
-            ));
-            <String as iroha_schema::IntoSchema>::update_schema_map(map);
-        }
-    }
-}
+///
+/// If path is absolute it will be used directly otherwise it will be treated as relative to genesis location.
+#[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
+#[schema(transparent = "String")]
+#[serde(transparent)]
+#[repr(transparent)]
+pub struct ValidatorPath(pub PathBuf);
 
 impl ValidatorPath {
     fn set_genesis_path(&mut self, genesis_path: impl AsRef<Path>) {
@@ -191,8 +165,8 @@ impl ValidatorPath {
             .as_ref()
             .parent()
             .expect("Genesis must be in some directory")
-            .join(&self.validator_path);
-        self.validator_path = path_to_validator;
+            .join(&self.0);
+        self.0 = path_to_validator;
     }
 }
 
@@ -409,9 +383,7 @@ mod tests {
     use super::*;
 
     fn dummy_validator() -> ValidatorMode {
-        ValidatorMode::Path(ValidatorPath {
-            validator_path: "./validator.wasm".into(),
-        })
+        ValidatorMode::Path(ValidatorPath("./validator.wasm".into()))
     }
 
     #[test]
