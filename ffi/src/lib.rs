@@ -19,7 +19,7 @@ use repr_c::{
 pub mod handle;
 pub mod ir;
 pub mod option;
-mod primitives;
+pub mod primitives;
 pub mod repr_c;
 pub mod slice;
 mod std_impls;
