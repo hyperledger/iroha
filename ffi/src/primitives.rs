@@ -1,6 +1,14 @@
 //! Logic related to the conversion of primitives to and from FFI-compatible representation
 
-use crate::ffi_type;
+use crate::{
+    ffi_type,
+    ir::Ir,
+    repr_c::{
+        read_non_local, write_non_local, COutPtr, COutPtrRead, COutPtrWrite, CType, CTypeConvert,
+        CWrapperType, Cloned, NonLocal,
+    },
+    FfiTuple2, ReprC, Result,
+};
 
 #[cfg(target_family = "wasm")]
 mod wasm {
@@ -133,5 +141,153 @@ primitive_derive! { u32, i32, u64, i64 }
 #[cfg(not(target_family = "wasm"))]
 primitive_derive! { u8, i8, u16, i16 }
 
-// TODO: u128/i128 is not FFI-safe. Must be properly serialized!
-primitive_derive! { u128, i128 }
+/// Ffi-safe representation of [`u128`]
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(transparent)]
+pub struct FfiU128(FfiTuple2<u64, u64>);
+
+// SAFETY: Transparent to `FfiTuple<u64, u64>` which is `ReprC`
+unsafe impl ReprC for FfiU128 {}
+
+/// Ffi-safe representation of [`i128`]
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(transparent)]
+pub struct FfiI128(FfiTuple2<u64, u64>);
+
+// SAFETY: Transparent to `FfiTuple<u64, u64>` which is `ReprC`
+unsafe impl ReprC for FfiI128 {}
+
+macro_rules! int128_derive {
+    ($($src:ty => $dst:ty),+$(,)?) => {$(
+        impl Ir for $src {
+            type Type = Self;
+        }
+
+        impl CType<Self> for $src {
+            type ReprC = $dst;
+        }
+
+        impl CTypeConvert<'_, Self, $dst> for $src {
+            type RustStore = ();
+            type FfiStore = ();
+
+            fn into_repr_c(self, _: &mut Self::RustStore) -> $dst {
+                self.into()
+            }
+
+            // NOTE: calling this function should be safe since no pointers involved in conversion
+            unsafe fn try_from_repr_c(value: $dst, _: &mut Self::FfiStore) -> Result<Self> {
+                Ok(value.into())
+            }
+        }
+        impl Cloned for $src {}
+
+        // SAFETY: `u128/i128` doesn't use local store during conversion
+        unsafe impl NonLocal<Self> for $src {}
+
+        impl CWrapperType<Self> for $src {
+            type InputType = Self;
+            type ReturnType = Self;
+        }
+
+        impl COutPtr<Self> for $src {
+            type OutPtr = Self::ReprC;
+        }
+
+        impl COutPtrWrite<Self> for $src {
+            unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
+                write_non_local::<_, Self>(self, out_ptr);
+            }
+        }
+
+        impl COutPtrRead<Self> for $src {
+            unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
+                read_non_local::<Self, Self>(out_ptr)
+            }
+        }
+    )*};
+}
+
+// Ffi-safe u128/i128 conversions
+int128_derive! { u128 => FfiU128, i128 => FfiI128 }
+
+impl From<u128> for FfiU128 {
+    #[allow(
+        clippy::cast_possible_truncation, // Truncation is done on purpose
+        clippy::arithmetic_side_effects
+    )]
+    #[inline]
+    fn from(value: u128) -> Self {
+        let lo = value as u64;
+        let hi = (value >> 64) as u64;
+        FfiU128(FfiTuple2(hi, lo))
+    }
+}
+
+impl From<FfiU128> for u128 {
+    #[allow(
+        clippy::cast_lossless,
+        clippy::cast_possible_truncation, // Truncation is done on purpose
+        clippy::arithmetic_side_effects
+    )]
+    #[inline]
+    fn from(FfiU128(FfiTuple2(hi, lo)): FfiU128) -> Self {
+        ((hi as u128) << 64) | (lo as u128)
+    }
+}
+
+impl From<i128> for FfiI128 {
+    #[allow(clippy::cast_sign_loss)] // Intended behavior
+    fn from(value: i128) -> Self {
+        FfiI128(FfiU128::from(value as u128).0)
+    }
+}
+
+impl From<FfiI128> for i128 {
+    #[allow(clippy::cast_possible_wrap)] // Intended behavior
+    fn from(value: FfiI128) -> Self {
+        u128::from(FfiU128(value.0)) as i128
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conversion_u128() {
+        let values = [
+            u128::MAX,
+            u128::from(u64::MAX),
+            u128::from(u32::MAX),
+            u128::from(u16::MAX),
+            u128::from(u8::MAX),
+            0,
+        ];
+
+        for value in values {
+            assert_eq!(value, FfiU128::from(value).into())
+        }
+    }
+
+    #[test]
+    fn conversion_i128() {
+        let values = [
+            i128::MAX,
+            i128::from(i64::MAX),
+            i128::from(i32::MAX),
+            i128::from(i16::MAX),
+            i128::from(i8::MAX),
+            0,
+            i128::from(i8::MIN),
+            i128::from(i16::MIN),
+            i128::from(i32::MIN),
+            i128::from(i64::MIN),
+            i128::MIN,
+        ];
+
+        for value in values {
+            assert_eq!(value, FfiI128::from(value).into())
+        }
+    }
+}
