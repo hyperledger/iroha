@@ -561,7 +561,5 @@
       }
     ]
   ],
-  "validator": {
-    "validator_path": "./validator.wasm"
-  }
+  "validator": "./validator.wasm"
 }
