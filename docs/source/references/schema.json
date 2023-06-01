@@ -4101,20 +4101,12 @@
       {
         "tag": "Path",
         "discriminant": 0,
-        "type": "ValidatorPath"
+        "type": "String"
       },
       {
         "tag": "Inline",
         "discriminant": 1,
         "type": "Validator"
-      }
-    ]
-  },
-  "ValidatorPath": {
-    "Struct": [
-      {
-        "name": "validator_relative_path",
-        "type": "String"
       }
     ]
   },

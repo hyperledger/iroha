@@ -289,7 +289,7 @@ mod genesis {
         )?;
 
         let validator = match validator_path {
-            Some(validator_path) => ValidatorMode::Path(ValidatorPath { validator_path }),
+            Some(validator_path) => ValidatorMode::Path(ValidatorPath(validator_path)),
             None => ValidatorMode::Inline(construct_validator()?),
         };
 
@@ -417,7 +417,7 @@ mod genesis {
         assets_per_domain: u64,
     ) -> color_eyre::Result<RawGenesisBlock> {
         let validator = match validator_path {
-            Some(validator_path) => ValidatorMode::Path(ValidatorPath { validator_path }),
+            Some(validator_path) => ValidatorMode::Path(ValidatorPath(validator_path)),
             None => ValidatorMode::Inline(construct_validator()?),
         };
 
