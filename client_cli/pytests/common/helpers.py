@@ -4,20 +4,20 @@ import string
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from common.consts import Name, fake
+from common.consts import ReservedChars, fake
 
 
 
 def generate_random_string_with_reserved_char():
     string = fake.word()
-    letter = random.choice(Name.RESERVED_CHARS.value)
+    letter = random.choice(ReservedChars.SPECIAL.value)
     random_position = random.randint(0, len(string))
     new_string = string[:random_position] + letter + string[random_position:]
     return new_string
 
 def generate_random_string_with_whitespace():
     string = fake.word()
-    letter = random.choice(Name.WHITESPACES.value)
+    letter = random.choice(ReservedChars.WHITESPACES.value)
     random_position = random.randint(0, len(string))
     new_string = string[:random_position] + letter + string[random_position:]
     return new_string
@@ -33,7 +33,7 @@ def generate_random_string(length, allowed_chars):
     return ''.join(random.choice(allowed_chars) for _ in range(length))
 
 def generate_random_string_without_reserved_chars(length):
-    allowed_chars = ''.join(c for c in string.printable if c not in Name.ALL_RESERVED_CHARS.value)
+    allowed_chars = ''.join(c for c in string.printable if c not in ReservedChars.ALL.value)
     return generate_random_string(length, allowed_chars)
 
 def fake_name():

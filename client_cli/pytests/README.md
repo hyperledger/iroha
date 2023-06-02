@@ -31,7 +31,7 @@ TORII_API_PORT_MAX=8083
 ```
 Replace `/path/to/iroha_client_cli/dir` with the actual paths to the respective files on your system.
 
-If the .env file is not present or these variables are not defined in it, the application will use default values defined in the code.
+If the `.env` file is not present or these variables are not defined in it, the application will use default values defined in the code.
 
 ## Poetry Configuration
 
