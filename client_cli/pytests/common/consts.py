@@ -25,13 +25,13 @@ class Stderr(Enum):
     WHITESPACES = "White space not allowed"
 
 
-class Name(Enum):
+class ReservedChars(Enum):
     """
     Enum for reserved characters in names.
     """
-    RESERVED_CHARS = "@#$%"
+    SPECIAL = "@#$%"
     WHITESPACES = string.whitespace
-    ALL_RESERVED_CHARS = RESERVED_CHARS + WHITESPACES
+    ALL = SPECIAL + WHITESPACES
 
 
 class ValueTypes(Enum):
