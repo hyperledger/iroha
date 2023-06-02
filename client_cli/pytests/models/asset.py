@@ -1,6 +1,3 @@
-"""
-This module contains the AssetDefinition and Asset classes.
-"""
 from dataclasses import dataclass
 
 @dataclass
@@ -31,25 +28,21 @@ class AssetDefinition:
         """
         return f"{self.name}#{self.domain}"
 
-
 @dataclass
-class Asset(AssetDefinition):
+class Asset:
     """
     Asset class represents an asset in the Iroha network.
 
-    :param name: The name of the asset.
-    :type name: str
-    :param domain: The domain of the asset.
-    :type domain: str
-    :param value_type: The value type of the asset.
-    :type value_type: str
+    :param definition: The asset definition of the asset.
+    :type definition: AssetDefinition
     :param value: The value of the asset.
     :type value: float
     """
+    definition: AssetDefinition
     value: float
 
     def __repr__(self):
-        return f"{super().__repr__()}:{self.value}"
+        return f"{self.definition.get_id()}:{self.value}"
 
     def get_value(self):
         """
