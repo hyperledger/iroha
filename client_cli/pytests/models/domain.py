@@ -1,7 +1,9 @@
 """
 This module contains the Domain class.
 """
+from dataclasses import dataclass
 
+@dataclass
 class Domain:
     """
     Domain class represents a domain in the Iroha network.
@@ -9,11 +11,8 @@ class Domain:
     :param name: The name of the domain.
     :type name: str
     """
-    def __init__(self, name: str):
-        self.name = name
+    name: str
 
-    def __repr__(self):
-        return self.name
 
     def get_name(self):
         """
