@@ -13,7 +13,7 @@
 use std::error::Error;
 
 use eyre::{bail, eyre, Context, Result};
-use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
+use iroha_config::sumeragi::Configuration as SumeragiConfig;
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
 use iroha_data_model::{
     block::*,
@@ -68,7 +68,7 @@ impl BlockBuilder {
 
         let mut header = BlockHeader {
             timestamp,
-            consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
+            consensus_estimation: SumeragiConfig::DEFAULT_CONSENSUS_ESTIMATION_MS(),
             height,
             view_change_index: self.view_change_index,
             previous_block_hash,
@@ -215,7 +215,7 @@ impl PendingBlock {
 
         let header = BlockHeader {
             timestamp,
-            consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
+            consensus_estimation: SumeragiConfig::DEFAULT_CONSENSUS_ESTIMATION_MS(),
             height: 1,
             view_change_index: 0,
             previous_block_hash: None,

@@ -1,32 +1,24 @@
 //! Module with genesis configuration logic.
-#![allow(clippy::std_instead_of_core)]
 
-use iroha_config_base::derive::{view, Documented, Proxy};
+use iroha_config_base::{view, Configuration, Documented};
 use iroha_crypto::{PrivateKey, PublicKey};
 use serde::{Deserialize, Serialize};
 
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration of the genesis block and the process of its submission.
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configuration, Documented)]
+    #[serde(try_from = "ConfigurationBuilder")]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_GENESIS_")]
     pub struct Configuration {
         /// The public key of the genesis account, should be supplied to all peers.
         #[config(serde_as_str)]
-        pub account_public_key: PublicKey,
+        account_public_key: PublicKey,
         /// The private key of the genesis account, only needed for the peer that submits the genesis block.
         #[view(ignore)]
-        pub account_private_key: Option<PrivateKey>,
-    }
-}
-
-impl Default for ConfigurationProxy {
-    fn default() -> Self {
-        Self {
-            account_public_key: None,
-            account_private_key: Some(None),
-        }
+        #[config(default = "None")]
+        account_private_key: Option<PrivateKey>,
     }
 }
 
@@ -38,7 +30,6 @@ pub mod tests {
     use super::*;
 
     /// Key-pair used by default for test purposes
-    #[allow(clippy::expect_used)]
     fn placeholder_keypair() -> KeyPair {
         let public_key = "ed01204CFFD0EE429B1BDD36B3910EC570852B8BB63F18750341772FB46BC856C5CAAF"
             .parse()
@@ -56,7 +47,7 @@ pub mod tests {
         let (pub_key, _) = placeholder_keypair().into();
         (
             prop::option::of(Just(pub_key)),
-            prop::option::of(Just(None)),
+            prop::option::of(Just(Configuration::DEFAULT_ACCOUNT_PRIVATE_KEY())),
         )
             .boxed()
     }
@@ -66,8 +57,8 @@ pub mod tests {
             (
                 (account_public_key, account_private_key) in arb_keys(),
             )
-            -> ConfigurationProxy {
-            ConfigurationProxy { account_public_key, account_private_key }
+            -> ConfigurationBuilder {
+            ConfigurationBuilder { account_public_key, account_private_key }
         }
     }
 }

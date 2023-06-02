@@ -231,8 +231,8 @@ impl SumeragiHandle {
 
         let current_topology = match wsv.height() {
             0 => {
-                assert!(!configuration.trusted_peers.peers.is_empty());
-                Topology::new(configuration.trusted_peers.peers.clone())
+                assert!(!configuration.trusted_peers().is_empty());
+                Topology::new(configuration.trusted_peers().clone())
             }
             height => {
                 let block_ref = kura.get_block_by_height(height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
@@ -247,19 +247,19 @@ impl SumeragiHandle {
         let (public_wsv_sender, public_wsv_receiver) = watch::channel(wsv.clone());
 
         #[cfg(debug_assertions)]
-        let debug_force_soft_fork = configuration.debug_force_soft_fork;
+        let debug_force_soft_fork = *configuration.debug_force_soft_fork();
         #[cfg(not(debug_assertions))]
         let debug_force_soft_fork = false;
 
         let sumeragi = main_loop::Sumeragi {
-            key_pair: configuration.key_pair.clone(),
+            key_pair: configuration.key_pair().clone(),
             queue: Arc::clone(&queue),
-            peer_id: configuration.peer_id.clone(),
+            peer_id: configuration.peer_id().clone(),
             events_sender,
             public_wsv_sender,
-            commit_time: Duration::from_millis(configuration.commit_time_limit_ms),
-            block_time: Duration::from_millis(configuration.block_time_ms),
-            max_txs_in_block: configuration.max_transactions_in_block as usize,
+            commit_time: Duration::from_millis(*configuration.commit_time_limit_ms()),
+            block_time: Duration::from_millis(*configuration.block_time_ms()),
+            max_txs_in_block: *configuration.max_transactions_in_block() as usize,
             kura: Arc::clone(&kura),
             network: network.clone(),
             message_receiver,

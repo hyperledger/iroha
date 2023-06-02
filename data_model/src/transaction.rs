@@ -35,16 +35,6 @@ use crate::{
     Identifiable, Value,
 };
 
-/// Default maximum number of instructions and expressions per transaction
-pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
-
-/// Default maximum number of instructions and expressions per transaction
-pub const DEFAULT_MAX_WASM_SIZE_BYTES: u64 = 2_u64.pow(22); // 4 MiB
-
-/// Default transaction limits
-pub const DEFAULT_TRANSACTION_LIMITS: TransactionLimits =
-    TransactionLimits::new(DEFAULT_MAX_INSTRUCTION_NUMBER, DEFAULT_MAX_WASM_SIZE_BYTES);
-
 /// Trait for basic transaction operations
 pub trait Transaction {
     /// Result of hashing
@@ -1295,6 +1285,9 @@ mod tests {
     #[cfg(feature = "transparent_api")]
     use crate::prelude::FailBox;
 
+    /// Default maximum number of instructions and expressions per transaction
+    const MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
+
     #[test]
     #[cfg(feature = "transparent_api")]
     fn transaction_not_accepted_max_instruction_number() {
@@ -1305,7 +1298,7 @@ mod tests {
         .into();
         let tx = TransactionBuilder::new(
             "root@global".parse().expect("Valid"),
-            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1],
+            vec![inst; MAX_INSTRUCTION_NUMBER as usize + 1],
             1000,
         )
         .sign(key_pair)
@@ -1323,7 +1316,7 @@ mod tests {
             format!(
                 "Too many instructions in payload, max number is {}, but got {}",
                 tx_limits.max_instruction_number,
-                DEFAULT_MAX_INSTRUCTION_NUMBER + 1
+                MAX_INSTRUCTION_NUMBER + 1
             )
         );
     }
@@ -1338,7 +1331,7 @@ mod tests {
         .into();
         let tx = TransactionBuilder::new(
             "root@global".parse().expect("Valid"),
-            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1],
+            vec![inst; MAX_INSTRUCTION_NUMBER as usize + 1],
             1000,
         )
         .sign(key_pair)

@@ -156,7 +156,7 @@ fn main() -> Result<()> {
         #[allow(clippy::expect_used)]
         Configuration::from_str(
             config_path
-                .first_existing_path()
+                .first_existing()
                 .wrap_err("Configuration file does not exist")?
                 .as_ref()
                 .to_string_lossy()

@@ -47,7 +47,7 @@ pub mod isi {
 
             account_id
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(*wsv.config.ident_length_limits())
                 .map_err(Error::from)?;
 
             let domain = wsv.domain_mut(&account_id.domain_id)?;
@@ -91,7 +91,7 @@ pub mod isi {
             asset_definition
                 .id()
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(*wsv.config.ident_length_limits())
                 .map_err(Error::from)?;
 
             let asset_definition_id = asset_definition.id().clone();
@@ -193,7 +193,7 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
-            let metadata_limits = wsv.config.asset_definition_metadata_limits;
+            let metadata_limits = *wsv.config.asset_definition_metadata_limits();
             wsv.asset_definition_mut(&asset_definition_id)
                 .map_err(Error::from)
                 .and_then(|asset_definition| {
@@ -246,7 +246,7 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let domain_id = self.object_id;
 
-            let limits = wsv.config.domain_metadata_limits;
+            let limits = *wsv.config.domain_metadata_limits();
 
             let domain = wsv.domain_mut(&domain_id)?;
             domain

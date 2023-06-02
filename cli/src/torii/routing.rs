@@ -114,7 +114,7 @@ pub(crate) async fn handle_instructions(
 ) -> Result<Empty> {
     let transaction: SignedTransaction = transaction.into_v1();
     let wsv = sumeragi.wsv_clone();
-    let transaction_limits = wsv.config.transaction_limits;
+    let transaction_limits = *wsv.config().transaction_limits();
     let transaction = <AcceptedTransaction as InBlock>::accept(transaction, &transaction_limits)
         .map_err(Error::AcceptTransaction)?
         .into();
@@ -281,7 +281,7 @@ async fn handle_post_configuration(
     iroha_logger::debug!(?cfg);
     match cfg {
         LogLevel(level) => {
-            iroha_cfg.logger.max_log_level.reload(level)?;
+            iroha_cfg.logger().max_level().reload(level)?;
         }
     };
 
@@ -565,7 +565,7 @@ impl Torii {
                 warp::path(uri::TRANSACTION)
                     .and(add_state!(self.queue, self.sumeragi))
                     .and(warp::body::content_length_limit(
-                        self.iroha_cfg.torii.max_content_len.into(),
+                        (*self.iroha_cfg.torii().max_content_len()).into(),
                     ))
                     .and(body::versioned()),
             ))
@@ -640,7 +640,7 @@ impl Torii {
     /// Can fail due to listening to network or if http server fails
     #[cfg(feature = "telemetry")]
     fn start_telemetry(self: Arc<Self>) -> eyre::Result<Vec<tokio::task::JoinHandle<()>>> {
-        let telemetry_url = &self.iroha_cfg.torii.telemetry_url;
+        let telemetry_url = self.iroha_cfg.torii().telemetry_url();
 
         let mut handles = vec![];
         match telemetry_url.to_socket_addrs() {
@@ -670,7 +670,7 @@ impl Torii {
     /// # Errors
     /// Can fail due to listening to network or if http server fails
     fn start_api(self: Arc<Self>) -> eyre::Result<Vec<tokio::task::JoinHandle<()>>> {
-        let api_url = &self.iroha_cfg.torii.api_url;
+        let api_url = self.iroha_cfg.torii().api_url();
 
         let mut handles = vec![];
         match api_url.to_socket_addrs() {

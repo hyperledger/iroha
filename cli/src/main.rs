@@ -124,7 +124,7 @@ async fn main() -> Result<(), color_eyre::Report> {
             args.submit_genesis,
             RawGenesisBlock::from_path(
                 genesis_path
-                    .first_existing_path()
+                    .first_existing()
                     .ok_or({
                         color_eyre::eyre::eyre!("Genesis block file {genesis_path:?} doesn't exist")
                     })?

@@ -42,10 +42,10 @@ pub mod model {
         Eq,
         Default,
         Constructor,
-        Deserialize,
-        Serialize,
         Decode,
         Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     #[display(

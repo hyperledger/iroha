@@ -30,16 +30,16 @@ use derive_more::{AsMut, AsRef, Constructor, Deref, Display};
 /// // is_odd(3).unwrap();
 /// ```
 #[derive(
-    Constructor,
     Debug,
     Display,
-    Copy,
     Clone,
+    Copy,
     PartialEq,
     Eq,
     PartialOrd,
     Ord,
     Hash,
+    Constructor,
     AsRef,
     AsMut,
     Deref,

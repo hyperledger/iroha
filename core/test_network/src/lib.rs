@@ -17,7 +17,7 @@ use iroha_config::{
     base::proxy::{LoadFromEnv, Override},
     client::Configuration as ClientConfiguration,
     iroha::{Configuration, ConfigurationProxy},
-    sumeragi::Configuration as SumeragiConfiguration,
+    sumeragi::Configuration as SumeragiConfig,
     torii::Configuration as ToriiConfiguration,
 };
 use iroha_core::prelude::*;
@@ -43,6 +43,12 @@ pub struct Network {
     pub genesis: Peer,
     /// Peers excluding the `genesis` peer. Use [`Network::peers`] function to get all instead.
     pub peers: HashMap<PeerId, Peer>,
+}
+
+/// Time estimation from receiving a transaction to storing it in
+/// a block on all peers for the "sunny day" scenario.
+fn pipeline_time_ms() -> u64 {
+    SumeragiConfig::block_time_ms() + SumeragiConfig::commit_time_limit_ms()
 }
 
 /// Get a standardised key-pair from the hard-coded literals.
@@ -391,7 +397,7 @@ impl Peer {
     /// Returns per peer config with all addresses, keys, and id set up.
     fn get_config(&self, configuration: Configuration) -> Configuration {
         Configuration {
-            sumeragi: SumeragiConfiguration {
+            sumeragi: SumeragiConfig {
                 key_pair: self.key_pair.clone(),
                 peer_id: self.id.clone(),
                 ..configuration.sumeragi
@@ -641,7 +647,7 @@ impl PeerBuilder {
         let client = Client::test(&peer.api_address, &peer.telemetry_address);
 
         time::sleep(Duration::from_millis(
-            configuration.sumeragi.pipeline_time_ms(),
+            pipeline_time_ms(),
         ))
         .await;
 
@@ -788,11 +794,11 @@ impl TestConfiguration for Configuration {
     }
 
     fn pipeline_time() -> Duration {
-        Duration::from_millis(Self::test().sumeragi.pipeline_time_ms())
+        Duration::from_millis(pipeline_time_ms())
     }
 
     fn block_sync_gossip_time() -> Duration {
-        Duration::from_millis(Self::test().block_sync.gossip_period_ms)
+        Duration::from_millis(Self::test().block_sync.gossip_period_ms())
     }
 }
 
@@ -818,8 +824,8 @@ impl TestClient for Client {
     fn test_with_key(api_url: &SocketAddr, telemetry_url: &SocketAddr, keys: KeyPair) -> Self {
         let mut configuration = ClientConfiguration::test(api_url, telemetry_url);
         let (public_key, private_key) = keys.into();
-        configuration.public_key = public_key;
-        configuration.private_key = private_key;
+        configuration.public_key.set_public_key(public_key);
+        configuration.private_key.set_private_key(private_key);
         Client::new(&configuration).expect("Invalid client configuration")
     }
 

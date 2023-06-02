@@ -8,10 +8,10 @@ use tokio::time;
 #[tokio::test]
 async fn telemetry_separation_custom() {
     let config = Configuration {
-        max_log_level: Level::TRACE.into(),
+        max_level: Level::TRACE.into(),
         telemetry_capacity: 100,
         compact_mode: true,
-        log_file_path: Some("/dev/stdout".into()),
+        file_path: Some("/dev/stdout".into()),
         terminal_colors: true,
         #[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
         tokio_console_addr: "127.0.0.1:5555".into(),

@@ -11,8 +11,7 @@ license.workspace = true
 proc-macro = true
 
 [dependencies]
-syn = { version = "1.0.107", default-features = false, features = ["derive", "parsing", "proc-macro", "clone-impls", "printing"] }
-# This is the maximally compressed set of features. Yes we also need "printing".
+syn = { version = "1.0.107", default-features = false, features = ["parsing", "visit-mut"] }
 quote = "1.0.23"
 proc-macro2 = "1.0.49"
 proc-macro-error = "1.0.4"

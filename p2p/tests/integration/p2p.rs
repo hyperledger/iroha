@@ -11,7 +11,6 @@ use std::{
 };
 
 use futures::{prelude::*, stream::FuturesUnordered, task::AtomicWaker};
-use iroha_config_base::proxy::Builder;
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::PeerId;
 use iroha_logger::{prelude::*, Configuration, ConfigurationProxy, Level};

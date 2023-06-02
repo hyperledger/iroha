@@ -18,6 +18,7 @@ use iroha_data_model::{
     transaction::TransactionPayload,
 };
 use iroha_logger::prelude::*;
+use iroha_primitives::addr::SocketAddr;
 use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
 use parity_scale_codec::DecodeAll;
@@ -287,27 +288,27 @@ impl Client {
         configuration: &Configuration,
         mut headers: HashMap<String, String>,
     ) -> Result<Self> {
-        if let Some(basic_auth) = &configuration.basic_auth {
+        if let Some(basic_auth) = configuration.basic_auth() {
             let credentials = format!("{}:{}", basic_auth.web_login, basic_auth.password);
             let encoded = base64::encode(credentials);
             headers.insert(String::from("Authorization"), format!("Basic {encoded}"));
         }
 
         Ok(Self {
-            torii_url: configuration.torii_api_url.clone(),
-            telemetry_url: configuration.torii_telemetry_url.clone(),
-            transaction_limits: configuration.transaction_limits,
+            torii_url: Url::fromconfiguration.torii_api_url().clone(),
+            telemetry_url: configuration.torii_telemetry_url().clone(),
+            transaction_limits: *configuration.transaction_limits(),
             key_pair: KeyPair::new(
-                configuration.public_key.clone(),
-                configuration.private_key.clone(),
+                configuration.public_key().clone(),
+                configuration.private_key().clone(),
             )?,
-            proposed_transaction_ttl_ms: configuration.transaction_time_to_live_ms,
+            proposed_transaction_ttl_ms: *configuration.transaction_time_to_live_ms(),
             transaction_status_timeout: Duration::from_millis(
-                configuration.transaction_status_timeout_ms,
+                *configuration.transaction_status_timeout_ms(),
             ),
-            account_id: configuration.account_id.clone(),
+            account_id: configuration.account_id().clone(),
             headers,
-            add_transaction_nonce: configuration.add_transaction_nonce,
+            add_transaction_nonce: *configuration.add_transaction_nonce(),
         })
     }
 

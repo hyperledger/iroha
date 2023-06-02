@@ -26,7 +26,7 @@ type WebSocketSplitSink = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, 
 /// # Errors
 /// Fails if unable to connect to the server
 pub async fn start(config: &crate::Configuration, telemetry: Receiver<Telemetry>) -> Result<bool> {
-    if let (Some(name), Some(url)) = (&config.name, &config.url) {
+    if let (Some(name), Some(url)) = (config.name(), config.url()) {
         iroha_logger::info!(%url, "Starting telemetry");
         let (ws, _) = tokio_tungstenite::connect_async(url).await?;
         let (write, _read) = ws.split();
@@ -35,7 +35,10 @@ pub async fn start(config: &crate::Configuration, telemetry: Receiver<Telemetry>
             name.clone(),
             write,
             WebsocketSinkFactory::new(url.clone()),
-            RetryPeriod::new(config.min_retry_period, config.max_retry_delay_exponent),
+            RetryPeriod::new(
+                *config.min_retry_period(),
+                *config.max_retry_delay_exponent(),
+            ),
             internal_sender,
         );
         tokio::task::spawn(async move {
@@ -275,7 +278,6 @@ mod tests {
 
     use eyre::{eyre, Result};
     use futures::{Sink, StreamExt};
-    use iroha_config::base::proxy::Builder;
     use iroha_logger::telemetry::{Telemetry, TelemetryFields};
     use serde_json::{Map, Value};
     use tokio::task::JoinHandle;

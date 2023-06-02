@@ -4,7 +4,7 @@ use std::{str::FromStr as _, time::Duration};
 
 use eyre::{Context, Result};
 use iroha_client::client::{self, Client};
-use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
+use iroha_config::sumeragi::Configuration;
 use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
 use iroha_logger::info;
 use test_network::*;
@@ -27,7 +27,7 @@ macro_rules! const_assert {
 fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result<()> {
     const PERIOD_MS: u64 = 100;
     const ACCEPTABLE_ERROR_PERCENT: u8 = 15;
-    const_assert!(PERIOD_MS < DEFAULT_CONSENSUS_ESTIMATION_MS);
+    const_assert!(PERIOD_MS < Configuration::DEFAULT_CONSENSUS_ESTIMATION_MS);
     const_assert!(ACCEPTABLE_ERROR_PERCENT <= 100);
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_775).start_with_runtime();
@@ -60,7 +60,9 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
         Duration::from_secs(1),
         3,
     )?;
-    std::thread::sleep(Duration::from_millis(DEFAULT_CONSENSUS_ESTIMATION_MS));
+    std::thread::sleep(Duration::from_millis(
+        Configuration::DEFAULT_CONSENSUS_ESTIMATION_MS,
+    ));
 
     let finish_time = current_time();
     let average_count = finish_time.saturating_sub(start_time).as_millis() / u128::from(PERIOD_MS);
@@ -108,7 +110,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
         &mut test_client,
         &account_id,
         Duration::from_secs(1),
-        usize::try_from(PERIOD_MS / DEFAULT_CONSENSUS_ESTIMATION_MS + 1)?,
+        usize::try_from(PERIOD_MS / Configuration::DEFAULT_CONSENSUS_ESTIMATION_MS + 1)?,
     )?;
 
     let value = test_client.request(FindAssetDefinitionKeyValueByIdAndKey {

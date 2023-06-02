@@ -85,8 +85,8 @@ pub mod model {
         Constructor,
         Decode,
         Encode,
-        Serialize,
         Deserialize,
+        Serialize,
         IntoSchema,
     )]
     #[serde(bound(

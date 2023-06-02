@@ -4,10 +4,7 @@
 #![allow(clippy::doc_link_with_quotes, clippy::arithmetic_side_effects)]
 
 use eyre::eyre;
-use iroha_config::{
-    base::proxy::Builder,
-    wasm::{Configuration, ConfigurationProxy},
-};
+use iroha_config::wasm::Configuration;
 use iroha_data_model::{account::AccountId, prelude::*, validator, ValidationFail};
 use iroha_logger::{debug, error};
 // NOTE: Using error_span so that span info is logged on every event
@@ -275,7 +272,7 @@ impl<'wrld> State<'wrld> {
             operation_to_validate: None,
 
             store_limits: StoreLimitsBuilder::new()
-                .memory_size(config.max_memory.try_into().expect(
+                .memory_size((*config.max_memory()).try_into().expect(
                     "config.max_memory is a u32 so this can't fail on any supported platform",
                 ))
                 .instances(1)
@@ -320,7 +317,7 @@ impl<'wrld> Runtime<'wrld> {
 
         store.limiter(|stat| &mut stat.store_limits);
         store
-            .add_fuel(self.config.fuel_limit)
+            .add_fuel(*self.config.fuel_limit())
             .expect("Wasm Runtime config is malformed, this is a bug");
 
         store
@@ -737,11 +734,7 @@ impl RuntimeBuilder {
         Ok(Runtime {
             engine,
             linker,
-            config: self.config.unwrap_or_else(|| {
-                ConfigurationProxy::default()
-                    .build()
-                    .expect("Error building WASM Runtime configuration from proxy. This is a bug")
-            }),
+            config: self.config.unwrap_or_else(|| Configuration::default()),
         })
     }
 }

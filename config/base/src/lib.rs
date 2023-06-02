@@ -1,301 +1,92 @@
 //! Package for managing iroha configuration
-use std::{fmt::Debug, path::Path};
 
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
+/// Generate view for the type and implement conversion `Type -> View`.
+/// View contains a subset of the fields that the type has.
+///
+/// Works only with structs.
+///
+/// ## Container attributes
+///
+/// ## Field attributes
+/// ### `#[view(ignore)]`
+/// Marks fields to ignore when converting to view type.
+///
+/// ### `#[view(into = Ty)]`
+/// Sets view's field type to Ty.
+///
+/// ## Examples
+///
+/// ```rust
+/// use iroha_config_base::derive::view;
+///
+/// view! {
+///     #[derive(Default)]
+///     struct Structure {
+///         #[view(into = u64)]
+///         a: u32,
+///         // `View` shouldn't have field `b` so we must exclude it.
+///         #[view(ignore)]
+///         b: u32,
+///     }
+/// }
+///
+/// // Will generate something like
+/// // --//-- original struct
+/// //  struct StructureView {
+/// //      a: u64,
+/// //  }
+/// //
+/// //  impl From<Structure> for StructureView {
+/// //      fn from(value: Structure) -> Self {
+/// //          let Structure {
+/// //              a,
+/// //              ..
+/// //          } = value;
+/// //          Self {
+/// //              a: From::<_>::from(a),
+/// //          }
+/// //      }
+/// // }
+///
+///
+/// let structure = Structure { a: 13, b: 37 };
+/// let view: StructureView = structure.into();
+/// assert_eq!(view.a, 13);
+/// ```
+pub use iroha_config_derive::view;
+pub use iroha_config_derive::Configuration;
+/// Derive macro for implementing the trait
+/// [`iroha_config::base::proxy::Documented`](`crate::proxy::Documented`)
+/// for config structures.
+///
+/// Even though this macro doesn't own any attributes, as of now
+/// it relies on the `#[config]` attribute defined by the
+/// [`iroha_config::base::derive::Override`](`crate::derive::Override`)
+/// macro.  As such, `#[config(env_prefix = ...)]` is required for
+/// generating documentation, and `#[config(inner)]` for getting
+/// inner fields recursively.
+///
+/// # Examples
+///
+/// ```rust
+/// use iroha_config_base::derive::Documented;
+/// use iroha_config_base::proxy::Documented as _;
+///
+/// #[derive(serde::Deserialize, serde::Serialize, Documented)]
+/// struct Outer { #[config(inner)] inner: Inner }
+///
+/// #[derive(serde::Deserialize, serde::Serialize, Documented)]
+/// struct Inner { b: String }
+///
+/// let outer = Outer { inner: Inner { b: "a".to_owned() }};
+///
+/// assert_eq!(outer.get_recursive(["inner", "b"]).unwrap(), "a");
+/// ```
+pub use iroha_config_derive::Documented;
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
 pub mod derive {
-    //! Derives for configuration entities
-    /// Generate view for the type and implement conversion `Type -> View`.
-    /// View contains a subset of the fields that the type has.
-    ///
-    /// Works only with structs.
-    ///
-    /// ## Container attributes
-    ///
-    /// ## Field attributes
-    /// ### `#[view(ignore)]`
-    /// Marks fields to ignore when converting to view type.
-    ///
-    /// ### `#[view(into = Ty)]`
-    /// Sets view's field type to Ty.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// use iroha_config_base::derive::view;
-    ///
-    /// view! {
-    ///     #[derive(Default)]
-    ///     struct Structure {
-    ///         #[view(into = u64)]
-    ///         a: u32,
-    ///         // `View` shouldn't have field `b` so we must exclude it.
-    ///         #[view(ignore)]
-    ///         b: u32,
-    ///     }
-    /// }
-    ///
-    /// // Will generate something like
-    /// // --//-- original struct
-    /// //  struct StructureView {
-    /// //      a: u64,
-    /// //  }
-    /// //
-    /// //  impl From<Structure> for StructureView {
-    /// //      fn from(value: Structure) -> Self {
-    /// //          let Structure {
-    /// //              a,
-    /// //              ..
-    /// //          } = value;
-    /// //          Self {
-    /// //              a: From::<_>::from(a),
-    /// //          }
-    /// //      }
-    /// // }
-    ///
-    ///
-    /// let structure = Structure { a: 13, b: 37 };
-    /// let view: StructureView = structure.into();
-    /// assert_eq!(view.a, 13);
-    /// ```
-    pub use iroha_config_derive::view;
-    /// Derive macro for implementing the trait
-    /// [`iroha_config::base::proxy::Builder`](`crate::proxy::Builder`)
-    /// for config structures. Meant to be used on proxy types only, for
-    /// details see [`iroha_config::base::derive::Proxy`](`crate::derive::Proxy`).
-    ///
-    /// # Container attributes
-    ///
-    /// ## `#[builder(parent = ..)]`
-    /// Takes a target type to build into, e.g. for a `ConfigurationProxy`
-    /// it would be `Configuration`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use iroha_config_base::derive::{Builder, Override, LoadFromEnv};
-    /// use iroha_config_base::proxy::Builder as _;
-    ///
-    /// // Also need `LoadFromEnv` as it owns the `#[config]` attribute
-    /// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, LoadFromEnv, Builder)]
-    /// #[builder(parent = Outer)]
-    /// struct OuterProxy { #[config(inner)] inner: Option<InnerProxy> }
-    ///
-    /// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, LoadFromEnv, Builder, Override)]
-    /// #[builder(parent = Inner)]
-    /// struct InnerProxy { b: Option<String> }
-    ///
-    /// #[derive(Debug, PartialEq)]
-    /// struct Outer { inner: Inner }
-    ///
-    /// #[derive(Debug, PartialEq)]
-    /// struct Inner { b: String }
-    ///
-    /// let outer_proxy = OuterProxy { inner: Some(InnerProxy { b: Some("a".to_owned()) })};
-    ///
-    /// let outer = Outer { inner: Inner { b: "a".to_owned() } };
-    ///
-    /// assert_eq!(outer, outer_proxy.build().unwrap());
-    /// ```
-    pub use iroha_config_derive::Builder;
-    /// Derive macro for implementing the trait
-    /// [`iroha_config::base::proxy::Documented`](`crate::proxy::Documented`)
-    /// for config structures.
-    ///
-    /// Even though this macro doesn't own any attributes, as of now
-    /// it relies on the `#[config]` attribute defined by the
-    /// [`iroha_config::base::derive::Override`](`crate::derive::Override`)
-    /// macro.  As such, `#[config(env_prefix = ...)]` is required for
-    /// generating documentation, and `#[config(inner)]` for getting
-    /// inner fields recursively.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use iroha_config_base::derive::Documented;
-    /// use iroha_config_base::proxy::Documented as _;
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, Documented)]
-    /// struct Outer { #[config(inner)] inner: Inner }
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, Documented)]
-    /// struct Inner { b: String }
-    ///
-    /// let outer = Outer { inner: Inner { b: "a".to_owned() }};
-    ///
-    /// assert_eq!(outer.get_recursive(["inner", "b"]).unwrap(), "a");
-    /// ```
-    pub use iroha_config_derive::Documented;
-    /// Derive macro for implementing the trait
-    /// [`iroha_config::base::proxy::LoadFromDisk`](`crate::proxy::LoadFromDisk`)
-    /// trait for config structures.
-    ///
-    /// Meant to be used on proxy types only, for
-    /// details see [`iroha_config::base::derive::Proxy`](`crate::derive::Proxy`).
-    ///
-    /// The trait's only method, `from_path`,
-    /// deserializes a JSON config at the provided path into the parent proxy structure,
-    /// leaving it empty in case of any error.
-    ///
-    /// The `ReturnValue` associated type can be
-    /// swapped for anything suitable. Currently, the proxy structure is returned
-    /// by default.
-    pub use iroha_config_derive::LoadFromDisk;
-    /// Derive macro for implementing the
-    /// [`iroha_config::base::proxy::LoadFromDisk`](`crate::proxy::LoadFromDisk`)
-    /// trait for config structures.
-    ///
-    /// Meant to be used on proxy types only, for
-    /// details see [`iroha_config::base::derive::Proxy`](`crate::derive::Proxy`).
-    ///
-    /// The `ReturnValue` associated type can be
-    /// swapped for anything suitable. Currently, the proxy structure is returned
-    /// by default.
-    ///
-    /// # Container attributes
-    /// ## `[config(env_prefix)]`
-    /// Sets prefix for all the env variables derived from fields in the
-    /// corresponding structure.
-    ///
-    /// ### Example
-    ///
-    /// ``` rust
-    /// use iroha_config_base::derive::LoadFromEnv;
-    /// use iroha_config_base::proxy::LoadFromEnv as _;
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, LoadFromEnv)]
-    /// #[config(env_prefix = "PREFIXED_")]
-    /// struct PrefixedProxy { a: Option<String> }
-    ///
-    /// std::env::set_var("PREFIXED_A", "B");
-    /// let prefixed = PrefixedProxy::from_env();
-    /// assert_eq!(prefixed.a.unwrap(), "B");
-    /// ```
-    ///
-    /// # Field attributes
-    /// ## `#[config(inner)]`
-    /// Tells macro that the structure stores another config inside,
-    /// allowing to load it recursively. Moreover, the types that
-    /// have this attributes on them should also implement or
-    /// derive the [`iroha_config::base::proxy::Override`](`crate::proxy::Override`)
-    /// trait.
-    ///
-    /// ### Example
-    ///
-    /// ```rust
-    /// use iroha_config_base::derive::{Override, LoadFromEnv};
-    /// use iroha_config_base::proxy::LoadFromEnv as _;
-    ///
-    /// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, LoadFromEnv)]
-    /// struct OuterProxy { #[config(inner)] inner: Option<InnerProxy> }
-    ///
-    /// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, Override, LoadFromEnv)]
-    /// struct InnerProxy { b: Option<String> }
-    ///
-    /// let mut outer = OuterProxy { inner: Some(InnerProxy { b: Some("a".to_owned()) })};
-    ///
-    /// std::env::set_var("B", "a");
-    /// let env_outer = OuterProxy::from_env();
-    ///
-    /// assert_eq!(env_outer, outer);
-    /// ```
-    ///
-    /// ## `#[config(serde_as_str)]`
-    /// Tells macro to deserialize from env variable as a bare string.
-    ///
-    /// ### Example
-    ///
-    /// ```
-    /// use iroha_config_base::derive::LoadFromEnv;
-    /// use iroha_config_base::proxy::LoadFromEnv;
-    /// use std::net::Ipv4Addr;
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, LoadFromEnv)]
-    /// struct IpAddrProxy { #[config(serde_as_str)] ip: Option<Ipv4Addr> }
-    ///
-    /// std::env::set_var("IP", "127.0.0.1");
-    /// let ip = IpAddrProxy::from_env();
-    /// assert_eq!(ip.ip.unwrap(), Ipv4Addr::new(127, 0, 0, 1));
-    /// ```
-    pub use iroha_config_derive::LoadFromEnv;
-    /// Derive macro for implementing the trait
-    /// [`iroha_config::base::proxy::Override`](`crate::proxy::Override`)
-    /// for config structures. Given two proxies, consumes them by recursively overloading
-    /// fields of [`self`] with fields of [`other`]. Order matters here,
-    /// i.e. `self.combine(other)` could yield different results than `other.combine(self)`.
-    ///
-    /// Meant to be used on proxy types only, for
-    /// details see [`iroha_config::base::derive::Proxy`](`crate::derive::Proxy`).
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use iroha_config_base::derive::{Override, LoadFromEnv};
-    /// use iroha_config_base::proxy::Override as _;
-    ///
-    /// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, Override, LoadFromEnv)]
-    /// struct OuterProxy {
-    ///     #[config(inner)]
-    ///     inner: Option<InnerProxy>,
-    ///     a: Option<String>
-    /// }
-    ///
-    /// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, Override, LoadFromEnv)]
-    /// struct InnerProxy { b: Option<String> }
-    ///
-    /// let left_outer = OuterProxy {
-    ///     inner: Some(InnerProxy { b: Some("a".to_owned()) }),
-    ///     a: None
-    /// };
-    ///
-    /// let right_outer = OuterProxy {
-    ///     inner: None,
-    ///     a: Some("b".to_owned())
-    /// };
-    ///
-    /// let res_outer = OuterProxy {
-    ///     inner: Some(InnerProxy { b: Some("a".to_owned()) }),
-    ///     a: Some("b".to_owned())
-    /// };
-    ///
-    /// assert_eq!(left_outer.override_with(right_outer), res_outer);
-    /// ```
-    pub use iroha_config_derive::Override;
-    /// Derive macro for implementing the corresponding proxy type
-    /// for config structures. Most of the other traits in the
-    /// [`iroha_config_base::proxy`](`crate::proxy`) module are
-    /// best derived indirectly via this macro. Proxy types serve
-    /// as a stand-in for flexible configuration loading either
-    /// from environment variables or configuration files. Proxy types also
-    /// provide methods to build the initial parent type from them
-    /// (via [`iroha_config_base::proxy::Builder`](`crate::proxy::Builder`)
-    /// trait) and ways to combine two proxies together (via
-    /// [`iroha_config_base::proxy::Override`](`crate::proxy::Override`)).
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use iroha_config_base::derive::{Documented, Proxy};
-    ///
-    /// // Need `Documented` here as it owns the `#[config]` attribute
-    /// #[derive(serde::Deserialize, serde::Serialize, Documented, Proxy)]
-    /// struct Outer { #[config(inner)] inner: Inner }
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, Documented, Proxy)]
-    /// struct Inner { b: String }
-    ///
-    /// // Will generate something like this
-    /// // #[derive(Debug, Clone, serde::Deserialize, serde::Serialize,
-    /// //   Builder, Override, Documented, LoadFromEnv, LoadFromDisk)]
-    /// // #[builder(parent = Outer)]
-    /// // struct OuterProxy { #[config(inner)] inner: Option<InnerProxy> }
-    ///
-    /// // #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize,
-    /// //   Builder, Override, Documented, LoadFromEnv, LoadFromDisk)]
-    /// // struct InnerProxy { b: Option<String> }
-    /// ```
-    pub use iroha_config_derive::Proxy;
     use serde::Deserialize;
     use thiserror::Error;
 
@@ -326,14 +117,9 @@ pub mod derive {
         },
 
         /// When a field is missing.
-        #[error("Please add `{}` to the configuration.", .field)]
+        #[error("Please add `{_0}` to the configuration.")]
         #[serde(skip)]
-        MissingField {
-            /// Field name
-            field: &'static str,
-            /// Additional message to be added as `color_eyre::suggestion`
-            message: &'static str,
-        },
+        MissingField(&'static str),
 
         /// Key pair creation failed, most likely because the keys don't form a pair
         #[error("Key pair creation failed")]
@@ -456,67 +242,5 @@ pub mod proxy {
         fn get_doc_recursive<'tl>(
             field: impl AsRef<[&'tl str]>,
         ) -> Result<Option<String>, Self::Error>;
-    }
-
-    /// Trait for combining two configuration instances
-    pub trait Override: Serialize + DeserializeOwned + Sized {
-        /// If any of the fields in `other` are filled, they
-        /// override the values of the fields in [`self`].
-        #[must_use]
-        fn override_with(self, other: Self) -> Self;
-    }
-
-    /// Trait for configuration loading and deserialization from
-    /// the environment
-    pub trait LoadFromEnv: Sized {
-        /// The return type. Could be target `Configuration`,
-        /// some `Result`, `Option`, or any other type that
-        /// wraps a `..Proxy` or `Configuration` type.
-        type ReturnValue;
-
-        /// Load configuration from the environment
-        ///
-        /// # Errors
-        /// - Fails if the deserialization of any field fails.
-        fn from_env() -> Self::ReturnValue;
-    }
-
-    /// Trait for configuration loading and deserialization from disk
-    pub trait LoadFromDisk: Sized {
-        /// The return type. Could be target `Configuration`,
-        /// some `Result`, `Option`, or any other type that
-        /// wraps a `..Proxy` or `Configuration` type.
-        type ReturnValue;
-
-        /// Construct [`Self`] from a path-like object.
-        ///
-        /// # Errors
-        /// - File not found.
-        /// - File found, but peer configuration parsing failed.
-        fn from_path<P: AsRef<Path> + Debug + Clone>(path: P) -> Self::ReturnValue;
-    }
-
-    /// Trait for building the final config from a proxy one
-    pub trait Builder {
-        /// The return type. Could be target `Configuration`,
-        /// some `Result`, `Option` as users see fit.
-        type ReturnValue;
-
-        /// Construct [`Self::ReturnValue`] from a proxy object.
-        fn build(self) -> Self::ReturnValue;
-    }
-
-    /// Deserialization helper for proxy fields that wrap an `Option`
-    ///
-    /// # Errors
-    /// When deserialization of the field fails, e.g. it doesn't have
-    /// the `Option<Option<T>>`
-    #[allow(clippy::option_option)]
-    pub fn some_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-    where
-        T: Deserialize<'de>,
-        D: Deserializer<'de>,
-    {
-        Option::<T>::deserialize(deserializer).map(Some)
     }
 }

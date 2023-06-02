@@ -15,8 +15,6 @@ mod kw {
     // view keywords
     syn::custom_keyword!(ignore);
     syn::custom_keyword!(into);
-    // builder keywords
-    syn::custom_keyword!(parent);
 }
 
 /// Structure to parse `#[view(...)]` attributes.
@@ -27,20 +25,12 @@ pub struct View<Inner: Parse>(std::marker::PhantomData<Inner>);
 /// [`Inner`] is responsible for parsing attribute arguments.
 struct Config<Inner: Parse>(std::marker::PhantomData<Inner>);
 
-/// Structure to parse `#[builder(...)]` attributes.
-/// [`Inner`] is responsible for parsing attribute arguments.
-struct Builder<Inner: Parse>(std::marker::PhantomData<Inner>);
-
 impl<Inner: Parse> AttrParser<Inner> for View<Inner> {
     const IDENT: &'static str = "view";
 }
 
 impl<Inner: Parse> AttrParser<Inner> for Config<Inner> {
     const IDENT: &'static str = "config";
-}
-
-impl<Inner: Parse> AttrParser<Inner> for Builder<Inner> {
-    const IDENT: &'static str = "builder";
 }
 
 attr_struct! {
@@ -77,14 +67,6 @@ attr_struct! {
     }
 }
 
-attr_struct! {
-    pub struct BuilderParent {
-        _kw: kw::parent,
-        _eq: Token![=],
-        pub parent: Type,
-    }
-}
-
 impl From<ViewFieldType> for Type {
     fn from(value: ViewFieldType) -> Self {
         value.ty
@@ -107,7 +89,6 @@ pub struct StructField {
 
 impl StructField {
     fn from_ast(field: syn::Field, env_prefix: &str) -> Self {
-        #[allow(clippy::expect_used)]
         let field_ident = field
             .ident
             .expect("Already checked for named fields at parsing");
@@ -339,14 +320,4 @@ pub fn gen_lvalue(field_ty: &Type, field_ident: &Ident) -> (TokenStream, TokenSt
     };
 
     (lvalue_read, lvalue_write)
-}
-
-/// Check if [`StructWithFields`] has `#[builder(parent = ..)]`
-pub fn get_parent_ty(ast: &StructWithFields) -> Type {
-    #[allow(clippy::expect_used)]
-    ast.attrs
-        .iter()
-        .find_map(|attr| Builder::<BuilderParent>::parse(attr).ok())
-        .map(|builder| builder.parent)
-        .expect("Should not be called on structs with no `#[builder(..)]` attribute")
 }

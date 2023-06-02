@@ -30,6 +30,7 @@ use core::{
 };
 
 use block::VersionedCommittedBlock;
+use derive_more::Constructor;
 #[cfg(not(target_arch = "aarch64"))]
 use derive_more::Into;
 use derive_more::{AsRef, DebugCustom, Deref, Display, From, FromStr};
@@ -263,8 +264,6 @@ pub mod parameter {
 
     use core::borrow::Borrow;
 
-    use derive_more::Constructor;
-
     pub use self::model::*;
     use super::*;
 
@@ -321,8 +320,8 @@ pub mod parameter {
             Display,
             Clone,
             IdEqOrdHash,
-            Getters,
             Constructor,
+            Getters,
             Decode,
             Encode,
             DeserializeFromStr,
@@ -900,6 +899,7 @@ pub mod model {
         PartialEq,
         Eq,
         Hash,
+        Constructor,
         Getters,
         Decode,
         Encode,
@@ -1588,13 +1588,6 @@ pub trait Registered: Identifiable {
     /// would be empty, to save space you create a builder for it, and
     /// set `With` to the builder's type.
     type With: Into<RegistrableBox>;
-}
-
-impl LengthLimits {
-    /// Constructor.
-    pub const fn new(min: u32, max: u32) -> Self {
-        Self { min, max }
-    }
 }
 
 impl From<LengthLimits> for RangeInclusive<u32> {

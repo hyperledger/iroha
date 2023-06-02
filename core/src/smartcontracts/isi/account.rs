@@ -204,7 +204,7 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.object_id;
 
-            let account_metadata_limits = wsv.config.account_metadata_limits;
+            let account_metadata_limits = *wsv.config.account_metadata_limits();
 
             wsv.account_mut(&account_id)
                 .map_err(Error::from)

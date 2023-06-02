@@ -456,7 +456,7 @@ fn genesis_domain(configuration: &Configuration) -> Domain {
 /// - if config fails to build
 pub fn combine_configs(args: &Arguments) -> color_eyre::eyre::Result<Configuration> {
     args.config_path
-        .first_existing_path()
+        .first_existing()
         .map_or_else(
             || {
                 eprintln!("Configuration file not found. Using environment variables as fallback.");

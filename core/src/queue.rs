@@ -91,13 +91,13 @@ impl Queue {
     /// Makes queue from configuration
     pub fn from_configuration(cfg: &Configuration) -> Self {
         Self {
-            queue: ArrayQueue::new(cfg.max_transactions_in_queue as usize),
+            queue: ArrayQueue::new(*cfg.max_transactions_in_queue() as usize),
             txs: DashMap::new(),
             txs_per_user: DashMap::new(),
-            max_txs: cfg.max_transactions_in_queue as usize,
-            max_txs_per_user: cfg.max_transactions_in_queue_per_user as usize,
-            tx_time_to_live: Duration::from_millis(cfg.transaction_time_to_live_ms),
-            future_threshold: Duration::from_millis(cfg.future_threshold_ms),
+            max_txs: *cfg.max_transactions_in_queue() as usize,
+            max_txs_per_user: *cfg.max_transactions_in_queue_per_user() as usize,
+            tx_time_to_live: Duration::from_millis(*cfg.transaction_time_to_live_ms()),
+            future_threshold: Duration::from_millis(*cfg.future_threshold_ms()),
         }
     }
 
@@ -358,7 +358,7 @@ mod tests {
 
     use std::{str::FromStr, sync::Arc, thread, time::Duration};
 
-    use iroha_config::{base::proxy::Builder, queue::ConfigurationProxy};
+    use iroha_config::queue::{Configuration, ConfigurationBuilder};
     use iroha_data_model::{
         account::{ACCOUNT_SIGNATORIES_VALUE, TRANSACTION_SIGNATORIES_VALUE},
         prelude::*,
@@ -415,13 +415,11 @@ mod tests {
             kura.clone(),
         ));
 
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+        let mut config = ConfigurationBuilder::default();
+        config.set_transaction_time_to_live_ms(100_000);
+        config.set_max_transactions_in_queue(100);
+        let config = config.build().expect("Infallible");
+        let queue = Queue::from_configuration(&config);
 
         queue
             .push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv)
@@ -430,8 +428,6 @@ mod tests {
 
     #[test]
     fn push_tx_overflow() {
-        let max_txs_in_queue = 10;
-
         let key_pair = KeyPair::generate().unwrap();
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
@@ -439,15 +435,13 @@ mod tests {
             kura.clone(),
         ));
 
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: max_txs_in_queue,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+        let mut config = ConfigurationBuilder::default();
+        config.set_transaction_time_to_live_ms(100_000);
+        config.set_max_transactions_in_queue(10);
+        let config = config.build().expect("Infallible");
+        let queue = Queue::from_configuration(&config);
 
-        for _ in 0..max_txs_in_queue {
+        for _ in 0..config.max_transactions_in_queue() {
             queue
                 .push(
                     accepted_tx("alice@wonderland", 100_000, key_pair.clone()),
@@ -468,7 +462,6 @@ mod tests {
 
     #[test]
     fn push_tx_signature_condition_failure() {
-        let max_txs_in_queue = 10;
         let key_pair = KeyPair::generate().unwrap();
 
         let wsv = {
@@ -489,13 +482,11 @@ mod tests {
             ))
         };
 
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: max_txs_in_queue,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+        let mut config = ConfigurationBuilder::default();
+        config.set_transaction_time_to_live_ms(100_000);
+        config.set_max_transactions_in_queue(10);
+        let config = config.build().expect("Infallible");
+        let queue = Queue::from_configuration(&config);
 
         assert!(matches!(
             queue.push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv),
@@ -540,13 +531,12 @@ mod tests {
             ))
         };
 
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+        let mut config = ConfigurationBuilder::default();
+        config.set_transaction_time_to_live_ms(100_000);
+        config.set_max_transactions_in_queue(100);
+        let config = config.build().expect("Infallible");
+        let queue = Queue::from_configuration(&config);
+
         let tx = TransactionBuilder::new(
             AccountId::from_str("alice@wonderland").expect("Valid"),
             Vec::new(),
@@ -616,13 +606,13 @@ mod tests {
             world_with_test_domains([alice_key.public_key().clone()]),
             kura.clone(),
         ));
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+
+        let mut config = ConfigurationBuilder::default();
+        config.set_transaction_time_to_live_ms(100_000);
+        config.set_max_transactions_in_queue(100);
+        let config = config.build().expect("Infallible");
+        let queue = Queue::from_configuration(&config);
+
         for _ in 0..5 {
             queue
                 .push(
@@ -647,13 +637,13 @@ mod tests {
         );
         let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         wsv.transactions.insert(tx.hash());
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+
+        let mut config = ConfigurationBuilder::default();
+        config.set_transaction_time_to_live_ms(100_000);
+        config.set_max_transactions_in_queue(100);
+        let config = config.build().expect("Infallible");
+        let queue = Queue::from_configuration(&config);
+
         assert!(matches!(
             queue.push(tx, &wsv),
             Err(Failure {
@@ -674,13 +664,13 @@ mod tests {
             kura.clone(),
         );
         let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+
+        let mut config = ConfigurationBuilder::default();
+        config.set_transaction_time_to_live_ms(100_000);
+        config.set_max_transactions_in_queue(100);
+        let config = config.build().expect("Infallible");
+        let queue = Queue::from_configuration(&config);
+
         queue.push(tx.clone(), &wsv).unwrap();
         wsv.transactions.insert(tx.hash());
         assert_eq!(
@@ -701,13 +691,13 @@ mod tests {
             world_with_test_domains([alice_key.public_key().clone()]),
             kura.clone(),
         ));
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 200,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+
+        let mut config = ConfigurationBuilder::default();
+        config.set_transaction_time_to_live_ms(200);
+        config.set_max_transactions_in_queue(100);
+        let config = config.build().expect("Infallible");
+        let queue = Queue::from_configuration(&config);
+
         for _ in 0..(max_txs_in_block - 1) {
             queue
                 .push(
@@ -755,13 +745,13 @@ mod tests {
             world_with_test_domains([alice_key.public_key().clone()]),
             kura.clone(),
         ));
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+
+        let mut config = ConfigurationBuilder::default();
+        config.set_transaction_time_to_live_ms(100_000);
+        config.set_max_transactions_in_queue(100);
+        let config = config.build().expect("Infallible");
+        let queue = Queue::from_configuration(&config);
+
         queue
             .push(accepted_tx("alice@wonderland", 100_000, alice_key), &wsv)
             .expect("Failed to push tx into queue");
@@ -790,13 +780,11 @@ mod tests {
             kura.clone(),
         );
 
-        let queue = Arc::new(Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100_000_000,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        }));
+        let mut config = ConfigurationBuilder::default();
+        config.set_transaction_time_to_live_ms(100_000);
+        config.set_max_transactions_in_queue(100_000_000);
+        let config = config.build().expect("Infallible");
+        let queue = Queue::from_configuration(&config);
 
         let start_time = std::time::Instant::now();
         let run_for = Duration::from_secs(5);
@@ -856,8 +844,6 @@ mod tests {
 
     #[test]
     fn push_tx_in_future() {
-        let future_threshold_ms = 1000;
-
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
@@ -865,17 +851,11 @@ mod tests {
             kura.clone(),
         ));
 
-        let queue = Queue::from_configuration(&Configuration {
-            future_threshold_ms,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
-
+        let mut config = Configuration::default();
         let mut tx = accepted_tx("alice@wonderland", 100_000, alice_key);
         assert!(queue.push(tx.clone(), &wsv).is_ok());
         // tamper timestamp
-        tx.as_mut_v1().payload.creation_time += 2 * future_threshold_ms;
+        tx.as_mut_v1().payload.creation_time += 2 * config.future_threshold_ms();
         assert!(matches!(
             queue.push(tx, &wsv),
             Err(Failure {
@@ -910,14 +890,11 @@ mod tests {
         };
         let mut wsv = WorldStateView::new(world, kura.clone());
 
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            max_transactions_in_queue_per_user: 1,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+        let mut config = ConfigurationBuilder::default();
+        config.set_transaction_time_to_live_ms(100_000);
+        config.set_max_transactions_in_queue(100);
+        let config = config.build().expect("Infallible");
+        let queue = Queue::from_configuration(&config);
 
         // First push by Alice should be fine
         queue

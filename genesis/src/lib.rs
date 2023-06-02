@@ -72,9 +72,9 @@ impl GenesisNetworkTrait for GenesisNetwork {
         let genesis_config =
             genesis_config.expect("Should be `Some` when `submit_genesis` is true");
         let genesis_key_pair = KeyPair::new(
-            genesis_config.account_public_key.clone(),
+            genesis_config.account_public_key().clone(),
             genesis_config
-                .account_private_key
+                .account_private_key()
                 .clone()
                 .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
         )?;

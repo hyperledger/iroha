@@ -70,8 +70,8 @@ impl TransactionGossiper {
             queue,
             sumeragi,
             network,
-            gossip_batch_size: configuartion.gossip_batch_size,
-            gossip_period: Duration::from_millis(configuartion.gossip_period_ms),
+            gossip_batch_size: *configuartion.gossip_batch_size(),
+            gossip_period: Duration::from_millis(*configuartion.gossip_period_ms()),
             wsv,
         }
     }
@@ -119,7 +119,7 @@ impl TransactionGossiper {
         for tx in txs {
             match <AcceptedTransaction as InBlock>::accept(
                 tx.into_v1(),
-                &self.wsv.config.transaction_limits,
+                self.wsv.config.transaction_limits(),
             ) {
                 Ok(tx) => match self.queue.push(tx.into(), &self.wsv) {
                     Ok(_) => {}

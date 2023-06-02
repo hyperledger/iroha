@@ -19,7 +19,7 @@ use std::{
 };
 
 use color_eyre::{eyre::WrapErr, Report, Result};
-pub use iroha_config::logger::{Configuration, ConfigurationProxy, Level};
+pub use iroha_config::logger::{Configuration, Level};
 pub use telemetry::{Telemetry, TelemetryFields, TelemetryLayer};
 use tokio::sync::mpsc::Receiver;
 pub use tracing::{
@@ -71,10 +71,10 @@ pub fn disable_logger() -> bool {
 
 fn setup_logger(configuration: &Configuration) -> Result<Telemetries> {
     let layer = tracing_subscriber::fmt::layer()
-        .with_ansi(configuration.terminal_colors)
+        .with_ansi(*configuration.terminal_colors())
         .with_test_writer();
 
-    if configuration.compact_mode {
+    if *configuration.compact_mode() {
         add_bunyan(configuration, layer.compact())
     } else {
         add_bunyan(configuration, layer)
@@ -94,11 +94,11 @@ fn add_bunyan<L>(configuration: &Configuration, layer: L) -> Result<Telemetries>
 where
     L: tracing_subscriber::Layer<Registry> + Debug + Send + Sync + 'static,
 {
-    let level: tracing::Level = configuration.max_log_level.value().into();
+    let level: tracing::Level = configuration.max_level().value().into();
     let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level);
     let (filter, handle) = reload::Layer::new(level_filter);
-    configuration.max_log_level.set_handle(handle);
-    let (bunyan_layer, storage_layer) = match configuration.log_file_path.clone() {
+    configuration.max_level().set_handle(handle);
+    let (bunyan_layer, storage_layer) = match configuration.file_path().clone() {
         Some(path) => (
             Some(BunyanFormattingLayer::new(
                 "bunyan_layer".into(),
@@ -147,11 +147,12 @@ fn add_telemetry_and_set_default<S: Subscriber + Send + Sync + 'static>(
     configuration: &Configuration,
     subscriber: S,
 ) -> Result<Telemetries> {
+    let telemetry_capacity = *configuration.telemetry_capacity();
+
     // static global_subscriber: dyn Subscriber = once_cell::new;
     let (subscriber, receiver, receiver_future) = TelemetryLayer::from_capacity(
         subscriber,
-        configuration
-            .telemetry_capacity
+        telemetry_capacity
             .try_into()
             .expect("u32 should always fit in usize"),
     );

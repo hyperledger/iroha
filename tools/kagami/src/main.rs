@@ -194,14 +194,16 @@ mod genesis {
     use std::path::PathBuf;
 
     use clap::{Parser, Subcommand};
-    use iroha_config::{sumeragi::default::*, wasm::default::*, wsv::default::*};
+    use iroha_config::{
+        sumeragi::Configuration as SumeragiConfig, wasm::Configuration as WasmConfig,
+        wsv::Configuration as WsvConfig,
+    };
     use iroha_data_model::{
         asset::AssetValueType,
         isi::{MintBox, RegisterBox},
         metadata::Limits,
         parameter::{default::*, ParametersBuilder},
         prelude::AssetId,
-        transaction::DEFAULT_TRANSACTION_LIMITS,
         validator::Validator,
         IdBox,
     };
@@ -359,20 +361,38 @@ mod genesis {
         .into();
 
         let parameter_defaults = ParametersBuilder::new()
-            .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, DEFAULT_MAX_TRANSACTIONS_IN_BLOCK)?
-            .add_parameter(BLOCK_TIME, DEFAULT_BLOCK_TIME_MS)?
-            .add_parameter(COMMIT_TIME_LIMIT, DEFAULT_COMMIT_TIME_LIMIT_MS)?
-            .add_parameter(TRANSACTION_LIMITS, DEFAULT_TRANSACTION_LIMITS)?
-            .add_parameter(WSV_ASSET_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
+            .add_parameter(
+                MAX_TRANSACTIONS_IN_BLOCK,
+                SumeragiConfig::DEFAULT_MAX_TRANSACTIONS_IN_BLOCK(),
+            )?
+            .add_parameter(BLOCK_TIME, SumeragiConfig::DEFAULT_BLOCK_TIME_MS())?
+            .add_parameter(
+                COMMIT_TIME_LIMIT,
+                SumeragiConfig::DEFAULT_COMMIT_TIME_LIMIT_MS(),
+            )?
+            .add_parameter(TRANSACTION_LIMITS, WsvConfig::DEFAULT_TRANSACTION_LIMITS())?
+            .add_parameter(
+                WSV_ASSET_METADATA_LIMITS,
+                WsvConfig::DEFAULT_ASSET_METADATA_LIMITS(),
+            )?
             .add_parameter(
                 WSV_ASSET_DEFINITION_METADATA_LIMITS,
-                DEFAULT_METADATA_LIMITS.to_value(),
+                WsvConfig::DEFAULT_ASSET_DEFINITION_METADATA_LIMITS().to_value(),
             )?
-            .add_parameter(WSV_ACCOUNT_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
-            .add_parameter(WSV_DOMAIN_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
-            .add_parameter(WSV_IDENT_LENGTH_LIMITS, DEFAULT_IDENT_LENGTH_LIMITS)?
-            .add_parameter(WASM_FUEL_LIMIT, DEFAULT_FUEL_LIMIT)?
-            .add_parameter(WASM_MAX_MEMORY, DEFAULT_MAX_MEMORY)?
+            .add_parameter(
+                WSV_ACCOUNT_METADATA_LIMITS,
+                WsvConfig::DEFAULT_ACCOUNT_METADATA_LIMITS(),
+            )?
+            .add_parameter(
+                WSV_DOMAIN_METADATA_LIMITS,
+                WsvConfig::DEFAULT_DOMAIN_METADATA_LIMITS(),
+            )?
+            .add_parameter(
+                WSV_IDENT_LENGTH_LIMITS,
+                WsvConfig::DEFAULT_IDENT_LENGTH_LIMITS(),
+            )?
+            .add_parameter(WASM_FUEL_LIMIT, WasmConfig::DEFAULT_FUEL_LIMIT())?
+            .add_parameter(WASM_MAX_MEMORY, WasmConfig::DEFAULT_MAX_MEMORY())?
             .into_create_parameters();
 
         let grant_role = GrantBox::new(role_id, alice_id);
@@ -507,8 +527,8 @@ mod config {
 
     mod client {
         use iroha_config::{
-            client::{BasicAuth, ConfigurationProxy, WebLogin},
-            torii::{uri::DEFAULT_API_ADDR, DEFAULT_TORII_TELEMETRY_ADDR},
+            client::{BasicAuth, ConfigurationBuilder as ClientConfigBuilder, WebLogin},
+            torii::Configuration as ToriiConfig,
         };
 
         use super::*;
@@ -518,24 +538,26 @@ mod config {
 
         impl<T: Write> RunArgs<T> for Args {
             fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-                let config = ConfigurationProxy {
-                    torii_api_url: Some(format!("http://{DEFAULT_API_ADDR}").parse()?),
-                    torii_telemetry_url: Some(format!("http://{DEFAULT_TORII_TELEMETRY_ADDR}").parse()?),
-                    account_id: Some("alice@wonderland".parse()?),
-                    basic_auth: Some(Some(BasicAuth {
-                        web_login: WebLogin::new("mad_hatter")?,
-                        password: SmallStr::from_str("ilovetea"),
-                    })),
-                    public_key: Some(PublicKey::from_str(
-                        "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
-                    )?),
-                    private_key: Some(PrivateKey::from_hex(
+                let mut config = ClientConfigBuilder::default();
+                config.set_torii_api_url(
+                    format!("http://{}", ToriiConfig::DEFAULT_API_URL()).parse()?,
+                );
+                config.set_torii_telemetry_url(
+                    format!("http://{}", ToriiConfig::DEFAULT_TELEMETRY_URL()).parse()?,
+                );
+                config.set_account_id("alice@wonderland".parse()?);
+                config.set_basic_auth(Some(BasicAuth {
+                    web_login: WebLogin::new("mad_hatter")?,
+                    password: SmallStr::from_str("ilovetea"),
+                }));
+                config.set_public_key(PublicKey::from_str(
+                    "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
+                )?);
+                config.set_private_key(PrivateKey::from_hex(
                         Algorithm::Ed25519,
                         "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0".as_ref()
-                    )?),
-                    ..ConfigurationProxy::default()
-                }
-                .build()?;
+                    )?);
+                let config = config.build()?;
                 writeln!(writer, "{}", serde_json::to_string_pretty(&config)?)
                     .wrap_err("Failed to write serialized client configuration to the buffer.")
             }
@@ -543,7 +565,7 @@ mod config {
     }
 
     mod peer {
-        use iroha_config::iroha::ConfigurationProxy as IrohaConfigurationProxy;
+        use iroha_config::iroha::ConfigurationBuilder as IrohaConfigurationBuilder;
 
         use super::*;
 
@@ -552,7 +574,7 @@ mod config {
 
         impl<T: Write> RunArgs<T> for Args {
             fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-                let config = IrohaConfigurationProxy::default();
+                let config = IrohaConfigurationBuilder::default();
                 writeln!(writer, "{}", serde_json::to_string_pretty(&config)?)
                     .wrap_err("Failed to write serialized peer configuration to the buffer.")
             }
@@ -570,7 +592,7 @@ mod docs {
     use std::{fmt::Debug, io::Write};
 
     use color_eyre::eyre::WrapErr as _;
-    use iroha_config::{base::proxy::Documented, iroha::ConfigurationProxy};
+    use iroha_config::{base::proxy::Documented, iroha::ConfigurationBuilder};
     use serde_json::Value;
 
     use super::*;
@@ -582,7 +604,7 @@ mod docs {
 
     impl<T: Write> RunArgs<T> for Args {
         fn run(self, writer: &mut BufWriter<T>) -> crate::Outcome {
-            ConfigurationProxy::get_markdown(writer).wrap_err("Failed to generate documentation")
+            ConfigurationBuilder::get_markdown(writer).wrap_err("Failed to generate documentation")
         }
     }
 

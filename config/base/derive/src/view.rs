@@ -46,14 +46,7 @@ mod gen {
         ));
         keep_derive_attr(
             &mut ast,
-            &[
-                "Clone",
-                "Debug",
-                "Deserialize",
-                "Serialize",
-                "PartialEq",
-                "Eq",
-            ],
+            &["Clone", "Debug", "Serialize", "PartialEq", "Eq"],
         );
         keep_attrs_in_struct(&mut ast, &["serde", "doc", "derive", "cfg"]);
         ast.ident = format_ident!("{}View", ast.ident);

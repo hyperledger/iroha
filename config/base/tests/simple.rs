@@ -1,12 +1,9 @@
 #![allow(clippy::restriction)]
 
-use iroha_config_base::{
-    derive::{Documented, LoadFromEnv, Override},
-    proxy::{Documented as _, LoadFromEnv as _, Override as _},
-};
+use iroha_config_base::{proxy::Documented as _, Configuration};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize, LoadFromEnv, Override)]
+#[derive(Clone, Debug, Configuration, Deserialize, Serialize)]
 #[config(env_prefix = "CONF_")]
 struct ConfigurationProxy {
     /// Inner structure
@@ -18,7 +15,7 @@ struct ConfigurationProxy {
     pub optional_data: Option<Data>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Documented)]
+#[derive(Clone, Debug, Configuration, Documented, Deserialize, Serialize)]
 #[config(env_prefix = "CONF_")]
 struct Configuration {
     /// Inner structure
@@ -56,7 +53,7 @@ impl ConfigurationProxy {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, LoadFromEnv, Override)]
+#[derive(Clone, Debug, PartialEq, Eq, Configuration, Deserialize, Serialize)]
 #[config(env_prefix = "CONF_INNER_")]
 struct InnerConfigurationProxy {
     pub a: Option<String>,
@@ -65,7 +62,7 @@ struct InnerConfigurationProxy {
     pub b: Option<i32>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, Documented)]
+#[derive(Clone, Debug, PartialEq, Eq, Configuration, Documented, Deserialize, Serialize)]
 #[config(env_prefix = "CONF_INNER_")]
 struct InnerConfiguration {
     pub a: String,

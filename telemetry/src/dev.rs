@@ -21,7 +21,7 @@ pub async fn start(
 ) -> Result<JoinHandle<()>> {
     let mut telemetry = crate::futures::get_stream(ReceiverStream::new(telemetry));
 
-    let Some(telemetry_file) = &config.file else {
+    let Some(telemetry_file) = config.file() else {
         return Ok(task::spawn(async move {
             while telemetry.next().await.is_some() {}
         }));

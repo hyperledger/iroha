@@ -106,7 +106,7 @@ impl Path {
     }
 
     /// Try to get first existing path by applying possible extensions if there are any.
-    pub fn first_existing_path(&self) -> Option<Cow<PathBuf>> {
+    pub fn first_existing(&self) -> Option<Cow<PathBuf>> {
         match &self.0 {
             Default(path) => ALLOWED_CONFIG_EXTENSIONS.iter().find_map(|extension| {
                 let path_ext = path.with_extension(extension);
