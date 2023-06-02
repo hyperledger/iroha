@@ -14,7 +14,7 @@ use dashmap::{mapref::entry::Entry, DashMap};
 use eyre::{Report, Result};
 use iroha_config::queue::Configuration;
 use iroha_crypto::HashOf;
-use iroha_data_model::transaction::prelude::*;
+use iroha_data_model::{account::AccountId, transaction::prelude::*};
 use iroha_logger::{debug, info, trace, warn};
 use iroha_primitives::must_use::MustUse;
 use rand::seq::IteratorRandom;
@@ -29,10 +29,14 @@ use crate::{prelude::*, tx::CheckSignatureCondition as _};
 pub struct Queue {
     /// The queue for transactions
     queue: ArrayQueue<HashOf<VersionedSignedTransaction>>,
-    /// [`VersionedAcceptedTransaction`]s addressed by `Hash`.
+    /// [`VersionedAcceptedTransaction`]s addressed by `Hash`
     txs: DashMap<HashOf<VersionedSignedTransaction>, VersionedAcceptedTransaction>,
+    /// Amount of transactions per user in the queue
+    txs_per_user: DashMap<AccountId, usize>,
     /// The maximum number of transactions in the queue
     max_txs: usize,
+    /// The maximum number of transactions in the queue per user. Used to apply throttling
+    max_txs_per_user: usize,
     /// Length of time after which transactions are dropped.
     pub tx_time_to_live: Duration,
     /// A point in time that is considered `Future` we cannot use
@@ -61,6 +65,9 @@ pub enum Error {
     /// Transaction is already in blockchain
     #[error("Transaction is already applied")]
     InBlockchain,
+    /// User reached maximum number of transactions in the queue
+    #[error("User reached maximum number of trnasctions in the queue")]
+    MaximumTransactionsPerUser,
     /// Signature condition check failed
     #[error("Failure during signature condition execution, tx hash: {tx_hash}, reason: {reason}")]
     SignatureCondition {
@@ -86,7 +93,9 @@ impl Queue {
         Self {
             queue: ArrayQueue::new(cfg.max_transactions_in_queue as usize),
             txs: DashMap::new(),
+            txs_per_user: DashMap::new(),
             max_txs: cfg.max_transactions_in_queue as usize,
+            max_txs_per_user: cfg.max_transactions_in_queue_per_user as usize,
             tx_time_to_live: Duration::from_millis(cfg.transaction_time_to_live_ms),
             future_threshold: Duration::from_millis(cfg.future_threshold_ms),
         }
@@ -185,21 +194,26 @@ impl Queue {
             });
         }
 
+        if let Err(err) = self.check_and_increase_per_user_tx_count(&tx.payload().account_id) {
+            return Err(Failure { tx, err });
+        }
+
         // Insert entry first so that the `tx` popped from `queue` will always have a `(hash, tx)` record in `txs`.
         entry.insert(tx);
-        let res = self.queue.push(hash).map_err(|err_hash| {
+        self.queue.push(hash).map_err(|err_hash| {
             warn!("Queue is full");
             let (_, err_tx) = self
                 .txs
                 .remove(&err_hash)
                 .expect("Inserted just before match");
+            self.decrease_per_user_tx_count(&err_tx.payload().account_id);
             Failure {
                 tx: err_tx,
                 err: Error::Full,
             }
-        });
+        })?;
         trace!("Transaction queue length = {}", self.queue.len(),);
-        res
+        Ok(())
     }
 
     /// Pop single transaction from the queue. Record all visited and not removed transactions in `seen`.
@@ -227,12 +241,14 @@ impl Queue {
             let tx = entry.get();
             if tx.is_in_blockchain(wsv) {
                 debug!("Transaction is already in blockchain");
-                entry.remove_entry();
+                let (_, tx) = entry.remove_entry();
+                self.decrease_per_user_tx_count(&tx.payload().account_id);
                 continue;
             }
             if tx.is_expired(self.tx_time_to_live) {
                 debug!("Transaction is expired");
                 let (_, tx) = entry.remove_entry();
+                self.decrease_per_user_tx_count(&tx.payload().account_id);
                 expired_transactions.push(tx);
                 continue;
             }
@@ -298,6 +314,41 @@ impl Queue {
             .try_for_each(|hash| self.queue.push(hash))
             .expect("Exceeded the number of transactions pending");
         expired_transactions.extend(expired_transactions_queue);
+    }
+
+    /// Check that the user adhered to the maximum transaction per user limit and increment their transaction count.
+    fn check_and_increase_per_user_tx_count(&self, account_id: &AccountId) -> Result<(), Error> {
+        match self.txs_per_user.entry(account_id.clone()) {
+            Entry::Vacant(vacant) => {
+                vacant.insert(1);
+            }
+            Entry::Occupied(mut occupied) => {
+                let txs = *occupied.get();
+                if txs >= self.max_txs_per_user {
+                    warn!(
+                        max_txs_per_user = self.max_txs_per_user,
+                        %account_id,
+                        "Account reached maximum allowed number of transactions in the queue per user"
+                    );
+                    return Err(Error::MaximumTransactionsPerUser);
+                }
+                *occupied.get_mut() += 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn decrease_per_user_tx_count(&self, account_id: &AccountId) {
+        let Entry::Occupied(mut occupied) = self.txs_per_user
+            .entry(account_id.clone()) else { panic!("Call to decrease always should be paired with increase count. This is a bug.") };
+
+        let count = occupied.get_mut();
+        if *count > 1 {
+            *count -= 1;
+        } else {
+            occupied.remove_entry();
+        }
     }
 }
 
@@ -763,6 +814,10 @@ mod tests {
                         Err(Failure {
                             err: Error::Full, ..
                         }) => (),
+                        Err(Failure {
+                            err: Error::MaximumTransactionsPerUser,
+                            ..
+                        }) => (),
                         Err(Failure { err, .. }) => panic!("{err}"),
                     }
                 }
@@ -829,5 +884,97 @@ mod tests {
             })
         ));
         assert_eq!(queue.txs.len(), 1);
+    }
+
+    #[test]
+    fn queue_throttling() {
+        let alice_key_pair = KeyPair::generate().unwrap();
+        let bob_key_pair = KeyPair::generate().unwrap();
+        let kura = Kura::blank_kura_for_testing();
+        let world = {
+            let domain_id = DomainId::from_str("wonderland").expect("Valid");
+            let alice_account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+            let bob_account_id = AccountId::from_str("bob@wonderland").expect("Valid");
+            let mut domain = Domain::new(domain_id).build(&alice_account_id);
+            let alice_account = Account::new(
+                alice_account_id.clone(),
+                [alice_key_pair.public_key().clone()],
+            )
+            .build(&alice_account_id);
+            let bob_account =
+                Account::new(bob_account_id.clone(), [bob_key_pair.public_key().clone()])
+                    .build(&bob_account_id);
+            assert!(domain.add_account(alice_account).is_none());
+            assert!(domain.add_account(bob_account).is_none());
+            World::with([domain], PeersIds::new())
+        };
+        let mut wsv = WorldStateView::new(world, kura.clone());
+
+        let queue = Queue::from_configuration(&Configuration {
+            transaction_time_to_live_ms: 100_000,
+            max_transactions_in_queue: 100,
+            max_transactions_in_queue_per_user: 1,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
+
+        // First push by Alice should be fine
+        queue
+            .push(
+                accepted_tx("alice@wonderland", 100_000, alice_key_pair.clone()),
+                &wsv,
+            )
+            .expect("Failed to push tx into queue");
+
+        // Second push by Alice excide limit and will be rejected
+        let result = queue.push(
+            accepted_tx("alice@wonderland", 100_000, alice_key_pair.clone()),
+            &wsv,
+        );
+        assert!(
+            matches!(
+                result,
+                Err(Failure {
+                    tx: _,
+                    err: Error::MaximumTransactionsPerUser
+                }),
+            ),
+            "Failed to match: {:?}",
+            result,
+        );
+
+        // First push by Bob should be fine despite previous Alice error
+        queue
+            .push(
+                accepted_tx("bob@wonderland", 100_000, bob_key_pair.clone()),
+                &wsv,
+            )
+            .expect("Failed to push tx into queue");
+
+        let transactions = queue.collect_transactions_for_block(&wsv, 10);
+        assert_eq!(transactions.len(), 2);
+        for transaction in transactions {
+            // Put transaction hashes into wsv as if they were in the blockchain
+            wsv.transactions.insert(transaction.hash());
+        }
+        // Cleanup transactions
+        let transactions = queue.collect_transactions_for_block(&wsv, 10);
+        assert!(transactions.is_empty());
+
+        // After cleanup Alice and Bob pushes should work fine
+        queue
+            .push(
+                accepted_tx("alice@wonderland", 100_000, alice_key_pair.clone()),
+                &wsv,
+            )
+            .expect("Failed to push tx into queue");
+
+        queue
+            .push(
+                accepted_tx("bob@wonderland", 100_000, bob_key_pair.clone()),
+                &wsv,
+            )
+            .expect("Failed to push tx into queue");
     }
 }

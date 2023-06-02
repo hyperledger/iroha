@@ -65,6 +65,7 @@ The following is the default configuration used by Iroha.
   },
   "QUEUE": {
     "MAX_TRANSACTIONS_IN_QUEUE": 65536,
+    "MAX_TRANSACTIONS_IN_QUEUE_PER_USER": 65536,
     "TRANSACTION_TIME_TO_LIVE_MS": 86400000,
     "FUTURE_THRESHOLD_MS": 1000
   },
@@ -393,6 +394,7 @@ Has type `Option<queue::ConfigurationProxy>`[^1]. Can be configured via environm
 {
   "FUTURE_THRESHOLD_MS": 1000,
   "MAX_TRANSACTIONS_IN_QUEUE": 65536,
+  "MAX_TRANSACTIONS_IN_QUEUE_PER_USER": 65536,
   "TRANSACTION_TIME_TO_LIVE_MS": 86400000
 }
 ```
@@ -412,6 +414,16 @@ Has type `Option<u64>`[^1]. Can be configured via environment variable `QUEUE_FU
 The upper limit of the number of transactions waiting in the queue.
 
 Has type `Option<u32>`[^1]. Can be configured via environment variable `QUEUE_MAX_TRANSACTIONS_IN_QUEUE`
+
+```json
+65536
+```
+
+### `queue.max_transactions_in_queue_per_user`
+
+The upper limit of the number of transactions waiting in the queue for single user.
+
+Has type `Option<u32>`[^1]. Can be configured via environment variable `QUEUE_MAX_TRANSACTIONS_IN_QUEUE_PER_USER`
 
 ```json
 65536

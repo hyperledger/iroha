@@ -4,6 +4,7 @@ use iroha_config_base::derive::{Documented, Proxy};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_MAX_TRANSACTIONS_IN_QUEUE: u32 = 2_u32.pow(16);
+const DEFAULT_MAX_TRANSACTIONS_IN_QUEUE_PER_USER: u32 = 2_u32.pow(16);
 // 24 hours
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 24 * 60 * 60 * 1000;
 const DEFAULT_FUTURE_THRESHOLD_MS: u64 = 1000;
@@ -15,6 +16,9 @@ const DEFAULT_FUTURE_THRESHOLD_MS: u64 = 1000;
 pub struct Configuration {
     /// The upper limit of the number of transactions waiting in the queue.
     pub max_transactions_in_queue: u32,
+    /// The upper limit of the number of transactions waiting in the queue for single user.
+    /// Use this option to apply throttling.
+    pub max_transactions_in_queue_per_user: u32,
     /// The transaction will be dropped after this time if it is still in the queue.
     pub transaction_time_to_live_ms: u64,
     /// The threshold to determine if a transaction has been tampered to have a future timestamp.
@@ -25,6 +29,7 @@ impl Default for ConfigurationProxy {
     fn default() -> Self {
         Self {
             max_transactions_in_queue: Some(DEFAULT_MAX_TRANSACTIONS_IN_QUEUE),
+            max_transactions_in_queue_per_user: Some(DEFAULT_MAX_TRANSACTIONS_IN_QUEUE_PER_USER),
             transaction_time_to_live_ms: Some(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS),
             future_threshold_ms: Some(DEFAULT_FUTURE_THRESHOLD_MS),
         }
@@ -41,11 +46,12 @@ pub mod tests {
         pub fn arb_proxy()
             (
                 max_transactions_in_queue in prop::option::of(Just(DEFAULT_MAX_TRANSACTIONS_IN_QUEUE)),
+                max_transactions_in_queue_per_user in prop::option::of(Just(DEFAULT_MAX_TRANSACTIONS_IN_QUEUE_PER_USER)),
                 transaction_time_to_live_ms in prop::option::of(Just(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS)),
                 future_threshold_ms in prop::option::of(Just(DEFAULT_FUTURE_THRESHOLD_MS)),
             )
             -> ConfigurationProxy {
-            ConfigurationProxy { max_transactions_in_queue, transaction_time_to_live_ms, future_threshold_ms }
+            ConfigurationProxy { max_transactions_in_queue, max_transactions_in_queue_per_user, transaction_time_to_live_ms, future_threshold_ms }
         }
     }
 }
