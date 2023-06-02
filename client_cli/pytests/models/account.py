@@ -1,7 +1,9 @@
 """
 This module provides an Account class for working with Iroha network accounts.
 """
+from dataclasses import dataclass
 
+@dataclass
 class Account:
     """
     Account class represents an Iroha account.
@@ -13,10 +15,9 @@ class Account:
     :param public_key: The public key of the account.
     :type public_key: str
     """
-    def __init__(self, name: str, domain: str, public_key: str) -> object:
-        self.name = name
-        self.domain = domain
-        self.public_key = public_key
+    name: str
+    domain: str
+    public_key: str
 
     def __repr__(self):
         return f"{self.name}@{self.domain}"
