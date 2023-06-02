@@ -141,24 +141,17 @@ primitive_derive! { u32, i32, u64, i64 }
 #[cfg(not(target_family = "wasm"))]
 primitive_derive! { u8, i8, u16, i16 }
 
-/// Ffi-safe representation of [`u128`]
-#[derive(Clone, Copy, Debug, Default)]
-#[repr(transparent)]
-pub struct FfiU128(FfiTuple2<u64, u64>);
-
-// SAFETY: Transparent to `FfiTuple<u64, u64>` which is `ReprC`
-unsafe impl ReprC for FfiU128 {}
-
-/// Ffi-safe representation of [`i128`]
-#[derive(Clone, Copy, Debug, Default)]
-#[repr(transparent)]
-pub struct FfiI128(FfiTuple2<u64, u64>);
-
-// SAFETY: Transparent to `FfiTuple<u64, u64>` which is `ReprC`
-unsafe impl ReprC for FfiI128 {}
-
 macro_rules! int128_derive {
-    ($($src:ty => $dst:ty),+$(,)?) => {$(
+    ($($src:ty => $dst:ident),+$(,)?) => {$(
+        /// Ffi-safe representation of [`u128`]
+        #[doc = concat!(" Ffi-safe representation of [", stringify!($src), "]")]
+        #[derive(Clone, Copy, Debug, Default)]
+        #[repr(transparent)]
+        pub struct $dst(FfiTuple2<u64, u64>);
+
+        // SAFETY: Transparent to `FfiTuple<u64, u64>` which is `ReprC`
+        unsafe impl ReprC for $dst where FfiTuple2<u64, u64>: ReprC {}
+
         impl Ir for $src {
             type Type = Self;
         }
@@ -175,7 +168,7 @@ macro_rules! int128_derive {
                 self.into()
             }
 
-            // NOTE: calling this function should be safe since no pointers involved in conversion
+            // SAFETY: calling this function is safe since no pointers involved in conversion
             unsafe fn try_from_repr_c(value: $dst, _: &mut Self::FfiStore) -> Result<Self> {
                 Ok(value.into())
             }
