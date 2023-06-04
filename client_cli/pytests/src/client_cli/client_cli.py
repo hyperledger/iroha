@@ -4,10 +4,10 @@ commands for interacting with Iroha blockchain using the Iroha command-line clie
 """
 import subprocess
 from time import sleep, time
-from typing import Callable
 
 import allure
 
+from common.settings import path_config_client_cli, client_cli_path
 from src.client_cli.configuration import Config
 
 
@@ -15,17 +15,15 @@ class ClientCli:
     """
     A class to represent the Iroha client command line interface.
     """
+    BASE_COMMAND = [client_cli_path, f'--config={path_config_client_cli}']
 
-    def __init__(self, config: Config, path: str):
+    def __init__(self, config: Config):
         """
         :param config: The configuration object.
         :type config: Config
-        :param path: Path to the Iroha client command line interface executable.
-        :type path: str
         """
         self.config = config
-        self.default_command = [path, f'--config={self.config.file}']
-        self.command = self.default_command.copy()
+        self.command = self.BASE_COMMAND.copy()
         self.stdout = None
         self.stderr = None
         self._timeout = 5
@@ -76,7 +74,7 @@ class ClientCli:
         """
         self.stdout = None
         self.stderr = None
-        self.command = self.default_command.copy()
+        self.command = self.BASE_COMMAND.copy()
 
     def register(self):
         """
@@ -226,7 +224,7 @@ class ClientCli:
                     f"Error: {exception}"
                 ) from exception
             finally:
-                self.command = self.default_command.copy()
+                self.command = self.BASE_COMMAND.copy()
             return self
 
 
