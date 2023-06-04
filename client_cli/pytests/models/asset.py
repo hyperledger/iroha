@@ -1,3 +1,7 @@
+"""
+This module contains the AssetDefinition and Asset classes.
+"""
+
 from dataclasses import dataclass
 
 @dataclass

@@ -5,7 +5,7 @@ This module contains the Iroha class, which is a subclass of ClientCli.
 import json
 
 from src.client_cli.client_cli import ClientCli, Config
-
+from typing import Any, Dict, List, Union
 
 class Iroha(ClientCli):
     """
@@ -14,12 +14,18 @@ class Iroha(ClientCli):
     """
 
     def __init__(self, config: Config, path: str):
+        """
+        :param config: A configuration object containing the details for the client.
+        :type config: Config
+        :param path: The path where the client executable is located.
+        :type path: str
+        """
         super().__init__(config, path)
-        self._storage: str = ''
-        self._domains: str = ''
-        self._accounts: str = ''
-        self._assets: str = ''
-        self._asset_definitions = {}
+        self._storage: Union[Dict, List] = {}
+        self._domains: Union[Dict, List] = {}
+        self._accounts: Union[Dict, List] = {}
+        self._assets: Union[Dict, List] = {}
+        self._asset_definitions: Dict[str, Any] = {}
 
     def _execute_command(self, command_name: str):
         """

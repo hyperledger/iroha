@@ -18,8 +18,6 @@ class ClientCli:
 
     def __init__(self, config: Config, path: str):
         """
-        Constructs all the necessary attributes for the ClientCli object.
-
         :param config: The configuration object.
         :type config: Config
         :param path: Path to the Iroha client command line interface executable.
