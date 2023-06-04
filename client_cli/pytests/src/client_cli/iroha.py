@@ -13,14 +13,14 @@ class Iroha(ClientCli):
     for interacting with the Iroha network.
     """
 
-    def __init__(self, config: Config, path: str):
+    def __init__(self, config: Config):
         """
         :param config: A configuration object containing the details for the client.
         :type config: Config
         :param path: The path where the client executable is located.
         :type path: str
         """
-        super().__init__(config, path)
+        super().__init__(config)
         self._storage: Union[Dict, List] = {}
         self._domains: Union[Dict, List] = {}
         self._accounts: Union[Dict, List] = {}
