@@ -49,7 +49,7 @@ class ClientCli:
         """
         self.reset()
 
-    def wait_for(self, expected: str, actual: str, method: Callable, timeout=None):
+    def wait_for(self, expected: str, actual: str, timeout=None):
         """
         Wait for a certain condition to be met, specified by the expected and actual values.
 
@@ -57,8 +57,6 @@ class ClientCli:
         :type expected: str
         :param actual: The actual value.
         :type actual: str
-        :param method: A callable method to evaluate the condition.
-        :type method: Callable
         :param timeout: Maximum time to wait for the condition to be met, defaults to None.
         :type timeout: int, optional
         """
@@ -72,7 +70,6 @@ class ClientCli:
                                    f"to be in '{actual}' "
                                    f"after waiting for '{timeout}' seconds.")
             sleep(1)
-            actual = method()
         assert expected in actual
 
     def reset(self):

@@ -14,7 +14,7 @@ def wait_for(expected, actual):
     :param expected: The expected value.
     :param actual: The actual value.
     """
-    client_cli.wait_for(expected, actual, lambda: actual)
+    client_cli.wait_for(expected, actual)
 
 
 def iroha_have_domain(expected: str, actual: str):
