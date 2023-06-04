@@ -33,7 +33,7 @@ def generate_random_string(length, allowed_chars):
     return ''.join(random.choice(allowed_chars) for _ in range(length))
 
 def generate_random_string_without_reserved_chars(length):
-    allowed_chars = ''.join(c for c in string.printable if c not in ReservedChars.ALL.value)
+    allowed_chars = [c for c in string.printable if c not in ReservedChars.ALL.value]
     return generate_random_string(length, allowed_chars)
 
 def fake_name():
