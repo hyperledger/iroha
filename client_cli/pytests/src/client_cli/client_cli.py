@@ -81,6 +81,7 @@ class ClientCli:
         """
         self.stdout = None
         self.stderr = None
+        self.command = self.default_command.copy()
 
     def register(self):
         """
