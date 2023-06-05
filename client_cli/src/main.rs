@@ -541,7 +541,7 @@ mod account {
     impl RunArgs for ListPermissions {
         fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
             let client = Client::new(cfg)?;
-            let find_all_permissions = FindPermissionTokensByAccountId { id: self.id.into() };
+            let find_all_permissions = FindPermissionTokensByAccountId::new(self.id);
             let permissions = client
                 .request(find_all_permissions)
                 .wrap_err("Failed to get all account permissions")?;
