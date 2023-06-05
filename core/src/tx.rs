@@ -250,7 +250,7 @@ impl TransactionValidator {
     ) -> Result<(), TransactionRejectionReason> {
         debug!("Validating wasm");
 
-        wasm::RuntimeBuilder::new()
+        wasm::RuntimeBuilder::<wasm::state::SmartContract>::new()
             .build()
             .and_then(|mut wasm_runtime| {
                 wasm_runtime.validate(

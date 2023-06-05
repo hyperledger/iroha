@@ -9,13 +9,16 @@ use iroha_data_model::{
 use iroha_logger::trace;
 
 use super::wsv::WorldStateView;
-use crate::smartcontracts::wasm;
+use crate::smartcontracts::wasm::{
+    self,
+    error::{Error, ExportFnCallError},
+};
 
-impl From<wasm::Error> for ValidationFail {
-    fn from(err: wasm::Error) -> Self {
+impl From<Error> for ValidationFail {
+    fn from(err: Error) -> Self {
         match err {
-            wasm::Error::ExportFnCall(call_error) => {
-                use wasm::ExportFnCallError::*;
+            Error::ExportFnCall(call_error) => {
+                use ExportFnCallError::*;
 
                 match call_error {
                     ExecutionLimitsExceeded(_) => Self::TooComplex,
@@ -74,7 +77,7 @@ impl Validator {
     ) -> Result<()> {
         let operation = operation.into();
 
-        let runtime = wasm::RuntimeBuilder::new()
+        let runtime = wasm::RuntimeBuilder::<wasm::state::Validator>::new()
             .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
             .with_configuration(wsv.config.wasm_runtime_config)
             .build()?;

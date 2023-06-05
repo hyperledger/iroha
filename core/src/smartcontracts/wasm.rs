@@ -3,16 +3,23 @@
 //! to wasm format and submitted in a transaction
 #![allow(clippy::doc_link_with_quotes, clippy::arithmetic_side_effects)]
 
+use error::*;
 use eyre::eyre;
 use iroha_config::{
     base::proxy::Builder,
     wasm::{Configuration, ConfigurationProxy},
 };
-use iroha_data_model::{account::AccountId, prelude::*, validator, ValidationFail};
-use iroha_logger::{debug, error};
+use iroha_data_model::{
+    account::AccountId,
+    prelude::*,
+    validator::{self, NeedsValidationBox},
+    ValidationFail,
+};
+use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
 use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span, Level as LogLevel};
 use iroha_wasm_codec::{self as codec, WasmUsize};
+use state::GetCommon as _;
 use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
@@ -58,133 +65,154 @@ pub mod import {
     pub const LOG_FN_NAME: &str = "log";
 }
 
-/// `WebAssembly` execution error type
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// Engine or linker could not be created
-    #[error("Runtime initialization failure")]
-    Initialization(#[source] eyre::Report),
-    /// Module could not be loaded from bytes
-    #[error("Failed to load module")]
-    ModuleLoading(#[source] eyre::Report),
-    /// Module could not be instantiated
-    #[error("Module instantiation failure")]
-    Instantiation(#[from] InstantiationError),
+pub mod error {
+    //! Error types for [`wasm`](super) and their impls
+
+    use wasmtime::Trap;
+
+    /// `WebAssembly` execution error type
+    #[derive(Debug, thiserror::Error)]
+    pub enum Error {
+        /// Engine or linker could not be created
+        #[error("Runtime initialization failure")]
+        Initialization(#[source] eyre::Report),
+        /// Module could not be loaded from bytes
+        #[error("Failed to load module")]
+        ModuleLoading(#[source] eyre::Report),
+        /// Module could not be instantiated
+        #[error("Module instantiation failure")]
+        Instantiation(#[from] InstantiationError),
+        /// Export error
+        #[error("Export error")]
+        Export(#[from] ExportError),
+        /// Call to the function exported from module failed
+        #[error("Exported function call failed")]
+        ExportFnCall(#[from] ExportFnCallError),
+        /// Error during decoding object with length prefix
+        #[error("Failed to decode object from bytes with length prefix")]
+        Decode(#[source] eyre::Report),
+    }
+
+    /// Instantiation error
+    #[derive(Debug, thiserror::Error)]
+    pub enum InstantiationError {
+        /// [`wasmtime::Linker::instantiate`] failed
+        #[error("Linker failed to instantiate module")]
+        Linker(#[from] eyre::Report),
+        /// Export which should always be present is missing
+        #[error("Mandatory export error")]
+        MandatoryExport(#[from] ExportError),
+    }
+
     /// Export error
-    #[error("Export error")]
-    Export(#[from] ExportError),
-    /// Call to the function exported from module failed
-    #[error("Exported function call failed")]
-    ExportFnCall(#[from] ExportFnCallError),
-    /// Error during decoding object with length prefix
-    #[error("Failed to decode object from bytes with length prefix")]
-    Decode(#[source] eyre::Report),
-}
+    #[derive(Debug, Copy, Clone, thiserror::Error)]
+    #[error("Failed to export `{export_name}`")]
+    pub struct ExportError {
+        /// Name of the failed export
+        pub export_name: &'static str,
+        /// Error kind
+        #[source]
+        pub export_error_kind: ExportErrorKind,
+    }
 
-/// Instantiation error
-#[derive(Debug, thiserror::Error)]
-pub enum InstantiationError {
-    /// [`wasmtime::Linker::instantiate`] failed
-    #[error("Linker failed to instantiate module")]
-    Linker(#[from] eyre::Report),
-    /// Export which should always be present is missing
-    #[error("Mandatory export error")]
-    MandatoryExport(#[from] ExportError),
-}
+    /// Export error kind
+    #[derive(Debug, Copy, Clone, thiserror::Error)]
+    pub enum ExportErrorKind {
+        /// Named export not found
+        #[error("Not found")]
+        NotFound,
+        /// Export expected to be a memory, but it's not
+        #[error("Not a memory")]
+        NotAMemory,
+        /// Export expected to be a function, but it's not
+        #[error("Not a function")]
+        NotAFunction,
+        /// Export has a wrong signature
+        #[error("Wrong signature, expected `{0} -> {1}`")]
+        WrongSignature(&'static str, &'static str),
+    }
 
-/// Export error
-#[derive(Debug, Copy, Clone, thiserror::Error)]
-#[error("Failed to export `{export_name}`")]
-pub struct ExportError {
-    /// Name of the failed export
-    pub export_name: &'static str,
-    /// Error kind
-    #[source]
-    pub export_error_kind: ExportErrorKind,
-}
+    impl ExportError {
+        /// Create [`ExportError`] of [`NotFound`](ExportErrorKind::NotFound) kind
+        pub fn not_found(export_name: &'static str) -> Self {
+            Self {
+                export_name,
+                export_error_kind: ExportErrorKind::NotFound,
+            }
+        }
 
-/// Export error kind
-#[derive(Debug, Copy, Clone, thiserror::Error)]
-pub enum ExportErrorKind {
-    /// Named export not found
-    #[error("Not found")]
-    NotFound,
-    /// Export expected to be a memory, but it's not
-    #[error("Not a memory")]
-    NotAMemory,
-    /// Export expected to be a function, but it's not
-    #[error("Not a function")]
-    NotAFunction,
-    /// Export has a wrong signature
-    #[error("Wrong signature, expected `{0} -> {1}`")]
-    WrongSignature(&'static str, &'static str),
-}
+        /// Create [`ExportError`] of [`NotAMemory`](ExportErrorKind::NotAMemory) kind
+        pub fn not_a_memory(export_name: &'static str) -> Self {
+            Self {
+                export_name,
+                export_error_kind: ExportErrorKind::NotAMemory,
+            }
+        }
 
-impl ExportError {
-    fn not_found(export_name: &'static str) -> Self {
-        Self {
-            export_name,
-            export_error_kind: ExportErrorKind::NotFound,
+        /// Create [`ExportError`] of [`NotAFunction`](ExportErrorKind::NotAFunction) kind
+        pub fn not_a_function(export_name: &'static str) -> Self {
+            Self {
+                export_name,
+                export_error_kind: ExportErrorKind::NotAFunction,
+            }
+        }
+
+        /// Create [`ExportError`] of [`WrongSignature`](ExportErrorKind::WrongSignature) kind
+        pub fn wrong_signature<P, R>(export_name: &'static str) -> Self {
+            Self {
+                export_name,
+                export_error_kind: ExportErrorKind::WrongSignature(
+                    std::any::type_name::<P>(),
+                    std::any::type_name::<R>(),
+                ),
+            }
         }
     }
 
-    fn not_a_memory(export_name: &'static str) -> Self {
-        Self {
-            export_name,
-            export_error_kind: ExportErrorKind::NotAMemory,
-        }
+    /// Exported function call error
+    #[derive(Debug, thiserror::Error)]
+    pub enum ExportFnCallError {
+        /// Failed to execute something on the host side
+        #[error("Failed to execute operation on host")]
+        HostExecution(#[source] eyre::Report),
+        /// Stack overflow, heap overflow or other limits exceeded
+        #[error("Execution limits exceeded")]
+        ExecutionLimitsExceeded(#[source] eyre::Report),
+        /// Other kind of trap
+        #[error("Other")]
+        Other(#[source] eyre::Report),
     }
 
-    fn not_a_function(export_name: &'static str) -> Self {
-        Self {
-            export_name,
-            export_error_kind: ExportErrorKind::NotAFunction,
-        }
-    }
+    impl From<Trap> for ExportFnCallError {
+        fn from(trap: Trap) -> Self {
+            use wasmtime::TrapCode::*;
 
-    fn wrong_signature<P, R>(export_name: &'static str) -> Self {
-        Self {
-            export_name,
-            export_error_kind: ExportErrorKind::WrongSignature(
-                std::any::type_name::<P>(),
-                std::any::type_name::<R>(),
-            ),
-        }
-    }
-}
-
-/// Exported function call error
-#[derive(Debug, thiserror::Error)]
-pub enum ExportFnCallError {
-    /// Failed to execute something on the host side
-    #[error("Failed to execute operation on host")]
-    HostExecution(#[source] eyre::Report),
-    /// Stack overflow, heap overflow or other limits exceeded
-    #[error("Execution limits exceeded")]
-    ExecutionLimitsExceeded(#[source] eyre::Report),
-    /// Other kind of trap
-    #[error("Other")]
-    Other(#[source] eyre::Report),
-}
-
-impl From<Trap> for ExportFnCallError {
-    fn from(trap: Trap) -> Self {
-        use wasmtime::TrapCode::*;
-
-        match trap.trap_code() {
-            Some(code) => match code {
-                StackOverflow | MemoryOutOfBounds | TableOutOfBounds | IndirectCallToNull => {
-                    Self::ExecutionLimitsExceeded(trap.into())
-                }
-                _ => Self::Other(trap.into()),
-            },
-            None => Self::HostExecution(trap.into()),
+            match trap.trap_code() {
+                Some(code) => match code {
+                    StackOverflow | MemoryOutOfBounds | TableOutOfBounds | IndirectCallToNull => {
+                        Self::ExecutionLimitsExceeded(trap.into())
+                    }
+                    _ => Self::Other(trap.into()),
+                },
+                None => Self::HostExecution(trap.into()),
+            }
         }
     }
 }
 
 /// [`Result`] type for this module
 pub type Result<T, E = Error> = core::result::Result<T, E>;
+
+/// Create [`Module`] from bytes.
+///
+/// # Errors
+///
+/// See [`Module::new`]
+///
+// TODO: Probably we can do some checks here such as searching for entrypoint function
+pub fn load_module(engine: &Engine, bytes: impl AsRef<[u8]>) -> Result<wasmtime::Module> {
+    Module::new(engine, bytes).map_err(|err| Error::ModuleLoading(eyre!(Box::new(err))))
+}
 
 /// Create [`Engine`] with a predefined configuration.
 ///
@@ -200,17 +228,6 @@ pub fn create_engine() -> Engine {
         .expect("Failed to create WASM engine with a predefined configuration. This is a bug")
 }
 
-/// Create [`Module`] from bytes.
-///
-/// # Errors
-///
-/// See [`Module::new`]
-///
-// TODO: Probably we can do some checks here such as searching for entrypoint function
-pub fn load_module(engine: &Engine, bytes: impl AsRef<[u8]>) -> Result<wasmtime::Module> {
-    Module::new(engine, bytes).map_err(|err| Error::ModuleLoading(eyre!(Box::new(err))))
-}
-
 fn create_config() -> Result<Config> {
     let mut config = Config::new();
     config
@@ -221,14 +238,14 @@ fn create_config() -> Result<Config> {
 }
 
 #[derive(Clone)]
-struct Validator {
+struct LimitsValidator {
     /// Number of instructions in the smartcontract
     instruction_count: u64,
     /// Max allowed number of instructions in the smartcontract
     max_instruction_count: u64,
 }
 
-impl Validator {
+impl LimitsValidator {
     /// Checks if number of instructions in wasm smartcontract exceeds maximum
     ///
     /// # Errors
@@ -246,173 +263,242 @@ impl Validator {
     }
 }
 
-struct State<'wrld> {
-    authority: AccountId,
-    /// Ensures smartcontract adheres to limits
-    validator: Option<Validator>,
-    store_limits: StoreLimits,
-    wsv: &'wrld mut WorldStateView,
-    /// Event for triggers
-    triggering_event: Option<Event>,
-    /// Operation to pass to a runtime validator
-    operation_to_validate: Option<validator::NeedsValidationBox>,
-    /// Span inside of which all logs are recorded for this smart contract
-    log_span: Span,
-}
+pub mod state {
+    //! All supported states for [`Runtime`](super::Runtime)
 
-impl<'wrld> State<'wrld> {
-    fn new(
-        wsv: &'wrld mut WorldStateView,
-        authority: AccountId,
-        config: Configuration,
-        log_span: Span,
-    ) -> Self {
-        Self {
-            wsv,
-            authority,
-            validator: None,
-            triggering_event: None,
-            operation_to_validate: None,
+    use iroha_data_model::validator::NeedsValidationBox;
 
-            store_limits: StoreLimitsBuilder::new()
-                .memory_size(config.max_memory.try_into().expect(
-                    "config.max_memory is a u32 so this can't fail on any supported platform",
-                ))
-                .instances(1)
-                .memories(1)
-                .tables(1)
-                .build(),
-            log_span,
+    use super::*;
+
+    /// Common data for states
+    pub struct Common<'wrld> {
+        pub(super) authority: AccountId,
+        /// Ensures smartcontract adheres to limits
+        pub(super) validator: Option<LimitsValidator>,
+        pub(super) store_limits: StoreLimits,
+        pub(super) wsv: &'wrld mut WorldStateView,
+        /// Span inside of which all logs are recorded for this smart contract
+        pub(super) log_span: Span,
+    }
+
+    impl<'wrld> Common<'wrld> {
+        /// Create new [`Common`]
+        pub fn new(
+            wsv: &'wrld mut WorldStateView,
+            authority: AccountId,
+            config: Configuration,
+            log_span: Span,
+        ) -> Self {
+            Self {
+                wsv,
+                authority,
+                validator: None,
+
+                store_limits: StoreLimitsBuilder::new()
+                    .memory_size(config.max_memory.try_into().expect(
+                        "config.max_memory is a u32 so this can't fail on any supported platform",
+                    ))
+                    .instances(1)
+                    .memories(1)
+                    .tables(1)
+                    .build(),
+                log_span,
+            }
+        }
+
+        /// Add [`LimitsValidator`] to the common state
+        #[must_use]
+        pub fn with_validator(mut self, max_instruction_count: u64) -> Self {
+            let validator = LimitsValidator {
+                instruction_count: 0,
+                max_instruction_count,
+            };
+
+            self.validator = Some(validator);
+            self
         }
     }
 
-    fn with_validator(mut self, max_instruction_count: u64) -> Self {
-        let validator = Validator {
-            instruction_count: 0,
-            max_instruction_count,
-        };
+    /// Trait to retrieve common data from concrete state
+    pub trait GetCommon<'wrld> {
+        /// Get common data
+        fn common(&self) -> &Common<'wrld>;
 
-        self.validator = Some(validator);
-        self
+        /// Get common data by mutable reference
+        fn common_mut(&mut self) -> &mut Common<'wrld>;
+
+        /// Get mutable reference to store limits
+        ///
+        /// # Note
+        ///
+        /// This is a workaround for lifetime issues when using [`StoreLimits`]
+        /// inside of [`wasmtime::Store::limiter()`] where we can't use
+        /// `&mut s.common_mut().store_limits`
+        fn limits_mut(&mut self) -> &mut StoreLimits;
     }
 
-    fn with_triggering_event(mut self, event: Event) -> Self {
-        self.triggering_event = Some(event);
-        self
+    /// Smart Contract execution state
+    pub struct SmartContract<'wrld>(pub(super) Common<'wrld>);
+
+    impl<'wrld> GetCommon<'wrld> for SmartContract<'wrld> {
+        fn common(&self) -> &Common<'wrld> {
+            &self.0
+        }
+
+        fn common_mut(&mut self) -> &mut Common<'wrld> {
+            &mut self.0
+        }
+
+        fn limits_mut(&mut self) -> &mut StoreLimits {
+            &mut self.0.store_limits
+        }
     }
 
-    fn with_operation_to_validate(mut self, operation: &validator::NeedsValidationBox) -> Self {
-        self.operation_to_validate = Some(operation.clone());
-        self
+    /// Trigger execution state
+    pub struct Trigger<'wrld> {
+        pub(super) common: Common<'wrld>,
+        /// Event which activated this trigger
+        pub(super) triggering_event: Event,
+    }
+
+    impl<'wrld> GetCommon<'wrld> for Trigger<'wrld> {
+        fn common(&self) -> &Common<'wrld> {
+            &self.common
+        }
+
+        fn common_mut(&mut self) -> &mut Common<'wrld> {
+            &mut self.common
+        }
+
+        fn limits_mut(&mut self) -> &mut StoreLimits {
+            &mut self.common.store_limits
+        }
+    }
+
+    /// Validator execution state
+    pub struct Validator<'wrld> {
+        pub(super) common: Common<'wrld>,
+        pub(super) operation_to_validate: NeedsValidationBox,
+    }
+
+    impl<'wrld> GetCommon<'wrld> for Validator<'wrld> {
+        fn common(&self) -> &Common<'wrld> {
+            &self.common
+        }
+
+        fn common_mut(&mut self) -> &mut Common<'wrld> {
+            &mut self.common
+        }
+
+        fn limits_mut(&mut self) -> &mut StoreLimits {
+            &mut self.common.store_limits
+        }
     }
 }
 
-/// `WebAssembly` virtual machine
-pub struct Runtime<'wrld> {
+/// `WebAssembly` virtual machine generic over state
+pub struct Runtime<S> {
     engine: Engine,
-    linker: Linker<State<'wrld>>,
+    linker: Linker<S>,
     config: Configuration,
 }
 
-impl<'wrld> Runtime<'wrld> {
-    fn create_store(&self, state: State<'wrld>) -> Store<State<'wrld>> {
-        let mut store = Store::new(&self.engine, state);
+impl<S> Runtime<S> {
+    fn get_memory(caller: &mut impl GetExport) -> Result<wasmtime::Memory, ExportError> {
+        caller
+            .get_export(export::WASM_MEMORY_NAME)
+            .ok_or_else(|| ExportError::not_found(export::WASM_MEMORY_NAME))?
+            .into_memory()
+            .ok_or_else(|| ExportError::not_a_memory(export::WASM_MEMORY_NAME))
+    }
 
-        store.limiter(|stat| &mut stat.store_limits);
-        store
-            .add_fuel(self.config.fuel_limit)
-            .expect("Wasm Runtime config is malformed, this is a bug");
+    fn get_alloc_fn(
+        caller: &mut Caller<S>,
+    ) -> Result<TypedFunc<WasmUsize, WasmUsize>, ExportError> {
+        caller
+            .get_export(export::WASM_ALLOC_FN)
+            .ok_or_else(|| ExportError::not_found(export::WASM_ALLOC_FN))?
+            .into_func()
+            .ok_or_else(|| ExportError::not_a_function(export::WASM_ALLOC_FN))?
+            .typed::<WasmUsize, WasmUsize, _>(caller)
+            .map_err(|_error| {
+                ExportError::wrong_signature::<WasmUsize, WasmUsize>(export::WASM_ALLOC_FN)
+            })
+    }
 
-        store
+    fn execute_main_with_store(
+        instance: &wasmtime::Instance,
+        store: &mut wasmtime::Store<S>,
+    ) -> Result<()> {
+        let main_fn = Self::get_typed_func(instance, store, export::WASM_MAIN_FN_NAME)?;
+
+        // NOTE: This function takes ownership of the pointer
+        main_fn
+            .call(store, ())
+            .map_err(ExportFnCallError::from)
+            .map_err(Into::into)
+    }
+
+    fn get_typed_func<P: wasmtime::WasmParams, R: wasmtime::WasmResults>(
+        instance: &wasmtime::Instance,
+        mut store: &mut wasmtime::Store<S>,
+        func_name: &'static str,
+    ) -> Result<wasmtime::TypedFunc<P, R>, ExportError> {
+        instance
+            .get_func(&mut store, func_name)
+            .ok_or_else(|| ExportError::not_found(func_name))?
+            .typed::<P, R, _>(&mut store)
+            .map_err(|_error| ExportError::wrong_signature::<P, R>(func_name))
     }
 
     fn create_smart_contract(
         &self,
-        store: &mut Store<State<'wrld>>,
+        store: &mut Store<S>,
         bytes: impl AsRef<[u8]>,
     ) -> Result<wasmtime::Instance> {
         let module = load_module(&self.engine, bytes)?;
         self.instantiate_module(&module, store).map_err(Into::into)
     }
 
-    /// Execute `query` on host
-    #[allow(clippy::needless_pass_by_value)]
-    #[codec::wrap]
-    fn execute_query(query: QueryBox, state: &mut State) -> Result<Value, ValidationFail> {
-        iroha_logger::debug!(%query, "Executing");
+    fn instantiate_module(
+        &self,
+        module: &wasmtime::Module,
+        mut store: &mut wasmtime::Store<S>,
+    ) -> Result<wasmtime::Instance, InstantiationError> {
+        let instance = self
+            .linker
+            .instantiate(&mut store, module)
+            .map_err(|err| InstantiationError::Linker(eyre!(Box::new(err))))?;
 
-        let wsv: &mut WorldStateView = state.wsv;
-        let called_from_validator = state.operation_to_validate.is_some();
-        if called_from_validator {
-            // NOTE: Validator has already validated the query
-        } else {
-            // NOTE: Smart contract (not validator) is trying to execute the query, validate it first
-            // TODO: Validation should be skipped when executing smart contract.
-            // There should be two steps validation and execution. First smart contract
-            // is validated and then it's executed. Here it's validating in both steps.
-            // Add a flag indicating whether smart contract is being validated or executed
-            wsv.validator_view()
-                .clone() // Cloning validator is a cheap operation
-                .validate(wsv, &state.authority, query.clone())?
-        }
+        Self::check_mandatory_exports(&instance, store)?;
 
-        query.execute(wsv).map_err(Into::into)
+        Ok(instance)
     }
 
-    /// Execute `instruction` on host
+    fn check_mandatory_exports(
+        instance: &wasmtime::Instance,
+        mut store: &mut wasmtime::Store<S>,
+    ) -> Result<(), InstantiationError> {
+        let _ = Self::get_memory(&mut (instance, &mut store))?;
+        let _ =
+            Self::get_typed_func::<WasmUsize, WasmUsize>(instance, store, export::WASM_ALLOC_FN)?;
+        let _ = Self::get_typed_func::<(WasmUsize, WasmUsize), ()>(
+            instance,
+            store,
+            export::WASM_DEALLOC_FN,
+        )?;
+
+        Ok(())
+    }
+}
+
+impl<'wrld, S: state::GetCommon<'wrld>> Runtime<S> {
     #[codec::wrap]
-    fn execute_instruction(
-        instruction: InstructionBox,
-        state: &mut State,
-    ) -> Result<(), ValidationFail> {
-        debug!(%instruction, "Executing");
-
-        let State {
-            wsv,
-            authority,
-            validator,
-            operation_to_validate,
-            ..
-        } = state;
-
-        let called_from_validator = operation_to_validate.is_some();
-        if called_from_validator {
-            // NOTE: Validator has already validated the isi, don't validate again
-            instruction.execute(authority, wsv).map_err(Into::into)
-        } else {
-            // NOTE: Smart contract (not validator) is trying to execute the isi, validate it first
-            if let Some(validator) = validator {
-                validator.check_instruction_limits()?;
-            }
-            // TODO: Validation should be skipped when executing smart contract.
-            // There should be two steps validation and execution. First smart contract
-            // is validated and then it's executed. Here it's validating in both steps.
-            // Add a flag indicating whether smart contract is being validated or executed
-            wsv.validator_view()
-                .clone() // Cloning validator is a cheap operation
-                .validate(wsv, authority, instruction)
-        }
+    fn query_authority(state: &S) -> AccountId {
+        state.common().authority.clone()
     }
 
-    #[codec::wrap]
-    fn query_authority(state: &State) -> AccountId {
-        state.authority.clone()
-    }
-
-    #[codec::wrap]
-    fn query_triggering_event(state: &State) -> Option<Event> {
-        state.triggering_event.clone()
-    }
-
-    #[codec::wrap]
-    fn query_operation_to_validate(state: &State) -> NeedsValidationBox {
-        state
-            .operation_to_validate
-            .as_ref()
-            .expect("`query_operation_to_validate()` called outside of validator")
-            .clone()
-    }
-
+    #[codec::wrap(state = "S")]
     fn query_max_log_level() -> u32 {
         iroha_logger::layer::max_log_level() as u32
     }
@@ -423,10 +509,10 @@ impl<'wrld> Runtime<'wrld> {
     ///
     /// If log level or string decoding fails
     #[codec::wrap]
-    fn log((log_level, msg): (u8, String), state: &State) -> Result<(), Trap> {
+    fn log((log_level, msg): (u8, String), state: &S) -> Result<(), Trap> {
         const TARGET: &str = "WASM";
 
-        let _span = state.log_span.enter();
+        let _span = state.common().log_span.enter();
         match LogLevel::from_repr(log_level)
             .ok_or_else(|| Trap::new(format!("{log_level}: not a valid log level")))?
         {
@@ -462,94 +548,98 @@ impl<'wrld> Runtime<'wrld> {
     ///
     /// If string decoding fails
     #[allow(clippy::print_stdout, clippy::needless_pass_by_value)]
-    #[codec::wrap]
+    #[codec::wrap(state = "S")]
     fn dbg(msg: String) {
         println!("{msg}");
     }
 
-    fn create_linker(engine: &Engine) -> Result<Linker<State<'wrld>>> {
-        let mut linker = Linker::new(engine);
+    fn execute_smart_contract_with_state(
+        &mut self,
+        bytes: impl AsRef<[u8]>,
+        state: S,
+    ) -> Result<()> {
+        let mut store = self.create_store(state);
+        let smart_contract = self.create_smart_contract(&mut store, bytes)?;
 
-        linker
-            .func_wrap(
-                import::MODULE_NAME,
-                import::EXECUTE_ISI_FN_NAME,
-                Self::execute_instruction,
-            )
-            .and_then(|l| {
-                l.func_wrap(
-                    import::MODULE_NAME,
-                    import::EXECUTE_QUERY_FN_NAME,
-                    Self::execute_query,
-                )
-            })
-            .and_then(|l| {
-                l.func_wrap(
-                    import::MODULE_NAME,
-                    import::QUERY_AUTHORITY_FN_NAME,
-                    Self::query_authority,
-                )
-            })
-            .and_then(|l| {
-                l.func_wrap(
-                    import::MODULE_NAME,
-                    import::QUERY_TRIGGERING_EVENT_FN_NAME,
-                    Self::query_triggering_event,
-                )
-            })
-            .and_then(|l| {
-                l.func_wrap(
-                    import::MODULE_NAME,
-                    import::QUERY_OPERATION_TO_VALIDATE_FN_NAME,
-                    Self::query_operation_to_validate,
-                )
-            })
-            .and_then(|l| {
-                l.func_wrap(
-                    import::MODULE_NAME,
-                    import::QUERY_MAX_LOG_LEVEL,
-                    Self::query_max_log_level,
-                )
-            })
-            .and_then(|l| l.func_wrap(import::MODULE_NAME, import::LOG_FN_NAME, Self::log))
-            .and_then(|l| l.func_wrap(import::MODULE_NAME, import::DBG_FN_NAME, Self::dbg))
-            .map_err(|err| Error::Initialization(eyre!(Box::new(err))))?;
-
-        Ok(linker)
+        Self::execute_main_with_store(&smart_contract, &mut store)
     }
 
-    fn get_memory(caller: &mut impl GetExport) -> Result<wasmtime::Memory, ExportError> {
-        caller
-            .get_export(export::WASM_MEMORY_NAME)
-            .ok_or_else(|| ExportError::not_found(export::WASM_MEMORY_NAME))?
-            .into_memory()
-            .ok_or_else(|| ExportError::not_a_memory(export::WASM_MEMORY_NAME))
+    fn create_store(&self, state: S) -> Store<S> {
+        let mut store = Store::new(&self.engine, state);
+
+        store.limiter(|s| s.limits_mut());
+        store
+            .add_fuel(self.config.fuel_limit)
+            .expect("Wasm Runtime config is malformed, this is a bug");
+
+        store
+    }
+}
+
+trait ExecuteOperations<'wrld, S: state::GetCommon<'wrld>> {
+    /// Execute `query` on host
+    #[codec::wrap]
+    fn execute_query(query: QueryBox, state: &mut S) -> Result<Value, ValidationFail> {
+        iroha_logger::debug!(%query, "Executing");
+
+        let common_state = state.common_mut();
+        let wsv: &mut WorldStateView = common_state.wsv;
+
+        // NOTE: Smart contract (not validator) is trying to execute the query, validate it first
+        // TODO: Validation should be skipped when executing smart contract.
+        // There should be two steps validation and execution. First smart contract
+        // is validated and then it's executed. Here it's validating in both steps.
+        // Add a flag indicating whether smart contract is being validated or executed
+        wsv.validator_view()
+            .clone() // Cloning validator is a cheap operation
+            .validate(wsv, &common_state.authority, query.clone())?;
+
+        query.execute(wsv).map_err(Into::into)
     }
 
-    fn get_alloc_fn(
-        caller: &mut Caller<State>,
-    ) -> Result<TypedFunc<WasmUsize, WasmUsize>, ExportError> {
-        caller
-            .get_export(export::WASM_ALLOC_FN)
-            .ok_or_else(|| ExportError::not_found(export::WASM_ALLOC_FN))?
-            .into_func()
-            .ok_or_else(|| ExportError::not_a_function(export::WASM_ALLOC_FN))?
-            .typed::<WasmUsize, WasmUsize, _>(caller)
-            .map_err(|_error| {
-                ExportError::wrong_signature::<WasmUsize, WasmUsize>(export::WASM_ALLOC_FN)
-            })
-    }
+    /// Execute `instruction` on host
+    #[codec::wrap]
+    fn execute_instruction(
+        instruction: InstructionBox,
+        state: &mut S,
+    ) -> Result<(), ValidationFail> {
+        debug!(%instruction, "Executing");
 
-    fn get_typed_func<P: wasmtime::WasmParams, R: wasmtime::WasmResults>(
-        instance: &wasmtime::Instance,
-        mut store: &mut wasmtime::Store<State>,
-        func_name: &'static str,
-    ) -> Result<wasmtime::TypedFunc<P, R>, ExportError> {
-        instance
-            .get_func(&mut store, func_name)
-            .ok_or_else(|| ExportError::not_found(func_name))?
-            .typed::<P, R, _>(&mut store)
-            .map_err(|_error| ExportError::wrong_signature::<P, R>(func_name))
+        let common_state = state.common_mut();
+
+        if let Some(ref mut validator) = common_state.validator {
+            validator.check_instruction_limits()?;
+        }
+
+        // TODO: Validation should be skipped when executing smart contract.
+        // There should be two steps validation and execution. First smart contract
+        // is validated and then it's executed. Here it's validating in both steps.
+        // Add a flag indicating whether smart contract is being validated or executed
+        let wsv: &mut WorldStateView = common_state.wsv;
+        wsv.validator_view()
+                .clone() // Cloning validator is a cheap operation
+                .validate(wsv, &common_state.authority, instruction)
+    }
+}
+
+impl<'wrld> Runtime<state::SmartContract<'wrld>> {
+    /// Executes the given wasm smartcontract
+    ///
+    /// # Errors
+    ///
+    /// - if unable to construct wasm module or instance of wasm module
+    /// - if unable to find expected main function export
+    /// - if the execution of the smartcontract fails
+    pub fn execute(
+        &mut self,
+        wsv: &'wrld mut WorldStateView,
+        authority: AccountId,
+        bytes: impl AsRef<[u8]>,
+    ) -> Result<()> {
+        let span = wasm_log_span!("Smart contract execution", %authority);
+        let state = state::SmartContract(state::Common::new(wsv, authority, self.config, span));
+
+        self.execute_smart_contract_with_state(bytes, state)
     }
 
     /// Validates that the given smartcontract is eligible for execution
@@ -561,18 +651,27 @@ impl<'wrld> Runtime<'wrld> {
     /// - if execution of the smartcontract fails (check ['execute'])
     pub fn validate(
         &mut self,
-        wsv: &mut WorldStateView,
+        wsv: &'wrld mut WorldStateView,
         authority: AccountId,
         bytes: impl AsRef<[u8]>,
         max_instruction_count: u64,
     ) -> Result<()> {
         let span = wasm_log_span!("Smart contract validation", %authority);
-        let state =
-            State::new(wsv, authority, self.config, span).with_validator(max_instruction_count);
+        let state = state::SmartContract(
+            state::Common::new(wsv, authority, self.config, span)
+                .with_validator(max_instruction_count),
+        );
 
         self.execute_smart_contract_with_state(bytes, state)
     }
+}
 
+impl<'wrld> ExecuteOperations<'wrld, state::SmartContract<'wrld>>
+    for Runtime<state::SmartContract<'wrld>>
+{
+}
+
+impl<'wrld> Runtime<state::Trigger<'wrld>> {
     /// Executes the given wasm trigger module
     ///
     /// # Errors
@@ -581,14 +680,17 @@ impl<'wrld> Runtime<'wrld> {
     /// - if the execution of the smartcontract fails
     pub fn execute_trigger_module(
         &mut self,
-        wsv: &mut WorldStateView,
+        wsv: &'wrld mut WorldStateView,
         id: &TriggerId,
         authority: AccountId,
         module: &wasmtime::Module,
         event: Event,
     ) -> Result<()> {
         let span = wasm_log_span!("Trigger execution", %id, %authority);
-        let state = State::new(wsv, authority, self.config, span).with_triggering_event(event);
+        let state = state::Trigger {
+            common: state::Common::new(wsv, authority, self.config, span),
+            triggering_event: event,
+        };
 
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
@@ -596,6 +698,15 @@ impl<'wrld> Runtime<'wrld> {
         Self::execute_main_with_store(&instance, &mut store)
     }
 
+    #[codec::wrap]
+    fn query_triggering_event(state: &state::Trigger) -> Event {
+        state.triggering_event.clone()
+    }
+}
+
+impl<'wrld> ExecuteOperations<'wrld, state::Trigger<'wrld>> for Runtime<state::Trigger<'wrld>> {}
+
+impl<'wrld> Runtime<state::Validator<'wrld>> {
     /// Execute the given module of runtime validator
     ///
     /// # Errors
@@ -604,14 +715,16 @@ impl<'wrld> Runtime<'wrld> {
     /// - if the execution of the smartcontract fails
     pub fn execute_validator_module(
         &self,
-        wsv: &mut WorldStateView,
+        wsv: &'wrld mut WorldStateView,
         authority: &<Account as Identifiable>::Id,
         module: &wasmtime::Module,
         operation: &validator::NeedsValidationBox,
     ) -> Result<validator::Result> {
         let span = wasm_log_span!("Runtime validation");
-        let state = State::new(wsv, authority.clone(), self.config, span)
-            .with_operation_to_validate(operation);
+        let state = state::Validator {
+            common: state::Common::new(wsv, authority.clone(), self.config, span),
+            operation_to_validate: operation.clone(),
+        };
 
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
@@ -629,91 +742,58 @@ impl<'wrld> Runtime<'wrld> {
             .map_err(|err| Error::Decode(err.into()))
     }
 
-    /// Executes the given wasm smartcontract
-    ///
-    /// # Errors
-    ///
-    /// - if unable to construct wasm module or instance of wasm module
-    /// - if unable to find expected main function export
-    /// - if the execution of the smartcontract fails
-    pub fn execute(
-        &mut self,
-        wsv: &mut WorldStateView,
-        authority: AccountId,
-        bytes: impl AsRef<[u8]>,
-    ) -> Result<()> {
-        let span = wasm_log_span!("Smart contract execution", %authority);
-        let state = State::new(wsv, authority, self.config, span);
+    #[codec::wrap]
+    fn query_operation_to_validate(state: &state::Validator) -> NeedsValidationBox {
+        state.operation_to_validate.clone()
+    }
+}
 
-        self.execute_smart_contract_with_state(bytes, state)
+impl<'wrld> ExecuteOperations<'wrld, state::Validator<'wrld>> for Runtime<state::Validator<'wrld>> {
+    #[codec::wrap]
+    fn execute_query(
+        query: QueryBox,
+        state: &mut state::Validator<'wrld>,
+    ) -> Result<Value, ValidationFail> {
+        iroha_logger::debug!(%query, "Executing as validator");
+
+        query.execute(state.common_mut().wsv).map_err(Into::into)
     }
 
-    fn execute_smart_contract_with_state(
-        &mut self,
-        bytes: impl AsRef<[u8]>,
-        state: State,
-    ) -> Result<()> {
-        let mut store = self.create_store(state);
-        let smart_contract = self.create_smart_contract(&mut store, bytes)?;
+    #[codec::wrap]
+    fn execute_instruction(
+        instruction: InstructionBox,
+        state: &mut state::Validator<'wrld>,
+    ) -> Result<(), ValidationFail> {
+        debug!(%instruction, "Executing as validator");
 
-        Self::execute_main_with_store(&smart_contract, &mut store)
-    }
-
-    fn execute_main_with_store(
-        instance: &wasmtime::Instance,
-        store: &mut wasmtime::Store<State>,
-    ) -> Result<()> {
-        let main_fn = Self::get_typed_func(instance, store, export::WASM_MAIN_FN_NAME)?;
-
-        // NOTE: This function takes ownership of the pointer
-        main_fn
-            .call(store, ())
-            .map_err(ExportFnCallError::from)
+        let common_state = state.common_mut();
+        instruction
+            .execute(&common_state.authority, common_state.wsv)
             .map_err(Into::into)
-    }
-
-    fn instantiate_module(
-        &self,
-        module: &wasmtime::Module,
-        mut store: &mut wasmtime::Store<State<'wrld>>,
-    ) -> Result<wasmtime::Instance, InstantiationError> {
-        let instance = self
-            .linker
-            .instantiate(&mut store, module)
-            .map_err(|err| InstantiationError::Linker(eyre!(Box::new(err))))?;
-
-        // Check mandatory exports
-        let _ = Self::get_memory(&mut (&instance, &mut store))?;
-        let _ =
-            Self::get_typed_func::<WasmUsize, WasmUsize>(&instance, store, export::WASM_ALLOC_FN)?;
-        let _ = Self::get_typed_func::<(WasmUsize, WasmUsize), ()>(
-            &instance,
-            store,
-            export::WASM_DEALLOC_FN,
-        )?;
-
-        Ok(instance)
     }
 }
 
 /// `Runtime` builder
 #[derive(Default)]
-pub struct RuntimeBuilder {
+pub struct RuntimeBuilder<S> {
     engine: Option<Engine>,
     config: Option<Configuration>,
+    linker: Option<Linker<S>>,
 }
 
-impl RuntimeBuilder {
-    /// Creates a new `RuntimeBuilder`
+impl<S> RuntimeBuilder<S> {
+    /// Creates a new [`RuntimeBuilder`]
     pub fn new() -> Self {
         Self {
             engine: None,
             config: None,
+            linker: None,
         }
     }
 
     /// Sets the [`Engine`] to be used by the [`Runtime`]
     #[must_use]
+    #[inline]
     pub fn with_engine(mut self, engine: Engine) -> Self {
         self.engine = Some(engine);
         self
@@ -721,19 +801,21 @@ impl RuntimeBuilder {
 
     /// Sets the [`Configuration`] to be used by the [`Runtime`]
     #[must_use]
+    #[inline]
     pub fn with_configuration(mut self, config: Configuration) -> Self {
         self.config = Some(config);
         self
     }
 
-    /// Builds the [`Runtime`]
+    /// Finalizes the builder and creates a [`Runtime`].
     ///
-    /// # Errors
-    ///
-    /// Fails if failed to create default linker.
-    pub fn build<'wrld>(self) -> Result<Runtime<'wrld>> {
+    /// This is private and is used by `build()` methods from more specialized builders.
+    fn finalize(
+        self,
+        create_linker: impl FnOnce(&Engine) -> Result<Linker<S>>,
+    ) -> Result<Runtime<S>> {
         let engine = self.engine.unwrap_or_else(create_engine);
-        let linker = Runtime::create_linker(&engine)?;
+        let linker = self.linker.map_or_else(|| create_linker(&engine), Ok)?;
         Ok(Runtime {
             engine,
             linker,
@@ -746,12 +828,108 @@ impl RuntimeBuilder {
     }
 }
 
+macro_rules! create_imports {
+    (
+        $linker:ident,
+        $(import:: $multi_name:ident => $multi_fn_ident:ident),* $(,)?
+    ) => {
+            $linker.func_wrap(
+                import::MODULE_NAME,
+                import::QUERY_MAX_LOG_LEVEL,
+                Runtime::query_max_log_level,
+            )
+            .and_then(|l| {
+                l.func_wrap(
+                    import::MODULE_NAME,
+                    import::LOG_FN_NAME,
+                    Runtime::log,
+                )
+            })
+            .and_then(|l| {
+                l.func_wrap(
+                    import::MODULE_NAME,
+                    import::DBG_FN_NAME,
+                    Runtime::dbg,
+                )
+            })
+            $(.and_then(|l| {
+                l.func_wrap(
+                    import::MODULE_NAME,
+                    import::$multi_name,
+                    Runtime::$multi_fn_ident,
+                )
+            }))*
+            .map_err(|err| Error::Initialization(eyre!(Box::new(err))))
+    };
+}
+
+impl<'wrld> RuntimeBuilder<state::SmartContract<'wrld>> {
+    /// Builds the [`Runtime`] for *Smart Contract* execution
+    ///
+    /// # Errors
+    ///
+    /// Fails if failed to create default linker.
+    pub fn build(self) -> Result<Runtime<state::SmartContract<'wrld>>> {
+        self.finalize(|engine| {
+            let mut linker = Linker::new(engine);
+
+            create_imports!(linker,
+                import::EXECUTE_ISI_FN_NAME => execute_instruction,
+                import::EXECUTE_QUERY_FN_NAME => execute_query,
+                import::QUERY_AUTHORITY_FN_NAME => query_authority,
+            )?;
+            Ok(linker)
+        })
+    }
+}
+
+impl<'wrld> RuntimeBuilder<state::Trigger<'wrld>> {
+    /// Builds the [`Runtime`] for *Trigger* execution
+    ///
+    /// # Errors
+    ///
+    /// Fails if failed to create default linker.
+    pub fn build(self) -> Result<Runtime<state::Trigger<'wrld>>> {
+        self.finalize(|engine| {
+            let mut linker = Linker::new(engine);
+
+            create_imports!(linker,
+                import::EXECUTE_ISI_FN_NAME => execute_instruction,
+                import::EXECUTE_QUERY_FN_NAME => execute_query,
+                import::QUERY_AUTHORITY_FN_NAME => query_authority,
+                import::QUERY_TRIGGERING_EVENT_FN_NAME => query_triggering_event,
+            )?;
+            Ok(linker)
+        })
+    }
+}
+
+impl<'wrld> RuntimeBuilder<state::Validator<'wrld>> {
+    /// Builds the [`Runtime`] for *Validator* execution
+    ///
+    /// # Errors
+    ///
+    /// Fails if failed to create default linker.
+    pub fn build(self) -> Result<Runtime<state::Validator<'wrld>>> {
+        self.finalize(|engine| {
+            let mut linker = Linker::new(engine);
+
+            create_imports!(linker,
+                import::EXECUTE_ISI_FN_NAME => execute_instruction,
+                import::EXECUTE_QUERY_FN_NAME => execute_query,
+                import::QUERY_AUTHORITY_FN_NAME => query_authority,
+                import::QUERY_OPERATION_TO_VALIDATE_FN_NAME => query_operation_to_validate,
+            )?;
+            Ok(linker)
+        })
+    }
+}
+
 /// Helper trait to make a function generic over `get_export()` fn from `wasmtime` crate
 trait GetExport {
     fn get_export(&mut self, name: &str) -> Option<wasmtime::Extern>;
 }
 
-#[allow(clippy::single_char_lifetime_names)]
 impl<T> GetExport for Caller<'_, T> {
     fn get_export(&mut self, name: &str) -> Option<wasmtime::Extern> {
         Self::get_export(self, name)
@@ -776,11 +954,11 @@ mod tests {
     use super::*;
     use crate::{kura::Kura, smartcontracts::isi::Registrable as _, PeersIds, World};
 
-    fn world_with_test_account(account_id: &AccountId) -> World {
-        let domain_id = account_id.domain_id.clone();
+    fn world_with_test_account(authority: &AccountId) -> World {
+        let domain_id = authority.domain_id.clone();
         let (public_key, _) = KeyPair::generate().unwrap().into();
-        let account = Account::new(account_id.clone(), [public_key]).build(account_id);
-        let mut domain = Domain::new(domain_id).build(account_id);
+        let account = Account::new(authority.clone(), [public_key]).build(authority);
+        let mut domain = Domain::new(domain_id).build(authority);
         assert!(domain.add_account(account).is_none());
 
         World::with([domain], PeersIds::new())
@@ -832,13 +1010,13 @@ mod tests {
 
     #[test]
     fn execute_instruction_exported() -> Result<(), Error> {
-        let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+        let authority = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
+        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura);
 
         let isi_hex = {
-            let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
-            let register_isi = RegisterBox::new(Account::new(new_account_id, []));
+            let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
+            let register_isi = RegisterBox::new(Account::new(new_authority, []));
             encode_hex(InstructionBox::from(register_isi))
         };
 
@@ -863,9 +1041,9 @@ mod tests {
             memory_and_alloc = memory_and_alloc(&isi_hex),
             isi_len = isi_hex.len() / 3,
         );
-        let mut runtime = RuntimeBuilder::new().build()?;
+        let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
         runtime
-            .execute(&mut wsv, account_id, wat)
+            .execute(&mut wsv, authority, wat)
             .expect("Execution failed");
 
         Ok(())
@@ -873,10 +1051,10 @@ mod tests {
 
     #[test]
     fn execute_query_exported() -> Result<(), Error> {
-        let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+        let authority = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
-        let query_hex = encode_hex(QueryBox::from(FindAccountById::new(account_id.clone())));
+        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura);
+        let query_hex = encode_hex(QueryBox::from(FindAccountById::new(authority.clone())));
 
         let wat = format!(
             r#"
@@ -900,9 +1078,9 @@ mod tests {
             isi_len = query_hex.len() / 3,
         );
 
-        let mut runtime = RuntimeBuilder::new().build()?;
+        let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
         runtime
-            .execute(&mut wsv, account_id, wat)
+            .execute(&mut wsv, authority, wat)
             .expect("Execution failed");
 
         Ok(())
@@ -910,14 +1088,14 @@ mod tests {
 
     #[test]
     fn instruction_limit_reached() -> Result<(), Error> {
-        let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+        let authority = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
 
-        let mut wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
+        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura);
 
         let isi_hex = {
-            let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
-            let register_isi = RegisterBox::new(Account::new(new_account_id, []));
+            let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
+            let register_isi = RegisterBox::new(Account::new(new_authority, []));
             encode_hex(InstructionBox::from(register_isi))
         };
 
@@ -943,8 +1121,8 @@ mod tests {
             isi2_end = 2 * isi_hex.len() / 3,
         );
 
-        let mut runtime = RuntimeBuilder::new().build()?;
-        let res = runtime.validate(&mut wsv, account_id, wat, 1);
+        let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
+        let res = runtime.validate(&mut wsv, authority, wat, 1);
 
         if let Error::ExportFnCall(ExportFnCallError::Other(report)) =
             res.expect_err("Execution should fail")
@@ -959,13 +1137,13 @@ mod tests {
 
     #[test]
     fn instructions_not_allowed() -> Result<(), Error> {
-        let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+        let authority = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
+        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura);
 
         let isi_hex = {
-            let new_account_id = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
-            let register_isi = RegisterBox::new(Account::new(new_account_id, []));
+            let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
+            let register_isi = RegisterBox::new(Account::new(new_authority, []));
             encode_hex(InstructionBox::from(register_isi))
         };
 
@@ -991,8 +1169,8 @@ mod tests {
             isi_len = isi_hex.len() / 3,
         );
 
-        let mut runtime = RuntimeBuilder::new().build()?;
-        let res = runtime.validate(&mut wsv, account_id, wat, 1);
+        let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
+        let res = runtime.validate(&mut wsv, authority, wat, 1);
 
         if let Error::ExportFnCall(ExportFnCallError::HostExecution(report)) =
             res.expect_err("Execution should fail")
@@ -1007,10 +1185,10 @@ mod tests {
 
     #[test]
     fn queries_not_allowed() -> Result<(), Error> {
-        let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+        let authority = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world_with_test_account(&account_id), kura);
-        let query_hex = encode_hex(QueryBox::from(FindAccountById::new(account_id.clone())));
+        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura);
+        let query_hex = encode_hex(QueryBox::from(FindAccountById::new(authority.clone())));
 
         let wat = format!(
             r#"
@@ -1034,14 +1212,55 @@ mod tests {
             isi_len = query_hex.len() / 3,
         );
 
-        let mut runtime = RuntimeBuilder::new().build()?;
-        let res = runtime.validate(&mut wsv, account_id, wat, 1);
+        let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
+        let res = runtime.validate(&mut wsv, authority, wat, 1);
 
         if let Error::ExportFnCall(ExportFnCallError::HostExecution(report)) =
             res.expect_err("Execution should fail")
         {
             assert!(report.to_string().starts_with("All operations are denied"));
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn trigger_related_func_is_not_linked_for_smart_contract() -> Result<(), Error> {
+        let authority = AccountId::from_str("alice@wonderland").expect("Valid");
+        let kura = Kura::blank_kura_for_testing();
+        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura);
+        let query_hex = encode_hex(QueryBox::from(FindAccountById::new(authority.clone())));
+
+        let wat = format!(
+            r#"
+            (module
+                ;; Import host function to execute
+                (import "iroha" "{query_triggering_event_fn_name}"
+                    (func $exec_fn (param) (result i32)))
+
+                {memory_and_alloc}
+
+                ;; Function which starts the smartcontract execution
+                (func (export "{main_fn_name}") (param)
+                    (call $exec_fn)
+
+                    ;; No use of return values
+                    drop))
+            "#,
+            main_fn_name = export::WASM_MAIN_FN_NAME,
+            query_triggering_event_fn_name = import::QUERY_TRIGGERING_EVENT_FN_NAME,
+            memory_and_alloc = memory_and_alloc(&query_hex),
+        );
+
+        let mut runtime = RuntimeBuilder::<state::SmartContract>::new().build()?;
+        let err = runtime
+            .execute(&mut wsv, authority, wat)
+            .expect_err("Execution should fail");
+
+        assert!(matches!(
+            err,
+            Error::Instantiation(InstantiationError::Linker(_))
+        ));
 
         Ok(())
     }

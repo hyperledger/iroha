@@ -428,13 +428,22 @@ mod candidate {
     }
 
     impl SignedTransactionCandidate {
+        #[cfg(feature = "std")]
         fn validate(mut self) -> Result<SignedTransaction, &'static str> {
-            #[cfg(feature = "std")]
             // TODO: Should we tolerate invalid signatures?
             if self.retain_verified_signatures().is_empty() {
                 return Err("Transaction contains no valid signatures");
             }
 
+            self.validate_instructions()
+        }
+
+        #[cfg(not(feature = "std"))]
+        fn validate(self) -> Result<SignedTransaction, &'static str> {
+            self.validate_instructions()
+        }
+
+        fn validate_instructions(self) -> Result<SignedTransaction, &'static str> {
             if let Executable::Instructions(instructions) = &self.payload.instructions {
                 if instructions.is_empty() {
                     return Err("Transaction is empty");
