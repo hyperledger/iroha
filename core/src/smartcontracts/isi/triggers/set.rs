@@ -28,7 +28,7 @@ use crate::smartcontracts::wasm;
 pub enum Error {
     /// Preloading error
     #[error("Failed to preload wasm trigger: {0}")]
-    Preload(#[from] wasm::Error),
+    Preload(#[from] wasm::error::Error),
 }
 
 /// Result type for [`Set`] operations.

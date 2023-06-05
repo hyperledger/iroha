@@ -9,6 +9,30 @@ use proc_macro_error::{abort, diagnostic, proc_macro_error, Diagnostic, Level, O
 use quote::quote;
 use syn::{parse_quote, punctuated::Punctuated};
 
+mod kw {
+    syn::custom_keyword!(state);
+}
+
+struct StateAttr {
+    _state: kw::state,
+    _equal: syn::Token![=],
+    ty: syn::Type,
+}
+
+impl syn::parse::Parse for StateAttr {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let state = input.parse()?;
+        let equal = input.parse()?;
+        let type_str: syn::LitStr = input.parse()?;
+        let ty = syn::parse_str(&type_str.value())?;
+        Ok(Self {
+            _state: state,
+            _equal: equal,
+            ty,
+        })
+    }
+}
+
 /// Macro to wrap function with normal parameters and return value to another one which will
 /// meet `wasmtime` specifications.
 ///
@@ -18,17 +42,27 @@ use syn::{parse_quote, punctuated::Punctuated};
 /// # Key notes
 ///
 /// 1. If there is something to encode or decode (input or output) generated signature will always
-/// return `Result<..., Trap>`.
+/// return `Result<..., Trap>`
 /// 2. If your function returns `T` on success, then generated function will return
 /// `Result<WasmUsize, Trap>`, where `WasmUsize` is the offset of encoded `T` prefixed with length
 /// 3. If your function returns [`Result`] with `Trap` on [`Err`], generated function will pop it up
 /// 4. If your function returns [`Result`] with custom error, then it will be encoded into memory (as in 2)
-/// 5. You can receive `&State` or `&mut State` as the second parameter of your function
-/// 6. You can have only two function parameters, where second is reserved for `State`,
+/// 5. You can receive constant or mutable reference to *state* as the second parameter of your function
+/// 6. You can have only two function parameters, where second is reserved for *state*,
 /// if you need more -- use tuple as a first parameter
+///
+/// # `state` attribute
+///
+/// You can pass an attribute in the form of `#[wrap(state = "YourStateType")]`.
+/// This is needed in cases when it's impossible to infer the state type from the function signature.
 #[proc_macro_error]
 #[proc_macro_attribute]
-pub fn wrap(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn wrap(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let state_attr_opt = if attr.is_empty() {
+        None
+    } else {
+        Some(syn::parse_macro_input!(attr as StateAttr))
+    };
     let fn_item = syn::parse_macro_input!(item as syn::ItemFn);
     let ident = &fn_item.sig.ident;
     let fn_attrs = &fn_item.attrs;
@@ -36,18 +70,24 @@ pub fn wrap(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut inner_fn_item = fn_item.clone();
     let inner_fn_ident = syn::Ident::new(&format!("__{}_inner", ident), ident.span());
     inner_fn_item.sig.ident = inner_fn_ident.clone();
-    inner_fn_item.attrs.clear();
 
     let fn_class = classify_fn(&fn_item);
-    let params = gen_params(&fn_class);
+    let params = gen_params(
+        &fn_class,
+        state_attr_opt.as_ref().map(|state_attr| &state_attr.ty),
+    );
     let output = gen_output(&fn_class);
-    let body = gen_body(&inner_fn_ident, &fn_class);
+    let body = gen_body(
+        &inner_fn_ident,
+        &fn_class,
+        state_attr_opt.as_ref().map(|state_attr| &state_attr.ty),
+    );
 
     quote! {
+        #inner_fn_item
+
         #(#fn_attrs)*
         fn #ident(#params) -> #output {
-            #inner_fn_item
-
             #body
         }
 
@@ -58,14 +98,16 @@ pub fn wrap(_attr: TokenStream, item: TokenStream) -> TokenStream {
 fn gen_params(
     FnClass {
         param,
-        state,
+        state: state_ty_from_fn_sig,
         return_type,
     }: &FnClass,
+    state_ty_from_attr: Option<&syn::Type>,
 ) -> Punctuated<syn::FnArg, syn::Token![,]> {
     let mut params = Punctuated::new();
-    if *state || param.is_some() || return_type.is_some() {
+    if state_ty_from_fn_sig.is_some() || param.is_some() || return_type.is_some() {
+        let state_ty = retrieve_state_ty(state_ty_from_attr, state_ty_from_fn_sig.as_ref());
         params.push(parse_quote! {
-            mut caller: ::wasmtime::Caller<crate::smartcontracts::wasm::State>
+            mut caller: ::wasmtime::Caller<#state_ty>
         });
     }
 
@@ -99,13 +141,32 @@ fn gen_output(
     }
 }
 
+/// [`TokenStream2`] wrapper which will be lazily evaluated
+///
+/// Implements [`quote::ToTokens`] trait
+struct LazyTokenStream<F>(once_cell::unsync::Lazy<TokenStream2, F>);
+
+impl<F: FnOnce() -> TokenStream2> LazyTokenStream<F> {
+    pub fn new(f: F) -> Self {
+        Self(once_cell::unsync::Lazy::new(f))
+    }
+}
+
+impl<F: FnOnce() -> TokenStream2> quote::ToTokens for LazyTokenStream<F> {
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        let inner = &*self.0;
+        inner.to_tokens(tokens)
+    }
+}
+
 fn gen_body(
     inner_fn_ident: &syn::Ident,
     FnClass {
         param,
-        state,
+        state: state_ty_from_fn_sig,
         return_type,
     }: &FnClass,
+    state_ty_from_attr: Option<&syn::Type>,
 ) -> TokenStream2 {
     let decode_param = param.as_ref().map_or_else(
         || quote! {},
@@ -114,19 +175,25 @@ fn gen_body(
         }
     );
 
-    let pass_state = if *state {
+    let pass_state = if state_ty_from_fn_sig.is_some() {
         quote! {caller.data_mut()}
     } else {
         quote! {}
     };
 
-    let get_memory = quote! {
-        let memory = Runtime::get_memory(&mut caller).expect("Checked at instantiation step");
-    };
+    let get_memory = LazyTokenStream::new(|| {
+        let state_ty = retrieve_state_ty(state_ty_from_attr, state_ty_from_fn_sig.as_ref());
+        quote! {
+            let memory = Runtime::<#state_ty>::get_memory(&mut caller).expect("Checked at instantiation step");
+        }
+    });
 
-    let get_alloc = quote! {
-        let alloc_fn = Runtime::get_alloc_fn(&mut caller).expect("Checked at instantiation step");
-    };
+    let get_alloc = LazyTokenStream::new(|| {
+        let state_ty = retrieve_state_ty(state_ty_from_attr, state_ty_from_fn_sig.as_ref());
+        quote! {
+            let alloc_fn = Runtime::<#state_ty>::get_alloc_fn(&mut caller).expect("Checked at instantiation step");
+        }
+    });
 
     match (param, return_type) {
         // foo() =>
@@ -135,25 +202,25 @@ fn gen_body(
         // foo() -> Result<(), Trap> =>
         // foo() -> Result<(), Trap>
         (None, None | Some(ReturnType::Result(None, ErrType::Trap))) => quote! {
-            #inner_fn_ident(#pass_state)
+            Self::#inner_fn_ident(#pass_state)
         },
         // foo() -> RetType
         // | foo() -> Result<(), ErrType>
         // | foo() -> Result<OkType, ErrType> =>
         // foo() -> Result<WasmUsize, Trap>
         (None, Some(ReturnType::Other(_) | ReturnType::Result(_, ErrType::Other(_)))) => quote! {
-            let value = #inner_fn_ident(#pass_state);
+            let value = Self::#inner_fn_ident(#pass_state);
             #get_memory
             #get_alloc
-            crate::smartcontracts::wasm::codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
+            ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
         },
         // foo() -> Result<OkType, Trap> =>
         // foo() -> Result<WasmUsize, Trap>
         (None, Some(ReturnType::Result(Some(ok_type), ErrType::Trap))) => quote! {
-            let value: #ok_type = #inner_fn_ident(#pass_state)?;
+            let value: #ok_type = Self::#inner_fn_ident(#pass_state)?;
             #get_memory
             #get_alloc
-            crate::smartcontracts::wasm::codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
+            ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
         },
         // foo(Param) =>
         // foo(WasmUsize, WasmUsize) -> Result<(), Trap>
@@ -161,7 +228,7 @@ fn gen_body(
             #get_memory
             #decode_param
 
-            #inner_fn_ident(param, #pass_state);
+            Self::#inner_fn_ident(param, #pass_state);
             Ok(())
         },
         // foo(Param) -> Result<(), Trap> =>
@@ -170,7 +237,7 @@ fn gen_body(
             #get_memory
             #decode_param
 
-            #inner_fn_ident(param, #pass_state)
+            Self::#inner_fn_ident(param, #pass_state)
         },
         // foo(Param) -> RetType
         // | foo(Param) -> Result<(), ErrType>
@@ -184,8 +251,8 @@ fn gen_body(
             #get_alloc
             #decode_param
 
-            let value = #inner_fn_ident(param, #pass_state);
-            crate::smartcontracts::wasm::codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
+            let value = Self::#inner_fn_ident(param, #pass_state);
+            ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
         },
         // foo(Param) -> Result<OkType, Trap> =>
         // foo(WasmUsize, WasmUsize) -> Result<WasmUsize, Trap>
@@ -194,8 +261,8 @@ fn gen_body(
             #get_alloc
             #decode_param
 
-            let value: #ok_type = #inner_fn_ident(param, #pass_state)?;
-            crate::smartcontracts::wasm::codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
+            let value: #ok_type = Self::#inner_fn_ident(param, #pass_state)?;
+            ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
         },
     }
 }
@@ -204,8 +271,8 @@ fn gen_body(
 struct FnClass {
     /// Input parameter
     param: Option<syn::Type>,
-    /// Does function require state?
-    state: bool,
+    /// Does function require state explicitly?
+    state: Option<syn::Type>,
     /// Return type.
     /// [`None`] means `()`
     return_type: Option<ReturnType>,
@@ -288,17 +355,17 @@ fn extract_type_from_fn_arg(fn_arg: syn::FnArg) -> syn::PatType {
 
 fn classify_params_and_state(
     params: &Punctuated<syn::FnArg, syn::Token![,]>,
-) -> (Option<syn::Type>, bool) {
+) -> (Option<syn::Type>, Option<syn::Type>) {
     match params.len() {
-        0 => (None, false),
+        0 => (None, None),
         1 => {
             let mut params_iter = params.iter();
             let first_param = extract_type_from_fn_arg(params_iter.next().unwrap().clone());
 
-            if let Ok(()) = is_valid_state_param(&first_param.ty) {
-                (None, true)
+            if let Ok(state_ty) = parse_state_param(&first_param) {
+                (None, Some(state_ty.clone()))
             } else {
-                (Some(first_param.ty.deref().clone()), false)
+                (Some(first_param.ty.deref().clone()), None)
             }
         }
         2 => {
@@ -306,38 +373,32 @@ fn classify_params_and_state(
             let first_param = extract_type_from_fn_arg(params_iter.next().unwrap().clone());
 
             let second_param = extract_type_from_fn_arg(params_iter.next().unwrap().clone());
-            if let Err(diagnostic) = is_valid_state_param(&second_param.ty) {
-                diagnostic.abort()
+            match parse_state_param(&second_param) {
+                Ok(state_ty) => (Some(first_param.ty.deref().clone()), Some(state_ty.clone())),
+                Err(diagnostic) => diagnostic.abort(),
             }
-
-            (Some(first_param.ty.deref().clone()), true)
         }
         _ => abort!(params, "No more than 2 parameters are allowed"),
     }
 }
 
-fn is_valid_state_param(ty: &syn::Type) -> Result<(), Diagnostic> {
-    let syn::Type::Reference(state_ty_ref) = ty else {
-        return Err(diagnostic!(ty, Level::Error, "State type should be reference to `State`"));
+fn parse_state_param(param: &syn::PatType) -> Result<&syn::Type, Diagnostic> {
+    let syn::Pat::Ident(pat_ident) = &*param.pat else {
+        return Err(diagnostic!(param, Level::Error, "State parameter should be an ident"));
     };
-    let syn::Type::Path(ref state_ty_path) = *state_ty_ref.elem else {
-        return Err(diagnostic!(state_ty_ref, Level::Error, "State type should be reference to `State`"));
-    };
-
-    let last_segment = state_ty_path
-        .path
-        .segments
-        .last()
-        .expect_or_abort("Path segment expected in state parameter type");
-    if last_segment.ident != "State" {
+    if pat_ident.ident != "state" {
         return Err(diagnostic!(
-            last_segment,
+            param,
             Level::Error,
-            "State parameter type should be `State`"
+            "State parameter should be named `state`"
         ));
     }
 
-    Ok(())
+    let syn::Type::Reference(ty_ref) = &*param.ty else {
+        return Err(diagnostic!(param.ty, Level::Error, "State parameter should be either reference or mutable reference"));
+    };
+
+    Ok(&*ty_ref.elem)
 }
 
 fn classify_ok_type(
@@ -381,4 +442,13 @@ fn last_segment(path: &syn::Path) -> &syn::PathSegment {
     path.segments
         .last()
         .expect_or_abort("At least one path segment expected")
+}
+
+fn retrieve_state_ty<'ty>(
+    state_ty_from_attr: Option<&'ty syn::Type>,
+    state_ty_from_fn_sig: Option<&'ty syn::Type>,
+) -> &'ty syn::Type {
+    state_ty_from_attr
+        .or(state_ty_from_fn_sig)
+        .expect_or_abort("`state` attribute is required")
 }

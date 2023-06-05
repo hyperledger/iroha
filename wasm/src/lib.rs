@@ -169,7 +169,7 @@ pub fn query_authority() -> <Account as Identifiable>::Id {
 /// # Traps
 ///
 /// Host side will generate a trap if this function was not called from a trigger.
-pub fn query_triggering_event() -> Option<Event> {
+pub fn query_triggering_event() -> Event {
     #[cfg(not(test))]
     use host::query_triggering_event as host_query_triggering_event;
     #[cfg(test)]
@@ -383,13 +383,11 @@ mod tests {
     fn get_test_expression() -> EvaluatesTo<NumericValue> {
         Add::new(1_u32, 2_u32).into()
     }
-    fn get_test_event() -> Option<Event> {
-        Some(
-            DataEvent::Account(AccountEvent::Deleted(
-                "alice@wonderland".parse().expect("Valid"),
-            ))
-            .into(),
-        )
+    fn get_test_event() -> Event {
+        DataEvent::Account(AccountEvent::Deleted(
+            "alice@wonderland".parse().expect("Valid"),
+        ))
+        .into()
     }
     fn get_test_operation() -> NeedsValidationBox {
         let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
