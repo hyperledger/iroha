@@ -2957,6 +2957,7 @@ dependencies = [
 name = "iroha_core_wasm_codec_derive"
 version = "2.0.0-pre-rc.16"
 dependencies = [
+ "once_cell",
  "proc-macro-error",
  "proc-macro2",
  "quote",

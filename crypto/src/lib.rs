@@ -615,10 +615,9 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::restriction)]
 
-    #[cfg(not(feature = "std"))]
-    use alloc::string::ToString as _;
-
     use parity_scale_codec::{Decode, Encode};
+    #[cfg(all(feature = "std", not(feature = "ffi_import")))]
+    use serde::Deserialize;
 
     use super::*;
 
@@ -639,6 +638,7 @@ mod tests {
         }
     }
     #[test]
+    #[cfg(any(feature = "std", feature = "ffi_import"))]
     fn key_pair_serialize_deserialize_consistent() {
         for algorithm in [
             Algorithm::Ed25519,
@@ -681,6 +681,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "std", feature = "ffi_import"))]
     fn key_pair_match() {
         assert!(KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
             .parse()
@@ -700,6 +701,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "std", feature = "ffi_import"))]
     fn encode_decode_public_key_consistent() {
         for algorithm in [
             Algorithm::Ed25519,
@@ -726,6 +728,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn invalid_private_key() {
         assert!(PrivateKey::from_hex(
             Algorithm::Ed25519,
@@ -740,6 +743,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "std", feature = "ffi_import"))]
     fn key_pair_mismatch() {
         assert!(KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
             .parse()
@@ -814,7 +818,7 @@ mod tests {
             "eb01c1040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
         )
     }
-
+    #[cfg(all(feature = "std", not(feature = "ffi_import")))]
     #[derive(Debug, PartialEq, Deserialize, Serialize)]
     struct TestJson {
         public_key: PublicKey,
@@ -822,6 +826,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(feature = "std", not(feature = "ffi_import")))]
     fn deserialize_keys_ed25519() {
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
@@ -849,6 +854,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(feature = "std", not(feature = "ffi_import")))]
     fn deserialize_keys_secp256k1() {
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
@@ -876,6 +882,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(feature = "std", not(feature = "ffi_import")))]
     fn deserialize_keys_bls() {
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
@@ -926,6 +933,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "std", feature = "ffi_import"))]
     fn secp256k1_key_gen_fails_with_seed_smaller_than_32() {
         let seed: Vec<_> = (0..12u8).collect();
 

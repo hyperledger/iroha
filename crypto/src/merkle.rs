@@ -13,7 +13,9 @@ use std::collections::VecDeque;
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
 
-use crate::{Hash, HashOf};
+#[cfg(feature = "std")]
+use crate::Hash;
+use crate::HashOf;
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate `T`
 #[derive(Debug, TypeId, Decode, Encode)]
@@ -256,9 +258,10 @@ impl<T> LeafHashIterator<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
+    use crate::Hash;
 
     fn test_hashes(n_hashes: u8) -> Vec<HashOf<()>> {
         (1..=n_hashes)
