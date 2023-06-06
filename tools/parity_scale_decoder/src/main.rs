@@ -6,6 +6,7 @@
 )]
 #![allow(clippy::print_stdout, clippy::use_debug, clippy::unnecessary_wraps)]
 
+use core::num::NonZeroU64;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,

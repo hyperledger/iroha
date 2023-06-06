@@ -421,10 +421,12 @@ types!(
     u32,
     u64,
     u8,
+    NonZeroU64,
 );
 
 #[cfg(test)]
 mod tests {
+    use core::num::NonZeroU64;
     use std::{
         collections::{BTreeMap, BTreeSet, HashMap, HashSet},
         time::Duration,

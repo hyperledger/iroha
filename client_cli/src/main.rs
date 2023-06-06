@@ -260,6 +260,8 @@ mod events {
 }
 
 mod blocks {
+    use std::num::NonZeroU64;
+
     use iroha_client::client::Client;
     use iroha_config::client::Configuration;
 
@@ -269,7 +271,7 @@ mod blocks {
     #[derive(StructOpt, Debug, Clone, Copy)]
     pub struct Args {
         /// Block height from which to start streaming blocks
-        height: u64,
+        height: NonZeroU64,
     }
 
     impl RunArgs for Args {
@@ -279,7 +281,7 @@ mod blocks {
         }
     }
 
-    pub fn listen(height: u64, cfg: &Configuration) -> Result<Box<dyn Serialize>> {
+    pub fn listen(height: NonZeroU64, cfg: &Configuration) -> Result<Box<dyn Serialize>> {
         let iroha_client = Client::new(cfg)?;
         eprintln!("Listening to blocks from height: {height}");
         let blocks = iroha_client
