@@ -15,7 +15,10 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use core::ops::RangeInclusive;
+use core::{
+    num::{NonZeroU32, NonZeroU64},
+    ops::RangeInclusive,
+};
 
 /// Derive schema. It will make your structure schemaable
 pub use iroha_schema_derive::*;
@@ -259,8 +262,33 @@ macro_rules! impl_schema_int {
         }
     )*};
 }
-
 impl_schema_int!(u128, u64, u32, u16, u8, i128, i64, i32, i16, i8);
+
+macro_rules! impl_schema_non_zero_int {
+    ($($src:ty => $dst:ty),*) => {$(
+        impl TypeId for $src {
+            fn id() -> String {
+                format!("NonZero<{}>", <$dst as TypeId>::id())
+            }
+        }
+        impl IntoSchema for $src {
+            fn type_name() -> String {
+                format!("NonZero<{}>", <$dst as IntoSchema>::type_name())
+            }
+            fn update_schema_map(map: &mut MetaMap) {
+                if !map.contains_key::<Self>() {
+                    map.insert::<Self>(Metadata::Tuple(UnnamedFieldsMeta {
+                        types: vec![core::any::TypeId::of::<$dst>()],
+                    }));
+
+                    <$dst as IntoSchema>::update_schema_map(map);
+                }
+            }
+        }
+    )*};
+}
+
+impl_schema_non_zero_int!(NonZeroU64 => u64, NonZeroU32 => u32);
 
 impl<I: TypeId, P: DecimalPlacesAware> TypeId for fixnum::FixedPoint<I, P> {
     fn id() -> String {

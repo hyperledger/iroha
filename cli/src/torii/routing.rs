@@ -317,14 +317,14 @@ async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::R
             }
             // This branch sends blocks
             _ = interval.tick() => {
-                if let Some(block) = kura.get_block_by_height(from_height) {
+                if let Some(block) = kura.get_block_by_height(from_height.get()) {
                     stream
                         // TODO: to avoid clone `VersionedBlockMessage` could be split into sending and receiving parts
                         .send(VersionedBlockMessage::from(
                             BlockMessage(VersionedCommittedBlock::clone(&block)),
                         ))
                         .await?;
-                    from_height += 1;
+                    from_height = from_height.checked_add(1).expect("Maximum block height is achieved.");
                 }
             }
             // Else branch to prevent panic i.e. I don't know what

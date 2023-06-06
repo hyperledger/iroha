@@ -399,13 +399,15 @@ pub mod stream {
 
     #[model]
     pub mod model {
+        use core::num::NonZeroU64;
+
         use super::*;
 
         /// Request sent to subscribe to blocks stream starting from the given height.
         #[version_with_scale(n = 1, versioned = "VersionedBlockSubscriptionRequest")]
         #[derive(Debug, Clone, Copy, Constructor, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
-        pub struct BlockSubscriptionRequest(pub u64);
+        pub struct BlockSubscriptionRequest(pub NonZeroU64);
 
         /// Message sent by the stream producer
         /// Block sent by the peer.
