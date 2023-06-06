@@ -5,7 +5,9 @@
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
-use std::{collections::HashMap, fmt::Debug, marker::PhantomData, thread, time::Duration};
+use std::{
+    collections::HashMap, fmt::Debug, marker::PhantomData, num::NonZeroU64, thread, time::Duration,
+};
 
 use derive_more::{DebugCustom, Display};
 use eyre::{eyre, Result, WrapErr};
@@ -904,7 +906,7 @@ impl Client {
     /// - Forwards from [`blocks_api::BlockIterator::new`]
     pub fn listen_for_blocks(
         &self,
-        height: u64,
+        height: NonZeroU64,
     ) -> Result<impl Iterator<Item = Result<VersionedCommittedBlock>>> {
         blocks_api::BlockIterator::new(self.blocks_handler(height)?)
     }
@@ -914,7 +916,7 @@ impl Client {
     /// # Errors
     /// - Forwards from [`Self::events_handler`]
     /// - Forwards from [`blocks_api::BlockIterator::new`]
-    pub async fn listen_for_blocks_async(&self, height: u64) -> Result<AsyncBlockStream> {
+    pub async fn listen_for_blocks_async(&self, height: NonZeroU64) -> Result<AsyncBlockStream> {
         blocks_api::AsyncBlockStream::new(self.blocks_handler(height)?).await
     }
 
@@ -923,7 +925,7 @@ impl Client {
     /// # Errors
     /// - if handler construction fails
     #[inline]
-    pub fn blocks_handler(&self, height: u64) -> Result<blocks_api::flow::Init> {
+    pub fn blocks_handler(&self, height: NonZeroU64) -> Result<blocks_api::flow::Init> {
         blocks_api::flow::Init::new(
             height,
             self.headers.clone(),
@@ -1363,6 +1365,8 @@ mod blocks_api {
 
     /// Blocks API flow. For documentation and usage examples, refer to [`crate::http::ws::conn_flow`].
     pub mod flow {
+        use std::num::NonZeroU64;
+
         use iroha_data_model::block::stream::*;
 
         use super::*;
@@ -1370,7 +1374,7 @@ mod blocks_api {
         /// Initialization struct for Blocks API flow.
         pub struct Init {
             /// Block height from which to start streaming blocks
-            height: u64,
+            height: NonZeroU64,
             /// HTTP request headers
             headers: HashMap<String, String>,
             /// TORII URL
@@ -1384,7 +1388,7 @@ mod blocks_api {
             /// If [`transform_ws_url`] fails.
             #[inline]
             pub(in super::super) fn new(
-                height: u64,
+                height: NonZeroU64,
                 headers: HashMap<String, String>,
                 url: Url,
             ) -> Result<Self> {

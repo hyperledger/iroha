@@ -675,7 +675,7 @@
       }
     ]
   },
-  "BlockSubscriptionRequest": "u64",
+  "BlockSubscriptionRequest": "NonZero<u64>",
   "BurnBox": {
     "Struct": [
       {
@@ -2912,6 +2912,7 @@
     ]
   },
   "NonTrivial<GenericPredicateBox<ValuePredicate>>": "Vec<GenericPredicateBox<ValuePredicate>>",
+  "NonZero<u64>": "u64",
   "Not": {
     "Struct": [
       {
