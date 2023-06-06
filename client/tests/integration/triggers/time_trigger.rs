@@ -21,7 +21,6 @@ macro_rules! const_assert {
 /// so it's impossible to create fully reproducible test scenario.
 ///
 /// But in general it works well and this test demonstrates it
-#[ignore = "ignore, more in #2851"]
 #[test]
 #[allow(clippy::cast_precision_loss)]
 fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result<()> {
@@ -33,6 +32,9 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_775).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     let start_time = current_time();
+
+    // Start listening BEFORE submitting any transaction not to miss any block committed event
+    let event_listener = get_block_committed_event_listener(&test_client)?;
 
     let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let asset_definition_id = "rose#wonderland".parse().expect("Valid");
@@ -55,6 +57,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     test_client.submit(register_trigger)?;
 
     submit_sample_isi_on_every_block_commit(
+        event_listener,
         &mut test_client,
         &account_id,
         Duration::from_secs(1),
@@ -86,6 +89,9 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     let start_time = current_time();
 
+    // Start listening BEFORE submitting any transaction not to miss any block committed event
+    let event_listener = get_block_committed_event_listener(&test_client)?;
+
     let asset_definition_id =
         <AssetDefinition as Identifiable>::Id::from_str("rose#wonderland").expect("Valid");
     let account_id = <Account as Identifiable>::Id::from_str("alice@wonderland").expect("Valid");
@@ -105,6 +111,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
     ));
     test_client.submit(register_trigger)?;
     submit_sample_isi_on_every_block_commit(
+        event_listener,
         &mut test_client,
         &account_id,
         Duration::from_secs(1),
@@ -133,6 +140,9 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
 
     let mut prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
+    // Start listening BEFORE submitting any transaction not to miss any block committed event
+    let event_listener = get_block_committed_event_listener(&test_client)?;
+
     let instruction = MintBox::new(1_u32, asset_id.clone());
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose".parse()?,
@@ -145,15 +155,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     ));
     test_client.submit(register_trigger)?;
 
-    let block_filter = FilterBox::Pipeline(
-        PipelineEventFilter::new()
-            .entity_kind(PipelineEntityKind::Block)
-            .status_kind(PipelineStatusKind::Committed),
-    );
-    for _ in test_client
-        .listen_for_events(block_filter)?
-        .take(CHECKS_COUNT)
-    {
+    for _ in event_listener.take(CHECKS_COUNT) {
         let new_value = get_asset_value(&mut test_client, asset_id.clone())?;
         assert_eq!(new_value, prev_value + 1);
         prev_value = new_value;
@@ -218,6 +220,9 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
 
     info!("WASM size is {} bytes", wasm.len());
 
+    // Start listening BEFORE submitting any transaction not to miss any block committed event
+    let event_listener = get_block_committed_event_listener(&test_client)?;
+
     // Registering trigger
     let start_time = current_time();
     let schedule =
@@ -235,6 +240,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
 
     // Time trigger will be executed on block commits, so we have to produce some transactions
     submit_sample_isi_on_every_block_commit(
+        event_listener,
         &mut test_client,
         &alice_id,
         Duration::from_millis(TRIGGER_PERIOD_MS),
@@ -265,6 +271,18 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     Ok(())
 }
 
+/// Get block committed event listener
+fn get_block_committed_event_listener(
+    client: &Client,
+) -> Result<impl Iterator<Item = Result<Event>>> {
+    let block_filter = FilterBox::Pipeline(
+        PipelineEventFilter::new()
+            .entity_kind(PipelineEntityKind::Block)
+            .status_kind(PipelineStatusKind::Committed),
+    );
+    client.listen_for_events(block_filter)
+}
+
 /// Get asset numeric value
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
@@ -273,25 +291,13 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
 
 /// Submit some sample ISIs to create new blocks
 fn submit_sample_isi_on_every_block_commit(
+    block_committed_event_listener: impl Iterator<Item = Result<Event>>,
     test_client: &mut Client,
     account_id: &AccountId,
     timeout: Duration,
     times: usize,
 ) -> Result<()> {
-    let block_filter =
-        FilterBox::Pipeline(PipelineEventFilter::new().entity_kind(PipelineEntityKind::Block));
-    for _ in test_client
-        .listen_for_events(block_filter)?
-        .filter(|event| {
-            if let Ok(Event::Pipeline(event)) = event {
-                if event.status == PipelineStatus::Committed {
-                    return true;
-                }
-            }
-            false
-        })
-        .take(times)
-    {
+    for _ in block_committed_event_listener.take(times) {
         std::thread::sleep(timeout);
         // ISI just to create a new block
         let sample_isi = SetKeyValueBox::new(
