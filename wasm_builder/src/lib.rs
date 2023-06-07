@@ -11,6 +11,7 @@ use std::{
 };
 
 use eyre::{bail, eyre, Context as _, Result};
+use path_absolutize::Absolutize;
 
 /// Current toolchain used to build smartcontracts
 const TOOLCHAIN: &str = "+nightly-2023-06-25";
@@ -141,9 +142,12 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
     }
 
     fn absolute_path(relative_path: impl AsRef<Path>) -> Result<PathBuf> {
-        env::var("CARGO_MANIFEST_DIR")
-            .wrap_err("Expected `CARGO_MANIFEST_DIR` environment variable")
-            .map(|manifest_dir| Path::new(&manifest_dir).join(relative_path.as_ref()))
+        // TODO: replace with [std::path::absolute](https://doc.rust-lang.org/stable/std/path/fn.absolute.html)
+        // when it's stabilized
+        relative_path
+            .as_ref()
+            .absolutize()
+            .map(|abs_path| abs_path.to_path_buf())
             .wrap_err_with(|| {
                 format!(
                     "Failed to construct absolute path for: {}",
