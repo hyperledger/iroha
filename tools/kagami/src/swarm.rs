@@ -8,6 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use clap::ArgGroup;
 use color_eyre::{
     eyre::{eyre, Context, ContextCompat},
     Result,
@@ -31,27 +32,40 @@ const FILE_VALIDATOR: &str = "validator.wasm";
 const FILE_CONFIG: &str = "config.json";
 const FILE_GENESIS: &str = "genesis.json";
 const FILE_COMPOSE: &str = "docker-compose.yml";
-const DIR_FORCE_SUGGESTION: &str =
-    "You can pass `--outdir-force` flag to remove the directory without prompting";
+const FORCE_ARG_SUGGESTION: &str =
+    "You can pass `--force` flag to remove the file/directory without prompting";
 const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
 
 #[derive(ClapArgs, Debug)]
+#[command(group = ArgGroup::new("output").required(true).multiple(false))]
+#[command(group = ArgGroup::new("source").required(true).multiple(false))]
+#[command(group = ArgGroup::new("output-dir").required(false))]
 pub struct Args {
-    #[command(flatten)]
-    source: ImageSourceArgs,
-    /// How many peers to generate within the docker-compose.
+    /// How many peers to generate within the Docker Compose setup.
     #[arg(long, short)]
     peers: NonZeroU16,
+    /// Might be useful for deterministic key generation.
+    ///
+    /// It could be any string. Its UTF-8 bytes will be used as a seed.
+    #[arg(long, short)]
+    seed: Option<String>,
     /// Target directory where to place generated files.
     ///
     /// If the directory is not empty, Kagami will prompt it's re-creation. If the TTY is not
     /// interactive, Kagami will stop execution with non-zero exit code. In order to re-create
     /// the directory anyway, pass `--outdir-force` flag.
+    ///
+    /// Example:
+    ///
+    /// ```bash
+    /// kagami swarm --outdir ./compose --peers 4 --image hyperledger/iroha2:lts
+    /// ```
+    #[arg(long, groups = ["output", "output-dir"])]
+    outdir: Option<PathBuf>,
+    /// Re-create the target directory (for `--outdir`) or file (for `--outfile`)
+    /// if they already exist.
     #[arg(long)]
-    outdir: PathBuf,
-    /// Re-create the target directory if it already exists.
-    #[arg(long)]
-    outdir_force: bool,
+    force: bool,
     /// Do not create default configuration in the `<outdir>/config` directory.
     ///
     /// Default `config.json`, `genesis.json` and `validator.wasm` are generated and put into
@@ -60,135 +74,268 @@ pub struct Args {
     ///
     /// Setting this flag prevents copying of default configuration files into the output folder. The `config` directory will still be
     /// created, but the necessary configuration should be put there by the user manually.
-    #[arg(long)]
+    #[arg(long, requires = "output-dir")]
     no_default_configuration: bool,
-    /// Might be useful for deterministic key generation.
+    /// Emit only a single Docker Compose configuration into a specified path
     ///
-    /// It could be any string. Its UTF-8 bytes will be used as a seed.
-    #[arg(long, short)]
-    seed: Option<String>,
-}
-
-impl Args {
-    pub fn run(self) -> Outcome {
-        let ui = UserInterface::new();
-
-        let prepare_dir_strategy = if self.outdir_force {
-            PrepareDirectoryStrategy::ForceRecreate
-        } else {
-            PrepareDirectoryStrategy::Prompt
-        };
-        let source = ImageSource::from(self.source);
-        let target_dir = TargetDirectory::new(AbsolutePath::absolutize(self.outdir)?);
-
-        if let EarlyEnding::Halt = target_dir
-            .prepare(&prepare_dir_strategy, &ui)
-            .wrap_err("Failed to prepare directory")?
-        {
-            return Ok(());
-        }
-
-        let config_dir = AbsolutePath::absolutize(target_dir.path.join(DIR_CONFIG))?;
-
-        let source = source
-            .resolve(&target_dir, &ui)
-            .wrap_err("Failed to resolve the source of image")?;
-
-        let ui = if self.no_default_configuration {
-            PrepareConfigurationStrategy::GenerateOnlyDirectory
-        } else {
-            PrepareConfigurationStrategy::GenerateDefault
-        }
-        .run(&config_dir, ui)
-        .wrap_err("Failed to prepare configuration")?;
-
-        DockerComposeBuilder {
-            target_dir: target_dir.path.clone(),
-            config_dir,
-            source,
-            peers: self.peers,
-            seed: self.seed.map(String::into_bytes),
-        }
-        .build()
-        .wrap_err("Failed to build docker compose")?
-        .write_file(&target_dir.path.join(FILE_COMPOSE))
-        .wrap_err("Failed to write compose file")?;
-
-        ui.log_complete(&target_dir.path);
-
-        Ok(())
-    }
-}
-
-#[derive(ClapArgs, Clone, Debug)]
-#[group(required = true, multiple = false)]
-struct ImageSourceArgs {
+    /// Example:
+    ///
+    /// ```bash
+    /// kagami swarm --outfile docker-compose.yml --peers 1 --build ~/Git/iroha
+    /// ```
+    #[arg(long, group = "output", requires = "config_dir")]
+    outfile: Option<PathBuf>,
+    /// TODO
+    #[arg(long, requires = "output-file")]
+    config_dir: Option<PathBuf>,
     /// Use specified docker image.
-    #[arg(long)]
+    #[arg(long, group = "source")]
     image: Option<String>,
     /// Use local path location of the Iroha source code to build images from.
     ///
     /// If the path is relative, it will be resolved relative to the CWD.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, value_name = "PATH", group = "source")]
     build: Option<PathBuf>,
+    /// Use Iroha GitHub source as a build source
+    ///
     /// Clone `hyperledger/iroha` repo from the revision Kagami is built itself,
     /// and use the cloned source code to build images from.
-    #[arg(long)]
+    #[arg(long, group = "source", requires = "output-dir")]
     build_from_github: bool,
 }
 
-/// Parsed version of [`ImageSourceArgs`]
-#[derive(Clone, Debug)]
-enum ImageSource {
-    Image { name: String },
-    GitHub { revision: String },
-    Path(PathBuf),
+impl Args {
+    pub fn run(self) -> Outcome {
+        let parsed: ParsedArgs = self.into();
+        parsed.run()
+    }
 }
 
-impl From<ImageSourceArgs> for ImageSource {
-    fn from(args: ImageSourceArgs) -> Self {
-        match args {
-            ImageSourceArgs {
-                image: Some(name), ..
-            } => Self::Image { name },
-            ImageSourceArgs {
-                build_from_github: true,
-                ..
-            } => Self::GitHub {
-                revision: GIT_REVISION.to_owned(),
+/// Type-strong version of [`Args`] with no ambiguity between arguments relationships
+struct ParsedArgs {
+    peers: NonZeroU16,
+    seed: Option<String>,
+    /// User allowance to override existing files/directories
+    force: bool,
+    mode: ParsedMode,
+}
+
+impl From<Args> for ParsedArgs {
+    fn from(
+        Args {
+            peers,
+            seed,
+            build,
+            build_from_github,
+            image,
+            outfile,
+            config_dir,
+            outdir,
+            force,
+            no_default_configuration,
+        }: Args,
+    ) -> Self {
+        let mode = match (
+            outfile,
+            config_dir,
+            outdir,
+            no_default_configuration,
+            build_from_github,
+        ) {
+            (Some(target_file), Some(config_dir), None, false, false) => ParsedMode::File {
+                target_file,
+                config_dir,
+                image_source: match (build, image) {
+                    (Some(path), None) => SourceForFile::Build { path },
+                    (None, Some(name)) => SourceForFile::Image { name },
+                    _ => unreachable!("clap invariant"),
+                },
             },
-            ImageSourceArgs {
-                build: Some(path), ..
-            } => Self::Path(path),
-            _ => unreachable!("Clap must ensure the invariant"),
+            (None, None, Some(path), no_default_configuration, _) => ParsedMode::Directory {
+                target_dir: path,
+                no_default_configuration,
+                image_source: match (build_from_github, build, image) {
+                    (true, None, None) => SourceForDirectory::BuildFromGitHub,
+                    (false, Some(path), None) => {
+                        SourceForDirectory::SameAsForFile(SourceForFile::Build { path })
+                    }
+                    (false, None, Some(name)) => {
+                        SourceForDirectory::SameAsForFile(SourceForFile::Image { name })
+                    }
+                    _ => unreachable!("clap invariant"),
+                },
+            },
+            _ => unreachable!("clap invariant"),
+        };
+
+        Self {
+            peers,
+            seed,
+            force,
+            mode,
         }
     }
 }
 
-impl ImageSource {
-    /// Has a side effect: if self is [`Self::GitHub`], it clones the repo into
+impl ParsedArgs {
+    pub fn run(self) -> Outcome {
+        let ui = UserInterface::new();
+
+        let Self {
+            peers,
+            seed,
+            force,
+            mode,
+        } = self;
+        let seed = seed.map(String::into_bytes);
+        let seed = seed.as_deref();
+
+        match mode {
+            ParsedMode::Directory {
+                target_dir,
+                no_default_configuration,
+                image_source,
+            } => {
+                let target_dir = TargetDirectory::new(AbsolutePath::absolutize(target_dir)?);
+                let config_dir = AbsolutePath::absolutize(target_dir.path.join(DIR_CONFIG))?;
+                let target_file = AbsolutePath::absolutize(target_dir.path.join(FILE_COMPOSE))?;
+
+                let prepare_dir_strategy = if force {
+                    PrepareDirectoryStrategy::ForceRecreate
+                } else {
+                    PrepareDirectoryStrategy::Prompt
+                };
+
+                if let EarlyEnding::Halt = target_dir
+                    .prepare(&prepare_dir_strategy, &ui)
+                    .wrap_err("Failed to prepare directory")?
+                {
+                    return Ok(());
+                }
+
+                let image_source = image_source
+                    .resolve(&target_dir, &ui)
+                    .wrap_err("Failed to resolve the source of image")?;
+
+                let ui = if no_default_configuration {
+                    PrepareConfigurationStrategy::GenerateOnlyDirectory
+                } else {
+                    PrepareConfigurationStrategy::GenerateDefault
+                }
+                .run(&config_dir, ui)
+                .wrap_err("Failed to prepare configuration")?;
+
+                DockerComposeBuilder {
+                    target_file: &target_file,
+                    config_dir: &config_dir,
+                    image_source,
+                    peers,
+                    seed,
+                }
+                .build_and_write()?;
+
+                ui.log_directory_mode_complete(&target_dir.path);
+
+                Ok(())
+            }
+            ParsedMode::File {
+                target_file,
+                config_dir,
+                image_source,
+            } => {
+                let target_file = AbsolutePath::absolutize(target_file)?;
+                let config_dir = AbsolutePath::absolutize(config_dir)?;
+
+                if target_file.exists() && !force {
+                    if let ui::PromptAnswer::No = ui.prompt_remove_target_file(&target_file)? {
+                        return Ok(());
+                    }
+                }
+
+                let image_source = image_source
+                    .resolve()
+                    .wrap_err("Failed to resolve the source of image")?;
+
+                DockerComposeBuilder {
+                    target_file: &target_file,
+                    config_dir: &config_dir,
+                    image_source,
+                    peers,
+                    seed,
+                }
+                .build_and_write()?;
+
+                ui.log_file_mode_complete(&target_file);
+
+                Ok(())
+            }
+        }
+    }
+}
+
+enum ParsedMode {
+    Directory {
+        target_dir: PathBuf,
+        no_default_configuration: bool,
+        image_source: SourceForDirectory,
+    },
+    File {
+        target_file: PathBuf,
+        config_dir: PathBuf,
+        image_source: SourceForFile,
+    },
+}
+
+enum SourceForDirectory {
+    SameAsForFile(SourceForFile),
+    BuildFromGitHub,
+}
+
+impl SourceForDirectory {
+    /// Has a side effect: if self is [`Self::BuildFromGitHub`], it clones the repo into
     /// the target directory.
     fn resolve(self, target: &TargetDirectory, ui: &UserInterface) -> Result<ResolvedImageSource> {
-        let source = match self {
-            Self::Path(path) => ResolvedImageSource::Build {
-                path: AbsolutePath::absolutize(path).wrap_err("Failed to resolve build path")?,
-            },
-            Self::GitHub { revision } => {
+        match self {
+            Self::SameAsForFile(source_for_file) => source_for_file.resolve(),
+            Self::BuildFromGitHub => {
                 let clone_dir = target.path.join(DIR_CLONE);
                 let clone_dir = AbsolutePath::absolutize(clone_dir)?;
 
                 ui.log_cloning_repo();
 
-                shallow_git_clone(GIT_ORIGIN, revision, &clone_dir)
+                shallow_git_clone(GIT_ORIGIN, GIT_REVISION, &clone_dir)
                     .wrap_err("Failed to clone the repo")?;
 
-                ResolvedImageSource::Build { path: clone_dir }
+                Ok(ResolvedImageSource::Build { path: clone_dir })
             }
+        }
+    }
+}
+
+enum SourceForFile {
+    Image { name: String },
+    Build { path: PathBuf },
+}
+
+impl SourceForFile {
+    fn resolve(self) -> Result<ResolvedImageSource> {
+        let resolved = match self {
             Self::Image { name } => ResolvedImageSource::Image { name },
+            Self::Build { path: relative } => {
+                let absolute =
+                    AbsolutePath::absolutize(relative).wrap_err("Failed to resolve build path")?;
+                ResolvedImageSource::Build { path: absolute }
+            }
         };
 
-        Ok(source)
+        Ok(resolved)
     }
+}
+
+#[derive(Debug)]
+enum ResolvedImageSource {
+    Image { name: String },
+    Build { path: AbsolutePath },
 }
 
 fn shallow_git_clone(
@@ -218,12 +365,6 @@ fn shallow_git_clone(
     .run()?;
 
     Ok(())
-}
-
-#[derive(Debug)]
-enum ResolvedImageSource {
-    Image { name: String },
-    Build { path: AbsolutePath },
 }
 
 enum PrepareConfigurationStrategy {
@@ -370,31 +511,32 @@ impl TargetDirectory {
 }
 
 #[derive(Debug)]
-struct DockerComposeBuilder {
-    target_dir: AbsolutePath,
-    config_dir: AbsolutePath,
-    source: ResolvedImageSource,
+struct DockerComposeBuilder<'a> {
+    /// Needed to compute a relative source build path
+    target_file: &'a AbsolutePath,
+    /// Needed to put into `volumes`
+    config_dir: &'a AbsolutePath,
+    image_source: ResolvedImageSource,
     peers: NonZeroU16,
-    seed: Option<Vec<u8>>,
+    /// Crypto seed to use for keys generation
+    seed: Option<&'a [u8]>,
 }
 
-impl DockerComposeBuilder {
+impl DockerComposeBuilder<'_> {
     fn build(&self) -> Result<DockerCompose> {
-        let base_seed = self.seed.as_deref();
-
-        let peers = peer_generator::generate_peers(self.peers, base_seed)
+        let peers = peer_generator::generate_peers(self.peers, self.seed)
             .wrap_err("Failed to generate peers")?;
-        let genesis_key_pair = generate_key_pair(base_seed, GENESIS_KEYPAIR_SEED)
+        let genesis_key_pair = generate_key_pair(self.seed, GENESIS_KEYPAIR_SEED)
             .wrap_err("Failed to generate genesis key pair")?;
-        let service_source = match &self.source {
+        let service_source = match &self.image_source {
             ResolvedImageSource::Build { path } => {
-                ServiceSource::Build(path.relative_to(&self.target_dir)?)
+                ServiceSource::Build(path.relative_to(self.target_file)?)
             }
             ResolvedImageSource::Image { name } => ServiceSource::Image(name.clone()),
         };
         let volumes = vec![(
             self.config_dir
-                .relative_to(&self.target_dir)?
+                .relative_to(self.target_file)?
                 .to_str()
                 .wrap_err("Config directory path is not a valid string")?
                 .to_owned(),
@@ -436,6 +578,14 @@ impl DockerComposeBuilder {
 
         let compose = DockerCompose::new(services);
         Ok(compose)
+    }
+
+    fn build_and_write(&self) -> Result<()> {
+        let target_file = self.target_file;
+        let compose = self
+            .build()
+            .wrap_err("Failed to build a docker compose file")?;
+        compose.write_file(&target_file.path)
     }
 }
 
@@ -586,7 +736,7 @@ mod serialize_docker_compose {
     use iroha_primitives::addr::SocketAddr;
     use serde::{ser::Error as _, Serialize, Serializer};
 
-    use crate::swarm::peer_generator::Peer;
+    use super::peer_generator::Peer;
 
     const COMMAND_SUBMIT_GENESIS: &str = "iroha --submit-genesis";
     const DOCKER_COMPOSE_VERSION: &str = "3.8";
@@ -608,9 +758,9 @@ mod serialize_docker_compose {
         pub fn write_file(&self, path: &PathBuf) -> Result<(), color_eyre::Report> {
             let yaml = serde_yaml::to_string(self).wrap_err("Failed to serialise YAML")?;
             File::create(path)
-                .wrap_err_with(|| eyre!("Failed to create file: {:?}", path))?
+                .wrap_err_with(|| eyre!("Failed to create file {}", path.display()))?
                 .write_all(yaml.as_bytes())
-                .wrap_err("Failed to write YAML content")?;
+                .wrap_err_with(|| eyre!("Failed to write YAML content into {}", path.display()))?;
             Ok(())
         }
     }
@@ -1022,7 +1172,7 @@ mod ui {
     use owo_colors::OwoColorize;
 
     use super::{AbsolutePath, Result};
-    use crate::swarm::DIR_FORCE_SUGGESTION;
+    use crate::swarm::FORCE_ARG_SUGGESTION;
 
     mod prefix {
         use owo_colors::{FgColorDisplay, OwoColorize};
@@ -1045,6 +1195,16 @@ mod ui {
     pub(super) enum PromptAnswer {
         Yes,
         No,
+    }
+
+    impl From<bool> for PromptAnswer {
+        fn from(value: bool) -> Self {
+            if value {
+                Self::Yes
+            } else {
+                Self::No
+            }
+        }
     }
 
     #[derive(Copy, Clone)]
@@ -1105,14 +1265,23 @@ mod ui {
             ))
             .with_default(false)
             .prompt()
-            .suggestion(DIR_FORCE_SUGGESTION)
-            .map(|flag| {
-                if flag {
-                    PromptAnswer::Yes
-                } else {
-                    PromptAnswer::No
-                }
-            })
+            .suggestion(FORCE_ARG_SUGGESTION)
+            .map(PromptAnswer::from)
+        }
+
+        #[allow(clippy::unused_self)]
+        pub(super) fn prompt_remove_target_file(
+            &self,
+            file: &AbsolutePath,
+        ) -> Result<PromptAnswer> {
+            inquire::Confirm::new(&format!(
+                "File {} already exists. Remove it?",
+                file.display().blue().bold()
+            ))
+            .with_default(false)
+            .prompt()
+            .suggestion(FORCE_ARG_SUGGESTION)
+            .map(PromptAnswer::from)
         }
 
         #[allow(clippy::unused_self)]
@@ -1125,13 +1294,25 @@ mod ui {
         }
 
         #[allow(clippy::unused_self)]
-        pub(super) fn log_complete(&self, dir: &AbsolutePath) {
+        pub(super) fn log_directory_mode_complete(&self, dir: &AbsolutePath) {
             println!(
                 "{} Docker compose configuration is ready at:\n\n    {}\
                     \n\n  You could `{}` in it.",
                 prefix::success(),
                 dir.display().green().bold(),
                 "docker compose up".blue()
+            );
+        }
+
+        #[allow(clippy::unused_self)]
+        pub(super) fn log_file_mode_complete(&self, file: &AbsolutePath) {
+            println!(
+                "{} Docker compose configuration is ready at:\n\n    {}\
+                    \n\n  You could run `{} {}`",
+                prefix::success(),
+                file.display().green().bold(),
+                "docker compose up -f".blue(),
+                file.display().blue().bold()
             );
         }
     }
@@ -1209,16 +1390,17 @@ mod tests {
     #[test]
     fn generate_peers_deterministically() {
         let root = Path::new("/");
-        let seed: Vec<_> = b"iroha".to_vec();
+        let seed = Some(b"iroha".to_vec());
+        let seed = seed.as_deref();
 
         let composed = DockerComposeBuilder {
-            target_dir: AbsolutePath::from_virtual(&PathBuf::from("/test"), root),
-            config_dir: AbsolutePath::from_virtual(&PathBuf::from("/test/config"), root),
+            target_file: &AbsolutePath::from_virtual(&PathBuf::from("/test"), root),
+            config_dir: &AbsolutePath::from_virtual(&PathBuf::from("/test/config"), root),
             peers: 4.try_into().unwrap(),
-            source: ResolvedImageSource::Build {
+            image_source: ResolvedImageSource::Build {
                 path: AbsolutePath::from_virtual(&PathBuf::from("/test/iroha-cloned"), root),
             },
-            seed: Some(seed),
+            seed,
         }
         .build()
         .expect("should build with no errors");
