@@ -32,6 +32,7 @@ owo-colors = { version = "3.5.0", features = ["supports-colors"] }
 supports-color = "2.0.0"
 inquire = "0.6.2"
 duct = "0.13.6"
+tempfile = "3.6.0"
 
 [build-dependencies]
 eyre = "0.6.8"
