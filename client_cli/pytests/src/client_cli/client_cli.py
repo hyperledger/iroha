@@ -7,7 +7,7 @@ from time import sleep, time
 
 import allure
 
-from common.settings import path_config_client_cli, client_cli_path
+from common.settings import PATH_CONFIG_CLIENT_CLI, CLIENT_CLI_PATH
 from src.client_cli.configuration import Config
 
 
@@ -15,8 +15,8 @@ class ClientCli:
     """
     A class to represent the Iroha client command line interface.
     """
-    BASE_PATH = client_cli_path
-    BASE_FLAGS = ['--config=' + path_config_client_cli]
+    BASE_PATH = CLIENT_CLI_PATH
+    BASE_FLAGS = ['--config=' + PATH_CONFIG_CLIENT_CLI]
 
     def __init__(self, config: Config):
         """
