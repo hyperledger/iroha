@@ -3,15 +3,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-base_dir = os.path.dirname \
+BASE_DIR = os.path.dirname \
     (os.path.dirname
      (os.path.dirname
       (os.path.abspath(__file__))))
 
-root_dir = os.environ.get("CLIENT_CLI_DIR", base_dir)
+ROOT_DIR = os.environ.get("CLIENT_CLI_DIR", BASE_DIR)
 
-path_config_client_cli = os.path.join(root_dir, "config.json")
-client_cli_path = os.path.join(root_dir, "iroha_client_cli")
+PATH_CONFIG_CLIENT_CLI = os.path.join(ROOT_DIR, "config.json")
+CLIENT_CLI_PATH = os.path.join(ROOT_DIR, "iroha_client_cli")
 
-port_min = int(os.getenv('TORII_API_PORT_MIN', '8080'))
-port_max = int(os.getenv('TORII_API_PORT_MAX', '8083'))
+PORT_MIN = int(os.getenv('TORII_API_PORT_MIN', '8080'))
+PORT_MAX = int(os.getenv('TORII_API_PORT_MAX', '8083'))
