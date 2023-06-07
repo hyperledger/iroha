@@ -10,7 +10,7 @@ use std::{
 
 use color_eyre::{
     eyre::{eyre, Context, ContextCompat},
-    Result,
+    Report, Result,
 };
 use iroha_crypto::{error::Error as IrohaCryptoError, KeyGenConfiguration, KeyPair};
 use iroha_data_model::prelude::PeerId;
@@ -18,22 +18,7 @@ use path_absolutize::Absolutize;
 use serialize_docker_compose::{DockerCompose, DockerComposeService, ServiceSource};
 use ui::UserInterface;
 
-use super::Outcome;
-
-const GIT_REVISION: &str = env!("VERGEN_GIT_SHA");
-const GIT_ORIGIN: &str = "https://github.com/hyperledger/iroha.git";
-/// Config directory that is generated in the output directory
-const DIR_CONFIG: &str = "config";
-/// Config directory inside of the docker image
-const DIR_CONFIG_IN_DOCKER: &str = "/config";
-const DIR_CLONE: &str = "iroha-cloned";
-const FILE_VALIDATOR: &str = "validator.wasm";
-const FILE_CONFIG: &str = "config.json";
-const FILE_GENESIS: &str = "genesis.json";
-const FILE_COMPOSE: &str = "docker-compose.yml";
-const FORCE_ARG_SUGGESTION: &str =
-    "You can pass `--force` flag to remove the file/directory without prompting";
-const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
+use super::*;
 
 mod clap_args {
     use clap::{Args, Subcommand};
@@ -310,9 +295,9 @@ impl ParsedArgs {
                 let target_file = AbsolutePath::absolutize(&target_file_raw)?;
 
                 let prepare_dir_strategy = if force {
-                    PrepareDirectoryStrategy::ForceRecreate
+                    PrepareDirectory::ForceRecreate
                 } else {
-                    PrepareDirectoryStrategy::Prompt
+                    PrepareDirectory::Prompt
                 };
 
                 if let EarlyEnding::Halt = target_dir
@@ -327,11 +312,11 @@ impl ParsedArgs {
                     .wrap_err("Failed to resolve the source of image")?;
 
                 let ui = if no_default_configuration {
-                    PrepareConfigurationStrategy::GenerateOnlyDirectory
+                    PrepareConfig::GenerateOnlyDirectory
                 } else {
-                    PrepareConfigurationStrategy::GenerateDefault
+                    PrepareConfig::GenerateDefault
                 }
-                .run(&config_dir, ui)
+                .run(&config_dir, &image_source, ui)
                 .wrap_err("Failed to prepare configuration")?;
 
                 DockerComposeBuilder {
@@ -487,7 +472,7 @@ enum ResolvedImageSource {
     Build { path: AbsolutePath },
 }
 
-fn shallow_git_clone(
+pub fn shallow_git_clone(
     remote: impl AsRef<str>,
     revision: impl AsRef<str>,
     dir: &AbsolutePath,
@@ -516,13 +501,18 @@ fn shallow_git_clone(
     Ok(())
 }
 
-enum PrepareConfigurationStrategy {
+enum PrepareConfig {
     GenerateDefault,
     GenerateOnlyDirectory,
 }
 
-impl PrepareConfigurationStrategy {
-    fn run(&self, config_dir: &AbsolutePath, ui: UserInterface) -> Result<UserInterface> {
+impl PrepareConfig {
+    fn run(
+        &self,
+        config_dir: &AbsolutePath,
+        source: &ResolvedImageSource,
+        ui: UserInterface,
+    ) -> Result<UserInterface> {
         std::fs::create_dir(config_dir).wrap_err("Failed to create the config directory")?;
 
         let ui = match self {
@@ -546,8 +536,16 @@ impl PrepareConfigurationStrategy {
 
                 let spinner = ui.spinner_validator();
 
-                let validator = super::validator::construct_validator()
-                    .wrap_err("Failed to construct the validator")?;
+                let validator_path = match source {
+                    ResolvedImageSource::Build { ref path } => {
+                        super::validator::compute_validator_path_with_swarm_dir(path).wrap_err(
+                            "Failed to construct the validator path from swarm build directory",
+                        )?
+                    }
+                    _ => super::validator::compute_validator_path()
+                        .wrap_err("Failed to construct the validator")?,
+                };
+                let validator = super::validator::construct_validator(validator_path)?;
 
                 let ui = spinner.done();
 
@@ -565,7 +563,7 @@ impl PrepareConfigurationStrategy {
     }
 }
 
-enum PrepareDirectoryStrategy {
+enum PrepareDirectory {
     ForceRecreate,
     Prompt,
 }
@@ -585,18 +583,14 @@ impl TargetDirectory {
         Self { path }
     }
 
-    fn prepare(
-        &self,
-        strategy: &PrepareDirectoryStrategy,
-        ui: &UserInterface,
-    ) -> Result<EarlyEnding> {
+    fn prepare(&self, strategy: &PrepareDirectory, ui: &UserInterface) -> Result<EarlyEnding> {
         // FIXME: use [`std::fs::try_exists`] when it is stable
         let was_removed = if self.path.exists() {
             match strategy {
-                PrepareDirectoryStrategy::ForceRecreate => {
+                PrepareDirectory::ForceRecreate => {
                     self.remove_dir()?;
                 }
-                PrepareDirectoryStrategy::Prompt => {
+                PrepareDirectory::Prompt => {
                     if let EarlyEnding::Halt = self.remove_directory_with_prompt(ui)? {
                         return Ok(EarlyEnding::Halt);
                     }
@@ -746,7 +740,7 @@ impl DockerComposeBuilder<'_> {
 }
 
 #[derive(Clone, Debug)]
-struct AbsolutePath {
+pub struct AbsolutePath {
     path: PathBuf,
 }
 
@@ -767,6 +761,14 @@ impl AsRef<Path> for AbsolutePath {
 impl AsRef<OsStr> for AbsolutePath {
     fn as_ref(&self) -> &OsStr {
         self.path.as_ref()
+    }
+}
+
+impl TryFrom<PathBuf> for AbsolutePath {
+    type Error = Report;
+
+    fn try_from(value: PathBuf) -> std::result::Result<Self, Self::Error> {
+        Self::absolutize(&value)
     }
 }
 

@@ -3367,6 +3367,7 @@ name = "iroha_wasm_builder"
 version = "2.0.0-pre-rc.16"
 dependencies = [
  "eyre",
+ "path-absolutize",
  "serde_json",
  "sha256",
  "wasm-opt",
@@ -3490,6 +3491,7 @@ dependencies = [
  "serde_yaml",
  "spinoff",
  "supports-color 2.0.0",
+ "tempfile",
  "vergen",
 ]
 
