@@ -43,9 +43,11 @@ jobs:
         if: always()
         with:
           push: true
+          # include the tag for PR-generator image specifically
           tags: |
             hyperledger/iroha2:dev
             docker.soramitsu.co.jp/iroha2/iroha2:dev
+            docker.soramitsu.co.jp/iroha2/iroha2:dev-${{ github.event.pull_request.head.sha }}
           labels: commit=${{ github.sha }}
           build-args: TAG=dev
           file: Dockerfile
