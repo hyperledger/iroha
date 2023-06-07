@@ -15,7 +15,8 @@ class ClientCli:
     """
     A class to represent the Iroha client command line interface.
     """
-    BASE_COMMAND = [client_cli_path, f'--config={path_config_client_cli}']
+    BASE_PATH = client_cli_path
+    BASE_FLAGS = ['--config=' + path_config_client_cli]
 
     def __init__(self, config: Config):
         """
@@ -23,7 +24,7 @@ class ClientCli:
         :type config: Config
         """
         self.config = config
-        self.command = self.BASE_COMMAND.copy()
+        self.command = [self.BASE_PATH] + self.BASE_FLAGS
         self.stdout = None
         self.stderr = None
         self._timeout = 5
@@ -74,7 +75,7 @@ class ClientCli:
         """
         self.stdout = None
         self.stderr = None
-        self.command = self.BASE_COMMAND.copy()
+        self.command = [self.BASE_PATH] + self.BASE_FLAGS
 
     def register(self):
         """
@@ -224,9 +225,8 @@ class ClientCli:
                     f"Error: {exception}"
                 ) from exception
             finally:
-                self.command = self.BASE_COMMAND.copy()
+                self.command = [self.BASE_PATH] + self.BASE_FLAGS
             return self
-
 
     @property
     def config(self) -> Config:
