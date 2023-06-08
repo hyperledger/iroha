@@ -1,3 +1,8 @@
+"""
+This module loads environment variables and sets up important paths
+for tests.
+"""
+
 import os
 from dotenv import load_dotenv
 

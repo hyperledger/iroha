@@ -19,8 +19,8 @@ def test_transfer_asset(
                      f'to {GIVEN_new_one_existence_account.name}'):
         client_cli.transfer(
             asset=GIVEN_currently_account_quantity_with_two_quantity_of_asset,
-            by=GIVEN_currently_authorized_account,
-            to=GIVEN_new_one_existence_account,
+            source_account=GIVEN_currently_authorized_account,
+            target_account=GIVEN_new_one_existence_account,
             quantity="1")
 
     with allure.step(f'THEN {GIVEN_currently_authorized_account.name} has 1 Quantity '
