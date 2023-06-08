@@ -58,23 +58,7 @@ pub enum Args {
     Docs(Box<docs::Args>),
     /// Generate the default validator
     Validator(validator::Args),
-    /// Generate a docker-compose configuration for a variable number of peers
-    /// using a Dockerhub image, GitHub repo, or a local Iroha repo.
-    ///
-    /// This command builds the docker-compose configuration in a specified directory. If the source
-    /// is a GitHub repo, it will be cloned into the directory. Also, the default configuration is
-    /// built and put into `<target>/config` directory, unless `--no-default-configuration` flag is
-    /// provided. The default configuration is equivalent to running `kagami config peer`,
-    /// `kagami validator`, and `kagami genesis default --compiled-validator-path ./validator.wasm` consecutively.
-    ///
-    /// Default configuration building will fail if Kagami is run outside of Iroha repo (tracking
-    /// issue: https://github.com/hyperledger/iroha/issues/3473). If you are going to run it outside
-    /// of the repo, make sure to pass `--no-default-configuration` flag.
-    ///
-    /// Be careful with specifying a Dockerhub image as a source: Kagami Swarm only guarantees that
-    /// the docker-compose configuration it generates is compatible with the same Git revision it
-    /// is built from itself. Therefore, if specified image is not compatible with the version of Swarm
-    /// you are running, the generated configuration might not work.
+    /// Generate Docker Compose configuration
     Swarm(swarm::Args),
 }
 
