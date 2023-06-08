@@ -8,7 +8,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use clap::ArgGroup;
 use color_eyre::{
     eyre::{eyre, Context, ContextCompat},
     Result,
@@ -19,7 +18,7 @@ use path_absolutize::Absolutize;
 use serialize_docker_compose::{DockerCompose, DockerComposeService, ServiceSource};
 use ui::UserInterface;
 
-use super::{ClapArgs, Outcome};
+use super::Outcome;
 
 const GIT_REVISION: &str = env!("VERGEN_GIT_SHA");
 const GIT_ORIGIN: &str = "https://github.com/hyperledger/iroha.git";
@@ -162,13 +161,9 @@ mod clap_args {
 
     #[cfg(test)]
     mod tests {
-        use std::{
-            ffi::OsString,
-            fmt::{Debug, Display, Formatter},
-        };
+        use std::fmt::{Debug, Display, Formatter};
 
-        use clap::{ArgMatches, Command, Error as ClapError, FromArgMatches};
-        use expect_test::expect;
+        use clap::{ArgMatches, Command, Error as ClapError};
 
         use super::*;
 
@@ -188,9 +183,9 @@ mod clap_args {
 
         fn match_args(args_str: impl AsRef<str>) -> Result<ArgMatches, ClapErrorWrap> {
             let cmd = Command::new("test");
-            let mut cmd = SwarmArgs::augment_args(cmd);
+            let cmd = SwarmArgs::augment_args(cmd);
             let matches = cmd.try_get_matches_from(
-                std::iter::once("test").chain(args_str.as_ref().split(" ")),
+                std::iter::once("test").chain(args_str.as_ref().split(' ')),
             )?;
             Ok(matches)
         }
@@ -245,6 +240,7 @@ mod clap_args {
 }
 
 pub use clap_args::SwarmArgs as Args;
+use clap_args::{ModeDirSource, ModeFileSource};
 
 impl Args {
     pub fn run(self) -> Outcome {
@@ -263,8 +259,41 @@ struct ParsedArgs {
 }
 
 impl From<Args> for ParsedArgs {
-    fn from(args: Args) -> Self {
-        todo!()
+    fn from(
+        Args {
+            peers,
+            force,
+            seed,
+            command,
+        }: Args,
+    ) -> Self {
+        let mode: ParsedMode = match command {
+            clap_args::SwarmMode::File {
+                outfile,
+                config_dir,
+                source,
+            } => ParsedMode::File {
+                target_file: outfile,
+                config_dir,
+                image_source: source.into(),
+            },
+            clap_args::SwarmMode::Dir {
+                outdir,
+                no_default_configuration,
+                source,
+            } => ParsedMode::Directory {
+                target_dir: outdir,
+                no_default_configuration,
+                image_source: source.into(),
+            },
+        };
+
+        Self {
+            peers,
+            force,
+            seed,
+            mode,
+        }
     }
 }
 
@@ -384,6 +413,29 @@ enum SourceForDirectory {
     BuildFromGitHub,
 }
 
+impl From<ModeDirSource> for SourceForDirectory {
+    fn from(value: ModeDirSource) -> Self {
+        match value {
+            ModeDirSource {
+                build: Some(path),
+                image: None,
+                build_from_github: false,
+            } => Self::SameAsForFile(SourceForFile::Build { path }),
+            ModeDirSource {
+                build: None,
+                image: Some(name),
+                build_from_github: false,
+            } => Self::SameAsForFile(SourceForFile::Image { name }),
+            ModeDirSource {
+                build: None,
+                image: None,
+                build_from_github: true,
+            } => Self::BuildFromGitHub,
+            _ => unreachable!("clap invariant"),
+        }
+    }
+}
+
 impl SourceForDirectory {
     /// Has a side effect: if self is [`Self::BuildFromGitHub`], it clones the repo into
     /// the target directory.
@@ -408,6 +460,22 @@ impl SourceForDirectory {
 enum SourceForFile {
     Image { name: String },
     Build { path: PathBuf },
+}
+
+impl From<ModeFileSource> for SourceForFile {
+    fn from(value: ModeFileSource) -> Self {
+        match value {
+            ModeFileSource {
+                image: Some(name),
+                build: None,
+            } => Self::Image { name },
+            ModeFileSource {
+                image: None,
+                build: Some(path),
+            } => Self::Build { path },
+            _ => unreachable!("clap invariant"),
+        }
+    }
 }
 
 impl SourceForFile {
@@ -1268,11 +1336,12 @@ mod serialize_docker_compose {
 }
 
 mod ui {
+    use std::path::Path;
+
     use color_eyre::Help;
     use owo_colors::OwoColorize;
 
-    use super::{AbsolutePath, Result};
-    use crate::swarm::FORCE_ARG_SUGGESTION;
+    use super::{AbsolutePath, Result, FORCE_ARG_SUGGESTION};
 
     mod prefix {
         use owo_colors::{FgColorDisplay, OwoColorize};
@@ -1394,11 +1463,7 @@ mod ui {
         }
 
         #[allow(clippy::unused_self)]
-        pub(super) fn log_directory_mode_complete(
-            &self,
-            dir: &AbsolutePath,
-            file_raw: &std::path::PathBuf,
-        ) {
+        pub(super) fn log_directory_mode_complete(&self, dir: &AbsolutePath, file_raw: &Path) {
             println!(
                 "{} Docker compose configuration is ready at:\n\n    {}\
                     \n\n  You could run `{} {} {}`",
@@ -1411,11 +1476,7 @@ mod ui {
         }
 
         #[allow(clippy::unused_self)]
-        pub(super) fn log_file_mode_complete(
-            &self,
-            file: &AbsolutePath,
-            file_raw: &std::path::PathBuf,
-        ) {
+        pub(super) fn log_file_mode_complete(&self, file: &AbsolutePath, file_raw: &Path) {
             println!(
                 "{} Docker compose configuration is ready at:\n\n    {}\
                     \n\n  You could run `{} {} {}`",
