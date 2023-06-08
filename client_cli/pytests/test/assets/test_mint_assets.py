@@ -34,5 +34,3 @@ def test_mint_asset_for_account_in_same_domain(
 def test_mint_fixed_asset(
         GIVEN_new_one_existence_account):
     assert 0
-
-
