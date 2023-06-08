@@ -32,11 +32,18 @@ class Config:
 
     @staticmethod
     def create_default_config(path_config_client_cli):
+        """
+        Create a default configuration file at the given path.
+
+        :param path_config_client_cli: The path to create the configuration file.
+        :type path_config_client_cli: str
+        """
         default_config = {
             "PUBLIC_KEY": "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
             "PRIVATE_KEY": {
                 "digest_function": "ed25519",
-                "payload": "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+                "payload": "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e"
+                           "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
             },
             "ACCOUNT_ID": "alice@wonderland",
             "BASIC_AUTH": {
@@ -54,10 +61,12 @@ class Config:
             "ADD_TRANSACTION_NONCE": False
         }
         try:
-            with open(path_config_client_cli, 'w') as f:
-                json.dump(default_config, f)
-        except Exception as e:
-            raise Exception(f"Failed to create config file at {path_config_client_cli}: {str(e)}")
+            with open(path_config_client_cli, 'w', encoding='utf-8') as config_file:
+                json.dump(default_config, config_file)
+        except IOError as io_error:
+            raise IOError(
+                f"Failed to create config file at {path_config_client_cli}: {str(io_error)}") \
+                from io_error
 
     def update_torii_api_port(self):
         """

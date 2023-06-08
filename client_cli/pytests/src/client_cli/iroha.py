@@ -3,9 +3,9 @@ This module contains the Iroha class, which is a subclass of ClientCli.
 """
 
 import json
-
-from src.client_cli.client_cli import ClientCli, Config
 from typing import Any, Dict, List, Union
+from src.client_cli.client_cli import ClientCli, Config
+
 
 class Iroha(ClientCli):
     """

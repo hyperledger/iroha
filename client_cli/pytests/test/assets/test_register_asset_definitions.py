@@ -115,5 +115,3 @@ def test_register_asset_with_too_long_value_type(
     with allure.step(
             'THEN client_cli should have the error'):
         client_cli.should(have.error(Stderr.INVALID_VALUE_TYPE.value))
-
-

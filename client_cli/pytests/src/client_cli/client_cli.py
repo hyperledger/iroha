@@ -61,8 +61,14 @@ class ClientCli:
         start_time = time()
         while expected not in actual:
             if time() - start_time > timeout:
-                allure.attach(actual, name='actual', attachment_type=allure.attachment_type.TEXT)
-                allure.attach(expected, name='expected', attachment_type=allure.attachment_type.TEXT)
+                allure.attach(
+                    actual,
+                    name='actual',
+                    attachment_type=allure.attachment_type.TEXT)
+                allure.attach(
+                    expected,
+                    name='expected',
+                    attachment_type=allure.attachment_type.TEXT)
                 raise TimeoutError(f"Expected '{expected}' "
                                    f"to be in '{actual}' "
                                    f"after waiting for '{timeout}' seconds.")
@@ -163,11 +169,25 @@ class ClientCli:
             self.execute()
         return self
 
-    def transfer(self, asset, by, to, quantity: str):
+    def transfer(self, asset, source_account, target_account, quantity: str):
+        """
+        Executes the 'transfer' command for the given asset
+
+        :param asset: The asset to be transferred.
+        :type asset: str
+        :param source_account: The account from which the asset is transferred.
+        :type source_account: str
+        :param target_account: The account to which the asset is transferred.
+        :type target_account: str
+        :param quantity: The quantity of the asset to be transferred.
+        :type quantity: str
+        :return: The current ClientCli object.
+        :rtype: ClientCli
+        """
         self.command.append('asset')
         self.command.append('transfer')
-        self.command.append('--from=' + repr(by))
-        self.command.append('--to=' + repr(to))
+        self.command.append('--from=' + repr(source_account))
+        self.command.append('--to=' + repr(target_account))
         self.command.append('--asset-id=' + repr(asset))
         self.command.append('--quantity=' + quantity)
         self.execute()
