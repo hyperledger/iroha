@@ -1,5 +1,6 @@
 //! This module contains [`struct@Configuration`] structure and related implementation.
 #![allow(clippy::std_instead_of_core)]
+
 use std::fmt::Debug;
 
 use iroha_config_base::derive::{view, Documented, Error as ConfigError, Proxy};

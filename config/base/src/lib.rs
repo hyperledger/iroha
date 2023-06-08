@@ -169,7 +169,7 @@ pub mod derive {
     /// struct PrefixedProxy { a: Option<String> }
     ///
     /// std::env::set_var("PREFIXED_A", "B");
-    /// let prefixed = PrefixedProxy::from_env();
+    /// let prefixed = PrefixedProxy::from_std_env().unwrap();
     /// assert_eq!(prefixed.a.unwrap(), "B");
     /// ```
     ///
@@ -196,7 +196,7 @@ pub mod derive {
     /// let mut outer = OuterProxy { inner: Some(InnerProxy { b: Some("a".to_owned()) })};
     ///
     /// std::env::set_var("B", "a");
-    /// let env_outer = OuterProxy::from_env();
+    /// let env_outer = OuterProxy::from_std_env().unwrap();
     ///
     /// assert_eq!(env_outer, outer);
     /// ```
@@ -215,7 +215,7 @@ pub mod derive {
     /// struct IpAddrProxy { #[config(serde_as_str)] ip: Option<Ipv4Addr> }
     ///
     /// std::env::set_var("IP", "127.0.0.1");
-    /// let ip = IpAddrProxy::from_env();
+    /// let ip = IpAddrProxy::from_std_env().unwrap();
     /// assert_eq!(ip.ip.unwrap(), Ipv4Addr::new(127, 0, 0, 1));
     /// ```
     pub use iroha_config_derive::LoadFromEnv;
@@ -313,16 +313,16 @@ pub mod derive {
         #[error("Got unknown field: `{}`", .0.join("."))]
         UnknownField(Vec<String>),
 
-        /// Used in [`Documented`] trait for deserialization errors
-        /// while retaining field info
-        #[error("Failed to (de)serialize the field: {}", .field)]
+        /// Used in [`Documented`] and [`super::proxy::LoadFromEnv`] trait for deserialization
+        /// errors
+        #[error("Failed to deserialize the field `{}`: {}", .field, .error)]
         #[serde(skip)]
         FieldDeserialization {
             /// Field name (known at compile time)
             field: &'static str,
-            /// Serde json error
+            /// Unified error
             #[source]
-            error: serde_json::Error,
+            error: eyre::Report,
         },
 
         /// When a field is missing.
@@ -372,6 +372,28 @@ pub mod derive {
         #[error("Deserializing JSON failed")]
         #[serde(skip)]
         Json5(#[from] json5::Error),
+    }
+
+    impl Error {
+        /// This method is needed because a call of [`eyre::eyre!`] cannot be compiled when
+        /// generated in a proc macro. So, this shorthand is needed for proc macros.
+        pub fn field_deserialization_from_json(
+            field: &'static str,
+            error: &serde_json::Error,
+        ) -> Self {
+            Self::FieldDeserialization {
+                field,
+                error: eyre::eyre!("JSON: {}", error),
+            }
+        }
+
+        /// See [`Self::field_deserialization_from_json`]
+        pub fn field_deserialization_from_json5(field: &'static str, error: &json5::Error) -> Self {
+            Self::FieldDeserialization {
+                field,
+                error: eyre::eyre!("JSON5: {}", error),
+            }
+        }
     }
 }
 
@@ -478,7 +500,34 @@ pub mod proxy {
         ///
         /// # Errors
         /// - Fails if the deserialization of any field fails.
-        fn from_env() -> Self::ReturnValue;
+        fn from_env<F: FetchEnv>(fetcher: &F) -> Self::ReturnValue;
+
+        /// Implementation of [`Self::from_env`] using [`std::env::var`].
+        fn from_std_env() -> Self::ReturnValue {
+            struct FetchStdEnv;
+
+            impl FetchEnv for FetchStdEnv {
+                fn fetch<K: AsRef<std::ffi::OsStr>>(
+                    &self,
+                    key: K,
+                ) -> Result<String, std::env::VarError> {
+                    std::env::var(key)
+                }
+            }
+
+            Self::from_env(&FetchStdEnv)
+        }
+    }
+
+    /// Abstraction over the actual implementation of how env variables are gotten
+    /// from the environment. Necessary for mocking in tests.
+    pub trait FetchEnv {
+        /// The signature of [`std::env::var`].
+        ///
+        /// # Errors
+        ///
+        /// See errors of [`std::env::var`].
+        fn fetch<K: AsRef<std::ffi::OsStr>>(&self, key: K) -> Result<String, std::env::VarError>;
     }
 
     /// Trait for configuration loading and deserialization from disk
