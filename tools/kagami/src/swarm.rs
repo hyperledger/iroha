@@ -80,13 +80,6 @@ mod clap_args {
             /// If the directory is not empty, Kagami will prompt it's re-creation. If the TTY is not
             /// interactive, Kagami will stop execution with non-zero exit code. In order to re-create
             /// the directory anyway, pass `--force` flag.
-            ///
-            /// Example:
-            ///
-            /// ```bash
-            /// kagami swarm --outdir ./compose --peers 4 --image hyperledger/iroha2:lts
-            /// ```
-            #[arg(long)]
             outdir: PathBuf,
             /// Do not create default configuration in the `<outdir>/config` directory.
             ///
@@ -109,7 +102,6 @@ mod clap_args {
             /// If file exists, Kagami will prompt its overwriting. If the TTY is not
             /// interactive, Kagami will stop execution with non-zero exit code. In order to
             /// overwrite the file anyway, pass `--force` flag.
-            #[arg(long)]
             outfile: PathBuf,
             /// Path to a directory with Iroha configuration. It will be mapped as volume for containers.
             ///
@@ -192,49 +184,44 @@ mod clap_args {
 
         #[test]
         fn works_in_file_mode() {
-            let _ = match_args("-p 20 file --build . --config-dir ./config --outfile sample.yml")
-                .unwrap();
+            let _ = match_args("-p 20 file --build . --config-dir ./config sample.yml").unwrap();
         }
 
         #[test]
         fn works_in_dir_mode_with_github_source() {
-            let _ = match_args("-p 20 dir --build-from-github --outdir swarm").unwrap();
+            let _ = match_args("-p 20 dir --build-from-github swarm").unwrap();
         }
 
         #[test]
         fn doesnt_allow_config_dir_for_dir_mode() {
-            let _ = match_args("-p 1 dir --build-from-github --outdir swarm --config-dir ./")
-                .unwrap_err();
+            let _ = match_args("-p 1 dir --build-from-github  --config-dir ./ swarm").unwrap_err();
         }
 
         #[test]
         fn doesnt_allow_multiple_sources_in_dir_mode() {
-            let _ =
-                match_args("-p 1 dir --build-from-github --build . --outdir swarm").unwrap_err();
+            let _ = match_args("-p 1 dir --build-from-github --build . swarm").unwrap_err();
         }
 
         #[test]
         fn doesnt_allow_multiple_sources_in_file_mode() {
-            let _ = match_args(
-                "-p 1 file --build . --image hp/iroha --outfile test.yml --config-dir ./",
-            )
-            .unwrap_err();
-        }
-
-        #[test]
-        fn doesnt_allow_github_source_in_file_mode() {
-            let _ = match_args("-p 1 file --build-from-github --outfile test.yml --config-dir ./")
+            let _ = match_args("-p 1 file --build . --image hp/iroha --config-dir ./ test.yml")
                 .unwrap_err();
         }
 
         #[test]
+        fn doesnt_allow_github_source_in_file_mode() {
+            let _ =
+                match_args("-p 1 file --build-from-github --config-dir ./ test.yml").unwrap_err();
+        }
+
+        #[test]
         fn doesnt_allow_omitting_source_in_dir_mode() {
-            let _ = match_args("-p 1 dir --outdir ./test").unwrap_err();
+            let _ = match_args("-p 1 dir ./test").unwrap_err();
         }
 
         #[test]
         fn doesnt_allow_omitting_source_in_file_mode() {
-            let _ = match_args("-p 1 file --outfile test.yml --config-dir ./").unwrap_err();
+            let _ = match_args("-p 1 file test.yml --config-dir ./").unwrap_err();
         }
     }
 }
