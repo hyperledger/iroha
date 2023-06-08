@@ -36,73 +36,215 @@ const FORCE_ARG_SUGGESTION: &str =
     "You can pass `--force` flag to remove the file/directory without prompting";
 const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
 
-#[derive(ClapArgs, Debug)]
-#[command(group = ArgGroup::new("output").required(true).multiple(false))]
-#[command(group = ArgGroup::new("source").required(true).multiple(false))]
-#[command(group = ArgGroup::new("output-dir").required(false))]
-pub struct Args {
-    /// How many peers to generate within the Docker Compose setup.
-    #[arg(long, short)]
-    peers: NonZeroU16,
-    /// Might be useful for deterministic key generation.
-    ///
-    /// It could be any string. Its UTF-8 bytes will be used as a seed.
-    #[arg(long, short)]
-    seed: Option<String>,
-    /// Target directory where to place generated files.
-    ///
-    /// If the directory is not empty, Kagami will prompt it's re-creation. If the TTY is not
-    /// interactive, Kagami will stop execution with non-zero exit code. In order to re-create
-    /// the directory anyway, pass `--outdir-force` flag.
-    ///
-    /// Example:
-    ///
-    /// ```bash
-    /// kagami swarm --outdir ./compose --peers 4 --image hyperledger/iroha2:lts
-    /// ```
-    #[arg(long, groups = ["output", "output-dir"])]
-    outdir: Option<PathBuf>,
-    /// Re-create the target directory (for `--outdir`) or file (for `--outfile`)
-    /// if they already exist.
-    #[arg(long)]
-    force: bool,
-    /// Do not create default configuration in the `<outdir>/config` directory.
-    ///
-    /// Default `config.json`, `genesis.json` and `validator.wasm` are generated and put into
-    /// the `<outdir>/config` directory. That directory is specified in the `volumes` field
-    /// of the Docker Compose file.
-    ///
-    /// Setting this flag prevents copying of default configuration files into the output folder. The `config` directory will still be
-    /// created, but the necessary configuration should be put there by the user manually.
-    #[arg(long, requires = "output-dir")]
-    no_default_configuration: bool,
-    /// Emit only a single Docker Compose configuration into a specified path
-    ///
-    /// Example:
-    ///
-    /// ```bash
-    /// kagami swarm --outfile docker-compose.yml --peers 1 --build ~/Git/iroha
-    /// ```
-    #[arg(long, group = "output", requires = "config_dir")]
-    outfile: Option<PathBuf>,
-    /// TODO
-    #[arg(long, requires = "output-file")]
-    config_dir: Option<PathBuf>,
-    /// Use specified docker image.
-    #[arg(long, group = "source")]
-    image: Option<String>,
-    /// Use local path location of the Iroha source code to build images from.
-    ///
-    /// If the path is relative, it will be resolved relative to the CWD.
-    #[arg(long, value_name = "PATH", group = "source")]
-    build: Option<PathBuf>,
-    /// Use Iroha GitHub source as a build source
-    ///
-    /// Clone `hyperledger/iroha` repo from the revision Kagami is built itself,
-    /// and use the cloned source code to build images from.
-    #[arg(long, group = "source", requires = "output-dir")]
-    build_from_github: bool,
+mod clap_args {
+    use clap::{Args, Subcommand};
+
+    use super::*;
+
+    #[derive(Args, Debug)]
+    pub struct SwarmArgs {
+        /// How many peers to generate within the Docker Compose setup.
+        #[arg(long, short)]
+        pub peers: NonZeroU16,
+        /// Might be useful for deterministic key generation.
+        ///
+        /// It could be any string. Its UTF-8 bytes will be used as a seed.
+        #[arg(long, short)]
+        pub seed: Option<String>,
+        /// Re-create the target directory (for `dir` subcommand) or file (for `file` subcommand)
+        /// if they already exist.
+        #[arg(long)]
+        pub force: bool,
+
+        #[command(subcommand)]
+        pub command: SwarmMode,
+    }
+
+    #[derive(Subcommand, Debug)]
+    pub enum SwarmMode {
+        /// Produce a directory with Docker Compose configuration, Iroha configuration, and an option
+        /// to clone Iroha and use it as a source.
+        ///
+        /// This command builds Docker Compose configuration in a specified directory. If the source
+        /// is a GitHub repo, it will be cloned into the directory. Also, the default configuration is
+        /// built and put into `<target>/config` directory, unless `--no-default-configuration` flag is
+        /// provided. The default configuration is equivalent to running `kagami config peer`,
+        /// `kagami validator`, and `kagami genesis default --compiled-validator-path ./validator.wasm`
+        /// consecutively.
+        ///
+        /// Default configuration building will fail if Kagami is run outside of Iroha repo (tracking
+        /// issue: https://github.com/hyperledger/iroha/issues/3473). If you are going to run it outside
+        /// of the repo, make sure to pass `--no-default-configuration` flag.
+        Dir {
+            /// Target directory where to place generated files.
+            ///
+            /// If the directory is not empty, Kagami will prompt it's re-creation. If the TTY is not
+            /// interactive, Kagami will stop execution with non-zero exit code. In order to re-create
+            /// the directory anyway, pass `--force` flag.
+            ///
+            /// Example:
+            ///
+            /// ```bash
+            /// kagami swarm --outdir ./compose --peers 4 --image hyperledger/iroha2:lts
+            /// ```
+            #[arg(long)]
+            outdir: PathBuf,
+            /// Do not create default configuration in the `<outdir>/config` directory.
+            ///
+            /// Default `config.json`, `genesis.json` and `validator.wasm` are generated and put into
+            /// the `<outdir>/config` directory. That directory is specified in the `volumes` field
+            /// of the Docker Compose file.
+            ///
+            /// Setting this flag prevents copying of default configuration files into the output folder.
+            /// The `config` directory will still be created, but the necessary configuration should be put
+            /// there by the user manually.
+            #[arg(long)]
+            no_default_configuration: bool,
+            #[command(flatten)]
+            source: ModeDirSource,
+        },
+        /// Produce only a single Docker Compose configuration file
+        File {
+            /// Path to a generated Docker Compose configuration.
+            ///
+            /// If file exists, Kagami will prompt its overwriting. If the TTY is not
+            /// interactive, Kagami will stop execution with non-zero exit code. In order to
+            /// overwrite the file anyway, pass `--force` flag.
+            #[arg(long)]
+            outfile: PathBuf,
+            /// Path to a directory with Iroha configuration. It will be mapped as volume for containers.
+            ///
+            /// The directory should contain `config.json` and `genesis.json`.
+            #[arg(long)]
+            config_dir: PathBuf,
+            #[command(flatten)]
+            source: ModeFileSource,
+        },
+    }
+
+    #[derive(Args, Debug)]
+    #[group(required = true, multiple = false)]
+    pub struct ModeDirSource {
+        /// Use Iroha GitHub source as a build source
+        ///
+        /// Clone `hyperledger/iroha` repo from the revision Kagami is built itself,
+        /// and use the cloned source code to build images from.
+        #[arg(long)]
+        pub build_from_github: bool,
+        /// Use specified docker image.
+        ///
+        /// Be careful with specifying a Dockerhub image as a source: Kagami Swarm only guarantees that
+        /// the docker-compose configuration it generates is compatible with the same Git revision it
+        /// is built from itself. Therefore, if specified image is not compatible with the version of Swarm
+        /// you are running, the generated configuration might not work.
+        #[arg(long)]
+        pub image: Option<String>,
+        /// Use local path location of the Iroha source code to build images from.
+        ///
+        /// If the path is relative, it will be resolved relative to the CWD.
+        #[arg(long, value_name = "PATH")]
+        pub build: Option<PathBuf>,
+    }
+
+    #[derive(Args, Debug)]
+    #[group(required = true, multiple = false)]
+    // FIXME: I haven't found a way how to share `image` and `build` options between `file` and
+    //        `dir` modes with correct grouping logic. `command(flatten)` doesn't work for it,
+    //        so it's hard to share a single struct with "base source options"
+    pub struct ModeFileSource {
+        /// Same as `--image` for `swarm dir` subcommand
+        #[arg(long)]
+        pub image: Option<String>,
+        /// Same as `--build` for `swarm build` subcommand
+        #[arg(long, value_name = "PATH")]
+        pub build: Option<PathBuf>,
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::{
+            ffi::OsString,
+            fmt::{Debug, Display, Formatter},
+        };
+
+        use clap::{ArgMatches, Command, Error as ClapError, FromArgMatches};
+        use expect_test::expect;
+
+        use super::*;
+
+        struct ClapErrorWrap(ClapError);
+
+        impl From<ClapError> for ClapErrorWrap {
+            fn from(value: ClapError) -> Self {
+                Self(value)
+            }
+        }
+
+        impl Debug for ClapErrorWrap {
+            fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+                Display::fmt(&self.0, f)
+            }
+        }
+
+        fn match_args(args_str: impl AsRef<str>) -> Result<ArgMatches, ClapErrorWrap> {
+            let cmd = Command::new("test");
+            let mut cmd = SwarmArgs::augment_args(cmd);
+            let matches = cmd.try_get_matches_from(
+                std::iter::once("test").chain(args_str.as_ref().split(" ")),
+            )?;
+            Ok(matches)
+        }
+
+        #[test]
+        fn works_in_file_mode() {
+            let _ = match_args("-p 20 file --build . --config-dir ./config --outfile sample.yml")
+                .unwrap();
+        }
+
+        #[test]
+        fn works_in_dir_mode_with_github_source() {
+            let _ = match_args("-p 20 dir --build-from-github --outdir swarm").unwrap();
+        }
+
+        #[test]
+        fn doesnt_allow_config_dir_for_dir_mode() {
+            let _ = match_args("-p 1 dir --build-from-github --outdir swarm --config-dir ./")
+                .unwrap_err();
+        }
+
+        #[test]
+        fn doesnt_allow_multiple_sources_in_dir_mode() {
+            let _ =
+                match_args("-p 1 dir --build-from-github --build . --outdir swarm").unwrap_err();
+        }
+
+        #[test]
+        fn doesnt_allow_multiple_sources_in_file_mode() {
+            let _ = match_args(
+                "-p 1 file --build . --image hp/iroha --outfile test.yml --config-dir ./",
+            )
+            .unwrap_err();
+        }
+
+        #[test]
+        fn doesnt_allow_github_source_in_file_mode() {
+            let _ = match_args("-p 1 file --build-from-github --outfile test.yml --config-dir ./")
+                .unwrap_err();
+        }
+
+        #[test]
+        fn doesnt_allow_omitting_source_in_dir_mode() {
+            let _ = match_args("-p 1 dir --outdir ./test").unwrap_err();
+        }
+
+        #[test]
+        fn doesnt_allow_omitting_source_in_file_mode() {
+            let _ = match_args("-p 1 file --outfile test.yml --config-dir ./").unwrap_err();
+        }
+    }
 }
+
+pub use clap_args::SwarmArgs as Args;
 
 impl Args {
     pub fn run(self) -> Outcome {
@@ -121,59 +263,8 @@ struct ParsedArgs {
 }
 
 impl From<Args> for ParsedArgs {
-    fn from(
-        Args {
-            peers,
-            seed,
-            build,
-            build_from_github,
-            image,
-            outfile,
-            config_dir,
-            outdir,
-            force,
-            no_default_configuration,
-        }: Args,
-    ) -> Self {
-        let mode = match (
-            outfile,
-            config_dir,
-            outdir,
-            no_default_configuration,
-            build_from_github,
-        ) {
-            (Some(target_file), Some(config_dir), None, false, false) => ParsedMode::File {
-                target_file,
-                config_dir,
-                image_source: match (build, image) {
-                    (Some(path), None) => SourceForFile::Build { path },
-                    (None, Some(name)) => SourceForFile::Image { name },
-                    _ => unreachable!("clap invariant"),
-                },
-            },
-            (None, None, Some(path), no_default_configuration, _) => ParsedMode::Directory {
-                target_dir: path,
-                no_default_configuration,
-                image_source: match (build_from_github, build, image) {
-                    (true, None, None) => SourceForDirectory::BuildFromGitHub,
-                    (false, Some(path), None) => {
-                        SourceForDirectory::SameAsForFile(SourceForFile::Build { path })
-                    }
-                    (false, None, Some(name)) => {
-                        SourceForDirectory::SameAsForFile(SourceForFile::Image { name })
-                    }
-                    _ => unreachable!("clap invariant"),
-                },
-            },
-            _ => unreachable!("clap invariant"),
-        };
-
-        Self {
-            peers,
-            seed,
-            force,
-            mode,
-        }
+    fn from(args: Args) -> Self {
+        todo!()
     }
 }
 
@@ -196,9 +287,10 @@ impl ParsedArgs {
                 no_default_configuration,
                 image_source,
             } => {
-                let target_dir = TargetDirectory::new(AbsolutePath::absolutize(target_dir)?);
-                let config_dir = AbsolutePath::absolutize(target_dir.path.join(DIR_CONFIG))?;
-                let target_file = AbsolutePath::absolutize(target_dir.path.join(FILE_COMPOSE))?;
+                let target_file_raw = target_dir.join(FILE_COMPOSE);
+                let target_dir = TargetDirectory::new(AbsolutePath::absolutize(&target_dir)?);
+                let config_dir = AbsolutePath::absolutize(&target_dir.path.join(DIR_CONFIG))?;
+                let target_file = AbsolutePath::absolutize(&target_file_raw)?;
 
                 let prepare_dir_strategy = if force {
                     PrepareDirectoryStrategy::ForceRecreate
@@ -234,7 +326,7 @@ impl ParsedArgs {
                 }
                 .build_and_write()?;
 
-                ui.log_directory_mode_complete(&target_dir.path);
+                ui.log_directory_mode_complete(&target_dir.path, &target_file_raw);
 
                 Ok(())
             }
@@ -243,8 +335,9 @@ impl ParsedArgs {
                 config_dir,
                 image_source,
             } => {
-                let target_file = AbsolutePath::absolutize(target_file)?;
-                let config_dir = AbsolutePath::absolutize(config_dir)?;
+                let target_file_raw = target_file;
+                let target_file = AbsolutePath::absolutize(&target_file_raw)?;
+                let config_dir = AbsolutePath::absolutize(&config_dir)?;
 
                 if target_file.exists() && !force {
                     if let ui::PromptAnswer::No = ui.prompt_remove_target_file(&target_file)? {
@@ -265,7 +358,7 @@ impl ParsedArgs {
                 }
                 .build_and_write()?;
 
-                ui.log_file_mode_complete(&target_file);
+                ui.log_file_mode_complete(&target_file, &target_file_raw);
 
                 Ok(())
             }
@@ -299,7 +392,7 @@ impl SourceForDirectory {
             Self::SameAsForFile(source_for_file) => source_for_file.resolve(),
             Self::BuildFromGitHub => {
                 let clone_dir = target.path.join(DIR_CLONE);
-                let clone_dir = AbsolutePath::absolutize(clone_dir)?;
+                let clone_dir = AbsolutePath::absolutize(&clone_dir)?;
 
                 ui.log_cloning_repo();
 
@@ -323,7 +416,7 @@ impl SourceForFile {
             Self::Image { name } => ResolvedImageSource::Image { name },
             Self::Build { path: relative } => {
                 let absolute =
-                    AbsolutePath::absolutize(relative).wrap_err("Failed to resolve build path")?;
+                    AbsolutePath::absolutize(&relative).wrap_err("Failed to resolve build path")?;
                 ResolvedImageSource::Build { path: absolute }
             }
         };
@@ -524,19 +617,26 @@ struct DockerComposeBuilder<'a> {
 
 impl DockerComposeBuilder<'_> {
     fn build(&self) -> Result<DockerCompose> {
+        let target_file_dir = self.target_file.parent().ok_or_else(|| {
+            eyre!(
+                "Cannot get a directory of a file {}",
+                self.target_file.display()
+            )
+        })?;
+
         let peers = peer_generator::generate_peers(self.peers, self.seed)
             .wrap_err("Failed to generate peers")?;
         let genesis_key_pair = generate_key_pair(self.seed, GENESIS_KEYPAIR_SEED)
             .wrap_err("Failed to generate genesis key pair")?;
         let service_source = match &self.image_source {
             ResolvedImageSource::Build { path } => {
-                ServiceSource::Build(path.relative_to(self.target_file)?)
+                ServiceSource::Build(path.relative_to(target_file_dir)?)
             }
             ResolvedImageSource::Image { name } => ServiceSource::Image(name.clone()),
         };
         let volumes = vec![(
             self.config_dir
-                .relative_to(self.target_file)?
+                .relative_to(target_file_dir)?
                 .to_str()
                 .wrap_err("Config directory path is not a valid string")?
                 .to_owned(),
@@ -615,10 +715,10 @@ impl AsRef<OsStr> for AbsolutePath {
 }
 
 impl AbsolutePath {
-    fn absolutize(path: PathBuf) -> Result<Self> {
+    fn absolutize(path: &PathBuf) -> Result<Self> {
         Ok(Self {
             path: if path.is_absolute() {
-                path
+                path.clone()
             } else {
                 path.absolutize()?.to_path_buf()
             },
@@ -626,12 +726,12 @@ impl AbsolutePath {
     }
 
     /// Relative path from self to other.
-    fn relative_to(&self, other: &AbsolutePath) -> Result<PathBuf> {
+    fn relative_to(&self, other: &(impl AsRef<Path> + ?Sized)) -> Result<PathBuf> {
         pathdiff::diff_paths(self, other)
                 .ok_or_else(|| {
                     eyre!(
                         "failed to build relative path from {} to {}",
-                        other.display(),
+                        other.as_ref().display(),
                         self.display(),
                     )
                 })
@@ -1294,25 +1394,36 @@ mod ui {
         }
 
         #[allow(clippy::unused_self)]
-        pub(super) fn log_directory_mode_complete(&self, dir: &AbsolutePath) {
+        pub(super) fn log_directory_mode_complete(
+            &self,
+            dir: &AbsolutePath,
+            file_raw: &std::path::PathBuf,
+        ) {
             println!(
                 "{} Docker compose configuration is ready at:\n\n    {}\
-                    \n\n  You could `{}` in it.",
+                    \n\n  You could run `{} {} {}`",
                 prefix::success(),
                 dir.display().green().bold(),
-                "docker compose up".blue()
+                "docker compose -f".blue(),
+                file_raw.display().blue().bold(),
+                "up".blue(),
             );
         }
 
         #[allow(clippy::unused_self)]
-        pub(super) fn log_file_mode_complete(&self, file: &AbsolutePath) {
+        pub(super) fn log_file_mode_complete(
+            &self,
+            file: &AbsolutePath,
+            file_raw: &std::path::PathBuf,
+        ) {
             println!(
                 "{} Docker compose configuration is ready at:\n\n    {}\
-                    \n\n  You could run `{} {}`",
+                    \n\n  You could run `{} {} {}`",
                 prefix::success(),
                 file.display().green().bold(),
-                "docker compose up -f".blue(),
-                file.display().blue().bold()
+                "docker compose -f".blue(),
+                file_raw.display().blue().bold(),
+                "up".blue(),
             );
         }
     }
@@ -1394,7 +1505,10 @@ mod tests {
         let seed = seed.as_deref();
 
         let composed = DockerComposeBuilder {
-            target_file: &AbsolutePath::from_virtual(&PathBuf::from("/test"), root),
+            target_file: &AbsolutePath::from_virtual(
+                &PathBuf::from("/test/docker-compose.yml"),
+                root,
+            ),
             config_dir: &AbsolutePath::from_virtual(&PathBuf::from("/test/config"), root),
             peers: 4.try_into().unwrap(),
             image_source: ResolvedImageSource::Build {
