@@ -57,33 +57,47 @@ use ursa::{
 // information that can be used in malicious ways. If you want to hide
 // these, I'd prefer inlining them instead.
 
-/// ed25519
+/// String algorithm representation
 pub const ED_25519: &str = "ed25519";
-/// secp256k1
+/// String algorithm representation
 pub const SECP_256_K1: &str = "secp256k1";
-/// bls normal
+/// String algorithm representation
 pub const BLS_NORMAL: &str = "bls_normal";
-/// bls small
+/// String algorithm representation
 pub const BLS_SMALL: &str = "bls_small";
 
 ffi::ffi_item! {
     /// Algorithm for hashing
-    #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, DeserializeFromStr, SerializeDisplay, Decode, Encode, IntoSchema)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, DeserializeFromStr, SerializeDisplay, Decode, Encode, IntoSchema)]
     #[repr(u8)]
     pub enum Algorithm {
-        /// Ed25519
-        #[display(fmt = "{ED_25519}")]
         #[default]
+        #[allow(missing_docs)]
         Ed25519,
-        /// Secp256k1
-        #[display(fmt = "{SECP_256_K1}")]
+        #[allow(missing_docs)]
         Secp256k1,
-        /// BlsNormal
-        #[display(fmt = "{BLS_NORMAL}")]
+        #[allow(missing_docs)]
         BlsNormal,
-        /// BlsSmall
-        #[display(fmt = "{BLS_SMALL}")]
+        #[allow(missing_docs)]
         BlsSmall,
+    }
+}
+
+impl Algorithm {
+    /// Maps the algorithm to its static string representation
+    pub const fn as_static_str(self) -> &'static str {
+        match self {
+            Self::Ed25519 => ED_25519,
+            Self::Secp256k1 => SECP_256_K1,
+            Self::BlsNormal => BLS_NORMAL,
+            Self::BlsSmall => BLS_SMALL,
+        }
+    }
+}
+
+impl fmt::Display for Algorithm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_static_str())
     }
 }
 
@@ -230,8 +244,15 @@ impl KeyPair {
     /// Fails if decoding fails
     #[cfg(any(feature = "std", feature = "ffi_import"))]
     pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, Error> {
-        let key_gen_option: Option<UrsaKeyGenOption> = configuration
-            .key_gen_option
+        let key_gen_option: Option<UrsaKeyGenOption> =
+            match (configuration.algorithm, configuration.key_gen_option) {
+                (Algorithm::Secp256k1, Some(KeyGenOption::UseSeed(seed))) if seed.len() < 32 => {
+                    return Err(Error::KeyGen(
+                        "secp256k1 seed for must be at least 32 bytes long".to_owned(),
+                    ))
+                }
+                (_, key_gen_option) => key_gen_option,
+            }
             .map(TryInto::try_into)
             .transpose()?;
         let (mut public_key, mut private_key) = match configuration.algorithm {
@@ -473,7 +494,7 @@ pub mod error {
     impl std::error::Error for NoSuchAlgorithm {}
 
     /// Error when dealing with cryptographic functions
-    #[derive(Debug, Display, serde::Deserialize)]
+    #[derive(Debug, Display, serde::Deserialize, PartialEq, Eq)]
     pub enum Error {
         /// Returned when trying to create an algorithm which does not exist
         #[display(fmt = "Algorithm doesn't exist")] // TODO: which algorithm
@@ -901,6 +922,24 @@ mod tests {
                     .expect("Failed to decode private key"),
                 }
             }
+        )
+    }
+
+    #[test]
+    fn secp256k1_key_gen_fails_with_seed_smaller_than_32() {
+        let seed: Vec<_> = (0..12u8).collect();
+
+        let result = KeyPair::generate_with_configuration(
+            KeyGenConfiguration::default()
+                .with_algorithm(Algorithm::Secp256k1)
+                .use_seed(seed),
+        );
+
+        assert_eq!(
+            result,
+            Err(Error::KeyGen(
+                "secp256k1 seed for must be at least 32 bytes long".to_owned()
+            ))
         )
     }
 }

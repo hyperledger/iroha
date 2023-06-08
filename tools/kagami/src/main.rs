@@ -11,7 +11,7 @@ use std::{
     str::FromStr as _,
 };
 
-use clap::{ArgGroup, StructOpt};
+use clap::{Args as ClapArgs, Parser};
 use color_eyre::eyre::WrapErr as _;
 use iroha_data_model::{prelude::*, ValueKind};
 
@@ -27,7 +27,7 @@ static DEFAULT_PUBLIC_KEY: &str =
 
 fn main() -> Outcome {
     color_eyre::install()?;
-    let args: Args = clap::Parser::parse();
+    let args = Args::parse();
     let mut writer = BufWriter::new(stdout());
     args.run(&mut writer)
 }
@@ -41,24 +41,43 @@ pub trait RunArgs<T: Write> {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome;
 }
 
-/// Tool generating the cryptographic key pairs, schema, genesis block and configuration reference.
-#[derive(StructOpt, Debug)]
-#[structopt(name = "kagami", version, author)]
+/// Kagami is a tool used to generate and validate automatically generated data files that are
+/// shipped with Iroha.
+#[derive(Parser, Debug)]
+#[command(name = "kagami", version, author)]
 pub enum Args {
-    /// Generate cryptographic key pairs
+    /// Generate cryptographic key pairs using the given algorithm and either private key or seed
     Crypto(Box<crypto::Args>),
     /// Generate the schema used for code generation in Iroha SDKs
     Schema(schema::Args),
     /// Generate the genesis block that is used in tests
     Genesis(genesis::Args),
-    /// Generate the default client configuration
+    /// Generate the default client/peer configuration
     Config(config::Args),
     /// Generate a Markdown reference of configuration parameters
     Docs(Box<docs::Args>),
     /// Generate a list of predefined permission tokens and their parameters
     Tokens(tokens::Args),
-    /// Generate validator
+    /// Generate the default validator
     Validator(validator::Args),
+    /// Generate a docker-compose configuration for a variable number of peers
+    /// using a Dockerhub image, GitHub repo, or a local Iroha repo.
+    ///
+    /// This command builds the docker-compose configuration in a specified directory. If the source
+    /// is a GitHub repo, it will be cloned into the directory. Also, the default configuration is
+    /// built and put into `<target>/config` directory, unless `--no-default-configuration` flag is
+    /// provided. The default configuration is equivalent to running `kagami config peer`,
+    /// `kagami validator`, and `kagami genesis default --compiled-validator-path ./validator.wasm` consecutively.
+    ///
+    /// Default configuration building will fail if Kagami is run outside of Iroha repo (tracking
+    /// issue: https://github.com/hyperledger/iroha/issues/3473). If you are going to run it outside
+    /// of the repo, make sure to pass `--no-default-configuration` flag.
+    ///
+    /// Be careful with specifying a Dockerhub image as a source: Kagami Swarm only guarantees that
+    /// the docker-compose configuration it generates is compatible with the same Git revision it
+    /// is built from itself. Therefore, if specified image is not compatible with the version of Swarm
+    /// you are running, the generated configuration might not work.
+    Swarm(swarm::Args),
 }
 
 impl<T: Write> RunArgs<T> for Args {
@@ -73,29 +92,30 @@ impl<T: Write> RunArgs<T> for Args {
             Docs(args) => args.run(writer),
             Tokens(args) => args.run(writer),
             Validator(args) => args.run(writer),
+            Swarm(args) => args.run(),
         }
     }
 }
 
 mod crypto {
-    use color_eyre::eyre::{eyre, WrapErr as _};
+    use clap::{builder::PossibleValue, ArgGroup, ValueEnum};
+    use color_eyre::eyre::WrapErr as _;
     use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey};
 
     use super::*;
 
     /// Use `Kagami` to generate cryptographic key-pairs.
-    #[derive(StructOpt, Debug, Clone)]
-    #[structopt(group = ArgGroup::new("generate_from").required(false))]
-    #[structopt(group = ArgGroup::new("format").required(false))]
+    #[derive(ClapArgs, Debug, Clone)]
+    #[command(group = ArgGroup::new("generate_from").required(false))]
+    #[command(group = ArgGroup::new("format").required(false))]
     pub struct Args {
-        /// Algorithm used to generate the key-pair.
-        /// Options: `ed25519`, `secp256k1`, `bls_normal`, `bls_small`.
+        /// The algorithm to use for the key-pair generation
         #[clap(default_value_t, long, short)]
-        algorithm: Algorithm,
-        /// The `private_key` used to generate the key-pair
+        algorithm: AlgorithmArg,
+        /// The `private_key` to generate the key-pair from
         #[clap(long, short, group = "generate_from")]
         private_key: Option<String>,
-        /// The `seed` used to generate the key-pair
+        /// The `seed` to generate the key-pair from
         #[clap(long, short, group = "generate_from")]
         seed: Option<String>,
         /// Output the key-pair in JSON format
@@ -104,6 +124,25 @@ mod crypto {
         /// Output the key-pair without additional text
         #[clap(long, short, group = "format")]
         compact: bool,
+    }
+
+    #[derive(Clone, Debug, Default, derive_more::Display)]
+    struct AlgorithmArg(Algorithm);
+
+    impl ValueEnum for AlgorithmArg {
+        fn value_variants<'a>() -> &'a [Self] {
+            // TODO: add compile-time check to ensure all variants are enumerated
+            &[
+                Self(Algorithm::Ed25519),
+                Self(Algorithm::Secp256k1),
+                Self(Algorithm::BlsNormal),
+                Self(Algorithm::BlsSmall),
+            ]
+        }
+
+        fn to_possible_value(&self) -> Option<PossibleValue> {
+            Some(self.0.as_static_str().into())
+        }
     }
 
     impl<T: Write> RunArgs<T> for Args {
@@ -138,39 +177,38 @@ mod crypto {
 
     impl Args {
         fn key_pair(self) -> color_eyre::Result<KeyPair> {
-            let key_gen_configuration =
-                KeyGenConfiguration::default().with_algorithm(self.algorithm);
-            let keypair: KeyPair = self.seed.map_or_else(
-                || -> color_eyre::Result<_> {
-                    self.private_key.map_or_else(
-                        || {
-                            KeyPair::generate_with_configuration(key_gen_configuration.clone())
-                                .wrap_err("failed to generate key pair")
-                        },
-                        |private_key| {
-                            let private_key =
-                                PrivateKey::from_hex(self.algorithm, private_key.as_ref())
-                                    .wrap_err("Failed to decode private key")?;
-                            KeyPair::generate_with_configuration(
-                                key_gen_configuration.clone().use_private_key(private_key),
-                            )
-                            .wrap_err("Failed to generate key pair")
-                        },
-                    )
-                },
-                |seed| -> color_eyre::Result<_> {
+            let algorithm = self.algorithm.0;
+            let config = KeyGenConfiguration::default().with_algorithm(algorithm);
+
+            let key_pair = match (self.seed, self.private_key) {
+                (None, None) => KeyPair::generate_with_configuration(config),
+                (None, Some(private_key_hex)) => {
+                    let private_key = PrivateKey::from_hex(algorithm, private_key_hex.as_ref())
+                        .wrap_err("Failed to decode private key")?;
+                    KeyPair::generate_with_configuration(config.use_private_key(private_key))
+                }
+                (Some(seed), None) => {
                     let seed: Vec<u8> = seed.as_bytes().into();
-                    // `ursa` crashes if provided seed for `secp256k1` shorter than 32 bytes
-                    if seed.len() < 32 && self.algorithm == Algorithm::Secp256k1 {
-                        return Err(eyre!("secp256k1 seed for must be at least 32 bytes long"));
-                    }
-                    KeyPair::generate_with_configuration(
-                        key_gen_configuration.clone().use_seed(seed),
-                    )
-                    .wrap_err("Failed to generate key pair")
-                },
-            )?;
-            Ok(keypair)
+                    KeyPair::generate_with_configuration(config.use_seed(seed))
+                }
+                _ => unreachable!("Clap group invariant"),
+            }
+            .wrap_err("Failed to generate key pair")?;
+
+            Ok(key_pair)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{Algorithm, AlgorithmArg};
+
+        #[test]
+        fn algorithm_arg_displays_as_algorithm() {
+            assert_eq!(
+                format!("{}", AlgorithmArg(Algorithm::Ed25519)),
+                format!("{}", Algorithm::Ed25519)
+            )
         }
     }
 }
@@ -178,7 +216,7 @@ mod crypto {
 mod schema {
     use super::*;
 
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(ClapArgs, Debug, Clone, Copy)]
     pub struct Args;
 
     impl<T: Write> RunArgs<T> for Args {
@@ -193,7 +231,7 @@ mod schema {
 mod genesis {
     use std::path::PathBuf;
 
-    use clap::{Parser, Subcommand};
+    use clap::{ArgGroup, Parser, Subcommand};
     use iroha_config::{sumeragi::default::*, wasm::default::*, wsv::default::*};
     use iroha_data_model::{
         asset::AssetValueType,
@@ -256,9 +294,7 @@ mod genesis {
                 eprintln!("Consider providing validator in separate file `--compiled-validator-path PATH`.");
                 eprintln!("Use `--help` to get more information.");
             }
-            let validator_path = self
-                .compiled_validator_path
-                .and_then(|validator_path| (!self.inlined_validator).then_some(validator_path));
+            let validator_path = self.compiled_validator_path;
             let genesis = match self.mode.unwrap_or_default() {
                 Mode::Default => generate_default(validator_path),
                 Mode::Synthetic {
@@ -449,6 +485,8 @@ mod genesis {
             let mut acc = Vec::new();
             for domain in 0..domains {
                 for account in 0..accounts_per_domain {
+                    // FIXME: it actually generates (assets_per_domain * accounts_per_domain) assets per domain
+                    //        https://github.com/hyperledger/iroha/issues/3508
                     for asset in 0..assets_per_domain {
                         let mint = MintBox::new(
                             13_u32.to_value(),
@@ -513,7 +551,7 @@ mod config {
 
         use super::*;
 
-        #[derive(StructOpt, Debug, Clone, Copy)]
+        #[derive(ClapArgs, Debug, Clone, Copy)]
         pub struct Args;
 
         impl<T: Write> RunArgs<T> for Args {
@@ -547,7 +585,7 @@ mod config {
 
         use super::*;
 
-        #[derive(StructOpt, Debug, Clone, Copy)]
+        #[derive(ClapArgs, Debug, Clone, Copy)]
         pub struct Args;
 
         impl<T: Write> RunArgs<T> for Args {
@@ -577,7 +615,7 @@ mod docs {
 
     impl<E: Debug, C: Documented<Error = E> + Send + Sync + Default> PrintDocs for C {}
 
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(ClapArgs, Debug, Clone, Copy)]
     pub struct Args;
 
     impl<T: Write> RunArgs<T> for Args {
@@ -704,7 +742,7 @@ mod tokens {
 
     use super::*;
 
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(ClapArgs, Debug, Clone, Copy)]
     pub struct Args;
 
     pub fn permission_token_definitions() -> Result<Vec<PermissionTokenDefinition>> {
@@ -801,7 +839,7 @@ mod tokens {
 mod validator {
     use super::*;
 
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(ClapArgs, Debug, Clone, Copy)]
     pub struct Args;
 
     impl<T: Write> RunArgs<T> for Args {
@@ -816,6 +854,8 @@ mod validator {
         let build_dir = tempfile::tempdir()
             .wrap_err("Failed to create temp dir for runtime validator output")?;
 
+        // FIXME: will it work when Kagami is run outside of the iroha dir?
+        //        https://github.com/hyperledger/iroha/issues/3473
         let wasm_blob = iroha_wasm_builder::Builder::new("../../default_validator")
             .out_dir(build_dir.path())
             .build()?
@@ -825,3 +865,5 @@ mod validator {
         Ok(wasm_blob)
     }
 }
+
+mod swarm;
