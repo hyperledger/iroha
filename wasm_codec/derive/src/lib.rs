@@ -1,5 +1,6 @@
-//! This crate provides [`wrap`] attribute macro to wrap a host-defined function into another
-//! function which signature will be compatible with `wasmtime` crate to be successfully exported.
+//! This crate provides [`wrap`] and [`wrap_signature`] attribute macros to wrap a host-defined
+//! function into another function which signature will be compatible with `wasmtime` crate to be
+//! successfully exported.
 
 use std::ops::Deref;
 
@@ -63,38 +64,81 @@ pub fn wrap(attr: TokenStream, item: TokenStream) -> TokenStream {
     } else {
         Some(syn::parse_macro_input!(attr as StateAttr))
     };
-    let fn_item = syn::parse_macro_input!(item as syn::ItemFn);
+    let mut fn_item = syn::parse_macro_input!(item as syn::ItemFn);
     let ident = &fn_item.sig.ident;
-    let fn_attrs = &fn_item.attrs;
 
     let mut inner_fn_item = fn_item.clone();
     let inner_fn_ident = syn::Ident::new(&format!("__{}_inner", ident), ident.span());
     inner_fn_item.sig.ident = inner_fn_ident.clone();
 
-    let fn_class = classify_fn(&fn_item);
-    let params = gen_params(
+    let fn_class = classify_fn(&fn_item.sig);
+
+    fn_item.sig.inputs = gen_params(
         &fn_class,
         state_attr_opt.as_ref().map(|state_attr| &state_attr.ty),
+        true,
     );
+
     let output = gen_output(&fn_class);
+    fn_item.sig.output = parse_quote! {-> #output};
+
     let body = gen_body(
         &inner_fn_ident,
         &fn_class,
         state_attr_opt.as_ref().map(|state_attr| &state_attr.ty),
     );
+    fn_item.block = parse_quote!({#body});
 
     quote! {
         #inner_fn_item
 
-        #(#fn_attrs)*
-        fn #ident(#params) -> #output {
-            #body
-        }
-
+        #fn_item
     }
     .into()
 }
 
+/// Macro to wrap trait function signature with normal parameters and return value
+/// to another one which will meet `wasmtime` specifications.
+///
+/// See [`wrap`] for more details.
+#[proc_macro_error]
+#[proc_macro_attribute]
+pub fn wrap_trait_fn(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let state_attr_opt = if attr.is_empty() {
+        None
+    } else {
+        Some(syn::parse_macro_input!(attr as StateAttr))
+    };
+    let mut fn_item = syn::parse_macro_input!(item as syn::TraitItemMethod);
+    let ident = &fn_item.sig.ident;
+
+    let mut inner_fn_item = fn_item.clone();
+    let inner_fn_ident = syn::Ident::new(&format!("__{}_inner", ident), ident.span());
+    inner_fn_item.sig.ident = inner_fn_ident;
+
+    let fn_class = classify_fn(&fn_item.sig);
+
+    fn_item.sig.inputs = gen_params(
+        &fn_class,
+        state_attr_opt.as_ref().map(|state_attr| &state_attr.ty),
+        false,
+    );
+
+    let output = gen_output(&fn_class);
+    fn_item.sig.output = parse_quote! {-> #output};
+
+    quote! {
+        #inner_fn_item
+
+        #fn_item
+    }
+    .into()
+}
+
+/// `with_body` parameter specifies if end function will have a body or not.
+/// Depending on this `gen_params()` will either insert `mut` or not.
+/// This is required because
+/// [patterns are not allowed in functions without body ](https://github.com/rust-lang/rust/issues/35203).
 fn gen_params(
     FnClass {
         param,
@@ -102,12 +146,18 @@ fn gen_params(
         return_type,
     }: &FnClass,
     state_ty_from_attr: Option<&syn::Type>,
+    with_body: bool,
 ) -> Punctuated<syn::FnArg, syn::Token![,]> {
     let mut params = Punctuated::new();
     if state_ty_from_fn_sig.is_some() || param.is_some() || return_type.is_some() {
         let state_ty = retrieve_state_ty(state_ty_from_attr, state_ty_from_fn_sig.as_ref());
+        let mutability = if with_body {
+            quote! {mut}
+        } else {
+            quote! {}
+        };
         params.push(parse_quote! {
-            mut caller: ::wasmtime::Caller<#state_ty>
+            #mutability caller: ::wasmtime::Caller<#state_ty>
         });
     }
 
@@ -296,11 +346,11 @@ enum ErrType {
     Other(syn::Type),
 }
 
-fn classify_fn(fn_item: &syn::ItemFn) -> FnClass {
-    let params = &fn_item.sig.inputs;
+fn classify_fn(fn_sig: &syn::Signature) -> FnClass {
+    let params = &fn_sig.inputs;
     let (param, state) = classify_params_and_state(params);
 
-    let output = &fn_item.sig.output;
+    let output = &fn_sig.output;
 
     let output_ty = match output {
         syn::ReturnType::Default => {
@@ -386,11 +436,11 @@ fn parse_state_param(param: &syn::PatType) -> Result<&syn::Type, Diagnostic> {
     let syn::Pat::Ident(pat_ident) = &*param.pat else {
         return Err(diagnostic!(param, Level::Error, "State parameter should be an ident"));
     };
-    if pat_ident.ident != "state" {
+    if !["state", "_state"].contains(&&*pat_ident.ident.to_string()) {
         return Err(diagnostic!(
             param,
             Level::Error,
-            "State parameter should be named `state`"
+            "State parameter should be named `state` or `_state`"
         ));
     }
 

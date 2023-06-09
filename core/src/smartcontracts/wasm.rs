@@ -11,6 +11,7 @@ use iroha_config::{
 };
 use iroha_data_model::{
     account::AccountId,
+    permission::PermissionTokenDefinition,
     prelude::*,
     validator::{self, NeedsValidationBox},
     ValidationFail,
@@ -38,8 +39,10 @@ pub mod export {
     pub const WASM_DEALLOC_FN: &str = "_iroha_wasm_dealloc";
     /// Name of the exported memory
     pub const WASM_MEMORY_NAME: &str = "memory";
-    /// Name of the exported entry for smart contract (or trigger) execution
+    /// Name of the exported entry for smart contract, trigger or validator execution
     pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
+    /// Name of the exported entry for validator to retrieve [`PermissionTokenDefinition`]s
+    pub const VALIDATOR_PERMISSION_TOKENS_FN_NAME: &str = "_iroha_validator_permission_tokens";
 }
 
 pub mod import {
@@ -270,6 +273,25 @@ pub mod state {
 
     use super::*;
 
+    /// Construct [`StoreLimits`] from [`Configuration`]
+    ///
+    /// # Panics
+    ///
+    /// Panics if failed to convert `u32` into `usize` which should not happen
+    /// on any supported platform
+    pub fn store_limits_from_config(config: &Configuration) -> StoreLimits {
+        StoreLimitsBuilder::new()
+            .memory_size(
+                config.max_memory.try_into().expect(
+                    "config.max_memory is a u32 so this can't fail on any supported platform",
+                ),
+            )
+            .instances(1)
+            .memories(1)
+            .tables(1)
+            .build()
+    }
+
     /// Common data for states
     pub struct Common<'wrld> {
         pub(super) authority: AccountId,
@@ -293,15 +315,7 @@ pub mod state {
                 wsv,
                 authority,
                 validator: None,
-
-                store_limits: StoreLimitsBuilder::new()
-                    .memory_size(config.max_memory.try_into().expect(
-                        "config.max_memory is a u32 so this can't fail on any supported platform",
-                    ))
-                    .instances(1)
-                    .memories(1)
-                    .tables(1)
-                    .build(),
+                store_limits: store_limits_from_config(&config),
                 log_span,
             }
         }
@@ -319,22 +333,35 @@ pub mod state {
         }
     }
 
+    /// Trait to get span for logs.
+    ///
+    /// Used to implement [`log()`](Runtime::log) export.
+    pub trait LogSpan {
+        /// Get log span
+        fn log_span(&self) -> &Span;
+    }
+
+    /// Trait to get mutable reference to limits
+    ///
+    /// Used to implement [`Runtime::create_store()`].
+    pub trait LimitsMut {
+        /// Get mutable reference to store limits
+        fn limits_mut(&mut self) -> &mut StoreLimits;
+    }
+
+    /// Trait to get authority account id
+    pub trait Authority {
+        /// Get authority account id
+        fn authority(&self) -> &AccountId;
+    }
+
     /// Trait to retrieve common data from concrete state
-    pub trait GetCommon<'wrld> {
+    pub trait GetCommon<'wrld>: LogSpan + LimitsMut {
         /// Get common data
         fn common(&self) -> &Common<'wrld>;
 
         /// Get common data by mutable reference
         fn common_mut(&mut self) -> &mut Common<'wrld>;
-
-        /// Get mutable reference to store limits
-        ///
-        /// # Note
-        ///
-        /// This is a workaround for lifetime issues when using [`StoreLimits`]
-        /// inside of [`wasmtime::Store::limiter()`] where we can't use
-        /// `&mut s.common_mut().store_limits`
-        fn limits_mut(&mut self) -> &mut StoreLimits;
     }
 
     /// Smart Contract execution state
@@ -348,9 +375,23 @@ pub mod state {
         fn common_mut(&mut self) -> &mut Common<'wrld> {
             &mut self.0
         }
+    }
 
+    impl LogSpan for SmartContract<'_> {
+        fn log_span(&self) -> &Span {
+            &self.0.log_span
+        }
+    }
+
+    impl LimitsMut for SmartContract<'_> {
         fn limits_mut(&mut self) -> &mut StoreLimits {
             &mut self.0.store_limits
+        }
+    }
+
+    impl Authority for SmartContract<'_> {
+        fn authority(&self) -> &AccountId {
+            &self.0.authority
         }
     }
 
@@ -369,9 +410,23 @@ pub mod state {
         fn common_mut(&mut self) -> &mut Common<'wrld> {
             &mut self.common
         }
+    }
 
+    impl LogSpan for Trigger<'_> {
+        fn log_span(&self) -> &Span {
+            &self.common.log_span
+        }
+    }
+
+    impl LimitsMut for Trigger<'_> {
         fn limits_mut(&mut self) -> &mut StoreLimits {
             &mut self.common.store_limits
+        }
+    }
+
+    impl Authority for Trigger<'_> {
+        fn authority(&self) -> &AccountId {
+            &self.common.authority
         }
     }
 
@@ -389,9 +444,42 @@ pub mod state {
         fn common_mut(&mut self) -> &mut Common<'wrld> {
             &mut self.common
         }
+    }
 
+    impl LogSpan for Validator<'_> {
+        fn log_span(&self) -> &Span {
+            &self.common.log_span
+        }
+    }
+
+    impl LimitsMut for Validator<'_> {
         fn limits_mut(&mut self) -> &mut StoreLimits {
             &mut self.common.store_limits
+        }
+    }
+
+    impl Authority for Validator<'_> {
+        fn authority(&self) -> &AccountId {
+            &self.common.authority
+        }
+    }
+
+    /// State for executing `permission_tokens()` entrypoint of validator
+    pub struct ValidatorPermissionTokens {
+        /// Span inside of which all logs are recorded for this smart contract
+        pub(super) log_span: Span,
+        pub(super) store_limits: StoreLimits,
+    }
+
+    impl LogSpan for ValidatorPermissionTokens {
+        fn log_span(&self) -> &Span {
+            &self.log_span
+        }
+    }
+
+    impl LimitsMut for ValidatorPermissionTokens {
+        fn limits_mut(&mut self) -> &mut StoreLimits {
+            &mut self.store_limits
         }
     }
 }
@@ -490,19 +578,32 @@ impl<S> Runtime<S> {
 
         Ok(())
     }
-}
-
-impl<'wrld, S: state::GetCommon<'wrld>> Runtime<S> {
-    #[codec::wrap]
-    fn query_authority(state: &S) -> AccountId {
-        state.common().authority.clone()
-    }
 
     #[codec::wrap(state = "S")]
     fn query_max_log_level() -> u32 {
         iroha_logger::layer::max_log_level() as u32
     }
 
+    /// Host-defined function which prints the given string. When this function
+    /// is called, the module serializes the string to linear memory and
+    /// provides offset and length as parameters
+    ///
+    /// # Warning
+    ///
+    /// This function doesn't take ownership of the provided
+    /// allocation
+    ///
+    /// # Errors
+    ///
+    /// If string decoding fails
+    #[allow(clippy::print_stdout, clippy::needless_pass_by_value)]
+    #[codec::wrap(state = "S")]
+    fn dbg(msg: String) {
+        println!("{msg}");
+    }
+}
+
+impl<S: state::LogSpan> Runtime<S> {
     /// Log the given string at the given log level
     ///
     /// # Errors
@@ -512,7 +613,7 @@ impl<'wrld, S: state::GetCommon<'wrld>> Runtime<S> {
     fn log((log_level, msg): (u8, String), state: &S) -> Result<(), Trap> {
         const TARGET: &str = "WASM";
 
-        let _span = state.common().log_span.enter();
+        let _span = state.log_span().enter();
         match LogLevel::from_repr(log_level)
             .ok_or_else(|| Trap::new(format!("{log_level}: not a valid log level")))?
         {
@@ -534,36 +635,9 @@ impl<'wrld, S: state::GetCommon<'wrld>> Runtime<S> {
         }
         Ok(())
     }
+}
 
-    /// Host-defined function which prints the given string. When this function
-    /// is called, the module serializes the string to linear memory and
-    /// provides offset and length as parameters
-    ///
-    /// # Warning
-    ///
-    /// This function doesn't take ownership of the provided
-    /// allocation
-    ///
-    /// # Errors
-    ///
-    /// If string decoding fails
-    #[allow(clippy::print_stdout, clippy::needless_pass_by_value)]
-    #[codec::wrap(state = "S")]
-    fn dbg(msg: String) {
-        println!("{msg}");
-    }
-
-    fn execute_smart_contract_with_state(
-        &mut self,
-        bytes: impl AsRef<[u8]>,
-        state: S,
-    ) -> Result<()> {
-        let mut store = self.create_store(state);
-        let smart_contract = self.create_smart_contract(&mut store, bytes)?;
-
-        Self::execute_main_with_store(&smart_contract, &mut store)
-    }
-
+impl<S: state::LimitsMut> Runtime<S> {
     fn create_store(&self, state: S) -> Store<S> {
         let mut store = Store::new(&self.engine, state);
 
@@ -576,8 +650,37 @@ impl<'wrld, S: state::GetCommon<'wrld>> Runtime<S> {
     }
 }
 
-trait ExecuteOperations<'wrld, S: state::GetCommon<'wrld>> {
+impl<'wrld, S: state::GetCommon<'wrld>> Runtime<S> {
+    fn execute_smart_contract_with_state(
+        &mut self,
+        bytes: impl AsRef<[u8]>,
+        state: S,
+    ) -> Result<()> {
+        let mut store = self.create_store(state);
+        let smart_contract = self.create_smart_contract(&mut store, bytes)?;
+
+        Self::execute_main_with_store(&smart_contract, &mut store)
+    }
+}
+
+trait ExecuteOperations<'wrld, S> {
     /// Execute `query` on host
+    #[codec::wrap_trait_fn]
+    fn execute_query(query: QueryBox, state: &mut S) -> Result<Value, ValidationFail>;
+
+    /// Execute `instruction` on host
+    #[codec::wrap_trait_fn]
+    fn execute_instruction(
+        instruction: InstructionBox,
+        state: &mut S,
+    ) -> Result<(), ValidationFail>;
+}
+
+/// Marker trait to have [`ExecuteOperations`] default-implemented for concrete [`Runtime`]
+trait DefaultExecute {}
+
+impl<'wrld, S: state::GetCommon<'wrld>, R: DefaultExecute> ExecuteOperations<'wrld, S> for R {
+    /// Default implementation of [`execute_query()`]
     #[codec::wrap]
     fn execute_query(query: QueryBox, state: &mut S) -> Result<Value, ValidationFail> {
         iroha_logger::debug!(%query, "Executing");
@@ -597,7 +700,7 @@ trait ExecuteOperations<'wrld, S: state::GetCommon<'wrld>> {
         query.execute(wsv).map_err(Into::into)
     }
 
-    /// Execute `instruction` on host
+    /// Default implementation of [`execute_instruction()`]
     #[codec::wrap]
     fn execute_instruction(
         instruction: InstructionBox,
@@ -620,6 +723,23 @@ trait ExecuteOperations<'wrld, S: state::GetCommon<'wrld>> {
                 .clone() // Cloning validator is a cheap operation
                 .validate(wsv, &common_state.authority, instruction)
     }
+}
+
+trait QueryAuthority<S> {
+    #[codec::wrap_trait_fn]
+    fn query_authority(state: &S) -> AccountId;
+}
+
+impl<S: state::Authority> QueryAuthority<S> for Runtime<S> {
+    #[codec::wrap]
+    fn query_authority(state: &S) -> AccountId {
+        state.authority().clone()
+    }
+}
+
+trait QueryOperationToValidate<S> {
+    #[codec::wrap_trait_fn]
+    fn query_operation_to_validate(state: &S) -> NeedsValidationBox;
 }
 
 impl<'wrld> Runtime<state::SmartContract<'wrld>> {
@@ -666,10 +786,7 @@ impl<'wrld> Runtime<state::SmartContract<'wrld>> {
     }
 }
 
-impl<'wrld> ExecuteOperations<'wrld, state::SmartContract<'wrld>>
-    for Runtime<state::SmartContract<'wrld>>
-{
-}
+impl DefaultExecute for Runtime<state::SmartContract<'_>> {}
 
 impl<'wrld> Runtime<state::Trigger<'wrld>> {
     /// Executes the given wasm trigger module
@@ -704,15 +821,17 @@ impl<'wrld> Runtime<state::Trigger<'wrld>> {
     }
 }
 
-impl<'wrld> ExecuteOperations<'wrld, state::Trigger<'wrld>> for Runtime<state::Trigger<'wrld>> {}
+impl DefaultExecute for Runtime<state::Trigger<'_>> {}
 
 impl<'wrld> Runtime<state::Validator<'wrld>> {
     /// Execute the given module of runtime validator
     ///
     /// # Errors
     ///
+    /// - if failed to instantiate provided `module`
     /// - if unable to find expected main function export
     /// - if the execution of the smartcontract fails
+    /// - if unable to decode [`validator::Result`]
     pub fn execute_validator_module(
         &self,
         wsv: &'wrld mut WorldStateView,
@@ -736,15 +855,12 @@ impl<'wrld> Runtime<state::Validator<'wrld>> {
             .call(&mut store, ())
             .map_err(ExportFnCallError::from)?;
 
-        let memory = Self::get_memory(&mut (&instance, &mut store))?;
-        let dealloc_fn = Self::get_typed_func(&instance, &mut store, export::WASM_DEALLOC_FN)?;
+        let memory =
+            Self::get_memory(&mut (&instance, &mut store)).expect("Checked at instantiation step");
+        let dealloc_fn = Self::get_typed_func(&instance, &mut store, export::WASM_DEALLOC_FN)
+            .expect("Checked at instantiation step");
         codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
             .map_err(|err| Error::Decode(err.into()))
-    }
-
-    #[codec::wrap]
-    fn query_operation_to_validate(state: &state::Validator) -> NeedsValidationBox {
-        state.operation_to_validate.clone()
     }
 }
 
@@ -770,6 +886,130 @@ impl<'wrld> ExecuteOperations<'wrld, state::Validator<'wrld>> for Runtime<state:
         instruction
             .execute(&common_state.authority, common_state.wsv)
             .map_err(Into::into)
+    }
+}
+
+impl<'wrld> QueryOperationToValidate<state::Validator<'wrld>> for Runtime<state::Validator<'wrld>> {
+    #[codec::wrap]
+    fn query_operation_to_validate(state: &state::Validator<'wrld>) -> NeedsValidationBox {
+        state.operation_to_validate.clone()
+    }
+}
+
+impl Runtime<state::ValidatorPermissionTokens> {
+    /// Execute `permission_tokens()` entrypoint of *Validator*
+    ///
+    /// # Errors
+    ///
+    /// - if failed to instantiate provided `module`
+    /// - if failed to get export function for `permission_tokens()`
+    /// - if failed to call export function
+    /// - if failed to decode `Vec<PermissionTokenDefinition>`
+    pub fn execute_validator_permission_tokens(
+        &self,
+        module: &wasmtime::Module,
+    ) -> Result<Vec<PermissionTokenDefinition>> {
+        let log_span = wasm_log_span!("Retrieving permission tokens");
+        let state = state::ValidatorPermissionTokens {
+            log_span,
+            store_limits: state::store_limits_from_config(&self.config),
+        };
+
+        let mut store = self.create_store(state);
+        let instance = self.instantiate_module(module, &mut store)?;
+
+        let permission_tokens_fn = Self::get_typed_func(
+            &instance,
+            &mut store,
+            export::VALIDATOR_PERMISSION_TOKENS_FN_NAME,
+        )?;
+
+        let offset = permission_tokens_fn
+            .call(&mut store, ())
+            .map_err(ExportFnCallError::from)?;
+
+        let memory =
+            Self::get_memory(&mut (&instance, &mut store)).expect("Checked at instantiation step");
+        let dealloc_fn = Self::get_typed_func(&instance, &mut store, export::WASM_DEALLOC_FN)
+            .expect("Checked at instantiation step");
+        codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
+            .map_err(|err| Error::Decode(err.into()))
+    }
+}
+
+impl ExecuteOperations<'_, state::ValidatorPermissionTokens>
+    for Runtime<state::ValidatorPermissionTokens>
+{
+    /// Fake `execute_query()`.
+    ///
+    /// This is needed because `permission_tokens()` entrypoint exists in the same binary as
+    /// validation entrypoint.
+    ///
+    /// # Panics
+    ///
+    /// Panic with error message if called, because it should never be called from
+    /// `permission_tokens()` entrypoint
+    #[codec::wrap]
+    fn execute_query(
+        _query: QueryBox,
+        _state: &mut state::ValidatorPermissionTokens,
+    ) -> Result<Value, ValidationFail> {
+        panic!("Validator `permission_tokens()` entrypoint should not execute queries")
+    }
+
+    /// Fake `execute_instruction()`.
+    ///
+    /// This is needed because `permission_tokens()` entrypoint exists in the same binary as
+    /// validation entrypoint.
+    ///
+    /// # Panics
+    ///
+    /// Panic with error message if called, because it should never be called from
+    /// `permission_tokens()` entrypoint
+    #[codec::wrap]
+    fn execute_instruction(
+        _instruction: InstructionBox,
+        _state: &mut state::ValidatorPermissionTokens,
+    ) -> Result<(), ValidationFail> {
+        panic!("Validator `permission_tokens()` entrypoint should not execute instructions")
+    }
+}
+
+impl QueryAuthority<state::ValidatorPermissionTokens>
+    for Runtime<state::ValidatorPermissionTokens>
+{
+    /// Fake `query_authority()`.
+    ///
+    /// This is needed because `permission_tokens()` entrypoint exists in the same binary as
+    /// validation entrypoint.
+    ///
+    /// # Panics
+    ///
+    /// Panic with error message if called, because it should never be called from
+    /// `permission_tokens()` entrypoint
+    #[codec::wrap]
+    fn query_authority(_state: &state::ValidatorPermissionTokens) -> AccountId {
+        panic!("Validator `permission_tokens()` entrypoint should not query authority")
+    }
+}
+
+impl QueryOperationToValidate<state::ValidatorPermissionTokens>
+    for Runtime<state::ValidatorPermissionTokens>
+{
+    /// Fake `query_operation_to_validate()`.
+    ///
+    /// This is needed because `permission_tokens()` entrypoint exists in the same binary as
+    /// validation entrypoint.
+    ///
+    /// # Panics
+    ///
+    /// Panic with error message if called, because it should never be called from
+    /// `permission_tokens()` entrypoint
+    #[codec::wrap]
+    fn query_operation_to_validate(
+        _state: &state::ValidatorPermissionTokens,
+    ) -> NeedsValidationBox {
+        panic!("Validator `permission_tokens()` entrypoint should not query operation to validate")
     }
 }
 
@@ -831,7 +1071,7 @@ impl<S> RuntimeBuilder<S> {
 macro_rules! create_imports {
     (
         $linker:ident,
-        $(import:: $multi_name:ident => $multi_fn_ident:ident),* $(,)?
+        $(import:: $name:ident => $fn_path:path),* $(,)?
     ) => {
             $linker.func_wrap(
                 import::MODULE_NAME,
@@ -855,8 +1095,8 @@ macro_rules! create_imports {
             $(.and_then(|l| {
                 l.func_wrap(
                     import::MODULE_NAME,
-                    import::$multi_name,
-                    Runtime::$multi_fn_ident,
+                    import::$name,
+                    $fn_path,
                 )
             }))*
             .map_err(|err| Error::Initialization(eyre!(Box::new(err))))
@@ -874,9 +1114,9 @@ impl<'wrld> RuntimeBuilder<state::SmartContract<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::EXECUTE_ISI_FN_NAME => execute_instruction,
-                import::EXECUTE_QUERY_FN_NAME => execute_query,
-                import::QUERY_AUTHORITY_FN_NAME => query_authority,
+                import::EXECUTE_ISI_FN_NAME => Runtime::<state::SmartContract<'_>>::execute_instruction,
+                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::SmartContract<'_>>::execute_query,
+                import::QUERY_AUTHORITY_FN_NAME => Runtime::<state::SmartContract<'_>>::query_authority,
             )?;
             Ok(linker)
         })
@@ -894,10 +1134,10 @@ impl<'wrld> RuntimeBuilder<state::Trigger<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::EXECUTE_ISI_FN_NAME => execute_instruction,
-                import::EXECUTE_QUERY_FN_NAME => execute_query,
-                import::QUERY_AUTHORITY_FN_NAME => query_authority,
-                import::QUERY_TRIGGERING_EVENT_FN_NAME => query_triggering_event,
+                import::EXECUTE_ISI_FN_NAME => Runtime::<state::Trigger<'_>>::execute_instruction,
+                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::Trigger<'_>>::execute_query,
+                import::QUERY_AUTHORITY_FN_NAME => Runtime::<state::Trigger<'_>>::query_authority,
+                import::QUERY_TRIGGERING_EVENT_FN_NAME => Runtime::query_triggering_event,
             )?;
             Ok(linker)
         })
@@ -915,10 +1155,31 @@ impl<'wrld> RuntimeBuilder<state::Validator<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::EXECUTE_ISI_FN_NAME => execute_instruction,
-                import::EXECUTE_QUERY_FN_NAME => execute_query,
-                import::QUERY_AUTHORITY_FN_NAME => query_authority,
-                import::QUERY_OPERATION_TO_VALIDATE_FN_NAME => query_operation_to_validate,
+                import::EXECUTE_ISI_FN_NAME => Runtime::<state::Validator<'_>>::execute_instruction,
+                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::Validator<'_>>::execute_query,
+                import::QUERY_AUTHORITY_FN_NAME => Runtime::<state::Validator<'_>>::query_authority,
+                import::QUERY_OPERATION_TO_VALIDATE_FN_NAME => Runtime::query_operation_to_validate,
+            )?;
+            Ok(linker)
+        })
+    }
+}
+
+impl RuntimeBuilder<state::ValidatorPermissionTokens> {
+    /// Builds the [`Runtime`] to execute `permission_tokens()` entrypoint of *Validator*
+    ///
+    /// # Errors
+    ///
+    /// Fails if failed to create default linker.
+    pub fn build(self) -> Result<Runtime<state::ValidatorPermissionTokens>> {
+        self.finalize(|engine| {
+            let mut linker = Linker::new(engine);
+
+            create_imports!(linker,
+                import::EXECUTE_ISI_FN_NAME => Runtime::execute_instruction,
+                import::EXECUTE_QUERY_FN_NAME => Runtime::execute_query,
+                import::QUERY_AUTHORITY_FN_NAME => Runtime::query_authority,
+                import::QUERY_OPERATION_TO_VALIDATE_FN_NAME => Runtime::query_operation_to_validate,
             )?;
             Ok(linker)
         })
