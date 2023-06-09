@@ -25,13 +25,13 @@ At first, you need to installed and running [Iroha 2](https://hyperledger.github
 To configure the application, you can use a `.env` file in the `client_cli/pytest` directory. The `.env` file should contain the following variables:
 
 ```
-CLIENT_CLI_DIR=/path/to/iroha_client_cli/dir/
+CLIENT_CLI_DIR=/path/to/iroha_client_cli/with/config.json/dir/
 TORII_API_PORT_MIN=8080
 TORII_API_PORT_MAX=8083
 ```
 Replace `/path/to/iroha_client_cli/dir` with the actual paths to the respective files on your system.
 
-If the `.env` file is not present or these variables are not defined in it, the application will use default values defined in the code.
+If the `.env` file is not present or these variables are not defined in it
 
 ## Poetry Configuration
 

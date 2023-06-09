@@ -7,6 +7,7 @@ from src.client_cli.client_cli import ClientCli
 from src.client_cli.configuration import Config
 from src.client_cli.iroha import Iroha
 
-config = Config(PATH_CONFIG_CLIENT_CLI, PORT_MIN, PORT_MAX)
+config = Config(PORT_MIN, PORT_MAX)
+config.load(PATH_CONFIG_CLIENT_CLI)
 client_cli = ClientCli(config)
 iroha = Iroha(config)
