@@ -58,7 +58,8 @@ jobs:
       image: hyperledger/iroha2-ci:nightly-2022-12-22
     steps:
       - uses: actions/checkout@v3
-        ref: iroha2-dev
+        with:
+          ref: iroha2-dev
       - name: Setup git config
         run: |
           git config user.name "GitHub Actions Bot"

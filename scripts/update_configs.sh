@@ -17,9 +17,9 @@ if [ "$1" != "stable" ] && [ "$1" != "lts" ]; then
     echo $MSG && exit 1
 fi
 
-wget https://raw.githubusercontent.com/hyperledger/iroha/iroha2-stable/configs/peer/config.json -O "$(dirname "${BASH_SOURCE[0]}")/client_cli/$1/config.json"
-wget https://raw.githubusercontent.com/hyperledger/iroha/iroha2-lts/configs/peer/config.json -O "$(dirname "${BASH_SOURCE[0]}")/client_cli/$1/config.json"
+wget https://raw.githubusercontent.com/hyperledger/iroha/iroha2-stable/configs/peer/config.json -O "./configs/client/$1/config.json"
+wget https://raw.githubusercontent.com/hyperledger/iroha/iroha2-lts/configs/peer/config.json -O "./configs/client/$1/config.json"
 
-wget https://raw.githubusercontent.com/hyperledger/iroha/iroha2-stable/configs/peer/config.json -O "$(dirname "${BASH_SOURCE[0]}")/peer/$1/config.json"
-wget https://raw.githubusercontent.com/hyperledger/iroha/iroha2-stable/configs/peer/genesis.json -O "$(dirname "${BASH_SOURCE[0]}")/peer/$1/genesis.json"
-wget https://raw.githubusercontent.com/hyperledger/iroha/iroha2-stable/configs/peer/genesis.json -O "$(dirname "${BASH_SOURCE[0]}")/peer/$1/validator.wasm"
+wget https://raw.githubusercontent.com/hyperledger/iroha/iroha2-stable/configs/peer/config.json -O "./configs/peer/$1/config.json"
+wget https://raw.githubusercontent.com/hyperledger/iroha/iroha2-stable/configs/peer/genesis.json -O "./configs/peer/$1/genesis.json"
+wget https://raw.githubusercontent.com/hyperledger/iroha/iroha2-stable/configs/peer/genesis.json -O "./configs/peer/$1/validator.wasm"
