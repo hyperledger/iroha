@@ -1,7 +1,10 @@
 //! Structures and impls related to *runtime* `Validator`s processing.
 
 use derive_more::DebugCustom;
-use iroha_data_model::{account::AccountId, validator as data_model_validator, ValidationFail};
+use iroha_data_model::{
+    account::AccountId, permission::PermissionTokenDefinition, validator as data_model_validator,
+    ValidationFail,
+};
 #[cfg(test)]
 use iroha_data_model::{
     isi::InstructionBox, transaction::Executable, validator::NeedsValidationBox,
@@ -30,9 +33,6 @@ impl From<Error> for ValidationFail {
     }
 }
 
-/// Result type for [`Validator`] operations.
-pub type Result<T, E = ValidationFail> = core::result::Result<T, E>;
-
 /// Validator that verifies the operation is valid.
 ///
 /// Can be upgraded with [`Upgrade`](iroha_data_model::isi::Upgrade) instruction.
@@ -56,7 +56,7 @@ impl Validator {
     pub fn new(
         raw_validator: data_model_validator::Validator,
         engine: &wasmtime::Engine,
-    ) -> Result<Self> {
+    ) -> Result<Self, wasm::error::Error> {
         Ok(Self {
             loaded_validator: LoadedValidator::load(engine, raw_validator)?,
         })
@@ -68,13 +68,13 @@ impl Validator {
     ///
     /// - Failed to prepare runtime for WASM execution;
     /// - Failed to execute WASM blob;
-    /// - Validator denied the operation
+    /// - Validator denied the operation.
     pub fn validate(
         &self,
         wsv: &mut WorldStateView,
         authority: &AccountId,
         operation: impl Into<data_model_validator::NeedsValidationBox>,
-    ) -> Result<()> {
+    ) -> Result<(), ValidationFail> {
         let operation = operation.into();
 
         let runtime = wasm::RuntimeBuilder::<wasm::state::Validator>::new()
@@ -90,6 +90,26 @@ impl Validator {
             &operation,
         )?
     }
+
+    /// Get permission token definitions defined in *Validator*.
+    ///
+    /// # Errors
+    ///
+    /// - Failed to prepare runtime for WASM execution;
+    /// - Failed to execute WASM blob.
+    pub fn permission_tokens(
+        &self,
+        wsv: &WorldStateView,
+    ) -> Result<Vec<PermissionTokenDefinition>, wasm::error::Error> {
+        let runtime = wasm::RuntimeBuilder::<wasm::state::ValidatorPermissionTokens>::new()
+            .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+            .with_configuration(wsv.config.wasm_runtime_config)
+            .build()?;
+
+        runtime
+            .execute_validator_permission_tokens(&self.loaded_validator.module)
+            .map_err(Into::into)
+    }
 }
 
 /// Mock of validator for unit tests of `iroha_core`.
@@ -100,6 +120,12 @@ impl Validator {
 pub struct MockValidator;
 
 #[cfg(test)]
+#[allow(
+    clippy::unused_self,
+    clippy::unnecessary_wraps,
+    clippy::trivially_copy_pass_by_ref,
+    clippy::needless_pass_by_value
+)]
 impl MockValidator {
     /// Mock for creating new validator from raw validator.
     ///
@@ -114,7 +140,7 @@ impl MockValidator {
     pub fn new(
         _raw_validator: data_model_validator::Validator,
         _engine: &wasmtime::Engine,
-    ) -> Result<Self> {
+    ) -> Result<Self, wasm::error::Error> {
         panic!("You probably don't need this method in tests")
     }
 
@@ -128,18 +154,12 @@ impl MockValidator {
     /// # Errors
     ///
     /// Never fails.
-    #[allow(
-        clippy::unused_self,
-        clippy::unnecessary_wraps,
-        clippy::trivially_copy_pass_by_ref,
-        clippy::needless_pass_by_value
-    )]
     pub fn validate(
         &self,
         wsv: &mut WorldStateView,
         authority: &AccountId,
         operation: impl Into<data_model_validator::NeedsValidationBox>,
-    ) -> Result<()> {
+    ) -> Result<(), ValidationFail> {
         match operation.into() {
             NeedsValidationBox::Instruction(isi) => Self::execute_instruction(wsv, authority, isi),
             NeedsValidationBox::Transaction(tx) => {
@@ -155,11 +175,23 @@ impl MockValidator {
         }
     }
 
+    /// Mock for retrieving permission token definitions.
+    ///
+    /// # Errors
+    ///
+    /// Never fails.
+    pub fn permission_tokens(
+        &self,
+        _wsv: &WorldStateView,
+    ) -> Result<Vec<PermissionTokenDefinition>, wasm::error::Error> {
+        Ok(Vec::default())
+    }
+
     fn execute_instruction(
         wsv: &mut WorldStateView,
         authority: &AccountId,
         instruction: InstructionBox,
-    ) -> Result<()> {
+    ) -> Result<(), ValidationFail> {
         use super::smartcontracts::Execute as _;
 
         instruction.execute(authority, wsv).map_err(Into::into)
@@ -181,7 +213,7 @@ impl LoadedValidator {
     pub fn load(
         engine: &wasmtime::Engine,
         raw_validator: data_model_validator::Validator,
-    ) -> Result<Self> {
+    ) -> Result<Self, wasm::error::Error> {
         Ok(Self {
             module: wasm::load_module(engine, raw_validator.wasm)?,
         })

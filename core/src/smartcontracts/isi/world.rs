@@ -17,6 +17,8 @@ impl Registrable for NewRole {
 
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
+    // use std::collections::HashSet;
+
     use eyre::Result;
     use iroha_data_model::{
         isi::error::{InvalidParameterError, RepetitionError},
@@ -343,7 +345,10 @@ pub mod isi {
     }
 
     impl Execute for Upgrade<Validator> {
+        // TODO: Uncomment code in this function when `permission_tokens()` entrypoint will be
+        // implemented on WASM side (#3598)
         #[metrics(+"upgrade_validator")]
+        #[allow(unused_parens, clippy::double_parens)] // TODO: Remove when code will be uncommented
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             #[cfg(test)]
             use crate::validator::MockValidator as Validator;
@@ -352,10 +357,43 @@ pub mod isi {
 
             let raw_validator = self.object;
             let engine = wsv.engine.clone(); // Cloning engine is cheap
+
+            let (new_validator /*, new_permission_token_definitions*/) =
+                || -> Result<_, crate::smartcontracts::wasm::error::Error> {
+                    {
+                        let new_validator = Validator::new(raw_validator, &engine)?;
+                        // let new_permission_token_definitions =
+                        //     new_validator.permission_tokens(wsv)?;
+                        Ok((new_validator /*, new_permission_token_definitions*/))
+                    }
+                }()
+                .map_err(|error| {
+                    InvalidParameterError::Wasm(format!("{:?}", eyre::Report::from(error)))
+                })?;
+
             let world = wsv.world_mut();
-            let new_validator = Validator::new(raw_validator, &engine)
-                .map_err(|err| InvalidParameterError::Wasm(err.to_string()))?;
             let _ = world.upgraded_validator.insert(new_validator);
+
+            // let old_permission_token_definitions = wsv
+            //     .permission_token_definitions()
+            //     .values()
+            //     .cloned()
+            //     .collect::<HashSet<_>>();
+            // let new_permission_token_definitions =
+            //     HashSet::from_iter(new_permission_token_definitions);
+
+            // old_permission_token_definitions
+            //     .difference(&new_permission_token_definitions)
+            //     .map(|definition| Unregister::<PermissionTokenDefinition> {
+            //         object_id: definition.id.clone(),
+            //     })
+            //     .try_for_each(|unregister| unregister.execute(authority, wsv))?;
+
+            // new_permission_token_definitions
+            //     .difference(&old_permission_token_definitions)
+            //     .cloned()
+            //     .map(|definition| Register::<PermissionTokenDefinition> { object: definition })
+            //     .try_for_each(|new| new.execute(authority, wsv))?;
 
             wsv.emit_events(Some(ValidatorEvent::Upgraded));
 

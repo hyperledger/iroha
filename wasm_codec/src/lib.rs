@@ -2,7 +2,7 @@
 
 #![allow(clippy::arithmetic_side_effects)]
 
-pub use iroha_core_wasm_codec_derive::wrap;
+pub use iroha_core_wasm_codec_derive::{wrap, wrap_trait_fn};
 use parity_scale_codec::{DecodeAll, Encode};
 use wasmtime::Trap;
 
