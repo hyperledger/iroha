@@ -10,63 +10,34 @@ from urllib.parse import urlparse
 
 class Config:
     """
-    Configuration class to handle Iroha network configuration. The class is responsible for reading
-    the configuration file, updating the TORII_API_URL with a random port number from the specified
-    range, and providing access to the updated TORII_API_URL.
+    Configuration class to handle Iroha network configuration. The class provides methods for loading
+    the configuration from a file, updating the TORII_API_URL with a random port number from the specified
+    range, and accessing the configuration values.
 
-    :param path_config_client_cli: The path to the configuration file.
-    :type path_config_client_cli: str
     :param port_min: The minimum port number for the TORII_API_URL.
     :type port_min: int
     :param port_max: The maximum port number for the TORII_API_URL.
     :type port_max: int
     """
-    def __init__(self, path_config_client_cli, port_min, port_max):
-        if not os.path.exists(path_config_client_cli):
-            self.create_default_config(path_config_client_cli)
-        with open(path_config_client_cli, 'r', encoding='utf-8') as config_file:
-            self._config = json.load(config_file)
-        self.file = path_config_client_cli
+    def __init__(self, port_min, port_max):
+        self._config = None
+        self.file = None
         self.port_min = port_min
         self.port_max = port_max
 
-    @staticmethod
-    def create_default_config(path_config_client_cli):
+    def load(self, path_config_client_cli):
         """
-        Create a default configuration file at the given path.
+        Load the configuration from the given config file.
 
-        :param path_config_client_cli: The path to create the configuration file.
+        :param path_config_client_cli: The path to the configuration file.
         :type path_config_client_cli: str
+        :raises IOError: If the file does not exist.
         """
-        default_config = {
-            "PUBLIC_KEY": "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
-            "PRIVATE_KEY": {
-                "digest_function": "ed25519",
-                "payload": "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e"
-                           "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
-            },
-            "ACCOUNT_ID": "alice@wonderland",
-            "BASIC_AUTH": {
-                "web_login": "mad_hatter",
-                "password": "ilovetea"
-            },
-            "TORII_API_URL": "http://127.0.0.1:8080",
-            "TORII_TELEMETRY_URL": "http://127.0.0.1:8180",
-            "TRANSACTION_TIME_TO_LIVE_MS": 100000,
-            "TRANSACTION_STATUS_TIMEOUT_MS": 15000,
-            "TRANSACTION_LIMITS": {
-                "max_instruction_number": 4096,
-                "max_wasm_size_bytes": 4194304
-            },
-            "ADD_TRANSACTION_NONCE": False
-        }
-        try:
-            with open(path_config_client_cli, 'w', encoding='utf-8') as config_file:
-                json.dump(default_config, config_file)
-        except IOError as io_error:
-            raise IOError(
-                f"Failed to create config file at {path_config_client_cli}: {str(io_error)}") \
-                from io_error
+        if not os.path.exists(path_config_client_cli):
+            raise IOError(f"No config file found at {path_config_client_cli}")
+        with open(path_config_client_cli, 'r', encoding='utf-8') as config_file:
+            self._config = json.load(config_file)
+        self.file = path_config_client_cli
 
     def update_torii_api_port(self):
         """
@@ -75,6 +46,8 @@ class Config:
 
         :return: None
         """
+        if self._config is None:
+            raise ValueError("No configuration loaded. Use load_config(path_config_client_cli) to load the configuration.")
         parsed_url = urlparse(self._config['TORII_API_URL'])
         new_netloc = parsed_url.hostname + ':' + str(random.randint(self.port_min, self.port_max))
         self._config['TORII_API_URL'] = parsed_url._replace(netloc=new_netloc).geturl()
