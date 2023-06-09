@@ -78,7 +78,7 @@ impl PeerId {
 impl Peer {
     /// Construct `Peer` given `id`.
     #[inline]
-    pub const fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
+    pub const fn new(id: PeerId) -> <Self as Registered>::With {
         Self { id }
     }
 }

@@ -29,8 +29,7 @@ use iroha_data_model::{
     predicate::PredicateBox,
     prelude::*,
     query,
-    query::error::QueryExecutionFailure,
-    transaction::InBlock,
+    query::error::QueryExecutionFail,
 };
 use iroha_logger::prelude::*;
 #[cfg(feature = "telemetry")]
@@ -69,19 +68,19 @@ impl VerifiedQuery {
         wsv: &mut WorldStateView,
     ) -> Result<(ValidQueryRequest, PredicateBox), ValidationFail> {
         let account_has_public_key = wsv
-            .map_account(&self.payload.account_id, |account| {
+            .map_account(&self.payload.authority, |account| {
                 account.signatories.contains(self.signature.public_key())
             })
-            .map_err(QueryExecutionFailure::from)?;
+            .map_err(QueryExecutionFail::from)?;
         if !account_has_public_key {
-            return Err(QueryExecutionFailure::Signature(String::from(
+            return Err(QueryExecutionFail::Signature(String::from(
                 "Signature public key doesn't correspond to the account.",
             ))
             .into());
         }
         wsv.validator_view().clone().validate(
             wsv,
-            &self.payload.account_id,
+            &self.payload.authority,
             self.payload.query.clone(),
         )?;
         Ok((
@@ -92,7 +91,7 @@ impl VerifiedQuery {
 }
 
 impl TryFrom<SignedQuery> for VerifiedQuery {
-    type Error = QueryExecutionFailure;
+    type Error = QueryExecutionFail;
 
     fn try_from(query: SignedQuery) -> Result<Self, Self::Error> {
         query
@@ -112,17 +111,15 @@ pub(crate) async fn handle_instructions(
     sumeragi: SumeragiHandle,
     transaction: VersionedSignedTransaction,
 ) -> Result<Empty> {
-    let transaction: SignedTransaction = transaction.into_v1();
     let wsv = sumeragi.wsv_clone();
     let transaction_limits = wsv.config.transaction_limits;
-    let transaction = <AcceptedTransaction as InBlock>::accept(transaction, &transaction_limits)
-        .map_err(Error::AcceptTransaction)?
-        .into();
+    let transaction = AcceptedTransaction::accept(transaction, &transaction_limits)
+        .map_err(Error::AcceptTransaction)?;
     queue
         .push(transaction, &wsv)
         .map_err(|queue::Failure { tx, err }| {
             iroha_logger::warn!(
-                tx_hash=%tx.hash(), ?err,
+                tx_hash=%tx.payload().hash(), ?err,
                 "Failed to push into queue"
             );
 
@@ -160,7 +157,7 @@ pub(crate) async fn handle_queries(
 
     let total = total
         .try_into()
-        .map_err(|e: TryFromIntError| QueryExecutionFailure::Conversion(e.to_string()))
+        .map_err(|e: TryFromIntError| QueryExecutionFail::Conversion(e.to_string()))
         .map_err(ValidationFail::from)?;
     let result = QueryResult(result);
     let paginated_result = PaginatedQueryResult {
@@ -235,17 +232,15 @@ async fn handle_pending_transactions(
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
     pagination: Pagination,
-) -> Result<Scale<VersionedPendingTransactions>> {
+) -> Result<Scale<Vec<VersionedSignedTransaction>>> {
     let wsv = sumeragi.wsv_clone();
     Ok(Scale(
         queue
             .all_transactions(&wsv)
             .into_iter()
-            .map(VersionedAcceptedTransaction::into_v1)
-            .map(SignedTransaction::from)
+            .map(Into::into)
             .paginate(pagination)
-            .collect::<PendingTransactions>()
-            .into(),
+            .collect::<Vec<_>>(),
     ))
 }
 

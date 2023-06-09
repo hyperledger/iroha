@@ -19,7 +19,8 @@ use crate::{
     asset::{AssetDefinition, AssetDefinitionsMap, AssetTotalQuantityMap},
     ipfs::IpfsPath,
     metadata::Metadata,
-    HasMetadata, Identifiable, Name, NumericValue, Registered,
+    prelude::*,
+    HasMetadata, Name, NumericValue, Registered,
 };
 
 #[model]
@@ -94,7 +95,7 @@ pub mod model {
     #[ffi_type]
     pub struct NewDomain {
         /// The identification associated with the domain builder.
-        pub id: <Domain as Identifiable>::Id,
+        pub id: DomainId,
         /// The (IPFS) link to the logo of this domain.
         pub logo: Option<IpfsPath>,
         /// Metadata associated with the domain builder.
@@ -112,7 +113,7 @@ impl HasMetadata for NewDomain {
 impl NewDomain {
     /// Create a [`NewDomain`], reserved for internal use.
     #[must_use]
-    fn new(id: <Domain as Identifiable>::Id) -> Self {
+    fn new(id: DomainId) -> Self {
         Self {
             id,
             logo: None,
@@ -149,7 +150,7 @@ impl Registered for Domain {
 impl Domain {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
     #[inline]
-    pub fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
+    pub fn new(id: DomainId) -> <Self as Registered>::With {
         <Self as Registered>::With::new(id)
     }
 }
@@ -157,7 +158,7 @@ impl Domain {
 impl Domain {
     /// Return a reference to the [`Account`] corresponding to the account id.
     #[inline]
-    pub fn account(&self, account_id: &<Account as Identifiable>::Id) -> Option<&Account> {
+    pub fn account(&self, account_id: &AccountId) -> Option<&Account> {
         self.accounts.get(account_id)
     }
 
@@ -165,7 +166,7 @@ impl Domain {
     #[inline]
     pub fn asset_definition(
         &self,
-        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
+        asset_definition_id: &AssetDefinitionId,
     ) -> Option<&AssetDefinition> {
         self.asset_definitions.get(asset_definition_id)
     }
@@ -174,7 +175,7 @@ impl Domain {
     #[inline]
     pub fn asset_total_quantity(
         &self,
-        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
+        asset_definition_id: &AssetDefinitionId,
     ) -> Option<&NumericValue> {
         self.asset_total_quantities.get(asset_definition_id)
     }
@@ -187,7 +188,7 @@ impl Domain {
 
     /// Return `true` if the `Domain` contains [`Account`]
     #[inline]
-    pub fn contains_account(&self, account_id: &<Account as Identifiable>::Id) -> bool {
+    pub fn contains_account(&self, account_id: &AccountId) -> bool {
         self.accounts.contains_key(account_id)
     }
 
@@ -208,10 +209,7 @@ impl Domain {
 
     /// Remove account from the [`Domain`] and return it
     #[inline]
-    pub fn remove_account(
-        &mut self,
-        account_id: &<Account as Identifiable>::Id,
-    ) -> Option<Account> {
+    pub fn remove_account(&mut self, account_id: &AccountId) -> Option<Account> {
         self.accounts.remove(account_id)
     }
 
@@ -230,7 +228,7 @@ impl Domain {
     #[inline]
     pub fn remove_asset_definition(
         &mut self,
-        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
+        asset_definition_id: &AssetDefinitionId,
     ) -> Option<AssetDefinition> {
         self.asset_definitions.remove(asset_definition_id)
     }
@@ -240,7 +238,7 @@ impl Domain {
     #[inline]
     pub fn add_asset_total_quantity(
         &mut self,
-        asset_definition_id: <AssetDefinition as Identifiable>::Id,
+        asset_definition_id: AssetDefinitionId,
         initial_amount: impl Into<NumericValue>,
     ) -> Option<NumericValue> {
         self.asset_total_quantities
@@ -251,7 +249,7 @@ impl Domain {
     #[inline]
     pub fn remove_asset_total_quantity(
         &mut self,
-        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
+        asset_definition_id: &AssetDefinitionId,
     ) -> Option<NumericValue> {
         self.asset_total_quantities.remove(asset_definition_id)
     }
@@ -263,21 +261,6 @@ impl FromIterator<Domain> for crate::Value {
             .map(Into::into)
             .collect::<Vec<Self>>()
             .into()
-    }
-}
-
-impl DomainId {
-    #[cfg(feature = "transparent_api")]
-    const GENESIS_DOMAIN_NAME: &str = "genesis";
-
-    /// Construct [`Id`] of the genesis domain.
-    #[inline]
-    #[must_use]
-    #[cfg(feature = "transparent_api")]
-    pub fn genesis() -> Self {
-        Self {
-            name: Self::GENESIS_DOMAIN_NAME.parse().expect("Valid"),
-        }
     }
 }
 

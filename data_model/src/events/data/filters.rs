@@ -1,6 +1,6 @@
 //! This module contains `EventFilter` and entities for filter
 
-use core::{fmt::Debug, hash::Hash};
+use core::fmt::Debug;
 
 use derive_more::Constructor;
 use iroha_data_model_derive::model;
@@ -27,7 +27,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         Decode,
         Encode,
         Deserialize,
@@ -44,17 +43,7 @@ pub mod model {
     }
 
     #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
     #[allow(clippy::enum_variant_names)]
     /// Filters event by entity
@@ -97,7 +86,7 @@ pub mod model {
     pub struct OriginFilter<T: HasOrigin>(pub(super) <T::Origin as Identifiable>::Id)
     where
         <T::Origin as Identifiable>::Id:
-            Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema;
+            Debug + Clone + Eq + Ord + Decode + Encode + Serialize + IntoSchema;
 }
 
 mod accept_all_as_string {
@@ -172,7 +161,7 @@ impl Filter for DataEntityFilter {
 impl<T: HasOrigin> OriginFilter<T>
 where
     <T::Origin as Identifiable>::Id:
-        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
+        Debug + Clone + Eq + Ord + Decode + Encode + Serialize + IntoSchema,
 {
     /// Get the id of the origin of the data event that this filter accepts.
     pub fn origin_id(&self) -> &<T::Origin as Identifiable>::Id {
@@ -184,7 +173,7 @@ where
 impl<T: HasOrigin> Filter for OriginFilter<T>
 where
     <T::Origin as Identifiable>::Id:
-        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
+        Debug + Clone + Eq + Ord + Decode + Encode + Serialize + IntoSchema,
 {
     type Event = T;
 
@@ -196,20 +185,10 @@ where
 impl<T: HasOrigin> PartialEq for OriginFilter<T>
 where
     <T::Origin as Identifiable>::Id:
-        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
+        Debug + Clone + Eq + Ord + Decode + Encode + Serialize + IntoSchema,
 {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
-    }
-}
-
-impl<T: HasOrigin> Hash for OriginFilter<T>
-where
-    <T::Origin as Identifiable>::Id:
-        Debug + Clone + Eq + Ord + Hash + Decode + Encode + Serialize + IntoSchema,
-{
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
     }
 }
 

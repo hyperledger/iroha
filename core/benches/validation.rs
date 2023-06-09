@@ -11,9 +11,7 @@ use iroha_core::{
     tx::TransactionValidator,
     wsv::World,
 };
-use iroha_data_model::{prelude::*, transaction::InBlock};
-
-const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
+use iroha_data_model::{prelude::*, transaction::TransactionLimits};
 
 const START_DOMAIN: &str = "start";
 const START_ACCOUNT: &str = "starter";
@@ -23,7 +21,7 @@ const TRANSACTION_LIMITS: TransactionLimits = TransactionLimits {
     max_wasm_size_bytes: 0,
 };
 
-fn build_test_transaction(keys: KeyPair) -> SignedTransaction {
+fn build_test_transaction(keys: KeyPair) -> VersionedSignedTransaction {
     let domain_name = "domain";
     let domain_id = DomainId::from_str(domain_name).expect("does not panic");
     let create_domain = RegisterBox::new(Domain::new(domain_id));
@@ -43,19 +41,13 @@ fn build_test_transaction(keys: KeyPair) -> SignedTransaction {
         domain_name.parse().expect("Valid"),
     );
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id));
-    let instructions: Vec<InstructionBox> = vec![
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-    ];
-    TransactionBuilder::new(
-        AccountId::new(
-            START_ACCOUNT.parse().expect("Valid"),
-            START_DOMAIN.parse().expect("Valid"),
-        ),
-        instructions,
-        TRANSACTION_TIME_TO_LIVE_MS,
-    )
+    let instructions = [create_domain, create_account, create_asset];
+
+    TransactionBuilder::new(AccountId::new(
+        START_ACCOUNT.parse().expect("Valid"),
+        START_DOMAIN.parse().expect("Valid"),
+    ))
+    .with_instructions(instructions)
     .sign(keys)
     .expect("Failed to sign.")
 }
@@ -100,13 +92,12 @@ fn accept_transaction(criterion: &mut Criterion) {
     let mut success_count = 0;
     let mut failures_count = 0;
     let _ = criterion.bench_function("accept", |b| {
-        b.iter(|| {
-            match <AcceptedTransaction as InBlock>::accept(transaction.clone(), &TRANSACTION_LIMITS)
-            {
+        b.iter(
+            || match AcceptedTransaction::accept(transaction.clone(), &TRANSACTION_LIMITS) {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
-            }
-        });
+            },
+        );
     });
     println!("Success count: {success_count}, Failures count: {failures_count}");
 }
@@ -128,11 +119,9 @@ fn sign_transaction(criterion: &mut Criterion) {
 
 fn validate_transaction(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction = <AcceptedTransaction as InBlock>::accept(
-        build_test_transaction(keys.clone()),
-        &TRANSACTION_LIMITS,
-    )
-    .expect("Failed to accept transaction.");
+    let transaction =
+        AcceptedTransaction::accept(build_test_transaction(keys.clone()), &TRANSACTION_LIMITS)
+            .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failure_count = 0;
     let wsv = build_test_and_transient_wsv(keys);
@@ -152,7 +141,7 @@ fn validate_transaction(criterion: &mut Criterion) {
 fn sign_blocks(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let transaction =
-        <AcceptedTransaction as InBlock>::accept(build_test_transaction(keys), &TRANSACTION_LIMITS)
+        AcceptedTransaction::accept(build_test_transaction(keys), &TRANSACTION_LIMITS)
             .expect("Failed to accept transaction.");
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
@@ -162,7 +151,7 @@ fn sign_blocks(criterion: &mut Criterion) {
     let _ = criterion.bench_function("sign_block", |b| {
         b.iter(|| {
             let block = BlockBuilder {
-                transactions: vec![transaction.clone().into()],
+                transactions: vec![transaction.clone()],
                 event_recommendations: Vec::new(),
                 view_change_index: 0,
                 committed_with_topology: Topology::new(Vec::new()),

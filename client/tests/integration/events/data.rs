@@ -34,7 +34,7 @@ fn produce_instructions() -> Vec<InstructionBox> {
             Conditional::with_otherwise(
                 false,
                 FailBox::new("unreachable"),
-                SequenceBox::new(vec![registers[2].clone(), registers[3].clone()]),
+                SequenceBox::new([registers[2].clone(), registers[3].clone()]),
             ),
         )
         .into(),
@@ -97,7 +97,7 @@ fn transaction_execution_should_produce_events(
     port: u16,
 ) -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(port).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    wait_for_genesis_committed(&[client.clone()], 0);
 
     // spawn event reporter
     let listener = client.clone();
@@ -118,7 +118,7 @@ fn transaction_execution_should_produce_events(
     let transaction = client
         .build_transaction(executable, UnlimitedMetadata::new())
         .unwrap();
-    client.submit_transaction_blocking(transaction)?;
+    client.submit_transaction_blocking(&transaction)?;
 
     // assertion
     for i in 0..4_usize {
@@ -141,7 +141,7 @@ fn transaction_execution_should_produce_events(
 #[allow(clippy::too_many_lines)]
 fn produce_multiple_events() -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_645).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    wait_for_genesis_committed(&[client.clone()], 0);
 
     // Spawn event reporter
     let listener = client.clone();
@@ -177,7 +177,7 @@ fn produce_multiple_events() -> Result<()> {
     let role = iroha_data_model::role::Role::new(role_id.clone())
         .add_permission(token_1.clone())
         .add_permission(token_2.clone());
-    let instructions = [RegisterBox::new(role.clone()).into()];
+    let instructions = [RegisterBox::new(role.clone())];
     client.submit_all_blocking(instructions)?;
 
     // Grants role to Bob

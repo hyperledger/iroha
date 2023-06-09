@@ -58,14 +58,6 @@ impl Hash {
         }
     }
 
-    /// Adds type information to the hash. Be careful about using this function
-    /// since it is not possible to validate the correctness of the conversion.
-    /// Prefer creating new hashes with [`HashOf::new`] whenever possible
-    #[must_use]
-    pub const fn typed<T>(self) -> HashOf<T> {
-        HashOf(self, PhantomData)
-    }
-
     /// Check if least significant bit of `[u8; Hash::LENGTH]` is 1
     fn is_lsb_1(hash: &[u8; Self::LENGTH]) -> bool {
         hash[Self::LENGTH - 1] & 1 == 1
@@ -266,6 +258,15 @@ impl<T> HashOf<T> {
     #[must_use]
     pub const fn transmute<F>(self) -> HashOf<F> {
         HashOf(self.0, PhantomData)
+    }
+
+    /// Adds type information to the hash. Be careful about using this function
+    /// since it is not possible to validate the correctness of the conversion.
+    /// Prefer creating new hashes with [`HashOf::new`] whenever possible
+    #[must_use]
+    #[deprecated]
+    pub const fn from_untyped_unchecked(hash: Hash) -> Self {
+        HashOf(hash, PhantomData)
     }
 }
 

@@ -218,7 +218,7 @@ pub fn submit(
     #[cfg(not(debug_assertions))]
     let err_msg = "Failed to submit transaction.";
     let hash = iroha_client
-        .submit_transaction_blocking(tx)
+        .submit_transaction_blocking(&tx)
         .wrap_err(err_msg)?;
     Ok(Box::new(hash))
 }
@@ -331,7 +331,7 @@ mod domain {
                 id,
                 metadata: Metadata(metadata),
             } = self;
-            let create_domain = RegisterBox::new(Domain::new(id)).into();
+            let create_domain = RegisterBox::new(Domain::new(id));
             submit([create_domain], cfg, metadata).wrap_err("Failed to create domain")
         }
     }
@@ -414,7 +414,7 @@ mod account {
                 key,
                 metadata: Metadata(metadata),
             } = self;
-            let create_account = RegisterBox::new(Account::new(id, [key])).into();
+            let create_account = RegisterBox::new(Account::new(id, [key]));
             submit([create_account], cfg, metadata).wrap_err("Failed to register account")
         }
     }
@@ -465,7 +465,7 @@ mod account {
                 metadata: Metadata(metadata),
             } = self;
             let mint_box = MintBox::new(account, EvaluatesTo::new_unchecked(condition));
-            submit([mint_box.into()], cfg, metadata).wrap_err("Failed to set signature condition")
+            submit([mint_box], cfg, metadata).wrap_err("Failed to set signature condition")
         }
     }
 
@@ -527,7 +527,7 @@ mod account {
                 permission,
                 metadata: Metadata(metadata),
             } = self;
-            let grant = GrantBox::new(permission.0, id).into();
+            let grant = GrantBox::new(permission.0, id);
             submit([grant], cfg, metadata).wrap_err("Failed to grant the permission to the account")
         }
     }
@@ -618,7 +618,7 @@ mod asset {
             if unmintable {
                 asset_definition = asset_definition.mintable_once();
             }
-            let create_asset_definition = RegisterBox::new(asset_definition).into();
+            let create_asset_definition = RegisterBox::new(asset_definition);
             submit([create_asset_definition], cfg, metadata).wrap_err("Failed to register asset")
         }
     }
@@ -651,8 +651,7 @@ mod asset {
             let mint_asset = MintBox::new(
                 quantity.to_value(),
                 IdBox::AssetId(AssetId::new(asset, account)),
-            )
-            .into();
+            );
             submit([mint_asset], cfg, metadata)
                 .wrap_err("Failed to mint asset of type `NumericValue::U32`")
         }
@@ -686,8 +685,7 @@ mod asset {
             let burn_asset = BurnBox::new(
                 quantity.to_value(),
                 IdBox::AssetId(AssetId::new(asset, account)),
-            )
-            .into();
+            );
             submit([burn_asset], cfg, metadata)
                 .wrap_err("Failed to burn asset of type `NumericValue::U32`")
         }
@@ -726,8 +724,7 @@ mod asset {
                 IdBox::AssetId(AssetId::new(asset_id, from)),
                 quantity.to_value(),
                 IdBox::AccountId(to),
-            )
-            .into();
+            );
             submit([transfer_asset], cfg, metadata).wrap_err("Failed to transfer asset")
         }
     }
@@ -818,7 +815,7 @@ mod peer {
                 key,
                 metadata: Metadata(metadata),
             } = self;
-            let register_peer = RegisterBox::new(Peer::new(PeerId::new(&address, &key))).into();
+            let register_peer = RegisterBox::new(Peer::new(PeerId::new(&address, &key)));
             submit([register_peer], cfg, metadata).wrap_err("Failed to register peer")
         }
     }
@@ -844,8 +841,7 @@ mod peer {
                 key,
                 metadata: Metadata(metadata),
             } = self;
-            let unregister_peer =
-                UnregisterBox::new(IdBox::PeerId(PeerId::new(&address, &key))).into();
+            let unregister_peer = UnregisterBox::new(IdBox::PeerId(PeerId::new(&address, &key)));
             submit([unregister_peer], cfg, metadata).wrap_err("Failed to unregister peer")
         }
     }

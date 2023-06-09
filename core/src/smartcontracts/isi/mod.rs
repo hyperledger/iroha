@@ -20,7 +20,7 @@ use eyre::Result;
 use iroha_data_model::{
     evaluate::ExpressionEvaluator,
     isi::{
-        error::{InstructionEvaluationError, InstructionExecutionFailure as Error},
+        error::{InstructionEvaluationError, InstructionExecutionError as Error},
         *,
     },
     prelude::*,
@@ -630,7 +630,7 @@ mod tests {
         let register_trigger = RegisterBox::new(Trigger::new(
             trigger_id.clone(),
             Action::new(
-                Executable::from(Vec::new()),
+                Vec::<InstructionBox>::new(),
                 Repeats::Indefinitely,
                 account_id.clone(),
                 FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(

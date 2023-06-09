@@ -32,7 +32,6 @@ use iroha_core::{
 };
 use iroha_data_model::prelude::*;
 use iroha_genesis::GenesisNetwork;
-use iroha_logger::prelude::span;
 use tokio::{
     signal,
     sync::{broadcast, mpsc, Notify},
@@ -245,22 +244,8 @@ impl Iroha {
         )?;
         let wsv = WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura));
 
-        let transaction_validator = wsv.transaction_validator();
-
-        // Validate every transaction in genesis block
-        if let Some(ref genesis) = genesis {
-            let span = span!(tracing::Level::TRACE, "genesis").entered();
-            let mut wsv_clone = wsv.clone();
-
-            transaction_validator
-                .validate_every(genesis.iter().cloned(), &mut wsv_clone)
-                .wrap_err("Transaction validation failed in genesis block")?;
-            span.exit();
-        }
-
-        let block_hashes = kura.init()?;
-
         let notify_shutdown = Arc::new(Notify::new());
+        let block_hashes = kura.init()?;
 
         let queue = Arc::new(Queue::from_configuration(&config.queue));
         if Self::start_telemetry(telemetry, &config).await? {
@@ -433,17 +418,18 @@ impl Iroha {
 }
 
 fn genesis_account(public_key: iroha_crypto::PublicKey) -> Account {
-    let genesis_account_id = AccountId::genesis();
-    Account::new(genesis_account_id.clone(), [public_key]).build(&genesis_account_id)
+    Account::new(iroha_genesis::GENESIS_ACCOUNT_ID.clone(), [public_key])
+        .build(&iroha_genesis::GENESIS_ACCOUNT_ID)
 }
 
 fn genesis_domain(configuration: &Configuration) -> Domain {
-    let genesis_account_id = AccountId::genesis();
     let account_public_key = &configuration.genesis.account_public_key;
-    let mut domain = Domain::new(DomainId::genesis()).build(&genesis_account_id);
+
+    let mut domain = Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone())
+        .build(&iroha_genesis::GENESIS_ACCOUNT_ID);
 
     domain.accounts.insert(
-        <Account as Identifiable>::Id::genesis(),
+        iroha_genesis::GENESIS_ACCOUNT_ID.clone(),
         genesis_account(account_public_key.clone()),
     );
 

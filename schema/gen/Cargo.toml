@@ -8,7 +8,6 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-# TODO: Should genesis belong to schema? #3284
 iroha_genesis = { version = "=2.0.0-pre-rc.16", path = "../../genesis"}
 iroha_primitives = { version = "=2.0.0-pre-rc.16", path = "../../primitives" }
 iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "../../data_model", features = ["http"] }

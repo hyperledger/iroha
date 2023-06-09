@@ -10,8 +10,8 @@ pub mod wasm;
 use std::collections::BTreeMap;
 
 use iroha_data_model::{
-    evaluate::ExpressionEvaluator, isi::error::InstructionExecutionFailure as Error, prelude::*,
-    query::error::QueryExecutionFailure,
+    evaluate::ExpressionEvaluator, isi::error::InstructionExecutionError as Error, prelude::*,
+    query::error::QueryExecutionFail,
 };
 pub use isi::*;
 
@@ -35,7 +35,7 @@ pub trait ValidQuery: Query {
     ///
     /// # Errors
     /// Concrete to each implementer
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure>;
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFail>;
 }
 
 impl ExpressionEvaluator for WorldStateView {
@@ -47,9 +47,8 @@ impl ExpressionEvaluator for WorldStateView {
     }
 }
 
-/// Context of expression evaluation
 #[derive(Clone)]
-struct Context<'wsv> {
+pub(crate) struct Context<'wsv> {
     values: BTreeMap<Name, Value>,
     wsv: &'wsv WorldStateView,
 }

@@ -52,7 +52,8 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
         &network.genesis.telemetry_address,
     );
     let client = Client::new(&client_configuration)?;
-    client.submit_all_blocking(vec![create_asset.into(), set_signature_condition.into()])?;
+    let instructions: [InstructionBox; 2] = [create_asset.into(), set_signature_condition.into()];
+    client.submit_all_blocking(instructions)?;
 
     //When
     let quantity: u32 = 200;
@@ -64,9 +65,9 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     client_configuration.public_key = public_key1;
     client_configuration.private_key = private_key1;
     let client = Client::new(&client_configuration)?;
-    let instructions: Vec<InstructionBox> = vec![mint_asset.clone().into()];
+    let instructions = [mint_asset.clone()];
     let transaction = client.build_transaction(instructions, UnlimitedMetadata::new())?;
-    client.submit_transaction(client.sign_transaction(transaction)?)?;
+    client.submit_transaction(&client.sign_transaction(transaction)?)?;
     thread::sleep(pipeline_time);
 
     //Then
@@ -86,12 +87,12 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     client_configuration.public_key = public_key2;
     client_configuration.private_key = private_key2;
     let client_2 = Client::new(&client_configuration)?;
-    let instructions: Vec<InstructionBox> = vec![mint_asset.into()];
+    let instructions = [mint_asset];
     let transaction = client_2.build_transaction(instructions, UnlimitedMetadata::new())?;
     let transaction = client_2
         .get_original_transaction(&transaction, 3, Duration::from_millis(100))?
         .expect("Found no pending transaction for this account.");
-    client_2.submit_transaction(client_2.sign_transaction(transaction)?)?;
+    client_2.submit_transaction(&client_2.sign_transaction(transaction)?)?;
     thread::sleep(pipeline_time);
     let assets = client_1.request(request)?;
     assert!(!assets.is_empty());

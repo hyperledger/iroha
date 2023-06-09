@@ -40,8 +40,8 @@ use iroha_data_model::{
         GenericPredicateBox, NonTrivial, PredicateBox,
     },
     prelude::*,
-    query::error::{FindError, QueryExecutionFailure},
-    transaction::error::{TransactionExpired, TransactionLimitError},
+    query::error::{FindError, QueryExecutionFail},
+    transaction::{error::TransactionLimitError, SignedTransaction, TransactionLimits},
     validator::Validator,
     ValueKind, VersionedCommittedBlockWrapper,
 };
@@ -268,7 +268,7 @@ mod tests {
         let rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, account_id.clone());
         let trigger_id = "mint_rose".parse().expect("Valid");
         let action = Action::<FilterBox, Executable>::new(
-            vec![MintBox::new(1_u32, rose_id).into()],
+            vec![MintBox::new(1_u32, rose_id)],
             Repeats::Indefinitely,
             account_id,
             FilterBox::Data(DataEventFilter::BySome(DataEntityFilter::ByAccount(

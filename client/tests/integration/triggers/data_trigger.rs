@@ -8,7 +8,7 @@ use test_network::*;
 #[test]
 fn must_execute_both_triggers() -> Result<()> {
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_650).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let account_id: AccountId = "alice@wonderland".parse()?;
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -20,7 +20,7 @@ fn must_execute_both_triggers() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose_1".parse()?,
         Action::new(
-            vec![instruction.clone().into()],
+            [instruction.clone()],
             Repeats::Indefinitely,
             account_id.clone(),
             FilterBox::Data(BySome(DataEntityFilter::ByAccount(BySome(
@@ -33,7 +33,7 @@ fn must_execute_both_triggers() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose_2".parse()?,
         Action::new(
-            vec![instruction.into()],
+            [instruction],
             Repeats::Indefinitely,
             account_id,
             FilterBox::Data(BySome(DataEntityFilter::ByDomain(BySome(
@@ -58,7 +58,7 @@ fn must_execute_both_triggers() -> Result<()> {
 #[test]
 fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Result<()> {
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_655).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let create_neverland_domain = RegisterBox::new(Domain::new("neverland".parse()?));
 
@@ -73,11 +73,11 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
     let create_sakura_asset =
         RegisterBox::new(Asset::new(asset_id.clone(), AssetValue::Quantity(0)));
 
-    test_client.submit_all_blocking(vec![
-        create_neverland_domain.into(),
-        create_sapporo_account.into(),
-        create_sakura_asset_definition.into(),
-        create_sakura_asset.into(),
+    test_client.submit_all_blocking([
+        create_neverland_domain,
+        create_sapporo_account,
+        create_sakura_asset_definition,
+        create_sakura_asset,
     ])?;
 
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
@@ -85,7 +85,7 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_sakura$neverland".parse()?,
         Action::new(
-            vec![MintBox::new(1_u32, asset_id.clone()).into()],
+            [MintBox::new(1_u32, asset_id.clone())],
             Repeats::Indefinitely,
             account_id,
             FilterBox::Data(BySome(DataEntityFilter::ByAccount(BySome(

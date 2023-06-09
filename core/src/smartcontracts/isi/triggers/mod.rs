@@ -11,8 +11,8 @@ pub mod set;
 /// All instructions related to triggers.
 /// - registering a trigger
 /// - un-registering a trigger
-/// - TODO: technical accounts.
-/// - TODO: technical account permissions.
+/// - TODO: authorities.
+/// - TODO: authority permissions.
 pub mod isi {
     use iroha_data_model::{
         events::Filter,
@@ -169,7 +169,7 @@ pub mod isi {
                                 authority: authority.clone(),
                             };
 
-                            filter.matches(&event) || action.technical_account() == authority
+                            filter.matches(&event) || action.authority() == authority
                         } else {
                             false
                         };
@@ -195,9 +195,7 @@ pub mod isi {
 
 pub mod query {
     //! Queries associated to triggers.
-    use iroha_data_model::{
-        query::error::QueryExecutionFailure as Error, trigger::OptimizedExecutable,
-    };
+    use iroha_data_model::query::error::QueryExecutionFail as Error;
 
     use super::*;
     use crate::prelude::*;
@@ -221,7 +219,7 @@ pub mod query {
             let Action {
                 executable: loaded_executable,
                 repeats,
-                technical_account,
+                authority,
                 filter,
                 metadata,
             } = wsv
@@ -229,15 +227,10 @@ pub mod query {
                 .inspect_by_id(&id, |action| action.clone_and_box())
                 .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))?;
 
-            let action = Action::new(
-                OptimizedExecutable::from(loaded_executable),
-                repeats,
-                technical_account,
-                filter,
-            )
-            .with_metadata(metadata);
+            let action =
+                Action::new(loaded_executable, repeats, authority, filter).with_metadata(metadata);
 
-            // TODO: Should we redact the metadata if the account is not the technical account/owner?
+            // TODO: Should we redact the metadata if the account is not the authority/owner?
             Ok(Trigger::new(id, action))
         }
     }
@@ -277,19 +270,14 @@ pub mod query {
                     let Action {
                         executable: loaded_executable,
                         repeats,
-                        technical_account,
+                        authority,
                         filter,
                         metadata,
                     } = action.clone_and_box();
                     Trigger::new(
                         trigger_id.clone(),
-                        Action::new(
-                            OptimizedExecutable::from(loaded_executable),
-                            repeats,
-                            technical_account,
-                            filter,
-                        )
-                        .with_metadata(metadata),
+                        Action::new(loaded_executable, repeats, authority, filter)
+                            .with_metadata(metadata),
                     )
                 });
 

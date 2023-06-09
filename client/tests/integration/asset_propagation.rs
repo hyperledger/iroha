@@ -33,11 +33,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id = AssetDefinitionId::from_str("xor#domain")?;
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
-    client.submit_all(vec![
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-    ])?;
+    client.submit_all([create_domain, create_account, create_asset])?;
     thread::sleep(pipeline_time * 3);
     //When
     let quantity: u32 = 200;

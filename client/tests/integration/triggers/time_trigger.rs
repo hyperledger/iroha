@@ -48,7 +48,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
-            vec![instruction.into()],
+            vec![instruction],
             Repeats::Indefinitely,
             account_id.clone(),
             FilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
@@ -103,7 +103,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "change_rose_metadata".parse().expect("Valid"),
         Action::new(
-            vec![instruction.into()],
+            vec![instruction],
             Repeats::from(1_u32),
             account_id.clone(),
             FilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
@@ -147,7 +147,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
-            vec![instruction.into()],
+            vec![instruction],
             Repeats::Indefinitely,
             account_id.clone(),
             FilterBox::Time(TimeEventFilter::new(ExecutionTime::PreCommit)),
@@ -197,7 +197,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
         .iter()
         .skip(1) // Alice has already been registered in genesis
         .cloned()
-        .map(|account_id| RegisterBox::new(Account::new(account_id, [])).into())
+        .map(|account_id| RegisterBox::new(Account::new(account_id, [])))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 

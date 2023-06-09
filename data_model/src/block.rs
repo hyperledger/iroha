@@ -39,7 +39,6 @@ mod header {
             Clone,
             PartialEq,
             Eq,
-            Hash,
             Getters,
             Decode,
             Encode,
@@ -78,11 +77,6 @@ mod header {
     }
 
     impl BlockHeader {
-        /// Checks if it's a header of a genesis block.
-        #[inline]
-        pub const fn is_genesis(&self) -> bool {
-            self.height == 1
-        }
         /// Serialize the header's data for hashing purposes.
         pub fn payload(&self) -> Vec<u8> {
             let mut data = Vec::new();
@@ -126,9 +120,9 @@ mod committed {
     use super::*;
 
     #[cfg(any(feature = "ffi_import", feature = "ffi_export"))]
-    declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, Deserialize, Serialize, iroha_ffi::FfiType, IntoSchema);
+    declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, PartialEq, Eq, FromVariant, Deserialize, Serialize, iroha_ffi::FfiType, IntoSchema);
     #[cfg(all(not(feature = "ffi_import"), not(feature = "ffi_export")))]
-    declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, PartialEq, Eq, Hash, FromVariant, Deserialize, Serialize, IntoSchema);
+    declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, PartialEq, Eq, FromVariant, Deserialize, Serialize, IntoSchema);
 
     #[model]
     pub mod model {
@@ -169,7 +163,6 @@ mod committed {
             Clone,
             PartialEq,
             Eq,
-            Hash,
             Getters,
             Decode,
             Encode,
@@ -186,11 +179,11 @@ mod committed {
             /// Array of rejected transactions.
             // TODO: Derive with getset once FFI impl is fixed
             #[getset(skip)]
-            pub rejected_transactions: Vec<VersionedRejectedTransaction>,
+            pub rejected_transactions: Vec<RejectedTransaction>,
             /// array of transactions, which successfully passed validation and consensus step.
             // TODO: Derive with getset once FFI impl is fixed
             #[getset(skip)]
-            pub transactions: Vec<VersionedValidTransaction>,
+            pub transactions: Vec<VersionedSignedTransaction>,
             /// Event recommendations.
             // TODO: Derive with getset once FFI impl is fixed
             #[getset(skip)]
@@ -202,6 +195,13 @@ mod committed {
     }
 
     impl VersionedCommittedBlock {
+        /// Checks if it's a header of a genesis block.
+        #[inline]
+        pub const fn is_genesis(&self) -> bool {
+            let VersionedCommittedBlock::V1(block) = self;
+            block.header.height == 1
+        }
+
         /// Convert from `&VersionedCommittedBlock` to V1 reference
         #[inline]
         pub const fn as_v1(&self) -> &CommittedBlock {
@@ -270,6 +270,11 @@ mod committed {
     }
 
     impl CommittedBlock {
+        /// Checks if it's a header of a genesis block.
+        pub const fn is_genesis(&self) -> bool {
+            self.header.height == 1
+        }
+
         /// Calculate the partial hash of the current block.
         /// [`CommitedBlock`] should have the same partial hash as [`PendingBlock`].
         #[cfg(feature = "std")]
@@ -289,7 +294,7 @@ mod committed {
                 data.extend(s.key_payload());
                 data.extend(s.signature_payload());
             }
-            Hash::new(&data).typed()
+            HashOf::from_untyped_unchecked(Hash::new(&data))
         }
 
         /// Return signatures that are verified with the `hash` of this block
@@ -315,25 +320,21 @@ mod committed {
     #[cfg(feature = "std")]
     impl From<&CommittedBlock> for Vec<Event> {
         fn from(block: &CommittedBlock) -> Self {
-            let rejected_tx = block
-                .rejected_transactions
-                .iter()
-                .cloned()
-                .map(|transaction| {
+            let rejected_tx = block.rejected_transactions.iter().cloned().map(
+                |RejectedTransaction { transaction, error }| {
                     PipelineEvent {
                         entity_kind: PipelineEntityKind::Transaction,
-                        status: PipelineStatus::Rejected(
-                            transaction.as_v1().rejection_reason.clone().into(),
-                        ),
-                        hash: transaction.hash().into(),
+                        status: PipelineStatus::Rejected(error.into()),
+                        hash: transaction.payload().hash().into(),
                     }
                     .into()
-                });
-            let tx = block.transactions.iter().cloned().map(|transaction| {
+                },
+            );
+            let tx = block.transactions.iter().cloned().map(|tx| {
                 PipelineEvent {
                     entity_kind: PipelineEntityKind::Transaction,
                     status: PipelineStatus::Committed,
-                    hash: transaction.hash().into(),
+                    hash: tx.payload().hash().into(),
                 }
                 .into()
             });
@@ -475,7 +476,6 @@ pub mod error {
             Copy,
             PartialEq,
             Eq,
-            Hash,
             iroha_macro::FromVariant,
             Decode,
             Encode,

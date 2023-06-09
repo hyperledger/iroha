@@ -1,17 +1,22 @@
 //! Module for client-related configuration and structs
 #![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use core::str::FromStr;
+use std::num::NonZeroU64;
 
 use derive_more::Display;
 use eyre::{Result, WrapErr};
 use iroha_config_base::derive::{Documented, Error as ConfigError, Proxy};
 use iroha_crypto::prelude::*;
-use iroha_data_model::{prelude::*, transaction};
+use iroha_data_model::{prelude::*, transaction::TransactionLimits};
 use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
+use crate::wsv::default::DEFAULT_TRANSACTION_LIMITS;
+
+#[allow(unsafe_code)]
+const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: NonZeroU64 =
+    unsafe { NonZeroU64::new_unchecked(100_000) };
 const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 15_000;
 const DEFAULT_ADD_TRANSACTION_NONCE: bool = false;
 
@@ -79,10 +84,15 @@ pub struct Configuration {
     /// Status URL.
     pub torii_telemetry_url: Url,
     /// Proposed transaction TTL in milliseconds.
-    pub transaction_time_to_live_ms: u64,
+    pub transaction_time_to_live_ms: Option<NonZeroU64>,
     /// Transaction status wait timeout in milliseconds.
     pub transaction_status_timeout_ms: u64,
     /// The limits to which transactions must adhere to
+    // NOTE: If you want this functionality, implement it in the app manually
+    #[deprecated(
+        note = "This parameter is not used and takes no effect and will be removed in future releases. \
+        If you want this functionality, implement it in the app manually."
+    )]
     pub transaction_limits: TransactionLimits,
     /// If `true` add nonce, which make different hashes for transactions which occur repeatedly and simultaneously
     pub add_transaction_nonce: bool,
@@ -97,9 +107,9 @@ impl Default for ConfigurationProxy {
             basic_auth: Some(None),
             torii_api_url: None,
             torii_telemetry_url: None,
-            transaction_time_to_live_ms: Some(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS),
+            transaction_time_to_live_ms: Some(Some(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS)),
             transaction_status_timeout_ms: Some(DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS),
-            transaction_limits: Some(transaction::DEFAULT_TRANSACTION_LIMITS),
+            transaction_limits: Some(DEFAULT_TRANSACTION_LIMITS),
             add_transaction_nonce: Some(DEFAULT_ADD_TRANSACTION_NONCE),
         }
     }
@@ -107,21 +117,19 @@ impl Default for ConfigurationProxy {
 
 // TODO: explain why these values were chosen.
 const TTL_TOO_SMALL_THRESHOLD: u64 = 500;
-const WASM_SIZE_TOO_SMALL_THRESHOLD: u64 = 2_u64.pow(10); // 1 KiB
 
 impl ConfigurationProxy {
     /// Finalise Iroha client config proxy by checking that certain fields identify reasonable limits or
     /// are well formatted.
     ///
     /// # Errors
-    /// - If the [`self.transaction_time_to_live_ms`] or [`self.transaction_limits.max_wasm_size_bytes`] fields were too small
+    /// - If the [`self.transaction_time_to_live_ms`] field is too small
     /// - If the [`self.transaction_status_timeout_ms`] field was smaller than [`self.transaction_time_to_live_ms`]
     /// - If the [`self.torii_api_url`] or [`self.torii_telemetry_url`] were malformed or had the wrong protocol
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     pub fn finish(&mut self) -> Result<()> {
-        if let Some(tx_ttl) = self.transaction_time_to_live_ms {
+        if let Some(Some(tx_ttl)) = self.transaction_time_to_live_ms {
             // Really small TTL would be detrimental to performance
-            if tx_ttl < TTL_TOO_SMALL_THRESHOLD {
+            if u64::from(tx_ttl) < TTL_TOO_SMALL_THRESHOLD {
                 eyre::bail!(ConfigError::InsaneValue {
                     field: "TRANSACTION_TIME_TO_LIVE_MS",
                     value: tx_ttl.to_string(),
@@ -130,22 +138,13 @@ impl ConfigurationProxy {
             }
             // Timeouts bigger than transaction TTL don't make sense as then transaction would be discarded before this timeout
             if let Some(timeout) = self.transaction_status_timeout_ms {
-                if timeout > tx_ttl {
+                if timeout > tx_ttl.into() {
                     eyre::bail!(ConfigError::InsaneValue {
                         field: "TRANSACTION_STATUS_TIMEOUT_MS",
                         value: timeout.to_string(),
                         message: format!(", because it should be smaller than `TRANSACTION_TIME_TO_LIVE_MS`, which is {tx_ttl}")
                     })
                 }
-            }
-        }
-        if let Some(tx_limits) = self.transaction_limits {
-            if *tx_limits.max_wasm_size_bytes() < WASM_SIZE_TOO_SMALL_THRESHOLD {
-                eyre::bail!(ConfigError::InsaneValue {
-                    field: "TRANSACTION_LIMITS",
-                    value: format!("{}", tx_limits.max_wasm_size_bytes()),
-                    message: String::new()
-                });
             }
         }
         if let Some(api_url) = &self.torii_api_url {
@@ -237,9 +236,9 @@ mod tests {
                 basic_auth in prop::option::of(Just(None)),
                 torii_api_url in prop::option::of(Just(format!("http://{DEFAULT_API_ADDR}").parse().unwrap())),
                 torii_telemetry_url in prop::option::of(Just(format!("http://{DEFAULT_TORII_TELEMETRY_ADDR}").parse().unwrap())),
-                transaction_time_to_live_ms in prop::option::of(Just(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS)),
+                transaction_time_to_live_ms in prop::option::of(Just(Some(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS))),
                 transaction_status_timeout_ms in prop::option::of(Just(DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS)),
-                transaction_limits in prop::option::of(Just(transaction::DEFAULT_TRANSACTION_LIMITS)),
+                transaction_limits in prop::option::of(Just(DEFAULT_TRANSACTION_LIMITS)),
                 add_transaction_nonce in prop::option::of(Just(DEFAULT_ADD_TRANSACTION_NONCE)),
             )
             -> ConfigurationProxy {

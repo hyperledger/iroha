@@ -24,10 +24,11 @@ use iroha_config::{
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     block::{CommittedBlock, VersionedCommittedBlock},
-    isi::error::{InstructionExecutionFailure as Error, MathError},
+    isi::error::{InstructionExecutionError as Error, MathError},
     parameter::Parameter,
     prelude::*,
-    query::error::{FindError, QueryExecutionFailure},
+    query::error::{FindError, QueryExecutionFail},
+    transaction::TransactionQueryResult,
     trigger::action::ActionTrait,
 };
 use iroha_logger::prelude::*;
@@ -39,7 +40,6 @@ use crate::validator::MockValidator as Validator;
 use crate::validator::Validator;
 use crate::{
     kura::Kura,
-    prelude::*,
     smartcontracts::{
         triggers::{
             self,
@@ -157,7 +157,7 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if there is no domain or account
-    pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, QueryExecutionFailure> {
+    pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, QueryExecutionFail> {
         self.map_account(id, |account| account.assets.values().cloned().collect())
     }
 
@@ -244,7 +244,7 @@ impl WorldStateView {
         event: Event,
     ) -> Result<()> {
         use triggers::set::LoadedExecutable::*;
-        let authority = action.technical_account();
+        let authority = action.authority();
 
         match action.executable() {
             Instructions(instructions) => {
@@ -432,14 +432,15 @@ impl WorldStateView {
     fn execute_transactions(&mut self, block: &CommittedBlock) -> Result<()> {
         // TODO: Should this block panic instead?
         for tx in &block.transactions {
-            self.process_executable(
-                &tx.as_v1().payload.instructions,
-                tx.payload().account_id.clone(),
-            )?;
+            self.process_executable(tx.payload().instructions(), tx.payload().authority.clone())?;
             self.transactions.insert(tx.hash());
         }
-        for tx in &block.rejected_transactions {
-            self.transactions.insert(tx.hash());
+        for RejectedTransaction {
+            transaction,
+            error: _,
+        } in &block.rejected_transactions
+        {
+            self.transactions.insert(transaction.hash());
         }
 
         Ok(())
@@ -451,16 +452,14 @@ impl WorldStateView {
     /// - No such [`Asset`]
     /// - The [`Account`] with which the [`Asset`] is associated doesn't exist.
     /// - The [`Domain`] with which the [`Account`] is associated doesn't exist.
-    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, QueryExecutionFailure> {
+    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, QueryExecutionFail> {
         self.map_account(
             &id.account_id,
-            |account| -> Result<Asset, QueryExecutionFailure> {
+            |account| -> Result<Asset, QueryExecutionFail> {
                 account
                     .assets
                     .get(id)
-                    .ok_or_else(|| {
-                        QueryExecutionFailure::from(Box::new(FindError::Asset(id.clone())))
-                    })
+                    .ok_or_else(|| QueryExecutionFail::from(Box::new(FindError::Asset(id.clone()))))
                     .map(Clone::clone)
             },
         )?
@@ -652,8 +651,8 @@ impl WorldStateView {
 
     /// Check if this [`VersionedSignedTransaction`] is already committed or rejected.
     #[inline]
-    pub fn has_transaction(&self, hash: &HashOf<VersionedSignedTransaction>) -> bool {
-        self.transactions.contains(hash)
+    pub fn has_transaction(&self, hash: HashOf<VersionedSignedTransaction>) -> bool {
+        self.transactions.contains(&hash)
     }
 
     /// Height of blockchain
@@ -687,12 +686,12 @@ impl WorldStateView {
         &self,
         id: &AccountId,
         f: impl FnOnce(&Account) -> T,
-    ) -> Result<T, QueryExecutionFailure> {
+    ) -> Result<T, QueryExecutionFail> {
         let domain = self.domain(&id.domain_id)?;
         let account = domain
             .accounts
             .get(id)
-            .ok_or(QueryExecutionFailure::Unauthorized)?;
+            .ok_or(QueryExecutionFail::Unauthorized)?;
         Ok(f(account))
     }
 
@@ -893,8 +892,8 @@ impl WorldStateView {
                     .iter()
                     .cloned()
                     .map(|versioned_rejected_tx| TransactionQueryResult {
-                        tx_value: TransactionValue::RejectedTransaction(versioned_rejected_tx),
-                        block_hash: Hash::from(block.hash()),
+                        transaction: TransactionValue::RejectedTransaction(versioned_rejected_tx),
+                        block_hash: block.hash(),
                     })
                     .chain(
                         block
@@ -903,8 +902,8 @@ impl WorldStateView {
                             .cloned()
                             .map(VersionedSignedTransaction::from)
                             .map(|versioned_tx| TransactionQueryResult {
-                                tx_value: TransactionValue::Transaction(versioned_tx),
-                                block_hash: Hash::from(block.hash()),
+                                transaction: TransactionValue::Transaction(versioned_tx),
+                                block_hash: block.hash(),
                             }),
                     )
                     .collect::<Vec<_>>()
@@ -918,12 +917,19 @@ impl WorldStateView {
     pub fn transaction_value_by_hash(
         &self,
         hash: &HashOf<VersionedSignedTransaction>,
-    ) -> Option<TransactionValue> {
+    ) -> Option<TransactionQueryResult> {
         self.all_blocks_by_value().find_map(|b| {
+            let block_hash = b.as_v1().hash();
+
             b.as_v1()
                 .rejected_transactions
                 .iter()
-                .find(|e| e.hash() == *hash)
+                .find(
+                    |RejectedTransaction {
+                         transaction,
+                         error: _,
+                     }| transaction.hash() == *hash,
+                )
                 .cloned()
                 .map(TransactionValue::RejectedTransaction)
                 .or_else(|| {
@@ -935,6 +941,10 @@ impl WorldStateView {
                         .map(VersionedSignedTransaction::from)
                         .map(TransactionValue::Transaction)
                 })
+                .map(|tx| TransactionQueryResult {
+                    transaction: tx,
+                    block_hash,
+                })
         })
     }
 
@@ -942,26 +952,39 @@ impl WorldStateView {
     pub fn transactions_values_by_account_id(
         &self,
         account_id: &AccountId,
-    ) -> Vec<TransactionValue> {
+    ) -> Vec<TransactionQueryResult> {
         let mut transactions = self
             .all_blocks_by_value()
             .flat_map(|block_entry| {
                 let block = block_entry.as_v1();
+                let block_hash = block.hash();
+
                 block
                     .rejected_transactions
                     .iter()
-                    .filter(|transaction| &transaction.payload().account_id == account_id)
+                    .filter(
+                        |RejectedTransaction {
+                             transaction,
+                             error: _,
+                         }| {
+                            transaction.payload().authority == *account_id
+                        },
+                    )
                     .cloned()
                     .map(TransactionValue::RejectedTransaction)
                     .chain(
                         block
                             .transactions
                             .iter()
-                            .filter(|transaction| &transaction.payload().account_id == account_id)
+                            .filter(|tx| &tx.payload().authority == account_id)
                             .cloned()
                             .map(VersionedSignedTransaction::from)
                             .map(TransactionValue::Transaction),
                     )
+                    .map(|tx| TransactionQueryResult {
+                        transaction: tx,
+                        block_hash,
+                    })
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();

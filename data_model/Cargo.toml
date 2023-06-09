@@ -50,7 +50,6 @@ thiserror = { version = "1.0.38", optional = true }
 getset = "0.1.2"
 strum = { version = "0.24.1", default-features = false, features = ["derive"] }
 base64 = { version = "0.13.1", default-features = false, features = ["alloc"]}
-sealed = "0.5.0"
 
 [dev-dependencies]
 iroha_client = { path = "../client", version = "=2.0.0-pre-rc.16" }

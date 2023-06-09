@@ -36,11 +36,7 @@ fn long_multiple_blocks_created() -> Result<()> {
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
 
-    client.submit_all(vec![
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-    ])?;
+    client.submit_all([create_domain, create_account, create_asset])?;
 
     thread::sleep(pipeline_time);
 

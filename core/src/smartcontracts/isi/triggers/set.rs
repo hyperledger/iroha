@@ -13,8 +13,8 @@ use std::{collections::HashMap, fmt};
 
 use iroha_crypto::HashOf;
 use iroha_data_model::{
-    events::{EventType, Filter as EventFilter},
-    isi::error::{InstructionExecutionFailure, MathError},
+    events::Filter as EventFilter,
+    isi::error::{InstructionExecutionError, MathError},
     prelude::*,
     query::error::FindError,
     trigger::{action::ActionTrait, OptimizedExecutable, WasmInternalRepr},
@@ -173,7 +173,7 @@ impl Set {
         let Action {
             executable,
             repeats,
-            technical_account,
+            authority,
             filter,
             metadata,
         } = trigger.action;
@@ -191,7 +191,7 @@ impl Set {
             LoadedAction {
                 executable: loaded_executable,
                 repeats,
-                technical_account,
+                authority,
                 filter,
                 metadata,
             },
@@ -587,7 +587,7 @@ pub enum ModRepeatsError {
 #[error("Trigger repeats count overflow")]
 pub struct RepeatsOverflowError;
 
-impl From<ModRepeatsError> for InstructionExecutionFailure {
+impl From<ModRepeatsError> for InstructionExecutionError {
     fn from(err: ModRepeatsError) -> Self {
         match err {
             ModRepeatsError::NotFound(not_found_id) => FindError::Trigger(not_found_id).into(),

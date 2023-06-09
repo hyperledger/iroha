@@ -16,7 +16,6 @@ macro_rules! data_event {
                 Clone,
                 PartialEq,
                 Eq,
-                Hash,
                 Filter,
                 HasOrigin,
                 parity_scale_codec::Decode,
@@ -38,9 +37,7 @@ pub mod model {
 
     /// Generic [`MetadataChanged`] struct.
     /// Contains the changed metadata (`(key, value)` pair), either inserted or removed, which is determined by the wrapping event.
-    #[derive(
-        Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
-    )]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     // TODO: Generics are not supported. Figure out what to do
     //#[getset(get = "pub")]
     #[ffi_type]
@@ -68,17 +65,7 @@ pub mod model {
 
     /// Event
     #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
     #[ffi_type]
     pub enum DataEvent {
@@ -158,17 +145,7 @@ mod asset {
 
         /// Depending on the wrapping event, [`Self`] represents the added or removed asset quantity.
         #[derive(
-            Debug,
-            Clone,
-            PartialEq,
-            Eq,
-            Hash,
-            Getters,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
+            Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
         )]
         #[getset(get = "pub")]
         #[ffi_type]
@@ -179,17 +156,7 @@ mod asset {
 
         /// [`Self`] represents updated total asset quantity.
         #[derive(
-            Debug,
-            Clone,
-            PartialEq,
-            Eq,
-            Hash,
-            Getters,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
+            Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
         )]
         #[getset(get = "pub")]
         #[ffi_type]
@@ -200,17 +167,7 @@ mod asset {
 
         /// [`Self`] represents updated total asset quantity.
         #[derive(
-            Debug,
-            Clone,
-            PartialEq,
-            Eq,
-            Hash,
-            Getters,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
+            Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
         )]
         #[getset(get = "pub")]
         #[ffi_type]
@@ -218,7 +175,7 @@ mod asset {
             /// Id of asset definition being updated
             pub asset_definition_id: AssetDefinitionId,
             /// Id of new owning account
-            pub new_owner: <Account as Identifiable>::Id,
+            pub new_owner: AccountId,
         }
     }
 }
@@ -270,7 +227,6 @@ mod role {
             Eq,
             PartialOrd,
             Ord,
-            Hash,
             Getters,
             Decode,
             Encode,
@@ -284,7 +240,7 @@ mod role {
             /// Role id
             pub role_id: RoleId,
             /// [`PermissionTokenDefinition`] id. All [`PermissionToken`]s with this definition id were removed.
-            pub permission_definition_id: <PermissionTokenDefinition as Identifiable>::Id,
+            pub permission_definition_id: PermissionTokenId,
         }
     }
 }
@@ -353,7 +309,6 @@ mod account {
             Eq,
             PartialOrd,
             Ord,
-            Hash,
             Getters,
             Decode,
             Encode,
@@ -376,7 +331,6 @@ mod account {
             Eq,
             PartialOrd,
             Ord,
-            Hash,
             Getters,
             Decode,
             Encode,
@@ -451,7 +405,6 @@ mod trigger {
             Eq,
             PartialOrd,
             Ord,
-            Hash,
             Getters,
             Decode,
             Encode,
@@ -496,7 +449,6 @@ mod validator {
             Clone,
             PartialEq,
             Eq,
-            Hash,
             parity_scale_codec::Decode,
             parity_scale_codec::Encode,
             serde::Deserialize,
@@ -603,7 +555,7 @@ impl From<AssetEvent> for WorldEvent {
 
 impl DataEvent {
     /// Return the domain id of [`Event`]
-    pub fn domain_id(&self) -> Option<&<Domain as Identifiable>::Id> {
+    pub fn domain_id(&self) -> Option<&DomainId> {
         match self {
             Self::Domain(event) => Some(event.origin_id()),
             Self::Account(event) => Some(&event.origin_id().domain_id),

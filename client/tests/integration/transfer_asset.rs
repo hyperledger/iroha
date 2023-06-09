@@ -54,7 +54,7 @@ fn simulate_transfer<
     let (_rt, _peer, mut iroha_client) = <PeerBuilder>::new()
         .with_port(port_number)
         .start_with_runtime();
-    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
+    wait_for_genesis_committed(&[iroha_client.clone()], 0);
 
     let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
@@ -69,13 +69,14 @@ fn simulate_transfer<
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
     );
 
+    let instructions: [InstructionBox; 3] = [
+        // create_alice.into(), We don't need to register Alice, because she is created in genesis
+        create_mouse.into(),
+        create_asset.into(),
+        mint_asset.into(),
+    ];
     iroha_client
-        .submit_all_blocking(vec![
-            // create_alice.into(), We don't need to register Alice, because she is created in genesis
-            create_mouse.into(),
-            create_asset.into(),
-            mint_asset.into(),
-        ])
+        .submit_all_blocking(instructions)
         .expect("Failed to prepare state.");
 
     //When

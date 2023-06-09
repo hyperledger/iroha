@@ -1,10 +1,11 @@
 //! This module contains trait implementations related to block queries
 use eyre::{Result, WrapErr};
+use iroha_crypto::HashOf;
 use iroha_data_model::{
     evaluate::ExpressionEvaluator,
     query::{
         block::FindBlockHeaderByHash,
-        error::{FindError, QueryExecutionFailure},
+        error::{FindError, QueryExecutionFail},
     },
 };
 use iroha_telemetry::metrics;
@@ -13,7 +14,7 @@ use super::*;
 
 impl ValidQuery for FindAllBlocks {
     #[metrics(+"find_all_blocks")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFail> {
         let blocks = wsv.all_blocks_by_value().rev().collect();
         Ok(blocks)
     }
@@ -21,7 +22,7 @@ impl ValidQuery for FindAllBlocks {
 
 impl ValidQuery for FindAllBlockHeaders {
     #[metrics(+"find_all_block_headers")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFail> {
         let block_headers = wsv
             .all_blocks_by_value()
             .rev()
@@ -33,17 +34,17 @@ impl ValidQuery for FindAllBlockHeaders {
 
 impl ValidQuery for FindBlockHeaderByHash {
     #[metrics(+"find_block_header")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFailure> {
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFail> {
         let hash = wsv
             .evaluate(&self.hash)
             .wrap_err("Failed to evaluate hash")
-            .map_err(|e| QueryExecutionFailure::Evaluate(e.to_string()))?
-            .typed();
+            .map(HashOf::from_untyped_unchecked)
+            .map_err(|e| QueryExecutionFail::Evaluate(e.to_string()))?;
 
         let block = wsv
             .all_blocks_by_value()
             .find(|block| block.hash() == hash)
-            .ok_or_else(|| QueryExecutionFailure::Find(Box::new(FindError::Block(hash))))?;
+            .ok_or_else(|| QueryExecutionFail::Find(Box::new(FindError::Block(hash))))?;
 
         Ok(block.into_v1().header)
     }

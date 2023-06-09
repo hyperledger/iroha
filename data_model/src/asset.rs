@@ -26,17 +26,15 @@ use crate::{
 };
 
 /// API to work with collections of [`Id`] : [`Asset`] mappings.
-pub type AssetsMap = btree_map::BTreeMap<<Asset as Identifiable>::Id, Asset>;
+pub type AssetsMap = btree_map::BTreeMap<AssetId, Asset>;
 
 /// [`AssetDefinitionsMap`] provides an API to work with collection of key([`AssetDefinitionId`])-value([`AssetDefinition`])
 /// pairs.
-pub type AssetDefinitionsMap =
-    btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, AssetDefinition>;
+pub type AssetDefinitionsMap = btree_map::BTreeMap<AssetDefinitionId, AssetDefinition>;
 
 /// [`AssetTotalQuantityMap`] provides an API to work with collection of key([`AssetDefinitionId`])-value([`AssetValue`])
 /// pairs.
-pub type AssetTotalQuantityMap =
-    btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, NumericValue>;
+pub type AssetTotalQuantityMap = btree_map::BTreeMap<AssetDefinitionId, NumericValue>;
 
 #[model]
 pub mod model {
@@ -76,7 +74,7 @@ pub mod model {
         /// Asset name.
         pub name: Name,
         /// Domain id.
-        pub domain_id: <Domain as Identifiable>::Id,
+        pub domain_id: DomainId,
     }
 
     /// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
@@ -99,9 +97,9 @@ pub mod model {
     #[ffi_type]
     pub struct AssetId {
         /// Entity Identification.
-        pub definition_id: <AssetDefinition as Identifiable>::Id,
+        pub definition_id: AssetDefinitionId,
         /// Account Identification.
-        pub account_id: <Account as Identifiable>::Id,
+        pub account_id: AccountId,
     }
 
     /// Asset definition defines the type of that asset.
@@ -136,7 +134,7 @@ pub mod model {
         pub metadata: Metadata,
         /// The account that owns this asset. Usually the [`Account`] that registered it.
         #[getset(get = "pub")]
-        pub owned_by: <Account as Identifiable>::Id,
+        pub owned_by: AccountId,
     }
 
     /// Asset represents some sort of commodity or value.
@@ -171,7 +169,7 @@ pub mod model {
     #[ffi_type]
     pub struct NewAssetDefinition {
         /// The identification associated with the asset definition builder.
-        pub id: <AssetDefinition as Identifiable>::Id,
+        pub id: AssetDefinitionId,
         /// The type value associated with the asset definition builder.
         pub value_type: AssetValueType,
         /// The mintablility associated with the asset definition builder.
@@ -191,7 +189,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         EnumString,
         Decode,
         Encode,
@@ -223,7 +220,6 @@ pub mod model {
         Clone,
         PartialEq,
         Eq,
-        Hash,
         Decode,
         Encode,
         Deserialize,
@@ -284,48 +280,42 @@ impl AssetDefinition {
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
-    pub fn new(
-        id: <Self as Identifiable>::Id,
-        value_type: AssetValueType,
-    ) -> <Self as Registered>::With {
+    pub fn new(id: AssetDefinitionId, value_type: AssetValueType) -> <Self as Registered>::With {
         <Self as Registered>::With::new(id, value_type)
     }
 
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
-    pub fn quantity(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
+    pub fn quantity(id: AssetDefinitionId) -> <Self as Registered>::With {
         <Self as Registered>::With::new(id, AssetValueType::Quantity)
     }
 
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
-    pub fn big_quantity(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
+    pub fn big_quantity(id: AssetDefinitionId) -> <Self as Registered>::With {
         <Self as Registered>::With::new(id, AssetValueType::BigQuantity)
     }
 
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
-    pub fn fixed(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
+    pub fn fixed(id: AssetDefinitionId) -> <Self as Registered>::With {
         <Self as Registered>::With::new(id, AssetValueType::Fixed)
     }
 
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
-    pub fn store(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
+    pub fn store(id: AssetDefinitionId) -> <Self as Registered>::With {
         <Self as Registered>::With::new(id, AssetValueType::Store)
     }
 }
 
 impl Asset {
     /// Constructor
-    pub fn new(
-        id: <Asset as Identifiable>::Id,
-        value: impl Into<AssetValue>,
-    ) -> <Self as Registered>::With {
+    pub fn new(id: AssetId, value: impl Into<AssetValue>) -> <Self as Registered>::With {
         Self {
             id,
             value: value.into(),
@@ -335,7 +325,7 @@ impl Asset {
 
 impl NewAssetDefinition {
     /// Create a [`NewAssetDefinition`], reserved for internal use.
-    fn new(id: <AssetDefinition as Identifiable>::Id, value_type: AssetValueType) -> Self {
+    fn new(id: AssetDefinitionId, value_type: AssetValueType) -> Self {
         Self {
             id,
             value_type,
@@ -490,7 +480,7 @@ impl FromStr for AssetId {
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
         if let Some((asset_definition_candidate, account_id_candidate)) = string.rsplit_once('#') {
-            let account_id: <Account as Identifiable>::Id = account_id_candidate.parse()
+            let account_id: AccountId = account_id_candidate.parse()
                 .map_err(|_err| ParseError {
                     reason: "Failed to parse the `account_id` part of the `asset_id`. Please ensure that it has the form `account@domain`"
                 })?;

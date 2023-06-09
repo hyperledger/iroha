@@ -247,7 +247,7 @@ impl Validator {
 }
 
 struct State<'wrld> {
-    account_id: AccountId,
+    authority: AccountId,
     /// Ensures smartcontract adheres to limits
     validator: Option<Validator>,
     store_limits: StoreLimits,
@@ -263,13 +263,13 @@ struct State<'wrld> {
 impl<'wrld> State<'wrld> {
     fn new(
         wsv: &'wrld mut WorldStateView,
-        account_id: AccountId,
+        authority: AccountId,
         config: Configuration,
         log_span: Span,
     ) -> Self {
         Self {
             wsv,
-            account_id,
+            authority,
             validator: None,
             triggering_event: None,
             operation_to_validate: None,
@@ -353,7 +353,7 @@ impl<'wrld> Runtime<'wrld> {
             // Add a flag indicating whether smart contract is being validated or executed
             wsv.validator_view()
                 .clone() // Cloning validator is a cheap operation
-                .validate(wsv, &state.account_id, query.clone())?
+                .validate(wsv, &state.authority, query.clone())?
         }
 
         query.execute(wsv).map_err(Into::into)
@@ -369,7 +369,7 @@ impl<'wrld> Runtime<'wrld> {
 
         let State {
             wsv,
-            account_id,
+            authority,
             validator,
             operation_to_validate,
             ..
@@ -378,7 +378,7 @@ impl<'wrld> Runtime<'wrld> {
         let called_from_validator = operation_to_validate.is_some();
         if called_from_validator {
             // NOTE: Validator has already validated the isi, don't validate again
-            instruction.execute(account_id, wsv).map_err(Into::into)
+            instruction.execute(authority, wsv).map_err(Into::into)
         } else {
             // NOTE: Smart contract (not validator) is trying to execute the isi, validate it first
             if let Some(validator) = validator {
@@ -390,13 +390,13 @@ impl<'wrld> Runtime<'wrld> {
             // Add a flag indicating whether smart contract is being validated or executed
             wsv.validator_view()
                 .clone() // Cloning validator is a cheap operation
-                .validate(wsv, account_id, instruction)
+                .validate(wsv, authority, instruction)
         }
     }
 
     #[codec::wrap]
     fn query_authority(state: &State) -> AccountId {
-        state.account_id.clone()
+        state.authority.clone()
     }
 
     #[codec::wrap]
@@ -562,13 +562,13 @@ impl<'wrld> Runtime<'wrld> {
     pub fn validate(
         &mut self,
         wsv: &mut WorldStateView,
-        account_id: AccountId,
+        authority: AccountId,
         bytes: impl AsRef<[u8]>,
         max_instruction_count: u64,
     ) -> Result<()> {
-        let span = wasm_log_span!("Smart contract validation", %account_id);
+        let span = wasm_log_span!("Smart contract validation", %authority);
         let state =
-            State::new(wsv, account_id, self.config, span).with_validator(max_instruction_count);
+            State::new(wsv, authority, self.config, span).with_validator(max_instruction_count);
 
         self.execute_smart_contract_with_state(bytes, state)
     }
@@ -583,12 +583,12 @@ impl<'wrld> Runtime<'wrld> {
         &mut self,
         wsv: &mut WorldStateView,
         id: &TriggerId,
-        account_id: AccountId,
+        authority: AccountId,
         module: &wasmtime::Module,
         event: Event,
     ) -> Result<()> {
-        let span = wasm_log_span!("Trigger execution", %id, %account_id);
-        let state = State::new(wsv, account_id, self.config, span).with_triggering_event(event);
+        let span = wasm_log_span!("Trigger execution", %id, %authority);
+        let state = State::new(wsv, authority, self.config, span).with_triggering_event(event);
 
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
@@ -639,11 +639,11 @@ impl<'wrld> Runtime<'wrld> {
     pub fn execute(
         &mut self,
         wsv: &mut WorldStateView,
-        account_id: AccountId,
+        authority: AccountId,
         bytes: impl AsRef<[u8]>,
     ) -> Result<()> {
-        let span = wasm_log_span!("Smart contract execution", %account_id);
-        let state = State::new(wsv, account_id, self.config, span);
+        let span = wasm_log_span!("Smart contract execution", %authority);
+        let state = State::new(wsv, authority, self.config, span);
 
         self.execute_smart_contract_with_state(bytes, state)
     }

@@ -6,7 +6,7 @@
     clippy::std_instead_of_alloc
 )]
 use eyre::Result;
-use iroha_data_model::{prelude::*, query::error::QueryExecutionFailure as Error};
+use iroha_data_model::{prelude::*, query::error::QueryExecutionFail as Error};
 use parity_scale_codec::{Decode, Encode};
 
 use crate::{prelude::ValidQuery, WorldStateView};
@@ -97,18 +97,16 @@ impl ValidQuery for QueryBox {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::str::FromStr;
+    use std::str::FromStr as _;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::{
-        block::VersionedCommittedBlock,
-        transaction::{InBlock, TransactionLimits},
-    };
+    use iroha_data_model::{block::VersionedCommittedBlock, transaction::TransactionLimits};
     use once_cell::sync::Lazy;
 
     use super::*;
     use crate::{
-        block::*, kura::Kura, smartcontracts::isi::Registrable as _, wsv::World, PeersIds,
+        block::*, kura::Kura, smartcontracts::isi::Registrable as _, tx::AcceptedTransaction,
+        wsv::World, PeersIds,
     };
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
@@ -196,17 +194,18 @@ mod tests {
         wsv.config.transaction_limits = limits;
 
         let valid_tx = {
-            let tx =
-                TransactionBuilder::new(ALICE_ID.clone(), vec![], 4000).sign(ALICE_KEYS.clone())?;
-            VersionedAcceptedTransaction::from(<AcceptedTransaction as InBlock>::accept(
-                tx, &limits,
-            )?)
+            let instructions: [InstructionBox; 0] = [];
+            let tx = TransactionBuilder::new(ALICE_ID.clone())
+                .with_instructions(instructions)
+                .sign(ALICE_KEYS.clone())?;
+            AcceptedTransaction::accept(tx, &limits)?
         };
         let invalid_tx = {
-            let isi: InstructionBox = FailBox::new("fail").into();
-            let tx = TransactionBuilder::new(ALICE_ID.clone(), vec![isi.clone(), isi], 4000)
+            let isi = FailBox::new("fail");
+            let tx = TransactionBuilder::new(ALICE_ID.clone())
+                .with_instructions([isi.clone(), isi])
                 .sign(ALICE_KEYS.clone())?;
-            <AcceptedTransaction as InBlock>::accept(tx, &huge_limits)?.into()
+            AcceptedTransaction::accept(tx, &huge_limits)?
         };
 
         let mut transactions = vec![valid_tx; valid_tx_per_block];
@@ -338,13 +337,13 @@ mod tests {
         assert_eq!(txs.len() as u64, num_blocks * 2);
         assert_eq!(
             txs.iter()
-                .filter(|txn| matches!(txn.tx_value, TransactionValue::RejectedTransaction(_)))
+                .filter(|txn| matches!(txn.transaction, TransactionValue::RejectedTransaction(_)))
                 .count() as u64,
             num_blocks
         );
         assert_eq!(
             txs.iter()
-                .filter(|txn| matches!(txn.tx_value, TransactionValue::Transaction(_)))
+                .filter(|txn| matches!(txn.transaction, TransactionValue::Transaction(_)))
                 .count() as u64,
             num_blocks
         );
@@ -358,14 +357,13 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
 
-        let tx = TransactionBuilder::new(ALICE_ID.clone(), Vec::new(), 4000);
-        let signed_tx = tx.sign(ALICE_KEYS.clone())?;
+        let instructions: [InstructionBox; 0] = [];
+        let tx = TransactionBuilder::new(ALICE_ID.clone())
+            .with_instructions(instructions)
+            .sign(ALICE_KEYS.clone())?;
 
-        let va_tx: VersionedAcceptedTransaction = <AcceptedTransaction as InBlock>::accept(
-            signed_tx,
-            &wsv.transaction_validator().transaction_limits,
-        )?
-        .into();
+        let tx_limits = &wsv.transaction_validator().transaction_limits;
+        let va_tx = AcceptedTransaction::accept(tx, tx_limits)?;
 
         let vcb: VersionedCommittedBlock = BlockBuilder {
             transactions: vec![va_tx.clone()],
@@ -387,7 +385,7 @@ mod tests {
         assert!(matches!(not_found, Err(_)));
 
         let found_accepted = FindTransactionByHash::new(Hash::from(va_tx.hash())).execute(&wsv)?;
-        match found_accepted {
+        match found_accepted.transaction {
             TransactionValue::Transaction(tx) => {
                 assert_eq!(va_tx.hash().transmute(), tx.hash())
             }

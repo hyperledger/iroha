@@ -15,11 +15,8 @@ use std::error::Error;
 use eyre::{bail, eyre, Context, Result};
 use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
-use iroha_data_model::{
-    block::*,
-    events::prelude::*,
-    transaction::{prelude::*, Accept as _},
-};
+use iroha_data_model::{block::*, events::prelude::*, transaction::prelude::*};
+use iroha_genesis::GenesisTransaction;
 use parity_scale_codec::{Decode, Encode};
 use sealed::sealed;
 
@@ -32,9 +29,9 @@ pub struct PendingBlock {
     /// Block header
     pub header: BlockHeader,
     /// Array of rejected transactions.
-    pub rejected_transactions: Vec<VersionedRejectedTransaction>,
+    pub rejected_transactions: Vec<RejectedTransaction>,
     /// Array of transactions, which successfully passed validation and consensus step.
-    pub transactions: Vec<VersionedValidTransaction>,
+    pub transactions: Vec<VersionedSignedTransaction>,
     /// Event recommendations.
     pub event_recommendations: Vec<Event>,
     /// Signatures of peers which approved this block
@@ -44,7 +41,7 @@ pub struct PendingBlock {
 /// Builder for `PendingBlock`
 pub struct BlockBuilder {
     /// Block's transactions.
-    pub transactions: Vec<VersionedAcceptedTransaction>,
+    pub transactions: Vec<AcceptedTransaction>,
     /// Block's event recommendations.
     pub event_recommendations: Vec<Event>,
     /// The view change index this block was committed with. Produced by consensus.
@@ -81,32 +78,40 @@ impl BlockBuilder {
         let mut rejected = Vec::new();
 
         for tx in self.transactions {
-            match transaction_validator.validate(tx.into_v1(), header.is_genesis(), &mut self.wsv) {
-                Ok(tx) => txs.push(tx),
-                Err(tx) => {
+            match transaction_validator.validate(tx, height == 1, &mut self.wsv) {
+                Ok(transaction) => txs.push(transaction),
+                Err((transaction, error)) => {
                     iroha_logger::warn!(
-                        reason = %tx.as_v1().rejection_reason,
-                        caused_by = ?tx.as_v1().rejection_reason.source(),
+                        reason = %error,
+                        caused_by = ?error.source(),
                         "Transaction validation failed",
                     );
-                    rejected.push(tx)
+                    rejected.push(RejectedTransaction { transaction, error })
                 }
             }
         }
         header.transactions_hash = txs
             .iter()
-            .map(VersionedValidTransaction::hash)
+            .map(VersionedSignedTransaction::hash)
             .collect::<MerkleTree<_>>()
             .hash();
         header.rejected_transactions_hash = rejected
             .iter()
-            .map(VersionedRejectedTransaction::hash)
+            .map(
+                |RejectedTransaction {
+                     transaction,
+                     error: _,
+                 }| transaction.hash(),
+            )
             .collect::<MerkleTree<_>>()
             .hash();
         // TODO: Validate Event recommendations somehow?
 
-        let signature = SignatureOf::from_hash(self.key_pair, &Hash::new(header.payload()).typed())
-            .expect("Signing of new block failed.");
+        let signature = SignatureOf::from_hash(
+            self.key_pair,
+            HashOf::from_untyped_unchecked(Hash::new(header.payload())),
+        )
+        .expect("Signing of new block failed.");
         let signatures = SignaturesOf::from(signature);
 
         PendingBlock {
@@ -120,9 +125,13 @@ impl BlockBuilder {
 }
 
 impl PendingBlock {
+    const fn is_genesis(&self) -> bool {
+        self.header.height == 1
+    }
+
     /// Calculate the partial hash of the current block.
     pub fn partial_hash(&self) -> HashOf<Self> {
-        Hash::new(self.header.payload()).typed()
+        HashOf::from_untyped_unchecked(Hash::new(self.header.payload()))
     }
 
     /// Return signatures that are verified with the `hash` of this block,
@@ -177,7 +186,7 @@ impl PendingBlock {
     /// # Errors
     /// Fails if signature generation fails
     pub fn sign(mut self, key_pair: KeyPair) -> Result<Self> {
-        SignatureOf::from_hash(key_pair, &self.partial_hash())
+        SignatureOf::from_hash(key_pair, self.partial_hash())
             .wrap_err(format!(
                 "Failed to sign block with partial hash {}",
                 self.partial_hash()
@@ -194,7 +203,7 @@ impl PendingBlock {
     /// Fails if given signature doesn't match block hash
     pub fn add_signature(&mut self, signature: SignatureOf<Self>) -> Result<()> {
         signature
-            .verify_hash(&self.partial_hash())
+            .verify_hash(self.partial_hash())
             .map(|_| {
                 self.signatures.insert(signature);
             })
@@ -225,7 +234,7 @@ impl PendingBlock {
         };
 
         let key_pair = KeyPair::generate().unwrap();
-        let signature = SignatureOf::from_hash(key_pair, &HashOf::new(&header).transmute())
+        let signature = SignatureOf::from_hash(key_pair, HashOf::new(&header).transmute())
             .expect("Signing of new block failed.");
         let signatures = SignaturesOf::from(signature);
 
@@ -324,7 +333,7 @@ impl Revalidate for PendingBlock {
         // Validate that header transactions hashes are matched with actual hashes
         self.transactions
                 .iter()
-                .map(VersionedValidTransaction::hash)
+                .map(VersionedSignedTransaction::hash)
                 .collect::<MerkleTree<_>>()
                 .hash()
                 .eq(&self.header.transactions_hash)
@@ -335,7 +344,7 @@ impl Revalidate for PendingBlock {
 
         self.rejected_transactions
                 .iter()
-                .map(VersionedRejectedTransaction::hash)
+                .map(|RejectedTransaction {transaction, error: _}| transaction.hash())
                 .collect::<MerkleTree<_>>()
                 .hash()
                 .eq(&self.header.rejected_transactions_hash)
@@ -347,23 +356,19 @@ impl Revalidate for PendingBlock {
             .transactions
             .iter()
             .cloned()
-            .map(VersionedValidTransaction::into_v1)
-            .map(|tx_v| {
-                let tx = SignedTransaction {
-                    payload: tx_v.payload,
-                    signatures: tx_v.signatures,
-                };
-                AcceptedTransaction::accept::<IS_GENESIS>(
-                    tx,
-                    &transaction_validator.transaction_limits,
-                )
+            .map(|tx| {
+                if self.is_genesis() {
+                    Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(tx)))
+                } else {
+                    AcceptedTransaction::accept(tx, &transaction_validator.transaction_limits)
+                }
                 .wrap_err("Failed to accept transaction")
             })
             .map(|accepted_tx| {
                 accepted_tx.and_then(|tx| {
                     transaction_validator
-                        .validate(tx, self.header.is_genesis(), &mut wsv)
-                        .map_err(|rejected_tx| rejected_tx.into_v1().rejection_reason)
+                        .validate(tx, self.is_genesis(), &mut wsv)
+                        .map_err(|(_tx, error)| error)
                         .wrap_err("Failed to validate transaction")
                 })
             })
@@ -380,21 +385,27 @@ impl Revalidate for PendingBlock {
             .rejected_transactions
             .iter()
             .cloned()
-            .map(VersionedRejectedTransaction::into_v1)
-            .map(|tx_r| {
-                let tx = SignedTransaction {
-                    payload: tx_r.payload,
-                    signatures: tx_r.signatures,
-                };
-                AcceptedTransaction::accept::<IS_GENESIS>(
-                    tx,
-                    &transaction_validator.transaction_limits,
-                )
-                .wrap_err("Failed to accept transaction")
-            })
+            .map(
+                |RejectedTransaction {
+                     transaction,
+                     error: _,
+                 }| {
+                    if self.is_genesis() {
+                        Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(
+                            transaction,
+                        )))
+                    } else {
+                        AcceptedTransaction::accept(
+                            transaction,
+                            &transaction_validator.transaction_limits,
+                        )
+                    }
+                    .wrap_err("Failed to accept transaction")
+                },
+            )
             .map(|accepted_tx| {
                 accepted_tx.and_then(|tx| {
-                    match transaction_validator.validate(tx, self.header.is_genesis(), &mut wsv) {
+                    match transaction_validator.validate(tx, self.is_genesis(), &mut wsv) {
                         Err(rejected_transaction) => Ok(rejected_transaction),
                         Ok(_) => Err(eyre!("Transactions which supposed to be rejected is valid")),
                     }
@@ -414,11 +425,13 @@ impl Revalidate for PendingBlock {
     fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
         self.transactions
             .iter()
-            .any(|transaction| transaction.is_in_blockchain(wsv))
-            || self
-                .rejected_transactions
-                .iter()
-                .any(|transaction| transaction.is_in_blockchain(wsv))
+            .any(|tx| wsv.has_transaction(tx.hash()))
+            || self.rejected_transactions.iter().any(
+                |RejectedTransaction {
+                     transaction,
+                     error: _,
+                 }| { wsv.has_transaction(transaction.hash()) },
+            )
     }
 }
 
@@ -505,14 +518,14 @@ impl Revalidate for VersionedCommittedBlock {
 
                     topology.verify_signatures(
                         &mut block.signatures.clone(),
-                        block.partial_hash().internal.typed(),
+                        HashOf::from_untyped_unchecked(block.partial_hash().internal),
                     )?;
                 }
 
                 // Validate that header transactions hashes are matched with actual hashes
                 block.transactions
                 .iter()
-                .map(VersionedValidTransaction::hash)
+                .map(VersionedSignedTransaction::hash)
                 .collect::<MerkleTree<_>>()
                 .hash()
                 .eq(&block.header.transactions_hash)
@@ -523,7 +536,7 @@ impl Revalidate for VersionedCommittedBlock {
 
                 block.rejected_transactions
                 .iter()
-                .map(VersionedRejectedTransaction::hash)
+                .map(|RejectedTransaction {transaction, error: _}| transaction.hash())
                 .collect::<MerkleTree<_>>()
                 .hash()
                 .eq(&block.header.rejected_transactions_hash)
@@ -535,23 +548,22 @@ impl Revalidate for VersionedCommittedBlock {
                     .transactions
                     .iter()
                     .cloned()
-                    .map(VersionedValidTransaction::into_v1)
-                    .map(|tx_v| {
-                        let tx = SignedTransaction {
-                            payload: tx_v.payload,
-                            signatures: tx_v.signatures,
-                        };
-                        AcceptedTransaction::accept::<IS_GENESIS>(
-                            tx,
-                            &transaction_validator.transaction_limits,
-                        )
+                    .map(|tx| {
+                        if self.is_genesis() {
+                            Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(tx)))
+                        } else {
+                            AcceptedTransaction::accept(
+                                tx,
+                                &transaction_validator.transaction_limits,
+                            )
+                        }
                         .wrap_err("Failed to accept transaction")
                     })
                     .map(|accepted_tx| {
                         accepted_tx.and_then(|tx| {
                             transaction_validator
-                                .validate(tx, block.header.is_genesis(), &mut wsv)
-                                .map_err(|rejected_tx| rejected_tx.into_v1().rejection_reason)
+                                .validate(tx, block.is_genesis(), &mut wsv)
+                                .map_err(|(_tx, error)| error)
                                 .wrap_err("Failed to validate transaction")
                         })
                     })
@@ -568,25 +580,27 @@ impl Revalidate for VersionedCommittedBlock {
                     .rejected_transactions
                     .iter()
                     .cloned()
-                    .map(VersionedRejectedTransaction::into_v1)
-                    .map(|tx_r| {
-                        let tx = SignedTransaction {
-                            payload: tx_r.payload,
-                            signatures: tx_r.signatures,
-                        };
-                        AcceptedTransaction::accept::<IS_GENESIS>(
-                            tx,
-                            &transaction_validator.transaction_limits,
-                        )
-                        .wrap_err("Failed to accept transaction")
-                    })
+                    .map(
+                        |RejectedTransaction {
+                             transaction,
+                             error: _,
+                         }| {
+                            if self.is_genesis() {
+                                Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(
+                                    transaction,
+                                )))
+                            } else {
+                                AcceptedTransaction::accept(
+                                    transaction,
+                                    &transaction_validator.transaction_limits,
+                                )
+                            }
+                            .wrap_err("Failed to accept transaction")
+                        },
+                    )
                     .map(|accepted_tx| {
                         accepted_tx.and_then(|tx| {
-                            match transaction_validator.validate(
-                                tx,
-                                block.header.is_genesis(),
-                                &mut wsv,
-                            ) {
+                            match transaction_validator.validate(tx, block.is_genesis(), &mut wsv) {
                                 Err(rejected_transaction) => Ok(rejected_transaction),
                                 Ok(_) => Err(eyre!(
                                     "Transactions which supposed to be rejected is valid"
@@ -614,11 +628,13 @@ impl Revalidate for VersionedCommittedBlock {
                 block
                     .transactions
                     .iter()
-                    .any(|transaction| transaction.is_in_blockchain(wsv))
-                    || block
-                        .rejected_transactions
-                        .iter()
-                        .any(|transaction| transaction.is_in_blockchain(wsv))
+                    .any(|tx| wsv.has_transaction(tx.hash()))
+                    || block.rejected_transactions.iter().any(
+                        |RejectedTransaction {
+                             transaction,
+                             error: _,
+                         }| { wsv.has_transaction(transaction.hash()) },
+                    )
             }
         }
     }
@@ -633,18 +649,23 @@ impl From<&PendingBlock> for Vec<Event> {
                 PipelineEvent {
                     entity_kind: PipelineEntityKind::Transaction,
                     status: PipelineStatus::Validating,
-                    hash: transaction.hash().into(),
+                    hash: transaction.payload().hash().into(),
                 }
                 .into()
             })
-            .chain(block.rejected_transactions.iter().map(|transaction| {
-                PipelineEvent {
-                    entity_kind: PipelineEntityKind::Transaction,
-                    status: PipelineStatus::Validating,
-                    hash: transaction.hash().into(),
-                }
-                .into()
-            }))
+            .chain(block.rejected_transactions.iter().map(
+                |RejectedTransaction {
+                     transaction,
+                     error: _,
+                 }| {
+                    PipelineEvent {
+                        entity_kind: PipelineEntityKind::Transaction,
+                        status: PipelineStatus::Validating,
+                        hash: transaction.payload().hash().into(),
+                    }
+                    .into()
+                },
+            ))
             .chain([PipelineEvent {
                 entity_kind: PipelineEntityKind::Block,
                 status: PipelineStatus::Validating,
@@ -659,9 +680,9 @@ impl From<&PendingBlock> for Vec<Event> {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::str::FromStr;
+    use std::str::FromStr as _;
 
-    use iroha_data_model::{prelude::*, transaction::InBlock};
+    use iroha_data_model::prelude::*;
 
     use super::*;
     use crate::{kura::Kura, smartcontracts::isi::Registrable as _};
@@ -693,19 +714,16 @@ mod tests {
 
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-        let create_asset_definition: InstructionBox =
-            RegisterBox::new(AssetDefinition::quantity(asset_definition_id)).into();
+        let create_asset_definition =
+            RegisterBox::new(AssetDefinition::quantity(asset_definition_id));
 
         // Making two transactions that have the same instruction
-        let tx = TransactionBuilder::new(alice_id, [create_asset_definition], 4000)
+        let transaction_limits = &wsv.transaction_validator().transaction_limits;
+        let tx = TransactionBuilder::new(alice_id)
+            .with_instructions([create_asset_definition])
             .sign(alice_keys.clone())
             .expect("Valid");
-        let tx: VersionedAcceptedTransaction = <AcceptedTransaction as InBlock>::accept(
-            tx,
-            &wsv.transaction_validator().transaction_limits,
-        )
-        .map(Into::into)
-        .expect("Valid");
+        let tx = AcceptedTransaction::accept(tx, transaction_limits).expect("Valid");
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx.clone(), tx];

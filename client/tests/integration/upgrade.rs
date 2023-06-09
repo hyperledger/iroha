@@ -26,14 +26,11 @@ fn validator_upgrade_should_work() -> Result<()> {
     let alice_rose: <Asset as Identifiable>::Id = "rose##alice@wonderland".parse()?;
     let admin_rose: <Account as Identifiable>::Id = "admin@admin".parse()?;
     let transfer_alice_rose = TransferBox::new(alice_rose, NumericValue::U32(1), admin_rose);
-    let transfer_rose_tx = TransactionBuilder::new(
-        admin_id.clone(),
-        vec![transfer_alice_rose.clone().into()],
-        100_000,
-    )
-    .sign(admin_keypair.clone())?;
+    let transfer_rose_tx = TransactionBuilder::new(admin_id.clone())
+        .with_instructions([transfer_alice_rose.clone()])
+        .sign(admin_keypair.clone())?;
     let _ = client
-        .submit_transaction_blocking(transfer_rose_tx)
+        .submit_transaction_blocking(&transfer_rose_tx)
         .expect_err("Should fail");
 
     // Upgrade Validator
@@ -59,11 +56,11 @@ fn validator_upgrade_should_work() -> Result<()> {
 
     // Check that admin can transfer alice's rose now
     // Creating new transaction instead of cloning, because we need to update it's creation time
-    let transfer_rose_tx =
-        TransactionBuilder::new(admin_id, vec![transfer_alice_rose.into()], 100_000)
-            .sign(admin_keypair)?;
+    let transfer_rose_tx = TransactionBuilder::new(admin_id)
+        .with_instructions([transfer_alice_rose])
+        .sign(admin_keypair)?;
     client
-        .submit_transaction_blocking(transfer_rose_tx)
+        .submit_transaction_blocking(&transfer_rose_tx)
         .expect("Should succeed");
 
     Ok(())

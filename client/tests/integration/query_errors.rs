@@ -5,7 +5,7 @@ use std::str::FromStr;
 use iroha_client::client::{self, ClientQueryError};
 use iroha_data_model::{
     prelude::*,
-    query::error::{FindError, QueryExecutionFailure},
+    query::error::{FindError, QueryExecutionFail},
 };
 
 #[test]
@@ -22,7 +22,7 @@ fn non_existent_account_is_specific_error() {
         .expect_err("Should error");
 
     match err {
-        ClientQueryError::Validation(ValidationFail::QueryFailed(QueryExecutionFailure::Find(
+        ClientQueryError::Validation(ValidationFail::QueryFailed(QueryExecutionFail::Find(
             err,
         ))) => match *err {
             FindError::Domain(id) => assert_eq!(id.name.as_ref(), "regalia"),

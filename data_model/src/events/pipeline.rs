@@ -28,7 +28,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         Default,
         Decode,
         Encode,
@@ -54,7 +53,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         Decode,
         Encode,
         Deserialize,
@@ -72,17 +70,7 @@ pub mod model {
 
     /// Strongly-typed [`Event`] that tells the receiver the kind and the hash of the changed entity as well as its [`Status`].
     #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        Getters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
     #[getset(get = "pub")]
     #[ffi_type]
@@ -101,7 +89,6 @@ pub mod model {
         Clone,
         PartialEq,
         Eq,
-        Hash,
         FromVariant,
         EnumDiscriminants,
         Decode,
@@ -112,16 +99,7 @@ pub mod model {
     )]
     #[strum_discriminants(
         name(PipelineStatusKind),
-        derive(
-            PartialOrd,
-            Ord,
-            Hash,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-        )
+        derive(PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,)
     )]
     #[ffi_type]
     pub enum PipelineStatus {
@@ -140,7 +118,6 @@ pub mod model {
         Clone,
         PartialEq,
         Eq,
-        Hash,
         FromVariant,
         Decode,
         Encode,

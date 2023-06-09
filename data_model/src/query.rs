@@ -19,7 +19,7 @@ use self::{
     account::*, asset::*, block::*, domain::*, peer::*, permission::*, role::*, transaction::*,
     trigger::*,
 };
-use crate::{account::Account, sealed, Identifiable, Value};
+use crate::{account::Account, seal, Identifiable, Value};
 
 macro_rules! queries {
     ($($($meta:meta)* $item:item)+) => {
@@ -29,7 +29,7 @@ macro_rules! queries {
         pub mod model{
             use super::*; $(
 
-            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
             #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
             #[derive(serde::Deserialize, serde::Serialize)]
             #[derive(iroha_schema::IntoSchema)]
@@ -40,7 +40,7 @@ macro_rules! queries {
 }
 
 /// Trait for typesafe query output
-pub trait Query: Into<QueryBox> + sealed::Sealed {
+pub trait Query: Into<QueryBox> + seal::Sealed {
     /// Output type of query
     type Output: Into<Value> + TryFrom<Value>;
 }
@@ -59,7 +59,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         FromVariant,
         Decode,
         Encode,
@@ -189,22 +188,22 @@ pub mod role {
         #[derive(Display)]
         #[display(fmt = "Find `{id}` role")]
         #[repr(transparent)]
-        // SAFETY: `FindRoleByRoleId` has no trap representation in `EvaluatesTo<<Role as Identifiable>::Id>`
+        // SAFETY: `FindRoleByRoleId` has no trap representation in `EvaluatesTo<RoleId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindRoleByRoleId {
             /// `Id` of the [`Role`] to find
-            pub id: EvaluatesTo<<Role as Identifiable>::Id>,
+            pub id: EvaluatesTo<RoleId>,
         }
 
         /// [`FindRolesByAccountId`] Iroha Query finds all [`Role`]s for a specified account.
         #[derive(Display)]
         #[display(fmt = "Find all roles for `{id}` account")]
         #[repr(transparent)]
-        // SAFETY: `FindRolesByAccountId` has no trap representation in `EvaluatesTo<<Account as Identifiable>::Id>`
+        // SAFETY: `FindRolesByAccountId` has no trap representation in `EvaluatesTo<AccountId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindRolesByAccountId {
             /// `Id` of an account to find.
-            pub id: EvaluatesTo<<Account as Identifiable>::Id>,
+            pub id: EvaluatesTo<AccountId>,
         }
     }
 
@@ -213,11 +212,11 @@ pub mod role {
     }
 
     impl Query for FindAllRoleIds {
-        type Output = Vec<<Role as Identifiable>::Id>;
+        type Output = Vec<RoleId>;
     }
 
     impl Query for FindRolesByAccountId {
-        type Output = Vec<<Role as Identifiable>::Id>;
+        type Output = Vec<RoleId>;
     }
 
     impl Query for FindRoleByRoleId {
@@ -226,14 +225,14 @@ pub mod role {
 
     impl FindRoleByRoleId {
         /// Construct [`FindRoleByRoleId`].
-        pub fn new(id: impl Into<EvaluatesTo<<Role as Identifiable>::Id>>) -> Self {
+        pub fn new(id: impl Into<EvaluatesTo<RoleId>>) -> Self {
             Self { id: id.into() }
         }
     }
 
     impl FindRolesByAccountId {
         /// Construct [`FindRolesByAccountId`].
-        pub fn new(account_id: impl Into<EvaluatesTo<<Account as Identifiable>::Id>>) -> Self {
+        pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
             Self {
                 id: account_id.into(),
             }
@@ -268,11 +267,11 @@ pub mod permission {
         #[derive(Display)]
         #[display(fmt = "Find permission tokens specified for `{id}` account")]
         #[repr(transparent)]
-        // SAFETY: `FindPermissionTokensByAccountId` has no trap representation in `EvaluatesTo<<Account as Identifiable>::Id>`
+        // SAFETY: `FindPermissionTokensByAccountId` has no trap representation in `EvaluatesTo<AccountId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindPermissionTokensByAccountId {
             /// `Id` of an account to find.
-            pub id: EvaluatesTo<<Account as Identifiable>::Id>,
+            pub id: EvaluatesTo<AccountId>,
         }
 
         /// [`DoesAccountHavePermission`] Iroha Query checks if the account has the specified permission.
@@ -281,7 +280,7 @@ pub mod permission {
         #[ffi_type]
         pub struct DoesAccountHavePermissionToken {
             /// `Id` of an account to check.
-            pub account_id: EvaluatesTo<<Account as Identifiable>::Id>,
+            pub account_id: EvaluatesTo<AccountId>,
             /// `PermissionToken` to check for.
             pub permission_token: permission::PermissionToken,
         }
@@ -302,7 +301,7 @@ pub mod permission {
     impl DoesAccountHavePermissionToken {
         /// Construct [`DoesAccountHavePermissionToken`].
         pub fn new(
-            account_id: impl Into<EvaluatesTo<<Account as Identifiable>::Id>>,
+            account_id: impl Into<EvaluatesTo<AccountId>>,
             permission_token: permission::PermissionToken,
         ) -> Self {
             Self {
@@ -314,7 +313,7 @@ pub mod permission {
 
     impl FindPermissionTokensByAccountId {
         /// Construct [`DoesAccountHavePermissionToken`].
-        pub fn new(account_id: impl Into<EvaluatesTo<<Account as Identifiable>::Id>>) -> Self {
+        pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
             Self {
                 id: account_id.into(),
             }
@@ -352,11 +351,11 @@ pub mod account {
         #[derive(Display)]
         #[display(fmt = "Find `{id}` account")]
         #[repr(transparent)]
-        // SAFETY: `FindAccountById` has no trap representation in `EvaluatesTo<<Account as Identifiable>::Id>`
+        // SAFETY: `FindAccountById` has no trap representation in `EvaluatesTo<AccountId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindAccountById {
             /// `Id` of an account to find.
-            pub id: EvaluatesTo<<Account as Identifiable>::Id>,
+            pub id: EvaluatesTo<AccountId>,
         }
 
         /// [`FindAccountKeyValueByIdAndKey`] Iroha Query finds a [`Value`]
@@ -366,7 +365,7 @@ pub mod account {
         #[ffi_type]
         pub struct FindAccountKeyValueByIdAndKey {
             /// `Id` of an account to find.
-            pub id: EvaluatesTo<<Account as Identifiable>::Id>,
+            pub id: EvaluatesTo<AccountId>,
             /// Key of the specific key-value in the Account's metadata.
             pub key: EvaluatesTo<Name>,
         }
@@ -401,11 +400,11 @@ pub mod account {
         #[derive(Display)]
         #[display(fmt = "Find accounts with `{asset_definition_id}` asset")]
         #[repr(transparent)]
-        // SAFETY: `FindAccountsWithAsset` has no trap representation in `EvaluatesTo<<AssetDefinition as Identifiable>::Id>`
+        // SAFETY: `FindAccountsWithAsset` has no trap representation in `EvaluatesTo<AssetDefinitionId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindAccountsWithAsset {
             /// `Id` of the definition of the asset which should be stored in founded accounts.
-            pub asset_definition_id: EvaluatesTo<<AssetDefinition as Identifiable>::Id>,
+            pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
         }
     }
 
@@ -435,7 +434,7 @@ pub mod account {
 
     impl FindAccountById {
         /// Construct [`FindAccountById`].
-        pub fn new(id: impl Into<EvaluatesTo<<Account as Identifiable>::Id>>) -> Self {
+        pub fn new(id: impl Into<EvaluatesTo<AccountId>>) -> Self {
             Self { id: id.into() }
         }
     }
@@ -443,7 +442,7 @@ pub mod account {
     impl FindAccountKeyValueByIdAndKey {
         /// Construct [`FindAccountById`].
         pub fn new(
-            id: impl Into<EvaluatesTo<<Account as Identifiable>::Id>>,
+            id: impl Into<EvaluatesTo<AccountId>>,
             key: impl Into<EvaluatesTo<Name>>,
         ) -> Self {
             Self {
@@ -519,22 +518,22 @@ pub mod asset {
         #[derive(Display)]
         #[display(fmt = "Find `{id}` asset")]
         #[repr(transparent)]
-        // SAFETY: `FindAssetById` has no trap representation in `EvaluatesTo<<Asset as Identifiable>::Id>`
+        // SAFETY: `FindAssetById` has no trap representation in `EvaluatesTo<AssetId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetById {
             /// `Id` of an [`Asset`] to find.
-            pub id: EvaluatesTo<<Asset as Identifiable>::Id>,
+            pub id: EvaluatesTo<AssetId>,
         }
 
         /// [`FindAssetDefinitionById`] Iroha Query finds an [`AssetDefinition`] by it's identification in Iroha [`Peer`].
         #[derive(Display)]
         #[display(fmt = "Find `{id}` asset definition")]
         #[repr(transparent)]
-        // SAFETY: `FindAssetDefinitionById` has no trap representation in `EvaluatesTo<<AssetDefinition as Identifiable>::Id>`
+        // SAFETY: `FindAssetDefinitionById` has no trap representation in `EvaluatesTo<AssetDefinitionId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetDefinitionById {
             /// `Id` of an [`AssetDefinition`] to find.
-            pub id: EvaluatesTo<<AssetDefinition as Identifiable>::Id>,
+            pub id: EvaluatesTo<AssetDefinitionId>,
         }
 
         /// [`FindAssetsByName`] Iroha Query gets [`Asset`]s name as input and
@@ -554,11 +553,11 @@ pub mod asset {
         #[derive(Display)]
         #[display(fmt = "Find assets owned by the `{account_id}` account")]
         #[repr(transparent)]
-        // SAFETY: `FindAssetsByAccountId` has no trap representation in `EvaluatesTo<<Account as Identifiable>::Id>`
+        // SAFETY: `FindAssetsByAccountId` has no trap representation in `EvaluatesTo<AccountId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetsByAccountId {
             /// [`AccountId`] under which assets should be found.
-            pub account_id: EvaluatesTo<<Account as Identifiable>::Id>,
+            pub account_id: EvaluatesTo<AccountId>,
         }
 
         /// [`FindAssetsByAssetDefinitionId`] Iroha Query gets [`AssetDefinitionId`] as input and
@@ -566,11 +565,11 @@ pub mod asset {
         #[derive(Display)]
         #[display(fmt = "Find assets with `{asset_definition_id}` asset definition")]
         #[repr(transparent)]
-        // SAFETY: `FindAssetsByAssetDefinitionId` has no trap representation in `EvaluatesTo<<AssetDefinition as Identifiable>::Id>`
+        // SAFETY: `FindAssetsByAssetDefinitionId` has no trap representation in `EvaluatesTo<AssetDefinitionId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetsByAssetDefinitionId {
             /// [`AssetDefinitionId`] with type of [`Asset`]s should be found.
-            pub asset_definition_id: EvaluatesTo<<AssetDefinition as Identifiable>::Id>,
+            pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
         }
 
         /// [`FindAssetsByDomainId`] Iroha Query gets [`Domain`]s id as input and
@@ -578,11 +577,11 @@ pub mod asset {
         #[derive(Display)]
         #[display(fmt = "Find assets under the `{domain_id}` domain")]
         #[repr(transparent)]
-        // SAFETY: `FindAssetsByDomainId` has no trap representation in `EvaluatesTo<<Domain as Identifiable>::Id>`
+        // SAFETY: `FindAssetsByDomainId` has no trap representation in `EvaluatesTo<DomainId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetsByDomainId {
             /// `Id` of the domain under which assets should be found.
-            pub domain_id: EvaluatesTo<<Domain as Identifiable>::Id>,
+            pub domain_id: EvaluatesTo<DomainId>,
         }
 
         /// [`FindAssetsByDomainIdAndAssetDefinitionId`] Iroha Query gets [`DomainId`] and
@@ -603,11 +602,11 @@ pub mod asset {
         #[derive(Display)]
         #[display(fmt = "Find quantity of the `{id}` asset")]
         #[repr(transparent)]
-        // SAFETY: `FindAssetQuantityById` has no trap representation in `EvaluatesTo<<Asset as Identifiable>::Id>`
+        // SAFETY: `FindAssetQuantityById` has no trap representation in `EvaluatesTo<AssetId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetQuantityById {
             /// `Id` of an [`Asset`] to find quantity of.
-            pub id: EvaluatesTo<<Asset as Identifiable>::Id>,
+            pub id: EvaluatesTo<AssetId>,
         }
 
         /// [`FindTotalAssetQuantityByAssetDefinitionId`] Iroha Query gets [`AssetDefinitionId`] as input and finds total [`Asset::quantity`]
@@ -616,11 +615,11 @@ pub mod asset {
         #[derive(Display)]
         #[display(fmt = "Find total quantity of the `{id}` asset")]
         #[repr(transparent)]
-        // SAFETY: `FindTotalAssetQuantityByAssetDefinitionId` has no trap representation in `EvaluatesTo<<AssetDefinition as Identifiable>::Id>`
+        // SAFETY: `FindTotalAssetQuantityByAssetDefinitionId` has no trap representation in `EvaluatesTo<AssetDefinitionId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTotalAssetQuantityByAssetDefinitionId {
             /// `Id` of an [`Asset`] to find quantity of.
-            pub id: EvaluatesTo<<AssetDefinition as Identifiable>::Id>,
+            pub id: EvaluatesTo<AssetDefinitionId>,
         }
 
         /// [`FindAssetKeyValueByIdAndKey`] Iroha Query gets [`AssetId`] and key as input and finds [`Value`]
@@ -655,7 +654,7 @@ pub mod asset {
             /// `Id` of an [`AssetDefinition`] to check.
             pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
             /// `Id` of a possible owner [`Account`].
-            pub account_id: EvaluatesTo<<Account as Identifiable>::Id>,
+            pub account_id: EvaluatesTo<AccountId>,
         }
     }
     impl Query for FindAllAssets {
@@ -737,7 +736,7 @@ pub mod asset {
 
     impl FindAssetsByAccountId {
         /// Construct [`FindAssetsByAccountId`].
-        pub fn new(account_id: impl Into<EvaluatesTo<<Account as Identifiable>::Id>>) -> Self {
+        pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
             Self {
                 account_id: account_id.into(),
             }
@@ -816,7 +815,7 @@ pub mod asset {
         /// Construct [`IsAssetDefinitionOwner`].
         pub fn new(
             asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
-            account_id: impl Into<EvaluatesTo<<Account as Identifiable>::Id>>,
+            account_id: impl Into<EvaluatesTo<AccountId>>,
         ) -> Self {
             Self {
                 asset_definition_id: asset_definition_id.into(),
@@ -860,11 +859,11 @@ pub mod domain {
         #[derive(Display)]
         #[display(fmt = "Find `{id}` domain")]
         #[repr(transparent)]
-        // SAFETY: `FindTotalAssetQuantityByAssetDefinitionId` has no trap representation in `EvaluatesTo<<Domain as Identifiable>::Id>`
+        // SAFETY: `FindTotalAssetQuantityByAssetDefinitionId` has no trap representation in `EvaluatesTo<DomainId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindDomainById {
             /// `Id` of the domain to find.
-            pub id: EvaluatesTo<<Domain as Identifiable>::Id>,
+            pub id: EvaluatesTo<DomainId>,
         }
 
 
@@ -990,7 +989,7 @@ pub mod trigger {
         #[derive(Display)]
         #[display(fmt = "Find `{id}` trigger")]
         #[repr(transparent)]
-        // SAFETY: `FindTriggerById` has no trap representation in `EvaluatesTo<<Trigger<FilterBox, Executable> as Identifiable>::Id>`
+        // SAFETY: `FindTriggerById` has no trap representation in `EvaluatesTo<TriggerId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTriggerById {
             /// The Identification of the trigger to be found.
@@ -1014,11 +1013,11 @@ pub mod trigger {
         #[derive(Display)]
         #[display(fmt = "Find trigger under `{domain_id}` domain")]
         #[repr(transparent)]
-        // SAFETY: `FindTriggersByDomainId` has no trap representation in `EvaluatesTo<<Domain as Identifiable>::Id>`
+        // SAFETY: `FindTriggersByDomainId` has no trap representation in `EvaluatesTo<DomainId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTriggersByDomainId {
             /// [`DomainId`] specifies the domain in which to search for triggers.
-            pub domain_id: EvaluatesTo<<Domain as Identifiable>::Id>,
+            pub domain_id: EvaluatesTo<DomainId>,
         }
     }
 
@@ -1089,10 +1088,8 @@ pub mod transaction {
 
     use super::Query;
     use crate::{
-        expression::EvaluatesTo,
-        prelude::Account,
-        transaction::{TransactionQueryResult, TransactionValue},
-        Identifiable,
+        account::AccountId, expression::EvaluatesTo, prelude::Account,
+        transaction::TransactionQueryResult,
     };
 
     queries! {
@@ -1107,11 +1104,11 @@ pub mod transaction {
         #[derive(Display)]
         #[display(fmt = "Find all transactions for `{account_id}` account")]
         #[repr(transparent)]
-        // SAFETY: `FindTransactionsByAccountId` has no trap representation in `EvaluatesTo<<Account as Identifiable>::Id>`
+        // SAFETY: `FindTransactionsByAccountId` has no trap representation in `EvaluatesTo<AccountId>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTransactionsByAccountId {
             /// Signer's [`AccountId`] under which transactions should be found.
-            pub account_id: EvaluatesTo<<Account as Identifiable>::Id>,
+            pub account_id: EvaluatesTo<AccountId>,
         }
 
         /// [`FindTransactionByHash`] Iroha Query finds a transaction (if any)
@@ -1132,16 +1129,16 @@ pub mod transaction {
     }
 
     impl Query for FindTransactionsByAccountId {
-        type Output = Vec<TransactionValue>;
+        type Output = Vec<TransactionQueryResult>;
     }
 
     impl Query for FindTransactionByHash {
-        type Output = TransactionValue;
+        type Output = TransactionQueryResult;
     }
 
     impl FindTransactionsByAccountId {
         ///Construct [`FindTransactionsByAccountId`].
-        pub fn new(account_id: impl Into<EvaluatesTo<<Account as Identifiable>::Id>>) -> Self {
+        pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
             Self {
                 account_id: account_id.into(),
             }
@@ -1238,7 +1235,9 @@ pub mod http {
 
     pub use self::model::*;
     use super::*;
-    use crate::{pagination::prelude::*, predicate::PredicateBox, sorting::prelude::*};
+    use crate::{
+        account::AccountId, pagination::prelude::*, predicate::PredicateBox, sorting::prelude::*,
+    };
 
     declare_versioned_with_scale!(VersionedSignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
     declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
@@ -1251,9 +1250,10 @@ pub mod http {
         /// I/O ready structure to send queries.
         #[derive(Debug, Clone)]
         #[repr(transparent)]
+        #[must_use]
         pub struct QueryBuilder {
             /// Payload
-            pub payload: QueryPayload,
+            pub(super) payload: QueryPayload,
         }
 
         /// Payload of a query.
@@ -1265,7 +1265,7 @@ pub mod http {
             /// Query definition.
             pub query: QueryBox,
             /// Account id of the user who will sign this query.
-            pub account_id: <Account as Identifiable>::Id,
+            pub authority: AccountId,
             /// The filter applied to the result on the server-side.
             pub filter: PredicateBox,
         }
@@ -1312,21 +1312,20 @@ pub mod http {
 
     impl QueryBuilder {
         /// Construct a new request with the `query`.
-        pub fn new(query: impl Into<QueryBox>, account_id: <Account as Identifiable>::Id) -> Self {
+        pub fn new(query: impl Into<QueryBox>, authority: AccountId) -> Self {
             let timestamp_ms = crate::current_time().as_millis();
 
             Self {
                 payload: QueryPayload {
                     timestamp_ms,
                     query: query.into(),
-                    account_id,
+                    authority,
                     filter: PredicateBox::default(),
                 },
             }
         }
 
         /// Construct a new request with the `query`.
-        #[must_use]
         #[inline]
         pub fn with_filter(mut self, filter: PredicateBox) -> Self {
             self.payload.filter = filter;
@@ -1390,7 +1389,8 @@ pub mod error {
             Clone,
             PartialEq,
             Eq,
-            Hash,
+            PartialOrd,
+            Ord,
             FromVariant,
             Deserialize,
             Serialize,
@@ -1399,7 +1399,7 @@ pub mod error {
             IntoSchema,
         )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
-        pub enum QueryExecutionFailure {
+        pub enum QueryExecutionFail {
             /// Query has wrong signature.
             #[display(fmt = "Query has the wrong signature: {_0}")]
             Signature(
@@ -1436,9 +1436,10 @@ pub mod error {
             Clone,
             PartialEq,
             Eq,
-            Hash,
-            Serialize,
+            PartialOrd,
+            Ord,
             Deserialize,
+            Serialize,
             Decode,
             Encode,
             IntoSchema,
@@ -1460,9 +1461,10 @@ pub mod error {
             Clone,
             PartialEq,
             Eq,
-            Hash,
-            Serialize,
+            PartialOrd,
+            Ord,
             Deserialize,
+            Serialize,
             Decode,
             Encode,
             IntoSchema,
@@ -1479,7 +1481,7 @@ pub mod error {
             AssetDefinition(AssetDefinitionId),
             /// Failed to find account
             #[display(fmt = "Failed to find account: `{_0}`")]
-            Account(<Account as Identifiable>::Id),
+            Account(AccountId),
             /// Failed to find domain
             #[display(fmt = "Failed to find domain: `{_0}`")]
             Domain(DomainId),
