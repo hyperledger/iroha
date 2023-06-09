@@ -19,7 +19,7 @@ fn correct_pagination_assets_after_creating_new_one() {
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
 
     let mut assets = vec![];
-    let mut instructions: Vec<InstructionBox> = vec![];
+    let mut instructions = vec![];
 
     for i in 0..10_u128 {
         let asset_definition_id =
@@ -43,8 +43,8 @@ fn correct_pagination_assets_after_creating_new_one() {
         let create_asset_definition = RegisterBox::new(asset_definition);
         let create_asset = RegisterBox::new(asset);
 
-        instructions.push(create_asset_definition.into());
-        instructions.push(create_asset.into());
+        instructions.push(create_asset_definition);
+        instructions.push(create_asset);
     }
 
     test_client
@@ -92,7 +92,7 @@ fn correct_pagination_assets_after_creating_new_one() {
     let create_asset = RegisterBox::new(new_asset.clone());
 
     test_client
-        .submit_all_blocking(vec![create_asset_definition.into(), create_asset.into()])
+        .submit_all_blocking([create_asset_definition, create_asset])
         .expect("Valid");
 
     let res = test_client
@@ -129,7 +129,7 @@ fn correct_sorting_of_entities() {
 
     let mut asset_definitions = vec![];
     let mut assets_metadata = vec![];
-    let mut instructions: Vec<InstructionBox> = vec![];
+    let mut instructions = vec![];
     let n = 10u128;
     for i in 0..n {
         let asset_definition_id =
@@ -149,7 +149,7 @@ fn correct_sorting_of_entities() {
         asset_definitions.push(asset_definition_id);
 
         let create_asset_definition = RegisterBox::new(asset_definition);
-        instructions.push(create_asset_definition.into());
+        instructions.push(create_asset_definition);
     }
 
     test_client
@@ -200,7 +200,7 @@ fn correct_sorting_of_entities() {
         accounts_metadata.push(account_metadata);
 
         let create_account = RegisterBox::new(account);
-        instructions.push(create_account.into());
+        instructions.push(create_account);
     }
 
     test_client
@@ -250,7 +250,7 @@ fn correct_sorting_of_entities() {
         domains_metadata.push(domain_metadata);
 
         let create_account = RegisterBox::new(domain);
-        instructions.push(create_account.into());
+        instructions.push(create_account);
     }
 
     test_client
@@ -280,7 +280,7 @@ fn correct_sorting_of_entities() {
         .eq(domains_metadata.iter().rev()));
 
     // Naive test sorting of domains
-    let input = vec![(0i32, 1u128), (2, 0), (1, 2)];
+    let input = [(0i32, 1u128), (2, 0), (1, 2)];
     let mut domains = vec![];
     let mut domains_metadata = vec![];
     let mut instructions = vec![];
@@ -300,7 +300,7 @@ fn correct_sorting_of_entities() {
         domains_metadata.push(domain_metadata);
 
         let create_account = RegisterBox::new(domain);
-        instructions.push(create_account.into());
+        instructions.push(create_account);
     }
     test_client
         .submit_all_blocking(instructions)
@@ -362,7 +362,7 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
         };
 
         let create_account = RegisterBox::new(account);
-        instructions.push(create_account.into());
+        instructions.push(create_account);
     }
 
     test_client

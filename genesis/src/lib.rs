@@ -12,62 +12,49 @@ use std::{
     fmt::Debug,
     fs::{self, File},
     io::BufReader,
-    ops::Deref,
     path::{Path, PathBuf},
 };
 
-use derive_more::{Deref, From};
+use derive_more::From;
 use eyre::{bail, eyre, ErrReport, Result, WrapErr};
 use iroha_config::genesis::Configuration;
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     asset::AssetDefinition,
     prelude::{Metadata, *},
-    transaction::InGenesis,
     validator::Validator,
 };
-use iroha_primitives::small::{smallvec, SmallVec};
 use iroha_schema::IntoSchema;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
-/// Time to live for genesis transactions.
-const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
+/// [`DomainId`] of the genesis account.
+pub static GENESIS_DOMAIN_ID: Lazy<DomainId> = Lazy::new(|| "genesis".parse().expect("Valid"));
 
-/// Genesis network trait for mocking
-pub trait GenesisNetworkTrait:
-    Deref<Target = Vec<VersionedAcceptedTransaction>> + Sync + Send + 'static + Sized + Debug
-{
+/// [`AccountId`] of the genesis account.
+pub static GENESIS_ACCOUNT_ID: Lazy<AccountId> =
+    Lazy::new(|| AccountId::new("genesis".parse().expect("Valid"), GENESIS_DOMAIN_ID.clone()));
+
+/// Genesis transaction
+#[derive(Debug, Clone)]
+pub struct GenesisTransaction(pub VersionedSignedTransaction);
+
+/// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.
+#[derive(Debug, Clone)]
+pub struct GenesisNetwork {
+    /// transactions from `GenesisBlock`, any transacton is accepted
+    pub transactions: Vec<GenesisTransaction>,
+}
+
+impl GenesisNetwork {
     /// Construct [`GenesisNetwork`] from configuration.
     ///
     /// # Errors
     /// Fails if genesis block is not found or cannot be deserialized.
-    fn from_configuration(
-        submit_genesis: bool,
+    pub fn from_configuration(
         raw_block: RawGenesisBlock,
         genesis_config: Option<&Configuration>,
-        transaction_limits: &TransactionLimits,
-    ) -> Result<Option<Self>>;
-}
-
-/// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.
-#[derive(Debug, Clone, Deref)]
-pub struct GenesisNetwork {
-    /// transactions from `GenesisBlock`, any transaction is accepted
-    #[deref]
-    pub transactions: Vec<VersionedAcceptedTransaction>,
-}
-
-impl GenesisNetworkTrait for GenesisNetwork {
-    fn from_configuration(
-        submit_genesis: bool,
-        raw_block: RawGenesisBlock,
-        genesis_config: Option<&Configuration>,
-        tx_limits: &TransactionLimits,
-    ) -> Result<Option<GenesisNetwork>> {
-        if !submit_genesis {
-            iroha_logger::debug!("Not submitting genesis");
-            return Ok(None);
-        }
+    ) -> Result<GenesisNetwork> {
         iroha_logger::debug!("Submitting genesis.");
         let genesis_config =
             genesis_config.expect("Should be `Some` when `submit_genesis` is true");
@@ -80,16 +67,14 @@ impl GenesisNetworkTrait for GenesisNetwork {
         )?;
         let transactions_iter = raw_block.transactions.into_iter();
         #[cfg(not(test))]
-        let transactions_iter = transactions_iter.chain(std::iter::once(GenesisTransaction {
-            isi: SmallVec(smallvec![UpgradeBox::new(Validator::try_from(
-                raw_block.validator
-            )?)
-            .into()]),
-        }));
+        let transactions_iter =
+            transactions_iter.chain(std::iter::once(GenesisTransactionBuilder {
+                isi: vec![UpgradeBox::new(Validator::try_from(raw_block.validator)?).into()],
+            }));
 
         let transactions = transactions_iter
             .map(|raw_transaction| {
-                raw_transaction.sign_and_accept(genesis_key_pair.clone(), tx_limits)
+                raw_transaction.sign(genesis_key_pair.clone())
             })
             .enumerate()
             .filter_map(|(i, res)| {
@@ -98,12 +83,12 @@ impl GenesisNetworkTrait for GenesisNetwork {
                     iroha_logger::error!(error = %error_msg, transaction_num=i, "Genesis transaction failed")
                 })
                 .ok()
-            })
+            }).map(GenesisTransaction)
             .collect::<Vec<_>>();
         if transactions.is_empty() {
             bail!("Genesis transaction set contains no valid transactions");
         }
-        Ok(Some(GenesisNetwork { transactions }))
+        Ok(GenesisNetwork { transactions })
     }
 }
 
@@ -111,13 +96,13 @@ impl GenesisNetworkTrait for GenesisNetwork {
 #[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
 pub struct RawGenesisBlock {
     /// Transactions
-    pub transactions: SmallVec<[GenesisTransaction; 2]>,
+    pub transactions: Vec<GenesisTransactionBuilder>,
     /// Runtime Validator
     pub validator: ValidatorMode,
 }
 
 /// Ways to provide validator either directly as base64 encoded string or as path to wasm file
-#[derive(Debug, Clone, Serialize, Deserialize, IntoSchema, From)]
+#[derive(Debug, Clone, From, Deserialize, Serialize, IntoSchema)]
 #[serde(untagged)]
 pub enum ValidatorMode {
     /// Path to validator wasm file
@@ -197,33 +182,28 @@ impl RawGenesisBlock {
     }
 }
 
-/// `GenesisTransaction` is a transaction for initialize settings.
+/// `GenesisTransactionBuilder` is a transaction for initialize settings.
 #[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
 #[serde(transparent)]
 #[schema(transparent)]
 #[repr(transparent)]
-pub struct GenesisTransaction {
+pub struct GenesisTransactionBuilder {
     /// Instructions
-    pub isi: SmallVec<[InstructionBox; 8]>,
+    pub isi: Vec<InstructionBox>,
 }
 
-impl GenesisTransaction {
-    /// Convert [`GenesisTransaction`] into [`AcceptedTransaction`] with signature
+impl GenesisTransactionBuilder {
+    /// Convert [`GenesisTransactionBuilder`] into [`VersionedSignedTransaction`] with signature
     ///
     /// # Errors
     /// Fails if signing or accepting fails
-    pub fn sign_and_accept(
+    pub fn sign(
         self,
         genesis_key_pair: KeyPair,
-        limits: &TransactionLimits,
-    ) -> Result<VersionedAcceptedTransaction> {
-        let transaction =
-            TransactionBuilder::new(AccountId::genesis(), self.isi, GENESIS_TRANSACTIONS_TTL_MS)
-                .sign(genesis_key_pair)?;
-
-        <AcceptedTransaction as InGenesis>::accept(transaction, limits)
-            .wrap_err("Failed to accept transaction")
-            .map(Into::into)
+    ) -> core::result::Result<VersionedSignedTransaction, iroha_crypto::error::Error> {
+        TransactionBuilder::new(GENESIS_ACCOUNT_ID.clone())
+            .with_instructions(self.isi)
+            .sign(genesis_key_pair)
     }
 }
 
@@ -233,7 +213,7 @@ impl GenesisTransaction {
 /// to register domains and accounts.
 #[must_use]
 pub struct RawGenesisBlockBuilder<S> {
-    transaction: GenesisTransaction,
+    transaction: GenesisTransactionBuilder,
     state: S,
 }
 
@@ -242,7 +222,7 @@ pub struct RawGenesisBlockBuilder<S> {
 /// provide a `DomainId`.
 #[must_use]
 pub struct RawGenesisDomainBuilder<S> {
-    transaction: GenesisTransaction,
+    transaction: GenesisTransactionBuilder,
     domain_id: DomainId,
     state: S,
 }
@@ -265,9 +245,7 @@ impl RawGenesisBlockBuilder<validator_state::Unset> {
         // be used in contexts where `Default::default()` is likely to
         // be called.
         Self {
-            transaction: GenesisTransaction {
-                isi: SmallVec::new(),
-            },
+            transaction: GenesisTransactionBuilder { isi: Vec::new() },
             state: validator_state::Unset,
         }
     }
@@ -315,7 +293,7 @@ impl RawGenesisBlockBuilder<validator_state::Set> {
     /// Finish building and produce a `RawGenesisBlock`.
     pub fn build(self) -> RawGenesisBlock {
         RawGenesisBlock {
-            transactions: SmallVec(smallvec![self.transaction]),
+            transactions: vec![self.transaction],
             validator: self.state.0,
         }
     }
@@ -391,12 +369,7 @@ mod tests {
     fn load_new_genesis_block() -> Result<()> {
         let (genesis_public_key, genesis_private_key) = KeyPair::generate()?.into();
         let (alice_public_key, _) = KeyPair::generate()?.into();
-        let tx_limits = TransactionLimits {
-            max_instruction_number: 4096,
-            max_wasm_size_bytes: 0,
-        };
         let _genesis_block = GenesisNetwork::from_configuration(
-            true,
             RawGenesisBlockBuilder::new()
                 .domain("wonderland".parse()?)
                 .account("alice".parse()?, alice_public_key)
@@ -411,7 +384,6 @@ mod tests {
                 .build()
                 .expect("Default genesis config should build when provided the `public key`"),
             ),
-            &tx_limits,
         )?;
         Ok(())
     }

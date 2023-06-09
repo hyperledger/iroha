@@ -1,11 +1,11 @@
 //! Module for `WorldStateView`-related configuration and structs.
 #![allow(clippy::std_instead_of_core)]
 
+use default::*;
 use iroha_config_base::derive::{Documented, Proxy};
-use iroha_data_model::{prelude::*, transaction};
+use iroha_data_model::{prelude::*, transaction::TransactionLimits};
 use serde::{Deserialize, Serialize};
 
-use self::default::*;
 use crate::wasm;
 
 /// Module with a set of default values.
@@ -17,6 +17,14 @@ pub mod default {
         MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
     /// Default limits for ident length
     pub const DEFAULT_IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
+    /// Default maximum number of instructions and expressions per transaction
+    pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
+    /// Default maximum number of instructions and expressions per transaction
+    pub const DEFAULT_MAX_WASM_SIZE_BYTES: u64 = 2_u64.pow(22); // 4 MiB
+
+    /// Default transaction limits
+    pub const DEFAULT_TRANSACTION_LIMITS: TransactionLimits =
+        TransactionLimits::new(DEFAULT_MAX_INSTRUCTION_NUMBER, DEFAULT_MAX_WASM_SIZE_BYTES);
 }
 
 /// `WorldStateView` configuration.
@@ -50,7 +58,7 @@ impl Default for ConfigurationProxy {
             account_metadata_limits: Some(DEFAULT_METADATA_LIMITS),
             domain_metadata_limits: Some(DEFAULT_METADATA_LIMITS),
             ident_length_limits: Some(DEFAULT_IDENT_LENGTH_LIMITS),
-            transaction_limits: Some(transaction::DEFAULT_TRANSACTION_LIMITS),
+            transaction_limits: Some(DEFAULT_TRANSACTION_LIMITS),
             wasm_runtime_config: Some(wasm::ConfigurationProxy::default()),
         }
     }
@@ -70,7 +78,7 @@ pub mod tests {
                 account_metadata_limits in prop::option::of(Just(DEFAULT_METADATA_LIMITS)),
                 domain_metadata_limits in prop::option::of(Just(DEFAULT_METADATA_LIMITS)),
                 ident_length_limits in prop::option::of(Just(DEFAULT_IDENT_LENGTH_LIMITS)),
-                transaction_limits in prop::option::of(Just(transaction::DEFAULT_TRANSACTION_LIMITS)),
+                transaction_limits in prop::option::of(Just(DEFAULT_TRANSACTION_LIMITS)),
                 wasm_runtime_config in prop::option::of(Just(wasm::ConfigurationProxy::default())),
             )
             -> ConfigurationProxy {

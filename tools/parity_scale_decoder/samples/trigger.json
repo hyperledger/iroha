@@ -14,7 +14,7 @@
             ]
         },
         "repeats": "Indefinitely",
-        "technical_account": "alice@wonderland",
+        "authority": "alice@wonderland",
         "filter": {
             "Data": {
                 "ByAccount": "AcceptAll"

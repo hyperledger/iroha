@@ -45,7 +45,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
         };
         let instructions: Vec<InstructionBox> = vec![mint_asset.clone().into()];
         let transaction = client.build_transaction(instructions, UnlimitedMetadata::new())?;
-        client.submit_transaction(transaction)?;
+        client.submit_transaction(&transaction)?;
     }
     thread::sleep(pipeline_time * 5);
 
@@ -57,12 +57,12 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
         .only_output();
     assert_eq!(transactions.len(), 50);
 
-    let mut prev_creation_time = 0;
+    let mut prev_creation_time = core::time::Duration::from_millis(0);
     for tx in &transactions {
-        assert_eq!(&tx.payload().account_id, &account_id);
+        assert_eq!(tx.payload().authority(), &account_id);
         //check sorted
-        assert!(tx.payload().creation_time >= prev_creation_time);
-        prev_creation_time = tx.payload().creation_time;
+        assert!(tx.payload().creation_time() >= prev_creation_time);
+        prev_creation_time = tx.payload().creation_time();
     }
     Ok(())
 }

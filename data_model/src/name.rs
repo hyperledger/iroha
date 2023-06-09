@@ -56,7 +56,7 @@ impl Name {
             .count()
             .try_into()
             .map(|len| range.contains(&len)) else {
-            return Err(InvalidParameterError::NameLength(range));
+            return Err(InvalidParameterError::NameLength);
         };
         Ok(())
     }

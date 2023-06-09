@@ -4,7 +4,7 @@
 use iroha_data_model::{
     isi::error::{MathError, Mismatch, TypeError},
     prelude::*,
-    query::error::{FindError, QueryExecutionFailure},
+    query::error::{FindError, QueryExecutionFail},
 };
 use iroha_primitives::{fixed::Fixed, CheckedOp, IntoMetric};
 use iroha_telemetry::metrics;
@@ -46,7 +46,7 @@ pub mod isi {
             assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
 
             // Increase `Store` asset total quantity by 1 if asset was not present earlier
-            if matches!(wsv.asset(&asset_id), Err(QueryExecutionFailure::Find(_))) {
+            if matches!(wsv.asset(&asset_id), Err(QueryExecutionFail::Find(_))) {
                 wsv.increase_asset_total_amount(&asset_id.definition_id, 1_u32)?;
             }
 
@@ -441,7 +441,7 @@ pub mod isi {
 pub mod query {
     use eyre::{Result, WrapErr as _};
     use iroha_data_model::query::{
-        asset::IsAssetDefinitionOwner, error::QueryExecutionFailure as Error,
+        asset::IsAssetDefinitionOwner, error::QueryExecutionFail as Error,
     };
 
     use super::*;

@@ -4,7 +4,7 @@ use iroha_client::client::ClientQueryError;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{
     prelude::*,
-    query::{asset::FindTotalAssetQuantityByAssetDefinitionId, error::QueryExecutionFailure},
+    query::{asset::FindTotalAssetQuantityByAssetDefinitionId, error::QueryExecutionFail},
 };
 use iroha_primitives::fixed::Fixed;
 use test_network::*;
@@ -13,7 +13,7 @@ use test_network::*;
 #[allow(clippy::too_many_lines)]
 fn find_asset_total_quantity() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_765).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     // Register new domain
     let domain_id: DomainId = "looking_glass".parse()?;
@@ -39,7 +39,7 @@ fn find_asset_total_quantity() -> Result<()> {
         .skip(1) // Alice has already been registered in genesis
         .cloned()
         .zip(keys.iter().map(KeyPair::public_key).cloned())
-        .map(|(account_id, public_key)| RegisterBox::new(Account::new(account_id, [public_key])).into())
+        .map(|(account_id, public_key)| RegisterBox::new(Account::new(account_id, [public_key])))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 
@@ -99,20 +99,20 @@ fn find_asset_total_quantity() -> Result<()> {
             .iter()
             .cloned()
             .map(|asset_id| Asset::new(asset_id, initial_value.clone()))
-            .map(|asset| RegisterBox::new(asset).into())
+            .map(RegisterBox::new)
             .collect::<Vec<_>>();
         test_client.submit_all_blocking(register_asset)?;
 
         let mint_asset = asset_ids
             .iter()
             .cloned()
-            .map(|asset_id| MintBox::new(to_mint.clone(), asset_id).into());
+            .map(|asset_id| MintBox::new(to_mint.clone(), asset_id));
         test_client.submit_all_blocking(mint_asset)?;
 
         let burn_asset = asset_ids
             .iter()
             .cloned()
-            .map(|asset_id| BurnBox::new(to_burn.clone(), asset_id).into())
+            .map(|asset_id| BurnBox::new(to_burn.clone(), asset_id))
             .collect::<Vec<_>>();
         test_client.submit_all_blocking(burn_asset)?;
 
@@ -125,7 +125,7 @@ fn find_asset_total_quantity() -> Result<()> {
         let unregister_asset = asset_ids
             .iter()
             .cloned()
-            .map(|asset_id| UnregisterBox::new(asset_id).into())
+            .map(UnregisterBox::new)
             .collect::<Vec<_>>();
         test_client.submit_all_blocking(unregister_asset)?;
 
@@ -145,7 +145,7 @@ fn find_asset_total_quantity() -> Result<()> {
         assert!(matches!(
             result,
             Err(ClientQueryError::Validation(ValidationFail::QueryFailed(
-                QueryExecutionFailure::Find(_)
+                QueryExecutionFail::Find(_)
             )))
         ));
     }
@@ -172,7 +172,7 @@ fn find_asset_total_quantity() -> Result<()> {
         .iter()
         .cloned()
         .map(|asset_id| Asset::new(asset_id, Metadata::default()))
-        .map(|asset| RegisterBox::new(asset).into())
+        .map(RegisterBox::new)
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_asset)?;
 
@@ -185,7 +185,7 @@ fn find_asset_total_quantity() -> Result<()> {
     let unregister_asset = asset_ids
         .iter()
         .cloned()
-        .map(|asset_id| UnregisterBox::new(asset_id).into())
+        .map(UnregisterBox::new)
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(unregister_asset)?;
 
@@ -205,7 +205,7 @@ fn find_asset_total_quantity() -> Result<()> {
     assert!(matches!(
         result,
         Err(ClientQueryError::Validation(ValidationFail::QueryFailed(
-            QueryExecutionFailure::Find(_)
+            QueryExecutionFail::Find(_)
         )))
     ));
 

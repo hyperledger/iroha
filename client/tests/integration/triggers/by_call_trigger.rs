@@ -110,7 +110,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
     let bad_trigger_id =
         <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str("bad_trigger")?;
     // Invalid instruction
-    let bad_trigger_instructions = vec![MintBox::new(1_u32, account_id.clone()).into()];
+    let bad_trigger_instructions = vec![MintBox::new(1_u32, account_id.clone())];
     let register_bad_trigger = RegisterBox::new(Trigger::new(
         bad_trigger_id.clone(),
         Action::new(
@@ -127,7 +127,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
 
     // Registering normal trigger
     let trigger_id = <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str(TRIGGER_NAME)?;
-    let trigger_instructions = vec![MintBox::new(1_u32, asset_id.clone()).into()];
+    let trigger_instructions = vec![MintBox::new(1_u32, asset_id.clone())];
     let register_trigger = RegisterBox::new(Trigger::new(
         trigger_id,
         Action::new(
@@ -163,7 +163,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     let trigger_id =
         <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str("self_modifying_trigger")?;
 
-    let trigger_instructions = vec![MintBox::new(1_u32, asset_id.clone()).into()];
+    let trigger_instructions = vec![MintBox::new(1_u32, asset_id.clone())];
     let register_trigger = RegisterBox::new(Trigger::new(
         trigger_id.clone(),
         Action::new(
@@ -224,8 +224,8 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
         <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str("self_modifying_trigger")?;
 
     let trigger_instructions = vec![
-        MintBox::new(1_u32, trigger_id.clone()).into(),
-        MintBox::new(1_u32, asset_id.clone()).into(),
+        MintBox::new(1_u32, trigger_id.clone()),
+        MintBox::new(1_u32, asset_id.clone()),
     ];
     let register_trigger = RegisterBox::new(Trigger::new(
         trigger_id.clone(),
@@ -268,11 +268,10 @@ fn unregister_trigger() -> Result<()> {
     // Registering trigger
     let trigger_id =
         <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str("empty_trigger")?;
-    let trigger_instructions = Vec::new();
     let trigger = Trigger::new(
         trigger_id.clone(),
         Action::new(
-            trigger_instructions,
+            Vec::<InstructionBox>::new(),
             Repeats::Indefinitely,
             account_id.clone(),
             FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
@@ -298,7 +297,7 @@ fn unregister_trigger() -> Result<()> {
         Action::new(
             Executable::Instructions(found_instructions),
             found_action.repeats,
-            found_action.technical_account,
+            found_action.authority,
             found_action.filter,
         ),
     );
@@ -367,7 +366,8 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
 
     // Registering trigger in genesis
     let mut genesis = GenesisNetwork::test(true).expect("Expected genesis");
-    match &mut genesis.transactions[0].as_mut_v1().payload.instructions {
+    let VersionedSignedTransaction::V1(tx_ref) = &mut genesis.transactions[0].0;
+    match &mut tx_ref.payload.instructions {
         Executable::Instructions(instructions) => {
             instructions.push(RegisterBox::new(trigger).into());
         }
@@ -410,8 +410,9 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
             "should_be_unregistered_trigger",
         )?;
 
-    let trigger_unregister_instructions =
-        vec![UnregisterBox::new(trigger_id_should_be_unregistered.clone()).into()];
+    let trigger_unregister_instructions = vec![UnregisterBox::new(
+        trigger_id_should_be_unregistered.clone(),
+    )];
     let register_trigger = RegisterBox::new(Trigger::new(
         trigger_id_unregister.clone(),
         Action::new(
@@ -426,8 +427,7 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
     ));
     test_client.submit_blocking(register_trigger)?;
 
-    let trigger_should_be_unregistered_instructions =
-        vec![MintBox::new(1_u32, asset_id.clone()).into()];
+    let trigger_should_be_unregistered_instructions = vec![MintBox::new(1_u32, asset_id.clone())];
     let register_trigger = RegisterBox::new(Trigger::new(
         trigger_id_should_be_unregistered.clone(),
         Action::new(
@@ -450,8 +450,8 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
     let execute_trigger_should_be_unregistered =
         ExecuteTriggerBox::new(trigger_id_should_be_unregistered);
     test_client.submit_all_blocking([
-        execute_trigger_unregister.into(),
-        execute_trigger_should_be_unregistered.into(),
+        execute_trigger_unregister,
+        execute_trigger_should_be_unregistered,
     ])?;
 
     // Checking results

@@ -288,7 +288,7 @@ pub mod isi {
 /// Query module provides [`Query`] Domain related implementations.
 pub mod query {
     use eyre::{Result, WrapErr};
-    use iroha_data_model::query::error::QueryExecutionFailure as Error;
+    use iroha_data_model::query::error::QueryExecutionFail as Error;
 
     use super::*;
 

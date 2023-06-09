@@ -140,7 +140,7 @@ impl MockValidator {
         match operation.into() {
             NeedsValidationBox::Instruction(isi) => Self::execute_instruction(wsv, authority, isi),
             NeedsValidationBox::Transaction(tx) => {
-                let Executable::Instructions(instructions) = tx.payload.instructions else {
+                let (_authority, Executable::Instructions(instructions)) = tx.into() else {
                     return Ok(());
                 };
                 for isi in instructions {

@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// Collection of [`RoleId`](Id)s
-pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
+pub type RoleIds = btree_set::BTreeSet<RoleId>;
 
 #[model]
 pub mod model {
@@ -83,7 +83,7 @@ pub mod model {
 impl Role {
     /// Constructor.
     #[inline]
-    pub fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
+    pub fn new(id: RoleId) -> <Self as Registered>::With {
         NewRole::new(id)
     }
 
@@ -98,7 +98,7 @@ impl NewRole {
     /// Constructor
     #[must_use]
     #[inline]
-    fn new(id: <Role as Identifiable>::Id) -> Self {
+    fn new(id: RoleId) -> Self {
         Self {
             inner: Role {
                 id,

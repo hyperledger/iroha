@@ -36,7 +36,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         FromVariant,
         Decode,
         Encode,

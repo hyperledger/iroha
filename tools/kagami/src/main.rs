@@ -239,7 +239,6 @@ mod genesis {
         metadata::Limits,
         parameter::{default::*, ParametersBuilder},
         prelude::AssetId,
-        transaction::DEFAULT_TRANSACTION_LIMITS,
         validator::Validator,
         IdBox,
     };

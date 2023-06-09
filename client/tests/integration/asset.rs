@@ -14,7 +14,7 @@ use super::Configuration;
 #[test]
 fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_620).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
@@ -26,7 +26,7 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
         AssetValue::Quantity(0),
     ));
 
-    test_client.submit_all(vec![create_asset.into(), register_asset.clone().into()])?;
+    test_client.submit_all([create_asset, register_asset.clone()])?;
 
     // Registering an asset to an account which doesn't have one
     // should result in asset being created
@@ -46,7 +46,7 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
 #[test]
 fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_555).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
@@ -57,7 +57,7 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
     let register_asset = RegisterBox::new(Asset::new(asset_id.clone(), AssetValue::Quantity(0)));
     let unregister_asset = UnregisterBox::new(asset_id);
 
-    test_client.submit_all(vec![create_asset.into(), register_asset.into()])?;
+    test_client.submit_all([create_asset, register_asset])?;
 
     // Wait for asset to be registered
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
@@ -81,7 +81,7 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_000).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
@@ -97,9 +97,9 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
             account_id.clone(),
         )),
     );
-    let instructions: Vec<InstructionBox> = vec![create_asset.into(), mint.into()];
+    let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata)?;
-    test_client.submit_transaction(tx)?;
+    test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
@@ -112,7 +112,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
 #[test]
 fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_510).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
@@ -128,9 +128,9 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
             account_id.clone(),
         )),
     );
-    let instructions: Vec<InstructionBox> = vec![create_asset.into(), mint.into()];
+    let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata)?;
-    test_client.submit_transaction(tx)?;
+    test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
@@ -143,6 +143,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
 #[test]
 fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_515).start_with_runtime();
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
@@ -160,9 +161,9 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
             account_id.clone(),
         )),
     );
-    let instructions: Vec<InstructionBox> = vec![create_asset.into(), mint.into()];
+    let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata)?;
-    test_client.submit_transaction(tx)?;
+    test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
         result.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
@@ -195,6 +196,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
 #[test]
 fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_520).start_with_runtime();
+    wait_for_genesis_committed(&[test_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
@@ -239,6 +241,7 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
 #[test]
 fn find_rate_and_make_exchange_isi_should_succeed() {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_675).start_with_runtime();
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let alice_id: AccountId = "alice@wonderland".parse().expect("Valid.");
     let seller_id: AccountId = "seller@company".parse().expect("Valid.");
@@ -259,19 +262,15 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             PermissionToken::new("can_transfer_user_asset".parse().expect("Valid"))
                 .with_params([("asset_id".parse().expect("Valid"), asset_id.clone().into())]),
             alice_id.clone(),
-        )
-        .into();
+        );
 
-        let grant_asset_transfer_tx = TransactionBuilder::new(
-            asset_id.account_id().clone(),
-            vec![allow_alice_to_transfer_asset],
-            100_000,
-        )
-        .sign(owner_keypair)
-        .expect("Failed to sign seller transaction");
+        let grant_asset_transfer_tx = TransactionBuilder::new(asset_id.account_id().clone())
+            .with_instructions([allow_alice_to_transfer_asset])
+            .sign(owner_keypair)
+            .expect("Failed to sign seller transaction");
 
         test_client
-            .submit_transaction_blocking(grant_asset_transfer_tx)
+            .submit_transaction_blocking(&grant_asset_transfer_tx)
             .expect(&format!(
                 "Failed to grant permission alice to transfer {asset_id}",
             ));
@@ -284,36 +283,37 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         "exchange",
         account_id_new("dex", "exchange"),
     );
+    let instructions: [InstructionBox; 12] = [
+        register::domain("exchange").into(),
+        register::domain("company").into(),
+        register::domain("crypto").into(),
+        register_account(seller_id, seller_keypair.public_key().clone()).into(),
+        register_account(buyer_id, buyer_keypair.public_key().clone()).into(),
+        register::account("dex", "exchange").into(),
+        register::asset_definition("btc", "crypto").into(),
+        register::asset_definition("eth", "crypto").into(),
+        register::asset_definition("btc2eth_rate", "exchange").into(),
+        MintBox::new(
+            200_u32.to_value(),
+            IdBox::AssetId(asset_id_new("eth", "crypto", buyer_account_id.clone())),
+        )
+        .into(),
+        MintBox::new(
+            20_u32.to_value(),
+            IdBox::AssetId(asset_id_new("btc", "crypto", seller_account_id.clone())),
+        )
+        .into(),
+        MintBox::new(20_u32.to_value(), IdBox::AssetId(asset_id.clone())).into(),
+    ];
     test_client
-        .submit_all_blocking(vec![
-            register::domain("exchange").into(),
-            register::domain("company").into(),
-            register::domain("crypto").into(),
-            register_account(seller_id, seller_keypair.public_key().clone()).into(),
-            register_account(buyer_id, buyer_keypair.public_key().clone()).into(),
-            register::account("dex", "exchange").into(),
-            register::asset_definition("btc", "crypto").into(),
-            register::asset_definition("eth", "crypto").into(),
-            register::asset_definition("btc2eth_rate", "exchange").into(),
-            MintBox::new(
-                200_u32.to_value(),
-                IdBox::AssetId(asset_id_new("eth", "crypto", buyer_account_id.clone())),
-            )
-            .into(),
-            MintBox::new(
-                20_u32.to_value(),
-                IdBox::AssetId(asset_id_new("btc", "crypto", seller_account_id.clone())),
-            )
-            .into(),
-            MintBox::new(20_u32.to_value(), IdBox::AssetId(asset_id.clone())).into(),
-        ])
+        .submit_all_blocking(instructions)
         .expect("Failed to prepare accounts.");
 
     grant_alice_asset_transfer_permission(seller_btc, seller_keypair);
     grant_alice_asset_transfer_permission(buyer_eth, buyer_keypair);
 
     test_client
-        .submit_all_blocking(vec![Pair::new(
+        .submit_all_blocking([Pair::new(
             TransferBox::new(
                 IdBox::AssetId(asset_id_new("btc", "crypto", seller_account_id.clone())),
                 EvaluatesTo::new_evaluates_to_value(Expression::Query(
@@ -328,8 +328,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
                 )),
                 IdBox::AccountId(seller_account_id),
             ),
-        )
-        .into()])
+        )])
         .expect("Failed to exchange eth for btc.");
 
     let expected_seller_eth = NumericValue::U32(20);

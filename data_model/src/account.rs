@@ -34,7 +34,7 @@ use crate::{
 };
 
 /// API to work with collections of [`Id`] : [`Account`] mappings.
-pub type AccountsMap = btree_map::BTreeMap<<Account as Identifiable>::Id, Account>;
+pub type AccountsMap = btree_map::BTreeMap<AccountId, Account>;
 
 // The size of the array must be fixed. If we use more than `1` we
 // waste all of that space for all non-multisig accounts. If we
@@ -45,10 +45,16 @@ pub type AccountsMap = btree_map::BTreeMap<<Account as Identifiable>::Id, Accoun
 type Signatories = btree_set::BTreeSet<PublicKey>;
 
 /// The context value name for transaction signatories.
+#[cfg(feature = "transparent_api")]
 pub const TRANSACTION_SIGNATORIES_VALUE: &str = "transaction_signatories";
+#[cfg(not(feature = "transparent_api"))]
+const TRANSACTION_SIGNATORIES_VALUE: &str = "transaction_signatories";
 
 /// The context value name for account signatories.
+#[cfg(feature = "transparent_api")]
 pub const ACCOUNT_SIGNATORIES_VALUE: &str = "account_signatories";
+#[cfg(not(feature = "transparent_api"))]
+const ACCOUNT_SIGNATORIES_VALUE: &str = "account_signatories";
 
 #[model]
 pub mod model {
@@ -88,7 +94,7 @@ pub mod model {
         /// [`Account`]'s name.
         pub name: Name,
         /// [`Account`]'s [`Domain`](`crate::domain::Domain`) id.
-        pub domain_id: <Domain as Identifiable>::Id,
+        pub domain_id: DomainId,
     }
 
     /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
@@ -132,7 +138,7 @@ pub mod model {
     #[ffi_type]
     pub struct NewAccount {
         /// Identification
-        pub id: <Account as Identifiable>::Id,
+        pub id: AccountId,
         /// Signatories, i.e. signatures attached to this message.
         pub signatories: Signatories,
         /// Metadata that should be submitted with the builder
@@ -148,7 +154,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         Constructor,
         Decode,
         Encode,
@@ -163,28 +168,12 @@ pub mod model {
     pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 }
 
-impl AccountId {
-    #[cfg(feature = "transparent_api")]
-    const GENESIS_ACCOUNT_NAME: &str = "genesis";
-
-    /// Construct [`Id`] of the genesis account.
-    #[inline]
-    #[must_use]
-    #[cfg(feature = "transparent_api")]
-    pub fn genesis() -> Self {
-        Self {
-            name: Self::GENESIS_ACCOUNT_NAME.parse().expect("Valid"),
-            domain_id: DomainId::genesis(),
-        }
-    }
-}
-
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[inline]
     #[must_use]
     pub fn new(
-        id: <Self as Identifiable>::Id,
+        id: AccountId,
         signatories: impl IntoIterator<Item = PublicKey>,
     ) -> <Self as Registered>::With {
         <Self as Registered>::With::new(id, signatories)
@@ -273,10 +262,7 @@ impl Account {
 }
 
 impl NewAccount {
-    fn new(
-        id: <Account as Identifiable>::Id,
-        signatories: impl IntoIterator<Item = PublicKey>,
-    ) -> Self {
+    fn new(id: AccountId, signatories: impl IntoIterator<Item = PublicKey>) -> Self {
         Self {
             id,
             signatories: signatories.into_iter().collect(),

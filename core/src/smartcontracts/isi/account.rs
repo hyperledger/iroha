@@ -36,7 +36,7 @@ pub mod isi {
             error::{MintabilityError, RepetitionError},
             InstructionType,
         },
-        query::error::{PermissionTokenFindError, QueryExecutionFailure},
+        query::error::{PermissionTokenFindError, QueryExecutionFail},
     };
 
     use super::*;
@@ -49,7 +49,7 @@ pub mod isi {
 
             match wsv.asset(&asset_id) {
                 Err(err) => match err {
-                    QueryExecutionFailure::Find(find_err)
+                    QueryExecutionFail::Find(find_err)
                         if matches!(*find_err, FindError::Asset(_)) =>
                     {
                         assert_can_register(&asset_id.definition_id, wsv, &self.object.value)?;
@@ -475,7 +475,7 @@ pub mod query {
 
     use eyre::{Result, WrapErr};
     use iroha_data_model::{
-        evaluate::ExpressionEvaluator, query::error::QueryExecutionFailure as Error,
+        evaluate::ExpressionEvaluator, query::error::QueryExecutionFail as Error,
     };
 
     use super::*;

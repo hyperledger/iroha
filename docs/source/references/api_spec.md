@@ -45,14 +45,14 @@
 
 **Responses**:
 
-| Response        | Status |                      Body                     |
-|-----------------|--------|-----------------------------------------------|
-| Signature err.  | 401    | `QueryExecutionFailure::Signature(String)`    |
-| Permission err. | 403    | `QueryExecutionFailure::Permission(String)`   |
-| Evaluate err.   | 400    | `QueryExecutionFailure::Evaluate(String)`     |
-| Find err.       | 404    | `QueryExecutionFailure::Find(Box<FindError>)` |
-| Conversion err. | 400    | `QueryExecutionFailure::Conversion(String)`   |
-| Success         | 200    | `VersionedPaginatedQueryResult`               |
+| Response        | Status |                      Body                  |
+|-----------------|--------|--------------------------------------------|
+| Signature err.  | 401    | `QueryExecutionFail::Signature(String)`    |
+| Permission err. | 403    | `QueryExecutionFail::Permission(String)`   |
+| Evaluate err.   | 400    | `QueryExecutionFail::Evaluate(String)`     |
+| Find err.       | 404    | `QueryExecutionFail::Find(Box<FindError>)` |
+| Conversion err. | 400    | `QueryExecutionFail::Conversion(String)`   |
+| Success         | 200    | `VersionedPaginatedQueryResult`            |
 
 #### Account Not Found 404
 

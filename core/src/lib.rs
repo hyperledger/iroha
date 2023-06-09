@@ -66,12 +66,6 @@ pub enum NetworkMessage {
     Health,
 }
 
-/// Check to see if the given item was included in the blockchain.
-pub trait IsInBlockchain {
-    /// Check if [`self`] is committed or rejected.
-    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool;
-}
-
 pub mod handler {
     //! General purpose thread handler. It is responsible for RAII for
     //! threads started for Kura, Sumeragi and other core routines.
@@ -118,11 +112,7 @@ pub mod prelude {
     #[doc(inline)]
     pub use crate::{
         smartcontracts::ValidQuery,
-        tx::{
-            AcceptedTransaction, ValidTransaction, VersionedAcceptedTransaction,
-            VersionedValidTransaction,
-        },
+        tx::AcceptedTransaction,
         wsv::{World, WorldStateView},
-        IsInBlockchain,
     };
 }

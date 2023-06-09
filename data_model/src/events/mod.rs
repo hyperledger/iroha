@@ -22,17 +22,7 @@ pub mod model {
 
     #[allow(missing_docs)]
     #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
     #[ffi_type]
     pub enum Event {
@@ -47,7 +37,7 @@ pub mod model {
     }
 
     /// Event type. Like [`Event`] but without actual event data
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Decode, Encode, IntoSchema)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema)]
     pub enum EventType {
         /// Pipeline event.
         Pipeline,
@@ -62,17 +52,7 @@ pub mod model {
     /// Event filter.
     #[allow(variant_size_differences)]
     #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
     // TODO: Temporarily made opaque
     #[ffi_type(opaque)]

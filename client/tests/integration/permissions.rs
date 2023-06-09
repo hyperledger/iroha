@@ -19,7 +19,7 @@ fn get_assets(iroha_client: &mut Client, id: &<Account as Identifiable>::Id) -> 
 #[test]
 fn permissions_require_registration_before_grant() {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_725).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    wait_for_genesis_committed(&[client.clone()], 0);
 
     // Given
     let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland").expect("Valid");
@@ -51,7 +51,7 @@ fn permissions_require_registration_before_grant() {
 fn permissions_disallow_asset_transfer() {
     let (_rt, _peer, mut iroha_client) =
         <PeerBuilder>::new().with_port(10_730).start_with_runtime();
-    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
+    wait_for_genesis_committed(&[iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
@@ -63,7 +63,7 @@ fn permissions_disallow_asset_transfer() {
 
     let alice_start_assets = get_assets(&mut iroha_client, &alice_id);
     iroha_client
-        .submit_all(vec![create_asset.into(), register_bob.into()])
+        .submit_all([create_asset, register_bob])
         .expect("Failed to prepare state.");
     thread::sleep(pipeline_time * 2);
 
@@ -119,7 +119,7 @@ fn permissions_disallow_asset_burn() {
     let alice_start_assets = get_assets(&mut iroha_client, &alice_id);
 
     iroha_client
-        .submit_all(vec![create_asset.into(), register_bob.into()])
+        .submit_all([create_asset, register_bob])
         .expect("Failed to prepare state.");
 
     thread::sleep(pipeline_time * 2);
@@ -130,7 +130,7 @@ fn permissions_disallow_asset_burn() {
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id.clone())),
     );
     iroha_client
-        .submit_all(vec![mint_asset.into()])
+        .submit_all([mint_asset])
         .expect("Failed to create asset.");
     thread::sleep(pipeline_time * 2);
     //When
@@ -161,7 +161,7 @@ fn permissions_disallow_asset_burn() {
 #[test]
 fn account_can_query_only_its_own_domain() -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_740).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    wait_for_genesis_committed(&[client.clone()], 0);
 
     // Given
     let domain_id: DomainId = "wonderland".parse()?;
@@ -198,8 +198,8 @@ fn permissions_differ_not_only_by_names() {
     let new_shoes_definition = AssetDefinition::store(shoes_definition_id.clone());
     client
         .submit_all_blocking([
-            RegisterBox::new(new_hat_definition).into(),
-            RegisterBox::new(new_shoes_definition).into(),
+            RegisterBox::new(new_hat_definition),
+            RegisterBox::new(new_shoes_definition),
         ])
         .expect("Failed to register new asset definitions");
 
@@ -218,18 +218,14 @@ fn permissions_differ_not_only_by_names() {
                 mouse_hat_id.clone().into(),
             )]),
         alice_id.clone(),
-    )
-    .into();
+    );
 
-    let grant_hats_access_tx = TransactionBuilder::new(
-        mouse_id.clone(),
-        vec![allow_alice_to_set_key_value_in_hats],
-        100_000,
-    )
-    .sign(mouse_keypair.clone())
-    .expect("Failed to sign mouse transaction");
+    let grant_hats_access_tx = TransactionBuilder::new(mouse_id.clone())
+        .with_instructions([allow_alice_to_set_key_value_in_hats])
+        .sign(mouse_keypair.clone())
+        .expect("Failed to sign mouse transaction");
     client
-        .submit_transaction_blocking(grant_hats_access_tx)
+        .submit_transaction_blocking(&grant_hats_access_tx)
         .expect("Failed grant permission to modify Mouse's hats");
 
     // Checking that Alice can modify Mouse's hats ...
@@ -257,19 +253,15 @@ fn permissions_differ_not_only_by_names() {
         PermissionToken::new("can_set_key_value_in_user_asset".parse().expect("Valid"))
             .with_params([("asset_id".parse().expect("Valid"), mouse_shoes_id.into())]),
         alice_id,
-    )
-    .into();
+    );
 
-    let grant_shoes_access_tx = TransactionBuilder::new(
-        mouse_id,
-        vec![allow_alice_to_set_key_value_in_shoes],
-        100_000,
-    )
-    .sign(mouse_keypair)
-    .expect("Failed to sign mouse transaction");
+    let grant_shoes_access_tx = TransactionBuilder::new(mouse_id)
+        .with_instructions([allow_alice_to_set_key_value_in_shoes])
+        .sign(mouse_keypair)
+        .expect("Failed to sign mouse transaction");
 
     client
-        .submit_transaction_blocking(grant_shoes_access_tx)
+        .submit_transaction_blocking(&grant_shoes_access_tx)
         .expect("Failed grant permission to modify Mouse's shoes");
 
     // Checking that Alice can modify Mouse's shoes
@@ -371,7 +363,7 @@ mod token_parameters {
     /// Will panic with `expect` if permission granting succeeds
     fn run_grant_token_error_test(token: PermissionToken, expect: &'static str) {
         let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_750).start_with_runtime();
-        wait_for_genesis_committed(&vec![client.clone()], 0);
+        wait_for_genesis_committed(&[client.clone()], 0);
 
         register_test_token_definition(&client);
 
@@ -387,7 +379,7 @@ mod token_parameters {
     /// Will panic with `expect` if role registration succeeds
     fn run_register_role_error_test(token: PermissionToken, expect: &'static str) {
         let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_750).start_with_runtime();
-        wait_for_genesis_committed(&vec![client.clone()], 0);
+        wait_for_genesis_committed(&[client.clone()], 0);
 
         register_test_token_definition(&client);
 

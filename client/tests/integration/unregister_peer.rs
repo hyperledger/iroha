@@ -114,12 +114,13 @@ fn init() -> Result<(
     let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
-    client.submit_all_blocking(vec![
+    let instructions: [InstructionBox; 4] = [
         parameters.into(),
         create_domain.into(),
         create_account.into(),
         create_asset.into(),
-    ])?;
+    ];
+    client.submit_all_blocking(instructions)?;
     iroha_logger::info!("Init");
     Ok((
         rt,

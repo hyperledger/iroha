@@ -10,7 +10,7 @@ use test_network::*;
 #[test]
 fn find_accounts_with_asset() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_760).start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&[test_client.clone()], 0);
 
     // Registering new asset definition
     let definition_id =
@@ -41,7 +41,7 @@ fn find_accounts_with_asset() -> Result<()> {
         .iter()
         .skip(1) // Alice has already been registered in genesis
         .cloned()
-        .map(|account_id| RegisterBox::new(Account::new(account_id, [])).into())
+        .map(|account_id| RegisterBox::new(Account::new(account_id, [])))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 
@@ -49,7 +49,7 @@ fn find_accounts_with_asset() -> Result<()> {
         .iter()
         .cloned()
         .map(|account_id| <Asset as Identifiable>::Id::new(definition_id.clone(), account_id))
-        .map(|asset_id| MintBox::new(1_u32, asset_id).into())
+        .map(|asset_id| MintBox::new(1_u32, asset_id))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(mint_asset)?;
 

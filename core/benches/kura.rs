@@ -6,7 +6,9 @@ use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{block::*, kura::BlockStore, prelude::*, wsv::World};
 use iroha_crypto::KeyPair;
-use iroha_data_model::{block::VersionedCommittedBlock, prelude::*, transaction::InBlock};
+use iroha_data_model::{
+    block::VersionedCommittedBlock, prelude::*, transaction::TransactionLimits,
+};
 use iroha_version::scale::EncodeVersioned;
 use tokio::{fs, runtime::Runtime};
 
@@ -19,23 +21,18 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
         IdBox::AssetId(alice_xor_id),
         10_u32.to_value(),
         IdBox::AccountId(bob_id),
-    )
-    .into();
+    );
     let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let tx = TransactionBuilder::new(
-        AccountId::from_str("alice@wonderland").expect("checked"),
-        vec![transfer],
-        1000,
-    )
-    .sign(keypair)
-    .expect("Failed to sign.");
+    let tx = TransactionBuilder::new(AccountId::from_str("alice@wonderland").expect("checked"))
+        .with_instructions([transfer])
+        .sign(keypair)
+        .expect("Failed to sign.");
     let transaction_limits = TransactionLimits {
         max_instruction_number: 4096,
         max_wasm_size_bytes: 0,
     };
-    let tx = <AcceptedTransaction as InBlock>::accept(tx, &transaction_limits)
-        .expect("Failed to accept Transaction.")
-        .into();
+    let tx = AcceptedTransaction::accept(tx, &transaction_limits)
+        .expect("Failed to accept Transaction.");
     let dir = tempfile::tempdir().expect("Could not create tempfile.");
     let kura =
         iroha_core::kura::Kura::new(iroha_config::kura::Mode::Strict, dir.path(), false).unwrap();

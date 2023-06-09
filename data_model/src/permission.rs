@@ -88,7 +88,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         Getters,
         Decode,
         Encode,
@@ -100,7 +99,7 @@ pub mod model {
     pub struct PermissionToken {
         /// Name of the permission rule given to account.
         #[getset(get = "pub")]
-        pub definition_id: <PermissionTokenDefinition as Identifiable>::Id,
+        pub definition_id: PermissionTokenId,
         /// Params identifying how this rule applies.
         pub params: BTreeMap<Name, Value>,
     }
@@ -121,7 +120,7 @@ impl core::fmt::Debug for PermissionTokenDefinition {
 impl PermissionTokenDefinition {
     /// Construct new [`Definition`]
     #[inline]
-    pub const fn new(id: <PermissionTokenDefinition as Identifiable>::Id) -> Self {
+    pub const fn new(id: PermissionTokenId) -> Self {
         Self {
             id,
             params: BTreeMap::new(),
@@ -148,7 +147,7 @@ impl PermissionTokenDefinition {
 impl PermissionToken {
     /// Construct a permission token.
     #[inline]
-    pub fn new(definition_id: <PermissionTokenDefinition as Identifiable>::Id) -> Self {
+    pub fn new(definition_id: PermissionTokenId) -> Self {
         Self {
             definition_id,
             params: BTreeMap::default(),

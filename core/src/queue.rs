@@ -14,13 +14,65 @@ use dashmap::{mapref::entry::Entry, DashMap};
 use eyre::{Report, Result};
 use iroha_config::queue::Configuration;
 use iroha_crypto::HashOf;
-use iroha_data_model::{account::AccountId, transaction::prelude::*};
+use iroha_data_model::{
+    account::{Account, AccountId},
+    evaluate::ExpressionEvaluator as _,
+    expression::{EvaluatesTo, Where},
+    transaction::prelude::*,
+};
 use iroha_logger::{debug, info, trace, warn};
 use iroha_primitives::must_use::MustUse;
 use rand::seq::IteratorRandom;
 use thiserror::Error;
 
-use crate::{prelude::*, tx::CheckSignatureCondition as _};
+use crate::prelude::*;
+
+impl AcceptedTransaction {
+    // TODO: We should have another type of transaction like `CheckedTransaction` in the type system?
+    fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
+        let authority = &self.payload().authority;
+
+        let signatories = self
+            .signatures()
+            .iter()
+            .map(|signature| signature.public_key())
+            .cloned();
+
+        wsv.map_account(authority, |account| {
+            wsv.evaluate(&check_signature_condition(account, signatories))
+                .map(MustUse::new)
+                .map_err(Into::into)
+        })?
+    }
+
+    /// Check if [`self`] is committed or rejected.
+    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
+        wsv.has_transaction(self.hash())
+    }
+}
+
+fn check_signature_condition(
+    account: &Account,
+    signatories: impl IntoIterator<Item = PublicKey>,
+) -> EvaluatesTo<bool> {
+    let where_expr = Where::new(EvaluatesTo::new_evaluates_to_value(
+        *account.signature_check_condition.0.expression.clone(),
+    ))
+    .with_value(
+        iroha_data_model::account::ACCOUNT_SIGNATORIES_VALUE
+            .parse()
+            .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
+        account.signatories.iter().cloned().collect::<Vec<_>>(),
+    )
+    .with_value(
+        iroha_data_model::account::TRANSACTION_SIGNATORIES_VALUE
+            .parse()
+            .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
+        signatories.into_iter().collect::<Vec<_>>(),
+    );
+
+    EvaluatesTo::new_unchecked(where_expr)
+}
 
 /// Lockfree queue for transactions
 ///
@@ -28,9 +80,9 @@ use crate::{prelude::*, tx::CheckSignatureCondition as _};
 #[derive(Debug)]
 pub struct Queue {
     /// The queue for transactions
-    queue: ArrayQueue<HashOf<VersionedSignedTransaction>>,
-    /// [`VersionedAcceptedTransaction`]s addressed by `Hash`
-    txs: DashMap<HashOf<VersionedSignedTransaction>, VersionedAcceptedTransaction>,
+    queue: ArrayQueue<HashOf<TransactionPayload>>,
+    /// [`AcceptedTransaction`]s addressed by `Hash`
+    txs: DashMap<HashOf<TransactionPayload>, AcceptedTransaction>,
     /// Amount of transactions per user in the queue
     txs_per_user: DashMap<AccountId, usize>,
     /// The maximum number of transactions in the queue
@@ -55,13 +107,8 @@ pub enum Error {
     #[error("Transaction is regarded to have been tampered to have a future timestamp")]
     InFuture,
     /// Transaction expired
-    #[error(
-        "Transaction is expired. Consider increase transaction ttl (current {time_to_live_ms}ms)"
-    )]
-    Expired {
-        /// Transaction time to live
-        time_to_live_ms: u64,
-    },
+    #[error("Transaction expired")]
+    Expired,
     /// Transaction is already in blockchain
     #[error("Transaction is already applied")]
     InBlockchain,
@@ -69,10 +116,10 @@ pub enum Error {
     #[error("User reached maximum number of trnasctions in the queue")]
     MaximumTransactionsPerUser,
     /// Signature condition check failed
-    #[error("Failure during signature condition execution, tx hash: {tx_hash}, reason: {reason}")]
+    #[error("Failure during signature condition execution, tx payload hash: {tx_hash}, reason: {reason}")]
     SignatureCondition {
         /// Transaction hash
-        tx_hash: HashOf<VersionedSignedTransaction>,
+        tx_hash: HashOf<TransactionPayload>,
         /// Failure reason
         reason: Report,
     },
@@ -82,7 +129,7 @@ pub enum Error {
 #[derive(Debug)]
 pub struct Failure {
     /// Transaction failed to be pushed into the queue
-    pub tx: VersionedAcceptedTransaction,
+    pub tx: AcceptedTransaction,
     /// Push failure reason
     pub err: Error,
 }
@@ -101,12 +148,34 @@ impl Queue {
         }
     }
 
-    fn is_pending(&self, tx: &VersionedAcceptedTransaction, wsv: &WorldStateView) -> bool {
-        !tx.is_expired(self.tx_time_to_live) && !tx.is_in_blockchain(wsv)
+    fn is_pending(&self, tx: &AcceptedTransaction, wsv: &WorldStateView) -> bool {
+        !self.is_expired(tx) && !tx.is_in_blockchain(wsv)
+    }
+
+    /// Checks if this transaction is waiting longer than specified in
+    /// `transaction_time_to_live` from `QueueConfiguration` or
+    /// `time_to_live_ms` of this transaction.  Meaning that the
+    /// transaction will be expired as soon as the lesser of the
+    /// specified TTLs was reached.
+    pub fn is_expired(&self, tx: &AcceptedTransaction) -> bool {
+        let tx_creation_time = tx.payload().creation_time();
+
+        let time_limit = tx.payload().time_to_live().map_or_else(
+            || self.tx_time_to_live,
+            |tx_time_to_live| core::cmp::min(self.tx_time_to_live, tx_time_to_live),
+        );
+
+        iroha_data_model::current_time().saturating_sub(tx_creation_time) > time_limit
+    }
+
+    /// If `true`, this transaction is regarded to have been tampered to have a future timestamp.
+    fn is_in_future(&self, tx: &AcceptedTransaction) -> bool {
+        let tx_timestamp = Duration::from_millis(tx.payload().creation_time_ms);
+        tx_timestamp.saturating_sub(iroha_data_model::current_time()) > self.future_threshold
     }
 
     /// Returns all pending transactions.
-    pub fn all_transactions(&self, wsv: &WorldStateView) -> Vec<VersionedAcceptedTransaction> {
+    pub fn all_transactions(&self, wsv: &WorldStateView) -> Vec<AcceptedTransaction> {
         self.txs
             .iter()
             .filter(|e| self.is_pending(e.value(), wsv))
@@ -115,11 +184,7 @@ impl Queue {
     }
 
     /// Returns `n` randomly selected transaction from the queue.
-    pub fn n_random_transactions(
-        &self,
-        n: u32,
-        wsv: &WorldStateView,
-    ) -> Vec<VersionedAcceptedTransaction> {
+    pub fn n_random_transactions(&self, n: u32, wsv: &WorldStateView) -> Vec<AcceptedTransaction> {
         self.txs
             .iter()
             .filter(|e| self.is_pending(e.value(), wsv))
@@ -132,21 +197,19 @@ impl Queue {
 
     fn check_tx(
         &self,
-        tx: &VersionedAcceptedTransaction,
+        tx: &AcceptedTransaction,
         wsv: &WorldStateView,
     ) -> Result<MustUse<bool>, Error> {
-        if tx.is_in_future(self.future_threshold) {
+        if self.is_in_future(tx) {
             Err(Error::InFuture)
-        } else if tx.is_expired(self.tx_time_to_live) {
-            Err(Error::Expired {
-                time_to_live_ms: tx.payload().time_to_live_ms,
-            })
+        } else if self.is_expired(tx) {
+            Err(Error::Expired)
         } else if tx.is_in_blockchain(wsv) {
             Err(Error::InBlockchain)
         } else {
             tx.check_signature_condition(wsv)
                 .map_err(|reason| Error::SignatureCondition {
-                    tx_hash: tx.hash(),
+                    tx_hash: tx.payload().hash(),
                     reason,
                 })
         }
@@ -156,11 +219,8 @@ impl Queue {
     ///
     /// # Errors
     /// See [`enum@Error`]
-    pub fn push(
-        &self,
-        tx: VersionedAcceptedTransaction,
-        wsv: &WorldStateView,
-    ) -> Result<(), Failure> {
+    #[allow(clippy::missing_panics_doc)] // NOTE: It's a system invariant, should never happen
+    pub fn push(&self, tx: AcceptedTransaction, wsv: &WorldStateView) -> Result<(), Failure> {
         trace!(?tx, "Pushing to the queue");
         if let Err(err) = self.check_tx(&tx, wsv) {
             warn!("Failed to evaluate signature check");
@@ -169,15 +229,11 @@ impl Queue {
 
         // Get `txs_len` before entry to avoid deadlock
         let txs_len = self.txs.len();
-        let hash = tx.hash();
+        let hash = tx.payload().hash();
         let entry = match self.txs.entry(hash) {
             Entry::Occupied(mut old_tx) => {
                 // MST case
-                old_tx
-                    .get_mut()
-                    .as_mut_v1()
-                    .signatures
-                    .extend(tx.as_v1().signatures.clone());
+                assert!(old_tx.get_mut().merge_signatures(tx));
                 info!("Signature added to existing multisignature transaction");
                 return Ok(());
             }
@@ -194,7 +250,7 @@ impl Queue {
             });
         }
 
-        if let Err(err) = self.check_and_increase_per_user_tx_count(&tx.payload().account_id) {
+        if let Err(err) = self.check_and_increase_per_user_tx_count(&tx.payload().authority) {
             return Err(Failure { tx, err });
         }
 
@@ -206,7 +262,7 @@ impl Queue {
                 .txs
                 .remove(&err_hash)
                 .expect("Inserted just before match");
-            self.decrease_per_user_tx_count(&err_tx.payload().account_id);
+            self.decrease_per_user_tx_count(&err_tx.payload().authority);
             Failure {
                 tx: err_tx,
                 err: Error::Full,
@@ -219,10 +275,10 @@ impl Queue {
     /// Pop single transaction from the queue. Record all visited and not removed transactions in `seen`.
     fn pop_from_queue(
         &self,
-        seen: &mut Vec<HashOf<VersionedSignedTransaction>>,
+        seen: &mut Vec<HashOf<TransactionPayload>>,
         wsv: &WorldStateView,
-        expired_transactions: &mut Vec<VersionedAcceptedTransaction>,
-    ) -> Option<VersionedAcceptedTransaction> {
+        expired_transactions: &mut Vec<AcceptedTransaction>,
+    ) -> Option<AcceptedTransaction> {
         loop {
             let Some(hash) = self.queue.pop() else {
                 return None;
@@ -242,13 +298,13 @@ impl Queue {
             if tx.is_in_blockchain(wsv) {
                 debug!("Transaction is already in blockchain");
                 let (_, tx) = entry.remove_entry();
-                self.decrease_per_user_tx_count(&tx.payload().account_id);
+                self.decrease_per_user_tx_count(&tx.payload().authority);
                 continue;
             }
-            if tx.is_expired(self.tx_time_to_live) {
+            if self.is_expired(tx) {
                 debug!("Transaction is expired");
                 let (_, tx) = entry.remove_entry();
-                self.decrease_per_user_tx_count(&tx.payload().account_id);
+                self.decrease_per_user_tx_count(&tx.payload().authority);
                 expired_transactions.push(tx);
                 continue;
             }
@@ -273,7 +329,7 @@ impl Queue {
         &self,
         wsv: &WorldStateView,
         max_txs_in_block: usize,
-    ) -> Vec<VersionedAcceptedTransaction> {
+    ) -> Vec<AcceptedTransaction> {
         let mut transactions = Vec::with_capacity(max_txs_in_block);
         self.get_transactions_for_block(wsv, max_txs_in_block, &mut transactions, &mut Vec::new());
         transactions
@@ -286,8 +342,8 @@ impl Queue {
         &self,
         wsv: &WorldStateView,
         max_txs_in_block: usize,
-        transactions: &mut Vec<VersionedAcceptedTransaction>,
-        expired_transactions: &mut Vec<VersionedAcceptedTransaction>,
+        transactions: &mut Vec<AcceptedTransaction>,
+        expired_transactions: &mut Vec<AcceptedTransaction>,
     ) {
         if transactions.len() >= max_txs_in_block {
             return;
@@ -300,12 +356,10 @@ impl Queue {
             self.pop_from_queue(&mut seen_queue, wsv, &mut expired_transactions_queue)
         });
 
-        let transactions_hashes: HashSet<HashOf<VersionedSignedTransaction>> = transactions
-            .iter()
-            .map(VersionedAcceptedTransaction::hash)
-            .collect();
+        let transactions_hashes: HashSet<HashOf<TransactionPayload>> =
+            transactions.iter().map(|tx| tx.payload().hash()).collect();
         let txs = txs_from_queue
-            .filter(|tx| !transactions_hashes.contains(&tx.hash()))
+            .filter(|tx| !transactions_hashes.contains(&tx.payload().hash()))
             .take(max_txs_in_block - transactions.len());
         transactions.extend(txs);
 
@@ -362,7 +416,7 @@ mod tests {
     use iroha_data_model::{
         account::{ACCOUNT_SIGNATORIES_VALUE, TRANSACTION_SIGNATORIES_VALUE},
         prelude::*,
-        transaction::InBlock,
+        transaction::TransactionLimits,
     };
     use iroha_primitives::must_use::MustUse;
     use rand::Rng as _;
@@ -370,29 +424,20 @@ mod tests {
     use super::*;
     use crate::{kura::Kura, smartcontracts::isi::Registrable as _, wsv::World, PeersIds};
 
-    fn accepted_tx(
-        account_id: &str,
-        proposed_ttl_ms: u64,
-        key: KeyPair,
-    ) -> VersionedAcceptedTransaction {
+    fn accepted_tx(account_id: &str, key: KeyPair) -> AcceptedTransaction {
         let message = std::iter::repeat_with(rand::random::<char>)
             .take(16)
             .collect();
-        let instructions: Vec<InstructionBox> = vec![FailBox { message }.into()];
-        let tx = TransactionBuilder::new(
-            AccountId::from_str(account_id).expect("Valid"),
-            instructions,
-            proposed_ttl_ms,
-        )
-        .sign(key)
-        .expect("Failed to sign.");
+        let instructions = [FailBox { message }];
+        let tx = TransactionBuilder::new(AccountId::from_str(account_id).expect("Valid"))
+            .with_instructions(instructions)
+            .sign(key)
+            .expect("Failed to sign.");
         let limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        <AcceptedTransaction as InBlock>::accept(tx, &limits)
-            .expect("Failed to accept Transaction.")
-            .into()
+        AcceptedTransaction::accept(tx, &limits).expect("Failed to accept Transaction.")
     }
 
     pub fn world_with_test_domains(
@@ -424,7 +469,7 @@ mod tests {
         });
 
         queue
-            .push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv)
+            .push(accepted_tx("alice@wonderland", key_pair), &wsv)
             .expect("Failed to push tx into queue");
     }
 
@@ -449,16 +494,13 @@ mod tests {
 
         for _ in 0..max_txs_in_queue {
             queue
-                .push(
-                    accepted_tx("alice@wonderland", 100_000, key_pair.clone()),
-                    &wsv,
-                )
+                .push(accepted_tx("alice@wonderland", key_pair.clone()), &wsv)
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
         assert!(matches!(
-            queue.push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv),
+            queue.push(accepted_tx("alice@wonderland", key_pair), &wsv),
             Err(Failure {
                 err: Error::Full,
                 ..
@@ -498,7 +540,7 @@ mod tests {
         });
 
         assert!(matches!(
-            queue.push(accepted_tx("alice@wonderland", 100_000, key_pair), &wsv),
+            queue.push(accepted_tx("alice@wonderland", key_pair), &wsv),
             Err(Failure {
                 err: Error::SignatureCondition { .. },
                 ..
@@ -547,16 +589,14 @@ mod tests {
                 .build()
                 .expect("Default queue config should always build")
         });
-        let tx = TransactionBuilder::new(
-            AccountId::from_str("alice@wonderland").expect("Valid"),
-            Vec::new(),
-            100_000,
-        );
+        let instructions: [InstructionBox; 0] = [];
+        let tx = TransactionBuilder::new("alice@wonderland".parse().expect("Valid"))
+            .with_instructions(instructions);
         let tx_limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        let fully_signed_tx: VersionedAcceptedTransaction = {
+        let fully_signed_tx: AcceptedTransaction = {
             let mut signed_tx = tx
                 .clone()
                 .sign((&key_pairs[0]).clone())
@@ -564,9 +604,8 @@ mod tests {
             for key_pair in &key_pairs[1..] {
                 signed_tx = signed_tx.sign(key_pair.clone()).expect("Failed to sign");
             }
-            <AcceptedTransaction as InBlock>::accept(signed_tx, &tx_limits)
+            AcceptedTransaction::accept(signed_tx, &tx_limits)
                 .expect("Failed to accept Transaction.")
-                .into()
         };
         // Check that fully signed transaction pass signature check
         assert!(matches!(
@@ -575,15 +614,14 @@ mod tests {
         ));
 
         let get_tx = |key_pair| {
-            <AcceptedTransaction as InBlock>::accept(
+            AcceptedTransaction::accept(
                 tx.clone().sign(key_pair).expect("Failed to sign."),
                 &tx_limits,
             )
             .expect("Failed to accept Transaction.")
-            .into()
         };
         for key_pair in key_pairs {
-            let partially_signed_tx: VersionedAcceptedTransaction = get_tx(key_pair);
+            let partially_signed_tx: AcceptedTransaction = get_tx(key_pair);
             // Check that non of partially signed pass signature check
             assert!(matches!(
                 partially_signed_tx.check_signature_condition(&wsv),
@@ -625,10 +663,7 @@ mod tests {
         });
         for _ in 0..5 {
             queue
-                .push(
-                    accepted_tx("alice@wonderland", 100_000, alice_key.clone()),
-                    &wsv,
-                )
+                .push(accepted_tx("alice@wonderland", alice_key.clone()), &wsv)
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
@@ -645,7 +680,7 @@ mod tests {
             world_with_test_domains([alice_key.public_key().clone()]),
             kura.clone(),
         );
-        let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
+        let tx = accepted_tx("alice@wonderland", alice_key);
         wsv.transactions.insert(tx.hash());
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
@@ -673,7 +708,7 @@ mod tests {
             world_with_test_domains([alice_key.public_key().clone()]),
             kura.clone(),
         );
-        let tx = accepted_tx("alice@wonderland", 100_000, alice_key);
+        let tx = accepted_tx("alice@wonderland", alice_key);
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
             max_transactions_in_queue: 100,
@@ -710,19 +745,13 @@ mod tests {
         });
         for _ in 0..(max_txs_in_block - 1) {
             queue
-                .push(
-                    accepted_tx("alice@wonderland", 100, alice_key.clone()),
-                    &wsv,
-                )
+                .push(accepted_tx("alice@wonderland", alice_key.clone()), &wsv)
                 .expect("Failed to push tx into queue");
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(100));
         }
 
         queue
-            .push(
-                accepted_tx("alice@wonderland", 200, alice_key.clone()),
-                &wsv,
-            )
+            .push(accepted_tx("alice@wonderland", alice_key.clone()), &wsv)
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(101));
         assert_eq!(
@@ -733,7 +762,7 @@ mod tests {
         );
 
         queue
-            .push(accepted_tx("alice@wonderland", 300, alice_key), &wsv)
+            .push(accepted_tx("alice@wonderland", alice_key), &wsv)
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(210));
         assert_eq!(
@@ -763,7 +792,7 @@ mod tests {
                 .expect("Default queue config should always build")
         });
         queue
-            .push(accepted_tx("alice@wonderland", 100_000, alice_key), &wsv)
+            .push(accepted_tx("alice@wonderland", alice_key), &wsv)
             .expect("Failed to push tx into queue");
 
         let a = queue
@@ -778,6 +807,47 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(a.len(), 1);
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn custom_expired_transaction_is_rejected() {
+        let max_txs_in_block = 2;
+        let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let kura = Kura::blank_kura_for_testing();
+        let wsv = Arc::new(WorldStateView::new(
+            world_with_test_domains([alice_key.public_key().clone()]),
+            kura.clone(),
+        ));
+        let queue = Queue::from_configuration(&Configuration {
+            transaction_time_to_live_ms: 100_000,
+            max_transactions_in_queue: 100,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
+        let instructions = [FailBox {
+            message: "expired".to_owned(),
+        }];
+        let mut tx =
+            TransactionBuilder::new(AccountId::from_str("alice@wonderland").expect("Valid"))
+                .with_instructions(instructions);
+        tx.set_ttl(Duration::from_millis(10));
+        let tx = tx.sign(alice_key).expect("Failed to sign.");
+        let limits = TransactionLimits {
+            max_instruction_number: 4096,
+            max_wasm_size_bytes: 0,
+        };
+        let tx = AcceptedTransaction::accept(tx, &limits).expect("Failed to accept Transaction.");
+        queue
+            .push(tx.clone(), &wsv)
+            .expect("Failed to push tx into queue");
+        let mut txs = Vec::new();
+        let mut expired_txs = Vec::new();
+        thread::sleep(Duration::from_millis(10));
+        queue.get_transactions_for_block(&wsv, max_txs_in_block, &mut txs, &mut expired_txs);
+        assert!(txs.is_empty());
+        assert_eq!(expired_txs.len(), 1);
+        assert_eq!(expired_txs[0], tx);
     }
 
     #[test]
@@ -808,7 +878,7 @@ mod tests {
             // Spawn a thread where we push transactions
             thread::spawn(move || {
                 while start_time.elapsed() < run_for {
-                    let tx = accepted_tx("alice@wonderland", 100_000, alice_key.clone());
+                    let tx = accepted_tx("alice@wonderland", alice_key.clone());
                     match queue_arc_clone.push(tx, &wsv_clone) {
                         Ok(()) => (),
                         Err(Failure {
@@ -872,10 +942,11 @@ mod tests {
                 .expect("Default queue config should always build")
         });
 
-        let mut tx = accepted_tx("alice@wonderland", 100_000, alice_key);
+        let mut tx = accepted_tx("alice@wonderland", alice_key);
         assert!(queue.push(tx.clone(), &wsv).is_ok());
         // tamper timestamp
-        tx.as_mut_v1().payload.creation_time += 2 * future_threshold_ms;
+        let VersionedSignedTransaction::V1(tx_ref) = &mut tx.0;
+        tx_ref.payload.creation_time_ms += 2 * future_threshold_ms;
         assert!(matches!(
             queue.push(tx, &wsv),
             Err(Failure {
@@ -922,14 +993,14 @@ mod tests {
         // First push by Alice should be fine
         queue
             .push(
-                accepted_tx("alice@wonderland", 100_000, alice_key_pair.clone()),
+                accepted_tx("alice@wonderland", alice_key_pair.clone()),
                 &wsv,
             )
             .expect("Failed to push tx into queue");
 
         // Second push by Alice excide limit and will be rejected
         let result = queue.push(
-            accepted_tx("alice@wonderland", 100_000, alice_key_pair.clone()),
+            accepted_tx("alice@wonderland", alice_key_pair.clone()),
             &wsv,
         );
         assert!(
@@ -946,10 +1017,7 @@ mod tests {
 
         // First push by Bob should be fine despite previous Alice error
         queue
-            .push(
-                accepted_tx("bob@wonderland", 100_000, bob_key_pair.clone()),
-                &wsv,
-            )
+            .push(accepted_tx("bob@wonderland", bob_key_pair.clone()), &wsv)
             .expect("Failed to push tx into queue");
 
         let transactions = queue.collect_transactions_for_block(&wsv, 10);
@@ -965,16 +1033,13 @@ mod tests {
         // After cleanup Alice and Bob pushes should work fine
         queue
             .push(
-                accepted_tx("alice@wonderland", 100_000, alice_key_pair.clone()),
+                accepted_tx("alice@wonderland", alice_key_pair.clone()),
                 &wsv,
             )
             .expect("Failed to push tx into queue");
 
         queue
-            .push(
-                accepted_tx("bob@wonderland", 100_000, bob_key_pair.clone()),
-                &wsv,
-            )
+            .push(accepted_tx("bob@wonderland", bob_key_pair.clone()), &wsv)
             .expect("Failed to push tx into queue");
     }
 }

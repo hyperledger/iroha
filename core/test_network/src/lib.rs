@@ -22,7 +22,7 @@ use iroha_config::{
 };
 use iroha_core::prelude::*;
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
-use iroha_genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock};
+use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
 use iroha_primitives::{addr::SocketAddr, socket_addr};
 use rand::seq::IteratorRandom;
@@ -121,13 +121,14 @@ impl TestGenesis for GenesisNetwork {
                 .push(GrantBox::new(permission, alice_id.clone()).into());
         }
 
-        GenesisNetwork::from_configuration(
-            submit_genesis,
-            genesis,
-            Some(&cfg.genesis),
-            &cfg.wsv.transaction_limits,
-        )
-        .expect("Failed to init genesis")
+        if submit_genesis {
+            return Some(
+                GenesisNetwork::from_configuration(genesis, Some(&cfg.genesis))
+                    .expect("Failed to init genesis"),
+            );
+        }
+
+        None
     }
 }
 
@@ -326,7 +327,7 @@ impl Network {
 /// When unsuccessful after `MAX_RETRIES`.
 pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
     const POLL_PERIOD: Duration = Duration::from_millis(1000);
-    const MAX_RETRIES: u32 = 10;
+    const MAX_RETRIES: u32 = 20;
 
     for _ in 0..MAX_RETRIES {
         let without_genesis_peers = clients.iter().fold(0_u32, |acc, client| {
@@ -516,9 +517,9 @@ pub enum WithGenesis {
     Has(GenesisNetwork),
 }
 
-impl From<Option<GenesisNetwork>> for WithGenesis {
-    fn from(x: Option<GenesisNetwork>) -> Self {
-        x.map_or(Self::None, Self::Has)
+impl<T: Into<Option<GenesisNetwork>>> From<T> for WithGenesis {
+    fn from(x: T) -> Self {
+        x.into().map_or(Self::None, Self::Has)
     }
 }
 
@@ -709,7 +710,7 @@ pub trait TestClient: Sized {
     /// If predicate is not satisfied, after maximum retries.
     fn submit_till<R>(
         &mut self,
-        instruction: impl Into<InstructionBox> + Debug,
+        instruction: impl Instruction + Debug,
         request: R,
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>
@@ -849,7 +850,7 @@ impl TestClient for Client {
 
     fn submit_till<R>(
         &mut self,
-        instruction: impl Into<InstructionBox> + Debug,
+        instruction: impl Instruction + Debug,
         request: R,
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>

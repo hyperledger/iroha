@@ -3,6 +3,7 @@
 use std::thread::{self, JoinHandle};
 
 use eyre::Result;
+use iroha_crypto::HashOf;
 use iroha_data_model::{
     parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
     prelude::*,
@@ -54,7 +55,7 @@ fn test_with_instruction_and_status_and_port(
     // Given
     let submitter = client;
     let transaction = submitter.build_transaction(instruction, UnlimitedMetadata::new())?;
-    let hash = transaction.hash();
+    let hash = transaction.payload().hash();
     let mut handles = Vec::new();
     for listener in clients {
         let checker = Checker { listener, hash };
@@ -64,7 +65,7 @@ fn test_with_instruction_and_status_and_port(
         handles.push(handle_validated);
     }
     // When
-    submitter.submit_transaction(transaction)?;
+    submitter.submit_transaction(&transaction)?;
     thread::sleep(pipeline_time * 2);
     // Then
     for handle in handles {
@@ -76,7 +77,7 @@ fn test_with_instruction_and_status_and_port(
 #[derive(Clone)]
 struct Checker {
     listener: iroha_client::client::Client,
-    hash: iroha_crypto::HashOf<SignedTransaction>,
+    hash: iroha_crypto::HashOf<TransactionPayload>,
 }
 
 impl Checker {
@@ -100,7 +101,7 @@ impl Checker {
 #[test]
 fn committed_block_must_be_available_in_kura() {
     let (_rt, peer, client) = <PeerBuilder>::new().with_port(10_985).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    wait_for_genesis_committed(&[client.clone()], 0);
 
     let event_filter = PipelineEventFilter::new()
         .entity_kind(PipelineEntityKind::Block)
@@ -116,7 +117,7 @@ fn committed_block_must_be_available_in_kura() {
 
     let event = event_iter.next().expect("Block must be committed");
     let Ok(Event::Pipeline(PipelineEvent { entity_kind: PipelineEntityKind::Block, status: PipelineStatus::Committed, hash })) = event else { panic!("Received unexpected event") };
-    let hash = hash.typed();
+    let hash = HashOf::from_untyped_unchecked(hash);
 
     peer.iroha
         .as_ref()

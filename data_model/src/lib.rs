@@ -112,7 +112,7 @@ mod utils {
     }
 }
 
-mod sealed {
+mod seal {
     use crate::{isi::prelude::*, query::prelude::*};
 
     pub trait Sealed {}
@@ -359,7 +359,7 @@ pub mod parameter {
         fn from_str(string: &str) -> Result<Self, Self::Err> {
             if let Some((parameter_id_candidate, val_candidate)) = string.rsplit_once('=') {
                 if let Some(parameter_id_candidate) = parameter_id_candidate.strip_prefix('?') {
-                    let param_id: <Parameter as Identifiable>::Id =
+                    let param_id: ParameterId =
                         parameter_id_candidate.parse().map_err(|_| ParseError {
                             reason: "Failed to parse the `param_id` part of the `Parameter`.",
                         })?;
@@ -446,6 +446,7 @@ pub mod parameter {
 
     /// Convenience tool for setting parameters
     #[derive(Default)]
+    #[must_use]
     pub struct ParametersBuilder {
         parameters: Vec<Parameter>,
     }
@@ -511,7 +512,7 @@ pub mod parameter {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::prelude::{MetadataLimits, TransactionLimits};
+        use crate::{prelude::MetadataLimits, transaction::TransactionLimits};
 
         const INVALID_PARAM: [&str; 4] = [
             "",
@@ -596,7 +597,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         FromVariant,
         Decode,
         Encode,
@@ -637,7 +637,8 @@ pub mod model {
         Clone,
         PartialEq,
         Eq,
-        Hash,
+        PartialOrd,
+        Ord,
         FromVariant,
         Decode,
         Encode,
@@ -680,7 +681,6 @@ pub mod model {
         PartialEq,
         Eq,
         PartialOrd,
-        Hash,
         Ord,
         FromVariant,
         Decode,
@@ -727,7 +727,6 @@ pub mod model {
         PartialEq,
         Eq,
         PartialOrd,
-        Hash,
         Ord,
         FromVariant,
         Decode,
@@ -753,7 +752,8 @@ pub mod model {
         Clone,
         PartialEq,
         Eq,
-        Hash,
+        PartialOrd,
+        Ord,
         FromVariant,
         Decode,
         Encode,
@@ -779,7 +779,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         FromVariant,
         EnumDiscriminants,
         Decode,
@@ -842,7 +841,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         AsRef,
         Deref,
         From,
@@ -869,7 +867,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         AsRef,
         Deref,
         From,
@@ -899,7 +896,6 @@ pub mod model {
         Ord,
         PartialEq,
         Eq,
-        Hash,
         Getters,
         Decode,
         Encode,
@@ -918,17 +914,7 @@ pub mod model {
     }
 
     #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
     #[ffi_type]
     #[cfg_attr(feature = "std", derive(thiserror::Error))]
@@ -956,7 +942,8 @@ pub mod model {
         Clone,
         PartialEq,
         Eq,
-        Hash,
+        PartialOrd,
+        Ord,
         FromVariant,
         Decode,
         Encode,
@@ -977,11 +964,11 @@ pub mod model {
         /// Instruction execution failed.
         #[display(fmt = "Instruction execution failed")]
         InstructionFailed(
-            #[cfg_attr(feature = "std", source)] isi::error::InstructionExecutionFailure,
+            #[cfg_attr(feature = "std", source)] isi::error::InstructionExecutionError,
         ),
         /// Query execution failed.
         #[display(fmt = "Query execution failed")]
-        QueryFailed(#[cfg_attr(feature = "std", source)] query::error::QueryExecutionFailure),
+        QueryFailed(#[cfg_attr(feature = "std", source)] query::error::QueryExecutionFail),
         /// Submitted operation is too complex. For example it's a very big WASM binary.
         ///
         /// It's different from [`TransactionRejectionReason::LimitCheck`] because it depends on
@@ -1564,7 +1551,7 @@ impl<T: TryInto<Value>> TryToValue for T {
 
 /// Uniquely identifiable entity ([`Domain`], [`Account`], etc.).
 /// This trait should always be derived with [`IdEqOrdHash`]
-pub trait Identifiable: Ord + Eq + core::hash::Hash {
+pub trait Identifiable: Ord + Eq {
     /// Type of the entity identifier
     type Id: Ord + Eq + core::hash::Hash;
 

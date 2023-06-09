@@ -251,7 +251,7 @@ pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
 /// ```
 /// /*
 /// #[doc = " Filter for LayerEvent entity"]
-/// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, derive_more::Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+/// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 /// pub struct LayerFilter {
 ///     origin_filter:
 ///         crate::prelude::FilterOpt<crate::prelude::OriginFilter<crate::prelude::LayerEvent>>,
@@ -291,7 +291,7 @@ pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
 /// }
 /// #[doc = " Event filter for LayerEvent entity"]
 /// #[allow(clippy::enum_variant_names, missing_docs)]
-/// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+/// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 /// pub enum LayerEventFilter {
 ///     ByCreated,
 ///     BySubLayer(crate::prelude::FilterOpt<SubLayerFilter>),

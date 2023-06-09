@@ -28,7 +28,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
         Encode,
         DeserializeFromStr,
         SerializeDisplay,

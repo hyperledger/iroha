@@ -4,7 +4,7 @@
 #![allow(clippy::arithmetic_side_effects)]
 
 use iroha_crypto::MerkleTree;
-use iroha_data_model::{block::stream::prelude::*, query::error::QueryExecutionFailure};
+use iroha_data_model::{block::stream::prelude::*, query::error::QueryExecutionFail};
 use iroha_genesis::RawGenesisBlock;
 use iroha_schema::prelude::*;
 
@@ -42,20 +42,21 @@ pub fn build_schemas() -> MetaMap {
     }
 
     schemas! {
-        // TODO: Should genesis belong to schema? #3284
-        RawGenesisBlock,
-
-        QueryExecutionFailure,
+        QueryExecutionFail,
         VersionedBlockMessage,
         VersionedBlockSubscriptionRequest,
         VersionedEventMessage,
         VersionedEventSubscriptionRequest,
         VersionedPaginatedQueryResult,
         VersionedSignedQuery,
-        VersionedPendingTransactions,
+
+        // Never referenced, but present in type signature. Like `PhantomData<X>`
         UpgradableBox,
         RegistrableBox,
         MerkleTree<VersionedSignedTransaction>,
+
+        // SDK devs want to know how to read serialized genesis block
+        RawGenesisBlock,
     }
 }
 
@@ -305,7 +306,6 @@ types!(
     PeerEventFilter,
     PeerFilter,
     PeerId,
-    PendingTransactions,
     PermissionRemoved,
     PermissionToken,
     PermissionTokenDefinition,
@@ -320,7 +320,7 @@ types!(
     PredicateBox,
     PublicKey,
     QueryBox,
-    QueryExecutionFailure,
+    QueryExecutionFail,
     QueryPayload,
     QueryResult,
     RaiseTo,
@@ -361,7 +361,6 @@ types!(
     TimeEventFilter,
     TimeInterval,
     TimeSchedule,
-    TransactionExpired,
     TransactionLimitError,
     TransactionLimits,
     TransactionPayload,
@@ -376,9 +375,7 @@ types!(
     TriggerId,
     TriggerNumberOfExecutionsChanged,
     UnregisterBox,
-    UnsatisfiedSignatureConditionFail,
     UpgradableBox,
-    ValidTransaction,
     Validator,
     ValidatorEvent,
     Value,
@@ -389,10 +386,7 @@ types!(
     Vec<InstructionBox>,
     Vec<PeerId>,
     Vec<PredicateBox>,
-    Vec<SignedTransaction>,
     Vec<Value>,
-    Vec<VersionedRejectedTransaction>,
-    Vec<VersionedValidTransaction>,
     Vec<u8>,
     VersionedBlockMessage,
     VersionedBlockSubscriptionRequest,
@@ -401,11 +395,8 @@ types!(
     VersionedEventMessage,
     VersionedEventSubscriptionRequest,
     VersionedPaginatedQueryResult,
-    VersionedPendingTransactions,
-    VersionedRejectedTransaction,
     VersionedSignedQuery,
     VersionedSignedTransaction,
-    VersionedValidTransaction,
     WasmExecutionFail,
     WasmSmartContract,
     Where,
@@ -454,8 +445,8 @@ mod tests {
             GenericPredicateBox, NonTrivial, PredicateBox,
         },
         prelude::*,
-        query::error::{FindError, QueryExecutionFailure},
-        transaction::error::{TransactionExpired, TransactionLimitError},
+        query::error::{FindError, QueryExecutionFail},
+        transaction::{error::TransactionLimitError, SignedTransaction, TransactionLimits},
         validator::Validator,
         ValueKind, VersionedCommittedBlockWrapper,
     };
@@ -557,7 +548,6 @@ mod tests {
 
     #[test]
     fn no_extra_or_missing_schemas() {
-        // TODO: Should genesis belong to schema? #3284
         let exceptions: HashSet<_> = RawGenesisBlock::schema()
             .into_iter()
             .map(|(type_id, _)| type_id)

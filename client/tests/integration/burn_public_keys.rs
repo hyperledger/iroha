@@ -7,12 +7,14 @@ use test_network::*;
 
 fn submit_and_get(
     client: &mut Client,
-    instructions: impl IntoIterator<Item = InstructionBox>,
+    instructions: impl IntoIterator<Item = impl Instruction>,
     submitter: Option<(AccountId, KeyPair)>,
 ) -> TransactionValue {
     let tx = if let Some((account_id, keypair)) = submitter {
-        let tx = TransactionBuilder::new(account_id, Vec::from_iter(instructions), 100_000);
-        tx.sign(keypair).unwrap()
+        TransactionBuilder::new(account_id)
+            .with_instructions(instructions)
+            .sign(keypair)
+            .unwrap()
     } else {
         let tx = client
             .build_transaction(instructions, UnlimitedMetadata::default())
@@ -21,9 +23,12 @@ fn submit_and_get(
     };
 
     let hash = tx.hash();
-    let _ = client.submit_transaction_blocking(tx);
+    let _ = client.submit_transaction_blocking(&tx);
 
-    client.request(transaction::by_hash(*hash)).unwrap()
+    client
+        .request(transaction::by_hash(*hash))
+        .unwrap()
+        .transaction
 }
 
 fn account_keys_count(client: &mut Client, account_id: AccountId) -> usize {
@@ -45,8 +50,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
     let register_charlie = RegisterBox::new(Account::new(
         charlie_id.clone(),
         [charlie_initial_keypair.public_key().clone()],
-    ))
-    .into();
+    ));
 
     let _unused = submit_and_get(&mut client, [register_charlie], None);
     let mut keys_count = charlie_keys_count(&mut client);
@@ -54,7 +58,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
 
     let mint_keys = (0..KEYS_COUNT - 1).map(|_| {
         let (public_key, _) = KeyPair::generate().unwrap().into();
-        MintBox::new(public_key, charlie_id.clone()).into()
+        MintBox::new(public_key, charlie_id.clone())
     });
 
     let _unused = submit_and_get(

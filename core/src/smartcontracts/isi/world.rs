@@ -369,7 +369,7 @@ pub mod query {
     use iroha_data_model::{
         prelude::*,
         query::{
-            error::{FindError, QueryExecutionFailure as Error},
+            error::{FindError, QueryExecutionFail as Error},
             permission::DoesAccountHavePermissionToken,
         },
     };
@@ -440,11 +440,11 @@ pub mod query {
     impl ValidQuery for DoesAccountHavePermissionToken {
         #[metrics("does_account_have_permission")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let account_id = wsv
+            let authority = wsv
                 .evaluate(&self.account_id)
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
 
-            wsv.map_account(&account_id, |account| {
+            wsv.map_account(&authority, |account| {
                 wsv.account_permission_tokens(account)
                     .contains(&self.permission_token)
             })

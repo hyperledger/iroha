@@ -32,11 +32,10 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
-        Decode,
-        Encode,
         Deserialize,
         Serialize,
+        Decode,
+        Encode,
         IntoSchema,
     )]
     #[display(fmt = "{max_len},{max_entry_byte_size}_ML")]
@@ -58,11 +57,10 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Hash,
-        Decode,
-        Encode,
         Deserialize,
         Serialize,
+        Decode,
+        Encode,
         IntoSchema,
     )]
     #[allow(clippy::multiple_inherent_impl)]
@@ -77,7 +75,18 @@ pub mod model {
 
 /// Metadata related errors.
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Deserialize,
+    Serialize,
+    Decode,
+    Encode,
+    IntoSchema,
 )]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum MetadataError {
@@ -106,11 +115,12 @@ pub enum MetadataError {
     Clone,
     PartialEq,
     Eq,
-    Hash,
-    Serialize,
+    PartialOrd,
+    Ord,
     Deserialize,
-    Encode,
+    Serialize,
     Decode,
+    Encode,
     IntoSchema,
 )]
 #[display(fmt = "Limits are {limits}, while the actual value is {actual}")]

@@ -10,7 +10,7 @@ use test_network::*;
 #[test]
 fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes() -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_720).start_with_runtime();
-    wait_for_genesis_committed(&vec![client.clone()], 0);
+    wait_for_genesis_committed(&[client.clone()], 0);
 
     //When
     let account_id = AccountId::from_str("alice@wonderland")?;
@@ -25,7 +25,8 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
             account_id.clone(),
         )),
     );
-    let _ = client.submit_all_blocking(vec![create_asset.into(), mint_asset.into()]);
+    let instructions: [InstructionBox; 2] = [create_asset.into(), mint_asset.into()];
+    let _ = client.submit_all_blocking(instructions);
 
     //Then
     let request = client::asset::by_account_id(account_id);

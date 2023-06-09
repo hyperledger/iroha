@@ -165,7 +165,7 @@ pub mod trigger {
     ) -> Result<bool> {
         FindTriggerById::new(trigger_id)
             .execute()
-            .map(|trigger| trigger.action().technical_account() == authority)
+            .map(|trigger| trigger.action().authority() == authority)
     }
 
     /// Pass condition that checks if `authority` is the owner of `trigger_id`.
