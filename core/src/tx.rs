@@ -232,9 +232,9 @@ impl TransactionValidator {
             instruction
                 .clone()
                 .execute(authority, wsv)
-                .map_err(|reason| InstructionExecutionFail {
+                .map_err(|error| InstructionExecutionFail {
                     instruction,
-                    reason: reason.to_string(),
+                    reason: format!("{:?}", eyre::Report::from(error)),
                 })
                 .map_err(TransactionRejectionReason::InstructionExecution)?;
         }
