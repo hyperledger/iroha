@@ -75,6 +75,9 @@ impl Sumeragi {
     #[instrument(skip(self, packet))]
     #[allow(clippy::needless_pass_by_value)] // TODO: Fix.
     fn post_packet_to(&self, packet: MessagePacket, peer: &PeerId) {
+        if peer == &self.peer_id {
+            return;
+        }
         let post = iroha_p2p::Post {
             data: NetworkMessage::SumeragiPacket(Box::new(packet.into())),
             peer_id: peer.clone(),
@@ -536,8 +539,10 @@ fn handle_message(
 
                     sumeragi.broadcast_packet_to(msg, [current_topology.proxy_tail()]);
                     info!(%addr, %block_hash, "Block validated, signed and forwarded");
+                    *voting_block = Some(v_block);
+                } else {
+                    error!(%addr, %role, "Received BlockCreated message, but shouldn't");
                 }
-                *voting_block = Some(v_block);
             }
         }
         (Message::BlockCreated(block_created), Role::ProxyTail) => {
@@ -580,6 +585,7 @@ fn handle_message(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn process_message_independent(
     sumeragi: &mut Sumeragi,
     voting_block: &mut Option<VotingBlock>,
@@ -624,7 +630,17 @@ fn process_message_independent(
                             view_change_proof_chain.clone(),
                             BlockCreated::from(new_block),
                         );
-                        sumeragi.broadcast_packet(msg);
+                        if current_view_change_index >= 1 {
+                            sumeragi.broadcast_packet(msg);
+                        } else {
+                            sumeragi.broadcast_packet_to(
+                                msg,
+                                current_topology
+                                    .sorted_peers
+                                    .iter()
+                                    .take(current_topology.min_votes_for_commit()),
+                            );
+                        }
                     } else {
                         match new_block.commit(current_topology) {
                             Ok(committed_block) => {
@@ -662,13 +678,31 @@ fn process_message_independent(
                         #[cfg(debug_assertions)]
                         if is_genesis_peer && sumeragi.debug_force_soft_fork {
                             std::thread::sleep(sumeragi.pipeline_time() * 2);
-                        } else {
+                        } else if current_view_change_index >= 1 {
                             sumeragi.broadcast_packet(msg);
+                        } else {
+                            sumeragi.broadcast_packet_to(
+                                msg,
+                                current_topology
+                                    .sorted_peers
+                                    .iter()
+                                    .take(current_topology.min_votes_for_commit()),
+                            );
                         }
 
                         #[cfg(not(debug_assertions))]
                         {
-                            sumeragi.broadcast_packet(msg);
+                            if current_view_change_index >= 1 {
+                                sumeragi.broadcast_packet(msg);
+                            } else {
+                                sumeragi.broadcast_packet_to(
+                                    msg,
+                                    current_topology
+                                        .sorted_peers
+                                        .iter()
+                                        .take(current_topology.min_votes_for_commit()),
+                                );
+                            }
                         }
                         sumeragi.commit_block(committed_block);
                     }
