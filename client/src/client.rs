@@ -22,7 +22,7 @@ use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConf
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
     block::VersionedCommittedBlock, predicate::PredicateBox, prelude::*,
-    transaction::TransactionPayload,
+    transaction::TransactionPayload, ValidationFail,
 };
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
@@ -120,16 +120,26 @@ where
                 | StatusCode::UNAUTHORIZED
                 | StatusCode::FORBIDDEN
                 | StatusCode::NOT_FOUND
-                | StatusCode::UNPROCESSABLE_ENTITY => {
-                    let res = ValidationFail::decode_all(&mut resp.body().as_ref());
-                    let err = res.wrap_err(
-                        "Failed to decode error-response from Iroha. \
-                         You are likely using a version of the client library \
-                         that is incompatible with the version of the peer software",
-                    )?;
-                    Err(ClientQueryError::Validation(err))
-                }
-                _ => Err(ResponseReport::with_msg("Unexpected query response", resp).into()),
+                | StatusCode::UNPROCESSABLE_ENTITY => Err(ValidationFail::decode_all(
+                    &mut resp.body().as_ref(),
+                )
+                .map_or_else(
+                    |_| {
+                        ClientQueryError::Other(
+                            ResponseReport::with_msg("Query failed", resp)
+                                .map_or_else(
+                                    |_| eyre!(
+                                        "Failed to decode response from Iroha. \
+                                        Response is neither a `ValidationFail` encoded value nor a valid utf-8 string error response. \
+                                        You are likely using a version of the client library that is incompatible with the version of the peer software",
+                                    ),
+                                    Into::into
+                                ),
+                        )
+                    },
+                    ClientQueryError::Validation,
+                )),
+                _ => Err(ResponseReport::with_msg("Unexpected query response", resp).unwrap_or_else(core::convert::identity).into()),
             }
         }
 
@@ -168,7 +178,11 @@ impl ResponseHandler for TransactionResponseHandler {
         if resp.status() == StatusCode::OK {
             Ok(())
         } else {
-            Err(ResponseReport::with_msg("Unexpected transaction response", &resp).into())
+            Err(
+                ResponseReport::with_msg("Unexpected transaction response", &resp)
+                    .unwrap_or_else(core::convert::identity)
+                    .into(),
+            )
         }
     }
 }
@@ -182,7 +196,11 @@ impl ResponseHandler for StatusResponseHandler {
 
     fn handle(self, resp: Response<Vec<u8>>) -> Self::Output {
         if resp.status() != StatusCode::OK {
-            return Err(ResponseReport::with_msg("Unexpected status response", &resp).into());
+            return Err(
+                ResponseReport::with_msg("Unexpected status response", &resp)
+                    .unwrap_or_else(core::convert::identity)
+                    .into(),
+            );
         }
         serde_json::from_slice(resp.body()).wrap_err("Failed to decode body")
     }
@@ -193,15 +211,23 @@ struct ResponseReport(eyre::Report);
 
 impl ResponseReport {
     /// Constructs report with provided message
-    fn with_msg<S>(msg: S, response: &Response<Vec<u8>>) -> Self
+    ///
+    /// # Errors
+    /// If response body isn't a valid utf-8 string
+    fn with_msg<S>(msg: S, response: &Response<Vec<u8>>) -> Result<Self, Self>
     where
         S: AsRef<str>,
     {
         let status = response.status();
-        let body = String::from_utf8_lossy(response.body());
+        let body = std::str::from_utf8(response.body());
         let msg = msg.as_ref();
 
-        Self(eyre!("{msg}; status: {status}; response body: {body}"))
+        body.map_err(|_| {
+            Self(eyre!(
+                "{msg}; status: {status}; body isn't a valid utf-8 string"
+            ))
+        })
+        .map(|body| Self(eyre!("{msg}; status: {status}; response body: {body}")))
     }
 }
 

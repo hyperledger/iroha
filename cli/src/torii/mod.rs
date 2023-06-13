@@ -49,20 +49,20 @@ pub enum Error {
     #[error("Failed to execute or validate query")]
     Query(#[from] iroha_data_model::ValidationFail),
     /// Failed to accept transaction
-    #[error("Failed to accept transaction: {0}")]
+    #[error("Failed to accept transaction")]
     AcceptTransaction(#[from] iroha_core::tx::AcceptTransactionFail),
     /// Error while getting or setting configuration
-    #[error("Configuration error: {0}")]
+    #[error("Configuration error")]
     Config(#[source] eyre::Report),
     /// Failed to push into queue
     #[error("Failed to push into queue")]
     PushIntoQueue(#[from] Box<queue::Error>),
-    /// Configuration change error.
+    /// Configuration change error
     #[error("Attempt to change configuration failed")]
     ConfigurationReload(#[from] iroha_config::base::runtime_upgrades::ReloadError),
     #[cfg(feature = "telemetry")]
     /// Error while getting Prometheus metrics
-    #[error("Failed to produce Prometheus metrics: {0}")]
+    #[error("Failed to produce Prometheus metrics")]
     Prometheus(#[source] eyre::Report),
 }
 
