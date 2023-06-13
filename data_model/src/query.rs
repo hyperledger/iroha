@@ -1280,7 +1280,7 @@ pub mod http {
         }
 
         /// I/O ready structure to send queries.
-        #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(Debug, Clone, Encode, Serialize, IntoSchema)]
         #[version_with_scale(n = 1, versioned = "VersionedSignedQuery")]
         pub struct SignedQuery {
             /// Payload
@@ -1302,6 +1302,75 @@ pub mod http {
         pub struct QueryResult(pub Value);
     }
 
+    mod candidate {
+        use parity_scale_codec::Input;
+
+        use super::*;
+
+        #[derive(Decode, Deserialize)]
+        struct SignedQueryCandidate {
+            payload: QueryPayload,
+            signature: SignatureOf<QueryPayload>,
+        }
+
+        impl SignedQueryCandidate {
+            fn validate(self) -> Result<SignedQuery, &'static str> {
+                #[cfg(feature = "std")]
+                if self.signature.verify(&self.payload).is_err() {
+                    return Err("Query signature not valid");
+                }
+
+                Ok(SignedQuery {
+                    payload: self.payload,
+                    signature: self.signature,
+                })
+            }
+        }
+        impl Decode for SignedQuery {
+            fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+                SignedQueryCandidate::decode(input)?
+                    .validate()
+                    .map_err(Into::into)
+            }
+        }
+        impl<'de> Deserialize<'de> for SignedQuery {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                use serde::de::Error as _;
+
+                SignedQueryCandidate::deserialize(deserializer)?
+                    .validate()
+                    .map_err(D::Error::custom)
+            }
+        }
+    }
+
+    #[cfg(feature = "transparent_api")]
+    impl VersionedSignedQuery {
+        /// Return query signature
+        pub fn signature(&self) -> &SignatureOf<QueryPayload> {
+            let VersionedSignedQuery::V1(query) = self;
+            &query.signature
+        }
+        /// Return query payload
+        pub fn query(&self) -> &QueryBox {
+            let VersionedSignedQuery::V1(query) = self;
+            &query.payload.query
+        }
+        /// Return query authority
+        pub fn authority(&self) -> &AccountId {
+            let VersionedSignedQuery::V1(query) = self;
+            &query.payload.authority
+        }
+        /// Return query filter
+        pub fn filter(&self) -> &PredicateBox {
+            let VersionedSignedQuery::V1(query) = self;
+            &query.payload.filter
+        }
+    }
+
     /// Paginated Query Result
     // TODO: This is the only structure whose inner fields are exposed. Wrap it in model macro?
     #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
@@ -1309,8 +1378,6 @@ pub mod http {
     pub struct PaginatedQueryResult {
         /// The result of the query execution.
         pub result: QueryResult,
-        /// The filter that was applied to the Query result. Returned as a sanity check, but also to ease debugging on the front-end.
-        pub filter: PredicateBox,
         /// pagination
         pub pagination: Pagination,
         /// sorting
