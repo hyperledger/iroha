@@ -14,7 +14,7 @@
 use std::{
     fmt,
     fs::{self, read as read_file},
-    io::stdin,
+    io::{stdin, stdout},
     str::FromStr,
     time::Duration,
 };
@@ -111,27 +111,55 @@ pub enum Subcommand {
     Json(json::Args),
 }
 
+/// Context inside which command is executed
+pub trait RunContext {
+    /// Get access to configuration
+    fn configuration(&self) -> &ClientConfiguration;
+    /// Serialize and print data
+    ///
+    /// # Errors
+    /// - if serialization fails
+    /// - if printing fails
+    fn print_data(&mut self, data: &dyn Serialize) -> Result<()>;
+}
+
+struct PrintJsonContext<W> {
+    write: W,
+    config: ClientConfiguration,
+}
+
+impl<W: std::io::Write> RunContext for PrintJsonContext<W> {
+    fn configuration(&self) -> &ClientConfiguration {
+        &self.config
+    }
+
+    fn print_data(&mut self, data: &dyn Serialize) -> Result<()> {
+        writeln!(&mut self.write, "{}", serde_json::to_string_pretty(data)?)?;
+        Ok(())
+    }
+}
+
 /// Runs subcommand
 pub trait RunArgs {
     /// Runs command
     ///
     /// # Errors
     /// if inner command errors
-    fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>>;
+    fn run(self, context: &mut dyn RunContext) -> Result<()>;
 }
 
 macro_rules! match_all {
-    (($self:ident, $cfg:ident), { $($variants:path),* $(,)?}) => {
+    (($self:ident, $context:ident), { $($variants:path),* $(,)?}) => {
         match $self {
-            $($variants(variant) => RunArgs::run(variant, $cfg),)*
+            $($variants(variant) => RunArgs::run(variant, $context),)*
         }
     };
 }
 
 impl RunArgs for Subcommand {
-    fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+    fn run(self, context: &mut dyn RunContext) -> Result<()> {
         use Subcommand::*;
-        match_all!((self, cfg), { Domain, Account, Asset, Peer, Events, Wasm, Blocks, Json })
+        match_all!((self, context), { Domain, Account, Asset, Peer, Events, Wasm, Blocks, Json })
     }
 }
 
@@ -174,9 +202,12 @@ fn main() -> Result<()> {
         );
     }
 
-    let subcommand_output = subcommand.run(&config)?;
-    println!("{}", serde_json::to_string_pretty(&subcommand_output)?);
-    Ok(())
+    let mut context = PrintJsonContext {
+        write: stdout(),
+        config,
+    };
+
+    subcommand.run(&mut context)
 }
 
 /// Submit instruction with metadata to network.
@@ -186,10 +217,10 @@ fn main() -> Result<()> {
 #[allow(clippy::shadow_unrelated)]
 pub fn submit(
     instructions: impl Into<Executable>,
-    cfg: &ClientConfiguration,
     metadata: UnlimitedMetadata,
-) -> Result<Box<dyn Serialize>> {
-    let iroha_client = Client::new(cfg)?;
+    context: &mut dyn RunContext,
+) -> Result<()> {
+    let iroha_client = Client::new(context.configuration())?;
     let instructions = instructions.into();
     #[cfg(debug_assertions)]
     let err_msg = format!("Failed to build transaction from instruction {instructions:?}");
@@ -220,12 +251,12 @@ pub fn submit(
     let hash = iroha_client
         .submit_transaction_blocking(&tx)
         .wrap_err(err_msg)?;
-    Ok(Box::new(hash))
+    context.print_data(&hash)?;
+    Ok(())
 }
 
 mod events {
     use iroha_client::client::Client;
-    use iroha_config::client::Configuration;
 
     use super::*;
 
@@ -239,23 +270,23 @@ mod events {
     }
 
     impl RunArgs for Args {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let filter = match self {
                 Args::Pipeline => FilterBox::Pipeline(PipelineEventFilter::new()),
                 Args::Data => FilterBox::Data(DataEventFilter::AcceptAll),
             };
-            listen(filter, cfg)
+            listen(filter, context)
         }
     }
 
-    pub fn listen(filter: FilterBox, cfg: &Configuration) -> Result<Box<dyn Serialize>> {
-        let iroha_client = Client::new(cfg)?;
+    pub fn listen(filter: FilterBox, context: &mut dyn RunContext) -> Result<()> {
+        let iroha_client = Client::new(context.configuration())?;
         eprintln!("Listening to events with filter: {filter:?}");
-        let events = iroha_client
+        iroha_client
             .listen_for_events(filter)
             .wrap_err("Failed to listen for events.")?
-            .collect::<Result<Vec<_>>>()?;
-        Ok(Box::new(events))
+            .try_for_each(|event| context.print_data(&event?))?;
+        Ok(())
     }
 }
 
@@ -263,7 +294,6 @@ mod blocks {
     use std::num::NonZeroU64;
 
     use iroha_client::client::Client;
-    use iroha_config::client::Configuration;
 
     use super::*;
 
@@ -275,26 +305,25 @@ mod blocks {
     }
 
     impl RunArgs for Args {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Args { height } = self;
-            listen(height, cfg)
+            listen(height, context)
         }
     }
 
-    pub fn listen(height: NonZeroU64, cfg: &Configuration) -> Result<Box<dyn Serialize>> {
-        let iroha_client = Client::new(cfg)?;
+    pub fn listen(height: NonZeroU64, context: &mut dyn RunContext) -> Result<()> {
+        let iroha_client = Client::new(context.configuration())?;
         eprintln!("Listening to blocks from height: {height}");
-        let blocks = iroha_client
+        iroha_client
             .listen_for_blocks(height)
             .wrap_err("Failed to listen for blocks.")?
-            .collect::<Result<Vec<_>>>()?;
-        Ok(Box::new(blocks))
+            .try_for_each(|event| context.print_data(&event?))?;
+        Ok(())
     }
 }
 
 mod domain {
     use iroha_client::client;
-    use iroha_config::client::Configuration;
 
     use super::*;
 
@@ -309,8 +338,8 @@ mod domain {
     }
 
     impl RunArgs for Args {
-        fn run(self, cfg: &Configuration) -> Result<Box<dyn Serialize>> {
-            match_all!((self, cfg), { Args::Register, Args::List })
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            match_all!((self, context), { Args::Register, Args::List })
         }
     }
 
@@ -326,13 +355,13 @@ mod domain {
     }
 
     impl RunArgs for Register {
-        fn run(self, cfg: &Configuration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
                 id,
                 metadata: Metadata(metadata),
             } = self;
             let create_domain = RegisterBox::new(Domain::new(id));
-            submit([create_domain], cfg, metadata).wrap_err("Failed to create domain")
+            submit([create_domain], metadata, context).wrap_err("Failed to create domain")
         }
     }
 
@@ -344,15 +373,16 @@ mod domain {
     }
 
     impl RunArgs for List {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
-            let client = Client::new(cfg)?;
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let client = Client::new(context.configuration())?;
 
             let vec = match self {
                 Self::All => client
                     .request(client::domain::all())
                     .wrap_err("Failed to get all domains"),
             }?;
-            Ok(Box::new(vec))
+            context.print_data(&vec)?;
+            Ok(())
         }
     }
 }
@@ -382,8 +412,8 @@ mod account {
     }
 
     impl RunArgs for Args {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
-            match_all!((self, cfg), {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            match_all!((self, context), {
                 Args::Register,
                 Args::Set,
                 Args::List,
@@ -408,14 +438,14 @@ mod account {
     }
 
     impl RunArgs for Register {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
                 id,
                 key,
                 metadata: Metadata(metadata),
             } = self;
             let create_account = RegisterBox::new(Account::new(id, [key]));
-            submit([create_account], cfg, metadata).wrap_err("Failed to register account")
+            submit([create_account], metadata, context).wrap_err("Failed to register account")
         }
     }
 
@@ -427,8 +457,8 @@ mod account {
     }
 
     impl RunArgs for Set {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
-            match_all!((self, cfg), { Set::SignatureCondition })
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            match_all!((self, context), { Set::SignatureCondition })
         }
     }
 
@@ -458,14 +488,14 @@ mod account {
     }
 
     impl RunArgs for SignatureCondition {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
-            let account = Account::new(cfg.account_id.clone(), []);
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let account = Account::new(context.configuration().account_id.clone(), []);
             let Self {
                 condition: Signature(condition),
                 metadata: Metadata(metadata),
             } = self;
             let mint_box = MintBox::new(account, EvaluatesTo::new_unchecked(condition));
-            submit([mint_box], cfg, metadata).wrap_err("Failed to set signature condition")
+            submit([mint_box], metadata, context).wrap_err("Failed to set signature condition")
         }
     }
 
@@ -477,15 +507,16 @@ mod account {
     }
 
     impl RunArgs for List {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
-            let client = Client::new(cfg)?;
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let client = Client::new(context.configuration())?;
 
             let vec = match self {
                 Self::All => client
                     .request(client::account::all())
                     .wrap_err("Failed to get all accounts"),
             }?;
-            Ok(Box::new(vec))
+            context.print_data(&vec)?;
+            Ok(())
         }
     }
 
@@ -521,14 +552,15 @@ mod account {
     }
 
     impl RunArgs for Grant {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
                 id,
                 permission,
                 metadata: Metadata(metadata),
             } = self;
             let grant = GrantBox::new(permission.0, id);
-            submit([grant], cfg, metadata).wrap_err("Failed to grant the permission to the account")
+            submit([grant], metadata, context)
+                .wrap_err("Failed to grant the permission to the account")
         }
     }
 
@@ -541,13 +573,14 @@ mod account {
     }
 
     impl RunArgs for ListPermissions {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
-            let client = Client::new(cfg)?;
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let client = Client::new(context.configuration())?;
             let find_all_permissions = FindPermissionTokensByAccountId::new(self.id);
             let permissions = client
                 .request(find_all_permissions)
                 .wrap_err("Failed to get all account permissions")?;
-            Ok(Box::new(permissions))
+            context.print_data(&permissions)?;
+            Ok(())
         }
     }
 }
@@ -576,9 +609,9 @@ mod asset {
     }
 
     impl RunArgs for Args {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             match_all!(
-                (self, cfg),
+                (self, context),
                 { Args::Register, Args::Mint, Args::Burn, Args::Transfer, Args::Get, Args::List }
             )
         }
@@ -602,7 +635,7 @@ mod asset {
     }
 
     impl RunArgs for Register {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
                 id,
                 value_type,
@@ -619,7 +652,8 @@ mod asset {
                 asset_definition = asset_definition.mintable_once();
             }
             let create_asset_definition = RegisterBox::new(asset_definition);
-            submit([create_asset_definition], cfg, metadata).wrap_err("Failed to register asset")
+            submit([create_asset_definition], metadata, context)
+                .wrap_err("Failed to register asset")
         }
     }
 
@@ -641,7 +675,7 @@ mod asset {
     }
 
     impl RunArgs for Mint {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
                 account,
                 asset,
@@ -652,7 +686,7 @@ mod asset {
                 quantity.to_value(),
                 IdBox::AssetId(AssetId::new(asset, account)),
             );
-            submit([mint_asset], cfg, metadata)
+            submit([mint_asset], metadata, context)
                 .wrap_err("Failed to mint asset of type `NumericValue::U32`")
         }
     }
@@ -675,7 +709,7 @@ mod asset {
     }
 
     impl RunArgs for Burn {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
                 account,
                 asset,
@@ -686,7 +720,7 @@ mod asset {
                 quantity.to_value(),
                 IdBox::AssetId(AssetId::new(asset, account)),
             );
-            submit([burn_asset], cfg, metadata)
+            submit([burn_asset], metadata, context)
                 .wrap_err("Failed to burn asset of type `NumericValue::U32`")
         }
     }
@@ -712,7 +746,7 @@ mod asset {
     }
 
     impl RunArgs for Transfer {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
                 from,
                 to,
@@ -725,7 +759,7 @@ mod asset {
                 quantity.to_value(),
                 IdBox::AccountId(to),
             );
-            submit([transfer_asset], cfg, metadata).wrap_err("Failed to transfer asset")
+            submit([transfer_asset], metadata, context).wrap_err("Failed to transfer asset")
         }
     }
 
@@ -741,14 +775,15 @@ mod asset {
     }
 
     impl RunArgs for Get {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { account, asset } = self;
-            let iroha_client = Client::new(cfg)?;
+            let iroha_client = Client::new(context.configuration())?;
             let asset_id = AssetId::new(asset, account);
             let asset = iroha_client
                 .request(asset::by_id(asset_id))
                 .wrap_err("Failed to get asset.")?;
-            Ok(Box::new(asset))
+            context.print_data(&asset)?;
+            Ok(())
         }
     }
 
@@ -760,15 +795,16 @@ mod asset {
     }
 
     impl RunArgs for List {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
-            let client = Client::new(cfg)?;
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let client = Client::new(context.configuration())?;
 
             let vec = match self {
                 Self::All => client
                     .request(client::asset::all())
                     .wrap_err("Failed to get all assets"),
             }?;
-            Ok(Box::new(vec)) //TODO:
+            context.print_data(&vec)?;
+            Ok(())
         }
     }
 }
@@ -786,9 +822,9 @@ mod peer {
     }
 
     impl RunArgs for Args {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             match_all!(
-                (self, cfg),
+                (self, context),
                 { Args::Register, Args::Unregister }
             )
         }
@@ -809,14 +845,14 @@ mod peer {
     }
 
     impl RunArgs for Register {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
                 address,
                 key,
                 metadata: Metadata(metadata),
             } = self;
             let register_peer = RegisterBox::new(Peer::new(PeerId::new(&address, &key)));
-            submit([register_peer], cfg, metadata).wrap_err("Failed to register peer")
+            submit([register_peer], metadata, context).wrap_err("Failed to register peer")
         }
     }
 
@@ -835,14 +871,14 @@ mod peer {
     }
 
     impl RunArgs for Unregister {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
                 address,
                 key,
                 metadata: Metadata(metadata),
             } = self;
             let unregister_peer = UnregisterBox::new(IdBox::PeerId(PeerId::new(&address, &key)));
-            submit([unregister_peer], cfg, metadata).wrap_err("Failed to unregister peer")
+            submit([unregister_peer], metadata, context).wrap_err("Failed to unregister peer")
         }
     }
 }
@@ -861,7 +897,7 @@ mod wasm {
     }
 
     impl RunArgs for Args {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let raw_data = if let Some(path) = self.path {
                 read_file(path).wrap_err("Failed to read a Wasm from the file into the buffer")?
             } else {
@@ -874,8 +910,8 @@ mod wasm {
 
             submit(
                 WasmSmartContract::from_compiled(raw_data),
-                cfg,
                 UnlimitedMetadata::new(),
+                context,
             )
             .wrap_err("Failed to submit a Wasm smart contract")
         }
@@ -892,14 +928,14 @@ mod json {
     pub struct Args;
 
     impl RunArgs for Args {
-        fn run(self, cfg: &ClientConfiguration) -> Result<Box<dyn Serialize>> {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let mut reader = BufReader::new(stdin());
             let mut raw_content = Vec::new();
             reader.read_to_end(&mut raw_content)?;
 
-            let content = String::from_utf8(raw_content)?;
-            let instructions: Vec<InstructionBox> = json5::from_str(&content)?;
-            submit(instructions, cfg, UnlimitedMetadata::new())
+            let string_content = String::from_utf8(raw_content)?;
+            let instructions: Vec<InstructionBox> = json5::from_str(&string_content)?;
+            submit(instructions, UnlimitedMetadata::new(), context)
                 .wrap_err("Failed to submit parsed instructions")
         }
     }
