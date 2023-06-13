@@ -445,15 +445,19 @@ pub mod query {
     impl ValidQuery for FindAllAssets {
         #[metrics(+"find_all_assets")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let mut vec = Vec::new();
-            for domain in wsv.domains().values() {
-                for account in domain.accounts.values() {
-                    for asset in account.assets.values() {
-                        vec.push(asset.clone())
-                    }
-                }
-            }
-            Ok(vec)
+            Ok(wsv
+                .domains()
+                .values()
+                .map(|domain| {
+                    domain
+                        .accounts
+                        .values()
+                        .map(|account| account.assets.values())
+                        .flatten()
+                })
+                .flatten()
+                .cloned()
+                .collect())
         }
     }
 

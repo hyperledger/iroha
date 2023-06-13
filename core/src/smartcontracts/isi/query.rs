@@ -13,24 +13,43 @@ use crate::{prelude::ValidQuery, WorldStateView};
 
 /// Query Request statefully validated on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
-pub struct ValidQueryRequest {
-    query: QueryBox,
-}
+pub struct ValidQueryRequest(VersionedSignedQuery);
 
 impl ValidQueryRequest {
+    /// Validate query.
+    ///
+    /// # Errors
+    /// - Account doesn't exist
+    /// - Account doesn't have the correct public key
+    /// - Account has incorrect permissions
+    pub fn validate(
+        query: VersionedSignedQuery,
+        wsv: &mut WorldStateView,
+    ) -> Result<Self, ValidationFail> {
+        let account_has_public_key = wsv
+            .map_account(query.authority(), |account| {
+                account.signatories.contains(query.signature().public_key())
+            })
+            .map_err(Error::from)?;
+        if !account_has_public_key {
+            return Err(Error::Signature(String::from(
+                "Signature public key doesn't correspond to the account.",
+            ))
+            .into());
+        }
+        wsv.validator_view()
+            .clone()
+            .validate(wsv, query.authority(), query.query().clone())?;
+        Ok(ValidQueryRequest(query))
+    }
+
     /// Execute contained query on the [`WorldStateView`].
     ///
     /// # Errors
     /// Forwards `self.query.execute` error.
     #[inline]
     pub fn execute(&self, wsv: &WorldStateView) -> Result<Value, Error> {
-        self.query.execute(wsv)
-    }
-
-    /// Construct `ValidQueryRequest` from a validated query
-    #[must_use]
-    pub const fn new(query: QueryBox) -> Self {
-        Self { query }
+        Ok(self.0.filter().filter(self.0.query().execute(wsv)?))
     }
 }
 
