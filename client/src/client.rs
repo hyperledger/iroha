@@ -247,8 +247,6 @@ where
 {
     /// Query output
     pub output: R::Output,
-    /// The filter that was applied to the output.
-    pub filter: PredicateBox,
     /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
     pub pagination: Pagination,
     /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
@@ -281,7 +279,6 @@ where
             pagination,
             sorting,
             total,
-            filter,
         }: PaginatedQueryResult,
     ) -> Result<Self> {
         let output = R::Output::try_from(result.into())
@@ -293,7 +290,6 @@ where
             pagination,
             sorting,
             total,
-            filter,
         })
     }
 }

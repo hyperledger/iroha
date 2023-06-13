@@ -1,7 +1,6 @@
 //! Routing functions for Torii. If you want to add an endpoint to
 //! Iroha you should add it here by creating a `handle_*` function,
-//! and add it to impl Torii. This module also defines the `VerifiedQuery`,
-//! which is the only kind of query that is permitted to execute.
+//! and add it to impl Torii.
 
 // FIXME: This can't be fixed, because one trait in `warp` is private.
 #![allow(opaque_hidden_inferred_bound)]
@@ -17,7 +16,6 @@ use iroha_config::{
     GetConfiguration, PostConfiguration,
 };
 use iroha_core::{smartcontracts::isi::query::ValidQueryRequest, sumeragi::SumeragiHandle};
-use iroha_crypto::SignatureOf;
 use iroha_data_model::{
     block::{
         stream::{
@@ -26,15 +24,12 @@ use iroha_data_model::{
         },
         VersionedCommittedBlock,
     },
-    predicate::PredicateBox,
     prelude::*,
-    query,
     query::error::QueryExecutionFail,
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
 use pagination::{paginate, Paginate};
-use parity_scale_codec::{Decode, Encode};
 use tokio::task;
 
 use super::*;
@@ -43,65 +38,6 @@ use crate::stream::{Sink, Stream};
 /// Filter for warp which extracts sorting
 pub fn sorting() -> impl warp::Filter<Extract = (Sorting,), Error = warp::Rejection> + Copy {
     warp::query()
-}
-
-/// Query Request verified on the Iroha node side.
-#[derive(Debug, Decode, Encode)]
-pub struct VerifiedQuery {
-    /// Payload, containing the time, the query, the authenticating
-    /// user account and a filter
-    payload: query::http::QueryPayload,
-    /// Signature of the authenticating user
-    signature: SignatureOf<query::http::QueryPayload>,
-}
-
-impl VerifiedQuery {
-    /// Validate query.
-    ///
-    /// # Errors
-    /// - Account doesn't exist
-    /// - Account doesn't have the correct public key
-    /// - Account has incorrect permissions
-    pub fn validate(
-        self,
-        wsv: &mut WorldStateView,
-    ) -> Result<(ValidQueryRequest, PredicateBox), ValidationFail> {
-        let account_has_public_key = wsv
-            .map_account(&self.payload.authority, |account| {
-                account.signatories.contains(self.signature.public_key())
-            })
-            .map_err(QueryExecutionFail::from)?;
-        if !account_has_public_key {
-            return Err(QueryExecutionFail::Signature(String::from(
-                "Signature public key doesn't correspond to the account.",
-            ))
-            .into());
-        }
-        wsv.validator_view().clone().validate(
-            wsv,
-            &self.payload.authority,
-            self.payload.query.clone(),
-        )?;
-        Ok((
-            ValidQueryRequest::new(self.payload.query),
-            self.payload.filter,
-        ))
-    }
-}
-
-impl TryFrom<SignedQuery> for VerifiedQuery {
-    type Error = QueryExecutionFail;
-
-    fn try_from(query: SignedQuery) -> Result<Self, Self::Error> {
-        query
-            .signature
-            .verify(&query.payload)
-            .map(|_| Self {
-                payload: query.payload,
-                signature: query.signature,
-            })
-            .map_err(|e| Self::Error::Signature(e.to_string()))
-    }
 }
 
 #[iroha_futures::telemetry_future]
@@ -135,19 +71,15 @@ pub(crate) async fn handle_queries(
     sorting: Sorting,
     request: VersionedSignedQuery,
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
-    let VersionedSignedQuery::V1(request) = request;
-    let request: VerifiedQuery = request.try_into().map_err(ValidationFail::from)?;
-
-    let (result, filter) = {
+    let result = {
         let mut wsv = sumeragi.wsv_clone();
-        let (valid_request, filter) = request.validate(&mut wsv)?;
-        let original_result = valid_request.execute(&wsv).map_err(ValidationFail::from)?;
-        (filter.filter(original_result), filter)
+        let valid_request = ValidQueryRequest::validate(request, &mut wsv)?;
+        valid_request.execute(&wsv).map_err(ValidationFail::from)?
     };
 
     let (total, result) = if let Value::Vec(vec_of_val) = result {
         let len = vec_of_val.len();
-        let vec_of_val = apply_sorting_and_pagination(vec_of_val, &sorting, pagination);
+        let vec_of_val = apply_sorting_and_pagination(vec_of_val.into_iter(), &sorting, pagination);
 
         (len, Value::Vec(vec_of_val))
     } else {
@@ -163,20 +95,18 @@ pub(crate) async fn handle_queries(
         result,
         pagination,
         sorting,
-        filter,
         total,
     };
     Ok(Scale(paginated_result.into()))
 }
 
 fn apply_sorting_and_pagination(
-    vec_of_val: Vec<Value>,
+    vec_of_val: impl Iterator<Item = Value>,
     sorting: &Sorting,
     pagination: Pagination,
 ) -> Vec<Value> {
     if let Some(key) = &sorting.sort_by_metadata_key {
         let mut pairs: Vec<(Option<Value>, Value)> = vec_of_val
-            .into_iter()
             .map(|value| {
                 let key = match &value {
                     Value::Identifiable(IdentifiableBox::Asset(asset)) => match asset.value() {
@@ -206,7 +136,7 @@ fn apply_sorting_and_pagination(
             .paginate(pagination)
             .collect()
     } else {
-        vec_of_val.into_iter().paginate(pagination).collect()
+        vec_of_val.paginate(pagination).collect()
     }
 }
 
