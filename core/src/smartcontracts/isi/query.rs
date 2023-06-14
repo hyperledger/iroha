@@ -308,11 +308,7 @@ mod tests {
     fn find_block_header_by_hash() -> Result<()> {
         let wsv = wsv_with_test_blocks_and_transactions(1, 1, 1)?;
 
-        let block = wsv
-            .all_blocks_by_value()
-            .into_iter()
-            .last()
-            .expect("WSV is empty");
+        let block = wsv.all_blocks().into_iter().last().expect("WSV is empty");
 
         assert_eq!(
             FindBlockHeaderByHash::new(*block.hash()).execute(&wsv)?,

@@ -126,7 +126,7 @@ impl Config {
             .sumeragi
             .wsv_clone();
         let mut blocks = blocks_wsv
-            .all_blocks_by_value()
+            .all_blocks()
             .into_iter()
             .skip(blocks_out_of_measure as usize);
         let (txs_accepted, txs_rejected) = (0..self.blocks)

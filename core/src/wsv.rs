@@ -9,7 +9,7 @@
 
 use std::{
     borrow::Borrow,
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeSet, HashMap},
     convert::Infallible,
     fmt::Debug,
     sync::Arc,
@@ -109,8 +109,8 @@ pub struct WorldStateView {
     pub config: Configuration,
     /// Blockchain.
     pub block_hashes: Vec<HashOf<VersionedCommittedBlock>>,
-    /// Hashes of transactions
-    pub transactions: HashSet<HashOf<VersionedSignedTransaction>>,
+    /// Hashes of transactions mapped onto block height where they stored
+    pub transactions: HashMap<HashOf<VersionedSignedTransaction>, u64>,
     /// Buffer containing events generated during `WorldStateView::apply`. Renewed on every block commit.
     pub events_buffer: Vec<Event>,
     /// Accumulated amount of any asset that has been transacted.
@@ -430,17 +430,18 @@ impl WorldStateView {
     /// # Errors
     /// Fails if transaction instruction execution fails
     fn execute_transactions(&mut self, block: &CommittedBlock) -> Result<()> {
+        let height = block.header().height;
         // TODO: Should this block panic instead?
         for tx in &block.transactions {
             self.process_executable(tx.payload().instructions(), tx.payload().authority.clone())?;
-            self.transactions.insert(tx.hash());
+            self.transactions.insert(tx.hash(), height);
         }
         for RejectedTransaction {
             transaction,
             error: _,
         } in &block.rejected_transactions
         {
-            self.transactions.insert(transaction.hash());
+            self.transactions.insert(transaction.hash(), height);
         }
 
         Ok(())
@@ -497,18 +498,14 @@ impl WorldStateView {
         self.asset(id).map_err(Into::into)
     }
 
-    /// Load all blocks in the block chain from disc and clone them for use.
-    pub fn all_blocks_by_value(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = VersionedCommittedBlock> + '_ {
+    /// Load all blocks in the block chain from disc
+    pub fn all_blocks(&self) -> impl DoubleEndedIterator<Item = Arc<VersionedCommittedBlock>> + '_ {
         let block_count = self.block_hashes.len() as u64;
-        (1..=block_count)
-            .map(|height| {
-                self.kura
-                    .get_block_by_height(height)
-                    .expect("Failed to load block.")
-            })
-            .map(|block| VersionedCommittedBlock::clone(&block))
+        (1..=block_count).map(|height| {
+            self.kura
+                .get_block_by_height(height)
+                .expect("Failed to load block.")
+        })
     }
 
     /// Return a vector of blockchain blocks after the block with the given `hash`
@@ -620,7 +617,7 @@ impl WorldStateView {
         Self {
             world,
             config,
-            transactions: HashSet::new(),
+            transactions: HashMap::new(),
             block_hashes: Vec::new(),
             events_buffer: Vec::new(),
             metric_tx_amounts: 0.0_f64,
@@ -652,7 +649,7 @@ impl WorldStateView {
     /// Check if this [`VersionedSignedTransaction`] is already committed or rejected.
     #[inline]
     pub fn has_transaction(&self, hash: HashOf<VersionedSignedTransaction>) -> bool {
-        self.transactions.contains(&hash)
+        self.transactions.contains_key(&hash)
     }
 
     /// Height of blockchain
@@ -884,7 +881,7 @@ impl WorldStateView {
     /// Get all transactions
     pub fn transaction_values(&self) -> Vec<TransactionQueryResult> {
         let mut txs = self
-            .all_blocks_by_value()
+            .all_blocks()
             .flat_map(|block| {
                 let block = block.as_v1();
                 block
@@ -918,34 +915,35 @@ impl WorldStateView {
         &self,
         hash: &HashOf<VersionedSignedTransaction>,
     ) -> Option<TransactionQueryResult> {
-        self.all_blocks_by_value().find_map(|b| {
-            let block_hash = b.as_v1().hash();
-
-            b.as_v1()
-                .rejected_transactions
-                .iter()
-                .find(
-                    |RejectedTransaction {
-                         transaction,
-                         error: _,
-                     }| transaction.hash() == *hash,
-                )
-                .cloned()
-                .map(TransactionValue::RejectedTransaction)
-                .or_else(|| {
-                    b.as_v1()
-                        .transactions
-                        .iter()
-                        .find(|e| e.hash() == *hash)
-                        .cloned()
-                        .map(VersionedSignedTransaction::from)
-                        .map(TransactionValue::Transaction)
-                })
-                .map(|tx| TransactionQueryResult {
-                    transaction: tx,
-                    block_hash,
-                })
-        })
+        let height = *self.transactions.get(hash)?;
+        let block = self.kura.get_block_by_height(height)?;
+        let block_hash = block.as_v1().hash();
+        block
+            .as_v1()
+            .rejected_transactions
+            .iter()
+            .find(
+                |RejectedTransaction {
+                     transaction,
+                     error: _,
+                 }| transaction.hash() == *hash,
+            )
+            .cloned()
+            .map(TransactionValue::RejectedTransaction)
+            .or_else(|| {
+                block
+                    .as_v1()
+                    .transactions
+                    .iter()
+                    .find(|e| e.hash() == *hash)
+                    .cloned()
+                    .map(VersionedSignedTransaction::from)
+                    .map(TransactionValue::Transaction)
+            })
+            .map(|tx| TransactionQueryResult {
+                transaction: tx,
+                block_hash,
+            })
     }
 
     /// Get committed and rejected transaction of the account.
@@ -954,7 +952,7 @@ impl WorldStateView {
         account_id: &AccountId,
     ) -> Vec<TransactionQueryResult> {
         let mut transactions = self
-            .all_blocks_by_value()
+            .all_blocks()
             .flat_map(|block_entry| {
                 let block = block_entry.as_v1();
                 let block_hash = block.hash();
@@ -1122,7 +1120,7 @@ mod tests {
         }
 
         assert_eq!(
-            &wsv.all_blocks_by_value()
+            &wsv.all_blocks()
                 .skip(7)
                 .map(|block| block.as_v1().header.height)
                 .collect::<Vec<_>>(),

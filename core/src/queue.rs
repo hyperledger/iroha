@@ -681,7 +681,7 @@ mod tests {
             kura.clone(),
         );
         let tx = accepted_tx("alice@wonderland", alice_key);
-        wsv.transactions.insert(tx.hash());
+        wsv.transactions.insert(tx.hash(), 1);
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
             max_transactions_in_queue: 100,
@@ -717,7 +717,7 @@ mod tests {
                 .expect("Default queue config should always build")
         });
         queue.push(tx.clone(), &wsv).unwrap();
-        wsv.transactions.insert(tx.hash());
+        wsv.transactions.insert(tx.hash(), 1);
         assert_eq!(
             queue
                 .collect_transactions_for_block(&wsv, max_txs_in_block)
@@ -904,7 +904,7 @@ mod tests {
                     for tx in
                         queue_arc_clone.collect_transactions_for_block(&wsv_clone, max_txs_in_block)
                     {
-                        wsv_clone.transactions.insert(tx.hash());
+                        wsv_clone.transactions.insert(tx.hash(), 1);
                     }
                     // Simulate random small delays
                     thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..25)));
@@ -1024,7 +1024,7 @@ mod tests {
         assert_eq!(transactions.len(), 2);
         for transaction in transactions {
             // Put transaction hashes into wsv as if they were in the blockchain
-            wsv.transactions.insert(transaction.hash());
+            wsv.transactions.insert(transaction.hash(), 1);
         }
         // Cleanup transactions
         let transactions = queue.collect_transactions_for_block(&wsv, 10);
