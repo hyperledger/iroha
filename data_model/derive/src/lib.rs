@@ -6,6 +6,7 @@ mod has_origin;
 mod id;
 mod model;
 mod partially_tagged;
+mod variant_discriminant;
 
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
@@ -483,4 +484,46 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(HasOrigin, attributes(has_origin))]
 pub fn has_origin_derive(input: TokenStream) -> TokenStream {
     has_origin::impl_has_origin(&parse_macro_input!(input))
+}
+
+/// Derive macro to implement `AssociatedConstant<T>` trait for enum variants where
+/// `T` is the type of discriminant.
+/// So perfectly this macro should be used together with `EnumDiscriminants` derive macro from `strum` crate.
+///
+/// It's the user responsibility to import `AssociatedConstant` trait.
+///
+/// # Attributes
+///
+/// `#[variant_discriminant(name(DiscriminantType))]` attribute is required.
+///
+/// # Examples
+///
+/// ```
+/// use iroha_data_model_derive::VariantDiscriminant;
+/// use iroha_data_model::AssociatedConstant;
+///
+/// #[derive(VariantDiscriminant)]
+/// #[variant_discriminant(name(MyEnumKind))]
+/// enum MyEnum {
+///     Unsigned(u32),
+///     String(String),
+///     Boolean(bool),
+/// }
+///
+/// #[derive(Debug, PartialEq, Eq)]
+/// enum MyEnumKind {
+///    Unsigned,
+///    String,
+///    Boolean,
+/// }
+///
+/// assert_eq!(<u32 as AssociatedConstant<MyEnumKind>>::VALUE, MyEnumKind::Unsigned);
+/// assert_eq!(<String as AssociatedConstant<MyEnumKind>>::VALUE, MyEnumKind::String);
+/// assert_eq!(<bool as AssociatedConstant<MyEnumKind>>::VALUE, MyEnumKind::Boolean);
+/// ```
+#[proc_macro_error::proc_macro_error]
+#[proc_macro_derive(VariantDiscriminant, attributes(variant_discriminant))]
+pub fn variant_discriminant_derive(input: TokenStream) -> TokenStream {
+    let ast = syn::parse(input).expect("Failed to parse input Token Stream.");
+    variant_discriminant::impl_variant_discriminant(&ast)
 }
