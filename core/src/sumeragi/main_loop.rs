@@ -1096,8 +1096,8 @@ enum BlockSyncOk {
 
 #[derive(Debug)]
 enum BlockSyncError {
-    BlockNotValid(eyre::Report),
-    SoftForkBlockNotValid(eyre::Report),
+    BlockNotValid(BlockRevalidationError),
+    SoftForkBlockNotValid(BlockRevalidationError),
     SoftForkBlockSmallViewChangeIndex {
         peer_view_change_index: u64,
         block_view_change_index: u64,
