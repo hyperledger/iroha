@@ -12,15 +12,111 @@
 
 use std::error::Error;
 
-use eyre::{bail, eyre, Context, Result};
 use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
-use iroha_data_model::{block::*, events::prelude::*, transaction::prelude::*};
+use iroha_data_model::{
+    block::*,
+    events::prelude::*,
+    peer::PeerId,
+    transaction::{error::TransactionRejectionReason, prelude::*, RejectedTransaction},
+};
 use iroha_genesis::GenesisTransaction;
 use parity_scale_codec::{Decode, Encode};
 use sealed::sealed;
+use thiserror::Error;
 
-use crate::{prelude::*, sumeragi::network_topology::Topology};
+use crate::{
+    prelude::*,
+    sumeragi::network_topology::{SignatureVerificationError, Topology},
+    tx::{AcceptTransactionFail, TransactionValidator},
+};
+
+/// Errors occurred on block commit
+#[derive(Debug, Error, Clone, Copy)]
+pub enum BlockCommitError {
+    /// Error during signature verification
+    #[error("Error during signature verification")]
+    SignatureVerificationError(#[from] SignatureVerificationError),
+}
+
+/// Errors occurred on signing block or adding additional signature
+#[derive(Debug, Error)]
+pub enum BlockSignError {
+    /// Failed to create signature
+    #[error("Failed to create signature")]
+    Sign(#[source] iroha_crypto::error::Error),
+    /// Failed to add signature for block
+    #[error("Failed to add signature for block")]
+    AddSignature(#[source] iroha_crypto::error::Error),
+}
+
+/// Errors occurred on block revalidation
+#[derive(Debug, Error)]
+pub enum BlockRevalidationError {
+    /// Block is empty
+    #[error("Block is empty")]
+    Empty,
+    /// Block has committed transactions
+    #[error("Block has committed transactions")]
+    HasCommittedTransactions,
+    /// Mismatch between the actual and expected hashes of the latest block
+    #[error("Mismatch between the actual and expected hashes of the latest block. Expected: {:?}, actual: {:?}", expected, actual)]
+    LatestBlockHashMismatch {
+        /// Expected value
+        expected: Option<HashOf<VersionedCommittedBlock>>,
+        /// Actual value
+        actual: Option<HashOf<VersionedCommittedBlock>>,
+    },
+    /// Mismatch between the actual and expected height of the latest block
+    #[error("Mismatch between the actual and expected height of the latest block. Expected: {}, actual: {}", expected, actual)]
+    LatestBlockHeightMismatch {
+        /// Expected value
+        expected: u64,
+        /// Actual value
+        actual: u64,
+    },
+    /// The transaction hash stored in the block header does not match the actual transaction hash
+    #[error("The transaction hash stored in the block header does not match the actual transaction hash")]
+    TransactionHashMismatch,
+    /// The hash of a rejected transaction stored in the block header does not match the actual hash or this transaction
+    #[error("The hash of a rejected transaction stored in the block header does not match the actual hash or this transaction")]
+    RejectedTransactionHashMismatch,
+    /// Error during transaction revalidation
+    #[error("Error during transaction revalidation")]
+    TransactionRevalidation(#[from] TransactionRevalidationError),
+    /// Mismatch between the actual and expected topology
+    #[error(
+        "Mismatch between the actual and expected topology. Expected: {:?}, actual: {:?}",
+        expected,
+        actual
+    )]
+    TopologyMismatch {
+        /// Expected value
+        expected: Vec<PeerId>,
+        /// Actual value
+        actual: Vec<PeerId>,
+    },
+    /// Error during block signatures check
+    #[error("Error during block signatures check")]
+    SignatureVerification(#[from] SignatureVerificationError),
+    /// Received view change index is too large
+    #[error("Received view change index is too large")]
+    ViewChangeIndexTooLarge,
+}
+
+/// Error during transaction revalidation
+#[derive(Debug, Error)]
+pub enum TransactionRevalidationError {
+    /// Failed to accept transaction
+    #[error("Failed to accept transaction")]
+    Accept(#[from] AcceptTransactionFail),
+    /// Transaction isn't valid but must be
+    #[error("Transaction isn't valid but must be")]
+    NotValid(#[from] TransactionRejectionReason),
+    /// Rejected transaction in valid
+    #[error("Rejected transaction in valid")]
+    RejectedIsValid,
+}
 
 /// Transaction data is permanently recorded in chunks called
 /// blocks.
@@ -169,13 +265,13 @@ impl PendingBlock {
     ///
     /// Not enough signatures
     #[inline]
-    pub fn commit(mut self, topology: &Topology) -> Result<CommittedBlock, (Self, eyre::Report)> {
+    pub fn commit(
+        mut self,
+        topology: &Topology,
+    ) -> Result<CommittedBlock, (Self, BlockCommitError)> {
         let hash = self.partial_hash();
-        if let Err(err) = topology
-            .verify_signatures(&mut self.signatures, hash)
-            .wrap_err("Error during signature verification")
-        {
-            return Err((self, err));
+        if let Err(err) = topology.verify_signatures(&mut self.signatures, hash) {
+            return Err((self, err.into()));
         }
 
         Ok(self.commit_unchecked())
@@ -185,32 +281,26 @@ impl PendingBlock {
     ///
     /// # Errors
     /// Fails if signature generation fails
-    pub fn sign(mut self, key_pair: KeyPair) -> Result<Self> {
+    pub fn sign(mut self, key_pair: KeyPair) -> Result<Self, BlockSignError> {
         SignatureOf::from_hash(key_pair, self.partial_hash())
-            .wrap_err(format!(
-                "Failed to sign block with partial hash {}",
-                self.partial_hash()
-            ))
             .map(|signature| {
                 self.signatures.insert(signature);
                 self
             })
+            .map_err(BlockSignError::Sign)
     }
 
     /// Add additional signature for [`SignedBlock`]
     ///
     /// # Errors
     /// Fails if given signature doesn't match block hash
-    pub fn add_signature(&mut self, signature: SignatureOf<Self>) -> Result<()> {
+    pub fn add_signature(&mut self, signature: SignatureOf<Self>) -> Result<(), BlockSignError> {
         signature
             .verify_hash(self.partial_hash())
             .map(|_| {
                 self.signatures.insert(signature);
             })
-            .wrap_err(format!(
-                "Provided signature doesn't match block with hash {}",
-                self.partial_hash()
-            ))
+            .map_err(BlockSignError::AddSignature)
     }
 
     /// Create dummy [`ValidBlock`]. Used in tests
@@ -256,7 +346,10 @@ impl PendingBlock {
 pub trait Revalidate: Sized {
     /// # Errors
     /// - When the block is deemed invalid.
-    fn revalidate<const IS_GENESIS: bool>(&self, wsv: WorldStateView) -> Result<(), eyre::Report>;
+    fn revalidate<const IS_GENESIS: bool>(
+        &self,
+        wsv: WorldStateView,
+    ) -> Result<(), BlockRevalidationError>;
 
     /// Return whether or not the block contains transactions already committed.
     fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool;
@@ -267,7 +360,7 @@ pub trait Revalidate: Sized {
 pub trait InGenesis: Sized + Revalidate {
     /// # Errors
     /// - When the block is deemed invalid.
-    fn revalidate(&self, wsv: WorldStateView) -> Result<(), eyre::Report> {
+    fn revalidate(&self, wsv: WorldStateView) -> Result<(), BlockRevalidationError> {
         <Self as Revalidate>::revalidate::<true>(self, wsv)
     }
 }
@@ -277,7 +370,7 @@ pub trait InGenesis: Sized + Revalidate {
 pub trait InBlock: Sized + Revalidate {
     /// # Errors
     /// - When the block is deemed invalid.
-    fn revalidate(&self, wsv: WorldStateView) -> Result<(), eyre::Report> {
+    fn revalidate(&self, wsv: WorldStateView) -> Result<(), BlockRevalidationError> {
         <Self as Revalidate>::revalidate::<false>(self, wsv)
     }
 }
@@ -301,123 +394,48 @@ impl Revalidate for PendingBlock {
     fn revalidate<const IS_GENESIS: bool>(
         &self,
         mut wsv: WorldStateView,
-    ) -> Result<(), eyre::Report> {
+    ) -> Result<(), BlockRevalidationError> {
         let latest_block_hash = wsv.latest_block_hash();
         let block_height = wsv.height();
         let transaction_validator = wsv.transaction_validator();
 
         if self.transactions.is_empty() && self.rejected_transactions.is_empty() {
-            bail!("Block is empty");
+            return Err(BlockRevalidationError::Empty);
         }
 
         if self.has_committed_transactions(&wsv) {
-            bail!("Block has committed transactions");
+            return Err(BlockRevalidationError::HasCommittedTransactions);
         }
 
         if latest_block_hash != self.header.previous_block_hash {
-            bail!(
-                    "Mismatch between the actual and expected hashes of the latest block. Expected: {:?}, actual: {:?}",
-                    latest_block_hash,
-                    &self.header.previous_block_hash
-                );
+            return Err(BlockRevalidationError::LatestBlockHashMismatch {
+                expected: latest_block_hash,
+                actual: self.header.previous_block_hash,
+            });
         }
 
         if block_height + 1 != self.header.height {
-            bail!(
-                    "Mismatch between the actual and expected heights of the block. Expected: {}, actual: {}",
-                    block_height + 1,
-                    self.header.height
-                );
+            return Err(BlockRevalidationError::LatestBlockHeightMismatch {
+                expected: block_height + 1,
+                actual: self.header.height,
+            });
         }
 
-        // Validate that header transactions hashes are matched with actual hashes
-        self.transactions
-                .iter()
-                .map(VersionedSignedTransaction::hash)
-                .collect::<MerkleTree<_>>()
-                .hash()
-                .eq(&self.header.transactions_hash)
-                .then_some(())
-                .ok_or_else(|| {
-                    eyre!("The transaction hash stored in the block header does not match the actual transaction hash.")
-                })?;
+        revalidate_hashes(
+            &self.transactions,
+            self.header.transactions_hash,
+            &self.rejected_transactions,
+            self.header.rejected_transactions_hash,
+        )?;
 
-        self.rejected_transactions
-                .iter()
-                .map(|RejectedTransaction {transaction, error: _}| transaction.hash())
-                .collect::<MerkleTree<_>>()
-                .hash()
-                .eq(&self.header.rejected_transactions_hash)
-                .then_some(())
-                .ok_or_else(|| eyre!("The hash of a rejected transaction stored in the block header does not match the actual hash or this transaction."))?;
+        revalidate_transactions(
+            &self.transactions,
+            &self.rejected_transactions,
+            &mut wsv,
+            transaction_validator,
+            self.is_genesis(),
+        )?;
 
-        // Check that valid transactions are still valid
-        let _transactions = self
-            .transactions
-            .iter()
-            .cloned()
-            .map(|tx| {
-                if self.is_genesis() {
-                    Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(tx)))
-                } else {
-                    AcceptedTransaction::accept(tx, &transaction_validator.transaction_limits)
-                }
-                .wrap_err("Failed to accept transaction")
-            })
-            .map(|accepted_tx| {
-                accepted_tx.and_then(|tx| {
-                    transaction_validator
-                        .validate(tx, self.is_genesis(), &mut wsv)
-                        .map_err(|(_tx, error)| error)
-                        .wrap_err("Failed to validate transaction")
-                })
-            })
-            .try_fold(Vec::new(), |mut acc, tx| {
-                tx.map(|valid_tx| {
-                    acc.push(valid_tx);
-                    acc
-                })
-            })
-            .wrap_err("Error during transaction revalidation")?;
-
-        // Check that rejected transactions are indeed rejected
-        let _rejected_transactions = self
-            .rejected_transactions
-            .iter()
-            .cloned()
-            .map(
-                |RejectedTransaction {
-                     transaction,
-                     error: _,
-                 }| {
-                    if self.is_genesis() {
-                        Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(
-                            transaction,
-                        )))
-                    } else {
-                        AcceptedTransaction::accept(
-                            transaction,
-                            &transaction_validator.transaction_limits,
-                        )
-                    }
-                    .wrap_err("Failed to accept transaction")
-                },
-            )
-            .map(|accepted_tx| {
-                accepted_tx.and_then(|tx| {
-                    match transaction_validator.validate(tx, self.is_genesis(), &mut wsv) {
-                        Err(rejected_transaction) => Ok(rejected_transaction),
-                        Ok(_) => Err(eyre!("Transactions which supposed to be rejected is valid")),
-                    }
-                })
-            })
-            .try_fold(Vec::new(), |mut acc, rejected_tx| {
-                rejected_tx.map(|tx| {
-                    acc.push(tx);
-                    acc
-                })
-            })
-            .wrap_err("Error during transaction revalidation")?;
         Ok(())
     }
 
@@ -454,7 +472,7 @@ impl Revalidate for VersionedCommittedBlock {
     fn revalidate<const IS_GENESIS: bool>(
         &self,
         mut wsv: WorldStateView,
-    ) -> Result<(), eyre::Report> {
+    ) -> Result<(), BlockRevalidationError> {
         let latest_block_hash = wsv.latest_block_hash();
         let block_height = wsv.height();
         let transaction_validator = wsv.transaction_validator();
@@ -465,28 +483,27 @@ impl Revalidate for VersionedCommittedBlock {
         );
 
         if self.has_committed_transactions(&wsv) {
-            bail!("Block has committed transactions");
+            return Err(BlockRevalidationError::HasCommittedTransactions);
         }
+
         match self {
             VersionedCommittedBlock::V1(block) => {
                 if block.transactions.is_empty() && block.rejected_transactions.is_empty() {
-                    bail!("Block is empty");
+                    return Err(BlockRevalidationError::Empty);
                 }
 
                 if latest_block_hash != block.header.previous_block_hash {
-                    bail!(
-                    "Mismatch between the actual and expected hashes of the latest block. Expected: {:?}, actual: {:?}",
-                    latest_block_hash,
-                    &block.header.previous_block_hash
-                );
+                    return Err(BlockRevalidationError::LatestBlockHashMismatch {
+                        expected: latest_block_hash,
+                        actual: block.header.previous_block_hash,
+                    });
                 }
 
                 if block_height + 1 != block.header.height {
-                    bail!(
-                    "Mismatch between the actual and expected heights of the block. Expected: {}, actual: {}",
-                    block_height + 1,
-                    block.header.height
-                );
+                    return Err(BlockRevalidationError::LatestBlockHeightMismatch {
+                        expected: block_height + 1,
+                        actual: block.header.height,
+                    });
                 }
 
                 if !IS_GENESIS {
@@ -501,7 +518,7 @@ impl Revalidate for VersionedCommittedBlock {
                             .header
                             .view_change_index
                             .try_into()
-                            .wrap_err("View change index is too large to fit into usize")?;
+                            .map_err(|_| BlockRevalidationError::ViewChangeIndexTooLarge)?;
                         Topology::recreate_topology(
                             &last_committed_block,
                             view_change_index,
@@ -510,10 +527,10 @@ impl Revalidate for VersionedCommittedBlock {
                     };
 
                     if topology.sorted_peers != block.header.committed_with_topology {
-                        bail!(
-                            "Mismatch between expected and actual block topology. Expected: {:?}, actual: {:?}",
-                            topology, block.header.committed_with_topology
-                        )
+                        return Err(BlockRevalidationError::TopologyMismatch {
+                            expected: topology.sorted_peers,
+                            actual: block.header.committed_with_topology.clone(),
+                        });
                     }
 
                     topology.verify_signatures(
@@ -522,99 +539,20 @@ impl Revalidate for VersionedCommittedBlock {
                     )?;
                 }
 
-                // Validate that header transactions hashes are matched with actual hashes
-                block.transactions
-                .iter()
-                .map(VersionedSignedTransaction::hash)
-                .collect::<MerkleTree<_>>()
-                .hash()
-                .eq(&block.header.transactions_hash)
-                .then_some(())
-                .ok_or_else(|| {
-                    eyre!("The transaction hash stored in the block header does not match the actual transaction hash.")
-                })?;
+                revalidate_hashes(
+                    &block.transactions,
+                    block.header.transactions_hash,
+                    &block.rejected_transactions,
+                    block.header.rejected_transactions_hash,
+                )?;
 
-                block.rejected_transactions
-                .iter()
-                .map(|RejectedTransaction {transaction, error: _}| transaction.hash())
-                .collect::<MerkleTree<_>>()
-                .hash()
-                .eq(&block.header.rejected_transactions_hash)
-                .then_some(())
-                .ok_or_else(|| eyre!("The hash of a rejected transaction stored in the block header does not match the actual hash or this transaction."))?;
-
-                // Check that valid transactions are still valid
-                let _transactions = block
-                    .transactions
-                    .iter()
-                    .cloned()
-                    .map(|tx| {
-                        if self.is_genesis() {
-                            Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(tx)))
-                        } else {
-                            AcceptedTransaction::accept(
-                                tx,
-                                &transaction_validator.transaction_limits,
-                            )
-                        }
-                        .wrap_err("Failed to accept transaction")
-                    })
-                    .map(|accepted_tx| {
-                        accepted_tx.and_then(|tx| {
-                            transaction_validator
-                                .validate(tx, block.is_genesis(), &mut wsv)
-                                .map_err(|(_tx, error)| error)
-                                .wrap_err("Failed to validate transaction")
-                        })
-                    })
-                    .try_fold(Vec::new(), |mut acc, tx| {
-                        tx.map(|valid_tx| {
-                            acc.push(valid_tx);
-                            acc
-                        })
-                    })
-                    .wrap_err("Error during transaction revalidation")?;
-
-                // Check that rejected transactions are indeed rejected
-                let _rejected_transactions = block
-                    .rejected_transactions
-                    .iter()
-                    .cloned()
-                    .map(
-                        |RejectedTransaction {
-                             transaction,
-                             error: _,
-                         }| {
-                            if self.is_genesis() {
-                                Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(
-                                    transaction,
-                                )))
-                            } else {
-                                AcceptedTransaction::accept(
-                                    transaction,
-                                    &transaction_validator.transaction_limits,
-                                )
-                            }
-                            .wrap_err("Failed to accept transaction")
-                        },
-                    )
-                    .map(|accepted_tx| {
-                        accepted_tx.and_then(|tx| {
-                            match transaction_validator.validate(tx, block.is_genesis(), &mut wsv) {
-                                Err(rejected_transaction) => Ok(rejected_transaction),
-                                Ok(_) => Err(eyre!(
-                                    "Transactions which supposed to be rejected is valid"
-                                )),
-                            }
-                        })
-                    })
-                    .try_fold(Vec::new(), |mut acc, rejected_tx| {
-                        rejected_tx.map(|tx| {
-                            acc.push(tx);
-                            acc
-                        })
-                    })
-                    .wrap_err("Error during transaction revalidation")?;
+                revalidate_transactions(
+                    &block.transactions,
+                    &block.rejected_transactions,
+                    &mut wsv,
+                    transaction_validator,
+                    block.is_genesis(),
+                )?;
 
                 Ok(())
             }
@@ -638,6 +576,114 @@ impl Revalidate for VersionedCommittedBlock {
             }
         }
     }
+}
+
+/// Revalidate merkle tree root hashes of the transaction
+fn revalidate_hashes(
+    transactions: &[VersionedSignedTransaction],
+    transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
+    rejected_transactions: &[RejectedTransaction],
+    rejected_transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
+) -> Result<(), BlockRevalidationError> {
+    // Validate that header transactions hashes are matched with actual hashes
+    transactions
+        .iter()
+        .map(VersionedSignedTransaction::hash)
+        .collect::<MerkleTree<_>>()
+        .hash()
+        .eq(&transactions_hash)
+        .then_some(())
+        .ok_or_else(|| BlockRevalidationError::TransactionHashMismatch)?;
+
+    rejected_transactions
+        .iter()
+        .map(
+            |RejectedTransaction {
+                 transaction,
+                 error: _,
+             }| transaction.hash(),
+        )
+        .collect::<MerkleTree<_>>()
+        .hash()
+        .eq(&rejected_transactions_hash)
+        .then_some(())
+        .ok_or_else(|| BlockRevalidationError::RejectedTransactionHashMismatch)?;
+    Ok(())
+}
+
+/// Revalidate transactions to ensure that valid transactions indeed valid and invalid are still invalid
+fn revalidate_transactions(
+    transactions: &[VersionedSignedTransaction],
+    rejected_transactions: &[RejectedTransaction],
+    wsv: &mut WorldStateView,
+    transaction_validator: TransactionValidator,
+    is_genesis: bool,
+) -> Result<(), TransactionRevalidationError> {
+    // Check that valid transactions are still valid
+    let _transactions = transactions
+        .iter()
+        .cloned()
+        .map(|tx| {
+            if is_genesis {
+                Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(tx)))
+            } else {
+                AcceptedTransaction::accept(tx, &transaction_validator.transaction_limits)
+                    .map_err(TransactionRevalidationError::Accept)
+            }
+        })
+        .map(|accepted_tx| {
+            accepted_tx.and_then(|tx| {
+                transaction_validator
+                    .validate(tx, is_genesis, wsv)
+                    .map_err(|(_tx, error)| error)
+                    .map_err(TransactionRevalidationError::NotValid)
+            })
+        })
+        .try_fold(Vec::new(), |mut acc, tx| {
+            tx.map(|valid_tx| {
+                acc.push(valid_tx);
+                acc
+            })
+        })?;
+
+    // Check that rejected transactions are indeed rejected
+    let _rejected_transactions = rejected_transactions
+        .iter()
+        .cloned()
+        .map(
+            |RejectedTransaction {
+                 transaction,
+                 error: _,
+             }| {
+                if is_genesis {
+                    Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(
+                        transaction,
+                    )))
+                } else {
+                    AcceptedTransaction::accept(
+                        transaction,
+                        &transaction_validator.transaction_limits,
+                    )
+                    .map_err(TransactionRevalidationError::Accept)
+                }
+            },
+        )
+        .map(|accepted_tx| {
+            accepted_tx.and_then(
+                |tx| match transaction_validator.validate(tx, is_genesis, wsv) {
+                    Err(rejected_transaction) => Ok(rejected_transaction),
+                    Ok(_) => Err(TransactionRevalidationError::RejectedIsValid),
+                },
+            )
+        })
+        .try_fold(Vec::new(), |mut acc, rejected_tx| {
+            rejected_tx.map(|tx| {
+                acc.push(tx);
+                acc
+            })
+        })?;
+
+    Ok(())
 }
 
 impl From<&PendingBlock> for Vec<Event> {
