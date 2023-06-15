@@ -5,7 +5,7 @@
 // FIXME: This can't be fixed, because one trait in `warp` is private.
 #![allow(opaque_hidden_inferred_bound)]
 
-use std::{cmp::Ordering, num::TryFromIntError};
+use std::cmp::Ordering;
 
 use eyre::WrapErr;
 use futures::TryStreamExt;
@@ -15,7 +15,10 @@ use iroha_config::{
     torii::uri,
     GetConfiguration, PostConfiguration,
 };
-use iroha_core::{smartcontracts::isi::query::ValidQueryRequest, sumeragi::SumeragiHandle};
+use iroha_core::{
+    smartcontracts::{isi::query::ValidQueryRequest, query::LazyValue},
+    sumeragi::SumeragiHandle,
+};
 use iroha_data_model::{
     block::{
         stream::{
@@ -25,7 +28,6 @@ use iroha_data_model::{
         VersionedCommittedBlock,
     },
     prelude::*,
-    query::error::QueryExecutionFail,
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
@@ -70,43 +72,34 @@ pub(crate) async fn handle_queries(
     pagination: Pagination,
     sorting: Sorting,
     request: VersionedSignedQuery,
-) -> Result<Scale<VersionedPaginatedQueryResult>> {
-    let result = {
-        let mut wsv = sumeragi.wsv_clone();
-        let valid_request = ValidQueryRequest::validate(request, &mut wsv)?;
-        valid_request.execute(&wsv).map_err(ValidationFail::from)?
+) -> Result<Scale<VersionedQueryResult>> {
+    let mut wsv = sumeragi.wsv_clone();
+
+    let valid_request = ValidQueryRequest::validate(request, &mut wsv)?;
+    let result = valid_request.execute(&wsv).map_err(ValidationFail::from)?;
+
+    let result = match result {
+        LazyValue::Value(value) => value,
+        LazyValue::Iter(iter) => {
+            Value::Vec(apply_sorting_and_pagination(iter, &sorting, pagination))
+        }
     };
 
-    let (total, result) = if let Value::Vec(vec_of_val) = result {
-        let len = vec_of_val.len();
-        let vec_of_val = apply_sorting_and_pagination(vec_of_val.into_iter(), &sorting, pagination);
-
-        (len, Value::Vec(vec_of_val))
-    } else {
-        (1, result)
-    };
-
-    let total = total
-        .try_into()
-        .map_err(|e: TryFromIntError| QueryExecutionFail::Conversion(e.to_string()))
-        .map_err(ValidationFail::from)?;
-    let result = QueryResult(result);
-    let paginated_result = PaginatedQueryResult {
+    let paginated_result = QueryResult {
         result,
         pagination,
         sorting,
-        total,
     };
     Ok(Scale(paginated_result.into()))
 }
 
 fn apply_sorting_and_pagination(
-    vec_of_val: impl Iterator<Item = Value>,
+    iter: impl Iterator<Item = Value>,
     sorting: &Sorting,
     pagination: Pagination,
 ) -> Vec<Value> {
     if let Some(key) = &sorting.sort_by_metadata_key {
-        let mut pairs: Vec<(Option<Value>, Value)> = vec_of_val
+        let mut pairs: Vec<(Option<Value>, Value)> = iter
             .map(|value| {
                 let key = match &value {
                     Value::Identifiable(IdentifiableBox::Asset(asset)) => match asset.value() {
@@ -136,7 +129,7 @@ fn apply_sorting_and_pagination(
             .paginate(pagination)
             .collect()
     } else {
-        vec_of_val.paginate(pagination).collect()
+        iter.paginate(pagination).collect()
     }
 }
 
@@ -166,7 +159,6 @@ async fn handle_pending_transactions(
     Ok(Scale(
         queue
             .all_transactions(&wsv)
-            .into_iter()
             .map(Into::into)
             .paginate(pagination)
             .collect::<Vec<_>>(),
@@ -343,7 +335,6 @@ mod subscription {
 async fn handle_version(sumeragi: SumeragiHandle) -> Json {
     use iroha_version::Version;
 
-    #[allow(clippy::expect_used)]
     let string = sumeragi
         .apply_wsv(WorldStateView::latest_block_ref)
         .expect("Genesis not applied. Nothing we can do. Solve the issue and rerun.")
@@ -417,7 +408,6 @@ impl Torii {
         }
     }
 
-    #[allow(opaque_hidden_inferred_bound)]
     #[cfg(feature = "telemetry")]
     /// Helper function to create router. This router can tested without starting up an HTTP server
     fn create_telemetry_router(
@@ -453,7 +443,6 @@ impl Torii {
     }
 
     /// Helper function to create router. This router can tested without starting up an HTTP server
-    #[allow(opaque_hidden_inferred_bound)]
     pub(crate) fn create_api_router(
         &self,
     ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {

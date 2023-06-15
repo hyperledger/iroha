@@ -118,10 +118,12 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
         usize::try_from(PERIOD_MS / DEFAULT_CONSENSUS_ESTIMATION_MS + 1)?,
     )?;
 
-    let value = test_client.request(FindAssetDefinitionKeyValueByIdAndKey {
-        id: asset_definition_id.into(),
-        key: key.into(),
-    })?;
+    let value = test_client
+        .request(FindAssetDefinitionKeyValueByIdAndKey {
+            id: asset_definition_id.into(),
+            key: key.into(),
+        })?
+        .into();
     assert!(matches!(value, Value::Numeric(NumericValue::U32(3_u32))));
 
     Ok(())

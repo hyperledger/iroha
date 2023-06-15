@@ -2,7 +2,7 @@
 #![allow(clippy::cognitive_complexity)]
 use std::sync::mpsc;
 
-use iroha_data_model::{block::*, transaction::error::TransactionRejectionReason};
+use iroha_data_model::{block::*, peer::PeerId, transaction::error::TransactionRejectionReason};
 use iroha_p2p::UpdateTopology;
 use tracing::{span, Level};
 
@@ -329,17 +329,11 @@ impl Sumeragi {
         self.update_state::<ReplaceTopBlockStrategy>(block, new_wsv);
     }
 
-    fn update_topology(&mut self, committed_block: &VersionedCommittedBlock) {
-        let mut topology = Topology::new(
-            committed_block
-                .as_v1()
-                .header()
-                .committed_with_topology
-                .clone(),
-        );
+    fn update_topology(&mut self, block_signees: &[PublicKey], peers: Vec<PeerId>) {
+        let mut topology = Topology::new(peers);
 
         topology.update_topology(
-            committed_block,
+            block_signees,
             self.wsv.peers_ids().iter().cloned().collect(),
         );
 
@@ -352,7 +346,7 @@ impl Sumeragi {
         block: impl Into<VersionedCommittedBlock>,
         mut new_wsv: WorldStateView,
     ) {
-        let committed_block = Arc::new(block.into());
+        let committed_block = block.into();
 
         info!(
             addr=%self.peer_id.address,
@@ -365,7 +359,7 @@ impl Sumeragi {
         Strategy::before_update_hook(self);
 
         new_wsv
-            .apply_without_execution(committed_block.as_ref())
+            .apply_without_execution(&committed_block)
             .expect("Failed to apply block on WSV. Bailing.");
         self.wsv = new_wsv;
 
@@ -375,10 +369,23 @@ impl Sumeragi {
         // Parameters are updated before updating public copy of sumeragi
         self.update_params();
 
+        let events: Vec<_> = (&committed_block).into();
+        let topology = committed_block
+            .as_v1()
+            .header()
+            .committed_with_topology
+            .clone();
+        let block_signees = committed_block
+            .signatures()
+            .map(|s| s.public_key())
+            .cloned()
+            .collect::<Vec<PublicKey>>();
+
         // https://github.com/hyperledger/iroha/issues/3396
         // Kura should store the block only upon successful application to the internal WSV to avoid storing a corrupted block.
         // Public-facing WSV update should happen after that and be followed by `BlockCommited` event to prevent client access to uncommitted data.
-        Strategy::kura_store_block(&self.kura, Arc::clone(&committed_block));
+        // TODO: Redundant clone
+        Strategy::kura_store_block(&self.kura, committed_block);
 
         // Update WSV copy that is public facing
         self.public_wsv_sender
@@ -386,9 +393,9 @@ impl Sumeragi {
 
         // This sends "Block committed" event, so it should be done
         // AFTER public facing WSV update
-        self.send_events(committed_block.as_ref());
+        self.send_events(events);
 
-        self.update_topology(committed_block.as_ref());
+        self.update_topology(&block_signees, topology);
 
         self.cache_transaction()
     }
@@ -1104,7 +1111,7 @@ trait ApplyBlockStrategy {
     fn before_update_hook(sumeragi: &mut Sumeragi);
 
     /// Operation to invoke in kura to store block.
-    fn kura_store_block(kura: &Kura, block: Arc<VersionedCommittedBlock>);
+    fn kura_store_block(kura: &Kura, block: VersionedCommittedBlock);
 }
 
 /// Commit new block strategy. Used during normal consensus rounds.
@@ -1121,7 +1128,7 @@ impl ApplyBlockStrategy for NewBlockStrategy {
     }
 
     #[inline]
-    fn kura_store_block(kura: &Kura, block: Arc<VersionedCommittedBlock>) {
+    fn kura_store_block(kura: &Kura, block: VersionedCommittedBlock) {
         kura.store_block(block)
     }
 }
@@ -1138,7 +1145,7 @@ impl ApplyBlockStrategy for ReplaceTopBlockStrategy {
     }
 
     #[inline]
-    fn kura_store_block(kura: &Kura, block: Arc<VersionedCommittedBlock>) {
+    fn kura_store_block(kura: &Kura, block: VersionedCommittedBlock) {
         kura.replace_top_block(block)
     }
 }

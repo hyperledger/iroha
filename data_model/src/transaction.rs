@@ -174,7 +174,7 @@ pub mod model {
     #[ffi_type]
     pub struct TransactionValue {
         /// Committed transaction
-        pub tx: VersionedSignedTransaction,
+        pub value: VersionedSignedTransaction,
         /// Reason of rejection
         pub error: Option<error::TransactionRejectionReason>,
     }
@@ -347,7 +347,7 @@ impl TransactionValue {
     /// Used to return payload of the transaction
     #[inline]
     pub fn payload(&self) -> &TransactionPayload {
-        self.tx.payload()
+        self.value.payload()
     }
 }
 

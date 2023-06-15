@@ -22,7 +22,7 @@ use self::{
 };
 use crate::{
     account::Account,
-    block::CommittedBlock,
+    block::VersionedCommittedBlock,
     seal,
     transaction::{TransactionPayload, TransactionValue, VersionedSignedTransaction},
     Identifiable, Value,
@@ -124,7 +124,7 @@ pub mod model {
         FindAllParameters(FindAllParameters),
     }
 
-    /// `TransactionQueryResult` is used in `FindAllTransactions` query
+    /// Output of [`FindAllTransactions`] query
     #[derive(
         Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
@@ -134,7 +134,22 @@ pub mod model {
         /// Transaction
         pub transaction: TransactionValue,
         /// The hash of the block to which `tx` belongs to
-        pub block_hash: HashOf<CommittedBlock>,
+        pub block_hash: HashOf<VersionedCommittedBlock>,
+    }
+}
+
+/// Type returned from [`Metadata`] queries
+pub struct MetadataValue(Value);
+
+impl From<MetadataValue> for Value {
+    fn from(source: MetadataValue) -> Self {
+        source.0
+    }
+}
+
+impl From<Value> for MetadataValue {
+    fn from(source: Value) -> Self {
+        Self(source)
     }
 }
 
@@ -346,6 +361,7 @@ pub mod account {
 
     use derive_more::Display;
 
+    use super::MetadataValue;
     use crate::prelude::*;
 
     queries! {
@@ -426,7 +442,7 @@ pub mod account {
     }
 
     impl Query for FindAccountKeyValueByIdAndKey {
-        type Output = Value;
+        type Output = MetadataValue;
     }
 
     impl Query for FindAccountsByName {
@@ -507,6 +523,7 @@ pub mod asset {
     use iroha_data_model_derive::model;
 
     pub use self::model::*;
+    use super::MetadataValue;
     use crate::prelude::*;
 
     queries! {
@@ -711,11 +728,11 @@ pub mod asset {
     }
 
     impl Query for FindAssetKeyValueByIdAndKey {
-        type Output = Value;
+        type Output = MetadataValue;
     }
 
     impl Query for FindAssetDefinitionKeyValueByIdAndKey {
-        type Output = Value;
+        type Output = MetadataValue;
     }
 
     impl Query for IsAssetDefinitionOwner {
@@ -855,6 +872,7 @@ pub mod domain {
 
     use derive_more::Display;
 
+    use super::MetadataValue;
     use crate::prelude::*;
 
     queries! {
@@ -898,7 +916,7 @@ pub mod domain {
     }
 
     impl Query for FindDomainKeyValueByIdAndKey {
-        type Output = Value;
+        type Output = MetadataValue;
     }
 
     impl FindDomainById {
@@ -975,7 +993,7 @@ pub mod trigger {
 
     use derive_more::Display;
 
-    use super::Query;
+    use super::{MetadataValue, Query};
     use crate::{
         domain::prelude::*,
         events::FilterBox,
@@ -1039,7 +1057,7 @@ pub mod trigger {
     }
 
     impl Query for FindTriggerKeyValueByIdAndKey {
-        type Output = Value;
+        type Output = MetadataValue;
     }
 
     impl Query for FindTriggersByDomainId {
@@ -1155,7 +1173,7 @@ pub mod transaction {
     }
 
     impl FindTransactionByHash {
-        ///Construct [`FindTransactionByHash`].
+        /// Construct [`FindTransactionByHash`].
         pub fn new(hash: impl Into<EvaluatesTo<HashOf<VersionedSignedTransaction>>>) -> Self {
             Self { hash: hash.into() }
         }
@@ -1250,7 +1268,6 @@ pub mod http {
 
     declare_versioned_with_scale!(VersionedSignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
     declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
-    declare_versioned_with_scale!(VersionedPaginatedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
     #[model]
     pub mod model {
@@ -1288,18 +1305,6 @@ pub mod http {
             /// Signature of the client who sends this query.
             pub signature: SignatureOf<QueryPayload>,
         }
-
-        /// Sized container for all possible Query results.
-        #[derive(
-            Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
-        )]
-        #[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
-        #[serde(transparent)]
-        #[repr(transparent)]
-        // TODO: This should be a separate type, not just wrap Value because it infects Value
-        // with variants that can only ever be returned, i.e. can't be used in instructions
-        // enum QueryResult { ... }
-        pub struct QueryResult(pub Value);
     }
 
     mod candidate {
@@ -1374,16 +1379,14 @@ pub mod http {
     /// Paginated Query Result
     // TODO: This is the only structure whose inner fields are exposed. Wrap it in model macro?
     #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[version_with_scale(n = 1, versioned = "VersionedPaginatedQueryResult")]
-    pub struct PaginatedQueryResult {
+    #[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
+    pub struct QueryResult {
         /// The result of the query execution.
-        pub result: QueryResult,
+        pub result: Value,
         /// pagination
         pub pagination: Pagination,
         /// sorting
         pub sorting: Sorting,
-        /// Total query amount (if applicable) else 0.
-        pub total: u64,
     }
 
     impl QueryBuilder {
@@ -1424,18 +1427,11 @@ pub mod http {
         }
     }
 
-    impl From<QueryResult> for Value {
-        fn from(source: QueryResult) -> Self {
-            source.0
-        }
-    }
-
     pub mod prelude {
         //! The prelude re-exports most commonly used traits, structs and macros from this crate.
 
         pub use super::{
-            PaginatedQueryResult, QueryBuilder, QueryResult, SignedQuery,
-            VersionedPaginatedQueryResult, VersionedQueryResult, VersionedSignedQuery,
+            QueryBuilder, QueryResult, SignedQuery, VersionedQueryResult, VersionedSignedQuery,
         };
     }
 }

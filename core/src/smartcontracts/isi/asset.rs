@@ -441,42 +441,49 @@ pub mod query {
     };
 
     use super::*;
+    use crate::smartcontracts::query::Lazy;
 
     impl ValidQuery for FindAllAssets {
         #[metrics(+"find_all_assets")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            Ok(wsv
-                .domains()
-                .values()
-                .map(|domain| {
-                    domain
-                        .accounts
-                        .values()
-                        .map(|account| account.assets.values())
-                        .flatten()
-                })
-                .flatten()
-                .cloned()
-                .collect())
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+            Ok(Box::new(
+                wsv.domains()
+                    .values()
+                    .flat_map(|domain| {
+                        domain
+                            .accounts
+                            .values()
+                            .flat_map(|account| account.assets.values())
+                    })
+                    .cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindAllAssetsDefinitions {
         #[metrics(+"find_all_asset_definitions")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let mut vec = Vec::new();
-            for domain in wsv.domains().values() {
-                for asset_definition in domain.asset_definitions.values() {
-                    vec.push(asset_definition.clone())
-                }
-            }
-            Ok(vec)
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+            Ok(Box::new(
+                wsv.domains()
+                    .values()
+                    .flat_map(|domain| domain.asset_definitions.values())
+                    .cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindAssetById {
         #[metrics(+"find_asset_by_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get asset id")
@@ -494,7 +501,10 @@ pub mod query {
 
     impl ValidQuery for FindAssetDefinitionById {
         #[metrics(+"find_asset_defintion_by_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get asset definition id")
@@ -508,81 +518,108 @@ pub mod query {
 
     impl ValidQuery for FindAssetsByName {
         #[metrics(+"find_assets_by_name")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let name = wsv
                 .evaluate(&self.name)
                 .wrap_err("Failed to get asset name")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%name);
-            let mut vec = Vec::new();
-            for domain in wsv.domains().values() {
-                for account in domain.accounts.values() {
-                    for asset in account.assets.values() {
-                        if asset.id().definition_id.name == name {
-                            vec.push(asset.clone())
-                        }
-                    }
-                }
-            }
-            Ok(vec)
+            Ok(Box::new(
+                wsv.domains()
+                    .values()
+                    .flat_map(move |domain| {
+                        let name = name.clone();
+
+                        domain.accounts.values().flat_map(move |account| {
+                            let name = name.clone();
+
+                            account
+                                .assets
+                                .values()
+                                .filter(move |asset| asset.id().definition_id.name == name)
+                        })
+                    })
+                    .cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindAssetsByAccountId {
         #[metrics(+"find_assets_by_account_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.account_id)
                 .wrap_err("Failed to get account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
-            wsv.account_assets(&id).map_err(Into::into)
+            Ok(Box::new(wsv.account_assets(&id)?))
         }
     }
 
     impl ValidQuery for FindAssetsByAssetDefinitionId {
         #[metrics(+"find_assets_by_asset_definition_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.asset_definition_id)
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
-            let mut vec = Vec::new();
-            for domain in wsv.domains().values() {
-                for account in domain.accounts.values() {
-                    for asset in account.assets.values() {
-                        if asset.id().definition_id == id {
-                            vec.push(asset.clone())
-                        }
-                    }
-                }
-            }
-            Ok(vec)
+            Ok(Box::new(
+                wsv.domains()
+                    .values()
+                    .flat_map(move |domain| {
+                        let id = id.clone();
+
+                        domain.accounts.values().flat_map(move |account| {
+                            let id = id.clone();
+
+                            account
+                                .assets
+                                .values()
+                                .filter(move |asset| asset.id().definition_id == id)
+                        })
+                    })
+                    .cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindAssetsByDomainId {
         #[metrics(+"find_assets_by_domain_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.domain_id)
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
-            let mut vec = Vec::new();
-            for account in wsv.domain(&id)?.accounts.values() {
-                for asset in account.assets.values() {
-                    vec.push(asset.clone())
-                }
-            }
-            Ok(vec)
+            Ok(Box::new(
+                wsv.domain(&id)?
+                    .accounts
+                    .values()
+                    .flat_map(|account| account.assets.values())
+                    .cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindAssetsByDomainIdAndAssetDefinitionId {
         #[metrics(+"find_assets_by_domain_id_and_asset_definition_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let domain_id = wsv
                 .evaluate(&self.domain_id)
                 .wrap_err("Failed to get domain id")
@@ -597,23 +634,30 @@ pub mod query {
                 .get(&asset_definition_id)
                 .ok_or_else(|| FindError::AssetDefinition(asset_definition_id.clone()))?;
             iroha_logger::trace!(%domain_id, %asset_definition_id);
-            let mut assets = Vec::new();
-            for account in domain.accounts.values() {
-                for asset in account.assets.values() {
-                    if asset.id().account_id.domain_id == domain_id
-                        && asset.id().definition_id == asset_definition_id
-                    {
-                        assets.push(asset.clone())
-                    }
-                }
-            }
-            Ok(assets)
+            Ok(Box::new(
+                domain
+                    .accounts
+                    .values()
+                    .flat_map(move |account| {
+                        let domain_id = domain_id.clone();
+                        let asset_definition_id = asset_definition_id.clone();
+
+                        account.assets.values().filter(move |asset| {
+                            asset.id().account_id.domain_id == domain_id
+                                && asset.id().definition_id == asset_definition_id
+                        })
+                    })
+                    .cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindAssetQuantityById {
         #[metrics(+"find_asset_quantity_by_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get asset id")
@@ -637,7 +681,10 @@ pub mod query {
 
     impl ValidQuery for FindTotalAssetQuantityByAssetDefinitionId {
         #[metrics(+"find_total_asset_quantity_by_asset_definition_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get asset definition id")
@@ -650,7 +697,10 @@ pub mod query {
 
     impl ValidQuery for FindAssetKeyValueByIdAndKey {
         #[metrics(+"find_asset_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get asset id")
@@ -672,16 +722,20 @@ pub mod query {
                 .try_as_ref()
                 .map_err(eyre::Error::from)
                 .map_err(|e| Error::Conversion(e.to_string()))?;
-            Ok(store
+            store
                 .get(&key)
-                .ok_or_else(|| Error::Find(FindError::MetadataKey(key)))?
-                .clone())
+                .ok_or_else(|| Error::Find(FindError::MetadataKey(key)))
+                .cloned()
+                .map(Into::into)
         }
     }
 
     impl ValidQuery for IsAssetDefinitionOwner {
         #[metrics("is_asset_definition_owner")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let asset_definition_id = wsv
                 .evaluate(&self.asset_definition_id)
                 .wrap_err("Failed to get asset definition id")

@@ -15,6 +15,7 @@ use iroha_data_model::{
 };
 pub use isi::*;
 
+use self::query::{Lazy, LazyValue};
 use crate::wsv::WorldStateView;
 
 /// Trait implementations should provide actions to apply changes on [`WorldStateView`].
@@ -27,7 +28,10 @@ pub trait Execute {
 }
 
 /// This trait should be implemented for all Iroha Queries.
-pub trait ValidQuery: Query {
+pub trait ValidQuery: Query
+where
+    Self::Output: Lazy,
+{
     /// Execute query on the [`WorldStateView`].
     /// Should not mutate [`WorldStateView`]!
     ///
@@ -35,7 +39,10 @@ pub trait ValidQuery: Query {
     ///
     /// # Errors
     /// Concrete to each implementer
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFail>;
+    fn execute<'wsv>(
+        &self,
+        wsv: &'wsv WorldStateView,
+    ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, QueryExecutionFail>;
 }
 
 impl ExpressionEvaluator for WorldStateView {
@@ -65,7 +72,15 @@ impl<'a> Context<'a> {
 
 impl iroha_data_model::evaluate::Context for Context<'_> {
     fn query(&self, query: &QueryBox) -> Result<Value, ValidationFail> {
-        query.execute(self.wsv).map_err(Into::into)
+        query
+            .execute(self.wsv)
+            .map(|value| match value {
+                LazyValue::Value(value) => value,
+                // NOTE: This will only be executed from the validator/executor.
+                // Handing out references to the host system is a security risk
+                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
+            })
+            .map_err(Into::into)
     }
 
     fn get(&self, name: &Name) -> Option<&Value> {

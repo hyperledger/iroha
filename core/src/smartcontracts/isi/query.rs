@@ -11,6 +11,49 @@ use parity_scale_codec::{Decode, Encode};
 
 use crate::{prelude::ValidQuery, WorldStateView};
 
+/// Represents lazy evaluated query output
+pub trait Lazy {
+    /// Type of the lazy evaluated query output
+    type Lazy<'a>;
+}
+
+/// Lazily evaluated equivalent of [`Value`]
+pub enum LazyValue<'a> {
+    /// Concrete computed [`Value`]
+    Value(Value),
+    /// Iterator over a set of [`Value`]s
+    Iter(Box<dyn Iterator<Item = Value> + 'a>),
+}
+
+impl Lazy for Value {
+    type Lazy<'a> = LazyValue<'a>;
+}
+
+impl<T> Lazy for Vec<T> {
+    type Lazy<'a> = Box<dyn Iterator<Item = T> + 'a>;
+}
+
+macro_rules! impl_lazy {
+    ( $($ident:ty),+ $(,)? ) => { $(
+        impl Lazy for $ident {
+            type Lazy<'a> = Self;
+        } )+
+    };
+}
+impl_lazy! {
+    bool,
+    NumericValue,
+    iroha_data_model::role::Role,
+    iroha_data_model::asset::Asset,
+    iroha_data_model::asset::AssetDefinition,
+    iroha_data_model::account::Account,
+    iroha_data_model::domain::Domain,
+    iroha_data_model::block::BlockHeader,
+    iroha_data_model::query::MetadataValue,
+    iroha_data_model::query::TransactionQueryResult,
+    iroha_data_model::trigger::Trigger<iroha_data_model::events::FilterBox, iroha_data_model::trigger::OptimizedExecutable>,
+}
+
 /// Query Request statefully validated on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
 pub struct ValidQueryRequest(VersionedSignedQuery);
@@ -40,73 +83,93 @@ impl ValidQueryRequest {
         wsv.validator_view()
             .clone()
             .validate(wsv, query.authority(), query.query().clone())?;
-        Ok(ValidQueryRequest(query))
+        Ok(Self(query))
     }
 
     /// Execute contained query on the [`WorldStateView`].
     ///
     /// # Errors
     /// Forwards `self.query.execute` error.
-    #[inline]
-    pub fn execute(&self, wsv: &WorldStateView) -> Result<Value, Error> {
-        Ok(self.0.filter().filter(self.0.query().execute(wsv)?))
+    pub fn execute<'wsv>(&'wsv self, wsv: &'wsv WorldStateView) -> Result<LazyValue<'wsv>, Error> {
+        let value = self.0.query().execute(wsv)?;
+
+        Ok(if let LazyValue::Iter(iter) = value {
+            LazyValue::Iter(Box::new(iter.filter(|val| self.0.filter().applies(val))))
+        } else {
+            value
+        })
+
+        // We're not handling the LimitedMetadata case, because
+        // the predicate when applied to it is ambiguous. We could
+        // pattern match on that case, but we should assume that
+        // metadata (since it's limited) isn't going to be too
+        // difficult to filter client-side. I actually think that
+        // Metadata should be restricted in what types it can
+        // contain.
     }
 }
 
 impl ValidQuery for QueryBox {
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+    fn execute<'wsv>(
+        &self,
+        wsv: &'wsv WorldStateView,
+    ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
         iroha_logger::debug!(query=%self, "Executing");
 
         macro_rules! match_all {
-            ( $( $query:ident ),+ $(,)? ) => {
+            ( non_iter: {$( $non_iter_query:ident ),+ $(,)?} $( $query:ident, )+ ) => {
                 match self { $(
-                    QueryBox::$query(query) => query.execute(wsv).map(Into::into), )+
+                    QueryBox::$non_iter_query(query) => query.execute(wsv).map(Value::from).map(LazyValue::Value), )+ $(
+                    QueryBox::$query(query) => query.execute(wsv).map(|i| i.map(Value::from)).map(|iter| LazyValue::Iter(Box::new(iter))), )+
                 }
             };
         }
 
         match_all! {
+            non_iter: {
+                FindAccountById,
+                FindAssetById,
+                FindAssetDefinitionById,
+                FindAssetQuantityById,
+                FindTotalAssetQuantityByAssetDefinitionId,
+                IsAssetDefinitionOwner,
+                FindDomainById,
+                FindBlockHeaderByHash,
+                FindTransactionByHash,
+                DoesAccountHavePermissionToken,
+                FindTriggerById,
+                FindRoleByRoleId,
+                FindDomainKeyValueByIdAndKey,
+                FindAssetKeyValueByIdAndKey,
+                FindAccountKeyValueByIdAndKey,
+                FindAssetDefinitionKeyValueByIdAndKey,
+                FindTriggerKeyValueByIdAndKey,
+                FindPermissionTokenSchema,
+            }
+
             FindAllAccounts,
-            FindAccountById,
             FindAccountsByName,
             FindAccountsByDomainId,
             FindAccountsWithAsset,
             FindAllAssets,
             FindAllAssetsDefinitions,
-            FindAssetById,
-            FindAssetDefinitionById,
             FindAssetsByName,
             FindAssetsByAccountId,
             FindAssetsByAssetDefinitionId,
             FindAssetsByDomainId,
             FindAssetsByDomainIdAndAssetDefinitionId,
-            FindAssetQuantityById,
-            FindTotalAssetQuantityByAssetDefinitionId,
-            IsAssetDefinitionOwner,
             FindAllDomains,
-            FindDomainById,
-            FindDomainKeyValueByIdAndKey,
             FindAllPeers,
-            FindAssetKeyValueByIdAndKey,
-            FindAccountKeyValueByIdAndKey,
             FindAllBlocks,
             FindAllBlockHeaders,
-            FindBlockHeaderByHash,
             FindAllTransactions,
             FindTransactionsByAccountId,
-            FindTransactionByHash,
             FindPermissionTokensByAccountId,
-            FindPermissionTokenSchema,
-            DoesAccountHavePermissionToken,
-            FindAssetDefinitionKeyValueByIdAndKey,
             FindAllActiveTriggerIds,
-            FindTriggerById,
-            FindTriggerKeyValueByIdAndKey,
             FindTriggersByDomainId,
             FindAllRoles,
             FindAllRoleIds,
             FindRolesByAccountId,
-            FindRoleByRoleId,
             FindAllParameters,
         }
     }
@@ -277,8 +340,8 @@ mod tests {
         let bytes =
             FindAssetKeyValueByIdAndKey::new(asset_id, Name::from_str("Bytes")?).execute(&wsv)?;
         assert_eq!(
-            bytes,
-            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()])
+            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()]),
+            bytes.into(),
         );
         Ok(())
     }
@@ -291,8 +354,8 @@ mod tests {
         let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::from_str("Bytes")?)
             .execute(&wsv)?;
         assert_eq!(
-            bytes,
-            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()])
+            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()]),
+            bytes.into(),
         );
         Ok(())
     }
@@ -302,8 +365,7 @@ mod tests {
         let num_blocks = 100;
 
         let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-
-        let blocks = FindAllBlocks.execute(&wsv)?;
+        let blocks = FindAllBlocks.execute(&wsv)?.collect::<Vec<_>>();
 
         assert_eq!(blocks.len() as u64, num_blocks);
         assert!(blocks.windows(2).all(|wnd| wnd[0] >= wnd[1]));
@@ -316,8 +378,7 @@ mod tests {
         let num_blocks = 100;
 
         let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-
-        let block_headers = FindAllBlockHeaders.execute(&wsv)?;
+        let block_headers = FindAllBlockHeaders.execute(&wsv)?.collect::<Vec<_>>();
 
         assert_eq!(block_headers.len() as u64, num_blocks);
         assert!(block_headers.windows(2).all(|wnd| wnd[0] >= wnd[1]));
@@ -349,8 +410,7 @@ mod tests {
         let num_blocks = 100;
 
         let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-
-        let txs = FindAllTransactions.execute(&wsv)?;
+        let txs = FindAllTransactions.execute(&wsv)?.collect::<Vec<_>>();
 
         assert_eq!(txs.len() as u64, num_blocks * 2);
         assert_eq!(
@@ -449,8 +509,8 @@ mod tests {
         let key = Name::from_str("Bytes")?;
         let bytes = FindDomainKeyValueByIdAndKey::new(domain_id, key).execute(&wsv)?;
         assert_eq!(
-            bytes,
-            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()])
+            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()]),
+            bytes.into(),
         );
         Ok(())
     }
