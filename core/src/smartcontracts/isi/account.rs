@@ -470,53 +470,65 @@ pub mod query {
     };
 
     use super::*;
+    use crate::smartcontracts::query::Lazy;
 
     impl ValidQuery for FindRolesByAccountId {
         #[metrics(+"find_roles_by_account_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let account_id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to evaluate account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%account_id, roles=?wsv.world.roles);
-            let roles = wsv.map_account(&account_id, |account| {
-                account.roles.iter().cloned().collect::<Vec<_>>()
-            })?;
-            Ok(roles)
+            Ok(Box::new(
+                wsv.map_account(&account_id, |account| &account.roles)?
+                    .iter()
+                    .cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindPermissionTokensByAccountId {
         #[metrics(+"find_permission_tokens_by_account_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let account_id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to evaluate account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%account_id, accounts=?wsv.world.domains);
-            let tokens = wsv.map_account(&account_id, |account| {
-                wsv.account_permission_tokens(account)
-            })?;
-            Ok(tokens.into_iter().collect())
+            Ok(Box::new(
+                wsv.account_permission_tokens(&account_id)?.cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindAllAccounts {
         #[metrics(+"find_all_accounts")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            let mut vec = Vec::new();
-            for domain in wsv.domains().values() {
-                for account in domain.accounts.values() {
-                    vec.push(account.clone())
-                }
-            }
-            Ok(vec)
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+            Ok(Box::new(
+                wsv.domains()
+                    .values()
+                    .flat_map(|domain| domain.accounts.values())
+                    .cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindAccountById {
         #[metrics(+"find_account_by_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get id")
@@ -528,39 +540,53 @@ pub mod query {
 
     impl ValidQuery for FindAccountsByName {
         #[metrics(+"find_account_by_name")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let name = wsv
                 .evaluate(&self.name)
                 .wrap_err("Failed to get account name")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%name);
-            let mut vec = Vec::new();
-            for domain in wsv.domains().values() {
-                for account in domain.accounts.values() {
-                    if account.id().name == name {
-                        vec.push(account.clone())
-                    }
-                }
-            }
-            Ok(vec)
+            Ok(Box::new(
+                wsv.domains()
+                    .values()
+                    .flat_map(move |domain| {
+                        let name = name.clone();
+
+                        domain
+                            .accounts
+                            .values()
+                            .filter(move |account| account.id().name == name)
+                    })
+                    .cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindAccountsByDomainId {
         #[metrics(+"find_accounts_by_domain_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.domain_id)
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+
             iroha_logger::trace!(%id);
-            Ok(wsv.domain(&id)?.accounts.values().cloned().collect())
+            Ok(Box::new(wsv.domain(&id)?.accounts.values().cloned()))
         }
     }
 
     impl ValidQuery for FindAccountKeyValueByIdAndKey {
         #[metrics(+"find_account_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get account id")
@@ -572,34 +598,32 @@ pub mod query {
             iroha_logger::trace!(%id, %key);
             wsv.map_account(&id, |account| account.metadata.get(&key).map(Clone::clone))?
                 .ok_or_else(|| FindError::MetadataKey(key).into())
+                .map(Into::into)
         }
     }
 
     impl ValidQuery for FindAccountsWithAsset {
         #[metrics(+"find_accounts_with_asset")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let asset_definition_id = wsv
                 .evaluate(&self.asset_definition_id)
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%asset_definition_id);
 
-            let domain_id = &asset_definition_id.domain_id;
-
-            wsv.map_domain(domain_id, |domain| {
-                let found = domain
-                    .accounts
-                    .values()
-                    .filter(|account| {
+            Ok(Box::new(
+                wsv.map_domain(&asset_definition_id.domain_id.clone(), move |domain| {
+                    domain.accounts.values().filter(move |account| {
                         let asset_id =
                             AssetId::new(asset_definition_id.clone(), account.id().clone());
                         account.assets.get(&asset_id).is_some()
                     })
-                    .cloned()
-                    .collect();
-                Ok(found)
-            })
-            .map_err(Into::into)
+                })?
+                .cloned(),
+            ))
         }
     }
 }

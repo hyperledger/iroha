@@ -105,10 +105,10 @@ where
         // Separate-compilation friendly response handling
         fn _handle_query_response_base(
             resp: &Response<Vec<u8>>,
-        ) -> QueryHandlerResult<VersionedPaginatedQueryResult> {
+        ) -> QueryHandlerResult<VersionedQueryResult> {
             match resp.status() {
                 StatusCode::OK => {
-                    let res = VersionedPaginatedQueryResult::decode_all_versioned(resp.body());
+                    let res = VersionedQueryResult::decode_all_versioned(resp.body());
                     res.wrap_err(
                         "Failed to decode response from Iroha. \
                          You are likely using a version of the client library \
@@ -143,7 +143,7 @@ where
             }
         }
 
-        _handle_query_response_base(&resp).and_then(|VersionedPaginatedQueryResult::V1(result)| {
+        _handle_query_response_base(&resp).and_then(|VersionedQueryResult::V1(result)| {
             ClientQueryRequest::try_from(result).map_err(Into::into)
         })
     }
@@ -236,7 +236,7 @@ impl From<ResponseReport> for eyre::Report {
     }
 }
 
-/// More convenient version of [`iroha_data_model::prelude::PaginatedQueryResult`].
+/// More convenient version of [`iroha_data_model::prelude::QueryResult`].
 /// The only difference is that this struct has `output` field extracted from the result
 /// accordingly to the source query.
 #[derive(Clone, Debug)]
@@ -247,12 +247,10 @@ where
 {
     /// Query output
     pub output: R::Output,
-    /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
+    /// See [`iroha_data_model::prelude::QueryResult`]
     pub pagination: Pagination,
-    /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
+    /// See [`iroha_data_model::prelude::QueryResult`]
     pub sorting: Sorting,
-    /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
-    pub total: u64,
 }
 
 impl<R> ClientQueryRequest<R>
@@ -266,7 +264,7 @@ where
     }
 }
 
-impl<R> TryFrom<PaginatedQueryResult> for ClientQueryRequest<R>
+impl<R> TryFrom<QueryResult> for ClientQueryRequest<R>
 where
     R: Query + Debug,
     <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
@@ -274,14 +272,13 @@ where
     type Error = eyre::Report;
 
     fn try_from(
-        PaginatedQueryResult {
+        QueryResult {
             result,
             pagination,
             sorting,
-            total,
-        }: PaginatedQueryResult,
+        }: QueryResult,
     ) -> Result<Self> {
-        let output = R::Output::try_from(result.into())
+        let output = R::Output::try_from(result)
             .map_err(Into::into)
             .wrap_err("Unexpected type")?;
 
@@ -289,7 +286,6 @@ where
             output,
             pagination,
             sorting,
-            total,
         })
     }
 }
@@ -727,9 +723,9 @@ impl Client {
     pub fn prepare_query_request<R, B>(
         &self,
         request: R,
+        filter: PredicateBox,
         pagination: Pagination,
         sorting: Sorting,
-        filter: PredicateBox,
     ) -> Result<(B, QueryResponseHandler<R>)>
     where
         R: Query + Debug,
@@ -758,7 +754,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request_with_pagination_and_filter_and_sorting<R>(
+    pub fn request_with_filter_and_pagination_and_sorting<R>(
         &self,
         request: R,
         pagination: Pagination,
@@ -771,7 +767,7 @@ impl Client {
     {
         iroha_logger::trace!(?request, %pagination, ?sorting, ?filter);
         let (req, resp_handler) = self.prepare_query_request::<R, DefaultRequestBuilder>(
-            request, pagination, sorting, filter,
+            request, filter, pagination, sorting,
         )?;
         let response = req.build()?.send()?;
         resp_handler.handle(response)
@@ -791,7 +787,7 @@ impl Client {
         R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        self.request_with_pagination_and_filter_and_sorting(
+        self.request_with_filter_and_pagination_and_sorting(
             request,
             pagination,
             sorting,
@@ -803,7 +799,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request_with_pagination_and_filter<R>(
+    pub fn request_with_filter_and_pagination<R>(
         &self,
         request: R,
         pagination: Pagination,
@@ -813,7 +809,7 @@ impl Client {
         R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>, // Seems redundant
     {
-        self.request_with_pagination_and_filter_and_sorting(
+        self.request_with_filter_and_pagination_and_sorting(
             request,
             pagination,
             Sorting::default(),
@@ -825,7 +821,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request_with_sorting_and_filter<R>(
+    pub fn request_with_filter_and_sorting<R>(
         &self,
         request: R,
         sorting: Sorting,
@@ -835,7 +831,7 @@ impl Client {
         R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>, // Seems redundant
     {
-        self.request_with_pagination_and_filter_and_sorting(
+        self.request_with_filter_and_pagination_and_sorting(
             request,
             Pagination::default(),
             sorting,
@@ -859,7 +855,7 @@ impl Client {
         R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        self.request_with_pagination_and_filter(request, Pagination::default(), filter)
+        self.request_with_filter_and_pagination(request, Pagination::default(), filter)
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers with pagination.
@@ -878,7 +874,7 @@ impl Client {
         R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        self.request_with_pagination_and_filter(request, pagination, PredicateBox::default())
+        self.request_with_filter_and_pagination(request, pagination, PredicateBox::default())
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers with sorting.

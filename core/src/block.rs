@@ -153,7 +153,7 @@ impl BlockBuilder<'_> {
         for tx in self.transactions {
             match transaction_validator.validate(tx, height == 1, self.wsv) {
                 Ok(transaction) => txs.push(TransactionValue {
-                    tx: transaction,
+                    value: transaction,
                     error: None,
                 }),
                 Err((transaction, error)) => {
@@ -163,7 +163,7 @@ impl BlockBuilder<'_> {
                         "Transaction validation failed",
                     );
                     txs.push(TransactionValue {
-                        tx: transaction,
+                        value: transaction,
                         error: Some(error),
                     });
                 }
@@ -172,13 +172,13 @@ impl BlockBuilder<'_> {
         header.transactions_hash = txs
             .iter()
             .filter(|tx| tx.error.is_none())
-            .map(|tx| tx.tx.hash())
+            .map(|tx| tx.value.hash())
             .collect::<MerkleTree<_>>()
             .hash();
         header.rejected_transactions_hash = txs
             .iter()
             .filter(|tx| tx.error.is_some())
-            .map(|tx| tx.tx.hash())
+            .map(|tx| tx.value.hash())
             .collect::<MerkleTree<_>>()
             .hash();
         // TODO: Validate Event recommendations somehow?
@@ -387,7 +387,7 @@ impl Revalidate for PendingBlock {
     fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
         self.transactions
             .iter()
-            .any(|tx| wsv.has_transaction(tx.tx.hash()))
+            .any(|tx| wsv.has_transaction(tx.value.hash()))
     }
 }
 
@@ -490,7 +490,7 @@ impl Revalidate for VersionedCommittedBlock {
             VersionedCommittedBlock::V1(block) => block
                 .transactions
                 .iter()
-                .any(|tx| wsv.has_transaction(tx.tx.hash())),
+                .any(|tx| wsv.has_transaction(tx.value.hash())),
         }
     }
 }
@@ -505,7 +505,7 @@ fn revalidate_hashes(
     transactions
         .iter()
         .filter(|tx| tx.error.is_none())
-        .map(|tx| tx.tx.hash())
+        .map(|tx| tx.value.hash())
         .collect::<MerkleTree<_>>()
         .hash()
         .eq(&transactions_hash)
@@ -515,7 +515,7 @@ fn revalidate_hashes(
     transactions
         .iter()
         .filter(|tx| tx.error.is_some())
-        .map(|tx| tx.tx.hash())
+        .map(|tx| tx.value.hash())
         .collect::<MerkleTree<_>>()
         .hash()
         .eq(&rejected_transactions_hash)
@@ -536,10 +536,10 @@ fn revalidate_transactions(
         if tx.error.is_some() {
             let _rejected_tx = if is_genesis {
                 Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(
-                    tx.tx,
+                    tx.value,
                 )))
             } else {
-                AcceptedTransaction::accept(tx.tx, &transaction_validator.transaction_limits)
+                AcceptedTransaction::accept(tx.value, &transaction_validator.transaction_limits)
             }
             .map_err(TransactionRevalidationError::Accept)
             .and_then(|tx| {
@@ -551,10 +551,10 @@ fn revalidate_transactions(
         } else {
             let tx = if is_genesis {
                 Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(
-                    tx.tx,
+                    tx.value,
                 )))
             } else {
-                AcceptedTransaction::accept(tx.tx, &transaction_validator.transaction_limits)
+                AcceptedTransaction::accept(tx.value, &transaction_validator.transaction_limits)
             }
             .map_err(TransactionRevalidationError::Accept)?;
 

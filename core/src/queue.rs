@@ -170,12 +170,17 @@ impl Queue {
     }
 
     /// Returns all pending transactions.
-    pub fn all_transactions(&self, wsv: &WorldStateView) -> Vec<AcceptedTransaction> {
-        self.txs
-            .iter()
-            .filter(|e| self.is_pending(e.value(), wsv))
-            .map(|e| e.value().clone())
-            .collect()
+    pub fn all_transactions<'q: 'wsv, 'wsv>(
+        &'q self,
+        wsv: &'wsv WorldStateView,
+    ) -> impl Iterator<Item = AcceptedTransaction> + 'wsv {
+        self.txs.iter().filter_map(|tx| {
+            if self.is_pending(tx.value(), wsv) {
+                return Some(tx.value().clone());
+            }
+
+            None
+        })
     }
 
     /// Returns `n` randomly selected transaction from the queue.

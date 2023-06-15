@@ -10,7 +10,6 @@
 use std::{
     borrow::Borrow,
     collections::{BTreeSet, HashMap},
-    convert::Infallible,
     fmt::Debug,
     sync::Arc,
     time::Duration,
@@ -158,32 +157,51 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if there is no domain or account
-    pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, QueryExecutionFail> {
-        self.map_account(id, |account| account.assets.values().cloned().collect())
+    pub fn account_assets(
+        &self,
+        id: &AccountId,
+    ) -> Result<impl ExactSizeIterator<Item = Asset> + '_, QueryExecutionFail> {
+        self.map_account(id, |account| account.assets.values().cloned())
     }
 
     /// Return a set of all permission tokens granted to this account.
-    pub fn account_permission_tokens(&self, account: &Account) -> BTreeSet<PermissionToken> {
-        let mut tokens: BTreeSet<PermissionToken> =
-            self.account_inherent_permission_tokens(account).collect();
+    ///
+    /// # Errors
+    ///
+    /// - if `account_id` is not found in `self`
+    pub fn account_permission_tokens(
+        &self,
+        account_id: &AccountId,
+    ) -> Result<impl ExactSizeIterator<Item = &PermissionToken>, FindError> {
+        let account = self.account(account_id)?;
+
+        let mut tokens = self
+            .account_inherent_permission_tokens(account_id)?
+            .collect::<BTreeSet<_>>();
+
         for role_id in &account.roles {
             if let Some(role) = self.world.roles.get(role_id) {
-                tokens.append(&mut role.permissions.clone());
+                tokens.extend(role.permissions.iter());
             }
         }
-        tokens
+
+        Ok(tokens.into_iter())
     }
 
     /// Return a set of permission tokens granted to this account not as part of any role.
+    ///
+    /// # Errors
+    ///
+    /// - `account_id` is not found in `self.world`.
     pub fn account_inherent_permission_tokens(
         &self,
-        account: &Account,
-    ) -> impl ExactSizeIterator<Item = PermissionToken> {
+        account_id: &AccountId,
+    ) -> Result<impl ExactSizeIterator<Item = &PermissionToken>, FindError> {
         self.world
             .account_permission_tokens
-            .get(&account.id)
-            .map_or_else(Default::default, Clone::clone)
-            .into_iter()
+            .get(account_id)
+            .ok_or_else(|| FindError::Account(account_id.clone()))
+            .map(std::collections::BTreeSet::iter)
     }
 
     /// Return `true` if [`Account`] contains a permission token not associated with any role.
@@ -331,6 +349,7 @@ impl WorldStateView {
     /// you likely have data corruption.
     /// - If trigger execution fails
     /// - If timestamp conversion to `u64` fails
+    #[cfg(debug_assertions)]
     #[iroha_logger::log(skip_all, fields(block_height))]
     pub fn apply(&mut self, block: &VersionedCommittedBlock) -> Result<()> {
         self.execute_transactions(block.as_v1())?;
@@ -356,7 +375,7 @@ impl WorldStateView {
         block
             .transactions
             .iter()
-            .map(|tx| &tx.tx)
+            .map(|tx| &tx.value)
             .map(VersionedSignedTransaction::hash)
             .for_each(|tx_hash| {
                 self.transactions.insert(tx_hash, block_height);
@@ -465,7 +484,7 @@ impl WorldStateView {
     /// - No such [`Asset`]
     /// - The [`Account`] with which the [`Asset`] is associated doesn't exist.
     /// - The [`Domain`] with which the [`Account`] is associated doesn't exist.
-    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, QueryExecutionFail> {
+    pub fn asset(&self, id: &AssetId) -> Result<Asset, QueryExecutionFail> {
         self.map_account(
             &id.account_id,
             |account| -> Result<Asset, QueryExecutionFail> {
@@ -485,7 +504,7 @@ impl WorldStateView {
     #[allow(clippy::missing_panics_doc)]
     pub fn asset_or_insert(
         &mut self,
-        id: &<Asset as Identifiable>::Id,
+        id: &AssetId,
         default_asset_value: impl Into<AssetValue>,
     ) -> Result<Asset, Error> {
         if let Ok(asset) = self.asset(id) {
@@ -562,7 +581,7 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if there is no domain
-    pub fn domain(&self, id: &<Domain as Identifiable>::Id) -> Result<&Domain, FindError> {
+    pub fn domain<'wsv>(&'wsv self, id: &DomainId) -> Result<&'wsv Domain, FindError> {
         let domain = self
             .world
             .domains
@@ -575,10 +594,7 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if there is no domain
-    pub fn domain_mut(
-        &mut self,
-        id: &<Domain as Identifiable>::Id,
-    ) -> Result<&mut Domain, FindError> {
+    pub fn domain_mut(&mut self, id: &DomainId) -> Result<&mut Domain, FindError> {
         let domain = self
             .world
             .domains
@@ -598,16 +614,13 @@ impl WorldStateView {
     /// # Errors
     /// Fails if there is no domain
     #[allow(clippy::panic_in_result_fn)]
-    pub fn map_domain<T>(
-        &self,
-        id: &<Domain as Identifiable>::Id,
-        f: impl FnOnce(&Domain) -> Result<T, Infallible>,
+    pub fn map_domain<'wsv, T>(
+        &'wsv self,
+        id: &DomainId,
+        f: impl FnOnce(&'wsv Domain) -> T,
     ) -> Result<T, FindError> {
         let domain = self.domain(id)?;
-        let value = f(domain).map_or_else(
-            |_infallible| unreachable!("Returning `Infallible` should not be possible"),
-            |value| value,
-        );
+        let value = f(domain);
         Ok(value)
     }
 
@@ -691,10 +704,10 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if there is no domain or account
-    pub fn map_account<T>(
-        &self,
+    pub fn map_account<'wsv, T>(
+        &'wsv self,
         id: &AccountId,
-        f: impl FnOnce(&Account) -> T,
+        f: impl FnOnce(&'wsv Account) -> T,
     ) -> Result<T, QueryExecutionFail> {
         let domain = self.domain(&id.domain_id)?;
         let account = domain
@@ -702,6 +715,15 @@ impl WorldStateView {
             .get(id)
             .ok_or(QueryExecutionFail::Unauthorized)?;
         Ok(f(account))
+    }
+
+    fn account(&self, id: &AccountId) -> Result<&Account, FindError> {
+        self.domain(&id.domain_id).and_then(|domain| {
+            domain
+                .accounts
+                .get(id)
+                .ok_or_else(|| FindError::Account(id.clone()))
+        })
     }
 
     /// Get mutable reference to [`Account`]
@@ -746,25 +768,14 @@ impl WorldStateView {
         })
     }
 
-    /// Get all `PeerId`s without an ability to modify them.
-    pub fn peers(&self) -> Vec<Peer> {
-        let mut vec = self
-            .world
-            .trusted_peers_ids
-            .iter()
-            .map(|peer| Peer::new((*peer).clone()))
-            .collect::<Vec<Peer>>();
-        vec.sort();
-        vec
+    /// Get an immutable iterator over the [`PeerId`]s.
+    pub fn peers(&self) -> impl ExactSizeIterator<Item = &PeerId> {
+        self.world.trusted_peers_ids.iter()
     }
 
     /// Get all `Parameter`s registered in the world.
-    pub fn parameters(&self) -> Vec<Parameter> {
-        self.world
-            .parameters
-            .iter()
-            .cloned()
-            .collect::<Vec<Parameter>>()
+    pub fn parameters(&self) -> impl ExactSizeIterator<Item = &Parameter> {
+        self.world.parameters.iter()
     }
 
     /// Query parameter and convert it to a proper type
@@ -790,7 +801,7 @@ impl WorldStateView {
     /// - Asset definition entry not found
     pub fn asset_definition(
         &self,
-        asset_id: &<AssetDefinition as Identifiable>::Id,
+        asset_id: &AssetDefinitionId,
     ) -> Result<AssetDefinition, FindError> {
         self.domain(&asset_id.domain_id)?
             .asset_definitions
@@ -805,7 +816,7 @@ impl WorldStateView {
     /// - Asset definition not found
     pub fn asset_total_amount(
         &self,
-        definition_id: &<AssetDefinition as Identifiable>::Id,
+        definition_id: &AssetDefinitionId,
     ) -> Result<NumericValue, FindError> {
         self.domain(&definition_id.domain_id)?
             .asset_total_quantities
@@ -821,7 +832,7 @@ impl WorldStateView {
     /// - Overflow
     pub fn increase_asset_total_amount<I>(
         &mut self,
-        definition_id: &<AssetDefinition as Identifiable>::Id,
+        definition_id: &AssetDefinitionId,
         increment: I,
     ) -> Result<(), Error>
     where
@@ -860,7 +871,7 @@ impl WorldStateView {
     /// - Not enough quantity
     pub fn decrease_asset_total_amount<I>(
         &mut self,
-        definition_id: &<AssetDefinition as Identifiable>::Id,
+        definition_id: &AssetDefinitionId,
         decrement: I,
     ) -> Result<(), Error>
     where
@@ -892,72 +903,13 @@ impl WorldStateView {
         Ok(())
     }
 
-    /// Get all transactions
-    pub fn transaction_values(&self) -> Vec<TransactionQueryResult> {
-        let mut txs = self
-            .all_blocks()
-            .flat_map(|block| {
-                let block = block.as_v1();
-                block
-                    .transactions
-                    .iter()
-                    .cloned()
-                    .map(|versioned_tx| TransactionQueryResult {
-                        transaction: versioned_tx,
-                        block_hash: block.hash(),
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        txs.sort();
-        txs
-    }
-
     /// Find a [`VersionedSignedTransaction`] by hash.
-    pub fn transaction_value_by_hash(
+    pub fn block_with_tx(
         &self,
         hash: &HashOf<VersionedSignedTransaction>,
-    ) -> Option<TransactionQueryResult> {
+    ) -> Option<Arc<VersionedCommittedBlock>> {
         let height = *self.transactions.get(hash)?;
-        let block = self.kura.get_block_by_height(height)?;
-        let block_hash = block.as_v1().hash();
-        block
-            .as_v1()
-            .transactions
-            .iter()
-            .find(|e| e.tx.hash() == *hash)
-            .cloned()
-            .map(|tx| TransactionQueryResult {
-                transaction: tx,
-                block_hash,
-            })
-    }
-
-    /// Get committed and rejected transaction of the account.
-    pub fn transactions_values_by_account_id(
-        &self,
-        account_id: &AccountId,
-    ) -> Vec<TransactionQueryResult> {
-        let mut transactions = self
-            .all_blocks()
-            .flat_map(|block_entry| {
-                let block = block_entry.as_v1();
-                let block_hash = block.hash();
-
-                block
-                    .transactions
-                    .iter()
-                    .filter(|tx| &tx.payload().authority == account_id)
-                    .cloned()
-                    .map(|tx| TransactionQueryResult {
-                        transaction: tx,
-                        block_hash,
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        transactions.sort();
-        transactions
+        self.kura.get_block_by_height(height)
     }
 
     /// Get an immutable view of the `World`.

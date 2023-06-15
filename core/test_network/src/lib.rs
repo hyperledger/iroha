@@ -20,7 +20,7 @@ use iroha_config::{
     sumeragi::Configuration as SumeragiConfiguration,
     torii::Configuration as ToriiConfiguration,
 };
-use iroha_core::prelude::*;
+use iroha_core::{prelude::*, smartcontracts::query::Lazy};
 use iroha_data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
@@ -707,7 +707,7 @@ pub trait TestClient: Sized {
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Clone + Debug;
+        R::Output: Lazy + Clone + Debug;
 
     /// Submits instructions with polling
     ///
@@ -722,7 +722,7 @@ pub trait TestClient: Sized {
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Clone + Debug;
+        R::Output: Lazy + Clone + Debug;
 
     /// Polls request till predicate `f` is satisfied, with default period and max attempts.
     ///
@@ -736,7 +736,7 @@ pub trait TestClient: Sized {
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Clone + Debug;
+        R::Output: Lazy + Clone + Debug;
 
     /// Polls request till predicate `f` is satisfied with `period` and `max_attempts` supplied.
     ///
@@ -752,7 +752,7 @@ pub trait TestClient: Sized {
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Clone + Debug;
+        R::Output: Lazy + Clone + Debug;
 }
 
 impl TestRuntime for Runtime {
@@ -847,7 +847,7 @@ impl TestClient for Client {
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Clone + Debug,
+        R::Output: Lazy + Clone + Debug,
     {
         self.submit(instruction)
             .expect("Failed to submit instruction.");
@@ -863,7 +863,7 @@ impl TestClient for Client {
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Clone + Debug,
+        R::Output: Lazy + Clone + Debug,
     {
         self.submit_all(instructions)
             .expect("Failed to submit instruction.");
@@ -880,7 +880,7 @@ impl TestClient for Client {
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Clone + Debug,
+        R::Output: Lazy + Clone + Debug,
     {
         let mut query_result = None;
         for _ in 0..max_attempts {
@@ -901,7 +901,7 @@ impl TestClient for Client {
     where
         R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Clone + Debug,
+        R::Output: Lazy + Clone + Debug,
     {
         self.poll_request_with_period(request, Configuration::pipeline_time() / 2, 10, f)
     }

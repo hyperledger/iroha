@@ -316,17 +316,17 @@ impl Kura {
     }
 
     /// Put a block in kura's in memory block store.
-    pub fn store_block(&self, block: impl Into<Arc<VersionedCommittedBlock>>) {
-        let block = block.into();
-        self.block_data.lock().push((block.hash(), Some(block)));
+    pub fn store_block(&self, block: VersionedCommittedBlock) {
+        self.block_data
+            .lock()
+            .push((block.hash(), Some(Arc::new(block))));
     }
 
     /// Replace the block in `Kura`'s in memory block store.
-    pub fn replace_top_block(&self, block: impl Into<Arc<VersionedCommittedBlock>>) {
-        let block = block.into();
+    pub fn replace_top_block(&self, block: VersionedCommittedBlock) {
         let mut data = self.block_data.lock();
         data.pop();
-        data.push((block.hash(), Some(block)));
+        data.push((block.hash(), Some(Arc::new(block))));
     }
 }
 

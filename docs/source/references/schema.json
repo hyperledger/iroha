@@ -2119,7 +2119,6 @@
     ]
   },
   "Hash": "Array<u8, 32>",
-  "HashOf<CommittedBlock>": "Hash",
   "HashOf<MerkleTree<VersionedSignedTransaction>>": "Hash",
   "HashOf<VersionedCommittedBlock>": "Hash",
   "HashOf<VersionedSignedTransaction>": "Hash",
@@ -3040,30 +3039,6 @@
   "OriginFilter<PeerEvent>": "PeerId",
   "OriginFilter<RoleEvent>": "RoleId",
   "OriginFilter<TriggerEvent>": "TriggerId",
-  "PaginatedQueryResult": {
-    "Struct": [
-      {
-        "name": "result",
-        "type": "QueryResult"
-      },
-      {
-        "name": "filter",
-        "type": "GenericPredicateBox<ValuePredicate>"
-      },
-      {
-        "name": "pagination",
-        "type": "Pagination"
-      },
-      {
-        "name": "sorting",
-        "type": "Sorting"
-      },
-      {
-        "name": "total",
-        "type": "u64"
-      }
-    ]
-  },
   "Pagination": {
     "Struct": [
       {
@@ -3579,7 +3554,22 @@
       }
     ]
   },
-  "QueryResult": "Value",
+  "QueryResult": {
+    "Struct": [
+      {
+        "name": "result",
+        "type": "Value"
+      },
+      {
+        "name": "pagination",
+        "type": "Pagination"
+      },
+      {
+        "name": "sorting",
+        "type": "Sorting"
+      }
+    ]
+  },
   "RaiseTo": {
     "Struct": [
       {
@@ -4166,7 +4156,7 @@
       },
       {
         "name": "block_hash",
-        "type": "HashOf<CommittedBlock>"
+        "type": "HashOf<VersionedCommittedBlock>"
       }
     ]
   },
@@ -4695,12 +4685,12 @@
       }
     ]
   },
-  "VersionedPaginatedQueryResult": {
+  "VersionedQueryResult": {
     "Enum": [
       {
         "tag": "V1",
         "discriminant": 1,
-        "type": "PaginatedQueryResult"
+        "type": "QueryResult"
       }
     ]
   },

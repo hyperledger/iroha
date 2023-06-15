@@ -201,14 +201,18 @@ impl Set {
 
     /// Get all contained trigger ids without a particular order
     #[inline]
-    pub fn ids(&self) -> Vec<TriggerId> {
-        self.ids.keys().cloned().collect()
+    pub fn ids(&self) -> impl ExactSizeIterator<Item = &TriggerId> {
+        self.ids.keys()
     }
 
     /// Apply `f` to triggers that belong to the given [`DomainId`]
     ///
     /// Return an empty list if [`Set`] doesn't contain any triggers belonging to [`DomainId`].
-    pub fn inspect_by_domain_id<F, R>(&self, domain_id: &DomainId, f: F) -> Vec<R>
+    pub fn inspect_by_domain_id<F, R>(
+        &self,
+        domain_id: &DomainId,
+        f: F,
+    ) -> impl ExactSizeIterator<Item = R>
     where
         F: Fn(&TriggerId, &dyn ActionTrait<Executable = LoadedExecutable>) -> R,
     {
@@ -250,7 +254,8 @@ impl Set {
 
                 Some(result)
             })
-            .collect()
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     /// Apply `f` to the trigger identified by `id`.
