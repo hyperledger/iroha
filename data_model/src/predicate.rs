@@ -211,25 +211,6 @@ where
 /// Predicate combinator for predicates operating on `Value`
 pub type PredicateBox = GenericPredicateBox<value::ValuePredicate>;
 
-impl PredicateBox {
-    #[must_use]
-    #[inline]
-    /// Filter [`Value`] using `self`.
-    pub fn filter(&self, value: Value) -> Value {
-        match value {
-            Value::Vec(v) => Value::Vec(v.into_iter().filter(|val| self.applies(val)).collect()),
-            other => other,
-            // We're not handling the LimitedMetadata case, because
-            // the predicate when applied to it is ambiguous. We could
-            // pattern match on that case, but we should assume that
-            // metadata (since it's limited) isn't going to be too
-            // difficult to filter client-side. I actually think that
-            // Metadata should be restricted in what types it can
-            // contain.
-        }
-    }
-}
-
 impl Default for PredicateBox {
     fn default() -> Self {
         PredicateBox::Raw(value::ValuePredicate::Pass)

@@ -25,6 +25,7 @@ use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
 
+use super::query::LazyValue;
 use crate::{
     smartcontracts::{Execute, ValidQuery as _},
     wsv::WorldStateView,
@@ -680,7 +681,14 @@ impl<'wrld, S: state::GetCommon<'wrld>, R: DefaultExecute> ExecuteOperations<'wr
             .clone() // Cloning validator is a cheap operation
             .validate(wsv, &common_state.authority, query.clone())?;
 
-        query.execute(wsv).map_err(Into::into)
+        query
+            .execute(wsv)
+            .map_err(Into::into)
+            .map(|lazy_value| match lazy_value {
+                LazyValue::Value(value) => value,
+                // NOTE: Returning references to the host system is a security risk
+                LazyValue::Iter(iter) => Value::Vec(iter.collect::<Vec<_>>()),
+            })
     }
 
     /// Default implementation of [`execute_instruction()`]
@@ -856,7 +864,14 @@ impl<'wrld> ExecuteOperations<'wrld, state::Validator<'wrld>> for Runtime<state:
     ) -> Result<Value, ValidationFail> {
         iroha_logger::debug!(%query, "Executing as validator");
 
-        query.execute(state.common_mut().wsv).map_err(Into::into)
+        query
+            .execute(state.common_mut().wsv)
+            .map_err(Into::into)
+            .map(|lazy_value| match lazy_value {
+                LazyValue::Value(value) => value,
+                // NOTE: Returning references to the host system is a security risk
+                LazyValue::Iter(iter) => Value::Vec(iter.collect::<Vec<_>>()),
+            })
     }
 
     #[codec::wrap]
@@ -888,7 +903,7 @@ impl Runtime<state::ValidatorPermissionTokens> {
     /// - if failed to instantiate provided `module`
     /// - if failed to get export function for `permission_tokens()`
     /// - if failed to call export function
-    /// - if failed to decode `Vec<PermissionTokenSchema>`
+    /// - if failed to decode `PermissionTokenSchema`
     pub fn execute_validator_permission_token_schema(
         &self,
         module: &wasmtime::Module,

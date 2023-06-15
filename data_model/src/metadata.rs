@@ -32,10 +32,10 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Deserialize,
-        Serialize,
         Decode,
         Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     #[display(fmt = "{max_len},{max_entry_byte_size}_ML")]
@@ -82,10 +82,10 @@ pub mod model {
     Eq,
     PartialOrd,
     Ord,
-    Deserialize,
-    Serialize,
     Decode,
     Encode,
+    Deserialize,
+    Serialize,
     IntoSchema,
 )]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
@@ -112,10 +112,10 @@ pub enum MetadataError {
     Eq,
     PartialOrd,
     Ord,
-    Deserialize,
-    Serialize,
     Decode,
     Encode,
+    Deserialize,
+    Serialize,
     IntoSchema,
 )]
 #[display(fmt = "Limits are {limits}, while the actual value is {actual}")]

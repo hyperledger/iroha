@@ -291,17 +291,24 @@ pub mod query {
     use iroha_data_model::query::error::QueryExecutionFail as Error;
 
     use super::*;
+    use crate::smartcontracts::query::Lazy;
 
     impl ValidQuery for FindAllDomains {
         #[metrics(+"find_all_domains")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            Ok(wsv.domains().values().cloned().collect())
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+            Ok(Box::new(wsv.domains().values().cloned()))
         }
     }
 
     impl ValidQuery for FindDomainById {
         #[metrics(+"find_domain_by_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get domain id")
@@ -313,7 +320,10 @@ pub mod query {
 
     impl ValidQuery for FindDomainKeyValueByIdAndKey {
         #[metrics(+"find_domain_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get domain id")
@@ -323,16 +333,18 @@ pub mod query {
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id, %key);
-            wsv.map_domain(&id, |domain| {
-                Ok(domain.metadata.get(&key).map(Clone::clone))
-            })?
-            .ok_or_else(|| FindError::MetadataKey(key).into())
+            wsv.map_domain(&id, |domain| domain.metadata.get(&key).map(Clone::clone))?
+                .ok_or_else(|| FindError::MetadataKey(key).into())
+                .map(Into::into)
         }
     }
 
     impl ValidQuery for FindAssetDefinitionKeyValueByIdAndKey {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get asset definition id")
@@ -346,8 +358,9 @@ pub mod query {
                 .asset_definition(&id)?
                 .metadata
                 .get(&key)
-                .ok_or(FindError::MetadataKey(key))?
-                .clone())
+                .ok_or(FindError::MetadataKey(key))
+                .cloned()
+                .map(Into::into)?)
         }
     }
 }

@@ -1,7 +1,6 @@
 //! This module contains trait implementations related to block queries
 use eyre::{Result, WrapErr};
 use iroha_data_model::{
-    block::VersionedCommittedBlock,
     evaluate::ExpressionEvaluator,
     query::{
         block::FindBlockHeaderByHash,
@@ -11,34 +10,40 @@ use iroha_data_model::{
 use iroha_telemetry::metrics;
 
 use super::*;
+use crate::smartcontracts::query::Lazy;
 
 impl ValidQuery for FindAllBlocks {
     #[metrics(+"find_all_blocks")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFail> {
-        let blocks = wsv
-            .all_blocks()
-            .map(|block| VersionedCommittedBlock::clone(&block))
-            .rev()
-            .collect();
-        Ok(blocks)
+    fn execute<'wsv>(
+        &self,
+        wsv: &'wsv WorldStateView,
+    ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, QueryExecutionFail> {
+        Ok(Box::new(
+            wsv.all_blocks().rev().map(|block| Clone::clone(&*block)),
+        ))
     }
 }
 
 impl ValidQuery for FindAllBlockHeaders {
     #[metrics(+"find_all_block_headers")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFail> {
-        let block_headers = wsv
-            .all_blocks()
-            .rev()
-            .map(|block| block.as_v1().header.clone())
-            .collect();
-        Ok(block_headers)
+    fn execute<'wsv>(
+        &self,
+        wsv: &'wsv WorldStateView,
+    ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, QueryExecutionFail> {
+        Ok(Box::new(
+            wsv.all_blocks()
+                .rev()
+                .map(|block| block.as_v1().header.clone()),
+        ))
     }
 }
 
 impl ValidQuery for FindBlockHeaderByHash {
     #[metrics(+"find_block_header")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, QueryExecutionFail> {
+    fn execute<'wsv>(
+        &self,
+        wsv: &'wsv WorldStateView,
+    ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, QueryExecutionFail> {
         let hash = wsv
             .evaluate(&self.hash)
             .wrap_err("Failed to evaluate hash")

@@ -157,7 +157,7 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .request_with_sorting_and_filter(
+        .request_with_filter_and_sorting(
             client::asset::all_definitions(),
             Sorting::by_metadata_key(sort_by_metadata_key.clone()),
             PredicateBox::new(value::ValuePredicate::Identifiable(
@@ -208,7 +208,7 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .request_with_sorting_and_filter(
+        .request_with_filter_and_sorting(
             client::account::all(),
             Sorting::by_metadata_key(sort_by_metadata_key.clone()),
             PredicateBox::new(value::ValuePredicate::Identifiable(
@@ -258,7 +258,7 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .request_with_pagination_and_filter_and_sorting(
+        .request_with_filter_and_pagination_and_sorting(
             client::domain::all(),
             Pagination::default(),
             Sorting::by_metadata_key(sort_by_metadata_key.clone()),
@@ -310,7 +310,7 @@ fn correct_sorting_of_entities() {
         string::StringPredicate::starts_with("neverland_"),
     ));
     let res = test_client
-        .request_with_pagination_and_filter_and_sorting(
+        .request_with_filter_and_pagination_and_sorting(
             client::domain::all(),
             Pagination::default(),
             Sorting::by_metadata_key(sort_by_metadata_key),
@@ -370,7 +370,7 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
         .wrap_err("Failed to register accounts")?;
 
     let res = test_client
-        .request_with_sorting_and_filter(
+        .request_with_filter_and_sorting(
             client::account::all(),
             Sorting::by_metadata_key(sort_by_metadata_key),
             PredicateBox::new(value::ValuePredicate::Identifiable(
