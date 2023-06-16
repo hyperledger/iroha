@@ -8,8 +8,8 @@ use crate::{data_model::prelude::*, prelude::*};
 pub trait Token:
     TryFrom<PermissionToken, Error = PermissionTokenConversionError> + ValidateGrantRevoke
 {
-    /// Get definition id of this token
-    fn definition_id() -> PermissionTokenId;
+    /// Get definition of this token
+    fn definition() -> PermissionTokenDefinition;
 
     /// Check if token is owned by the account using evaluation on host.
     ///

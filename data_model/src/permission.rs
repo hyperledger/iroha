@@ -41,7 +41,7 @@ pub trait ValueTrait: Into<Value> {
 pub mod model {
     use super::*;
 
-    /// Unique id of [`Definition`]
+    /// Unique id of [`PermissionTokenDefinition`]
     #[derive(
         derive_more::DebugCustom,
         Display,
@@ -118,7 +118,7 @@ impl core::fmt::Debug for PermissionTokenDefinition {
 }
 
 impl PermissionTokenDefinition {
-    /// Construct new [`Definition`]
+    /// Construct new [`PermissionTokenDefinition`]
     #[inline]
     pub const fn new(id: PermissionTokenId) -> Self {
         Self {
@@ -127,7 +127,13 @@ impl PermissionTokenDefinition {
         }
     }
 
-    /// Add parameters to the [`Definition`] replacing any parameters previously defined
+    /// Get *id* of the [`PermissionTokenDefinition`]
+    #[inline]
+    pub const fn id(&self) -> &PermissionTokenId {
+        &self.id
+    }
+
+    /// Add parameters to the [`PermissionTokenDefinition`] replacing any parameters previously defined
     #[inline]
     #[must_use]
     pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, ValueKind)>) -> Self {
@@ -135,7 +141,7 @@ impl PermissionTokenDefinition {
         self
     }
 
-    /// Iterate over parameters of the [`Definition`]
+    /// Iterate over parameters of the [`PermissionTokenDefinition`]
     ///
     /// Values returned from the iterator are guaranteed to be in the alphabetical order.
     #[inline]

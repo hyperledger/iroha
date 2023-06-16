@@ -1,5 +1,7 @@
 //! Module with [`derive_token`](crate::derive_token) macro implementation
 
+#![allow(clippy::arithmetic_side_effects)] // Triggers on quote! side
+
 use super::*;
 
 /// [`derive_token`](crate::derive_token()) macro implementation
@@ -47,23 +49,15 @@ fn impl_token(
     ident: &syn::Ident,
     fields: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
 ) -> proc_macro2::TokenStream {
-    use heck::ToSnakeCase as _;
-
-    let definition_id = proc_macro2::Literal::string(&ident.to_string().to_snake_case());
+    let definition = gen_definition(ident, fields);
     let permission_token_conversion_code = permission_token_conversion(fields);
 
     quote! {
         impl #impl_generics ::iroha_validator::permission::Token for #ident #ty_generics
         #where_clause
         {
-            fn definition_id() -> ::iroha_validator::data_model::permission::PermissionTokenId {
-                ::iroha_validator::parse!(
-                    #definition_id as <
-                        ::iroha_validator::data_model::permission::PermissionTokenDefinition
-                        as
-                        ::iroha_validator::data_model::prelude::Identifiable
-                    >::Id
-                )
+            fn definition() -> ::iroha_validator::data_model::permission::PermissionTokenDefinition {
+                #definition
             }
 
             fn is_owned_by(
@@ -94,7 +88,43 @@ fn impl_token(
     }
 }
 
-#[allow(clippy::arithmetic_side_effects)] // Triggers on quote! side
+fn gen_definition(
+    ident: &syn::Ident,
+    fields: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
+) -> proc_macro2::TokenStream {
+    use heck::ToSnakeCase as _;
+
+    let definition_id = proc_macro2::Literal::string(&ident.to_string().to_snake_case());
+
+    let params = fields.iter().map(|field| {
+        let ident = field.ident.as_ref().expect("Field must have an identifier");
+        let name = proc_macro2::Literal::string(&ident.to_string().to_snake_case());
+        let ty = &field.ty;
+
+        quote! {
+            (
+                ::iroha_validator::parse!(#name as ::iroha_validator::data_model::prelude::Name),
+                <#ty as ::iroha_validator::data_model::AssociatedConstant<
+                    ::iroha_validator::data_model::ValueKind
+                >>::VALUE
+            )
+        }
+    });
+
+    quote! {
+        ::iroha_validator::data_model::permission::PermissionTokenDefinition::new(
+            ::iroha_validator::parse!(
+                #definition_id as <
+                    ::iroha_validator::data_model::permission::PermissionTokenDefinition
+                    as
+                    ::iroha_validator::data_model::prelude::Identifiable
+                >::Id
+            )
+        )
+        .with_params([#(#params),*])
+    }
+}
+
 fn impl_try_from_permission_token(
     impl_generics: &syn::ImplGenerics<'_>,
     ty_generics: &syn::TypeGenerics<'_>,
@@ -139,7 +169,7 @@ fn impl_try_from_permission_token(
                 token: ::iroha_validator::data_model::permission::PermissionToken
             ) -> ::core::result::Result<Self, Self::Error> {
                 if token.definition_id() !=
-                    &<Self as::iroha_validator::permission::Token>::definition_id()
+                    <Self as::iroha_validator::permission::Token>::definition().id()
                 {
                     return Err(::iroha_validator::permission::PermissionTokenConversionError::Id(
                         token.definition_id().clone()
@@ -169,7 +199,7 @@ fn permission_token_conversion(
 
     quote! {
         ::iroha_validator::data_model::permission::PermissionToken::new(
-            <Self as ::iroha_validator::permission::Token>::definition_id()
+            <Self as ::iroha_validator::permission::Token>::definition().id().clone()
         )
         .with_params([
             #(#params),*
