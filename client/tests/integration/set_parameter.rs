@@ -9,7 +9,7 @@ use test_network::*;
 
 #[test]
 fn can_change_parameter_value() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_800).start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_810).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let parameter = Parameter::from_str("?BlockTime=4000")?;

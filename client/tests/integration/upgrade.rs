@@ -1,8 +1,14 @@
 #![allow(clippy::restriction)]
 
+use std::path::Path;
+
 use eyre::{Result, WrapErr};
+use iroha_client::client::Client;
 use iroha_crypto::KeyPair;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{
+    prelude::*,
+    query::permission::{FindAllPermissionTokenDefinitions, FindPermissionTokensByAccountId},
+};
 use iroha_logger::info;
 use test_network::*;
 
@@ -33,26 +39,10 @@ fn validator_upgrade_should_work() -> Result<()> {
         .submit_transaction_blocking(&transfer_rose_tx)
         .expect_err("Should fail");
 
-    // Upgrade Validator
-    info!("Building validator");
-    let temp_out_dir =
-        tempfile::tempdir().wrap_err("Failed to create temporary output directory")?;
-
-    let wasm =
-        iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/validator_with_admin")
-            .out_dir(temp_out_dir.path())
-            .build()?
-            .optimize()?
-            .into_bytes();
-
-    temp_out_dir
-        .close()
-        .wrap_err("Failed to remove temporary output directory")?;
-
-    info!("WASM size is {} bytes", wasm.len());
-
-    let upgrade_validator = UpgradeBox::new(Validator::new(WasmSmartContract::from_compiled(wasm)));
-    client.submit_blocking(upgrade_validator)?;
+    upgrade_validator(
+        &client,
+        "tests/integration/smartcontracts/validator_with_admin",
+    )?;
 
     // Check that admin can transfer alice's rose now
     // Creating new transaction instead of cloning, because we need to update it's creation time
@@ -62,6 +52,62 @@ fn validator_upgrade_should_work() -> Result<()> {
     client
         .submit_transaction_blocking(&transfer_rose_tx)
         .expect("Should succeed");
+
+    Ok(())
+}
+
+#[test]
+fn validator_upgrade_should_update_tokens() -> Result<()> {
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_815).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    // Check that `can_unregister_domain` exists
+    let can_unregister_domain_token_id: PermissionTokenId = "can_unregister_domain".parse()?;
+    let definitions = client.request(FindAllPermissionTokenDefinitions)?;
+    assert!(definitions
+        .into_iter()
+        .any(|definition| definition.id() == &can_unregister_domain_token_id));
+
+    upgrade_validator(
+        &client,
+        "tests/integration/smartcontracts/validator_with_custom_token",
+    )?;
+
+    // Check that `can_unregister_domain` doesn't exist
+    let definitions = client.request(FindAllPermissionTokenDefinitions)?;
+    assert!(!definitions
+        .iter()
+        .any(|definition| definition.id() == &can_unregister_domain_token_id));
+
+    // Check that `can_control_domain_lives` exists
+    let can_control_domain_lives: PermissionTokenId = "can_control_domain_lives".parse()?;
+    assert!(!definitions
+        .iter()
+        .any(|definition| definition.id() == &can_control_domain_lives));
+
+    Ok(())
+}
+
+fn upgrade_validator(client: &Client, validator: impl AsRef<Path>) -> Result<()> {
+    info!("Building validator");
+
+    let temp_out_dir =
+        tempfile::tempdir().wrap_err("Failed to create temporary output directory")?;
+
+    let wasm = iroha_wasm_builder::Builder::new(validator.as_ref())
+        .out_dir(temp_out_dir.path())
+        .build()?
+        .optimize()?
+        .into_bytes();
+
+    temp_out_dir
+        .close()
+        .wrap_err("Failed to remove temporary output directory")?;
+
+    info!("WASM size is {} bytes", wasm.len());
+
+    let upgrade_validator = UpgradeBox::new(Validator::new(WasmSmartContract::from_compiled(wasm)));
+    client.submit_blocking(upgrade_validator)?;
 
     Ok(())
 }

@@ -39,7 +39,7 @@ macro_rules! deny {
         if let Err(_error) = $validator.verdict() {
             unreachable!("Validator already denied");
         }
-        $validator.deny(::iroha_wasm::data_model::ValidationFail::NotPermitted(
+        $validator.deny(::iroha_validator::data_model::ValidationFail::NotPermitted(
             ::alloc::fmt::format(::core::format_args!($l)),
         ));
         return;

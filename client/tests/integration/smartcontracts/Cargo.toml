@@ -12,6 +12,7 @@ members = [
     "create_nft_for_every_user_trigger",
     "mint_rose",
     "validator_with_admin",
+    "validator_with_custom_token",
 ]
 
 [profile.dev]
