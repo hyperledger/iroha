@@ -1,7 +1,7 @@
 //! Definition of Iroha default validator and accompanying validation functions
 #![allow(missing_docs, clippy::missing_errors_doc)]
 
-use alloc::borrow::ToOwned as _;
+use alloc::{borrow::ToOwned as _, vec::Vec};
 
 use account::{
     visit_burn_account_public_key, visit_mint_account_public_key,
@@ -113,6 +113,20 @@ macro_rules! tokens {
 
 pub(crate) use map_all_crate_tokens;
 pub(crate) use tokens;
+
+pub fn permission_tokens() -> Vec<PermissionTokenDefinition> {
+    let mut v = Vec::new();
+
+    macro_rules! add_to_vec {
+        ($token_ty:ty) => {
+            v.push(<$token_ty as ::iroha_validator::permission::Token>::definition());
+        };
+    }
+
+    map_all_crate_tokens!(add_to_vec);
+
+    v
+}
 
 impl Validate for DefaultValidator {
     fn verdict(&self) -> &Result {

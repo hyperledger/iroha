@@ -108,6 +108,12 @@ impl ExpressionEvaluator for CustomValidator {
     }
 }
 
+/// Entrypoint to return permission token definitions defined in this validator.
+// #[entrypoint]
+pub fn permission_tokens() -> Vec<PermissionTokenDefinition> {
+    iroha_validator::default::permission_tokens()
+}
+
 /// Allow operation if authority is `admin@admin` and if not,
 /// fallback to [`DefaultValidator::validate()`].
 #[entrypoint(params = "[authority, operation]")]

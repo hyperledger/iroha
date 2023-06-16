@@ -117,6 +117,8 @@ pub trait Validate: Visit {
 pub mod prelude {
     //! Contains useful re-exports
 
+    pub use alloc::vec::Vec;
+
     pub use iroha_validator_derive::{entrypoint, Token, ValidateGrantRevoke};
     pub use iroha_wasm::{
         data_model::{prelude::*, validator::Result, visit::Visit, ValidationFail},
