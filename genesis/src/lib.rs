@@ -65,12 +65,14 @@ impl GenesisNetwork {
                 .clone()
                 .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
         )?;
-        let transactions_iter = raw_block.transactions.into_iter();
         #[cfg(not(test))]
-        let transactions_iter =
-            transactions_iter.chain(std::iter::once(GenesisTransactionBuilder {
-                isi: vec![UpgradeBox::new(Validator::try_from(raw_block.validator)?).into()],
-            }));
+        let transactions_iter = std::iter::once(GenesisTransactionBuilder {
+            isi: vec![UpgradeBox::new(Validator::try_from(raw_block.validator)?).into()],
+        })
+        .chain(raw_block.transactions.into_iter());
+
+        #[cfg(test)]
+        let transactions_iter = raw_block.transactions.into_iter();
 
         let transactions = transactions_iter
             .map(|raw_transaction| {
@@ -207,7 +209,7 @@ impl GenesisTransactionBuilder {
     }
 }
 
-/// Builder type for `RawGenesisBlock` that does
+/// Builder type for [`RawGenesisBlock`] that does
 /// not perform any correctness checking on the block
 /// produced. Use with caution in tests and other things
 /// to register domains and accounts.
@@ -217,7 +219,7 @@ pub struct RawGenesisBlockBuilder<S> {
     state: S,
 }
 
-/// `Domain` subsection of the `RawGenesisBlockBuilder`. Makes
+/// `Domain` subsection of the [`RawGenesisBlockBuilder`]. Makes
 /// it easier to create accounts and assets without needing to
 /// provide a `DomainId`.
 #[must_use]
