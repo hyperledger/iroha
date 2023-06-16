@@ -2,6 +2,8 @@
 //! If authority is not `admin@admin` then [`DefaultValidator`] is used as a backup.
 #![no_std]
 
+extern crate alloc;
+
 use iroha_validator::{
     data_model::evaluate::{EvaluationError, ExpressionEvaluator},
     parse,
@@ -109,7 +111,7 @@ impl ExpressionEvaluator for CustomValidator {
 }
 
 /// Entrypoint to return permission token definitions defined in this validator.
-// #[entrypoint]
+#[entrypoint]
 pub fn permission_tokens() -> Vec<PermissionTokenDefinition> {
     iroha_validator::default::permission_tokens()
 }
