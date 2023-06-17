@@ -28,6 +28,7 @@ use core::{
     ops::{ControlFlow, RangeInclusive},
     str::FromStr,
 };
+use transaction::VersionedSignedTransaction;
 
 use block::VersionedCommittedBlock;
 #[cfg(not(target_arch = "aarch64"))]
@@ -36,7 +37,7 @@ use derive_more::{AsRef, DebugCustom, Deref, Display, From, FromStr};
 use evaluate::Evaluate;
 use events::FilterBox;
 use getset::Getters;
-use iroha_crypto::{Hash, PublicKey};
+use iroha_crypto::{HashOf, PublicKey};
 pub use iroha_crypto::{SignatureOf, SignaturesOf};
 use iroha_data_model_derive::{
     model, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize,
@@ -55,7 +56,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 use strum::EnumDiscriminants;
 
 pub use self::model::*;
-use crate::{account::SignatureCheckCondition, name::Name, transaction::TransactionValue};
+use crate::{account::SignatureCheckCondition, name::Name};
 
 pub mod account;
 pub mod asset;
@@ -818,10 +819,9 @@ pub mod model {
         Identifiable(IdentifiableBox),
         PublicKey(PublicKey),
         SignatureCheckCondition(SignatureCheckCondition),
-        TransactionValue(TransactionValue),
         TransactionQueryResult(TransactionQueryResult),
         PermissionToken(permission::PermissionToken),
-        Hash(Hash),
+        Hash(HashValue),
         Block(VersionedCommittedBlockWrapper),
         BlockHeader(block::BlockHeader),
         Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
@@ -830,6 +830,30 @@ pub mod model {
         #[debug(fmt = "{_0:?}")]
         Numeric(NumericValue),
         Validator(validator::Validator),
+    }
+
+    /// Enum for all supported hash types
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type]
+    pub enum HashValue {
+        /// Transaction hash
+        Transaction(HashOf<VersionedSignedTransaction>),
+        /// Block hash
+        Block(HashOf<VersionedCommittedBlock>),
     }
 
     /// Cross-platform wrapper for [`VersionedCommittedBlock`].
@@ -892,10 +916,10 @@ pub mod model {
         Display,
         Clone,
         Copy,
-        PartialOrd,
-        Ord,
         PartialEq,
         Eq,
+        PartialOrd,
+        Ord,
         Getters,
         Decode,
         Encode,
@@ -1084,7 +1108,6 @@ impl fmt::Display for Value {
             Value::Identifiable(v) => fmt::Display::fmt(&v, f),
             Value::PublicKey(v) => fmt::Display::fmt(&v, f),
             Value::SignatureCheckCondition(v) => fmt::Display::fmt(&v, f),
-            Value::TransactionValue(_) => write!(f, "TransactionValue"),
             Value::TransactionQueryResult(_) => write!(f, "TransactionQueryResult"),
             Value::PermissionToken(v) => fmt::Display::fmt(&v, f),
             Value::Hash(v) => fmt::Display::fmt(&v, f),
@@ -1114,7 +1137,6 @@ impl Value {
             | Identifiable(_)
             | String(_)
             | Name(_)
-            | TransactionValue(_)
             | TransactionQueryResult(_)
             | PermissionToken(_)
             | Hash(_)
@@ -1153,11 +1175,9 @@ where
     }
 }
 
-// TODO: This macro looks very similar to `from_and_try_from_value_identifiable`
-// and `from_and_try_from_value_identifiablebox` macros. It should be possible to
-// generalize them under one macro
+// TODO: The following macros looks very similar. Try to generalize them under one macro
 macro_rules! from_and_try_from_value_idbox {
-    ( $($variant:ident( $ty:ty ),)* $(,)? ) => {
+    ( $($variant:ident( $ty:ty ),)+ $(,)? ) => {
         $(
             impl TryFrom<Value> for $ty {
                 type Error = ErrorTryFromEnum<Value, Self>;
@@ -1176,26 +1196,12 @@ macro_rules! from_and_try_from_value_idbox {
                     Value::Id(IdBox::$variant(id))
                 }
             }
-        )*
+        )+
     };
 }
 
-from_and_try_from_value_idbox!(
-    PeerId(peer::PeerId),
-    DomainId(domain::DomainId),
-    AccountId(account::AccountId),
-    AssetId(asset::AssetId),
-    AssetDefinitionId(asset::AssetDefinitionId),
-    TriggerId(trigger::TriggerId),
-    RoleId(role::RoleId),
-    ParameterId(parameter::ParameterId),
-);
-
-// TODO: Should we wrap String with new type in order to convert like here?
-//from_and_try_from_value_idbox!((DomainName(Name), ErrorValueTryFromDomainName),);
-
 macro_rules! from_and_try_from_value_identifiablebox {
-    ( $( $variant:ident( Box< $ty:ty > ),)* $(,)? ) => {
+    ( $( $variant:ident( Box< $ty:ty > ),)+ $(,)? ) => {
         $(
             impl TryFrom<Value> for $ty {
                 type Error = ErrorTryFromEnum<Value, Self>;
@@ -1214,11 +1220,11 @@ macro_rules! from_and_try_from_value_identifiablebox {
                     Value::Identifiable(IdentifiableBox::$variant(Box::new(id)))
                 }
             }
-        )*
+        )+
     };
 }
 macro_rules! from_and_try_from_value_identifiable {
-    ( $( $variant:ident( $ty:ty ), )* $(,)? ) => {
+    ( $( $variant:ident( $ty:ty ), )+ $(,)? ) => {
         $(
             impl TryFrom<Value> for $ty {
                 type Error = ErrorTryFromEnum<Value, Self>;
@@ -1237,9 +1243,124 @@ macro_rules! from_and_try_from_value_identifiable {
                     Value::Identifiable(IdentifiableBox::$variant(id))
                 }
             }
-        )*
+        )+
     };
 }
+
+macro_rules! from_and_try_from_and_try_as_value_hash {
+    ( $( $variant:ident($ty:ty)),+ $(,)? ) => { $(
+        impl TryFrom<Value> for $ty {
+            type Error = ErrorTryFromEnum<Value, Self>;
+
+            #[inline]
+            fn try_from(value: Value) -> Result<Self, Self::Error> {
+                if let Value::Hash(HashValue::$variant(value)) = value {
+                    Ok(value)
+                } else {
+                    Err(Self::Error::default())
+                }
+            }
+        }
+
+        impl From<$ty> for Value {
+            #[inline]
+            fn from(value: $ty) -> Self {
+                Value::Hash(HashValue::$variant(value))
+            }
+        }
+
+        impl TryAsMut<$ty> for HashValue {
+            type Error = crate::EnumTryAsError<$ty, HashValue>;
+
+            #[inline]
+            fn try_as_mut(&mut self) -> Result<&mut $ty, Self::Error> {
+                if let HashValue::$variant (value) = self {
+                    Ok(value)
+                } else {
+                    Err(crate::EnumTryAsError::got(*self))
+                }
+            }
+        }
+
+        impl TryAsRef<$ty> for HashValue {
+            type Error = crate::EnumTryAsError<$ty, HashValue>;
+
+            #[inline]
+            fn try_as_ref(&self) -> Result<& $ty, Self::Error> {
+                if let HashValue::$variant (value) = self {
+                    Ok(value)
+                } else {
+                    Err(crate::EnumTryAsError::got(*self))
+                }
+            }
+        })+
+    };
+}
+
+macro_rules! from_and_try_from_and_try_as_value_numeric {
+    ( $( $variant:ident($ty:ty),)+ $(,)? ) => {
+        $(
+            impl TryFrom<Value> for $ty {
+                type Error = ErrorTryFromEnum<Value, Self>;
+
+                #[inline]
+                fn try_from(value: Value) -> Result<Self, Self::Error> {
+                    if let Value::Numeric(NumericValue::$variant(value)) = value {
+                        Ok(value)
+                    } else {
+                        Err(Self::Error::default())
+                    }
+                }
+            }
+
+            impl From<$ty> for Value {
+                #[inline]
+                fn from(value: $ty) -> Self {
+                    Value::Numeric(NumericValue::$variant(value))
+                }
+            }
+
+            impl TryAsMut<$ty> for NumericValue {
+                type Error = crate::EnumTryAsError<$ty, NumericValue>;
+
+                #[inline]
+                fn try_as_mut(&mut self) -> Result<&mut $ty, Self::Error> {
+                    if let NumericValue:: $variant (value) = self {
+                        Ok(value)
+                    } else {
+                        Err(crate::EnumTryAsError::got(*self))
+                    }
+                }
+            }
+
+            impl TryAsRef<$ty> for NumericValue {
+                type Error = crate::EnumTryAsError<$ty, NumericValue>;
+
+                #[inline]
+                fn try_as_ref(&self) -> Result<& $ty, Self::Error> {
+                    if let NumericValue:: $variant (value) = self {
+                        Ok(value)
+                    } else {
+                        Err(crate::EnumTryAsError::got(*self))
+                    }
+                }
+            }
+        )+
+    };
+}
+
+from_and_try_from_value_idbox!(
+    PeerId(peer::PeerId),
+    DomainId(domain::DomainId),
+    AccountId(account::AccountId),
+    AssetId(asset::AssetId),
+    AssetDefinitionId(asset::AssetDefinitionId),
+    TriggerId(trigger::TriggerId),
+    RoleId(role::RoleId),
+    ParameterId(parameter::ParameterId),
+    // TODO: Should we wrap String with new type in order to convert like here?
+    //from_and_try_from_value_idbox!((DomainName(Name), ErrorValueTryFromDomainName),);
+);
 
 from_and_try_from_value_identifiablebox!(
     NewDomain(Box<domain::NewDomain>),
@@ -1270,6 +1391,18 @@ from_and_try_from_value_identifiable!(
     PermissionTokenDefinition(Box<permission::PermissionTokenDefinition>),
     Parameter(Box<parameter::Parameter>),
 );
+
+from_and_try_from_and_try_as_value_hash! {
+    Transaction(HashOf<VersionedSignedTransaction>),
+    Block(HashOf<VersionedCommittedBlock>),
+}
+
+from_and_try_from_and_try_as_value_numeric! {
+    U32(u32),
+    U64(u64),
+    U128(u128),
+    Fixed(fixed::Fixed),
+}
 
 impl TryFrom<Value> for RegistrableBox {
     type Error = ErrorTryFromEnum<Value, Self>;
@@ -1395,65 +1528,6 @@ where
         }
         Err(Self::Error::default())
     }
-}
-
-macro_rules! from_and_try_from_and_try_as_value_numeric {
-    ( $( $variant:ident($ty:ty),)+ $(,)? ) => {
-        $(
-            impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Value, Self>;
-
-                #[inline]
-                fn try_from(value: Value) -> Result<Self, Self::Error> {
-                    if let Value::Numeric(NumericValue::$variant(value)) = value {
-                        Ok(value)
-                    } else {
-                        Err(Self::Error::default())
-                    }
-                }
-            }
-
-            impl From<$ty> for Value {
-                #[inline]
-                fn from(value: $ty) -> Self {
-                    Value::Numeric(NumericValue::$variant(value))
-                }
-            }
-
-            impl TryAsMut<$ty> for NumericValue {
-                type Error = crate::EnumTryAsError<$ty, NumericValue>;
-
-                #[inline]
-                fn try_as_mut(&mut self) -> Result<&mut $ty, Self::Error> {
-                    if let NumericValue:: $variant (value) = self {
-                        Ok(value)
-                    } else {
-                        Err(crate::EnumTryAsError::got(*self))
-                    }
-                }
-            }
-
-            impl TryAsRef<$ty> for NumericValue {
-                type Error = crate::EnumTryAsError<$ty, NumericValue>;
-
-                #[inline]
-                fn try_as_ref(&self) -> Result<& $ty, Self::Error> {
-                    if let NumericValue:: $variant (value) = self {
-                        Ok(value)
-                    } else {
-                        Err(crate::EnumTryAsError::got(*self))
-                    }
-                }
-            }
-        )*
-    };
-}
-
-from_and_try_from_and_try_as_value_numeric! {
-    U32(u32),
-    U64(u64),
-    U128(u128),
-    Fixed(fixed::Fixed),
 }
 
 impl TryFrom<f64> for Value {

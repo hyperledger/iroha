@@ -27,8 +27,10 @@ use iroha_data_model::{
     isi::error::{InstructionExecutionError as Error, MathError},
     parameter::Parameter,
     prelude::*,
-    query::error::{FindError, QueryExecutionFail},
-    transaction::TransactionQueryResult,
+    query::{
+        error::{FindError, QueryExecutionFail},
+        TransactionQueryResult,
+    },
     trigger::action::ActionTrait,
 };
 use iroha_logger::prelude::*;

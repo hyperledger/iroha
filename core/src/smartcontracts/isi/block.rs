@@ -1,6 +1,5 @@
 //! This module contains trait implementations related to block queries
 use eyre::{Result, WrapErr};
-use iroha_crypto::HashOf;
 use iroha_data_model::{
     block::VersionedCommittedBlock,
     evaluate::ExpressionEvaluator,
@@ -43,7 +42,6 @@ impl ValidQuery for FindBlockHeaderByHash {
         let hash = wsv
             .evaluate(&self.hash)
             .wrap_err("Failed to evaluate hash")
-            .map(HashOf::from_untyped_unchecked)
             .map_err(|e| QueryExecutionFail::Evaluate(e.to_string()))?;
 
         let block = wsv
