@@ -135,7 +135,18 @@ impl Config {
                     .next()
                     .expect("The block is not yet in WSV. Need more sleep?");
                 let block = block.as_v1();
-                (block.transactions.len(), block.rejected_transactions.len())
+                (
+                    block
+                        .transactions
+                        .iter()
+                        .filter(|tx| tx.error.is_none())
+                        .count(),
+                    block
+                        .transactions
+                        .iter()
+                        .filter(|tx| tx.error.is_some())
+                        .count(),
+                )
             })
             .fold((0, 0), |acc, pair| (acc.0 + pair.0, acc.1 + pair.1));
         #[allow(clippy::float_arithmetic, clippy::cast_precision_loss)]

@@ -85,7 +85,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
     );
     keys_count = charlie_keys_count(&mut client);
     assert_eq!(keys_count, 1);
-    assert!(matches!(committed_txn, TransactionValue::Transaction(_)));
+    assert!(committed_txn.error.is_none());
 
     let burn_the_last_key = burn(charlie_initial_keypair.public_key().clone());
 
@@ -96,8 +96,5 @@ fn public_keys_cannot_be_burned_to_nothing() {
     );
     keys_count = charlie_keys_count(&mut client);
     assert_eq!(keys_count, 1);
-    assert!(matches!(
-        committed_txn,
-        TransactionValue::RejectedTransaction(_)
-    ));
+    assert!(committed_txn.error.is_some());
 }

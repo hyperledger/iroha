@@ -50,8 +50,10 @@ fn create_block(
 
     let pending_block = PendingBlock {
         header,
-        rejected_transactions: Vec::new(),
-        transactions: vec![transaction],
+        transactions: vec![TransactionValue {
+            tx: transaction,
+            error: None,
+        }],
         event_recommendations: Vec::new(),
         signatures,
     };
