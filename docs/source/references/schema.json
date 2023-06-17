@@ -1102,7 +1102,15 @@
       }
     ]
   },
-  "EvaluatesTo<Hash>": {
+  "EvaluatesTo<HashOf<VersionedCommittedBlock>>": {
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
+  },
+  "EvaluatesTo<HashOf<VersionedSignedTransaction>>": {
     "Struct": [
       {
         "name": "expression",
@@ -1882,7 +1890,7 @@
     "Struct": [
       {
         "name": "hash",
-        "type": "EvaluatesTo<Hash>"
+        "type": "EvaluatesTo<HashOf<VersionedCommittedBlock>>"
       }
     ]
   },
@@ -2016,7 +2024,7 @@
     "Struct": [
       {
         "name": "hash",
-        "type": "EvaluatesTo<Hash>"
+        "type": "EvaluatesTo<HashOf<VersionedSignedTransaction>>"
       }
     ]
   },
@@ -2117,6 +2125,20 @@
   "HashOf<VersionedCommittedBlock>": "Hash",
   "HashOf<VersionedSignedTransaction>": "Hash",
   "HashOf<WasmSmartContract>": "Hash",
+  "HashValue": {
+    "Enum": [
+      {
+        "tag": "Transaction",
+        "discriminant": 0,
+        "type": "HashOf<VersionedSignedTransaction>"
+      },
+      {
+        "tag": "Block",
+        "discriminant": 1,
+        "type": "HashOf<VersionedCommittedBlock>"
+      }
+    ]
+  },
   "IdBox": {
     "Enum": [
       {
@@ -4545,53 +4567,48 @@
         "type": "SignatureCheckCondition"
       },
       {
-        "tag": "TransactionValue",
-        "discriminant": 12,
-        "type": "TransactionValue"
-      },
-      {
         "tag": "TransactionQueryResult",
-        "discriminant": 13,
+        "discriminant": 12,
         "type": "TransactionQueryResult"
       },
       {
         "tag": "PermissionToken",
-        "discriminant": 14,
+        "discriminant": 13,
         "type": "PermissionToken"
       },
       {
         "tag": "Hash",
-        "discriminant": 15,
-        "type": "Hash"
+        "discriminant": 14,
+        "type": "HashValue"
       },
       {
         "tag": "Block",
-        "discriminant": 16,
+        "discriminant": 15,
         "type": "VersionedCommittedBlock"
       },
       {
         "tag": "BlockHeader",
-        "discriminant": 17,
+        "discriminant": 16,
         "type": "BlockHeader"
       },
       {
         "tag": "Ipv4Addr",
-        "discriminant": 18,
+        "discriminant": 17,
         "type": "Ipv4Addr"
       },
       {
         "tag": "Ipv6Addr",
-        "discriminant": 19,
+        "discriminant": 18,
         "type": "Ipv6Addr"
       },
       {
         "tag": "Numeric",
-        "discriminant": 20,
+        "discriminant": 19,
         "type": "NumericValue"
       },
       {
         "tag": "Validator",
-        "discriminant": 21,
+        "discriminant": 20,
         "type": "Validator"
       }
     ]
@@ -4647,44 +4664,40 @@
         "discriminant": 11
       },
       {
-        "tag": "TransactionValue",
+        "tag": "TransactionQueryResult",
         "discriminant": 12
       },
       {
-        "tag": "TransactionQueryResult",
+        "tag": "PermissionToken",
         "discriminant": 13
       },
       {
-        "tag": "PermissionToken",
+        "tag": "Hash",
         "discriminant": 14
       },
       {
-        "tag": "Hash",
+        "tag": "Block",
         "discriminant": 15
       },
       {
-        "tag": "Block",
+        "tag": "BlockHeader",
         "discriminant": 16
       },
       {
-        "tag": "BlockHeader",
+        "tag": "Ipv4Addr",
         "discriminant": 17
       },
       {
-        "tag": "Ipv4Addr",
+        "tag": "Ipv6Addr",
         "discriminant": 18
       },
       {
-        "tag": "Ipv6Addr",
+        "tag": "Numeric",
         "discriminant": 19
       },
       {
-        "tag": "Numeric",
-        "discriminant": 20
-      },
-      {
         "tag": "Validator",
-        "discriminant": 21
+        "discriminant": 20
       }
     ]
   },

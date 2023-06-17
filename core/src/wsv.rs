@@ -769,7 +769,9 @@ impl WorldStateView {
             .parameters
             .get(param)
             .as_ref()
-            .and_then(|param| param.val.clone().try_into().ok())
+            .map(|param| &*param.val)
+            .cloned()
+            .and_then(|param_val| param_val.try_into().ok())
     }
 
     /// Get `AssetDefinition` immutable view.

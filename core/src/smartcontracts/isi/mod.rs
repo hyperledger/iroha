@@ -81,30 +81,21 @@ impl Execute for RegisterBox {
         let object_id = wsv.evaluate(&self.object)?;
         Span::current().record("id", &object_id.to_string());
         match object_id {
-            RegistrableBox::Peer(object) => {
-                Register::<Peer> { object: *object }.execute(authority, wsv)
-            }
-            RegistrableBox::Domain(object) => {
-                Register::<Domain> { object: *object }.execute(authority, wsv)
-            }
+            RegistrableBox::Peer(object) => Register::<Peer> { object }.execute(authority, wsv),
+            RegistrableBox::Domain(object) => Register::<Domain> { object }.execute(authority, wsv),
             RegistrableBox::Account(object) => {
-                Register::<Account> { object: *object }.execute(authority, wsv)
+                Register::<Account> { object }.execute(authority, wsv)
             }
             RegistrableBox::AssetDefinition(object) => {
-                Register::<AssetDefinition> { object: *object }.execute(authority, wsv)
+                Register::<AssetDefinition> { object }.execute(authority, wsv)
             }
-            RegistrableBox::Asset(object) => {
-                Register::<Asset> { object: *object }.execute(authority, wsv)
-            }
+            RegistrableBox::Asset(object) => Register::<Asset> { object }.execute(authority, wsv),
             RegistrableBox::Trigger(object) => {
-                Register::<Trigger<FilterBox, Executable>> { object: *object }
-                    .execute(authority, wsv)
+                Register::<Trigger<FilterBox, Executable>> { object }.execute(authority, wsv)
             }
-            RegistrableBox::Role(object) => {
-                Register::<Role> { object: *object }.execute(authority, wsv)
-            }
+            RegistrableBox::Role(object) => Register::<Role> { object }.execute(authority, wsv),
             RegistrableBox::PermissionTokenDefinition(object) => {
-                Register::<PermissionTokenDefinition> { object: *object }.execute(authority, wsv)
+                Register::<PermissionTokenDefinition> { object }.execute(authority, wsv)
             }
         }
     }

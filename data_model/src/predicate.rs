@@ -1177,9 +1177,9 @@ pub mod value {
                     "alice@wonderland".parse().expect("Valid")
                 ))));
                 assert!(
-                    pred.applies(&Value::Identifiable(IdentifiableBox::NewAccount(Box::new(
+                    pred.applies(&Value::Identifiable(IdentifiableBox::NewAccount(
                         Account::new("alice@wonderland".parse().expect("Valid"), [])
-                    ))))
+                    )))
                 );
                 assert!(!pred.applies(&Value::Name("alice".parse().expect("Valid"))));
                 assert!(!pred.applies(&Value::Vec(Vec::new())));
@@ -1201,14 +1201,12 @@ pub mod value {
                 println!("{pred:?}");
 
                 assert!(
-                    !pred.applies(&Value::Identifiable(IdentifiableBox::Peer(Box::new(
-                        Peer {
-                            id: peer::PeerId {
-                                address: "localhost:123".parse().unwrap(),
-                                public_key
-                            }
+                    !pred.applies(&Value::Identifiable(IdentifiableBox::Peer(Peer {
+                        id: peer::PeerId {
+                            address: "localhost:123".parse().unwrap(),
+                            public_key
                         }
-                    ))))
+                    })))
                 );
             }
             let pred = ValuePredicate::Numerical(numerical::SemiRange::U32((0_u32, 42_u32).into()));

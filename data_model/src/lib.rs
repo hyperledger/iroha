@@ -28,7 +28,6 @@ use core::{
     ops::{ControlFlow, RangeInclusive},
     str::FromStr,
 };
-use transaction::VersionedSignedTransaction;
 
 use block::VersionedCommittedBlock;
 #[cfg(not(target_arch = "aarch64"))]
@@ -54,6 +53,7 @@ use prelude::{Executable, TransactionQueryResult};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use strum::EnumDiscriminants;
+use transaction::VersionedSignedTransaction;
 
 pub use self::model::*;
 use crate::{account::SignatureCheckCondition, name::Name};
@@ -264,8 +264,6 @@ pub mod parameter {
 
     use core::borrow::Borrow;
 
-    use derive_more::Constructor;
-
     pub use self::model::*;
     use super::*;
 
@@ -323,7 +321,6 @@ pub mod parameter {
             Clone,
             IdEqOrdHash,
             Getters,
-            Constructor,
             Decode,
             Encode,
             DeserializeFromStr,
@@ -338,7 +335,16 @@ pub mod parameter {
             pub id: ParameterId,
             /// Current value of the [`Parameter`].
             #[getset(get = "pub")]
-            pub val: Value,
+            pub val: Box<Value>,
+        }
+    }
+
+    impl Parameter {
+        fn new(id: ParameterId, val: Value) -> Self {
+            Self {
+                id,
+                val: Box::new(val),
+            }
         }
     }
 
@@ -422,15 +428,12 @@ pub mod parameter {
                                     "Unsupported type provided for the `val` part of the `Parameter`.",
                             }),
                         };
-                        Ok(Self { id: param_id, val })
+                        Ok(Self::new(param_id, val))
                     } else {
                         let val = val_candidate.parse::<u64>().map_err(|_| ParseError {
                             reason: "Failed to parse the `val` part of the `Parameter` as `u64`.",
                         })?;
-                        Ok(Self {
-                            id: param_id,
-                            val: Value::Numeric(NumericValue::from(val)),
-                        })
+                        Ok(Self::new(param_id, Value::Numeric(NumericValue::from(val))))
                     }
                 } else {
                     Err(ParseError {
@@ -479,7 +482,7 @@ pub mod parameter {
         ) -> Result<Self, ParametersBuilderError> {
             let parameter = Parameter {
                 id: parameter_id.parse()?,
-                val: val.into(),
+                val: Box::new(val.into()),
             };
             self.parameters.push(parameter);
             Ok(self)
@@ -651,27 +654,27 @@ pub mod model {
     pub enum RegistrableBox {
         /// [`Peer`](`peer::Peer`) variant.
         #[display(fmt = "Peer {_0}")]
-        Peer(Box<<peer::Peer as Registered>::With>),
+        Peer(<peer::Peer as Registered>::With),
         /// [`Domain`](`domain::Domain`) variant.
         #[display(fmt = "Domain {_0}")]
-        Domain(Box<<domain::Domain as Registered>::With>),
+        Domain(<domain::Domain as Registered>::With),
         /// [`Account`](`account::Account`) variant.
         #[display(fmt = "Account {_0}")]
-        Account(Box<<account::Account as Registered>::With>),
+        Account(<account::Account as Registered>::With),
         /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
         #[display(fmt = "AssetDefinition {_0}")]
-        AssetDefinition(Box<<asset::AssetDefinition as Registered>::With>),
+        AssetDefinition(<asset::AssetDefinition as Registered>::With),
         /// [`Asset`](`asset::Asset`) variant.
         #[display(fmt = "Asset {_0}")]
-        Asset(Box<<asset::Asset as Registered>::With>),
+        Asset(<asset::Asset as Registered>::With),
         /// [`Trigger`](`trigger::Trigger`) variant.
         #[display(fmt = "Trigger {_0}")]
-        Trigger(Box<<trigger::Trigger<FilterBox, Executable> as Registered>::With>),
+        Trigger(<trigger::Trigger<FilterBox, Executable> as Registered>::With),
         /// [`Role`](`role::Role`) variant.
         #[display(fmt = "Role {_0}")]
-        Role(Box<<role::Role as Registered>::With>),
+        Role(<role::Role as Registered>::With),
         /// [`PermissionTokenId`](`permission::PermissionTokenId`) variant.
-        PermissionTokenDefinition(Box<<permission::PermissionTokenDefinition as Registered>::With>),
+        PermissionTokenDefinition(<permission::PermissionTokenDefinition as Registered>::With),
     }
 
     /// Sized container for all possible entities.
@@ -693,31 +696,31 @@ pub mod model {
     #[ffi_type]
     pub enum IdentifiableBox {
         /// [`NewDomain`](`domain::NewDomain`) variant.
-        NewDomain(Box<<domain::Domain as Registered>::With>),
+        NewDomain(<domain::Domain as Registered>::With),
         /// [`NewAccount`](`account::NewAccount`) variant.
-        NewAccount(Box<<account::Account as Registered>::With>),
+        NewAccount(<account::Account as Registered>::With),
         /// [`NewAssetDefinition`](`asset::NewAssetDefinition`) variant.
-        NewAssetDefinition(Box<<asset::AssetDefinition as Registered>::With>),
+        NewAssetDefinition(<asset::AssetDefinition as Registered>::With),
         /// [`NewRole`](`role::NewRole`) variant.
-        NewRole(Box<<role::Role as Registered>::With>),
+        NewRole(<role::Role as Registered>::With),
         /// [`Peer`](`peer::Peer`) variant.
-        Peer(Box<peer::Peer>),
+        Peer(peer::Peer),
         /// [`Domain`](`domain::Domain`) variant.
-        Domain(Box<domain::Domain>),
+        Domain(domain::Domain),
         /// [`Account`](`account::Account`) variant.
-        Account(Box<account::Account>),
+        Account(account::Account),
         /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
-        AssetDefinition(Box<asset::AssetDefinition>),
+        AssetDefinition(asset::AssetDefinition),
         /// [`Asset`](`asset::Asset`) variant.
-        Asset(Box<asset::Asset>),
+        Asset(asset::Asset),
         /// [`TriggerBox`] variant.
         Trigger(TriggerBox),
         /// [`Role`](`role::Role`) variant.
-        Role(Box<role::Role>),
+        Role(role::Role),
         /// [`PermissionTokenDefinition`](`permission::PermissionTokenDefinition`) variant.
-        PermissionTokenDefinition(Box<permission::PermissionTokenDefinition>),
+        PermissionTokenDefinition(permission::PermissionTokenDefinition),
         /// [`Parameter`](`parameter::Parameter`) variant.
-        Parameter(Box<parameter::Parameter>),
+        Parameter(parameter::Parameter),
     }
 
     /// Sized container for triggers with different executables.
@@ -1059,12 +1062,12 @@ impl<'idbox> TryFrom<&'idbox IdentifiableBox> for &'idbox dyn HasMetadata {
         v: &'idbox IdentifiableBox,
     ) -> Result<&'idbox (dyn HasMetadata + 'idbox), Self::Error> {
         match v {
-            IdentifiableBox::NewDomain(v) => Ok(v.as_ref()),
-            IdentifiableBox::NewAccount(v) => Ok(v.as_ref()),
-            IdentifiableBox::NewAssetDefinition(v) => Ok(v.as_ref()),
-            IdentifiableBox::Domain(v) => Ok(v.as_ref()),
-            IdentifiableBox::Account(v) => Ok(v.as_ref()),
-            IdentifiableBox::AssetDefinition(v) => Ok(v.as_ref()),
+            IdentifiableBox::NewDomain(v) => Ok(v),
+            IdentifiableBox::NewAccount(v) => Ok(v),
+            IdentifiableBox::NewAssetDefinition(v) => Ok(v),
+            IdentifiableBox::Domain(v) => Ok(v),
+            IdentifiableBox::Account(v) => Ok(v),
+            IdentifiableBox::AssetDefinition(v) => Ok(v),
             _ => Err(()),
         }
     }
@@ -1200,50 +1203,25 @@ macro_rules! from_and_try_from_value_idbox {
     };
 }
 
-macro_rules! from_and_try_from_value_identifiablebox {
-    ( $( $variant:ident( Box< $ty:ty > ),)+ $(,)? ) => {
-        $(
-            impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Value, Self>;
-
-                fn try_from(value: Value) -> Result<Self, Self::Error> {
-                    if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
-                        Ok(*id)
-                    } else {
-                        Err(Self::Error::default())
-                    }
-                }
-            }
-
-            impl From<$ty> for Value {
-                fn from(id: $ty) -> Self {
-                    Value::Identifiable(IdentifiableBox::$variant(Box::new(id)))
-                }
-            }
-        )+
-    };
-}
 macro_rules! from_and_try_from_value_identifiable {
-    ( $( $variant:ident( $ty:ty ), )+ $(,)? ) => {
-        $(
-            impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Value, Self>;
+    ( $( $variant:ident( $ty:ty ), )+ $(,)? ) => { $(
+        impl TryFrom<Value> for $ty {
+            type Error = ErrorTryFromEnum<Value, Self>;
 
-                fn try_from(value: Value) -> Result<Self, Self::Error> {
-                    if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
-                        Ok(id)
-                    } else {
-                        Err(Self::Error::default())
-                    }
+            fn try_from(value: Value) -> Result<Self, Self::Error> {
+                if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
+                    Ok(id)
+                } else {
+                    Err(Self::Error::default())
                 }
             }
+        }
 
-            impl From<$ty> for Value {
-                fn from(id: $ty) -> Self {
-                    Value::Identifiable(IdentifiableBox::$variant(id))
-                }
+        impl From<$ty> for Value {
+            fn from(id: $ty) -> Self {
+                Value::Identifiable(IdentifiableBox::$variant(id))
             }
-        )+
+        } )+
     };
 }
 
@@ -1362,34 +1340,20 @@ from_and_try_from_value_idbox!(
     //from_and_try_from_value_idbox!((DomainName(Name), ErrorValueTryFromDomainName),);
 );
 
-from_and_try_from_value_identifiablebox!(
-    NewDomain(Box<domain::NewDomain>),
-    NewAccount(Box<account::NewAccount>),
-    NewAssetDefinition(Box<asset::NewAssetDefinition>),
-    NewRole(Box<role::NewRole>),
-    Peer(Box<peer::Peer>),
-    Domain(Box<domain::Domain>),
-    Account(Box<account::Account>),
-    AssetDefinition(Box<asset::AssetDefinition>),
-    Asset(Box<asset::Asset>),
-    Role(Box<role::Role>),
-    PermissionTokenDefinition(Box<permission::PermissionTokenDefinition>),
-    Parameter(Box<parameter::Parameter>),
-);
-
 from_and_try_from_value_identifiable!(
-    NewDomain(Box<domain::NewDomain>),
-    NewAccount(Box<account::NewAccount>),
-    NewAssetDefinition(Box<asset::NewAssetDefinition>),
-    Peer(Box<peer::Peer>),
-    Domain(Box<domain::Domain>),
-    Account(Box<account::Account>),
-    AssetDefinition(Box<asset::AssetDefinition>),
-    Asset(Box<asset::Asset>),
+    NewDomain(domain::NewDomain),
+    NewAccount(account::NewAccount),
+    NewAssetDefinition(asset::NewAssetDefinition),
+    NewRole(role::NewRole),
+    Peer(peer::Peer),
+    Domain(domain::Domain),
+    Account(account::Account),
+    AssetDefinition(asset::AssetDefinition),
+    Asset(asset::Asset),
     Trigger(TriggerBox),
-    Role(Box<role::Role>),
-    PermissionTokenDefinition(Box<permission::PermissionTokenDefinition>),
-    Parameter(Box<parameter::Parameter>),
+    Role(role::Role),
+    PermissionTokenDefinition(permission::PermissionTokenDefinition),
+    Parameter(parameter::Parameter),
 );
 
 from_and_try_from_and_try_as_value_hash! {
@@ -1443,7 +1407,7 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             }
             NewRole(role) => Ok(RegistrableBox::Role(role)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
-            Trigger(TriggerBox::Raw(trigger)) => Ok(RegistrableBox::Trigger(Box::new(trigger))),
+            Trigger(TriggerBox::Raw(trigger)) => Ok(RegistrableBox::Trigger(trigger)),
             Domain(_)
             | Account(_)
             | AssetDefinition(_)
@@ -1467,7 +1431,7 @@ impl From<RegistrableBox> for IdentifiableBox {
             }
             Role(role) => IdentifiableBox::NewRole(role),
             Asset(asset) => IdentifiableBox::Asset(asset),
-            Trigger(trigger) => IdentifiableBox::Trigger(TriggerBox::Raw(*trigger)),
+            Trigger(trigger) => IdentifiableBox::Trigger(TriggerBox::Raw(trigger)),
             PermissionTokenDefinition(token_definition) => {
                 IdentifiableBox::PermissionTokenDefinition(token_definition)
             }
