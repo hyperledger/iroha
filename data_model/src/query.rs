@@ -4,6 +4,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
+use core::cmp::Ordering;
 
 use derive_more::Display;
 use iroha_crypto::SignatureOf;
@@ -23,7 +24,7 @@ use crate::{
     account::Account,
     block::CommittedBlock,
     seal,
-    transaction::{RejectedTransaction, TransactionPayload, VersionedSignedTransaction},
+    transaction::{TransactionPayload, TransactionValue, VersionedSignedTransaction},
     Identifiable, Value,
 };
 
@@ -163,16 +164,6 @@ pub mod model {
         FindAllParameters(FindAllParameters),
     }
 
-    /// Transaction Value used in Instructions and Queries
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[ffi_type]
-    pub enum TransactionValue {
-        /// Committed transaction
-        Transaction(VersionedSignedTransaction),
-        /// Rejected transaction with reason of rejection
-        RejectedTransaction(RejectedTransaction),
-    }
-
     /// `TransactionQueryResult` is used in `FindAllTransactions` query
     #[derive(
         Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
@@ -191,36 +182,6 @@ impl Query for QueryBox {
     type Output = Value;
 }
 
-impl TransactionValue {
-    /// Used to return payload of the transaction
-    #[inline]
-    pub fn payload(&self) -> &TransactionPayload {
-        match self {
-            TransactionValue::Transaction(tx) => tx.payload(),
-            TransactionValue::RejectedTransaction(RejectedTransaction {
-                transaction,
-                error: _,
-            }) => transaction.payload(),
-        }
-    }
-}
-
-impl PartialOrd for TransactionValue {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for TransactionValue {
-    #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.payload()
-            .creation_time_ms
-            .cmp(&other.payload().creation_time_ms)
-    }
-}
-
 impl TransactionQueryResult {
     #[inline]
     /// Return payload of the transaction
@@ -231,14 +192,14 @@ impl TransactionQueryResult {
 
 impl PartialOrd for TransactionQueryResult {
     #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for TransactionQueryResult {
     #[inline]
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         self.payload()
             .creation_time_ms
             .cmp(&other.payload().creation_time_ms)
@@ -1613,6 +1574,6 @@ pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
         peer::prelude::*, permission::prelude::*, role::prelude::*, transaction::*,
-        trigger::prelude::*, Query, QueryBox, TransactionQueryResult, TransactionValue,
+        trigger::prelude::*, Query, QueryBox, TransactionQueryResult,
     };
 }

@@ -27,10 +27,7 @@ use iroha_data_model::{
     isi::error::{InstructionExecutionError as Error, MathError},
     parameter::Parameter,
     prelude::*,
-    query::{
-        error::{FindError, QueryExecutionFail},
-        TransactionQueryResult,
-    },
+    query::error::{FindError, QueryExecutionFail},
     trigger::action::ActionTrait,
 };
 use iroha_logger::prelude::*;
@@ -435,15 +432,13 @@ impl WorldStateView {
         let height = block.header().height;
         // TODO: Should this block panic instead?
         for tx in &block.transactions {
-            self.process_executable(tx.payload().instructions(), tx.payload().authority.clone())?;
-            self.transactions.insert(tx.hash(), height);
-        }
-        for RejectedTransaction {
-            transaction,
-            error: _,
-        } in &block.rejected_transactions
-        {
-            self.transactions.insert(transaction.hash(), height);
+            if tx.error.is_none() {
+                self.process_executable(
+                    tx.payload().instructions(),
+                    tx.payload().authority.clone(),
+                )?;
+            }
+            self.transactions.insert(tx.tx.hash(), height);
         }
 
         Ok(())
@@ -889,24 +884,13 @@ impl WorldStateView {
             .flat_map(|block| {
                 let block = block.as_v1();
                 block
-                    .rejected_transactions
+                    .transactions
                     .iter()
                     .cloned()
-                    .map(|versioned_rejected_tx| TransactionQueryResult {
-                        transaction: TransactionValue::RejectedTransaction(versioned_rejected_tx),
+                    .map(|versioned_tx| TransactionQueryResult {
+                        transaction: versioned_tx,
                         block_hash: block.hash(),
                     })
-                    .chain(
-                        block
-                            .transactions
-                            .iter()
-                            .cloned()
-                            .map(VersionedSignedTransaction::from)
-                            .map(|versioned_tx| TransactionQueryResult {
-                                transaction: TransactionValue::Transaction(versioned_tx),
-                                block_hash: block.hash(),
-                            }),
-                    )
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
@@ -924,26 +908,10 @@ impl WorldStateView {
         let block_hash = block.as_v1().hash();
         block
             .as_v1()
-            .rejected_transactions
+            .transactions
             .iter()
-            .find(
-                |RejectedTransaction {
-                     transaction,
-                     error: _,
-                 }| transaction.hash() == *hash,
-            )
+            .find(|e| e.tx.hash() == *hash)
             .cloned()
-            .map(TransactionValue::RejectedTransaction)
-            .or_else(|| {
-                block
-                    .as_v1()
-                    .transactions
-                    .iter()
-                    .find(|e| e.hash() == *hash)
-                    .cloned()
-                    .map(VersionedSignedTransaction::from)
-                    .map(TransactionValue::Transaction)
-            })
             .map(|tx| TransactionQueryResult {
                 transaction: tx,
                 block_hash,
@@ -962,27 +930,10 @@ impl WorldStateView {
                 let block_hash = block.hash();
 
                 block
-                    .rejected_transactions
+                    .transactions
                     .iter()
-                    .filter(
-                        |RejectedTransaction {
-                             transaction,
-                             error: _,
-                         }| {
-                            transaction.payload().authority == *account_id
-                        },
-                    )
+                    .filter(|tx| &tx.payload().authority == account_id)
                     .cloned()
-                    .map(TransactionValue::RejectedTransaction)
-                    .chain(
-                        block
-                            .transactions
-                            .iter()
-                            .filter(|tx| &tx.payload().authority == account_id)
-                            .cloned()
-                            .map(VersionedSignedTransaction::from)
-                            .map(TransactionValue::Transaction),
-                    )
                     .map(|tx| TransactionQueryResult {
                         transaction: tx,
                         block_hash,

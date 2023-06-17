@@ -3,6 +3,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{
+    cmp::Ordering,
     fmt::{Display, Formatter, Result as FmtResult},
     iter::IntoIterator,
     num::{NonZeroU32, NonZeroU64},
@@ -165,12 +166,14 @@ pub mod model {
         pub signatures: SignaturesOf<TransactionPayload>,
     }
 
-    /// Transaction rejected by the validator
+    /// Transaction Value used in Instructions and Queries
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[ffi_type]
-    pub struct RejectedTransaction {
-        pub transaction: VersionedSignedTransaction,
-        pub error: error::TransactionRejectionReason,
+    pub struct TransactionValue {
+        /// Committed transaction
+        pub tx: VersionedSignedTransaction,
+        /// Reason of rejection
+        pub error: Option<error::TransactionRejectionReason>,
     }
 }
 
@@ -334,6 +337,30 @@ impl SignedTransaction {
 
     fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
         &self.signatures
+    }
+}
+
+impl TransactionValue {
+    /// Used to return payload of the transaction
+    #[inline]
+    pub fn payload(&self) -> &TransactionPayload {
+        self.tx.payload()
+    }
+}
+
+impl PartialOrd for TransactionValue {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TransactionValue {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.payload()
+            .creation_time_ms
+            .cmp(&other.payload().creation_time_ms)
     }
 }
 
@@ -743,7 +770,7 @@ pub mod prelude {
     #[cfg(feature = "http")]
     pub use super::http::TransactionBuilder;
     pub use super::{
-        error::prelude::*, Executable, RejectedTransaction, TransactionPayload,
+        error::prelude::*, Executable, TransactionPayload, TransactionValue,
         VersionedSignedTransaction, WasmSmartContract,
     };
 }

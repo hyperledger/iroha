@@ -312,7 +312,6 @@ types!(
     RaiseTo,
     RegisterBox,
     RegistrableBox,
-    RejectedTransaction,
     RemoveKeyValueBox,
     Repeats,
     RevokeBox,

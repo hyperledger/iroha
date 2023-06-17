@@ -334,13 +334,13 @@ mod tests {
         assert_eq!(txs.len() as u64, num_blocks * 2);
         assert_eq!(
             txs.iter()
-                .filter(|txn| matches!(txn.transaction, TransactionValue::RejectedTransaction(_)))
+                .filter(|txn| txn.transaction.error.is_some())
                 .count() as u64,
             num_blocks
         );
         assert_eq!(
             txs.iter()
-                .filter(|txn| matches!(txn.transaction, TransactionValue::Transaction(_)))
+                .filter(|txn| txn.transaction.error.is_none())
                 .count() as u64,
             num_blocks
         );
@@ -387,11 +387,11 @@ mod tests {
         assert!(matches!(not_found, Err(_)));
 
         let found_accepted = FindTransactionByHash::new(va_tx.hash()).execute(&wsv)?;
-        match found_accepted.transaction {
-            TransactionValue::Transaction(tx) => {
-                assert_eq!(va_tx.hash().transmute(), tx.hash())
-            }
-            TransactionValue::RejectedTransaction(_) => {}
+        if found_accepted.transaction.error.is_none() {
+            assert_eq!(
+                va_tx.hash().transmute(),
+                found_accepted.transaction.tx.hash()
+            )
         }
         Ok(())
     }
