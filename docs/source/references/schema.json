@@ -695,12 +695,8 @@
         "type": "BlockHeader"
       },
       {
-        "name": "rejected_transactions",
-        "type": "Vec<RejectedTransaction>"
-      },
-      {
         "name": "transactions",
-        "type": "Vec<VersionedSignedTransaction>"
+        "type": "Vec<TransactionValue>"
       },
       {
         "name": "event_recommendations",
@@ -3021,6 +3017,9 @@
   "Option<TimeInterval>": {
     "Option": "TimeInterval"
   },
+  "Option<TransactionRejectionReason>": {
+    "Option": "TransactionRejectionReason"
+  },
   "Option<u32>": {
     "Option": "u32"
   },
@@ -3681,18 +3680,6 @@
       }
     ]
   },
-  "RejectedTransaction": {
-    "Struct": [
-      {
-        "name": "transaction",
-        "type": "VersionedSignedTransaction"
-      },
-      {
-        "name": "error",
-        "type": "TransactionRejectionReason"
-      }
-    ]
-  },
   "RemoveKeyValueBox": {
     "Struct": [
       {
@@ -4256,16 +4243,14 @@
     ]
   },
   "TransactionValue": {
-    "Enum": [
+    "Struct": [
       {
-        "tag": "Transaction",
-        "discriminant": 0,
+        "name": "tx",
         "type": "VersionedSignedTransaction"
       },
       {
-        "tag": "RejectedTransaction",
-        "discriminant": 1,
-        "type": "RejectedTransaction"
+        "name": "error",
+        "type": "Option<TransactionRejectionReason>"
       }
     ]
   },
@@ -4768,17 +4753,14 @@
   "Vec<PeerId>": {
     "Vec": "PeerId"
   },
-  "Vec<RejectedTransaction>": {
-    "Vec": "RejectedTransaction"
+  "Vec<TransactionValue>": {
+    "Vec": "TransactionValue"
   },
   "Vec<Value>": {
     "Vec": "Value"
   },
   "Vec<Vec<InstructionBox>>": {
     "Vec": "Vec<InstructionBox>"
-  },
-  "Vec<VersionedSignedTransaction>": {
-    "Vec": "VersionedSignedTransaction"
   },
   "Vec<u8>": {
     "Vec": "u8"

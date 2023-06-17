@@ -112,8 +112,15 @@ impl SumeragiHandle {
                     break;
                 };
                 block_index += 1;
-                let block_txs_accepted = block.as_v1().transactions.len() as u64;
-                let block_txs_rejected = block.as_v1().rejected_transactions.len() as u64;
+                let mut block_txs_accepted = 0;
+                let mut block_txs_rejected = 0;
+                for tx in &block.as_v1().transactions {
+                    if tx.error.is_none() {
+                        block_txs_accepted += 1;
+                    } else {
+                        block_txs_rejected += 1;
+                    }
+                }
 
                 self.metrics
                     .txs

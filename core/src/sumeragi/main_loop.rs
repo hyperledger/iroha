@@ -262,7 +262,7 @@ impl Sumeragi {
         }
         .build();
         assert!(
-            block.rejected_transactions.is_empty(),
+            !block.transactions.iter().any(|tx| tx.error.is_some()),
             "Genesis transaction set contains invalid transactions"
         );
 

@@ -176,14 +176,9 @@ mod committed {
         pub struct CommittedBlock {
             /// Block header
             pub header: BlockHeader,
-            /// Array of rejected transactions.
             // TODO: Derive with getset once FFI impl is fixed
             #[getset(skip)]
-            pub rejected_transactions: Vec<RejectedTransaction>,
-            /// array of transactions, which successfully passed validation and consensus step.
-            // TODO: Derive with getset once FFI impl is fixed
-            #[getset(skip)]
-            pub transactions: Vec<VersionedSignedTransaction>,
+            pub transactions: Vec<TransactionValue>,
             /// Event recommendations.
             // TODO: Derive with getset once FFI impl is fixed
             #[getset(skip)]
@@ -320,24 +315,24 @@ mod committed {
     #[cfg(feature = "std")]
     impl From<&CommittedBlock> for Vec<Event> {
         fn from(block: &CommittedBlock) -> Self {
-            let rejected_tx = block.rejected_transactions.iter().cloned().map(
-                |RejectedTransaction { transaction, error }| {
-                    PipelineEvent {
+            let tx = block
+                .transactions
+                .iter()
+                .cloned()
+                .map(|tx| match &tx.error {
+                    None => PipelineEvent {
                         entity_kind: PipelineEntityKind::Transaction,
-                        status: PipelineStatus::Rejected(error.into()),
-                        hash: transaction.payload().hash().into(),
+                        status: PipelineStatus::Committed,
+                        hash: tx.payload().hash().into(),
                     }
-                    .into()
-                },
-            );
-            let tx = block.transactions.iter().cloned().map(|tx| {
-                PipelineEvent {
-                    entity_kind: PipelineEntityKind::Transaction,
-                    status: PipelineStatus::Committed,
-                    hash: tx.payload().hash().into(),
-                }
-                .into()
-            });
+                    .into(),
+                    Some(error) => PipelineEvent {
+                        entity_kind: PipelineEntityKind::Transaction,
+                        status: PipelineStatus::Rejected(error.clone().into()),
+                        hash: tx.payload().hash().into(),
+                    }
+                    .into(),
+                });
             let current_block = core::iter::once(
                 PipelineEvent {
                     entity_kind: PipelineEntityKind::Block,
@@ -347,7 +342,7 @@ mod committed {
                 .into(),
             );
 
-            tx.chain(rejected_tx).chain(current_block).collect()
+            tx.chain(current_block).collect()
         }
     }
 

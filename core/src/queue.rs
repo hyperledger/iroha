@@ -223,7 +223,7 @@ impl Queue {
     pub fn push(&self, tx: AcceptedTransaction, wsv: &WorldStateView) -> Result<(), Failure> {
         trace!(?tx, "Pushing to the queue");
         if let Err(err) = self.check_tx(&tx, wsv) {
-            warn!("Failed to evaluate signature check");
+            warn!("Failed to evaluate signature check. Error = {}", err);
             return Err(Failure { tx, err });
         }
 
