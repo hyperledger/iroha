@@ -9,12 +9,16 @@ extern crate self as iroha_validator;
 
 #[cfg(feature = "default-validator")]
 pub use default::DefaultValidator;
-use iroha_wasm::data_model::{validator::Result, visit::Visit, ValidationFail};
+use iroha_wasm::data_model::{
+    permission::PermissionTokenDefinition, validator::Result, visit::Visit, ValidationFail,
+};
 pub use iroha_wasm::{self, data_model};
 
 #[cfg(feature = "default-validator")]
 pub mod default;
 pub mod permission;
+
+use alloc::vec::Vec;
 
 /// Shortcut for `return Ok(())`.
 #[macro_export]
@@ -108,8 +112,12 @@ macro_rules! declare_tokens {
 
 /// Validator of Iroha operations
 pub trait Validate: Visit {
+    /// Get all [`PermissionTokenDefinition`]'s defined by validator.
+    fn permission_tokens() -> Vec<PermissionTokenDefinition>;
+
     /// Validator verdict.
     fn verdict(&self) -> &Result;
+
     /// Set validator verdict to deny
     fn deny(&mut self, reason: ValidationFail);
 }

@@ -93,9 +93,14 @@ impl Visit for CustomValidator {
 }
 
 impl Validate for CustomValidator {
+    fn permission_tokens() -> Vec<PermissionTokenDefinition> {
+        DefaultValidator::permission_tokens()
+    }
+
     fn verdict(&self) -> &Result {
         self.0.verdict()
     }
+
     fn deny(&mut self, reason: ValidationFail) {
         self.0.deny(reason);
     }
@@ -113,7 +118,7 @@ impl ExpressionEvaluator for CustomValidator {
 /// Entrypoint to return permission token definitions defined in this validator.
 #[entrypoint]
 pub fn permission_tokens() -> Vec<PermissionTokenDefinition> {
-    iroha_validator::default::permission_tokens()
+    CustomValidator::permission_tokens()
 }
 
 /// Allow operation if authority is `admin@admin` and if not,

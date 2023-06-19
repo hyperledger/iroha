@@ -11,7 +11,7 @@ use iroha_validator::prelude::*;
 /// Entrypoint to return permission token definitions defined in this validator.
 #[entrypoint]
 pub fn permission_tokens() -> Vec<PermissionTokenDefinition> {
-    iroha_validator::default::permission_tokens()
+    DefaultValidator::permission_tokens()
 }
 
 /// Validation entrypoint

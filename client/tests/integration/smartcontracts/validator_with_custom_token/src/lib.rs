@@ -126,9 +126,26 @@ impl Visit for CustomValidator {
 }
 
 impl Validate for CustomValidator {
+    fn permission_tokens() -> Vec<PermissionTokenDefinition> {
+        let mut tokens = DefaultValidator::permission_tokens();
+
+        // TODO: Not very convenient usage.
+        // We need to come up with a better way.
+        if let Some(pos) = tokens.iter().position(|definition| {
+            definition
+                == &iroha_validator::default::domain::tokens::CanUnregisterDomain::definition()
+        }) {
+            tokens.remove(pos);
+        }
+
+        tokens.push(token::CanControlDomainsLives::definition());
+        tokens
+    }
+
     fn verdict(&self) -> &Result {
         self.0.verdict()
     }
+
     fn deny(&mut self, reason: ValidationFail) {
         self.0.deny(reason);
     }
@@ -146,18 +163,7 @@ impl ExpressionEvaluator for CustomValidator {
 /// Entrypoint to return permission token definitions defined in this validator.
 #[entrypoint]
 pub fn permission_tokens() -> Vec<PermissionTokenDefinition> {
-    let mut tokens = iroha_validator::default::permission_tokens();
-
-    // TODO: Not very convenient usage.
-    // We need to come up with a better way.
-    if let Some(pos) = tokens.iter().position(|definition| {
-        definition == &iroha_validator::default::domain::tokens::CanUnregisterDomain::definition()
-    }) {
-        tokens.remove(pos);
-    }
-
-    tokens.push(token::CanControlDomainsLives::definition());
-    tokens
+    CustomValidator::permission_tokens()
 }
 
 /// Allow operation if authority is `admin@admin` and if not,

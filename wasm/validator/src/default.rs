@@ -114,24 +114,25 @@ macro_rules! tokens {
 pub(crate) use map_all_crate_tokens;
 pub(crate) use tokens;
 
-pub fn permission_tokens() -> Vec<PermissionTokenDefinition> {
-    let mut v = Vec::new();
+impl Validate for DefaultValidator {
+    fn permission_tokens() -> Vec<PermissionTokenDefinition> {
+        let mut v = Vec::new();
 
-    macro_rules! add_to_vec {
-        ($token_ty:ty) => {
-            v.push(<$token_ty as ::iroha_validator::permission::Token>::definition());
-        };
+        macro_rules! add_to_vec {
+            ($token_ty:ty) => {
+                v.push(<$token_ty as ::iroha_validator::permission::Token>::definition());
+            };
+        }
+
+        map_all_crate_tokens!(add_to_vec);
+
+        v
     }
 
-    map_all_crate_tokens!(add_to_vec);
-
-    v
-}
-
-impl Validate for DefaultValidator {
     fn verdict(&self) -> &Result {
         &self.verdict
     }
+
     fn deny(&mut self, reason: ValidationFail) {
         self.verdict = Err(reason);
     }
