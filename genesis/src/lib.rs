@@ -66,6 +66,8 @@ impl GenesisNetwork {
                 .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
         )?;
         #[cfg(not(test))]
+        // First instruction should be Validator upgrade.
+        // This makes possible to grant permissions to users in genesis.
         let transactions_iter = std::iter::once(GenesisTransactionBuilder {
             isi: vec![UpgradeBox::new(Validator::try_from(raw_block.validator)?).into()],
         })
