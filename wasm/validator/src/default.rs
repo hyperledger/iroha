@@ -1467,6 +1467,18 @@ pub mod permission_token {
         );
     }
 
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn visit_unregister_permission_token<V: Validate + ?Sized>(
+        validator: &mut V,
+        _authority: &AccountId,
+        _isi: Unregister<PermissionTokenDefinition>,
+    ) {
+        deny!(
+            validator,
+            "Can't unregister permission token, you may consider to upgrade Validator instead"
+        );
+    }
+
     pub fn visit_grant_account_permission<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,

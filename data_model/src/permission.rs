@@ -127,12 +127,6 @@ impl PermissionTokenDefinition {
         }
     }
 
-    /// Get *id* of the [`PermissionTokenDefinition`]
-    #[inline]
-    pub const fn id(&self) -> &PermissionTokenId {
-        &self.id
-    }
-
     /// Add parameters to the [`PermissionTokenDefinition`] replacing any parameters previously defined
     #[inline]
     #[must_use]

@@ -5,10 +5,7 @@ use std::path::Path;
 use eyre::{Result, WrapErr};
 use iroha_client::client::Client;
 use iroha_crypto::KeyPair;
-use iroha_data_model::{
-    prelude::*,
-    query::permission::{FindAllPermissionTokenDefinitions, FindPermissionTokensByAccountId},
-};
+use iroha_data_model::{prelude::*, query::permission::FindAllPermissionTokenDefinitions};
 use iroha_logger::info;
 use test_network::*;
 
