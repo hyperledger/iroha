@@ -156,7 +156,7 @@ fn sign_blocks(criterion: &mut Criterion) {
                 view_change_index: 0,
                 committed_with_topology: Topology::new(Vec::new()),
                 key_pair: key_pair.clone(),
-                wsv: WorldStateView::new(World::new(), kura.clone()),
+                wsv: &mut WorldStateView::new(World::new(), kura.clone()),
             }
             .build();
 

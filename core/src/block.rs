@@ -133,7 +133,7 @@ pub struct PendingBlock {
 }
 
 /// Builder for `PendingBlock`
-pub struct BlockBuilder {
+pub struct BlockBuilder<'a> {
     /// Block's transactions.
     pub transactions: Vec<AcceptedTransaction>,
     /// Block's event recommendations.
@@ -145,12 +145,12 @@ pub struct BlockBuilder {
     /// The keypair used to sign this block.
     pub key_pair: KeyPair,
     /// The world state to be used when validating the block.
-    pub wsv: WorldStateView,
+    pub wsv: &'a mut WorldStateView,
 }
 
-impl BlockBuilder {
+impl BlockBuilder<'_> {
     /// Create a new [`PendingBlock`] from transactions.
-    pub fn build(mut self) -> PendingBlock {
+    pub fn build(self) -> PendingBlock {
         let timestamp = crate::current_time().as_millis();
         let height = self.wsv.height() + 1;
         let previous_block_hash = self.wsv.latest_block_hash();
@@ -171,7 +171,7 @@ impl BlockBuilder {
         let mut txs = Vec::new();
 
         for tx in self.transactions {
-            match transaction_validator.validate(tx, height == 1, &mut self.wsv) {
+            match transaction_validator.validate(tx, height == 1, self.wsv) {
                 Ok(transaction) => txs.push(TransactionValue {
                     tx: transaction,
                     error: None,
@@ -344,7 +344,7 @@ pub trait Revalidate: Sized {
     /// - When the block is deemed invalid.
     fn revalidate<const IS_GENESIS: bool>(
         &self,
-        wsv: WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), BlockRevalidationError>;
 
     /// Return whether or not the block contains transactions already committed.
@@ -356,7 +356,7 @@ pub trait Revalidate: Sized {
 pub trait InGenesis: Sized + Revalidate {
     /// # Errors
     /// - When the block is deemed invalid.
-    fn revalidate(&self, wsv: WorldStateView) -> Result<(), BlockRevalidationError> {
+    fn revalidate(&self, wsv: &mut WorldStateView) -> Result<(), BlockRevalidationError> {
         <Self as Revalidate>::revalidate::<true>(self, wsv)
     }
 }
@@ -366,7 +366,7 @@ pub trait InGenesis: Sized + Revalidate {
 pub trait InBlock: Sized + Revalidate {
     /// # Errors
     /// - When the block is deemed invalid.
-    fn revalidate(&self, wsv: WorldStateView) -> Result<(), BlockRevalidationError> {
+    fn revalidate(&self, wsv: &mut WorldStateView) -> Result<(), BlockRevalidationError> {
         <Self as Revalidate>::revalidate::<false>(self, wsv)
     }
 }
@@ -389,7 +389,7 @@ impl Revalidate for PendingBlock {
     #[allow(clippy::too_many_lines)]
     fn revalidate<const IS_GENESIS: bool>(
         &self,
-        mut wsv: WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), BlockRevalidationError> {
         let latest_block_hash = wsv.latest_block_hash();
         let block_height = wsv.height();
@@ -399,7 +399,7 @@ impl Revalidate for PendingBlock {
             return Err(BlockRevalidationError::Empty);
         }
 
-        if self.has_committed_transactions(&wsv) {
+        if self.has_committed_transactions(wsv) {
             return Err(BlockRevalidationError::HasCommittedTransactions);
         }
 
@@ -425,7 +425,7 @@ impl Revalidate for PendingBlock {
 
         revalidate_transactions(
             &self.transactions,
-            &mut wsv,
+            wsv,
             transaction_validator,
             self.is_genesis(),
         )?;
@@ -459,7 +459,7 @@ impl Revalidate for VersionedCommittedBlock {
     #[allow(clippy::too_many_lines)]
     fn revalidate<const IS_GENESIS: bool>(
         &self,
-        mut wsv: WorldStateView,
+        wsv: &mut WorldStateView,
     ) -> Result<(), BlockRevalidationError> {
         let latest_block_hash = wsv.latest_block_hash();
         let block_height = wsv.height();
@@ -470,7 +470,7 @@ impl Revalidate for VersionedCommittedBlock {
             "Height of 0 only allowed when IN_GENESIS round (height: {block_height}, is_genesis: {IS_GENESIS}). This is a bug."
         );
 
-        if self.has_committed_transactions(&wsv) {
+        if self.has_committed_transactions(wsv) {
             return Err(BlockRevalidationError::HasCommittedTransactions);
         }
 
@@ -535,7 +535,7 @@ impl Revalidate for VersionedCommittedBlock {
 
                 revalidate_transactions(
                     &block.transactions,
-                    &mut wsv,
+                    wsv,
                     transaction_validator,
                     block.is_genesis(),
                 )?;
@@ -686,7 +686,7 @@ mod tests {
         assert!(domain.add_account(account).is_none());
         let world = World::with([domain], Vec::new());
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world, kura);
+        let mut wsv = WorldStateView::new(world, kura);
 
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
@@ -709,7 +709,7 @@ mod tests {
             view_change_index: 0,
             committed_with_topology: Topology::new(Vec::new()),
             key_pair: alice_keys,
-            wsv,
+            wsv: &mut wsv,
         }
         .build();
 
@@ -732,7 +732,7 @@ mod tests {
         assert!(domain.add_account(account).is_none());
         let world = World::with([domain], Vec::new());
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world, kura);
+        let mut wsv = WorldStateView::new(world, kura);
 
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
@@ -780,7 +780,7 @@ mod tests {
             view_change_index: 0,
             committed_with_topology: Topology::new(Vec::new()),
             key_pair: alice_keys,
-            wsv: wsv.clone(),
+            wsv: &mut wsv.clone(),
         }
         .build();
 
@@ -790,7 +790,7 @@ mod tests {
         // The third transaction should succeed
         assert!(valid_block.transactions[2].error.is_none());
 
-        Revalidate::revalidate::<true>(&valid_block, wsv).unwrap();
+        Revalidate::revalidate::<true>(&valid_block, &mut wsv).unwrap();
     }
 
     #[test]
@@ -808,7 +808,7 @@ mod tests {
         );
         let world = World::with([domain], Vec::new());
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world, kura);
+        let mut wsv = WorldStateView::new(world, kura);
         let transaction_limits = &wsv.transaction_validator().transaction_limits;
 
         let domain_id = DomainId::from_str("domain").expect("Valid");
@@ -839,7 +839,7 @@ mod tests {
             view_change_index: 0,
             committed_with_topology: Topology::new(Vec::new()),
             key_pair: alice_keys,
-            wsv,
+            wsv: &mut wsv,
         }
         .build();
 

@@ -171,8 +171,9 @@ impl Sumeragi {
             // the genesis block.
             match self.message_receiver.try_recv() {
                 Ok(packet) => {
-                    let block = match packet.message {
+                    let (block, new_wsv) = match packet.message {
                         Message::BlockCreated(BlockCreated { block }) => {
+                            let mut new_wsv = self.wsv.clone();
                             // If we receive a committed genesis block that is
                             // valid, use it without question.  During the
                             // genesis round we blindly take on the network
@@ -184,10 +185,8 @@ impl Sumeragi {
                                     "Genesis Round Peer is revalidating the block."
                                 );
                                 let _enter = span.enter();
-                                match <PendingBlock as InGenesis>::revalidate(
-                                    &block,
-                                    self.wsv.clone(),
-                                ) {
+                                match <PendingBlock as InGenesis>::revalidate(&block, &mut new_wsv)
+                                {
                                     Ok(()) => block,
                                     Err(error) => {
                                         error!(?error);
@@ -196,15 +195,16 @@ impl Sumeragi {
                                 }
                             };
                             // Omit signature verification during genesis round
-                            block.commit_unchecked().into()
+                            (block.commit_unchecked().into(), new_wsv)
                         }
                         Message::BlockSyncUpdate(BlockSyncUpdate { block }) => {
+                            let mut new_wsv = self.wsv.clone();
                             // Omit signature verification during genesis round
                             match <VersionedCommittedBlock as InGenesis>::revalidate(
                                 &block,
-                                self.wsv.clone(),
+                                &mut new_wsv,
                             ) {
-                                Ok(()) => block,
+                                Ok(()) => (block, new_wsv),
                                 Err(error) => {
                                     error!(?error);
                                     continue;
@@ -227,7 +227,7 @@ impl Sumeragi {
                             }
                         }
 
-                        self.commit_block(block);
+                        self.commit_block(block, new_wsv);
                         return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                     }
                     debug!("Received a block that was not genesis.");
@@ -258,13 +258,14 @@ impl Sumeragi {
             "Genesis transaction set contains no valid transactions"
         );
 
+        let mut new_wsv = self.wsv.clone();
         let block = BlockBuilder {
             transactions,
             event_recommendations: Vec::new(),
             view_change_index: 0,
             committed_with_topology: self.current_topology.clone(),
             key_pair: self.key_pair.clone(),
-            wsv: self.wsv.clone(),
+            wsv: &mut new_wsv,
         }
         .build();
         assert!(
@@ -285,16 +286,20 @@ impl Sumeragi {
             let msg = MessagePacket::new(ProofChain::default(), BlockCreated::from(block.clone()));
             self.broadcast_packet(msg);
             // Omit signature verification during genesis round
-            self.commit_block(block.commit_unchecked());
+            self.commit_block(block.commit_unchecked(), new_wsv);
         }
     }
 
-    fn commit_block(&mut self, block: impl Into<VersionedCommittedBlock>) {
-        self.update_state::<NewBlockStrategy>(block);
+    fn commit_block(&mut self, block: impl Into<VersionedCommittedBlock>, new_wsv: WorldStateView) {
+        self.update_state::<NewBlockStrategy>(block, new_wsv);
     }
 
-    fn replace_top_block(&mut self, block: impl Into<VersionedCommittedBlock>) {
-        self.update_state::<ReplaceTopBlockStrategy>(block);
+    fn replace_top_block(
+        &mut self,
+        block: impl Into<VersionedCommittedBlock>,
+        new_wsv: WorldStateView,
+    ) {
+        self.update_state::<ReplaceTopBlockStrategy>(block, new_wsv);
     }
 
     fn update_topology(&mut self, committed_block: &VersionedCommittedBlock) {
@@ -318,6 +323,7 @@ impl Sumeragi {
     fn update_state<Strategy: ApplyBlockStrategy>(
         &mut self,
         block: impl Into<VersionedCommittedBlock>,
+        mut new_wsv: WorldStateView,
     ) {
         let committed_block = Arc::new(block.into());
 
@@ -331,9 +337,10 @@ impl Sumeragi {
 
         Strategy::before_update_hook(self);
 
-        self.wsv
-            .apply(committed_block.as_ref())
+        new_wsv
+            .apply_without_execution(committed_block.as_ref())
             .expect("Failed to apply block on WSV. Bailing.");
+        self.wsv = new_wsv;
 
         let events_buffer = core::mem::take(&mut self.wsv.events_buffer);
         self.send_events(events_buffer);
@@ -447,8 +454,10 @@ fn handle_message(
             info!(%addr, %role, hash=%block_hash, "Block sync update received");
 
             match handle_block_sync(block, &sumeragi.wsv, &sumeragi.finalized_wsv) {
-                Ok(BlockSyncOk::CommitBlock(block)) => sumeragi.commit_block(block),
-                Ok(BlockSyncOk::ReplaceTopBlock(block)) => {
+                Ok(BlockSyncOk::CommitBlock(block, new_wsv)) => {
+                    sumeragi.commit_block(block, new_wsv)
+                }
+                Ok(BlockSyncOk::ReplaceTopBlock(block, new_wsv)) => {
                     warn!(
                         %addr, %role,
                         peer_latest_block_hash=?sumeragi.wsv.latest_block_hash(),
@@ -457,7 +466,7 @@ fn handle_message(
                         consensus_latest_block_view_change_index=%block.as_v1().header.view_change_index,
                         "Soft fork occurred: peer in inconsistent state. Rolling back and replacing top block."
                     );
-                    sumeragi.replace_top_block(block)
+                    sumeragi.replace_top_block(block, new_wsv)
                 }
                 Err(BlockSyncError::BlockNotValid(error)) => {
                     error!(%addr, %role, %block_hash, ?error, "Block not valid.")
@@ -501,7 +510,9 @@ fn handle_message(
                     add_signatures::<true>(&mut voted_block, signatures.transmute());
 
                     match voted_block.block.commit(current_topology) {
-                        Ok(committed_block) => sumeragi.commit_block(committed_block),
+                        Ok(committed_block) => {
+                            sumeragi.commit_block(committed_block, voted_block.new_wsv)
+                        }
                         Err((_, err)) => {
                             error!(%addr, %role, %hash, ?err, "Block failed to be committed")
                         }
@@ -616,6 +627,7 @@ fn process_message_independent(
                     info!(txns=%transactions.len(), "Creating block...");
 
                     // TODO: properly process triggers!
+                    let mut new_wsv = sumeragi.wsv.clone();
                     let event_recommendations = Vec::new();
                     let new_block = BlockBuilder {
                         transactions,
@@ -623,14 +635,14 @@ fn process_message_independent(
                         view_change_index: current_view_change_index,
                         committed_with_topology: sumeragi.current_topology.clone(),
                         key_pair: sumeragi.key_pair.clone(),
-                        wsv: sumeragi.wsv.clone(),
+                        wsv: &mut new_wsv,
                     }
                     .build();
 
                     sumeragi.send_events(&new_block);
                     if current_topology.is_consensus_required() {
                         info!(%addr, partial_hash=%new_block.partial_hash(), "Block created");
-                        *voting_block = Some(VotingBlock::new(new_block.clone()));
+                        *voting_block = Some(VotingBlock::new(new_block.clone(), new_wsv));
 
                         let msg = MessagePacket::new(
                             view_change_proof_chain.clone(),
@@ -658,7 +670,7 @@ fn process_message_independent(
                                 );
 
                                 sumeragi.broadcast_packet(msg);
-                                sumeragi.commit_block(committed_block);
+                                sumeragi.commit_block(committed_block, new_wsv);
                             }
                             Err(err) => error!(%addr, role=%Role::Leader, ?err),
                         }
@@ -669,6 +681,7 @@ fn process_message_independent(
         Role::ProxyTail => {
             if let Some(voted_block) = voting_block.take() {
                 let voted_at = voted_block.voted_at;
+                let new_wsv = voted_block.new_wsv;
 
                 match voted_block.block.commit(current_topology) {
                     Ok(committed_block) => {
@@ -710,11 +723,11 @@ fn process_message_independent(
                                 );
                             }
                         }
-                        sumeragi.commit_block(committed_block);
+                        sumeragi.commit_block(committed_block, new_wsv);
                     }
                     Err((block, err)) => {
                         // Restore the current voting block and continue the round
-                        *voting_block = Some(VotingBlock::voted_at(block, voted_at));
+                        *voting_block = Some(VotingBlock::voted_at(block, new_wsv, voted_at));
                         trace!(?err, "Not enough signatures, waiting for more...");
                     }
                 }
@@ -975,11 +988,12 @@ fn vote_for_block(
     let role = sumeragi.current_topology.role(&sumeragi.peer_id);
     trace!(%addr, %role, block_hash=%block_hash, "Block received, voting...");
 
+    let mut new_wsv = sumeragi.wsv.clone();
     let mut block = {
         let span = span!(Level::TRACE, "block revalidation");
         let _enter = span.enter();
 
-        match <PendingBlock as InBlock>::revalidate(&block, sumeragi.wsv.clone()) {
+        match <PendingBlock as InBlock>::revalidate(&block, &mut new_wsv) {
             Ok(()) => block,
             Err(err) => {
                 warn!(%addr, %role, ?err);
@@ -1015,7 +1029,7 @@ fn vote_for_block(
         .expect("Block signing failed");
 
     sumeragi.send_events(&signed_block);
-    Some(VotingBlock::new(signed_block))
+    Some(VotingBlock::new(signed_block, new_wsv))
 }
 
 /// Type enumerating early return types to reduce cyclomatic
@@ -1067,7 +1081,8 @@ impl ApplyBlockStrategy for NewBlockStrategy {
     #[inline]
     fn before_update_hook(sumeragi: &mut Sumeragi) {
         // Save current wsv state in case of rollback in the future
-        sumeragi.finalized_wsv = sumeragi.wsv.clone();
+        // Use swap to avoid cloning since `wsv` will be overwritten anyway by `new_wsv`
+        core::mem::swap(&mut sumeragi.finalized_wsv, &mut sumeragi.wsv);
     }
 
     #[inline]
@@ -1083,9 +1098,8 @@ impl ApplyBlockStrategy for ReplaceTopBlockStrategy {
     const LOG_MESSAGE: &'static str = "Replacing top block";
 
     #[inline]
-    fn before_update_hook(sumeragi: &mut Sumeragi) {
-        // Rollback to previous wsv state before applying block
-        sumeragi.wsv = sumeragi.finalized_wsv.clone();
+    fn before_update_hook(_sumeragi: &mut Sumeragi) {
+        // Do nothing since valid new_wsv already provided
     }
 
     #[inline]
@@ -1094,10 +1108,9 @@ impl ApplyBlockStrategy for ReplaceTopBlockStrategy {
     }
 }
 
-#[derive(Debug)]
 enum BlockSyncOk {
-    CommitBlock(VersionedCommittedBlock),
-    ReplaceTopBlock(VersionedCommittedBlock),
+    CommitBlock(VersionedCommittedBlock, WorldStateView),
+    ReplaceTopBlock(VersionedCommittedBlock, WorldStateView),
 }
 
 #[derive(Debug)]
@@ -1123,19 +1136,21 @@ fn handle_block_sync(
     let wsv_height = wsv.height();
     if wsv_height + 1 == block_height {
         // Normal branch for adding new block on top of current
-        InBlock::revalidate(&block, wsv.clone())
-            .map(|_| BlockSyncOk::CommitBlock(block))
+        let mut new_wsv = wsv.clone();
+        InBlock::revalidate(&block, &mut new_wsv)
+            .map(|_| BlockSyncOk::CommitBlock(block, new_wsv))
             .map_err(BlockSyncError::BlockNotValid)
     } else if wsv_height == block_height && block_height > 1 {
         // Soft-fork on genesis block isn't possible
         // Soft fork branch for replacing current block with valid one
-        InBlock::revalidate(&block, finalized_wsv.clone())
+        let mut new_wsv = finalized_wsv.clone();
+        InBlock::revalidate(&block, &mut new_wsv)
             .map_err(BlockSyncError::SoftForkBlockNotValid)
             .and_then(|_| {
                 let peer_view_change_index = wsv.latest_block_view_change_index();
                 let block_view_change_index = block.as_v1().header.view_change_index;
                 if peer_view_change_index < block_view_change_index {
-                    Ok(BlockSyncOk::ReplaceTopBlock(block))
+                    Ok(BlockSyncOk::ReplaceTopBlock(block, new_wsv))
                 } else {
                     Err(BlockSyncError::SoftForkBlockSmallViewChangeIndex {
                         peer_view_change_index,
@@ -1194,7 +1209,7 @@ mod tests {
             view_change_index: 0,
             committed_with_topology: Topology::new(Vec::new()),
             key_pair: alice_keys.clone(),
-            wsv: wsv.clone(),
+            wsv: &mut wsv.clone(),
         }
         .build();
 
@@ -1227,7 +1242,7 @@ mod tests {
             view_change_index: 0,
             committed_with_topology: Topology::new(Vec::new()),
             key_pair: alice_keys,
-            wsv: wsv.clone(),
+            wsv: &mut wsv.clone(),
         }
         .build();
 
@@ -1289,7 +1304,7 @@ mod tests {
         let (finalized_wsv, _, block) = create_data_for_test();
         let wsv = finalized_wsv.clone();
         let result = handle_block_sync(block, &wsv, &finalized_wsv);
-        assert!(matches!(result, Ok(BlockSyncOk::CommitBlock(_))))
+        assert!(matches!(result, Ok(BlockSyncOk::CommitBlock(_, _))))
     }
 
     #[test]
@@ -1305,7 +1320,7 @@ mod tests {
         block.as_mut_v1().header.view_change_index = 42;
 
         let result = handle_block_sync(block, &wsv, &finalized_wsv);
-        assert!(matches!(result, Ok(BlockSyncOk::ReplaceTopBlock(_))))
+        assert!(matches!(result, Ok(BlockSyncOk::ReplaceTopBlock(_, _))))
     }
 
     #[test]
