@@ -20,7 +20,7 @@ fn create_block(
     instructions: Vec<InstructionBox>,
     account_id: AccountId,
     key_pair: KeyPair,
-    wsv: WorldStateView,
+    wsv: &mut WorldStateView,
 ) -> Result<VersionedCommittedBlock> {
     let transaction = TransactionBuilder::new(account_id)
         .with_instructions(instructions)
@@ -227,13 +227,8 @@ impl WsvValidateBlocks {
 
         for instructions in instructions {
             finalized_wsv = wsv.clone();
-            let block = create_block(
-                instructions,
-                account_id.clone(),
-                key_pair.clone(),
-                wsv.clone(),
-            )?;
-            wsv.apply(&block)?;
+            let block = create_block(instructions, account_id.clone(), key_pair.clone(), &mut wsv)?;
+            wsv.apply_without_execution(&block)?;
             assert_eq!(wsv.height(), finalized_wsv.height() + 1);
         }
 

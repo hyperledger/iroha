@@ -44,7 +44,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
         view_change_index: 0,
         committed_with_topology: iroha_core::sumeragi::network_topology::Topology::new(Vec::new()),
         key_pair: KeyPair::generate().expect("Failed to generate KeyPair"),
-        wsv: WorldStateView::new(World::new(), kura),
+        wsv: &mut WorldStateView::new(World::new(), kura),
     }
     .build();
 

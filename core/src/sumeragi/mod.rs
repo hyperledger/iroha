@@ -322,26 +322,36 @@ pub const PEERS_CONNECT_INTERVAL: Duration = Duration::from_secs(1);
 pub const TELEMETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Structure represents a block that is currently in discussion.
-#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct VotingBlock {
     /// At what time has this peer voted for this block
     pub voted_at: Instant,
     /// Valid Block
     pub block: PendingBlock,
+    /// WSV after applying transactions to it
+    pub new_wsv: WorldStateView,
 }
 
 impl VotingBlock {
     /// Construct new `VotingBlock` with current time.
-    pub fn new(block: PendingBlock) -> VotingBlock {
+    pub fn new(block: PendingBlock, new_wsv: WorldStateView) -> VotingBlock {
         VotingBlock {
             block,
             voted_at: Instant::now(),
+            new_wsv,
         }
     }
     /// Construct new `VotingBlock` with the given time.
-    pub(crate) fn voted_at(block: PendingBlock, voted_at: Instant) -> VotingBlock {
-        VotingBlock { block, voted_at }
+    pub(crate) fn voted_at(
+        block: PendingBlock,
+        new_wsv: WorldStateView,
+        voted_at: Instant,
+    ) -> VotingBlock {
+        VotingBlock {
+            block,
+            voted_at,
+            new_wsv,
+        }
     }
 }
 
