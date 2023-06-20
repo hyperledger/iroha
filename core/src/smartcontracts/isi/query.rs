@@ -307,17 +307,18 @@ mod tests {
     #[test]
     fn find_block_header_by_hash() -> Result<()> {
         let wsv = wsv_with_test_blocks_and_transactions(1, 1, 1)?;
-
         let block = wsv.all_blocks().into_iter().last().expect("WSV is empty");
 
         assert_eq!(
-            FindBlockHeaderByHash::new(*block.hash()).execute(&wsv)?,
+            FindBlockHeaderByHash::new(block.hash()).execute(&wsv)?,
             block.as_v1().header
         );
 
-        assert!(FindBlockHeaderByHash::new(Hash::new([42]))
-            .execute(&wsv)
-            .is_err());
+        assert!(
+            FindBlockHeaderByHash::new(HashOf::from_untyped_unchecked(Hash::new([42])))
+                .execute(&wsv)
+                .is_err()
+        );
 
         Ok(())
     }
@@ -376,11 +377,16 @@ mod tests {
         wsv.apply(&vcb)?;
         kura.store_block(vcb);
 
-        let wrong_hash: Hash = HashOf::new(&2_u8).into();
+        let unapplied_tx = TransactionBuilder::new(ALICE_ID.clone())
+            .with_instructions([UnregisterBox::new(
+                "account@domain".parse::<AccountId>().unwrap(),
+            )])
+            .sign(ALICE_KEYS.clone())?;
+        let wrong_hash = unapplied_tx.hash();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);
         assert!(matches!(not_found, Err(_)));
 
-        let found_accepted = FindTransactionByHash::new(Hash::from(va_tx.hash())).execute(&wsv)?;
+        let found_accepted = FindTransactionByHash::new(va_tx.hash()).execute(&wsv)?;
         match found_accepted.transaction {
             TransactionValue::Transaction(tx) => {
                 assert_eq!(va_tx.hash().transmute(), tx.hash())
