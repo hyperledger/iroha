@@ -376,8 +376,20 @@ pub mod isi {
                 .values()
                 .cloned()
                 .collect::<HashSet<_>>();
-            let new_permission_token_definitions =
-                HashSet::from_iter(new_permission_token_definitions);
+            let new_permission_token_definitions = {
+                let mut tokens = HashSet::new();
+                for token in new_permission_token_definitions {
+                    let token_id = token.id().clone();
+                    let newly_inserted = tokens.insert(token);
+                    if !newly_inserted {
+                        return Err(InvalidParameterError::Wasm(format!(
+                            "Retrieved permission tokens definitions contain duplicate: `{token_id}`",
+                        ))
+                        .into());
+                    }
+                }
+                tokens
+            };
 
             old_permission_token_definitions
                 .difference(&new_permission_token_definitions)
