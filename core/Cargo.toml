@@ -87,10 +87,20 @@ name = "apply_blocks"
 harness = false
 path = "benches/apply_blocks/benchmark.rs"
 
+[[bench]]
+name = "validate_blocks"
+harness = false
+path = "benches/validate_blocks/benchmark.rs"
+
 [[example]]
 name = "apply_blocks"
 harness = false
 path = "benches/apply_blocks/oneshot.rs"
+
+[[example]]
+name = "validate_blocks"
+harness = false
+path = "benches/validate_blocks/oneshot.rs"
 
 [package.metadata.cargo-all-features]
 denylist = [
