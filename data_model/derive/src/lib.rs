@@ -485,16 +485,15 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> TokenStream {
 pub fn has_origin_derive(input: TokenStream) -> TokenStream {
     has_origin::impl_has_origin(&parse_macro_input!(input))
 }
-
-/// Derive macro to implement `AssociatedConstant<T>` trait for enum variants where
-/// `T` is the type of discriminant.
-/// So perfectly this macro should be used together with `EnumDiscriminants` derive macro from `strum` crate.
+/// Derive macro implementing the [`AssociatedConstant<T>`](iroha_data_model::AssociatedConstant) trait.
 ///
-/// It's the user responsibility to import `AssociatedConstant` trait.
+/// # Notes
+///
+/// You should import `AssociatedConstant`.
 ///
 /// # Attributes
 ///
-/// `#[variant_discriminant(name(DiscriminantType))]` attribute is required.
+/// `#[variant_discriminant(name(DiscriminantType))]` attribute where `DiscriminantType` is the name of the `enum` that should serve as the discriminant enumeration.
 ///
 /// # Examples
 ///
