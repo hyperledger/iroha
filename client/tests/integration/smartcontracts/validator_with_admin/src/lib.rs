@@ -69,7 +69,6 @@ impl Visit for CustomValidator {
         visit_remove_asset_definition_key_value(RemoveKeyValue<AssetDefinition>),
 
         // Permission validation
-        visit_register_permission_token(Register<PermissionTokenDefinition>),
         visit_grant_account_permission(Grant<Account, PermissionToken>),
         visit_revoke_account_permission(Revoke<Account, PermissionToken>),
 

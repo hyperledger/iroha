@@ -21,10 +21,7 @@ use domain::{visit_remove_domain_key_value, visit_set_domain_key_value, visit_un
 use iroha_wasm::data_model::visit::Visit;
 use parameter::{visit_new_parameter, visit_set_parameter};
 use peer::visit_unregister_peer;
-use permission_token::{
-    visit_grant_account_permission, visit_register_permission_token,
-    visit_revoke_account_permission,
-};
+use permission_token::{visit_grant_account_permission, visit_revoke_account_permission};
 use role::{visit_grant_account_role, visit_revoke_account_role, visit_unregister_role};
 use trigger::{visit_execute_trigger, visit_mint_trigger_repetitions, visit_unregister_trigger};
 use validator::visit_upgrade_validator;
@@ -212,7 +209,6 @@ impl Visit for DefaultValidator {
         visit_remove_asset_definition_key_value(RemoveKeyValue<AssetDefinition>),
 
         // Permission validation
-        visit_register_permission_token(Register<PermissionTokenDefinition>),
         visit_grant_account_permission(Grant<Account, PermissionToken>),
         visit_revoke_account_permission(Revoke<Account, PermissionToken>),
 
@@ -1454,30 +1450,6 @@ pub mod permission_token {
             map_all_crate_tokens!(visit_internal);
             deny!($validator, "Unknown permission token");
         };
-    }
-
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn visit_register_permission_token<V: Validate + ?Sized>(
-        validator: &mut V,
-        _authority: &AccountId,
-        _isi: Register<PermissionTokenDefinition>,
-    ) {
-        deny!(
-            validator,
-            "Registering new permission token is allowed only in genesis"
-        );
-    }
-
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn visit_unregister_permission_token<V: Validate + ?Sized>(
-        validator: &mut V,
-        _authority: &AccountId,
-        _isi: Unregister<PermissionTokenDefinition>,
-    ) {
-        deny!(
-            validator,
-            "Can't unregister permission token, you may consider to upgrade Validator instead"
-        );
     }
 
     pub fn visit_grant_account_permission<V: Validate + ?Sized>(

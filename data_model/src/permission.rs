@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
-use crate::{IdBox, Identifiable, Name, Registered, Value, ValueKind};
+use crate::{IdBox, Identifiable, Name, Value, ValueKind};
 
 /// Collection of [`Token`]s
 pub type Permissions = BTreeSet<PermissionToken>;
@@ -199,10 +199,6 @@ impl core::fmt::Display for PermissionToken {
 
 impl<I: Into<IdBox> + Into<Value>> ValueTrait for I {
     const TYPE: ValueKind = ValueKind::Id;
-}
-
-impl Registered for PermissionTokenDefinition {
-    type With = Self;
 }
 
 macro_rules! impl_value_trait {

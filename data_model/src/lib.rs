@@ -679,8 +679,6 @@ pub mod model {
         /// [`Role`](`role::Role`) variant.
         #[display(fmt = "Role {_0}")]
         Role(<role::Role as Registered>::With),
-        /// [`PermissionTokenId`](`permission::PermissionTokenId`) variant.
-        PermissionTokenDefinition(<permission::PermissionTokenDefinition as Registered>::With),
     }
 
     /// Sized container for all possible entities.
@@ -1418,13 +1416,11 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             NewAssetDefinition(asset_definition) => {
                 Ok(RegistrableBox::AssetDefinition(asset_definition))
             }
-            PermissionTokenDefinition(token_definition) => {
-                Ok(RegistrableBox::PermissionTokenDefinition(token_definition))
-            }
             NewRole(role) => Ok(RegistrableBox::Role(role)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
             Trigger(TriggerBox::Raw(trigger)) => Ok(RegistrableBox::Trigger(trigger)),
             Domain(_)
+            | PermissionTokenDefinition(_)
             | Account(_)
             | AssetDefinition(_)
             | Role(_)
@@ -1448,9 +1444,6 @@ impl From<RegistrableBox> for IdentifiableBox {
             Role(role) => IdentifiableBox::NewRole(role),
             Asset(asset) => IdentifiableBox::Asset(asset),
             Trigger(trigger) => IdentifiableBox::Trigger(TriggerBox::Raw(trigger)),
-            PermissionTokenDefinition(token_definition) => {
-                IdentifiableBox::PermissionTokenDefinition(token_definition)
-            }
         }
     }
 }

@@ -178,52 +178,49 @@ pub mod isi {
         }
     }
 
-    impl Execute for Register<PermissionTokenDefinition> {
-        #[metrics(+"register_token")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-            let definition = self.object;
-            let definition_id = definition.id().clone();
+    fn register_permission_token_definition(
+        definition: PermissionTokenDefinition,
+        wsv: &mut WorldStateView,
+    ) -> Result<(), Error> {
+        let definition_id = definition.id().clone();
 
-            let world = wsv.world_mut();
-            if world
-                .permission_token_definitions
-                .contains_key(&definition_id)
-            {
-                return Err(RepetitionError {
-                    instruction_type: InstructionType::Register,
-                    id: IdBox::PermissionTokenDefinitionId(definition_id),
-                }
-                .into());
+        let world = wsv.world_mut();
+        if world
+            .permission_token_definitions
+            .contains_key(&definition_id)
+        {
+            return Err(RepetitionError {
+                instruction_type: InstructionType::Register,
+                id: IdBox::PermissionTokenDefinitionId(definition_id),
             }
-
-            world
-                .permission_token_definitions
-                .insert(definition_id, definition.clone());
-
-            wsv.emit_events(Some(PermissionTokenEvent::DefinitionCreated(definition)));
-
-            Ok(())
+            .into());
         }
+
+        world
+            .permission_token_definitions
+            .insert(definition_id, definition.clone());
+
+        wsv.emit_events(Some(PermissionTokenEvent::DefinitionCreated(definition)));
+
+        Ok(())
     }
 
-    impl Execute for Unregister<PermissionTokenDefinition> {
-        #[metrics("unregister_permission_token")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-            let definition_id = self.object_id;
+    fn unregister_permission_token_definition(
+        definition_id: PermissionTokenId,
+        wsv: &mut WorldStateView,
+    ) -> Result<(), Error> {
+        remove_token_from_roles(wsv, &definition_id)?;
+        remove_token_from_accounts(wsv, &definition_id)?;
 
-            remove_token_from_roles(wsv, &definition_id)?;
-            remove_token_from_accounts(wsv, &definition_id)?;
+        let world = wsv.world_mut();
+        let definition = world
+            .permission_token_definitions
+            .remove(&definition_id)
+            .ok_or_else(|| FindError::PermissionTokenDefinition(definition_id))?;
 
-            let world = wsv.world_mut();
-            let definition = world
-                .permission_token_definitions
-                .remove(&definition_id)
-                .ok_or_else(|| FindError::PermissionTokenDefinition(definition_id))?;
+        wsv.emit_events(Some(PermissionTokenEvent::DefinitionDeleted(definition)));
 
-            wsv.emit_events(Some(PermissionTokenEvent::DefinitionDeleted(definition)));
-
-            Ok(())
-        }
+        Ok(())
     }
 
     /// Remove all tokens with specified definition id from all registered roles
@@ -346,7 +343,7 @@ pub mod isi {
 
     impl Execute for Upgrade<Validator> {
         #[metrics(+"upgrade_validator")]
-        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             #[cfg(test)]
             use crate::validator::MockValidator as Validator;
             #[cfg(not(test))]
@@ -393,16 +390,14 @@ pub mod isi {
 
             old_permission_token_definitions
                 .difference(&new_permission_token_definitions)
-                .map(|definition| Unregister::<PermissionTokenDefinition> {
-                    object_id: definition.id.clone(),
-                })
-                .try_for_each(|unregister| unregister.execute(authority, wsv))?;
+                .try_for_each(|definition| {
+                    unregister_permission_token_definition(definition.id().clone(), wsv)
+                })?;
 
             new_permission_token_definitions
                 .difference(&old_permission_token_definitions)
                 .cloned()
-                .map(|definition| Register::<PermissionTokenDefinition> { object: definition })
-                .try_for_each(|new| new.execute(authority, wsv))?;
+                .try_for_each(|definition| register_permission_token_definition(definition, wsv))?;
 
             wsv.emit_events(Some(ValidatorEvent::Upgraded));
 
