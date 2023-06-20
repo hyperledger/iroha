@@ -217,7 +217,7 @@ mod tests {
             view_change_index: 0,
             committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
             key_pair: ALICE_KEYS.clone(),
-            wsv: wsv.clone(),
+            wsv: &mut wsv.clone(),
         }
         .build()
         .commit_unchecked()
@@ -233,7 +233,7 @@ mod tests {
                 view_change_index: 0,
                 committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
                 key_pair: ALICE_KEYS.clone(),
-                wsv: wsv.clone(),
+                wsv: &mut wsv.clone(),
             }
             .build()
             .commit_unchecked()
@@ -368,7 +368,7 @@ mod tests {
             view_change_index: 0,
             committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
             key_pair: ALICE_KEYS.clone(),
-            wsv: wsv.clone(),
+            wsv: &mut wsv.clone(),
         }
         .build()
         .commit_unchecked()

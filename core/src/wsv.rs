@@ -335,6 +335,18 @@ impl WorldStateView {
     /// - If timestamp conversion to `u64` fails
     #[iroha_logger::log(skip_all, fields(block_height))]
     pub fn apply(&mut self, block: &VersionedCommittedBlock) -> Result<()> {
+        self.execute_transactions(block.as_v1())?;
+        debug!("All block transactions successfully executed");
+
+        self.apply_without_execution(block)?;
+
+        Ok(())
+    }
+
+    /// Apply transactions without actually executing them.
+    /// It's assumed that block's transaction was already executed (as part of validation for example).
+    #[iroha_logger::log(skip_all, fields(block_height))]
+    pub fn apply_without_execution(&mut self, block: &VersionedCommittedBlock) -> Result<()> {
         let hash = block.hash();
         let block = block.as_v1();
         iroha_logger::prelude::Span::current().record("block_height", block.header.height);
@@ -342,8 +354,15 @@ impl WorldStateView {
         let time_event = self.create_time_event(block)?;
         self.events_buffer.push(Event::Time(time_event));
 
-        self.execute_transactions(block)?;
-        debug!("All block transactions successfully executed");
+        let block_height = block.header().height;
+        block
+            .transactions
+            .iter()
+            .map(|tx| &tx.tx)
+            .map(VersionedSignedTransaction::hash)
+            .for_each(|tx_hash| {
+                self.transactions.insert(tx_hash, block_height);
+            });
 
         self.world.triggers.handle_time_event(time_event);
 
@@ -429,7 +448,6 @@ impl WorldStateView {
     /// # Errors
     /// Fails if transaction instruction execution fails
     fn execute_transactions(&mut self, block: &CommittedBlock) -> Result<()> {
-        let height = block.header().height;
         // TODO: Should this block panic instead?
         for tx in &block.transactions {
             if tx.error.is_none() {
@@ -438,7 +456,6 @@ impl WorldStateView {
                     tx.payload().authority.clone(),
                 )?;
             }
-            self.transactions.insert(tx.tx.hash(), height);
         }
 
         Ok(())

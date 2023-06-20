@@ -38,5 +38,5 @@ You can also run a single trial of the measurement:
 
 ```
 cd client
-cargo run --example tps-oneshot
+cargo run --release --example tps-oneshot
 ```
