@@ -3672,11 +3672,6 @@
         "tag": "Role",
         "discriminant": 6,
         "type": "NewRole"
-      },
-      {
-        "tag": "PermissionTokenDefinition",
-        "discriminant": 7,
-        "type": "PermissionTokenDefinition"
       }
     ]
   },
