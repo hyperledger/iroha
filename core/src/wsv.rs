@@ -27,8 +27,10 @@ use iroha_data_model::{
     isi::error::{InstructionExecutionError as Error, MathError},
     parameter::Parameter,
     prelude::*,
-    query::error::{FindError, QueryExecutionFail},
-    transaction::TransactionQueryResult,
+    query::{
+        error::{FindError, QueryExecutionFail},
+        TransactionQueryResult,
+    },
     trigger::action::ActionTrait,
 };
 use iroha_logger::prelude::*;
@@ -767,7 +769,9 @@ impl WorldStateView {
             .parameters
             .get(param)
             .as_ref()
-            .and_then(|param| param.val.clone().try_into().ok())
+            .map(|param| &*param.val)
+            .cloned()
+            .and_then(|param_val| param_val.try_into().ok())
     }
 
     /// Get `AssetDefinition` immutable view.

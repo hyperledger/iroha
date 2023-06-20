@@ -3,7 +3,6 @@
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{
-    cmp::Ordering,
     fmt::{Display, Formatter, Result as FmtResult},
     iter::IntoIterator,
     num::{NonZeroU32, NonZeroU64},
@@ -12,7 +11,7 @@ use core::{
 
 use derive_more::{DebugCustom, Display};
 use getset::Getters;
-use iroha_crypto::{HashOf, SignaturesOf};
+use iroha_crypto::SignaturesOf;
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
@@ -29,7 +28,6 @@ use crate::{
 #[model]
 pub mod model {
     use super::*;
-    use crate::block::CommittedBlock;
 
     /// Either ISI or Wasm binary
     #[derive(
@@ -173,29 +171,6 @@ pub mod model {
     pub struct RejectedTransaction {
         pub transaction: VersionedSignedTransaction,
         pub error: error::TransactionRejectionReason,
-    }
-
-    /// Transaction Value used in Instructions and Queries
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[ffi_type]
-    pub enum TransactionValue {
-        /// Committed transaction
-        Transaction(VersionedSignedTransaction),
-        /// Rejected transaction with reason of rejection
-        RejectedTransaction(RejectedTransaction),
-    }
-
-    /// `TransactionQueryResult` is used in `FindAllTransactions` query
-    #[derive(
-        Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
-    )]
-    #[getset(get = "pub")]
-    #[ffi_type]
-    pub struct TransactionQueryResult {
-        /// Transaction
-        pub transaction: TransactionValue,
-        /// The hash of the block to which `tx` belongs to
-        pub block_hash: HashOf<CommittedBlock>,
     }
 }
 
@@ -359,60 +334,6 @@ impl SignedTransaction {
 
     fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
         &self.signatures
-    }
-}
-
-impl TransactionValue {
-    /// Used to return payload of the transaction
-    #[inline]
-    pub fn payload(&self) -> &TransactionPayload {
-        match self {
-            TransactionValue::Transaction(tx) => tx.payload(),
-            TransactionValue::RejectedTransaction(RejectedTransaction {
-                transaction,
-                error: _,
-            }) => transaction.payload(),
-        }
-    }
-}
-
-impl PartialOrd for TransactionValue {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for TransactionValue {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.payload()
-            .creation_time_ms
-            .cmp(&other.payload().creation_time_ms)
-    }
-}
-
-impl TransactionQueryResult {
-    #[inline]
-    /// Return payload of the transaction
-    pub fn payload(&self) -> &TransactionPayload {
-        self.transaction.payload()
-    }
-}
-
-impl PartialOrd for TransactionQueryResult {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for TransactionQueryResult {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.payload()
-            .creation_time_ms
-            .cmp(&other.payload().creation_time_ms)
     }
 }
 
@@ -823,7 +744,7 @@ pub mod prelude {
     pub use super::http::TransactionBuilder;
     pub use super::{
         error::prelude::*, Executable, RejectedTransaction, TransactionPayload,
-        TransactionQueryResult, TransactionValue, VersionedSignedTransaction, WasmSmartContract,
+        VersionedSignedTransaction, WasmSmartContract,
     };
 }
 

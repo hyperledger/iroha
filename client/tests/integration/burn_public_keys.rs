@@ -26,7 +26,7 @@ fn submit_and_get(
     let _ = client.submit_transaction_blocking(&tx);
 
     client
-        .request(transaction::by_hash(*hash))
+        .request(transaction::by_hash(hash))
         .unwrap()
         .transaction
 }

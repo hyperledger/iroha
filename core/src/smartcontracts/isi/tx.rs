@@ -1,7 +1,6 @@
 //! Query module provides [`Query`] Transaction related implementations.
 
 use eyre::{Result, WrapErr};
-use iroha_crypto::HashOf;
 use iroha_data_model::{
     evaluate::ExpressionEvaluator,
     prelude::*,
@@ -40,7 +39,6 @@ impl ValidQuery for FindTransactionByHash {
             .wrap_err("Failed to get hash")
             .map_err(|e| QueryExecutionFail::Evaluate(e.to_string()))?;
         iroha_logger::trace!(%hash);
-        let hash = HashOf::from_untyped_unchecked(hash);
         if !wsv.has_transaction(hash) {
             return Err(FindError::Transaction(hash).into());
         };

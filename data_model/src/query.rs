@@ -19,7 +19,13 @@ use self::{
     account::*, asset::*, block::*, domain::*, peer::*, permission::*, role::*, transaction::*,
     trigger::*,
 };
-use crate::{account::Account, seal, Identifiable, Value};
+use crate::{
+    account::Account,
+    block::CommittedBlock,
+    seal,
+    transaction::{RejectedTransaction, TransactionPayload, VersionedSignedTransaction},
+    Identifiable, Value,
+};
 
 macro_rules! queries {
     ($($($meta:meta)* $item:item)+) => {
@@ -47,6 +53,9 @@ pub trait Query: Into<QueryBox> + seal::Sealed {
 
 #[model]
 pub mod model {
+    use getset::Getters;
+    use iroha_crypto::HashOf;
+
     use super::*;
 
     /// Sized container for all possible Queries.
@@ -153,10 +162,87 @@ pub mod model {
         /// [`FindAllParameters`] variant.
         FindAllParameters(FindAllParameters),
     }
+
+    /// Transaction Value used in Instructions and Queries
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[ffi_type]
+    pub enum TransactionValue {
+        /// Committed transaction
+        Transaction(VersionedSignedTransaction),
+        /// Rejected transaction with reason of rejection
+        RejectedTransaction(RejectedTransaction),
+    }
+
+    /// `TransactionQueryResult` is used in `FindAllTransactions` query
+    #[derive(
+        Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
+    #[getset(get = "pub")]
+    #[ffi_type]
+    pub struct TransactionQueryResult {
+        /// Transaction
+        pub transaction: TransactionValue,
+        /// The hash of the block to which `tx` belongs to
+        pub block_hash: HashOf<CommittedBlock>,
+    }
 }
 
 impl Query for QueryBox {
     type Output = Value;
+}
+
+impl TransactionValue {
+    /// Used to return payload of the transaction
+    #[inline]
+    pub fn payload(&self) -> &TransactionPayload {
+        match self {
+            TransactionValue::Transaction(tx) => tx.payload(),
+            TransactionValue::RejectedTransaction(RejectedTransaction {
+                transaction,
+                error: _,
+            }) => transaction.payload(),
+        }
+    }
+}
+
+impl PartialOrd for TransactionValue {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TransactionValue {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.payload()
+            .creation_time_ms
+            .cmp(&other.payload().creation_time_ms)
+    }
+}
+
+impl TransactionQueryResult {
+    #[inline]
+    /// Return payload of the transaction
+    pub fn payload(&self) -> &TransactionPayload {
+        self.transaction.payload()
+    }
+}
+
+impl PartialOrd for TransactionQueryResult {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TransactionQueryResult {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.payload()
+            .creation_time_ms
+            .cmp(&other.payload().creation_time_ms)
+    }
 }
 
 pub mod role {
@@ -1084,12 +1170,12 @@ pub mod transaction {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use iroha_crypto::Hash;
+    use iroha_crypto::HashOf;
 
-    use super::Query;
+    use super::{Query, TransactionQueryResult};
     use crate::{
         account::AccountId, expression::EvaluatesTo, prelude::Account,
-        transaction::TransactionQueryResult,
+        transaction::VersionedSignedTransaction,
     };
 
     queries! {
@@ -1116,11 +1202,11 @@ pub mod transaction {
         #[derive(Display)]
         #[display(fmt = "Find transaction with `{hash}` hash")]
         #[repr(transparent)]
-        // SAFETY: `FindTransactionByHash` has no trap representation in `EvaluatesTo<Hash>`
+        // SAFETY: `FindTransactionByHash` has no trap representation in `EvaluatesTo<HashOf<VersionedSignedTransaction>>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTransactionByHash {
             /// Transaction hash.
-            pub hash: EvaluatesTo<Hash>,
+            pub hash: EvaluatesTo<HashOf<VersionedSignedTransaction>>,
         }
     }
 
@@ -1147,7 +1233,7 @@ pub mod transaction {
 
     impl FindTransactionByHash {
         ///Construct [`FindTransactionByHash`].
-        pub fn new(hash: impl Into<EvaluatesTo<Hash>>) -> Self {
+        pub fn new(hash: impl Into<EvaluatesTo<HashOf<VersionedSignedTransaction>>>) -> Self {
             Self { hash: hash.into() }
         }
     }
@@ -1167,7 +1253,7 @@ pub mod block {
     use alloc::{boxed::Box, format, string::String, vec::Vec};
 
     use derive_more::Display;
-    use iroha_crypto::Hash;
+    use iroha_crypto::HashOf;
 
     use super::Query;
     use crate::{
@@ -1194,11 +1280,11 @@ pub mod block {
         #[derive(Display)]
         #[display(fmt = "Find block header with `{hash}` hash")]
         #[repr(transparent)]
-        // SAFETY: `FindBlockHeaderByHash` has no trap representation in `EvaluatesTo<Hash>`
+        // SAFETY: `FindBlockHeaderByHash` has no trap representation in `EvaluatesTo<HashOf<VersionedCommittedBlock>>`
         #[ffi_type(unsafe {robust})]
         pub struct FindBlockHeaderByHash {
             /// Block hash.
-            pub hash: EvaluatesTo<Hash>,
+            pub hash: EvaluatesTo<HashOf<VersionedCommittedBlock>>,
         }
     }
 
@@ -1216,7 +1302,7 @@ pub mod block {
 
     impl FindBlockHeaderByHash {
         /// Construct [`FindBlockHeaderByHash`].
-        pub fn new(hash: impl Into<EvaluatesTo<Hash>>) -> Self {
+        pub fn new(hash: impl Into<EvaluatesTo<HashOf<VersionedCommittedBlock>>>) -> Self {
             Self { hash: hash.into() }
         }
     }
@@ -1527,6 +1613,6 @@ pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
         peer::prelude::*, permission::prelude::*, role::prelude::*, transaction::*,
-        trigger::prelude::*, Query, QueryBox,
+        trigger::prelude::*, Query, QueryBox, TransactionQueryResult, TransactionValue,
     };
 }

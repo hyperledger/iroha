@@ -1551,7 +1551,6 @@ pub mod asset {
 
 pub mod block {
     //! Module with queries related to blocks
-    use iroha_crypto::Hash;
 
     use super::*;
 
@@ -1566,7 +1565,9 @@ pub mod block {
     }
 
     /// Construct a query to find block header by hash
-    pub fn header_by_hash(hash: impl Into<EvaluatesTo<Hash>>) -> FindBlockHeaderByHash {
+    pub fn header_by_hash(
+        hash: impl Into<EvaluatesTo<HashOf<VersionedCommittedBlock>>>,
+    ) -> FindBlockHeaderByHash {
         FindBlockHeaderByHash::new(hash)
     }
 }
@@ -1588,7 +1589,6 @@ pub mod domain {
 
 pub mod transaction {
     //! Module with queries for transactions
-    use iroha_crypto::Hash;
 
     use super::*;
 
@@ -1605,7 +1605,9 @@ pub mod transaction {
     }
 
     /// Construct a query to retrieve transaction by hash
-    pub fn by_hash(hash: impl Into<EvaluatesTo<Hash>>) -> FindTransactionByHash {
+    pub fn by_hash(
+        hash: impl Into<EvaluatesTo<HashOf<VersionedSignedTransaction>>>,
+    ) -> FindTransactionByHash {
         FindTransactionByHash::new(hash)
     }
 }

@@ -364,7 +364,7 @@ pub fn visit_register<V: Visit + ?Sized>(
             let object = evaluate_expr!(visitor, authority, <isi as Register>::object());
 
             match object { $(
-                RegistrableBox::$object(object) => visitor.$visitor(authority, Register{object: *object}), )+
+                RegistrableBox::$object(object) => visitor.$visitor(authority, Register{object}), )+
             }
         };
     }
