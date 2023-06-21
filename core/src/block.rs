@@ -792,4 +792,67 @@ mod tests {
 
         Revalidate::revalidate::<true>(&valid_block, wsv).unwrap();
     }
+
+    #[test]
+    fn failed_transactions_revert() {
+        // Predefined world state
+        let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+        let alice_keys = KeyPair::generate().expect("Valid");
+        let account =
+            Account::new(alice_id.clone(), [alice_keys.public_key().clone()]).build(&alice_id);
+        let domain_id = DomainId::from_str("wonderland").expect("Valid");
+        let mut domain = Domain::new(domain_id).build(&alice_id);
+        assert!(
+            domain.add_account(account).is_none(),
+            "`alice@wonderland` already exist in the blockchain"
+        );
+        let world = World::with([domain], Vec::new());
+        let kura = Kura::blank_kura_for_testing();
+        let wsv = WorldStateView::new(world, kura);
+        let transaction_limits = &wsv.transaction_validator().transaction_limits;
+
+        let domain_id = DomainId::from_str("domain").expect("Valid");
+        let create_domain = RegisterBox::new(Domain::new(domain_id));
+        let asset_definition_id = AssetDefinitionId::from_str("coin#domain").expect("Valid");
+        let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id));
+        let instructions_fail: [InstructionBox; 2] = [
+            create_domain.clone().into(),
+            FailBox::new("Always fail").into(),
+        ];
+        let instructions_accept: [InstructionBox; 2] = [create_domain.into(), create_asset.into()];
+        let tx_fail = TransactionBuilder::new(alice_id.clone())
+            .with_instructions(instructions_fail)
+            .sign(alice_keys.clone())
+            .expect("Valid");
+        let tx_fail = AcceptedTransaction::accept(tx_fail, transaction_limits).expect("Valid");
+        let tx_accept = TransactionBuilder::new(alice_id)
+            .with_instructions(instructions_accept)
+            .sign(alice_keys.clone())
+            .expect("Valid");
+        let tx_accept = AcceptedTransaction::accept(tx_accept, transaction_limits).expect("Valid");
+
+        // Creating a block of where first transaction must fail and second one fully executed
+        let transactions = vec![tx_fail, tx_accept];
+        let valid_block = BlockBuilder {
+            transactions,
+            event_recommendations: Vec::new(),
+            view_change_index: 0,
+            committed_with_topology: Topology::new(Vec::new()),
+            key_pair: alice_keys,
+            wsv,
+        }
+        .build();
+
+        // The first transaction should be rejected
+        assert!(
+            valid_block.transactions[0].error.is_some(),
+            "The first transaction should be rejected, as it contains `FailBox`."
+        );
+
+        // The second transaction should be accepted
+        assert!(
+            valid_block.transactions[1].error.is_none(),
+            "The second transaction should be accepted."
+        );
+    }
 }
