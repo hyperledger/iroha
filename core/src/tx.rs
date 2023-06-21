@@ -204,20 +204,28 @@ impl TransactionValidator {
             ));
         }
 
+        // Create clone wsv to try execute transaction against it to prevent failed transaction from changing wsv
+        let mut wsv_for_validation = wsv.clone();
+
         if !is_genesis {
             debug!("Validating transaction: {:?}", tx);
-            Self::validate_with_runtime_validator(tx.clone(), wsv)?;
+            Self::validate_with_runtime_validator(tx.clone(), &mut wsv_for_validation)?;
         }
 
         match tx.into() {
             (authority, Executable::Instructions(instructions)) => {
                 // Non-genesis instructions have been executed in `validate_with_runtime_validators()`.
                 if is_genesis {
-                    Self::execute_instructions(&authority, wsv, instructions)?;
+                    Self::execute_instructions(&authority, &mut wsv_for_validation, instructions)?;
                 }
             }
-            (authority, Executable::Wasm(bytes)) => self.validate_wasm(authority, wsv, bytes)?,
+            (authority, Executable::Wasm(bytes)) => {
+                self.validate_wasm(authority, &mut wsv_for_validation, bytes)?
+            }
         }
+
+        // Replace wsv in case of successful execution
+        *wsv = wsv_for_validation;
 
         (!is_genesis).then(|| debug!("Validation successful"));
         Ok(())
