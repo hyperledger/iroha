@@ -121,7 +121,7 @@ where
         .out_dir(build_dir.path())
         .build()?
         .optimize()?
-        .into_bytes();
+        .into_bytes()?;
 
     Ok(Validator::new(WasmSmartContract::from_compiled(wasm_blob)))
 }
