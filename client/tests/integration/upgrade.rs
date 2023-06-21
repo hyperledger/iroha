@@ -55,7 +55,7 @@ fn validator_upgrade_should_work() -> Result<()> {
 
 #[test]
 fn validator_upgrade_should_update_tokens() -> Result<()> {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_815).start_with_runtime();
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_990).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     // Check that `can_unregister_domain` exists
