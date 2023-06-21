@@ -24,7 +24,7 @@ mod token {
     /// Token to identify if user can (un-)register domains.
     #[derive(Token, ValidateGrantRevoke)]
     #[validate(iroha_validator::permission::OnlyGenesis)]
-    pub struct CanControlDomainsLives;
+    pub struct CanControlDomainLives;
 }
 
 struct CustomValidator(DefaultValidator);
@@ -38,7 +38,7 @@ macro_rules! delegate {
 }
 
 impl CustomValidator {
-    const CAN_CONTROL_DOMAIN_LIVES: token::CanControlDomainsLives = token::CanControlDomainsLives;
+    const CAN_CONTROL_DOMAIN_LIVES: token::CanControlDomainLives = token::CanControlDomainLives;
 }
 
 impl Visit for CustomValidator {
@@ -137,7 +137,7 @@ impl Validate for CustomValidator {
             tokens.remove(pos);
         }
 
-        tokens.push(token::CanControlDomainsLives::definition());
+        tokens.push(token::CanControlDomainLives::definition());
         tokens
     }
 
@@ -165,8 +165,7 @@ pub fn permission_tokens() -> Vec<PermissionTokenDefinition> {
     CustomValidator::permission_tokens()
 }
 
-/// Allow operation if authority is `admin@admin` and if not,
-/// fallback to [`DefaultValidator::validate()`].
+/// Validate operation
 #[entrypoint(params = "[authority, operation]")]
 pub fn validate(authority: AccountId, operation: NeedsValidationBox) -> Result {
     let mut validator = CustomValidator(DefaultValidator::new());

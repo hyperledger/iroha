@@ -78,7 +78,7 @@ fn validator_upgrade_should_update_tokens() -> Result<()> {
 
     // Check that `can_control_domain_lives` exists
     let can_control_domain_lives: PermissionTokenId = "can_control_domain_lives".parse()?;
-    assert!(!definitions
+    assert!(definitions
         .iter()
         .any(|definition| definition.id() == &can_control_domain_lives));
 
