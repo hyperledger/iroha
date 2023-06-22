@@ -337,7 +337,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
         .out_dir(temp_out_dir.path())
         .build()?
         .optimize()?
-        .into_bytes();
+        .into_bytes()?;
 
     temp_out_dir
         .close()
