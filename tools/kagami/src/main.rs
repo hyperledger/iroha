@@ -13,7 +13,7 @@ use std::{
 
 use clap::{Args as ClapArgs, Parser};
 use color_eyre::eyre::WrapErr as _;
-use iroha_data_model::{prelude::*, ValueKind};
+use iroha_data_model::prelude::*;
 
 /// Outcome shorthand used throughout this crate
 pub(crate) type Outcome = color_eyre::Result<()>;
@@ -56,8 +56,6 @@ pub enum Args {
     Config(config::Args),
     /// Generate a Markdown reference of configuration parameters
     Docs(Box<docs::Args>),
-    /// Generate a list of predefined permission tokens and their parameters
-    Tokens(tokens::Args),
     /// Generate the default validator
     Validator(validator::Args),
     /// Generate a docker-compose configuration for a variable number of peers
@@ -90,7 +88,6 @@ impl<T: Write> RunArgs<T> for Args {
             Genesis(args) => args.run(writer),
             Config(args) => args.run(writer),
             Docs(args) => args.run(writer),
-            Tokens(args) => args.run(writer),
             Validator(args) => args.run(writer),
             Swarm(args) => args.run(),
         }
@@ -359,22 +356,13 @@ mod genesis {
                 "alice@wonderland".parse()?,
             )),
         );
-        let token = PermissionToken::new("allowed_to_do_stuff".parse()?);
-
-        let register_permission =
-            RegisterBox::new(PermissionTokenDefinition::new(token.definition_id.clone()));
-        let role_id: RoleId = "staff_that_does_stuff_in_genesis".parse()?;
-        let register_role =
-            RegisterBox::new(Role::new(role_id.clone()).add_permission(token.clone()));
-
         let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
-        let grant_permission = GrantBox::new(token, alice_id.clone());
         let grant_permission_to_set_parameters = GrantBox::new(
             PermissionToken::new("can_set_parameters".parse()?),
-            alice_id.clone(),
+            alice_id,
         );
         let register_user_metadata_access = RegisterBox::new(
-            Role::new("USER_METADATA_ACCESS".parse()?)
+            Role::new("ALICE_METADATA_ACCESS".parse()?)
                 .add_permission(
                     PermissionToken::new("can_set_key_value_in_user_account".parse()?).with_params(
                         [(
@@ -410,34 +398,17 @@ mod genesis {
             .add_parameter(WASM_MAX_MEMORY, DEFAULT_MAX_MEMORY)?
             .into_create_parameters();
 
-        let grant_role = GrantBox::new(role_id, alice_id);
-
         genesis.transactions[0].isi.push(mint.into());
         genesis.transactions[0].isi.push(mint_cabbage.into());
         genesis.transactions[0]
             .isi
-            .extend(register_permission_token_definitions()?);
-        genesis.transactions[0].isi.push(register_permission.into());
-        genesis.transactions[0].isi.push(grant_permission.into());
-        genesis.transactions[0]
-            .isi
             .push(grant_permission_to_set_parameters.into());
-        genesis.transactions[0].isi.push(register_role.into());
-        genesis.transactions[0].isi.push(grant_role.into());
         genesis.transactions[0].isi.push(parameter_defaults.into());
         genesis.transactions[0]
             .isi
             .push(register_user_metadata_access);
 
         Ok(genesis)
-    }
-
-    fn register_permission_token_definitions() -> color_eyre::Result<Vec<InstructionBox>> {
-        Ok(super::tokens::permission_token_definitions()?
-            .into_iter()
-            .map(RegisterBox::new)
-            .map(Into::into)
-            .collect())
     }
 
     fn construct_validator() -> color_eyre::Result<Validator> {
@@ -504,9 +475,6 @@ mod genesis {
         .map(Into::into);
 
         genesis.transactions[0].isi.extend(mints);
-        genesis.transactions[0]
-            .isi
-            .extend(register_permission_token_definitions()?);
 
         Ok(genesis)
     }
@@ -732,105 +700,6 @@ mod docs {
                 field.pop();
             }
             Ok(())
-        }
-    }
-}
-
-mod tokens {
-    use color_eyre::{eyre::WrapErr, Result};
-
-    use super::*;
-
-    #[derive(ClapArgs, Debug, Clone, Copy)]
-    pub struct Args;
-
-    pub fn permission_token_definitions() -> Result<Vec<PermissionTokenDefinition>> {
-        // TODO: Not hardcode this. Instead get this info from validator itself
-        Ok(vec![
-            // Account
-            token_with_account_id("can_unregister_account")?,
-            token_with_account_id("can_mint_user_public_keys")?,
-            token_with_account_id("can_burn_user_public_keys")?,
-            token_with_account_id("can_mint_user_signature_check_conditions")?,
-            token_with_account_id("can_set_key_value_in_user_account")?,
-            token_with_account_id("can_remove_key_value_in_user_account")?,
-            // Asset
-            token_with_asset_definition_id("can_register_assets_with_definition")?,
-            token_with_asset_definition_id("can_unregister_assets_with_definition")?,
-            token_with_asset_definition_id("can_unregister_user_assets")?,
-            token_with_asset_definition_id("can_burn_assets_with_definition")?,
-            token_with_asset_id("can_burn_user_asset")?,
-            token_with_asset_definition_id("can_mint_assets_with_definition")?,
-            token_with_asset_definition_id("can_transfer_assets_with_definition")?,
-            token_with_asset_id("can_transfer_user_asset")?,
-            token_with_asset_id("can_set_key_value_in_user_asset")?,
-            token_with_asset_id("can_remove_key_value_in_user_asset")?,
-            // Asset definition
-            token_with_asset_definition_id("can_unregister_asset_definition")?,
-            token_with_asset_definition_id("can_set_key_value_in_asset_definition")?,
-            token_with_asset_definition_id("can_remove_key_value_in_asset_definition")?,
-            // Domain
-            token_with_domain_id("can_unregister_domain")?,
-            token_with_domain_id("can_set_key_value_in_domain")?,
-            token_with_domain_id("can_remove_key_value_in_domain")?,
-            // Parameter
-            bare_token("can_grant_permission_to_create_parameters")?,
-            bare_token("can_revoke_permission_to_create_parameters")?,
-            bare_token("can_create_parameters")?,
-            bare_token("can_grant_permission_to_set_parameters")?,
-            bare_token("can_revoke_permission_to_set_parameters")?,
-            bare_token("can_set_parameters")?,
-            // Peer
-            bare_token("can_unregister_any_peer")?,
-            // Role
-            bare_token("can_unregister_any_role")?,
-            // Trigger
-            token_with_trigger_id("can_execute_user_trigger")?,
-            token_with_trigger_id("can_unregister_user_trigger")?,
-            token_with_trigger_id("can_mint_user_trigger")?,
-            // Validator
-            bare_token("can_upgrade_validator")?,
-        ])
-    }
-
-    fn bare_token(token_id: &str) -> Result<PermissionTokenDefinition> {
-        Ok(PermissionTokenDefinition::new(token_id.parse()?))
-    }
-
-    fn token_with_asset_definition_id(token_id: &str) -> Result<PermissionTokenDefinition> {
-        token_with_id_param(token_id, "asset_definition_id")
-    }
-
-    fn token_with_asset_id(token_id: &str) -> Result<PermissionTokenDefinition> {
-        token_with_id_param(token_id, "asset_id")
-    }
-
-    fn token_with_account_id(token_id: &str) -> Result<PermissionTokenDefinition> {
-        token_with_id_param(token_id, "account_id")
-    }
-
-    fn token_with_domain_id(token_id: &str) -> Result<PermissionTokenDefinition> {
-        token_with_id_param(token_id, "domain_id")
-    }
-
-    fn token_with_trigger_id(token_id: &str) -> Result<PermissionTokenDefinition> {
-        token_with_id_param(token_id, "trigger_id")
-    }
-
-    fn token_with_id_param(token_id: &str, param_name: &str) -> Result<PermissionTokenDefinition> {
-        Ok(PermissionTokenDefinition::new(token_id.parse()?)
-            .with_params([(param_name.parse()?, ValueKind::Id)]))
-    }
-
-    impl<T: Write> RunArgs<T> for Args {
-        fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-            write!(
-                writer,
-                "{}",
-                serde_json::to_string_pretty(&permission_token_definitions()?)
-                    .wrap_err("Serialization error")?
-            )
-            .wrap_err("Failed to write serialized token map into the buffer.")
         }
     }
 }

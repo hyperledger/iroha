@@ -94,9 +94,6 @@ impl Execute for RegisterBox {
                 Register::<Trigger<FilterBox, Executable>> { object }.execute(authority, wsv)
             }
             RegistrableBox::Role(object) => Register::<Role> { object }.execute(authority, wsv),
-            RegistrableBox::PermissionTokenDefinition(object) => {
-                Register::<PermissionTokenDefinition> { object }.execute(authority, wsv)
-            }
         }
     }
 }
@@ -118,14 +115,13 @@ impl Execute for UnregisterBox {
                 Unregister::<Domain> { object_id }.execute(authority, wsv)
             }
             IdBox::PeerId(object_id) => Unregister::<Peer> { object_id }.execute(authority, wsv),
-            IdBox::PermissionTokenDefinitionId(object_id) => {
-                Unregister::<PermissionTokenDefinition> { object_id }.execute(authority, wsv)
-            }
             IdBox::RoleId(object_id) => Unregister::<Role> { object_id }.execute(authority, wsv),
             IdBox::TriggerId(object_id) => {
                 Unregister::<Trigger<FilterBox, Executable>> { object_id }.execute(authority, wsv)
             }
-            IdBox::ParameterId(_) => Err(Error::Evaluate(InstructionType::Unregister.into())),
+            IdBox::PermissionTokenDefinitionId(_) | IdBox::ParameterId(_) => {
+                Err(Error::Evaluate(InstructionType::Unregister.into()))
+            }
         }
     }
 }

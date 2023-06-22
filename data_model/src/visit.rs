@@ -112,7 +112,6 @@ pub trait Visit: ExpressionEvaluator {
         visit_register_asset(Register<Asset>),
         visit_register_role(Register<Role>),
         visit_register_trigger(Register<Trigger<FilterBox, Executable>>),
-        visit_register_permission_token(Register<PermissionTokenDefinition>),
 
         // Visit UnregisterBox
         visit_unregister_peer(Unregister<Peer>),
@@ -377,8 +376,6 @@ pub fn visit_register<V: Visit + ?Sized>(
         visit_register_asset(Asset),
         visit_register_role(Role),
         visit_register_trigger(Trigger),
-
-        visit_register_permission_token(PermissionTokenDefinition),
     }
 }
 
@@ -704,7 +701,6 @@ leaf_visitors! {
     visit_new_parameter(NewParameter),
     visit_set_parameter(SetParameter),
     visit_execute_trigger(ExecuteTrigger),
-    visit_register_permission_token(Register<PermissionTokenDefinition>),
     visit_fail(&FailBox),
 
     // Query visitors

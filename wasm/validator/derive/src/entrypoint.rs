@@ -62,17 +62,29 @@ impl iroha_derive_primitives::params::ConstructArg for ParamType {
 /// [`validator_entrypoint`](crate::validator_entrypoint()) macro implementation
 #[allow(clippy::needless_pass_by_value)]
 pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let fn_item = parse_macro_input!(item as syn::ItemFn);
+
+    match &fn_item.sig.ident {
+        fn_name if fn_name == "validate" => impl_validate_entrypoint(attr, fn_item),
+        fn_name if fn_name == "permission_tokens" => {
+            impl_permission_tokens_entrypoint(&attr, fn_item)
+        }
+        _ => panic!("Validator entrypoint name should be either `validate` or `permission_tokens`"),
+    }
+}
+
+fn impl_validate_entrypoint(attr: TokenStream, fn_item: syn::ItemFn) -> TokenStream {
     let syn::ItemFn {
         attrs,
         vis,
         sig,
         mut block,
-    } = parse_macro_input!(item);
-
+    } = fn_item;
     let fn_name = &sig.ident;
+
     assert!(
         matches!(sig.output, syn::ReturnType::Type(_, _)),
-        "Validator entrypoint must have `Result` return type"
+        "Validator `validate` entrypoint must have `Result` return type"
     );
 
     let args = match syn::parse_macro_input!(attr as Attr) {
@@ -96,7 +108,7 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     );
 
     quote! {
-        /// Validator entrypoint
+        /// Validator `validate` entrypoint
         ///
         /// # Memory safety
         ///
@@ -104,18 +116,61 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         /// [`Result`](::iroha_validator::iroha_wasm::data_model::validator::Result)
         #[no_mangle]
         #[doc(hidden)]
-        unsafe extern "C" fn _iroha_wasm_main() -> *const u8 {
+        unsafe extern "C" fn _iroha_validator_validate() -> *const u8 {
             let verdict: ::iroha_validator::iroha_wasm::data_model::validator::Result = #fn_name(#args);
             let bytes_box = ::core::mem::ManuallyDrop::new(::iroha_validator::iroha_wasm::encode_with_length_prefix(&verdict));
 
             bytes_box.as_ptr()
         }
 
-        // NOTE: Host objects are allways passed by value to wasm
+        // NOTE: Host objects are always passed by value to wasm
         #[allow(clippy::needless_pass_by_value)]
         #(#attrs)*
         #vis #sig
         #block
     }
     .into()
+}
+
+fn impl_permission_tokens_entrypoint(attr: &TokenStream, fn_item: syn::ItemFn) -> TokenStream {
+    let syn::ItemFn {
+        attrs,
+        vis,
+        sig,
+        block,
+    } = fn_item;
+    let fn_name = &sig.ident;
+
+    assert!(
+        matches!(sig.output, syn::ReturnType::Type(_, _)),
+        "Validator `permission_tokens()` entrypoint must have `Vec<PermissionTokenDefinition>` return type"
+    );
+    assert!(
+        attr.is_empty(),
+        "`#[entrypoint]` macro for Validator `permission_tokens` entrypoint accepts no attributes"
+    );
+
+    quote! {
+        /// Validator `permission_tokens` entrypoint
+        ///
+        /// # Memory safety
+        ///
+        /// This function transfers the ownership of allocated [`Vec`](alloc::vec::Vec).
+        #[no_mangle]
+        #[doc(hidden)]
+        unsafe extern "C" fn _iroha_validator_permission_tokens() -> *const u8 {
+            let v: ::alloc::vec::Vec<
+                ::iroha_validator::data_model::permission::PermissionTokenDefinition
+            > = #fn_name();
+            let bytes_box = ::core::mem::ManuallyDrop::new(::iroha_validator::iroha_wasm::encode_with_length_prefix(&v));
+
+            bytes_box.as_ptr()
+        }
+
+        // NOTE: Host objects are always passed by value to wasm
+        #[allow(clippy::needless_pass_by_value)]
+        #(#attrs)*
+        #vis #sig
+        #block
+    }.into()
 }

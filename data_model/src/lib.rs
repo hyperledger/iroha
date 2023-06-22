@@ -39,7 +39,7 @@ use getset::Getters;
 use iroha_crypto::{HashOf, PublicKey};
 pub use iroha_crypto::{SignatureOf, SignaturesOf};
 use iroha_data_model_derive::{
-    model, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize,
+    model, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize, VariantDiscriminant,
 };
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_primitives::{
@@ -258,6 +258,12 @@ impl<EXPECTED, GOT> EnumTryAsError<EXPECTED, GOT> {
 
 #[cfg(feature = "std")]
 impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED, GOT> {}
+
+/// Trait to define associated constant of type `T`
+pub trait AssociatedConstant<T> {
+    /// Associated constant value
+    const VALUE: T;
+}
 
 pub mod parameter {
     //! Structures, traits and impls related to `Paramater`s.
@@ -673,8 +679,6 @@ pub mod model {
         /// [`Role`](`role::Role`) variant.
         #[display(fmt = "Role {_0}")]
         Role(<role::Role as Registered>::With),
-        /// [`PermissionTokenId`](`permission::PermissionTokenId`) variant.
-        PermissionTokenDefinition(<permission::PermissionTokenDefinition as Registered>::With),
     }
 
     /// Sized container for all possible entities.
@@ -785,6 +789,7 @@ pub mod model {
         Ord,
         FromVariant,
         EnumDiscriminants,
+        VariantDiscriminant,
         Decode,
         Encode,
         PartiallyTaggedDeserialize,
@@ -801,6 +806,7 @@ pub mod model {
         allow(missing_docs),
         repr(u8)
     )]
+    #[variant_discriminant(name(ValueKind))]
     #[allow(clippy::enum_variant_names, missing_docs)]
     #[ffi_type(opaque)]
     pub enum Value {
@@ -1199,6 +1205,10 @@ macro_rules! from_and_try_from_value_idbox {
                     Value::Id(IdBox::$variant(id))
                 }
             }
+
+            impl AssociatedConstant<ValueKind> for $ty {
+                const VALUE: ValueKind = ValueKind::Id;
+            }
         )+
     };
 }
@@ -1221,8 +1231,12 @@ macro_rules! from_and_try_from_value_identifiable {
             fn from(id: $ty) -> Self {
                 Value::Identifiable(IdentifiableBox::$variant(id))
             }
-        } )+
-    };
+        }
+
+        impl AssociatedConstant<ValueKind> for $ty {
+            const VALUE: ValueKind = ValueKind::Identifiable;
+        }
+    )+ };
 }
 
 macro_rules! from_and_try_from_and_try_as_value_hash {
@@ -1402,13 +1416,11 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             NewAssetDefinition(asset_definition) => {
                 Ok(RegistrableBox::AssetDefinition(asset_definition))
             }
-            PermissionTokenDefinition(token_definition) => {
-                Ok(RegistrableBox::PermissionTokenDefinition(token_definition))
-            }
             NewRole(role) => Ok(RegistrableBox::Role(role)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
             Trigger(TriggerBox::Raw(trigger)) => Ok(RegistrableBox::Trigger(trigger)),
             Domain(_)
+            | PermissionTokenDefinition(_)
             | Account(_)
             | AssetDefinition(_)
             | Role(_)
@@ -1432,9 +1444,6 @@ impl From<RegistrableBox> for IdentifiableBox {
             Role(role) => IdentifiableBox::NewRole(role),
             Asset(asset) => IdentifiableBox::Asset(asset),
             Trigger(trigger) => IdentifiableBox::Trigger(TriggerBox::Raw(trigger)),
-            PermissionTokenDefinition(token_definition) => {
-                IdentifiableBox::PermissionTokenDefinition(token_definition)
-            }
         }
     }
 }
