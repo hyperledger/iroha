@@ -25,7 +25,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");
-    let token = PermissionToken::new("token".parse().expect("Valid"));
+    let token = PermissionToken::new("token".to_owned(), &());
     let role = Role::new(role_id).add_permission(token);
 
     test_client.submit(RegisterBox::new(role))?;
@@ -61,14 +61,14 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     // Registering role
     let role_id = <Role as Identifiable>::Id::from_str("ACCESS_TO_MOUSE_METADATA")?;
     let role = Role::new(role_id.clone())
-        .add_permission(
-            PermissionToken::new("can_set_key_value_in_user_account".parse()?)
-                .with_params([("account_id".parse()?, mouse_id.clone().into())]),
-        )
-        .add_permission(
-            PermissionToken::new("can_remove_key_value_in_user_account".parse()?)
-                .with_params([("account_id".parse()?, mouse_id.clone().into())]),
-        );
+        .add_permission(PermissionToken::new(
+            "CanSetKeyValueInUserAccount".to_owned(),
+            &mouse_id,
+        ))
+        .add_permission(PermissionToken::new(
+            "CanRemoveKeyValueInUserAccount".to_owned(),
+            &mouse_id,
+        ));
     let register_role = RegisterBox::new(role);
     test_client.submit_blocking(register_role)?;
 
@@ -108,12 +108,9 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     test_client.submit_blocking(register_mouse)?;
 
     // Register root role
-    let register_role = RegisterBox::new(
-        Role::new(role_id.clone()).add_permission(
-            PermissionToken::new("can_set_key_value_in_user_account".parse()?)
-                .with_params([("account_id".parse()?, alice_id.into())]),
-        ),
-    );
+    let register_role = RegisterBox::new(Role::new(role_id.clone()).add_permission(
+        PermissionToken::new("CanSetKeyValueInUserAccount".to_owned(), &alice_id),
+    ));
     test_client.submit_blocking(register_role)?;
 
     // Grant root role to Mouse

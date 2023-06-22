@@ -25,7 +25,7 @@ pub use iroha_schema_derive::*;
 use serde::Serialize;
 
 /// Helper struct for building a full schema
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MetaMap(pub(crate) btree_map::BTreeMap<core::any::TypeId, (String, Metadata)>);
 
 impl PartialEq<btree_map::BTreeMap<core::any::TypeId, (String, Metadata)>> for MetaMap {
@@ -46,6 +46,10 @@ impl MetaMap {
     /// Return `true` if the map contains a metadata for the specified [`core::any::TypeId`]
     pub fn contains_key<K: 'static>(&self) -> bool {
         self.0.contains_key(&Self::key::<K>())
+    }
+    /// Remove a key-value pair from the map.
+    pub fn remove<K: IntoSchema>(&mut self) -> bool {
+        self.0.remove(&Self::key::<K>()).is_some()
     }
     /// Insert a key-value pair into the map.
     pub fn insert<K: IntoSchema>(&mut self, v: Metadata) -> bool {
@@ -86,6 +90,14 @@ pub trait IntoSchema: TypeId {
 
     /// Insert descriptions of types referenced by [`Self`]
     fn update_schema_map(metamap: &mut MetaMap);
+
+    /// Remove description of types referenced by [`Self`]
+    fn remove_from_schema(metamap: &mut MetaMap) -> bool
+    where
+        Self: Sized,
+    {
+        metamap.remove::<Self>()
+    }
 
     /// Return schema map of types referenced by [`Self`]
     fn schema() -> MetaMap {

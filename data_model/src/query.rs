@@ -58,6 +58,7 @@ pub mod model {
     use iroha_crypto::HashOf;
 
     use super::*;
+    use crate::permission::PermissionTokenId;
 
     /// Sized container for all possible Queries.
     #[allow(clippy::enum_variant_names)]
@@ -300,11 +301,13 @@ pub mod permission {
 
     use derive_more::Display;
 
-    use crate::{permission, prelude::*};
+    use crate::{
+        permission::{self, PermissionTokenSchema},
+        prelude::*,
+    };
 
     queries! {
-        /// [`FindAllPermissionTokenDefinitions`] Iroha Query finds all registered
-        /// [`PermissionTokenDefinition`][crate::permission::PermissionTokenDefinition]s
+        /// Finds all registered permission tokens
         #[derive(Copy, Display)]
         #[ffi_type]
         pub struct FindAllPermissionTokenDefinitions;
@@ -329,12 +332,12 @@ pub mod permission {
             /// `Id` of an account to check.
             pub account_id: EvaluatesTo<AccountId>,
             /// `PermissionToken` to check for.
-            pub permission_token: permission::PermissionToken,
+            pub permission_token: EvaluatesTo<permission::PermissionToken>,
         }
     }
 
     impl Query for FindAllPermissionTokenDefinitions {
-        type Output = Vec<PermissionTokenDefinition>;
+        type Output = PermissionTokenSchema;
     }
 
     impl Query for FindPermissionTokensByAccountId {
@@ -349,11 +352,11 @@ pub mod permission {
         /// Construct [`DoesAccountHavePermissionToken`].
         pub fn new(
             account_id: impl Into<EvaluatesTo<AccountId>>,
-            permission_token: permission::PermissionToken,
+            permission_token: impl Into<EvaluatesTo<permission::PermissionToken>>,
         ) -> Self {
             Self {
                 account_id: account_id.into(),
-                permission_token,
+                permission_token: permission_token.into(),
             }
         }
     }
@@ -1486,31 +1489,6 @@ pub mod error {
             Encode,
             IntoSchema,
         )]
-        #[ffi_type]
-        #[display(
-            fmt = "Failed to find permission token `{permission_token_id}` for account `{account_id}`"
-        )]
-        #[cfg_attr(feature = "std", derive(thiserror::Error))]
-        pub struct PermissionTokenFindError {
-            pub account_id: AccountId,
-            pub permission_token_id: PermissionTokenId,
-        }
-
-        /// Type assertion error
-        #[derive(
-            Debug,
-            displaydoc::Display,
-            Clone,
-            PartialEq,
-            Eq,
-            PartialOrd,
-            Ord,
-            Deserialize,
-            Serialize,
-            Decode,
-            Encode,
-            IntoSchema,
-        )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         // TODO: Only temporary
         #[ffi_type(opaque)]
@@ -1535,10 +1513,8 @@ pub mod error {
             Trigger(TriggerId),
             /// Role with id `{0}` not found
             Role(RoleId),
-            /// Permission token definition with id `{0}` not found
-            PermissionTokenDefinition(PermissionTokenId),
-            /// Failed to find permission token
-            PermissionToken(#[cfg_attr(feature = "std", source)] PermissionTokenFindError),
+            /// Failed to find [`PermissionToken`] by id.
+            PermissionToken(PermissionTokenId),
             /// Parameter with id `{0}` not found
             Parameter(ParameterId),
             /// Failed to find public key: `{0}`

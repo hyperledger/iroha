@@ -2,7 +2,7 @@
 
 use derive_more::DebugCustom;
 use iroha_data_model::{
-    account::AccountId, permission::PermissionTokenDefinition, validator as data_model_validator,
+    account::AccountId, permission::PermissionTokenSchema, validator as data_model_validator,
     ValidationFail,
 };
 #[cfg(test)]
@@ -100,7 +100,7 @@ impl Validator {
     pub fn permission_tokens(
         &self,
         wsv: &WorldStateView,
-    ) -> Result<Vec<PermissionTokenDefinition>, wasm::error::Error> {
+    ) -> Result<PermissionTokenSchema, wasm::error::Error> {
         let runtime = wasm::RuntimeBuilder::<wasm::state::ValidatorPermissionTokens>::new()
             .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
             .with_configuration(wsv.config.wasm_runtime_config)
@@ -183,8 +183,8 @@ impl MockValidator {
     pub fn permission_tokens(
         &self,
         _wsv: &WorldStateView,
-    ) -> Result<Vec<PermissionTokenDefinition>, wasm::error::Error> {
-        Ok(Vec::default())
+    ) -> Result<PermissionTokenSchema, wasm::error::Error> {
+        Ok(PermissionTokenSchema::default())
     }
 
     fn execute_instruction(

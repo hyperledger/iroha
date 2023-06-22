@@ -36,7 +36,7 @@ pub mod isi {
             error::{MintabilityError, RepetitionError},
             InstructionType,
         },
-        query::error::{PermissionTokenFindError, QueryExecutionFail},
+        query::error::QueryExecutionFail,
     };
 
     use super::*;
@@ -261,12 +261,13 @@ pub mod isi {
             // Check if account exists
             wsv.account_mut(&account_id)?;
 
-            let definition = wsv
+            if !wsv
                 .permission_token_definitions()
-                .get(&permission_id)
-                .ok_or_else(|| FindError::PermissionTokenDefinition(permission_id.clone()))?;
-
-            permissions::check_permission_token_parameters(&permission, definition)?;
+                .token_ids
+                .contains(&permission_id)
+            {
+                return Err(FindError::PermissionToken(permission_id).into());
+            }
 
             if wsv.account_contains_inherent_permission(&account_id, &permission) {
                 return Err(RepetitionError {
@@ -298,18 +299,8 @@ pub mod isi {
             // Check if account exists
             wsv.account_mut(&account_id)?;
 
-            if !wsv
-                .permission_token_definitions()
-                .contains_key(&permission.definition_id)
-            {
-                return Err(FindError::PermissionTokenDefinition(permission.definition_id).into());
-            }
             if !wsv.remove_account_permission(&account_id, &permission) {
-                return Err(FindError::PermissionToken(PermissionTokenFindError {
-                    account_id: account_id.clone(),
-                    permission_token_id: permission.definition_id,
-                })
-                .into());
+                return Err(FindError::PermissionToken(permission.definition_id).into());
             }
 
             wsv.emit_events(Some(AccountEvent::PermissionRemoved(

@@ -33,6 +33,7 @@ supports-color = { workspace = true }
 inquire = { workspace = true }
 duct = { workspace = true }
 tempfile = { workspace = true }
+parity-scale-codec = { version = "3.2.1", default-features = false }
 
 [build-dependencies]
 eyre = { workspace = true }

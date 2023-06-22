@@ -1,8 +1,6 @@
 //! Iroha default validator.
 #![no_std]
 
-extern crate alloc;
-
 #[cfg(not(test))]
 extern crate panic_halt;
 
@@ -10,8 +8,8 @@ use iroha_validator::prelude::*;
 
 /// Entrypoint to return permission token definitions defined in this validator.
 #[entrypoint]
-pub fn permission_tokens() -> Vec<PermissionTokenDefinition> {
-    DefaultValidator::permission_tokens()
+pub fn permission_token_schema() -> PermissionTokenSchema {
+    DefaultValidator::permission_token_schema()
 }
 
 /// Validation entrypoint

@@ -43,7 +43,7 @@ use iroha_data_model::{
     query::error::{FindError, QueryExecutionFail},
     transaction::{error::TransactionLimitError, SignedTransaction, TransactionLimits},
     validator::Validator,
-    ValueKind, VersionedCommittedBlockWrapper,
+    VersionedCommittedBlockWrapper,
 };
 use iroha_primitives::{
     addr::{Ipv4Addr, Ipv6Addr},

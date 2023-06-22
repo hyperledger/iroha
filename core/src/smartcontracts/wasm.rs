@@ -11,7 +11,7 @@ use iroha_config::{
 };
 use iroha_data_model::{
     account::AccountId,
-    permission::PermissionTokenDefinition,
+    permission::PermissionTokenSchema,
     prelude::*,
     validator::{self, NeedsValidationBox},
     ValidationFail,
@@ -43,8 +43,9 @@ pub mod export {
     pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
     /// Name of the exported entry for validator to validate operation
     pub const VALIDATOR_VALIDATE_FN_NAME: &str = "_iroha_validator_validate";
-    /// Name of the exported entry for validator to retrieve [`PermissionTokenDefinition`]s
-    pub const VALIDATOR_PERMISSION_TOKENS_FN_NAME: &str = "_iroha_validator_permission_tokens";
+    /// Name of the exported entry for validator to retrieve [`PermissionTokenSchema`]s
+    pub const VALIDATOR_PERMISSION_TOKEN_SCHEMA_FN_NAME: &str =
+        "_iroha_validator_permission_token_schema";
 }
 
 pub mod import {
@@ -887,11 +888,11 @@ impl Runtime<state::ValidatorPermissionTokens> {
     /// - if failed to instantiate provided `module`
     /// - if failed to get export function for `permission_tokens()`
     /// - if failed to call export function
-    /// - if failed to decode `Vec<PermissionTokenDefinition>`
+    /// - if failed to decode `Vec<PermissionTokenSchema>`
     pub fn execute_validator_permission_tokens(
         &self,
         module: &wasmtime::Module,
-    ) -> Result<Vec<PermissionTokenDefinition>> {
+    ) -> Result<PermissionTokenSchema> {
         let log_span = wasm_log_span!("Retrieving permission tokens");
         let state = state::ValidatorPermissionTokens {
             log_span,
@@ -904,7 +905,7 @@ impl Runtime<state::ValidatorPermissionTokens> {
         let permission_tokens_fn = Self::get_typed_func(
             &instance,
             &mut store,
-            export::VALIDATOR_PERMISSION_TOKENS_FN_NAME,
+            export::VALIDATOR_PERMISSION_TOKEN_SCHEMA_FN_NAME,
         )?;
 
         let offset = permission_tokens_fn

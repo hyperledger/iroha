@@ -66,10 +66,12 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     match &fn_item.sig.ident {
         fn_name if fn_name == "validate" => impl_validate_entrypoint(attr, fn_item),
-        fn_name if fn_name == "permission_tokens" => {
-            impl_permission_tokens_entrypoint(&attr, fn_item)
+        fn_name if fn_name == "permission_token_schema" => {
+            impl_permission_token_schema_entrypoint(&attr, fn_item)
         }
-        _ => panic!("Validator entrypoint name should be either `validate` or `permission_tokens`"),
+        _ => panic!(
+            "Validator entrypoint name should be either `validate` or `permission_token_schema`"
+        ),
     }
 }
 
@@ -117,10 +119,9 @@ fn impl_validate_entrypoint(attr: TokenStream, fn_item: syn::ItemFn) -> TokenStr
         #[no_mangle]
         #[doc(hidden)]
         unsafe extern "C" fn _iroha_validator_validate() -> *const u8 {
-            let verdict: ::iroha_validator::iroha_wasm::data_model::validator::Result = #fn_name(#args);
-            let bytes_box = ::core::mem::ManuallyDrop::new(::iroha_validator::iroha_wasm::encode_with_length_prefix(&verdict));
-
-            bytes_box.as_ptr()
+            let verdict: ::iroha_validator::data_model::validator::Result = #fn_name(#args);
+            let bytes = ::iroha_validator::iroha_wasm::encode_with_length_prefix(&verdict);
+            ::core::mem::ManuallyDrop::new(bytes).as_ptr()
         }
 
         // NOTE: Host objects are always passed by value to wasm
@@ -132,7 +133,10 @@ fn impl_validate_entrypoint(attr: TokenStream, fn_item: syn::ItemFn) -> TokenStr
     .into()
 }
 
-fn impl_permission_tokens_entrypoint(attr: &TokenStream, fn_item: syn::ItemFn) -> TokenStream {
+fn impl_permission_token_schema_entrypoint(
+    attr: &TokenStream,
+    fn_item: syn::ItemFn,
+) -> TokenStream {
     let syn::ItemFn {
         attrs,
         vis,
@@ -143,28 +147,28 @@ fn impl_permission_tokens_entrypoint(attr: &TokenStream, fn_item: syn::ItemFn) -
 
     assert!(
         matches!(sig.output, syn::ReturnType::Type(_, _)),
-        "Validator `permission_tokens()` entrypoint must have `Vec<PermissionTokenDefinition>` return type"
+        "Validator `permission_token_schema()` entrypoint must have `PermissionTokenSchema>` return type"
     );
     assert!(
         attr.is_empty(),
-        "`#[entrypoint]` macro for Validator `permission_tokens` entrypoint accepts no attributes"
+        "`#[entrypoint]` macro for Validator `permission_token_schema` entrypoint accepts no attributes"
     );
 
     quote! {
-        /// Validator `permission_tokens` entrypoint
+        /// Validator `permission_token_schema` entrypoint
         ///
         /// # Memory safety
         ///
         /// This function transfers the ownership of allocated [`Vec`](alloc::vec::Vec).
         #[no_mangle]
         #[doc(hidden)]
-        unsafe extern "C" fn _iroha_validator_permission_tokens() -> *const u8 {
-            let v: ::alloc::vec::Vec<
-                ::iroha_validator::data_model::permission::PermissionTokenDefinition
-            > = #fn_name();
-            let bytes_box = ::core::mem::ManuallyDrop::new(::iroha_validator::iroha_wasm::encode_with_length_prefix(&v));
+        unsafe extern "C" fn _iroha_validator_permission_token_schema() -> *const u8 {
+            let tokens: ::iroha_validator::PermissionTokenSchema = #fn_name();
+            let bytes = ::iroha_validator::iroha_wasm::encode_with_length_prefix(
+                &tokens.serialize()
+            );
 
-            bytes_box.as_ptr()
+            ::core::mem::ManuallyDrop::new(bytes).as_ptr()
         }
 
         // NOTE: Host objects are always passed by value to wasm
@@ -172,5 +176,6 @@ fn impl_permission_tokens_entrypoint(attr: &TokenStream, fn_item: syn::ItemFn) -
         #(#attrs)*
         #vis #sig
         #block
-    }.into()
+    }
+    .into()
 }

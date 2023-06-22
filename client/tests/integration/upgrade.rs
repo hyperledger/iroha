@@ -59,11 +59,11 @@ fn validator_upgrade_should_update_tokens() -> Result<()> {
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     // Check that `can_unregister_domain` exists
-    let can_unregister_domain_token_id: PermissionTokenId = "can_unregister_domain".parse()?;
     let definitions = client.request(FindAllPermissionTokenDefinitions)?;
     assert!(definitions
-        .into_iter()
-        .any(|definition| definition.id() == &can_unregister_domain_token_id));
+        .token_ids()
+        .iter()
+        .any(|id| id == "CanUnregisterDomain"));
 
     upgrade_validator(
         &client,
@@ -73,14 +73,14 @@ fn validator_upgrade_should_update_tokens() -> Result<()> {
     // Check that `can_unregister_domain` doesn't exist
     let definitions = client.request(FindAllPermissionTokenDefinitions)?;
     assert!(!definitions
+        .token_ids()
         .iter()
-        .any(|definition| definition.id() == &can_unregister_domain_token_id));
+        .any(|id| id == "CanUnregisterDomain"));
 
-    // Check that `can_control_domain_lives` exists
-    let can_control_domain_lives: PermissionTokenId = "can_control_domain_lives".parse()?;
     assert!(definitions
+        .token_ids()
         .iter()
-        .any(|definition| definition.id() == &can_control_domain_lives));
+        .any(|id| id == "CanControlDomainLives"));
 
     Ok(())
 }

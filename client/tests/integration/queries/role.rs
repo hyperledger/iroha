@@ -124,17 +124,10 @@ fn find_roles_by_account_id() -> Result<()> {
         .iter()
         .cloned()
         .map(|role_id| {
-            RegisterBox::new(
-                Role::new(role_id).add_permission(
-                    PermissionToken::new(
-                        "can_set_key_value_in_user_account".parse().expect("Valid"),
-                    )
-                    .with_params([(
-                        "account_id".parse().expect("Valid"),
-                        alice_id.clone().into(),
-                    )]),
-                ),
-            )
+            RegisterBox::new(Role::new(role_id).add_permission(PermissionToken::new(
+                "CanSetKeyValueInUserAccount".to_owned(),
+                &alice_id,
+            )))
         })
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_roles)?;

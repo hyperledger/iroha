@@ -26,6 +26,7 @@ use iroha_data_model::{
     block::{CommittedBlock, VersionedCommittedBlock},
     isi::error::{InstructionExecutionError as Error, MathError},
     parameter::Parameter,
+    permission::PermissionTokenSchema,
     prelude::*,
     query::error::{FindError, QueryExecutionFail},
     trigger::action::ActionTrait,
@@ -65,7 +66,7 @@ pub struct World {
     /// Permission tokens of an account.
     pub(crate) account_permission_tokens: crate::PermissionTokensMap,
     /// Registered permission token ids.
-    pub(crate) permission_token_definitions: crate::PermissionTokenDefinitionsMap,
+    pub(crate) permission_token_definitions: PermissionTokenSchema,
     /// Triggers
     pub(crate) triggers: TriggerSet,
     /// Runtime Validator
@@ -619,9 +620,9 @@ impl WorldStateView {
         &self.world.roles
     }
 
-    /// Get all permission token ids
+    /// Get all permission token definitions
     #[inline]
-    pub fn permission_token_definitions(&self) -> &crate::PermissionTokenDefinitionsMap {
+    pub fn permission_token_definitions(&self) -> &crate::PermissionTokenSchema {
         &self.world.permission_token_definitions
     }
 

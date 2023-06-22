@@ -7,11 +7,16 @@
 
 extern crate alloc;
 
+use alloc::{format, string::String};
+
+use iroha_schema::IntoSchema;
 use iroha_validator::{
     data_model::evaluate::{EvaluationError, ExpressionEvaluator},
+    default::domain::tokens::CanUnregisterDomain,
     permission::Token as _,
     prelude::*,
 };
+use parity_scale_codec::{Decode, Encode};
 
 #[cfg(not(test))]
 extern crate panic_halt;
@@ -22,7 +27,7 @@ mod token {
     use super::*;
 
     /// Token to identify if user can (un-)register domains.
-    #[derive(Token, ValidateGrantRevoke)]
+    #[derive(Token, ValidateGrantRevoke, Decode, Encode, IntoSchema)]
     #[validate(iroha_validator::permission::OnlyGenesis)]
     pub struct CanControlDomainLives;
 }
@@ -125,19 +130,12 @@ impl Visit for CustomValidator {
 }
 
 impl Validate for CustomValidator {
-    fn permission_tokens() -> Vec<PermissionTokenDefinition> {
-        let mut tokens = DefaultValidator::permission_tokens();
+    fn permission_token_schema() -> PermissionTokenSchema {
+        let mut tokens = DefaultValidator::permission_token_schema();
 
-        // TODO: Not very convenient usage.
-        // We need to come up with a better way.
-        if let Some(pos) = tokens.iter().position(|definition| {
-            definition
-                == &iroha_validator::default::domain::tokens::CanUnregisterDomain::definition()
-        }) {
-            tokens.remove(pos);
-        }
+        tokens.remove::<CanUnregisterDomain>();
+        tokens.insert::<token::CanControlDomainLives>();
 
-        tokens.push(token::CanControlDomainLives::definition());
         tokens
     }
 
@@ -161,8 +159,8 @@ impl ExpressionEvaluator for CustomValidator {
 
 /// Entrypoint to return permission token definitions defined in this validator.
 #[entrypoint]
-pub fn permission_tokens() -> Vec<PermissionTokenDefinition> {
-    CustomValidator::permission_tokens()
+pub fn permission_token_schema() -> PermissionTokenSchema {
+    CustomValidator::permission_token_schema()
 }
 
 /// Validate operation

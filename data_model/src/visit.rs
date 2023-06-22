@@ -300,7 +300,7 @@ pub fn visit_instruction<V: Visit + ?Sized>(
 
 pub fn visit_expression<V: Visit + ?Sized, X>(
     visitor: &mut V,
-    authority: &<Account as Identifiable>::Id,
+    authority: &AccountId,
     expression: &EvaluatesTo<X>,
 ) {
     macro_rules! visit_binary_math_expression {

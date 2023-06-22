@@ -9,8 +9,9 @@ extern crate self as iroha_validator;
 
 #[cfg(feature = "default-validator")]
 pub use default::DefaultValidator;
+pub use iroha_schema::MetaMap;
 use iroha_wasm::data_model::{
-    permission::PermissionTokenDefinition, validator::Result, visit::Visit, ValidationFail,
+    permission::PermissionTokenId, validator::Result, visit::Visit, ValidationFail,
 };
 pub use iroha_wasm::{self, data_model};
 
@@ -110,10 +111,44 @@ macro_rules! declare_tokens {
     }
 }
 
+/// Collection of all permission tokens defined by the validator
+#[derive(Debug, Clone, Default)]
+pub struct PermissionTokenSchema(Vec<PermissionTokenId>, MetaMap);
+
+impl PermissionTokenSchema {
+    /// Remove permission token from this collection
+    pub fn remove<T: iroha_schema::IntoSchema>(&mut self) {
+        if let Some(pos) = self
+            .0
+            .iter()
+            .position(|token_id| *token_id == <T as iroha_schema::IntoSchema>::type_name())
+        {
+            self.0.remove(pos);
+            <T as iroha_schema::IntoSchema>::remove_from_schema(&mut self.1);
+        }
+    }
+
+    /// Insert new permission token into this collection
+    pub fn insert<T: iroha_schema::IntoSchema>(&mut self) {
+        <T as iroha_schema::IntoSchema>::update_schema_map(&mut self.1);
+        self.0.push(<T as iroha_schema::IntoSchema>::type_name());
+    }
+
+    /// Serializes schema into a JSON string representation
+    pub fn serialize(mut self) -> (Vec<PermissionTokenId>, alloc::string::String) {
+        self.0.sort();
+
+        (
+            self.0,
+            serde_json::to_string(&self.1).expect("schema serialization must not fail"),
+        )
+    }
+}
+
 /// Validator of Iroha operations
 pub trait Validate: Visit {
     /// Get all [`PermissionTokenDefinition`]'s defined by validator.
-    fn permission_tokens() -> Vec<PermissionTokenDefinition>;
+    fn permission_token_schema() -> PermissionTokenSchema;
 
     /// Validator verdict.
     fn verdict(&self) -> &Result;
@@ -136,5 +171,5 @@ pub mod prelude {
 
     #[cfg(feature = "default-validator")]
     pub use super::DefaultValidator;
-    pub use super::{declare_tokens, deny, pass, Validate};
+    pub use super::{declare_tokens, deny, pass, PermissionTokenSchema, Validate};
 }
