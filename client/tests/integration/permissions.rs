@@ -17,37 +17,6 @@ fn get_assets(iroha_client: &mut Client, id: &<Account as Identifiable>::Id) -> 
 
 #[ignore = "ignore, more in #2851"]
 #[test]
-fn permissions_require_registration_before_grant() {
-    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_725).start_with_runtime();
-    wait_for_genesis_committed(&[client.clone()], 0);
-
-    // Given
-    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland").expect("Valid");
-    let token = PermissionToken::new("can_do_stuff".parse().expect("valid"));
-
-    let grant_permission = GrantBox::new(token.clone(), alice_id);
-    let register_role = RegisterBox::new(
-        Role::new("staff_that_does_stuff".parse().unwrap()).add_permission(token.clone()),
-    );
-
-    // We shouldn't be able to grant unregistered permission tokens
-    // or roles containing unregistered permission tokens
-    assert!(client.submit_blocking(grant_permission.clone()).is_err());
-    assert!(client.submit_blocking(register_role.clone()).is_err());
-
-    let register_permission = RegisterBox::new(PermissionTokenDefinition::new(
-        token.definition_id().clone(),
-    ));
-
-    client.submit_blocking(register_permission).unwrap();
-
-    // Should be okay after registering the token id.
-    assert!(client.submit_blocking(grant_permission).is_ok());
-    assert!(client.submit_blocking(register_role).is_ok());
-}
-
-#[ignore = "ignore, more in #2851"]
-#[test]
 fn permissions_disallow_asset_transfer() {
     let (_rt, _peer, mut iroha_client) =
         <PeerBuilder>::new().with_port(10_730).start_with_runtime();
@@ -271,8 +240,6 @@ fn permissions_differ_not_only_by_names() {
 }
 
 mod token_parameters {
-    use iroha_data_model::ValueKind;
-
     use super::*;
 
     static TEST_TOKEN_DEFINITION_ID: once_cell::sync::Lazy<
@@ -365,7 +332,7 @@ mod token_parameters {
         let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_750).start_with_runtime();
         wait_for_genesis_committed(&[client.clone()], 0);
 
-        register_test_token_definition(&client);
+        // register_test_token_definition(&client);
 
         let account_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
 
@@ -381,7 +348,7 @@ mod token_parameters {
         let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_750).start_with_runtime();
         wait_for_genesis_committed(&[client.clone()], 0);
 
-        register_test_token_definition(&client);
+        // register_test_token_definition(&client);
 
         let role_id: <Role as Identifiable>::Id = "test_role".parse().expect("Valid");
         let role = Role::new(role_id).add_permission(token);
@@ -389,16 +356,5 @@ mod token_parameters {
         let _err = client
             .submit_blocking(RegisterBox::new(role))
             .expect_err(expect);
-    }
-
-    fn register_test_token_definition(client: &Client) {
-        let token_definition = PermissionTokenDefinition::new(TEST_TOKEN_DEFINITION_ID.clone())
-            .with_params([
-                (NUMBER_PARAMETER_NAME.clone(), ValueKind::Numeric),
-                (STRING_PARAMETER_NAME.clone(), ValueKind::String),
-            ]);
-        client
-            .submit_blocking(RegisterBox::new(token_definition))
-            .expect("Failed to register permission token definition");
     }
 }

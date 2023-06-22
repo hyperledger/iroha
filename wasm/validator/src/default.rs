@@ -1,7 +1,7 @@
 //! Definition of Iroha default validator and accompanying validation functions
 #![allow(missing_docs, clippy::missing_errors_doc)]
 
-use alloc::borrow::ToOwned as _;
+use alloc::{borrow::ToOwned as _, vec::Vec};
 
 use account::{
     visit_burn_account_public_key, visit_mint_account_public_key,
@@ -21,10 +21,7 @@ use domain::{visit_remove_domain_key_value, visit_set_domain_key_value, visit_un
 use iroha_wasm::data_model::visit::Visit;
 use parameter::{visit_new_parameter, visit_set_parameter};
 use peer::visit_unregister_peer;
-use permission_token::{
-    visit_grant_account_permission, visit_register_permission_token,
-    visit_revoke_account_permission,
-};
+use permission_token::{visit_grant_account_permission, visit_revoke_account_permission};
 use role::{visit_grant_account_role, visit_revoke_account_role, visit_unregister_role};
 use trigger::{visit_execute_trigger, visit_mint_trigger_repetitions, visit_unregister_trigger};
 use validator::visit_upgrade_validator;
@@ -115,9 +112,24 @@ pub(crate) use map_all_crate_tokens;
 pub(crate) use tokens;
 
 impl Validate for DefaultValidator {
+    fn permission_tokens() -> Vec<PermissionTokenDefinition> {
+        let mut v = Vec::new();
+
+        macro_rules! add_to_vec {
+            ($token_ty:ty) => {
+                v.push(<$token_ty as ::iroha_validator::permission::Token>::definition());
+            };
+        }
+
+        map_all_crate_tokens!(add_to_vec);
+
+        v
+    }
+
     fn verdict(&self) -> &Result {
         &self.verdict
     }
+
     fn deny(&mut self, reason: ValidationFail) {
         self.verdict = Err(reason);
     }
@@ -197,7 +209,6 @@ impl Visit for DefaultValidator {
         visit_remove_asset_definition_key_value(RemoveKeyValue<AssetDefinition>),
 
         // Permission validation
-        visit_register_permission_token(Register<PermissionTokenDefinition>),
         visit_grant_account_permission(Grant<Account, PermissionToken>),
         visit_revoke_account_permission(Revoke<Account, PermissionToken>),
 
@@ -1439,18 +1450,6 @@ pub mod permission_token {
             map_all_crate_tokens!(visit_internal);
             deny!($validator, "Unknown permission token");
         };
-    }
-
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn visit_register_permission_token<V: Validate + ?Sized>(
-        validator: &mut V,
-        _authority: &AccountId,
-        _isi: Register<PermissionTokenDefinition>,
-    ) {
-        deny!(
-            validator,
-            "Registering new permission token is allowed only in genesis"
-        );
     }
 
     pub fn visit_grant_account_permission<V: Validate + ?Sized>(

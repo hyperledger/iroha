@@ -1,17 +1,31 @@
-//! Runtime Validator which allows any instruction executed by `admin@admin` account.
-//! If authority is not `admin@admin` then [`DefaultValidator`] is used as a backup.
+//! Runtime Validator which allows domain (un-)registration only for users who own
+//! [`token::CanControlDomainLives`] permission token.
+//!
+//! It also doesn't have [`iroha_validator::default::domain::tokens::CanUnregisterDomain`].
+
 #![no_std]
 
 extern crate alloc;
 
 use iroha_validator::{
     data_model::evaluate::{EvaluationError, ExpressionEvaluator},
-    parse,
+    permission::Token as _,
     prelude::*,
 };
 
 #[cfg(not(test))]
 extern crate panic_halt;
+
+mod token {
+    //! Module with custom token.
+
+    use super::*;
+
+    /// Token to identify if user can (un-)register domains.
+    #[derive(Token, ValidateGrantRevoke)]
+    #[validate(iroha_validator::permission::OnlyGenesis)]
+    pub struct CanControlDomainLives;
+}
 
 struct CustomValidator(DefaultValidator);
 
@@ -23,11 +37,29 @@ macro_rules! delegate {
     }
 }
 
+impl CustomValidator {
+    const CAN_CONTROL_DOMAIN_LIVES: token::CanControlDomainLives = token::CanControlDomainLives;
+}
+
 impl Visit for CustomValidator {
-    fn visit_instruction(&mut self, authority: &AccountId, isi: &InstructionBox) {
-        if parse!("admin@admin" as AccountId) != *authority {
-            self.0.visit_instruction(authority, isi);
+    fn visit_register_domain(&mut self, authority: &AccountId, _register_domain: Register<Domain>) {
+        if Self::CAN_CONTROL_DOMAIN_LIVES.is_owned_by(authority) {
+            pass!(self);
         }
+
+        deny!(self, "Can't register new domain");
+    }
+
+    fn visit_unregister_domain(
+        &mut self,
+        authority: &AccountId,
+        _unregister_domain: Unregister<Domain>,
+    ) {
+        if Self::CAN_CONTROL_DOMAIN_LIVES.is_owned_by(authority) {
+            pass!(self);
+        }
+
+        deny!(self, "Can't unregister new domain");
     }
 
     delegate! {
@@ -37,11 +69,12 @@ impl Visit for CustomValidator {
         visit_if(&Conditional),
         visit_pair(&Pair),
 
+        visit_instruction(&InstructionBox),
+
         // Peer validation
         visit_unregister_peer(Unregister<Peer>),
 
         // Domain validation
-        visit_unregister_domain(Unregister<Domain>),
         visit_set_domain_key_value(SetKeyValue<Domain>),
         visit_remove_domain_key_value(RemoveKeyValue<Domain>),
 
@@ -93,7 +126,19 @@ impl Visit for CustomValidator {
 
 impl Validate for CustomValidator {
     fn permission_tokens() -> Vec<PermissionTokenDefinition> {
-        DefaultValidator::permission_tokens()
+        let mut tokens = DefaultValidator::permission_tokens();
+
+        // TODO: Not very convenient usage.
+        // We need to come up with a better way.
+        if let Some(pos) = tokens.iter().position(|definition| {
+            definition
+                == &iroha_validator::default::domain::tokens::CanUnregisterDomain::definition()
+        }) {
+            tokens.remove(pos);
+        }
+
+        tokens.push(token::CanControlDomainLives::definition());
+        tokens
     }
 
     fn verdict(&self) -> &Result {
@@ -120,8 +165,7 @@ pub fn permission_tokens() -> Vec<PermissionTokenDefinition> {
     CustomValidator::permission_tokens()
 }
 
-/// Allow operation if authority is `admin@admin` and if not,
-/// fallback to [`DefaultValidator::validate()`].
+/// Validate operation
 #[entrypoint(params = "[authority, operation]")]
 pub fn validate(authority: AccountId, operation: NeedsValidationBox) -> Result {
     let mut validator = CustomValidator(DefaultValidator::new());

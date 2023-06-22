@@ -1551,7 +1551,7 @@ pub mod error {
             #[display(fmt = "Failed to find role by id: `{_0}`")]
             Role(RoleId),
             /// Failed to find [`PermissionTokenDefinition`] by id.
-            #[display(fmt = "Failed to find permission definition token by id: `{_0}`")]
+            #[display(fmt = "Failed to find permission token definition by id: `{_0}`")]
             PermissionTokenDefinition(PermissionTokenId),
             /// Failed to find [`PermissionToken`] for [`AccountId`].
             #[cfg_attr(not(feature = "std"), display(fmt = "Failed to find permission token"))]

@@ -61,7 +61,7 @@ impl Parse for HasOriginEnum {
         let ident = input.parse::<Ident>()?;
         let generics = input.parse::<Generics>()?;
         if !generics.params.is_empty() {
-            abort!(generics, "Generics is not supported");
+            abort!(generics, "Generics are not supported");
         }
         let content;
         let _brace_token = syn::braced!(content in input);
