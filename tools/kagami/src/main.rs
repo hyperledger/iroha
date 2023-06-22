@@ -728,7 +728,7 @@ mod validator {
             .out_dir(build_dir.path())
             .build()?
             .optimize()?
-            .into_bytes();
+            .into_bytes()?;
 
         Ok(wasm_blob)
     }

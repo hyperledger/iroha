@@ -28,7 +28,7 @@ const TOOLCHAIN: &str = "+nightly-2022-12-22";
 ///         .format() // Optional: Enable smartcontract formatting
 ///         .build()? // Run build
 ///         .optimize()? // Optimize WASM output
-///         .into_bytes();
+///         .into_bytes()?; // Get resulting WASM bytes
 ///
 ///     // ...
 ///
@@ -141,7 +141,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
 mod internal {
     //! Internal implementation of [`Builder`](super::Builder).
 
-    use std::{borrow::Cow, fs::File, io::Read};
+    use std::borrow::Cow;
 
     use super::*;
 
@@ -243,20 +243,15 @@ mod internal {
 
             check_command_output(&command_output, "cargo build")?;
 
-            let mut wasm_file = Self::find_wasm_file(out_dir.path())?;
-            let mut wasm_data = Vec::new();
-            wasm_file
-                .read_to_end(&mut wasm_data)
-                .wrap_err("Failed to read data from the output wasm file")?;
+            let output = Output {
+                wasm_file: Self::find_wasm_file(out_dir.as_ref())?,
+                out_dir,
+            };
 
-            out_dir
-                .close()
-                .wrap_err("Failed to remove temporary directory")?;
-
-            Ok(Output { bytes: wasm_data })
+            Ok(output)
         }
 
-        fn find_wasm_file(dir: &Path) -> Result<File> {
+        fn find_wasm_file(dir: &Path) -> Result<PathBuf> {
             std::fs::read_dir(dir)?
                 .filter_map(Result::ok)
                 .find_map(|entry| {
@@ -264,17 +259,17 @@ mod internal {
                     (path.is_file() && path.extension().map_or(false, |ext| ext == "wasm"))
                         .then_some(path)
                 })
-                .map(File::open)
-                .ok_or_else(|| eyre!("Failed to find wasm file in the output directory"))?
-                .wrap_err("Failed to open wasm file")
+                .ok_or_else(|| eyre!("Failed to find wasm file in the output directory"))
         }
     }
 }
 
 /// Build output representing wasm binary.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Output {
-    bytes: Vec<u8>,
+    // Keep this fields order so that temporary directory is dropped on the last step.
+    wasm_file: PathBuf,
+    out_dir: tempfile::TempDir,
 }
 
 impl Output {
@@ -285,18 +280,34 @@ impl Output {
     /// Fails if internal tool fails to optimize wasm binary.
     #[allow(clippy::unnecessary_wraps)]
     pub fn optimize(self) -> Result<Self> {
-        // TODO: Implement optimization
-        Ok(self)
-    }
+        let optimizer = wasm_opt::OptimizationOptions::new_optimize_for_size();
 
-    /// Get reference to the underling bytes.
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
+        let optimized_file = tempfile::NamedTempFile::new_in(self.out_dir.path())?
+            .path()
+            .to_owned();
+        optimizer.run(self.wasm_file, optimized_file.as_path())?;
+
+        Ok(Self {
+            wasm_file: optimized_file,
+            out_dir: self.out_dir,
+        })
     }
 
     /// Consume [`Output`] and get the underling bytes.
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.bytes
+    ///
+    /// # Errors
+    ///
+    /// Fails if the output file cannot be read.
+    pub fn into_bytes(self) -> Result<Vec<u8>> {
+        use std::{fs::File, io::Read as _};
+
+        let mut wasm_file = File::open(self.wasm_file)?;
+        let mut wasm_data = Vec::new();
+        wasm_file
+            .read_to_end(&mut wasm_data)
+            .wrap_err("Failed to read data from the output wasm file")?;
+
+        Ok(wasm_data)
     }
 }
 

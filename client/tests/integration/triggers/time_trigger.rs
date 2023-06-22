@@ -212,7 +212,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     .out_dir(temp_out_dir.path())
     .build()?
     .optimize()?
-    .into_bytes();
+    .into_bytes()?;
 
     temp_out_dir
         .close()

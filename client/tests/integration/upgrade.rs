@@ -95,7 +95,7 @@ fn upgrade_validator(client: &Client, validator: impl AsRef<Path>) -> Result<()>
         .out_dir(temp_out_dir.path())
         .build()?
         .optimize()?
-        .into_bytes();
+        .into_bytes()?;
 
     temp_out_dir
         .close()
