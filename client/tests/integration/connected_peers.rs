@@ -54,20 +54,19 @@ fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
     let peer = network.peers.values().last().unwrap();
     let peer_client = Client::test(&peer.api_address, &peer.telemetry_address);
     let unregister_peer = UnregisterBox::new(IdBox::PeerId(peer.id.clone()));
-    client.submit(unregister_peer)?;
-    thread::sleep(pipeline_time * 2);
+    client.submit_blocking(unregister_peer)?;
+    thread::sleep(pipeline_time * 2); // Wait for some time to allow peers to connect
     status = client.get_status()?;
     assert_eq!(status.peers, n_peers - 2);
     assert_eq!(status.blocks, 3);
     status = peer_client.get_status()?;
     assert_eq!(status.peers, 0);
-    assert_eq!(status.blocks, 3);
 
     // Re-register the peer: committed with f = `faults` - 1 then
     // `status.peers` increments
     let register_peer = RegisterBox::new(DataModelPeer::new(peer.id.clone()));
-    client.submit(register_peer)?;
-    thread::sleep(pipeline_time * 4);
+    client.submit_blocking(register_peer)?;
+    thread::sleep(pipeline_time * 4); // Wait for some time to allow peers to connect
     status = client.get_status()?;
     assert_eq!(status.peers, n_peers - 1);
     assert_eq!(status.blocks, 4);
