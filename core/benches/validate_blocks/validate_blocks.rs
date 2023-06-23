@@ -213,7 +213,7 @@ impl WsvValidateBlocks {
     /// - Failed to apply block
     ///
     /// # Panics
-    /// If wsv doesn't one block ahead of finalized wsv.
+    /// If wsv isn't one block ahead of finalized wsv.
     pub fn measure(
         Self {
             wsv,

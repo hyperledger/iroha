@@ -55,13 +55,14 @@ struct LastUpdateMetricsData {
 #[derive(Clone)]
 pub struct SumeragiHandle {
     public_wsv_receiver: watch::Receiver<WorldStateView>,
-    message_sender: mpsc::SyncSender<MessagePacket>,
     metrics: Metrics,
     last_update_metrics_mutex: Arc<Mutex<LastUpdateMetricsData>>,
     network: IrohaNetwork,
     kura: Arc<Kura>,
     queue: Arc<Queue>,
     _thread_handle: Arc<ThreadHandler>,
+    // Should be dropped after `_thread_handle` to prevent sumeargi thread from panicking
+    message_sender: mpsc::SyncSender<MessagePacket>,
 }
 
 impl SumeragiHandle {
