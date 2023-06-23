@@ -223,7 +223,7 @@ impl WsvApplyBlocks {
     /// - Failed to apply block
     ///
     /// # Panics
-    /// If wsv doesn't one block ahead of finalized wsv.
+    /// If wsv isn't one block ahead of finalized wsv.
     pub fn measure(Self { wsv, blocks }: &Self) -> Result<()> {
         let mut finalized_wsv = wsv.clone();
         let mut wsv = finalized_wsv.clone();
