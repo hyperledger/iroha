@@ -221,6 +221,15 @@ impl Sumeragi {
                     };
 
                     if block.is_genesis() {
+                        match &block {
+                            VersionedCommittedBlock::V1(block) => {
+                                assert!(
+                                    !block.transactions.iter().any(|tx| tx.error.is_some()),
+                                    "Genesis transaction set contains invalid transactions"
+                                );
+                            }
+                        }
+
                         self.commit_block(block);
                         return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                     }
