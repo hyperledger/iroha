@@ -197,7 +197,7 @@ pub mod query {
     //! Queries associated to triggers.
     use iroha_data_model::query::error::QueryExecutionFail as Error;
 
-    use super::*;
+    use super::{set::LoadedExecutable, *};
     use crate::prelude::*;
 
     impl ValidQuery for FindAllActiveTriggerIds {
@@ -227,8 +227,20 @@ pub mod query {
                 .inspect_by_id(&id, |action| action.clone_and_box())
                 .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))?;
 
-            let action =
-                Action::new(loaded_executable, repeats, authority, filter).with_metadata(metadata);
+            let original_executable = match loaded_executable {
+                LoadedExecutable::Wasm(_) => {
+                    let original_wasm = wsv
+                        .triggers()
+                        .get_original_contract(&id)
+                        .cloned()
+                        .expect("No original smartcontract saved for trigger. This is a bug.");
+                    Executable::Wasm(original_wasm)
+                }
+                LoadedExecutable::Instructions(isi) => Executable::Instructions(isi),
+            };
+
+            let action = Action::new(original_executable, repeats, authority, filter)
+                .with_metadata(metadata);
 
             // TODO: Should we redact the metadata if the account is not the authority/owner?
             Ok(Trigger::new(id, action))
@@ -264,22 +276,34 @@ pub mod query {
                 .evaluate(&self.domain_id)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate domain id. {e}")))?;
 
-            let triggers = wsv
-                .triggers()
-                .inspect_by_domain_id(&domain_id, |trigger_id, action| {
-                    let Action {
-                        executable: loaded_executable,
-                        repeats,
-                        authority,
-                        filter,
-                        metadata,
-                    } = action.clone_and_box();
-                    Trigger::new(
-                        trigger_id.clone(),
-                        Action::new(loaded_executable, repeats, authority, filter)
-                            .with_metadata(metadata),
-                    )
-                });
+            let triggers =
+                wsv.triggers()
+                    .inspect_by_domain_id(&domain_id, |trigger_id, action| {
+                        let Action {
+                            executable: loaded_executable,
+                            repeats,
+                            authority,
+                            filter,
+                            metadata,
+                        } = action.clone_and_box();
+
+                        let original_executable = match loaded_executable {
+                            LoadedExecutable::Wasm(_) => {
+                                let original_wasm =
+                                wsv.triggers().get_original_contract(trigger_id).cloned().expect(
+                                    "No original smartcontract saved for trigger. This is a bug.",
+                                );
+                                Executable::Wasm(original_wasm)
+                            }
+                            LoadedExecutable::Instructions(isi) => Executable::Instructions(isi),
+                        };
+
+                        Trigger::new(
+                            trigger_id.clone(),
+                            Action::new(original_executable, repeats, authority, filter)
+                                .with_metadata(metadata),
+                        )
+                    });
 
             Ok(triggers)
         }

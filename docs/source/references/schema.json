@@ -2120,7 +2120,6 @@
   "HashOf<MerkleTree<VersionedSignedTransaction>>": "Hash",
   "HashOf<VersionedCommittedBlock>": "Hash",
   "HashOf<VersionedSignedTransaction>": "Hash",
-  "HashOf<WasmSmartContract>": "Hash",
   "HashValue": {
     "Enum": [
       {
@@ -4845,10 +4844,6 @@
       {
         "name": "serialized",
         "type": "Vec<u8>"
-      },
-      {
-        "name": "blob_hash",
-        "type": "HashOf<WasmSmartContract>"
       }
     ]
   },

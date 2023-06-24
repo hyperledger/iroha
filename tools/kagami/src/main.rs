@@ -340,6 +340,15 @@ mod genesis {
                 "alice@wonderland".parse()?,
             )),
         );
+        let token = PermissionToken::new("allowed_to_do_stuff".parse()?);
+
+        let register_permission = RegisterBox::new(PermissionTokenDefinition::new(
+            token.definition_id().clone(),
+        ));
+        let role_id: RoleId = "staff_that_does_stuff_in_genesis".parse()?;
+        let register_role =
+            RegisterBox::new(Role::new(role_id.clone()).add_permission(token.clone()));
+
         let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
         let grant_permission_to_set_parameters = GrantBox::new(
             PermissionToken::new("can_set_parameters".parse()?),

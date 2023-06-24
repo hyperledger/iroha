@@ -11,7 +11,6 @@
 use core::cmp::min;
 use std::{collections::HashMap, fmt};
 
-use iroha_crypto::HashOf;
 use iroha_data_model::{
     events::Filter as EventFilter,
     isi::error::{InstructionExecutionError, MathError},
@@ -50,6 +49,8 @@ pub struct Set {
     by_call_triggers: HashMap<TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
     /// Trigger ids with type of events they process
     ids: HashMap<TriggerId, EventType>,
+    /// Original [`WasmSmartContract`]s by [`TriggerId`] for querying purposes.
+    original_contracts: HashMap<TriggerId, WasmSmartContract>,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     matched_ids: Vec<(Event, TriggerId)>,
@@ -77,6 +78,7 @@ impl Clone for Set {
             time_triggers: self.time_triggers.clone(),
             by_call_triggers: self.by_call_triggers.clone(),
             ids: self.ids.clone(),
+            original_contracts: self.original_contracts.clone(),
             matched_ids: Vec::default(),
         }
     }
@@ -179,10 +181,14 @@ impl Set {
         } = trigger.action;
 
         let loaded_executable = match executable {
-            Executable::Wasm(bytes) => LoadedExecutable::Wasm(LoadedWasm {
-                blob_hash: HashOf::new(&bytes),
-                module: wasm::load_module(engine, bytes)?,
-            }),
+            Executable::Wasm(bytes) => {
+                let loaded = LoadedExecutable::Wasm(LoadedWasm {
+                    module: wasm::load_module(engine, &bytes)?,
+                });
+                // Store original executable representation to respond to queries with.
+                self.original_contracts.insert(trigger_id.clone(), bytes);
+                loaded
+            }
             Executable::Instructions(instructions) => LoadedExecutable::Instructions(instructions),
         };
 
@@ -198,6 +204,13 @@ impl Set {
         );
         self.ids.insert(trigger_id, event_type);
         Ok(true)
+    }
+
+    /// Get original [`WasmSmartContract`] for [`TriggerId`].
+    /// Returns `None` if there's no [`Trigger`]
+    /// with specified `id` that has WASM executable
+    pub fn get_original_contract(&self, id: &TriggerId) -> Option<&WasmSmartContract> {
+        self.original_contracts.get(id)
     }
 
     /// Get all contained trigger ids without a particular order
@@ -326,6 +339,7 @@ impl Set {
     ///
     /// Return `false` if [`Set`] doesn't contain the trigger with the given `id`.
     pub fn remove(&mut self, id: &TriggerId) -> bool {
+        self.original_contracts.remove(id);
         self.ids
             .remove(id)
             .map(|event_type| match event_type {
@@ -524,8 +538,6 @@ impl Set {
 pub struct LoadedWasm {
     /// Loaded Module
     pub module: wasmtime::Module,
-    /// Hash of original WASM blob on blockchain
-    pub blob_hash: HashOf<WasmSmartContract>,
 }
 
 /// Same as [`Executable`](iroha_data_model::transaction::Executable), but instead of
@@ -556,12 +568,11 @@ impl core::fmt::Debug for LoadedExecutable {
 impl From<LoadedExecutable> for OptimizedExecutable {
     fn from(executable: LoadedExecutable) -> Self {
         match executable {
-            LoadedExecutable::Wasm(LoadedWasm { module, blob_hash }) => {
+            LoadedExecutable::Wasm(LoadedWasm { module }) => {
                 OptimizedExecutable::WasmInternalRepr(WasmInternalRepr {
                     serialized: module
                         .serialize()
                         .expect("Serialization of optimized wasm module should always succeed"),
-                    blob_hash,
                 })
             }
             LoadedExecutable::Instructions(instructions) => {

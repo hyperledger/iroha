@@ -4,7 +4,7 @@ use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_client::client::{self, Client};
-use iroha_data_model::{prelude::*, query::error::FindError, trigger::OptimizedExecutable};
+use iroha_data_model::{prelude::*, query::error::FindError};
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::info;
 use test_network::*;
@@ -289,7 +289,7 @@ fn unregister_trigger() -> Result<()> {
     };
     let found_trigger = test_client.request(find_trigger.clone())?;
     let found_action = found_trigger.action;
-    let OptimizedExecutable::Instructions(found_instructions) = found_action.executable else {
+    let Executable::Instructions(found_instructions) = found_action.executable else {
         panic!("Expected instructions");
     };
     let found_trigger = Trigger::new(
