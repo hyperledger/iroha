@@ -119,7 +119,11 @@ pub mod error {
     #[cfg(feature = "http")]
     impl warp::Reply for &Error {
         fn into_response(self) -> warp::reply::Response {
-            warp::reply::with_status(self.to_string(), self.status_code()).into_response()
+            warp::reply::with_status(
+                format!("Transaction Rejected (Malformed), Reason : '{}'", self),
+                self.status_code(),
+            )
+            .into_response()
         }
     }
     #[cfg(feature = "http")]
