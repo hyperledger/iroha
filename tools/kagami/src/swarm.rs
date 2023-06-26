@@ -45,9 +45,10 @@ mod clap_args {
         /// How many peers to generate within the Docker Compose setup.
         #[arg(long, short)]
         pub peers: NonZeroU16,
-        /// Might be useful for deterministic key generation.
+        /// Used for deterministic key-generation. 
         ///
-        /// It could be any string. Its UTF-8 bytes will be used as a seed.
+        /// Any valid UTF-8 sequence is acceptable. 
+        // TODO: Check for length limitations, and if non-UTF-8 sequences are working. 
         #[arg(long, short)]
         pub seed: Option<String>,
         /// Re-create the target directory (for `dir` subcommand) or file (for `file` subcommand)
