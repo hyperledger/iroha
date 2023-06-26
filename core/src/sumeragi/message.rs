@@ -48,19 +48,20 @@ pub struct MessagePacket {
     /// peers which agree with view change should sign it.
     pub view_change_proofs: view_change::ProofChain,
     /// Actual Sumeragi message in this packet.
-    pub message: Message,
+    pub message: Option<Message>,
 }
 
 impl MessagePacket {
     /// Construct [`Self`]
-    pub fn new(view_change_proofs: view_change::ProofChain, message: impl Into<Message>) -> Self {
+    pub fn new(view_change_proofs: view_change::ProofChain, message: Option<Message>) -> Self {
         Self {
             view_change_proofs,
-            message: message.into(),
+            message,
         }
     }
 }
 
+#[allow(clippy::enum_variant_names)]
 /// Message's variants that are used by peers to communicate in the process of consensus.
 #[derive(Debug, Clone, Decode, Encode, FromVariant)]
 pub enum Message {
@@ -72,8 +73,22 @@ pub enum Message {
     BlockCommitted(BlockCommitted),
     /// This message is sent by `BlockSync` when new block is received
     BlockSyncUpdate(BlockSyncUpdate),
-    /// View change is suggested due to some faulty peer or general fault in consensus.
-    ViewChangeSuggested,
+}
+
+/// Specialization of `MessagePacket`
+pub struct ControlFlowMessage {
+    /// Proof of view change. As part of this message handling, all
+    /// peers which agree with view change should sign it.
+    pub view_change_proofs: view_change::ProofChain,
+}
+
+impl From<ControlFlowMessage> for MessagePacket {
+    fn from(m: ControlFlowMessage) -> MessagePacket {
+        MessagePacket {
+            view_change_proofs: m.view_change_proofs,
+            message: None,
+        }
+    }
 }
 
 /// `BlockCreated` message structure.
