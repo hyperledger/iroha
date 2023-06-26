@@ -163,8 +163,8 @@ fn produce_multiple_events() -> Result<()> {
     // Registering role
     let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
     let role_id = <Role as Identifiable>::Id::from_str("TEST_ROLE")?;
-    let token_1 = PermissionToken::new("CanRemoveKeyValueInUserAccount".to_owned(), &alice_id);
-    let token_2 = PermissionToken::new("CanSetKeyValueInUserAccount".to_owned(), &alice_id);
+    let token_1 = PermissionToken::new("CanRemoveKeyValueInUserAccount".parse()?, &alice_id);
+    let token_2 = PermissionToken::new("CanSetKeyValueInUserAccount".parse()?, &alice_id);
     let role = iroha_data_model::role::Role::new(role_id.clone())
         .add_permission(token_1.clone())
         .add_permission(token_2.clone());

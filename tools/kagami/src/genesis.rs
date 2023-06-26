@@ -131,7 +131,7 @@ pub fn generate_default(validator_path: Option<PathBuf>) -> color_eyre::Result<R
     let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
     let grant_permission_to_set_parameters = GrantBox::new(
         PermissionToken {
-            definition_id: "CanSetParameters".to_owned(),
+            definition_id: "CanSetParameters".parse()?,
             payload: Vec::new(),
         },
         alice_id,
@@ -139,11 +139,11 @@ pub fn generate_default(validator_path: Option<PathBuf>) -> color_eyre::Result<R
     let register_user_metadata_access = RegisterBox::new(
         Role::new("ALICE_METADATA_ACCESS".parse()?)
             .add_permission(PermissionToken::new(
-                "CanSetKeyValueInUserAccount".to_owned(),
+                "CanSetKeyValueInUserAccount".parse()?,
                 &"alice@wonderland".parse::<AccountId>()?,
             ))
             .add_permission(PermissionToken::new(
-                "CanRemoveKeyValueInUserAccount".to_owned(),
+                "CanRemoveKeyValueInUserAccount".parse()?,
                 &"alice@wonderland".parse::<AccountId>()?,
             )),
     )

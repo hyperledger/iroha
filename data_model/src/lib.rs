@@ -152,7 +152,7 @@ mod seal {
         FindTransactionsByAccountId,
         FindTransactionByHash,
         FindPermissionTokensByAccountId,
-        FindAllPermissionTokenDefinitions,
+        FindPermissionTokenSchema,
         DoesAccountHavePermissionToken,
         FindAllActiveTriggerIds,
         FindTriggerById,

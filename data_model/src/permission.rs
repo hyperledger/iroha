@@ -10,6 +10,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
+use crate::name::Name;
 
 /// Collection of [`Token`]s
 pub type Permissions = BTreeSet<PermissionToken>;
@@ -17,7 +18,7 @@ pub type Permissions = BTreeSet<PermissionToken>;
 use super::*;
 
 /// Unique id of [`PermissionToken`]
-pub type PermissionTokenId = String;
+pub type PermissionTokenId = Name;
 
 #[model]
 pub mod model {
@@ -64,7 +65,7 @@ pub mod model {
     #[display(fmt = "{token_ids:#?}")]
     #[ffi_type]
     pub struct PermissionTokenSchema {
-        /// Ids of all permission tokens
+        /// Ids of all permission tokens, sorted.
         pub token_ids: Vec<PermissionTokenId>,
         /// Type schema of permission tokens
         ///
@@ -94,7 +95,7 @@ impl PermissionToken {
 
     /// Return id of this token
     // TODO: Use getset to derive this after fixes in FFI
-    pub fn definition_id(&self) -> &str {
+    pub fn definition_id(&self) -> &Name {
         &self.definition_id
     }
 

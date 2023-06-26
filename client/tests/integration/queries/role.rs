@@ -125,7 +125,7 @@ fn find_roles_by_account_id() -> Result<()> {
         .cloned()
         .map(|role_id| {
             RegisterBox::new(Role::new(role_id).add_permission(PermissionToken::new(
-                "CanSetKeyValueInUserAccount".to_owned(),
+                "CanSetKeyValueInUserAccount".parse().unwrap(),
                 &alice_id,
             )))
         })

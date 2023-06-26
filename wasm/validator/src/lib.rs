@@ -36,7 +36,7 @@ macro_rules! pass {
 
 /// Shortcut for `return Err(ValidationFail)`.
 ///
-/// Supports [`format!`](alloc::format) syntax as well as any expression returning [`String`](alloc::string::String).
+/// Supports [`format!`](alloc::fmt::format) syntax as well as any expression returning [`String`](alloc::string::String).
 #[macro_export]
 macro_rules! deny {
     ($validator:ident, $l:literal $(,)?) => {{
@@ -118,11 +118,12 @@ pub struct PermissionTokenSchema(Vec<PermissionTokenId>, MetaMap);
 impl PermissionTokenSchema {
     /// Remove permission token from this collection
     pub fn remove<T: iroha_schema::IntoSchema>(&mut self) {
-        if let Some(pos) = self
-            .0
-            .iter()
-            .position(|token_id| *token_id == <T as iroha_schema::IntoSchema>::type_name())
-        {
+        let to_remove = ::iroha_validator::iroha_wasm::debug::DebugExpectExt::dbg_expect(
+            <T as iroha_schema::IntoSchema>::type_name().parse(),
+            "Failed to parse permission token as `Name`",
+        );
+
+        if let Some(pos) = self.0.iter().position(|token_id| *token_id == to_remove) {
             self.0.remove(pos);
             <T as iroha_schema::IntoSchema>::remove_from_schema(&mut self.1);
         }
@@ -131,7 +132,13 @@ impl PermissionTokenSchema {
     /// Insert new permission token into this collection
     pub fn insert<T: iroha_schema::IntoSchema>(&mut self) {
         <T as iroha_schema::IntoSchema>::update_schema_map(&mut self.1);
-        self.0.push(<T as iroha_schema::IntoSchema>::type_name());
+
+        self.0.push(
+            ::iroha_validator::iroha_wasm::debug::DebugExpectExt::dbg_expect(
+                <T as iroha_schema::IntoSchema>::type_name().parse(),
+                "Failed to parse permission token as `Name`",
+            ),
+        );
     }
 
     /// Serializes schema into a JSON string representation

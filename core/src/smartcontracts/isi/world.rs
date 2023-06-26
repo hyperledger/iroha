@@ -177,13 +177,23 @@ pub mod isi {
         }
     }
 
-    fn register_permission_token_definition(token_id: PermissionTokenId, wsv: &mut WorldStateView) {
+    fn register_permission_token_definition(
+        token_id: PermissionTokenId,
+        wsv: &mut WorldStateView,
+    ) -> Result<(), RepetitionError> {
         let permission_token_ids = &mut wsv.world_mut().permission_token_definitions.token_ids;
 
         // Keep permission tokens sorted
         if let Err(pos) = permission_token_ids.binary_search(&token_id) {
             permission_token_ids.insert(pos, token_id);
+        } else {
+            return Err(RepetitionError {
+                instruction_type: InstructionType::Register,
+                id: IdBox::PermissionTokenId(token_id),
+            });
         }
+
+        Ok(())
     }
 
     fn unregister_permission_token_definition(
@@ -193,10 +203,13 @@ pub mod isi {
         remove_token_from_roles(token_id, wsv)?;
         remove_token_from_accounts(token_id, wsv)?;
 
-        wsv.world_mut()
-            .permission_token_definitions
-            .token_ids
-            .retain(|id| id != token_id);
+        let permission_token_ids = &mut wsv.world_mut().permission_token_definitions.token_ids;
+
+        if let Ok(pos) = permission_token_ids.binary_search(token_id) {
+            permission_token_ids.remove(pos);
+        } else {
+            return Err(FindError::PermissionToken(token_id.clone()).into());
+        }
 
         Ok(())
     }
@@ -370,7 +383,7 @@ pub mod isi {
                     new_token_schema.schema.clone();
 
                 if !old_token_schema.token_ids.contains(token_id) {
-                    register_permission_token_definition(token_id.clone(), wsv);
+                    register_permission_token_definition(token_id.clone(), wsv)?;
                 }
             }
             wsv.emit_events(Some(PermissionTokenSchemaUpdateEvent {
@@ -440,7 +453,7 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindAllPermissionTokenDefinitions {
+    impl ValidQuery for FindPermissionTokenSchema {
         #[metrics("find_all_permission_token_ids")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             Ok(wsv.permission_token_definitions().clone())

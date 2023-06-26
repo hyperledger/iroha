@@ -259,7 +259,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     let grant_alice_asset_transfer_permission = |asset_id: AssetId, owner_keypair: KeyPair| {
         let allow_alice_to_transfer_asset = GrantBox::new(
-            PermissionToken::new("CanTransferUserAsset".to_owned(), &asset_id),
+            PermissionToken::new("CanTransferUserAsset".parse().unwrap(), &asset_id),
             alice_id.clone(),
         );
 

@@ -23,6 +23,7 @@ use iroha_config::{
 };
 use iroha_crypto::HashOf;
 use iroha_data_model::{
+    account::AccountId,
     block::{CommittedBlock, VersionedCommittedBlock},
     isi::error::{InstructionExecutionError as Error, MathError},
     parameter::Parameter,
@@ -189,7 +190,7 @@ impl WorldStateView {
     #[inline]
     pub fn account_contains_inherent_permission(
         &self,
-        account: &<Account as Identifiable>::Id,
+        account: &AccountId,
         token: &PermissionToken,
     ) -> bool {
         self.world
@@ -201,11 +202,7 @@ impl WorldStateView {
     /// Add [`permission`](PermissionToken) to the [`Account`] if the account does not have this permission yet.
     ///
     /// Return a Boolean value indicating whether or not the  [`Account`] already had this permission.
-    pub fn add_account_permission(
-        &mut self,
-        account: &<Account as Identifiable>::Id,
-        token: PermissionToken,
-    ) -> bool {
+    pub fn add_account_permission(&mut self, account: &AccountId, token: PermissionToken) -> bool {
         // `match` here instead of `map_or_else` to avoid cloning token into each closure
         match self.world.account_permission_tokens.get_mut(account) {
             None => {
@@ -228,7 +225,7 @@ impl WorldStateView {
     /// Return a Boolean value indicating whether the [`Account`] had this permission.
     pub fn remove_account_permission(
         &mut self,
-        account: &<Account as Identifiable>::Id,
+        account: &AccountId,
         token: &PermissionToken,
     ) -> bool {
         self.world

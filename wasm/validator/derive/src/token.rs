@@ -21,7 +21,14 @@ pub fn impl_derive_token(input: TokenStream) -> TokenStream {
 }
 
 fn gen_token_definition_id() -> proc_macro2::TokenStream {
-    quote! { <Self as ::iroha_schema::IntoSchema>::type_name() }
+    quote! {{
+        let token_id = <Self as ::iroha_schema::IntoSchema>::type_name();
+
+        ::iroha_validator::iroha_wasm::debug::DebugExpectExt::dbg_expect(
+            token_id.parse::<iroha_validator::iroha_wasm::data_model::name::Name>(),
+            "Failed to parse permission token as `Name`",
+        )
+    }}
 }
 
 fn impl_token(ident: &syn::Ident, generics: &syn::Generics) -> proc_macro2::TokenStream {

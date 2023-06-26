@@ -889,7 +889,7 @@ impl Runtime<state::ValidatorPermissionTokens> {
     /// - if failed to get export function for `permission_tokens()`
     /// - if failed to call export function
     /// - if failed to decode `Vec<PermissionTokenSchema>`
-    pub fn execute_validator_permission_tokens(
+    pub fn execute_validator_permission_token_schema(
         &self,
         module: &wasmtime::Module,
     ) -> Result<PermissionTokenSchema> {

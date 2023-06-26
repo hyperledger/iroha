@@ -237,11 +237,9 @@ mod role {
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct PermissionRemoved {
-            /// Role id
             pub role_id: RoleId,
             // TODO: Skipped temporarily because of FFI
             #[getset(skip)]
-            /// All [`PermissionToken`]s with this id were removed.
             pub permission_token_id: PermissionTokenId,
         }
     }
@@ -292,6 +290,7 @@ mod account {
 
     pub use self::model::*;
     use super::*;
+    use crate::name::Name;
 
     // type alias required by `Filter` macro
     type AccountMetadataChanged = MetadataChanged<AccountId>;
@@ -374,7 +373,7 @@ mod account {
 
     impl AccountPermissionChanged {
         /// Get permission id
-        pub fn permission_id(&self) -> &str {
+        pub fn permission_id(&self) -> &Name {
             &self.permission_id
         }
     }

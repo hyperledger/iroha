@@ -78,90 +78,49 @@ pub mod model {
         IntoSchema,
     )]
     #[ffi_type]
+    #[allow(missing_docs)]
     pub enum QueryBox {
-        /// [`FindAllAccounts`] variant.
         FindAllAccounts(FindAllAccounts),
-        /// [`FindAccountById`] variant.
         FindAccountById(FindAccountById),
-        /// [`FindAccountKeyValueByIdAndKey`] variant.
         FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey),
-        /// [`FindAccountsByName`] variant.
         FindAccountsByName(FindAccountsByName),
-        /// [`FindAccountsByDomainId`] variant.
         FindAccountsByDomainId(FindAccountsByDomainId),
-        /// [`FindAccountsWithAsset`] variant.
         FindAccountsWithAsset(FindAccountsWithAsset),
-        /// [`FindAllAssets`] variant.
         FindAllAssets(FindAllAssets),
-        /// [`FindAllAssetsDefinitions`] variant.
         FindAllAssetsDefinitions(FindAllAssetsDefinitions),
-        /// [`FindAssetById`] variant.
         FindAssetById(FindAssetById),
-        /// [`FindAssetDefinitionById`] variant.
         FindAssetDefinitionById(FindAssetDefinitionById),
-        /// [`FindAssetsByName`] variant.
         FindAssetsByName(FindAssetsByName),
-        /// [`FindAssetsByAccountId`] variant.
         FindAssetsByAccountId(FindAssetsByAccountId),
-        /// [`FindAssetsByAssetDefinitionId`] variant.
         FindAssetsByAssetDefinitionId(FindAssetsByAssetDefinitionId),
-        /// [`FindAssetsByDomainId`] variant.
         FindAssetsByDomainId(FindAssetsByDomainId),
-        /// [`FindAssetsByDomainIdAndAssetDefinitionId`] variant.
         FindAssetsByDomainIdAndAssetDefinitionId(FindAssetsByDomainIdAndAssetDefinitionId),
-        /// [`FindAssetQuantityById`] variant.
         FindAssetQuantityById(FindAssetQuantityById),
-        /// [`FindTotalAssetQuantityByAssetDefinitionId`] variant.
         FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
-        /// [`IsAssetDefinitionOwner`] variant.
         IsAssetDefinitionOwner(IsAssetDefinitionOwner),
-        /// [`FindAssetKeyValueByIdAndKey`] variant.
         FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
-        /// [`FindAssetKeyValueByIdAndKey`] variant.
         FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey),
-        /// [`FindAllDomains`] variant.
         FindAllDomains(FindAllDomains),
-        /// [`FindDomainById`] variant.
         FindDomainById(FindDomainById),
-        /// [`FindDomainKeyValueByIdAndKey`] variant.
         FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey),
-        /// [`FindAllPeers`] variant.
         FindAllPeers(FindAllPeers),
-        /// [`FindAllBlocks`] variant.
         FindAllBlocks(FindAllBlocks),
-        /// [`FindAllBlockHeaders`] variant.
         FindAllBlockHeaders(FindAllBlockHeaders),
-        /// [`FindBlockHeaderByHash`] variant.
         FindBlockHeaderByHash(FindBlockHeaderByHash),
-        /// [`FindAllTransactions`] variant.
         FindAllTransactions(FindAllTransactions),
-        /// [`FindTransactionsByAccountId`] variant.
         FindTransactionsByAccountId(FindTransactionsByAccountId),
-        /// [`FindTransactionByHash`] variant.
         FindTransactionByHash(FindTransactionByHash),
-        /// [`FindPermissionTokensByAccountId`] variant.
         FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
-        /// [`FindAllPermissionTokenDefinitions`] variant.
-        FindAllPermissionTokenDefinitions(FindAllPermissionTokenDefinitions),
-        /// [`DoesAccountHavePermissionToken`] variant.
+        FindPermissionTokenSchema(FindPermissionTokenSchema),
         DoesAccountHavePermissionToken(DoesAccountHavePermissionToken),
-        /// [`FindAllActiveTriggerIds`] variant.
         FindAllActiveTriggerIds(FindAllActiveTriggerIds),
-        /// [`FindTriggerById`] variant.
         FindTriggerById(FindTriggerById),
-        /// [`FindTriggerKeyValueByIdAndKey`] variant.
         FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
-        /// [`FindTriggersByDomainId`] variant.
         FindTriggersByDomainId(FindTriggersByDomainId),
-        /// [`FindAllRoles`] variant.
         FindAllRoles(FindAllRoles),
-        /// [`FindAllRoleIds`] variant.
         FindAllRoleIds(FindAllRoleIds),
-        /// [`FindRoleByRoleId`] variant.
         FindRoleByRoleId(FindRoleByRoleId),
-        /// [`FindRolesByAccountId`] variant.
         FindRolesByAccountId(FindRolesByAccountId),
-        /// [`FindAllParameters`] variant.
         FindAllParameters(FindAllParameters),
     }
 
@@ -310,7 +269,7 @@ pub mod permission {
         /// Finds all registered permission tokens
         #[derive(Copy, Display)]
         #[ffi_type]
-        pub struct FindAllPermissionTokenDefinitions;
+        pub struct FindPermissionTokenSchema;
 
         /// [`FindPermissionTokensByAccountId`] Iroha Query finds all [`PermissionToken`]s
         /// for a specified account.
@@ -336,7 +295,7 @@ pub mod permission {
         }
     }
 
-    impl Query for FindAllPermissionTokenDefinitions {
+    impl Query for FindPermissionTokenSchema {
         type Output = PermissionTokenSchema;
     }
 
@@ -373,7 +332,7 @@ pub mod permission {
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
         pub use super::{
-            DoesAccountHavePermissionToken, FindAllPermissionTokenDefinitions,
+            DoesAccountHavePermissionToken, FindPermissionTokenSchema,
             FindPermissionTokensByAccountId,
         };
     }

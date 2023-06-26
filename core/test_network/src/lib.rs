@@ -85,19 +85,19 @@ impl TestGenesis for GenesisNetwork {
             <Account as Identifiable>::Id::from_str("alice@wonderland").expect("valid names");
 
         let mint_rose_permission = PermissionToken::new(
-            "CanMintAssetsWithDefinition".to_owned(),
+            "CanMintAssetsWithDefinition".parse().unwrap(),
             &rose_definition_id,
         );
         let burn_rose_permission = PermissionToken::new(
-            "CanBurnAssetsWithDefinition".to_owned(),
+            "CanBurnAssetsWithDefinition".parse().unwrap(),
             &rose_definition_id,
         );
         let unregister_any_peer_permission =
-            PermissionToken::new("CanUnregisterAnyPeer".to_owned(), &());
+            PermissionToken::new("CanUnregisterAnyPeer".parse().unwrap(), &());
         let unregister_any_role_permission =
-            PermissionToken::new("CanUnregisterAnyRole".to_owned(), &());
+            PermissionToken::new("CanUnregisterAnyRole".parse().unwrap(), &());
         let upgrade_validator_permission =
-            PermissionToken::new("CanUpgradeValidator".to_owned(), &());
+            PermissionToken::new("CanUpgradeValidator".parse().unwrap(), &());
 
         for permission in [
             mint_rose_permission,

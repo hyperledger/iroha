@@ -190,7 +190,7 @@ types!(
     FindAllDomains,
     FindAllParameters,
     FindAllPeers,
-    FindAllPermissionTokenDefinitions,
+    FindPermissionTokenSchema,
     FindAllRoleIds,
     FindAllRoles,
     FindAllTransactions,

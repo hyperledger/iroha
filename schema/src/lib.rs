@@ -72,6 +72,9 @@ impl IntoIterator for MetaMap {
     }
 }
 
+/// Identifier of the type
+pub type Ident = String;
+
 /// Globally unique type identifier
 ///
 /// No critical code should rely on this trait unless a test
@@ -79,14 +82,14 @@ impl IntoIterator for MetaMap {
 pub trait TypeId: 'static {
     /// Return unique type id
     // TODO: Should return &str or ConstString.
-    fn id() -> String;
+    fn id() -> Ident;
 }
 
 /// `IntoSchema` trait
 pub trait IntoSchema: TypeId {
     /// Name under which a type is represented in the schema
     // TODO: Should return &str or ConstString.
-    fn type_name() -> String;
+    fn type_name() -> Ident;
 
     /// Insert descriptions of types referenced by [`Self`]
     fn update_schema_map(metamap: &mut MetaMap);

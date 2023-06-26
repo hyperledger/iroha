@@ -25,7 +25,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");
-    let token = PermissionToken::new("token".to_owned(), &());
+    let token = PermissionToken::new("token".parse()?, &());
     let role = Role::new(role_id).add_permission(token);
 
     test_client.submit(RegisterBox::new(role))?;
@@ -62,11 +62,11 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let role_id = <Role as Identifiable>::Id::from_str("ACCESS_TO_MOUSE_METADATA")?;
     let role = Role::new(role_id.clone())
         .add_permission(PermissionToken::new(
-            "CanSetKeyValueInUserAccount".to_owned(),
+            "CanSetKeyValueInUserAccount".parse()?,
             &mouse_id,
         ))
         .add_permission(PermissionToken::new(
-            "CanRemoveKeyValueInUserAccount".to_owned(),
+            "CanRemoveKeyValueInUserAccount".parse()?,
             &mouse_id,
         ));
     let register_role = RegisterBox::new(role);
@@ -109,7 +109,7 @@ fn unregistered_role_removed_from_account() -> Result<()> {
 
     // Register root role
     let register_role = RegisterBox::new(Role::new(role_id.clone()).add_permission(
-        PermissionToken::new("CanSetKeyValueInUserAccount".to_owned(), &alice_id),
+        PermissionToken::new("CanSetKeyValueInUserAccount".parse()?, &alice_id),
     ));
     test_client.submit_blocking(register_role)?;
 

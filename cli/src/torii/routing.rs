@@ -335,10 +335,10 @@ mod subscription {
     use crate::event;
 
     /// Type for any error during subscription handling
-    #[derive(thiserror::Error, displaydoc::Display, Debug)]
+    #[derive(Debug, displaydoc::Display, thiserror::Error)]
     enum Error {
         /// Event consumption resulted in an error
-        Consumer(#[source] Box<event::Error>),
+        Consumer(#[from] Box<event::Error>),
         /// Event reception error
         Event(#[from] tokio::sync::broadcast::error::RecvError),
         /// WebSocket error

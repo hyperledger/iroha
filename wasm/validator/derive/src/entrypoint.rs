@@ -147,7 +147,7 @@ fn impl_permission_token_schema_entrypoint(
 
     assert!(
         matches!(sig.output, syn::ReturnType::Type(_, _)),
-        "Validator `permission_token_schema()` entrypoint must have `PermissionTokenSchema>` return type"
+        "Validator `permission_token_schema()` entrypoint must have `PermissionTokenSchema` return type"
     );
     assert!(
         attr.is_empty(),

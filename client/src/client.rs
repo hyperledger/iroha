@@ -1625,8 +1625,8 @@ pub mod permission {
     use super::*;
 
     /// Construct a query to get all registered [`PermissionTokenDefinition`]s
-    pub const fn all_definitions() -> FindAllPermissionTokenDefinitions {
-        FindAllPermissionTokenDefinitions {}
+    pub const fn permission_token_schema() -> FindPermissionTokenSchema {
+        FindPermissionTokenSchema {}
     }
 
     /// Construct a query to get all [`PermissionToken`] granted

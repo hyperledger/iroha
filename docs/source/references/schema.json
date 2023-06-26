@@ -167,7 +167,7 @@
       },
       {
         "name": "permission_id",
-        "type": "String"
+        "type": "Name"
       }
     ]
   },
@@ -1794,7 +1794,6 @@
   "FindAllDomains": null,
   "FindAllParameters": null,
   "FindAllPeers": null,
-  "FindAllPermissionTokenDefinitions": null,
   "FindAllRoleIds": null,
   "FindAllRoles": null,
   "FindAllTransactions": null,
@@ -1973,7 +1972,7 @@
       {
         "tag": "PermissionToken",
         "discriminant": 10,
-        "type": "String"
+        "type": "Name"
       },
       {
         "tag": "Parameter",
@@ -1987,6 +1986,7 @@
       }
     ]
   },
+  "FindPermissionTokenSchema": null,
   "FindPermissionTokensByAccountId": {
     "Struct": [
       {
@@ -2178,7 +2178,7 @@
       {
         "tag": "PermissionTokenId",
         "discriminant": 7,
-        "type": "String"
+        "type": "Name"
       },
       {
         "tag": "ParameterId",
@@ -3174,7 +3174,7 @@
       },
       {
         "name": "permission_token_id",
-        "type": "String"
+        "type": "Name"
       }
     ]
   },
@@ -3182,7 +3182,7 @@
     "Struct": [
       {
         "name": "definition_id",
-        "type": "String"
+        "type": "Name"
       },
       {
         "name": "payload",
@@ -3194,7 +3194,7 @@
     "Struct": [
       {
         "name": "token_ids",
-        "type": "Vec<String>"
+        "type": "Vec<Name>"
       },
       {
         "name": "schema",
@@ -3475,9 +3475,9 @@
         "type": "FindPermissionTokensByAccountId"
       },
       {
-        "tag": "FindAllPermissionTokenDefinitions",
+        "tag": "FindPermissionTokenSchema",
         "discriminant": 31,
-        "type": "FindAllPermissionTokenDefinitions"
+        "type": "FindPermissionTokenSchema"
       },
       {
         "tag": "DoesAccountHavePermissionToken",
@@ -4632,11 +4632,11 @@
   "Vec<InstructionBox>": {
     "Vec": "InstructionBox"
   },
+  "Vec<Name>": {
+    "Vec": "Name"
+  },
   "Vec<PeerId>": {
     "Vec": "PeerId"
-  },
-  "Vec<String>": {
-    "Vec": "String"
   },
   "Vec<TransactionValue>": {
     "Vec": "TransactionValue"

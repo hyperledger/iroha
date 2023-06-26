@@ -107,7 +107,7 @@ impl Validator {
             .build()?;
 
         runtime
-            .execute_validator_permission_tokens(&self.loaded_validator.module)
+            .execute_validator_permission_token_schema(&self.loaded_validator.module)
             .map_err(Into::into)
     }
 }

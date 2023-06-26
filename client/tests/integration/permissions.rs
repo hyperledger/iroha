@@ -181,7 +181,7 @@ fn permissions_differ_not_only_by_names() {
     // Granting permission to Alice to modify metadata in Mouse's hats
     let mouse_hat_id = <Asset as Identifiable>::Id::new(hat_definition_id, mouse_id.clone());
     let allow_alice_to_set_key_value_in_hats = GrantBox::new(
-        PermissionToken::new("CanSetKeyValueInUserAsset".to_owned(), &mouse_hat_id),
+        PermissionToken::new("CanSetKeyValueInUserAsset".parse().unwrap(), &mouse_hat_id),
         alice_id.clone(),
     );
 
@@ -215,7 +215,10 @@ fn permissions_differ_not_only_by_names() {
 
     // Granting permission to Alice to modify metadata in Mouse's shoes
     let allow_alice_to_set_key_value_in_shoes = GrantBox::new(
-        PermissionToken::new("CanSetKeyValueInUserAsset".to_owned(), &mouse_shoes_id),
+        PermissionToken::new(
+            "CanSetKeyValueInUserAsset".parse().unwrap(),
+            &mouse_shoes_id,
+        ),
         alice_id,
     );
 
