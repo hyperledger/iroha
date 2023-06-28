@@ -213,7 +213,7 @@ pub mod isi {
                 &asset_id,
                 <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE,
             )?;
-            let quantity = {
+            let new_quantity = {
                 let asset = wsv.asset_mut(&asset_id)?;
                 let quantity: &mut Self = asset
                     .try_as_mut()
@@ -222,13 +222,12 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(mint.object)
                     .ok_or(MathError::Overflow)?;
-                *quantity
+                mint.object
             };
 
-            // TODO: add only value actually being minted (https://github.com/hyperledger/iroha/issues/3543)
             #[allow(clippy::float_arithmetic)]
             {
-                wsv.metric_tx_amounts += quantity.into_metric();
+                wsv.metric_tx_amounts += new_quantity.into_metric();
                 wsv.metric_tx_amounts_counter += 1;
                 wsv.increase_asset_total_amount(&asset_id.definition_id, mint.object)?;
             }
@@ -264,7 +263,7 @@ pub mod isi {
                 wsv,
                 <Self as AssetInstructionInfo>::EXPECTED_VALUE_TYPE,
             )?;
-            let quantity = {
+            let burn_quantity = {
                 let account = wsv.account_mut(&asset_id.account_id)?;
                 let asset = account
                     .assets
@@ -277,17 +276,15 @@ pub mod isi {
                 *quantity = quantity
                     .checked_sub(burn.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
-                let quantity = *quantity;
                 if asset.value.is_zero_value() {
                     assert!(account.remove_asset(&asset_id).is_some());
                 }
-                quantity
+                burn.object
             };
 
-            // TODO: add only value actually being burnt (https://github.com/hyperledger/iroha/issues/3543)
             #[allow(clippy::float_arithmetic)]
             {
-                wsv.metric_tx_amounts += quantity.into_metric();
+                wsv.metric_tx_amounts += burn_quantity.into_metric();
                 wsv.metric_tx_amounts_counter += 1;
                 wsv.decrease_asset_total_amount(&asset_id.definition_id, burn.object)?;
             }
@@ -342,7 +339,7 @@ pub mod isi {
                 }
             }
 
-            let quantity = {
+            let transfer_quantity = {
                 let asset = wsv.asset_mut(&destination_id)?;
                 let quantity: &mut Self = asset
                     .try_as_mut()
@@ -351,13 +348,12 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(transfer.object)
                     .ok_or(MathError::Overflow)?;
-                *quantity
+                transfer.object
             };
 
-            // TODO: add only value actually being transferred (https://github.com/hyperledger/iroha/issues/3543)
             #[allow(clippy::float_arithmetic)]
             {
-                wsv.metric_tx_amounts += quantity.into_metric();
+                wsv.metric_tx_amounts += transfer_quantity.into_metric();
                 wsv.metric_tx_amounts_counter += 1;
             }
 
