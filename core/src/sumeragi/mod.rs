@@ -14,15 +14,15 @@ use std::{
 
 use eyre::{Result, WrapErr as _};
 use iroha_config::sumeragi::Configuration;
-use iroha_crypto::{HashOf, KeyPair, SignatureOf};
-use iroha_data_model::{block::*, prelude::*};
+use iroha_crypto::{KeyPair, SignatureOf};
+use iroha_data_model::prelude::*;
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
 use tokio::sync::watch;
 
-use crate::handler::ThreadHandler;
+use crate::{handler::ThreadHandler, kura::BlockCount};
 
 pub mod main_loop;
 pub mod message;
@@ -205,34 +205,34 @@ impl SumeragiHandle {
             kura,
             network,
             genesis_network,
-            block_hashes,
+            block_count: BlockCount(block_count),
         }: SumeragiStartArgs,
     ) -> SumeragiHandle {
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
-        for (block_hash, i) in block_hashes
-            .iter()
-            .take(block_hashes.len().saturating_sub(1))
-            .zip(1u64..)
-        {
-            let block_height: u64 = i;
-            let block_ref = kura.get_block_by_height(block_height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
-            assert_eq!(
-                block_ref.hash(),
-                *block_hash,
-                "Kura init correctly reported the block hash."
-            );
+        let mut blocks_iter = (1..=block_count).map(|block_height| {
+            kura.get_block_by_height(block_height as u64)
+                .expect("Sumeragi should be able to load the block that was reported as presented. If not, the block storage was probably disconnected.")
+        });
 
-            wsv.apply(&block_ref)
-                .expect("Failed to apply block to wsv in init.");
+        let block_iter_except_last = (&mut blocks_iter).take(block_count.saturating_sub(1));
+        for block in block_iter_except_last {
+            block.revalidate(&mut wsv).expect(
+                "The block should be valid in init. Blocks loaded from kura assumed to be valid",
+            );
+            wsv.apply_without_execution(block.as_ref())
+                .expect("Block application in init should not fail. Blocks loaded from kura assumed to be valid");
         }
+
+        // finalized_wsv is one block behind
         let finalized_wsv = wsv.clone();
 
-        if !block_hashes.is_empty() {
-            let block_ref = kura.get_block_by_height(block_hashes.len() as u64).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
-
-            wsv.apply(&block_ref)
-                .expect("Failed to apply block to wsv in init.");
+        if let Some(latest_block) = blocks_iter.next() {
+            latest_block.revalidate(&mut wsv).expect(
+                "The block should be valid in init. Blocks loaded from kura assumed to be valid",
+            );
+            wsv.apply_without_execution(latest_block.as_ref())
+                .expect("Block application in init should not fail. Blocks loaded from kura assumed to be valid");
         }
 
         info!("Sumeragi has finished loading blocks and setting up the WSV");
@@ -365,5 +365,5 @@ pub struct SumeragiStartArgs<'args> {
     pub kura: Arc<Kura>,
     pub network: IrohaNetwork,
     pub genesis_network: Option<GenesisNetwork>,
-    pub block_hashes: &'args [HashOf<VersionedCommittedBlock>],
+    pub block_count: BlockCount,
 }
