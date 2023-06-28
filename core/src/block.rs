@@ -133,7 +133,7 @@ pub struct PendingBlock {
 }
 
 /// Builder for `PendingBlock`
-pub struct BlockBuilder<'a> {
+pub struct BlockBuilder<'world> {
     /// Block's transactions.
     pub transactions: Vec<AcceptedTransaction>,
     /// Block's event recommendations.
@@ -145,7 +145,7 @@ pub struct BlockBuilder<'a> {
     /// The keypair used to sign this block.
     pub key_pair: KeyPair,
     /// The world state to be used when validating the block.
-    pub wsv: &'a mut WorldStateView,
+    pub wsv: &'world mut WorldStateView,
 }
 
 impl BlockBuilder<'_> {
