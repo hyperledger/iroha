@@ -185,8 +185,7 @@ impl Sumeragi {
                                     "Genesis Round Peer is revalidating the block."
                                 );
                                 let _enter = span.enter();
-                                match <PendingBlock as InGenesis>::revalidate(&block, &mut new_wsv)
-                                {
+                                match block.revalidate(&mut new_wsv) {
                                     Ok(()) => block,
                                     Err(error) => {
                                         error!(?error);
@@ -200,10 +199,7 @@ impl Sumeragi {
                         Message::BlockSyncUpdate(BlockSyncUpdate { block }) => {
                             let mut new_wsv = self.wsv.clone();
                             // Omit signature verification during genesis round
-                            match <VersionedCommittedBlock as InGenesis>::revalidate(
-                                &block,
-                                &mut new_wsv,
-                            ) {
+                            match block.revalidate(&mut new_wsv) {
                                 Ok(()) => (block, new_wsv),
                                 Err(error) => {
                                     error!(?error);
@@ -993,7 +989,7 @@ fn vote_for_block(
         let span = span!(Level::TRACE, "block revalidation");
         let _enter = span.enter();
 
-        match <PendingBlock as InBlock>::revalidate(&block, &mut new_wsv) {
+        match block.revalidate(&mut new_wsv) {
             Ok(()) => block,
             Err(err) => {
                 warn!(%addr, %role, ?err);
@@ -1137,14 +1133,16 @@ fn handle_block_sync(
     if wsv_height + 1 == block_height {
         // Normal branch for adding new block on top of current
         let mut new_wsv = wsv.clone();
-        InBlock::revalidate(&block, &mut new_wsv)
+        block
+            .revalidate(&mut new_wsv)
             .map(|_| BlockSyncOk::CommitBlock(block, new_wsv))
             .map_err(BlockSyncError::BlockNotValid)
     } else if wsv_height == block_height && block_height > 1 {
         // Soft-fork on genesis block isn't possible
         // Soft fork branch for replacing current block with valid one
         let mut new_wsv = finalized_wsv.clone();
-        InBlock::revalidate(&block, &mut new_wsv)
+        block
+            .revalidate(&mut new_wsv)
             .map_err(BlockSyncError::SoftForkBlockNotValid)
             .and_then(|_| {
                 let peer_view_change_index = wsv.latest_block_view_change_index();
