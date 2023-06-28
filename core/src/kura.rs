@@ -115,7 +115,7 @@ impl Kura {
     /// - file storage is unavailable
     /// - data in file storage is invalid or corrupted
     #[iroha_logger::log(skip_all, name = "kura_init")]
-    pub fn init(&self) -> Result<Vec<HashOf<VersionedCommittedBlock>>> {
+    pub fn init(&self) -> Result<BlockCount> {
         let block_store = self.block_store.lock();
 
         let block_index_count: usize = block_store
@@ -146,16 +146,13 @@ impl Kura {
                 }
             }
         }
-        info!(block_count = block_hashes.len(), "Kura init complete");
+        let block_count = block_hashes.len();
+        info!(block_count, "Kura init complete");
 
         // The none value is set in order to indicate that the blocks exist on disk but
         // are not yet loaded.
-        *self.block_data.lock() = block_hashes
-            .iter()
-            .copied()
-            .map(|hash| (hash, None))
-            .collect();
-        Ok(block_hashes)
+        *self.block_data.lock() = block_hashes.into_iter().map(|hash| (hash, None)).collect();
+        Ok(BlockCount(block_count))
     }
 
     #[allow(clippy::expect_used, clippy::cognitive_complexity, clippy::panic)]
@@ -388,6 +385,10 @@ impl Unlocked {
         }
     }
 }
+
+/// Newtype wrapper for block count
+#[derive(Clone, Copy, Debug)]
+pub struct BlockCount(pub usize);
 
 /// Marker struct for typestate, signifies that store is protected by
 /// a lockfile owned by this instance of [`BlockStore`] and thus can be written into.

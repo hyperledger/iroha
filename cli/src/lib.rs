@@ -245,7 +245,7 @@ impl Iroha {
         let wsv = WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura));
 
         let notify_shutdown = Arc::new(Notify::new());
-        let block_hashes = kura.init()?;
+        let block_count = kura.init()?;
 
         let queue = Arc::new(Queue::from_configuration(&config.queue));
         if Self::start_telemetry(telemetry, &config).await? {
@@ -264,7 +264,7 @@ impl Iroha {
             kura: Arc::clone(&kura),
             network: network.clone(),
             genesis_network: genesis,
-            block_hashes: &block_hashes,
+            block_count,
         });
 
         let block_sync = BlockSynchronizer::from_configuration(
