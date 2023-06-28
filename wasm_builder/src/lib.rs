@@ -5,6 +5,7 @@
 use std::{
     borrow::Cow,
     env,
+    ffi::OsStr,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -63,7 +64,9 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
 
     /// Set smartcontract build output directory.
     ///
-    /// Default is `OUT_DIR` environment variable.
+    /// By default the output directory will be assigned either from `IROHA_WASM_BUILDER_OUT_DIR` or
+    /// `OUT_DIR` environment variables, in this order.
+    /// If neither is set, then the `target` directory will be used.
     pub fn out_dir<O>(mut self, out_dir: &'out_dir O) -> Self
     where
         O: AsRef<Path> + ?Sized,
@@ -96,16 +99,17 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
     /// Can fail due to multiple reasons like invalid path, failed formatting,
     /// failed build, etc.
     ///
-    /// If you use this crate outside of *build-script* and does not provide
-    /// [`out_dir`](Self::out_dir()) then this function will fail to find `OUT_DIR` variable
-    /// and will return `Err`.
+    /// Will also return error if ran on workspace and not on the concrete package.
     pub fn build(self) -> Result<Output> {
         self.into_internal()?.build()
     }
 
     fn into_internal(self) -> Result<internal::Builder<'out_dir>> {
+        let abs_path = Self::absolute_path(self.path)?;
         Ok(internal::Builder {
-            absolute_path: self.absolute_path()?,
+            absolute_path: abs_path
+                .canonicalize()
+                .wrap_err_with(|| format!("Failed to canonicalize path: {}", abs_path.display()))?,
             out_dir: self.out_dir.map_or_else(
                 || -> Result<_> { Ok(Cow::Owned(Self::default_out_dir()?)) },
                 |out_dir| Ok(Cow::Borrowed(out_dir)),
@@ -115,24 +119,35 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
     }
 
     fn default_out_dir() -> Result<PathBuf> {
-        env::var_os("OUT_DIR")
-            .ok_or_else(|| eyre!("Expected `OUT_DIR` environment variable"))
-            .map(Into::into)
+        env::var_os("IROHA_WASM_BUILDER_OUT_DIR")
+            .or_else(|| env::var_os("OUT_DIR"))
+            .map(PathBuf::from)
+            .map_or_else(
+                || {
+                    const PATH: &str = "target";
+                    let abs_path = Self::absolute_path(PATH)?;
+                    std::fs::DirBuilder::new()
+                        .recursive(true)
+                        .create(&abs_path)
+                        .wrap_err_with(|| {
+                            format!("Failed to create directory at path: {}", abs_path.display())
+                        })?;
+                    abs_path.canonicalize().wrap_err_with(|| {
+                        format!("Failed to canonicalize path: {}", abs_path.display())
+                    })
+                },
+                Ok,
+            )
     }
 
-    fn absolute_path(&self) -> Result<PathBuf> {
+    fn absolute_path(relative_path: impl AsRef<Path>) -> Result<PathBuf> {
         env::var("CARGO_MANIFEST_DIR")
             .wrap_err("Expected `CARGO_MANIFEST_DIR` environment variable")
-            .and_then(|manifest_dir| {
-                Path::new(&manifest_dir)
-                    .join(self.path)
-                    .canonicalize()
-                    .wrap_err("Failed to canonicalize path")
-            })
+            .map(|manifest_dir| Path::new(&manifest_dir).join(relative_path.as_ref()))
             .wrap_err_with(|| {
                 format!(
                     "Failed to construct absolute path for: {}",
-                    self.path.display(),
+                    relative_path.as_ref().display(),
                 )
             })
     }
@@ -167,10 +182,11 @@ mod internal {
         pub fn build(self) -> Result<Output> {
             self.maybe_format()?;
 
+            let absolute_path = self.absolute_path.clone();
             self.build_smartcontract().wrap_err_with(|| {
                 format!(
                     "Failed to build the smartcontract at path: {}",
-                    self.absolute_path.display()
+                    absolute_path.display()
                 )
             })
         }
@@ -231,35 +247,62 @@ mod internal {
             check_command_output(&command_output, "cargo check")
         }
 
-        fn build_smartcontract(&self) -> Result<Output> {
-            let out_dir = tempfile::tempdir().wrap_err("Failed to create temporary directory")?;
+        fn build_smartcontract(self) -> Result<Output> {
+            let package_name = self
+                .retrieve_package_name()
+                .wrap_err("Failed to retrieve package name")?;
+
+            let full_out_dir = self.out_dir.join("wasm32-unknown-unknown/release/");
+            let wasm_file = full_out_dir.join(package_name).with_extension("wasm");
+
+            let previous_hash = if wasm_file.exists() {
+                let hash = sha256::try_digest(wasm_file.as_path()).wrap_err_with(|| {
+                    format!(
+                        "Failed to compute sha256 digest of wasm file: {}",
+                        wasm_file.display()
+                    )
+                })?;
+                Some(hash)
+            } else {
+                None
+            };
 
             let command_output = self
                 .get_base_command("build")
                 .env("CARGO_TARGET_DIR", self.out_dir.as_ref())
-                .args(["--out-dir", &out_dir.path().display().to_string()])
                 .output()
                 .wrap_err("Failed to run `cargo build`")?;
 
             check_command_output(&command_output, "cargo build")?;
 
-            let output = Output {
-                wasm_file: Self::find_wasm_file(out_dir.as_ref())?,
-                out_dir,
-            };
-
-            Ok(output)
+            Ok(Output {
+                wasm_file,
+                previous_hash,
+            })
         }
 
-        fn find_wasm_file(dir: &Path) -> Result<PathBuf> {
-            std::fs::read_dir(dir)?
-                .filter_map(Result::ok)
-                .find_map(|entry| {
-                    let path = entry.path();
-                    (path.is_file() && path.extension().map_or(false, |ext| ext == "wasm"))
-                        .then_some(path)
+        fn retrieve_package_name(&self) -> Result<String> {
+            use std::str::FromStr as _;
+
+            let manifest_output = cargo_command()
+                .current_dir(&self.absolute_path)
+                .arg("read-manifest")
+                .output()
+                .wrap_err("Failed to run `cargo read-manifest`")?;
+
+            check_command_output(&manifest_output, "cargo read-manifest")?;
+
+            let manifest = String::from_utf8(manifest_output.stdout)
+                .wrap_err("Failed to convert `cargo read-manifest` output to string")?;
+
+            serde_json::Value::from_str(&manifest)
+                .wrap_err("Failed to parse `cargo read-manifest` output")?
+                .get("name")
+                .map(serde_json::Value::to_string)
+                .map(|name| name.trim_matches('"').to_owned())
+                .ok_or_else(|| {
+                    eyre!("Failed to retrieve package name from `cargo read-manifest` output")
                 })
-                .ok_or_else(|| eyre!("Failed to find wasm file in the output directory"))
         }
     }
 }
@@ -267,9 +310,10 @@ mod internal {
 /// Build output representing wasm binary.
 #[derive(Debug)]
 pub struct Output {
-    // Keep this fields order so that temporary directory is dropped on the last step.
+    /// Path to the non-optimized `.wasm` file.
     wasm_file: PathBuf,
-    out_dir: tempfile::TempDir,
+    /// Hash of the `self.wasm_file` on previous iteration if there is some.
+    previous_hash: Option<String>,
 }
 
 impl Output {
@@ -278,18 +322,45 @@ impl Output {
     /// # Errors
     ///
     /// Fails if internal tool fails to optimize wasm binary.
-    #[allow(clippy::unnecessary_wraps)]
     pub fn optimize(self) -> Result<Self> {
-        let optimizer = wasm_opt::OptimizationOptions::new_optimize_for_size();
+        let optimized_file = PathBuf::from(format!(
+            "{parent}{separator}{file}_optimized.{ext}",
+            parent = self
+                .wasm_file
+                .parent()
+                .map_or_else(String::default, |p| p.display().to_string()),
+            separator = std::path::MAIN_SEPARATOR,
+            file = self
+                .wasm_file
+                .file_stem()
+                .map_or_else(|| "output".into(), OsStr::to_string_lossy),
+            ext = self
+                .wasm_file
+                .extension()
+                .map_or_else(|| "wasm".into(), OsStr::to_string_lossy),
+        ));
 
-        let optimized_file = tempfile::NamedTempFile::new_in(self.out_dir.path())?
-            .path()
-            .to_owned();
-        optimizer.run(self.wasm_file, optimized_file.as_path())?;
+        let current_hash = sha256::try_digest(self.wasm_file.as_path()).wrap_err_with(|| {
+            format!(
+                "Failed to compute sha256 digest of wasm file: {}",
+                self.wasm_file.display()
+            )
+        })?;
+
+        match self.previous_hash {
+            Some(previous_hash) if optimized_file.exists() && current_hash == previous_hash => {
+                // Do nothing because original `.wasm` file wasn't changed
+                // so `_optimized.wasm` should stay the same
+            }
+            _ => {
+                let optimizer = wasm_opt::OptimizationOptions::new_optimize_for_size();
+                optimizer.run(self.wasm_file, optimized_file.as_path())?;
+            }
+        }
 
         Ok(Self {
             wasm_file: optimized_file,
-            out_dir: self.out_dir,
+            previous_hash: Some(current_hash),
         })
     }
 

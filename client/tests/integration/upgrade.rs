@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use eyre::{Result, WrapErr};
+use eyre::Result;
 use iroha_client::client::Client;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{prelude::*, query::permission::FindAllPermissionTokenDefinitions};
@@ -88,18 +88,10 @@ fn validator_upgrade_should_update_tokens() -> Result<()> {
 fn upgrade_validator(client: &Client, validator: impl AsRef<Path>) -> Result<()> {
     info!("Building validator");
 
-    let temp_out_dir =
-        tempfile::tempdir().wrap_err("Failed to create temporary output directory")?;
-
     let wasm = iroha_wasm_builder::Builder::new(validator.as_ref())
-        .out_dir(temp_out_dir.path())
         .build()?
         .optimize()?
         .into_bytes()?;
-
-    temp_out_dir
-        .close()
-        .wrap_err("Failed to remove temporary output directory")?;
 
     info!("WASM size is {} bytes", wasm.len());
 

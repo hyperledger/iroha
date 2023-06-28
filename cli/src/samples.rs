@@ -2,7 +2,6 @@
 //! This module contains the sample configurations used for testing and benchmarking throghout Iroha.
 use std::{collections::HashSet, path::Path, str::FromStr};
 
-use eyre::WrapErr as _;
 use iroha_config::{
     iroha::{Configuration, ConfigurationProxy},
     sumeragi::TrustedPeers,
@@ -114,11 +113,7 @@ pub fn construct_validator<P>(relative_path: &P) -> color_eyre::Result<Validator
 where
     P: AsRef<Path> + ?Sized,
 {
-    let build_dir =
-        tempfile::tempdir().wrap_err("Failed to create temp dir for runtime validator output")?;
-
     let wasm_blob = iroha_wasm_builder::Builder::new(relative_path)
-        .out_dir(build_dir.path())
         .build()?
         .optimize()?
         .into_bytes()?;
