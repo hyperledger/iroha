@@ -342,38 +342,11 @@ impl PendingBlock {
 pub trait Revalidate: Sized {
     /// # Errors
     /// - When the block is deemed invalid.
-    fn revalidate<const IS_GENESIS: bool>(
-        &self,
-        wsv: &mut WorldStateView,
-    ) -> Result<(), BlockRevalidationError>;
+    fn revalidate(&self, wsv: &mut WorldStateView) -> Result<(), BlockRevalidationError>;
 
     /// Return whether or not the block contains transactions already committed.
     fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool;
 }
-
-/// This trait extends the [`Revalidate`] trait for usage only in the
-/// genesis context.
-pub trait InGenesis: Sized + Revalidate {
-    /// # Errors
-    /// - When the block is deemed invalid.
-    fn revalidate(&self, wsv: &mut WorldStateView) -> Result<(), BlockRevalidationError> {
-        <Self as Revalidate>::revalidate::<true>(self, wsv)
-    }
-}
-
-/// This trait extends the [`Revalidate`] trait for usage only in the
-/// non-genesis context.
-pub trait InBlock: Sized + Revalidate {
-    /// # Errors
-    /// - When the block is deemed invalid.
-    fn revalidate(&self, wsv: &mut WorldStateView) -> Result<(), BlockRevalidationError> {
-        <Self as Revalidate>::revalidate::<false>(self, wsv)
-    }
-}
-
-impl InBlock for PendingBlock {}
-
-impl InGenesis for PendingBlock {}
 
 #[sealed]
 impl Revalidate for PendingBlock {
@@ -387,10 +360,7 @@ impl Revalidate for PendingBlock {
     /// - Block header transaction hashes don't match with computed transaction hashes
     /// - Error during revalidation of individual transactions
     #[allow(clippy::too_many_lines)]
-    fn revalidate<const IS_GENESIS: bool>(
-        &self,
-        wsv: &mut WorldStateView,
-    ) -> Result<(), BlockRevalidationError> {
+    fn revalidate(&self, wsv: &mut WorldStateView) -> Result<(), BlockRevalidationError> {
         let latest_block_hash = wsv.latest_block_hash();
         let block_height = wsv.height();
         let transaction_validator = wsv.transaction_validator();
@@ -441,10 +411,6 @@ impl Revalidate for PendingBlock {
     }
 }
 
-impl InBlock for VersionedCommittedBlock {}
-
-impl InGenesis for VersionedCommittedBlock {}
-
 #[sealed]
 impl Revalidate for VersionedCommittedBlock {
     /// Revalidate a block against the current state of the world.
@@ -457,18 +423,11 @@ impl Revalidate for VersionedCommittedBlock {
     /// - Block header transaction hashes don't match with computed transaction hashes
     /// - Error during revalidation of individual transactions
     #[allow(clippy::too_many_lines)]
-    fn revalidate<const IS_GENESIS: bool>(
-        &self,
-        wsv: &mut WorldStateView,
-    ) -> Result<(), BlockRevalidationError> {
+    fn revalidate(&self, wsv: &mut WorldStateView) -> Result<(), BlockRevalidationError> {
         let latest_block_hash = wsv.latest_block_hash();
         let block_height = wsv.height();
         let transaction_validator = wsv.transaction_validator();
-
-        assert!(
-            (block_height == 0) == IS_GENESIS,
-            "Height of 0 only allowed when IN_GENESIS round (height: {block_height}, is_genesis: {IS_GENESIS}). This is a bug."
-        );
+        let is_genesis = block_height == 0;
 
         if self.has_committed_transactions(wsv) {
             return Err(BlockRevalidationError::HasCommittedTransactions);
@@ -494,7 +453,7 @@ impl Revalidate for VersionedCommittedBlock {
                     });
                 }
 
-                if !IS_GENESIS {
+                if !is_genesis {
                     // Recrate topology with witch block must be committed at given view change index
                     // And then verify committed_with_topology field and block signatures
                     let topology = {
@@ -790,7 +749,7 @@ mod tests {
         // The third transaction should succeed
         assert!(valid_block.transactions[2].error.is_none());
 
-        Revalidate::revalidate::<true>(&valid_block, &mut wsv).unwrap();
+        valid_block.revalidate(&mut wsv).unwrap();
     }
 
     #[test]
