@@ -7,14 +7,14 @@ use test_network::*;
 
 #[test]
 fn must_execute_both_triggers() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_650).start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_650).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let account_id: AccountId = "alice@wonderland".parse()?;
     let asset_definition_id = "rose#wonderland".parse()?;
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
-    let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
+    let prev_value = get_asset_value(&test_client, asset_id.clone())?;
 
     let instruction = MintBox::new(1_u32, asset_id.clone());
     let register_trigger = RegisterBox::new(Trigger::new(
@@ -49,7 +49,7 @@ fn must_execute_both_triggers() -> Result<()> {
     )))?;
     test_client.submit_blocking(RegisterBox::new(Domain::new("neverland".parse()?)))?;
 
-    let new_value = get_asset_value(&mut test_client, asset_id)?;
+    let new_value = get_asset_value(&test_client, asset_id)?;
     assert_eq!(new_value, prev_value + 2);
 
     Ok(())
@@ -57,7 +57,7 @@ fn must_execute_both_triggers() -> Result<()> {
 
 #[test]
 fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_655).start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_655).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let create_neverland_domain = RegisterBox::new(Domain::new("neverland".parse()?));
@@ -80,7 +80,7 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
         create_sakura_asset,
     ])?;
 
-    let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
+    let prev_value = get_asset_value(&test_client, asset_id.clone())?;
 
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_sakura$neverland".parse()?,
@@ -105,13 +105,13 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
         [],
     )))?;
 
-    let new_value = get_asset_value(&mut test_client, asset_id)?;
+    let new_value = get_asset_value(&test_client, asset_id)?;
     assert_eq!(new_value, prev_value + 1);
 
     Ok(())
 }
 
-fn get_asset_value(client: &mut client::Client, asset_id: AssetId) -> Result<u32> {
+fn get_asset_value(client: &client::Client, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
     Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
 }

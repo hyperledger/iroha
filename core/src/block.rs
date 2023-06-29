@@ -1,8 +1,6 @@
 //! This module contains [`Block`] structures for each state, it's
-//! transitions, implementations and related traits
-//! implementations. [`Block`]s are organised into a linear sequence
-//! over time (also known as the block chain).  A Block's life-cycle
-//! starts from [`PendingBlock`].
+//! transitions, implementations and related trait implementations.
+//! [`Block`]s are organised into a linear sequence over time (also known as the block chain).
 #![allow(
     clippy::module_name_repetitions,
     clippy::std_instead_of_core,
@@ -10,7 +8,7 @@
     clippy::arithmetic_side_effects
 )]
 
-use std::error::Error;
+use std::error::Error as _;
 
 use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
@@ -21,45 +19,37 @@ use iroha_data_model::{
     transaction::{error::TransactionRejectionReason, prelude::*},
 };
 use iroha_genesis::GenesisTransaction;
-use parity_scale_codec::{Decode, Encode};
-use sealed::sealed;
 use thiserror::Error;
 
+pub use self::{chained::Chained, commit::CommittedBlock, valid::ValidBlock};
 use crate::{
     prelude::*,
     sumeragi::network_topology::{SignatureVerificationError, Topology},
-    tx::{AcceptTransactionFail, TransactionValidator},
+    tx::AcceptTransactionFail,
 };
 
-/// Errors occurred on block commit
-#[derive(Debug, Error, displaydoc::Display, Clone, Copy)]
-pub enum BlockCommitError {
-    /// Error during signature verification
-    SignatureVerificationError(#[from] SignatureVerificationError),
+/// Error during transaction validation
+#[derive(Debug, displaydoc::Display, Error)]
+pub enum TransactionValidationError {
+    /// Failed to accept transaction
+    Accept(#[from] AcceptTransactionFail),
+    /// A transaction is marked as accepted, but is actually invalid
+    NotValid(#[from] TransactionRejectionReason),
+    /// A transaction is marked as rejected, but is actually valid
+    RejectedIsValid,
 }
 
-/// Errors occurred on signing block or adding additional signature
-#[derive(Debug, Error, displaydoc::Display)]
-pub enum BlockSignError {
-    /// Failed to create signature
-    Sign(#[source] iroha_crypto::error::Error),
-    /// Failed to add signature for block
-    AddSignature(#[source] iroha_crypto::error::Error),
-}
-
-/// Errors occurred on block revalidation
-#[derive(Debug, Error, displaydoc::Display)]
-pub enum BlockRevalidationError {
-    /// Block is empty
-    Empty,
+/// Errors occurred on block validation
+#[derive(Debug, displaydoc::Display, Error)]
+pub enum BlockValidationError {
     /// Block has committed transactions
     HasCommittedTransactions,
     /// Mismatch between the actual and expected hashes of the latest block. Expected: {expected:?}, actual: {actual:?}
     LatestBlockHashMismatch {
         /// Expected value
-        expected: Option<HashOf<VersionedCommittedBlock>>,
+        expected: Option<HashOf<VersionedSignedBlock>>,
         /// Actual value
-        actual: Option<HashOf<VersionedCommittedBlock>>,
+        actual: Option<HashOf<VersionedSignedBlock>>,
     },
     /// Mismatch between the actual and expected height of the latest block. Expected: {expected}, actual: {actual}
     LatestBlockHeightMismatch {
@@ -70,10 +60,8 @@ pub enum BlockRevalidationError {
     },
     /// The transaction hash stored in the block header does not match the actual transaction hash
     TransactionHashMismatch,
-    /// The hash of a rejected transaction stored in the block header does not match the actual hash or this transaction
-    RejectedTransactionHashMismatch,
-    /// Error during transaction revalidation
-    TransactionRevalidation(#[from] TransactionRevalidationError),
+    /// Error during transaction validation
+    TransactionValidation(#[from] TransactionValidationError),
     /// Mismatch between the actual and expected topology. Expected: {expected:?}, actual: {actual:?}
     TopologyMismatch {
         /// Expected value
@@ -87,505 +75,547 @@ pub enum BlockRevalidationError {
     ViewChangeIndexTooLarge,
 }
 
-/// Error during transaction revalidation
-#[derive(Debug, Error, displaydoc::Display)]
-pub enum TransactionRevalidationError {
-    /// Failed to accept transaction
-    Accept(#[from] AcceptTransactionFail),
-    /// Transaction isn't valid but must be
-    NotValid(#[from] TransactionRejectionReason),
-    /// Rejected transaction in valid
-    RejectedIsValid,
-}
+/// Builder for blocks
+#[derive(Debug, Clone)]
+pub struct BlockBuilder<B>(B);
 
-/// Transaction data is permanently recorded in chunks called
-/// blocks.
-#[derive(Debug, Clone, Decode, Encode)]
-pub struct PendingBlock {
-    /// Block header
-    pub header: BlockHeader,
-    /// Array of transactions.
-    pub transactions: Vec<TransactionValue>,
-    /// Event recommendations.
-    pub event_recommendations: Vec<Event>,
-    /// Signatures of peers which approved this block
-    pub signatures: SignaturesOf<Self>,
-}
+mod pending {
+    use iroha_data_model::transaction::TransactionValue;
 
-/// Builder for `PendingBlock`
-pub struct BlockBuilder<'world> {
-    /// Block's transactions.
-    pub transactions: Vec<AcceptedTransaction>,
-    /// Block's event recommendations.
-    pub event_recommendations: Vec<Event>,
-    /// The view change index this block was committed with. Produced by consensus.
-    pub view_change_index: u64,
-    /// The topology thihs block was committed with. Produced by consensus.
-    pub committed_with_topology: Topology,
-    /// The keypair used to sign this block.
-    pub key_pair: KeyPair,
-    /// The world state to be used when validating the block.
-    pub wsv: &'world mut WorldStateView,
-}
+    use super::*;
 
-impl BlockBuilder<'_> {
-    /// Create a new [`PendingBlock`] from transactions.
-    pub fn build(self) -> PendingBlock {
-        let timestamp = crate::current_time().as_millis();
-        let height = self.wsv.height() + 1;
-        let previous_block_hash = self.wsv.latest_block_hash();
-        let transaction_validator = self.wsv.transaction_validator();
-        // TODO: Need to check if the `transactions` vector is empty. It shouldn't be allowed.
+    /// First stage in the life-cycle of a [`Block`].
+    /// In the beginning the block is assumed to be verified and to contain only accepted transactions.
+    /// Additionally the block must retain events emitted during the execution of on-chain logic during
+    /// the previous round, which might then be processed by the trigger system.
+    #[derive(Debug, Clone)]
+    pub struct Pending {
+        /// Unix timestamp
+        timestamp_ms: u64,
+        /// Collection of transactions which have been accepted.
+        /// Transaction will be validated when block is chained.
+        transactions: Vec<AcceptedTransaction>,
+        /// The topology at the time of block commit.
+        commit_topology: Topology,
+        /// Event recommendations for use in triggers and off-chain work
+        event_recommendations: Vec<Event>,
+    }
 
-        let mut header = BlockHeader {
-            timestamp,
-            consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
-            height,
-            view_change_index: self.view_change_index,
-            previous_block_hash,
-            transactions_hash: None,
-            rejected_transactions_hash: None,
-            committed_with_topology: self.committed_with_topology.sorted_peers,
-        };
+    impl BlockBuilder<Pending> {
+        /// Create [`Self`]
+        ///
+        /// # Panics
+        ///
+        /// if the given list of transaction is empty
+        #[inline]
+        pub fn new(
+            transactions: Vec<AcceptedTransaction>,
+            commit_topology: Topology,
+            event_recommendations: Vec<Event>,
+        ) -> Self {
+            assert!(!transactions.is_empty(), "Empty block created");
 
-        let mut txs = Vec::new();
+            Self(Pending {
+                timestamp_ms: iroha_data_model::current_time()
+                    .as_millis()
+                    .try_into()
+                    .expect("Time should fit into u64"),
+                transactions,
+                commit_topology,
+                event_recommendations,
+            })
+        }
 
-        for tx in self.transactions {
-            match transaction_validator.validate(tx, self.wsv) {
-                Ok(transaction) => txs.push(TransactionValue {
-                    value: transaction,
-                    error: None,
-                }),
-                Err((transaction, error)) => {
-                    iroha_logger::warn!(
-                        reason = %error,
-                        caused_by = ?error.source(),
-                        "Transaction validation failed",
-                    );
-                    txs.push(TransactionValue {
-                        value: transaction,
-                        error: Some(error),
-                    });
-                }
+        fn make_header(
+            timestamp_ms: u64,
+            previous_height: u64,
+            previous_block_hash: Option<HashOf<VersionedSignedBlock>>,
+            view_change_index: u64,
+            transactions: &[TransactionValue],
+            commit_topology: Topology,
+        ) -> BlockHeader {
+            BlockHeader {
+                timestamp_ms,
+                consensus_estimation_ms: DEFAULT_CONSENSUS_ESTIMATION_MS,
+                height: previous_height + 1,
+                view_change_index,
+                previous_block_hash,
+                transactions_hash: transactions
+                    .iter()
+                    .map(TransactionValue::hash)
+                    .collect::<MerkleTree<_>>()
+                    .hash(),
+                commit_topology: commit_topology.ordered_peers,
             }
         }
-        header.transactions_hash = txs
-            .iter()
-            .filter(|tx| tx.error.is_none())
-            .map(|tx| tx.value.hash())
-            .collect::<MerkleTree<_>>()
-            .hash();
-        header.rejected_transactions_hash = txs
-            .iter()
-            .filter(|tx| tx.error.is_some())
-            .map(|tx| tx.value.hash())
-            .collect::<MerkleTree<_>>()
-            .hash();
-        // TODO: Validate Event recommendations somehow?
 
-        let signature = SignatureOf::from_hash(
-            self.key_pair,
-            HashOf::from_untyped_unchecked(Hash::new(header.payload())),
-        )
-        .expect("Signing of new block failed.");
-        let signatures = SignaturesOf::from(signature);
-
-        PendingBlock {
-            header,
-            transactions: txs,
-            event_recommendations: self.event_recommendations,
-            signatures,
-        }
-    }
-}
-
-impl PendingBlock {
-    const fn is_genesis(&self) -> bool {
-        self.header.height == 1
-    }
-
-    /// Calculate the partial hash of the current block.
-    pub fn partial_hash(&self) -> HashOf<Self> {
-        HashOf::from_untyped_unchecked(Hash::new(self.header.payload()))
-    }
-
-    /// Return signatures that are verified with the `hash` of this block,
-    /// removing all other signatures.
-    #[inline]
-    pub fn retain_verified_signatures(&mut self) -> impl Iterator<Item = &SignatureOf<Self>> {
-        self.signatures.retain_verified_by_hash(self.partial_hash())
-    }
-
-    /// Commit block to the store.
-    /// When calling this function, the user is responsible for the validity of the block signatures.
-    /// Preference should be given to [`Self::commit`], where signature verification is built in.
-    #[inline]
-    pub fn commit_unchecked(self) -> CommittedBlock {
-        let Self {
-            header,
-            transactions,
-            event_recommendations,
-            signatures,
-        } = self;
-
-        CommittedBlock {
-            event_recommendations,
-            header,
-            transactions,
-            signatures: signatures.transmute(),
-        }
-    }
-
-    /// Verify signatures and commit block to the store.
-    ///
-    /// # Errors
-    ///
-    /// Not enough signatures
-    #[inline]
-    pub fn commit(
-        mut self,
-        topology: &Topology,
-    ) -> Result<CommittedBlock, (Self, BlockCommitError)> {
-        let hash = self.partial_hash();
-        if let Err(err) = topology.verify_signatures(&mut self.signatures, hash) {
-            return Err((self, err.into()));
-        }
-
-        Ok(self.commit_unchecked())
-    }
-
-    /// Add additional signatures for [`SignedBlock`].
-    ///
-    /// # Errors
-    /// Fails if signature generation fails
-    pub fn sign(mut self, key_pair: KeyPair) -> Result<Self, BlockSignError> {
-        SignatureOf::from_hash(key_pair, self.partial_hash())
-            .map(|signature| {
-                self.signatures.insert(signature);
-                self
-            })
-            .map_err(BlockSignError::Sign)
-    }
-
-    /// Add additional signature for [`SignedBlock`]
-    ///
-    /// # Errors
-    /// Fails if given signature doesn't match block hash
-    pub fn add_signature(&mut self, signature: SignatureOf<Self>) -> Result<(), BlockSignError> {
-        signature
-            .verify_hash(self.partial_hash())
-            .map(|_| {
-                self.signatures.insert(signature);
-            })
-            .map_err(BlockSignError::AddSignature)
-    }
-
-    /// Create dummy [`ValidBlock`]. Used in tests
-    ///
-    /// # Panics
-    /// If generating keys or block signing fails.
-    #[allow(clippy::restriction)]
-    #[cfg(test)]
-    pub fn new_dummy() -> Self {
-        let timestamp = crate::current_time().as_millis();
-
-        let header = BlockHeader {
-            timestamp,
-            consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
-            height: 1,
-            view_change_index: 0,
-            previous_block_hash: None,
-            transactions_hash: None,
-            rejected_transactions_hash: None,
-            committed_with_topology: Vec::new(),
-        };
-
-        let key_pair = KeyPair::generate().unwrap();
-        let signature = SignatureOf::from_hash(key_pair, HashOf::new(&header).transmute())
-            .expect("Signing of new block failed.");
-        let signatures = SignaturesOf::from(signature);
-
-        Self {
-            header,
-            transactions: Vec::new(),
-            event_recommendations: Vec::new(),
-            signatures,
-        }
-    }
-}
-
-/// This sealed trait represents the ability to revalidate a block. Should be
-/// implemented for both [`PendingBlock`] and [`VersionedCommittedBlock`].
-/// Public users should only use this trait's extensions [`InGenesis`] and
-/// [`InBlock`].
-#[sealed]
-pub trait Revalidate: Sized {
-    /// # Errors
-    /// - When the block is deemed invalid.
-    fn revalidate(&self, wsv: &mut WorldStateView) -> Result<(), BlockRevalidationError>;
-
-    /// Return whether or not the block contains transactions already committed.
-    fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool;
-}
-
-#[sealed]
-impl Revalidate for PendingBlock {
-    /// Revalidate a block against the current state of the world.
-    ///
-    /// # Errors
-    /// - Block is empty
-    /// - Block has committed transactions
-    /// - There is a mismatch between candidate block height and actual blockchain height
-    /// - There is a mismatch between candidate block previous block hash and actual latest block hash
-    /// - Block header transaction hashes don't match with computed transaction hashes
-    /// - Error during revalidation of individual transactions
-    #[allow(clippy::too_many_lines)]
-    fn revalidate(&self, wsv: &mut WorldStateView) -> Result<(), BlockRevalidationError> {
-        let latest_block_hash = wsv.latest_block_hash();
-        let block_height = wsv.height();
-        let transaction_validator = wsv.transaction_validator();
-
-        if self.transactions.is_empty() {
-            return Err(BlockRevalidationError::Empty);
-        }
-
-        if self.has_committed_transactions(wsv) {
-            return Err(BlockRevalidationError::HasCommittedTransactions);
-        }
-
-        if latest_block_hash != self.header.previous_block_hash {
-            return Err(BlockRevalidationError::LatestBlockHashMismatch {
-                expected: latest_block_hash,
-                actual: self.header.previous_block_hash,
-            });
-        }
-
-        if block_height + 1 != self.header.height {
-            return Err(BlockRevalidationError::LatestBlockHeightMismatch {
-                expected: block_height + 1,
-                actual: self.header.height,
-            });
-        }
-
-        revalidate_hashes(
-            &self.transactions,
-            self.header.transactions_hash,
-            self.header.rejected_transactions_hash,
-        )?;
-
-        revalidate_transactions(
-            &self.transactions,
-            wsv,
-            transaction_validator,
-            self.is_genesis(),
-        )?;
-
-        Ok(())
-    }
-
-    /// Check if a block has transactions that are already in the blockchain.
-    fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
-        self.transactions
-            .iter()
-            .any(|tx| wsv.has_transaction(tx.value.hash()))
-    }
-}
-
-#[sealed]
-impl Revalidate for VersionedCommittedBlock {
-    /// Revalidate a block against the current state of the world.
-    ///
-    /// # Errors
-    /// - Block is empty
-    /// - Block has committed transactions
-    /// - There is a mismatch between candidate block height and actual blockchain height
-    /// - There is a mismatch between candidate block previous block hash and actual latest block hash
-    /// - Block header transaction hashes don't match with computed transaction hashes
-    /// - Error during revalidation of individual transactions
-    #[allow(clippy::too_many_lines)]
-    fn revalidate(&self, wsv: &mut WorldStateView) -> Result<(), BlockRevalidationError> {
-        let latest_block_hash = wsv.latest_block_hash();
-        let block_height = wsv.height();
-        let transaction_validator = wsv.transaction_validator();
-        let is_genesis = block_height == 0;
-
-        if self.has_committed_transactions(wsv) {
-            return Err(BlockRevalidationError::HasCommittedTransactions);
-        }
-
-        match self {
-            VersionedCommittedBlock::V1(block) => {
-                if block.transactions.is_empty() {
-                    return Err(BlockRevalidationError::Empty);
-                }
-
-                if latest_block_hash != block.header.previous_block_hash {
-                    return Err(BlockRevalidationError::LatestBlockHashMismatch {
-                        expected: latest_block_hash,
-                        actual: block.header.previous_block_hash,
-                    });
-                }
-
-                if block_height + 1 != block.header.height {
-                    return Err(BlockRevalidationError::LatestBlockHeightMismatch {
-                        expected: block_height + 1,
-                        actual: block.header.height,
-                    });
-                }
-
-                if !is_genesis {
-                    // Recrate topology with witch block must be committed at given view change index
-                    // And then verify committed_with_topology field and block signatures
-                    let topology = {
-                        let last_committed_block = wsv
-                            .latest_block_ref()
-                            .expect("Not in genesis round so must have at least genesis block");
-                        let new_peers = wsv.peers_ids().iter().cloned().collect();
-                        let view_change_index = block
-                            .header
-                            .view_change_index
-                            .try_into()
-                            .map_err(|_| BlockRevalidationError::ViewChangeIndexTooLarge)?;
-                        Topology::recreate_topology(
-                            &last_committed_block,
-                            view_change_index,
-                            new_peers,
-                        )
-                    };
-
-                    if topology.sorted_peers != block.header.committed_with_topology {
-                        return Err(BlockRevalidationError::TopologyMismatch {
-                            expected: topology.sorted_peers,
-                            actual: block.header.committed_with_topology.clone(),
-                        });
+        fn categorize_transactions(
+            transactions: Vec<AcceptedTransaction>,
+            wsv: &mut WorldStateView,
+        ) -> Vec<TransactionValue> {
+            transactions
+                .into_iter()
+                .map(|tx| match wsv.transaction_validator().validate(tx, wsv) {
+                    Ok(tx) => TransactionValue {
+                        value: tx,
+                        error: None,
+                    },
+                    Err((tx, error)) => {
+                        iroha_logger::warn!(
+                            reason = %error,
+                            caused_by = ?error.source(),
+                            "Transaction validation failed",
+                        );
+                        TransactionValue {
+                            value: tx,
+                            error: Some(error),
+                        }
                     }
+                })
+                .collect()
+        }
 
-                    topology.verify_signatures(
-                        &mut block.signatures.clone(),
-                        HashOf::from_untyped_unchecked(block.partial_hash().internal),
-                    )?;
-                }
+        /// Chain the block with existing blockchain.
+        pub fn chain(
+            self,
+            view_change_index: u64,
+            wsv: &mut WorldStateView,
+        ) -> BlockBuilder<Chained> {
+            let transactions = Self::categorize_transactions(self.0.transactions, wsv);
 
-                revalidate_hashes(
-                    &block.transactions,
-                    block.header.transactions_hash,
-                    block.header.rejected_transactions_hash,
-                )?;
+            BlockBuilder(Chained(BlockPayload {
+                header: Self::make_header(
+                    self.0.timestamp_ms,
+                    wsv.height(),
+                    wsv.latest_block_hash(),
+                    view_change_index,
+                    &transactions,
+                    self.0.commit_topology,
+                ),
+                transactions,
+                event_recommendations: self.0.event_recommendations,
+            }))
+        }
 
-                revalidate_transactions(
-                    &block.transactions,
-                    wsv,
-                    transaction_validator,
-                    block.is_genesis(),
-                )?;
+        /// Create a new blockchain with current block as the first block.
+        pub fn chain_first(self, wsv: &mut WorldStateView) -> BlockBuilder<Chained> {
+            let transactions = Self::categorize_transactions(self.0.transactions, wsv);
 
-                Ok(())
-            }
+            BlockBuilder(Chained(BlockPayload {
+                header: Self::make_header(
+                    self.0.timestamp_ms,
+                    0,
+                    None,
+                    0,
+                    &transactions,
+                    self.0.commit_topology,
+                ),
+                transactions,
+                event_recommendations: self.0.event_recommendations,
+            }))
         }
     }
+}
 
-    /// Check if a block has transactions that are already in the blockchain.
-    fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
-        match self {
-            VersionedCommittedBlock::V1(block) => block
+mod chained {
+    use super::*;
+
+    /// When a [`Pending`] block is chained with the blockchain it becomes [`Chained`] block.
+    #[derive(Debug, Clone)]
+    pub struct Chained(pub(super) BlockPayload);
+
+    impl BlockBuilder<Chained> {
+        /// Sign this block and get [`SignedBlock`].
+        ///
+        /// # Errors
+        ///
+        /// Fails if signature generation fails
+        pub fn sign(self, key_pair: KeyPair) -> Result<ValidBlock, iroha_crypto::error::Error> {
+            let signature = SignatureOf::new(key_pair, &self.0 .0)?;
+
+            Ok(ValidBlock(
+                SignedBlock {
+                    payload: self.0 .0,
+                    signatures: SignaturesOf::from(signature),
+                }
+                .into(),
+            ))
+        }
+    }
+}
+
+mod valid {
+    use super::*;
+    use crate::sumeragi::network_topology::Role;
+
+    /// Block that was validated and accepted
+    #[derive(Debug, Clone)]
+    #[repr(transparent)]
+    pub struct ValidBlock(pub(super) VersionedSignedBlock);
+
+    impl ValidBlock {
+        pub(crate) fn payload(&self) -> &BlockPayload {
+            self.0.payload()
+        }
+        pub(crate) fn signatures(&self) -> &SignaturesOf<BlockPayload> {
+            self.0.signatures()
+        }
+
+        /// Validate a block against the current state of the world.
+        ///
+        /// # Errors
+        ///
+        /// - Block is empty
+        /// - There is a mismatch between candidate block height and actual blockchain height
+        /// - There is a mismatch between candidate block previous block hash and actual latest block hash
+        /// - Block has committed transactions
+        /// - Block header transaction hashes don't match with computed transaction hashes
+        /// - Error during validation of individual transactions
+        /// - Topology field is incorrect
+        pub fn validate(
+            block: VersionedSignedBlock,
+            topology: &Topology,
+            wsv: &mut WorldStateView,
+        ) -> Result<ValidBlock, (VersionedSignedBlock, BlockValidationError)> {
+            let actual_commit_topology = &block.payload().header.commit_topology;
+            let expected_commit_topology = &topology.ordered_peers;
+
+            if actual_commit_topology != expected_commit_topology {
+                let actual_commit_topology = actual_commit_topology.clone();
+
+                return Err((
+                    block,
+                    BlockValidationError::TopologyMismatch {
+                        expected: expected_commit_topology.clone(),
+                        actual: actual_commit_topology,
+                    },
+                ));
+            }
+
+            if !block.payload().header.is_genesis()
+                && topology
+                    .filter_signatures_by_roles(&[Role::Leader], block.signatures())
+                    .is_empty()
+            {
+                return Err((block, SignatureVerificationError::LeaderMissing.into()));
+            }
+
+            Self::validate_without_topology(block, wsv)
+        }
+
+        /// Validate a block against the current state of the world.
+        ///
+        /// # Errors
+        ///
+        /// - Block is empty
+        /// - There is a mismatch between candidate block height and actual blockchain height
+        /// - There is a mismatch between candidate block previous block hash and actual latest block hash
+        /// - Block has committed transactions
+        /// - Block header transaction hashes don't match with computed transaction hashes
+        /// - Error during validation of individual transactions
+        #[deprecated(
+            since = "2.0.0-pre-rc.13",
+            note = "This method exists only because some tests are failing, but it shouldn't"
+        )]
+        // TODO: a committed block should always contains Leader and Proxy tail signatures
+        // TODO: Is it ok to not validate topology field of the header in block_sync?
+        pub(crate) fn validate_without_topology(
+            block: VersionedSignedBlock,
+            wsv: &mut WorldStateView,
+        ) -> Result<ValidBlock, (VersionedSignedBlock, BlockValidationError)> {
+            let expected_block_height = wsv.height() + 1;
+            let actual_height = block.payload().header.height;
+
+            if expected_block_height != actual_height {
+                return Err((
+                    block,
+                    BlockValidationError::LatestBlockHeightMismatch {
+                        expected: expected_block_height,
+                        actual: actual_height,
+                    },
+                ));
+            }
+
+            let expected_previous_block_hash = wsv.latest_block_hash();
+            let actual_block_hash = block.payload().header.previous_block_hash;
+
+            if expected_previous_block_hash != actual_block_hash {
+                return Err((
+                    block,
+                    BlockValidationError::LatestBlockHashMismatch {
+                        expected: expected_previous_block_hash,
+                        actual: actual_block_hash,
+                    },
+                ));
+            }
+
+            if block
+                .payload()
                 .transactions
                 .iter()
-                .any(|tx| wsv.has_transaction(tx.value.hash())),
+                .any(|tx| wsv.has_transaction(tx.hash()))
+            {
+                return Err((block, BlockValidationError::HasCommittedTransactions));
+            }
+
+            if let Err(error) = Self::validate_transactions(&block, wsv) {
+                return Err((block, error.into()));
+            }
+
+            let VersionedSignedBlock::V1(block) = block;
+            Ok(ValidBlock(
+                SignedBlock {
+                    payload: block.payload,
+                    signatures: block.signatures,
+                }
+                .into(),
+            ))
+        }
+
+        fn validate_transactions(
+            block: &VersionedSignedBlock,
+            wsv: &mut WorldStateView,
+        ) -> Result<(), TransactionValidationError> {
+            let is_genesis = block.payload().header.is_genesis();
+
+            block.payload()
+                .transactions
+                .iter()
+                // TODO: Unnecessary clone?
+                .cloned()
+                .try_for_each(|TransactionValue{value, error}| {
+                    let transaction_validator = wsv.transaction_validator();
+                    let limits = &transaction_validator.transaction_limits;
+
+                    if error.is_none() {
+                        let tx = if is_genesis {
+                            AcceptedTransaction::accept_genesis(GenesisTransaction(value))
+                        } else {
+                            AcceptedTransaction::accept(value, limits)?
+                        };
+
+                        transaction_validator.validate(tx, wsv).map_err(|(_tx, error)| {
+                            TransactionValidationError::NotValid(error)
+                        })?;
+                    } else {
+                        let tx = if is_genesis {
+                            AcceptedTransaction::accept_genesis(GenesisTransaction(value))
+                        } else {
+                            AcceptedTransaction::accept(value, limits)?
+                        };
+
+                        match transaction_validator.validate(tx, wsv) {
+                            Err(rejected_transaction) => Ok(rejected_transaction),
+                            Ok(_) => Err(TransactionValidationError::RejectedIsValid),
+                        }?;
+                    }
+
+                    Ok(())
+                })
+        }
+
+        /// The manipulation of the topology relies upon all peers seeing the same signature set.
+        /// Therefore we must clear the signatures and accept what the proxy tail giveth.
+        ///
+        /// # Errors
+        ///
+        /// - Not enough signatures
+        /// - Not signed by proxy tail
+        pub(crate) fn commit_with_signatures(
+            mut self,
+            topology: &Topology,
+            signatures: SignaturesOf<BlockPayload>,
+        ) -> Result<CommittedBlock, (Self, BlockValidationError)> {
+            if topology
+                .filter_signatures_by_roles(&[Role::Leader], &signatures)
+                .is_empty()
+            {
+                return Err((self, SignatureVerificationError::LeaderMissing.into()));
+            }
+
+            if !self.signatures().is_subset(&signatures) {
+                return Err((self, SignatureVerificationError::SignatureMissing.into()));
+            }
+
+            if !self.0.replace_signatures(signatures) {
+                return Err((self, SignatureVerificationError::UnknownSignature.into()));
+            }
+
+            self.commit(topology)
+        }
+
+        /// Verify signatures and commit block to the store.
+        ///
+        /// # Errors
+        ///
+        /// - Not enough signatures
+        /// - Not signed by proxy tail
+        #[deprecated(
+            since = "2.0.0-pre-rc.13",
+            note = "This method exists only because some tests are failing, but it shouldn't"
+        )]
+        // TODO: a committed block should always contains Leader and Proxy tail signatures
+        // TODO: Is it ok to not validate topology field of the header in block_sync?
+        pub fn commit_without_proxy_tail(
+            self,
+            topology: &Topology,
+        ) -> Result<CommittedBlock, (Self, BlockValidationError)> {
+            #[allow(clippy::collapsible_else_if)]
+            if self.payload().header.is_genesis() {
+                // At genesis round we blindly take on the network topology from the genesis block.
+            } else {
+                let roles = [
+                    Role::ValidatingPeer,
+                    Role::Leader,
+                    Role::ProxyTail,
+                    Role::ObservingPeer,
+                ];
+
+                let votes_count = topology
+                    .filter_signatures_by_roles(&roles, self.signatures())
+                    .len();
+                if votes_count.lt(&topology.min_votes_for_commit()) {
+                    return Err((
+                        self,
+                        SignatureVerificationError::NotEnoughSignatures {
+                            votes_count,
+                            min_votes_for_commit: topology.min_votes_for_commit(),
+                        }
+                        .into(),
+                    ));
+                }
+            }
+
+            Ok(CommittedBlock(self.0))
+        }
+
+        /// Verify signatures and commit block to the store.
+        ///
+        /// # Errors
+        ///
+        /// - Not enough signatures
+        /// - Not signed by proxy tail
+        pub fn commit(
+            self,
+            topology: &Topology,
+        ) -> Result<CommittedBlock, (Self, BlockValidationError)> {
+            // TODO: Should the peer that serves genesis have a fixed role of ProxyTail in topology?
+            if !self.payload().header.is_genesis()
+                && topology.is_consensus_required().is_some()
+                && topology
+                    .filter_signatures_by_roles(&[Role::ProxyTail], self.signatures())
+                    .is_empty()
+            {
+                return Err((self, SignatureVerificationError::ProxyTailMissing.into()));
+            }
+
+            self.commit_without_proxy_tail(topology)
+        }
+
+        /// Add additional signatures for [`Self`].
+        ///
+        /// # Errors
+        ///
+        /// If signature generation fails
+        pub fn sign(self, key_pair: KeyPair) -> Result<Self, iroha_crypto::error::Error> {
+            self.0.sign(key_pair).map(ValidBlock)
+        }
+
+        /// Add additional signature for [`Self`]
+        ///
+        /// # Errors
+        ///
+        /// If given signature doesn't match block hash
+        pub fn add_signature(
+            &mut self,
+            signature: SignatureOf<BlockPayload>,
+        ) -> Result<(), iroha_crypto::error::Error> {
+            self.0.add_signature(signature)
+        }
+
+        #[cfg(test)]
+        pub(crate) fn new_dummy() -> Self {
+            BlockBuilder(Chained(BlockPayload {
+                header: BlockHeader {
+                    timestamp_ms: 0,
+                    consensus_estimation_ms: DEFAULT_CONSENSUS_ESTIMATION_MS,
+                    height: 1,
+                    view_change_index: 0,
+                    previous_block_hash: None,
+                    transactions_hash: None,
+                    commit_topology: Vec::new(),
+                },
+                transactions: Vec::new(),
+                event_recommendations: Vec::new(),
+            }))
+            .sign(KeyPair::generate().unwrap())
+            .unwrap()
+        }
+    }
+
+    impl From<ValidBlock> for VersionedSignedBlock {
+        fn from(source: ValidBlock) -> Self {
+            source.0
         }
     }
 }
 
-/// Revalidate merkle tree root hashes of the transaction
-fn revalidate_hashes(
-    transactions: &[TransactionValue],
-    transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
-    rejected_transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
-) -> Result<(), BlockRevalidationError> {
-    // Validate that header transactions hashes are matched with actual hashes
-    transactions
-        .iter()
-        .filter(|tx| tx.error.is_none())
-        .map(|tx| tx.value.hash())
-        .collect::<MerkleTree<_>>()
-        .hash()
-        .eq(&transactions_hash)
-        .then_some(())
-        .ok_or_else(|| BlockRevalidationError::TransactionHashMismatch)?;
+mod commit {
+    use super::*;
 
-    transactions
-        .iter()
-        .filter(|tx| tx.error.is_some())
-        .map(|tx| tx.value.hash())
-        .collect::<MerkleTree<_>>()
-        .hash()
-        .eq(&rejected_transactions_hash)
-        .then_some(())
-        .ok_or_else(|| BlockRevalidationError::RejectedTransactionHashMismatch)?;
-    Ok(())
-}
+    /// Represents a block accepted by consensus.
+    /// Every [`Self`] will have a different height.
+    #[derive(Debug, Clone)]
+    // TODO: Make it pub(super) at most
+    pub struct CommittedBlock(pub(crate) VersionedSignedBlock);
 
-/// Revalidate transactions to ensure that valid transactions indeed valid and invalid are still invalid
-fn revalidate_transactions(
-    transactions: &[TransactionValue],
-    wsv: &mut WorldStateView,
-    transaction_validator: TransactionValidator,
-    is_genesis: bool,
-) -> Result<(), TransactionRevalidationError> {
-    // Check that valid transactions are still valid
-    for tx in transactions.iter().cloned() {
-        if tx.error.is_some() {
-            let _rejected_tx = if is_genesis {
-                Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(
-                    tx.value,
-                )))
-            } else {
-                AcceptedTransaction::accept(tx.value, &transaction_validator.transaction_limits)
-            }
-            .map_err(TransactionRevalidationError::Accept)
-            .and_then(|tx| match transaction_validator.validate(tx, wsv) {
-                Err(rejected_transaction) => Ok(rejected_transaction),
-                Ok(_) => Err(TransactionRevalidationError::RejectedIsValid),
-            })?;
-        } else {
-            let tx = if is_genesis {
-                Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(
-                    tx.value,
-                )))
-            } else {
-                AcceptedTransaction::accept(tx.value, &transaction_validator.transaction_limits)
-            }
-            .map_err(TransactionRevalidationError::Accept)?;
-
-            transaction_validator
-                .validate(tx, wsv)
-                .map_err(|(_tx, error)| error)
-                .map_err(TransactionRevalidationError::NotValid)?;
+    impl CommittedBlock {
+        /// Calculate block hash
+        pub fn hash(&self) -> HashOf<VersionedSignedBlock> {
+            self.0.hash()
+        }
+        pub(crate) fn payload(&self) -> &BlockPayload {
+            self.0.payload()
+        }
+        pub(crate) fn signatures(&self) -> &SignaturesOf<BlockPayload> {
+            self.0.signatures()
         }
     }
 
-    Ok(())
-}
+    impl CommittedBlock {
+        pub(crate) fn produce_events(&self) -> Vec<PipelineEvent> {
+            let tx = self.payload().transactions.iter().map(|tx| {
+                let status = tx.error.as_ref().map_or_else(
+                    || PipelineStatus::Committed,
+                    |error| PipelineStatus::Rejected(error.clone().into()),
+                );
 
-impl From<&PendingBlock> for Vec<Event> {
-    fn from(block: &PendingBlock) -> Self {
-        block
-            .transactions
-            .iter()
-            .map(|transaction| -> Event {
                 PipelineEvent {
                     entity_kind: PipelineEntityKind::Transaction,
-                    status: PipelineStatus::Validating,
-                    hash: transaction.payload().hash().into(),
+                    status,
+                    hash: tx.payload().hash().into(),
                 }
-                .into()
-            })
-            .chain([PipelineEvent {
+            });
+            let current_block = core::iter::once(PipelineEvent {
                 entity_kind: PipelineEntityKind::Block,
-                status: PipelineStatus::Validating,
-                hash: block.partial_hash().into(),
-            }
-            .into()])
-            .collect()
+                status: PipelineStatus::Committed,
+                hash: self.hash().into(),
+            });
+
+            tx.chain(current_block).collect()
+        }
+    }
+
+    impl From<CommittedBlock> for ValidBlock {
+        fn from(source: CommittedBlock) -> Self {
+            ValidBlock(source.0)
+        }
+    }
+
+    impl From<CommittedBlock> for VersionedSignedBlock {
+        fn from(source: CommittedBlock) -> Self {
+            source.0
+        }
     }
 }
 
@@ -602,12 +632,13 @@ mod tests {
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
-        let valid_block = PendingBlock::new_dummy();
-        let committed_block = valid_block.clone().commit_unchecked();
+        let valid_block = ValidBlock::new_dummy();
+        let topology = Topology::new(Vec::new());
+        let committed_block = valid_block.clone().commit(&topology).unwrap();
 
         assert_eq!(
-            *valid_block.partial_hash(),
-            committed_block.partial_hash().internal
+            valid_block.payload().hash(),
+            committed_block.payload().hash()
         )
     }
 
@@ -640,21 +671,17 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx.clone(), tx];
-        let valid_block = BlockBuilder {
-            transactions,
-            event_recommendations: Vec::new(),
-            view_change_index: 0,
-            committed_with_topology: Topology::new(Vec::new()),
-            key_pair: alice_keys,
-            wsv: &mut wsv,
-        }
-        .build();
+        let topology = Topology::new(Vec::new());
+        let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
+            .chain_first(&mut wsv)
+            .sign(alice_keys)
+            .expect("Valid");
 
         // The first transaction should be confirmed
-        assert!(valid_block.transactions[0].error.is_none());
+        assert!(valid_block.payload().transactions[0].error.is_none());
 
         // The second transaction should be rejected
-        assert!(valid_block.transactions[1].error.is_some());
+        assert!(valid_block.payload().transactions[1].error.is_some());
     }
 
     #[test]
@@ -711,23 +738,17 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx0, tx, tx2];
-        let valid_block = BlockBuilder {
-            transactions,
-            event_recommendations: Vec::new(),
-            view_change_index: 0,
-            committed_with_topology: Topology::new(Vec::new()),
-            key_pair: alice_keys,
-            wsv: &mut wsv.clone(),
-        }
-        .build();
+        let topology = Topology::new(Vec::new());
+        let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
+            .chain_first(&mut wsv)
+            .sign(alice_keys)
+            .expect("Valid");
 
         // The first transaction should fail
-        assert!(valid_block.transactions[0].error.is_some());
+        assert!(valid_block.payload().transactions[0].error.is_some());
 
         // The third transaction should succeed
-        assert!(valid_block.transactions[2].error.is_none());
-
-        valid_block.revalidate(&mut wsv).unwrap();
+        assert!(valid_block.payload().transactions[2].error.is_none());
     }
 
     #[test]
@@ -770,25 +791,21 @@ mod tests {
 
         // Creating a block of where first transaction must fail and second one fully executed
         let transactions = vec![tx_fail, tx_accept];
-        let valid_block = BlockBuilder {
-            transactions,
-            event_recommendations: Vec::new(),
-            view_change_index: 0,
-            committed_with_topology: Topology::new(Vec::new()),
-            key_pair: alice_keys,
-            wsv: &mut wsv,
-        }
-        .build();
+        let topology = Topology::new(Vec::new());
+        let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
+            .chain_first(&mut wsv)
+            .sign(alice_keys)
+            .expect("Valid");
 
         // The first transaction should be rejected
         assert!(
-            valid_block.transactions[0].error.is_some(),
+            valid_block.payload().transactions[0].error.is_some(),
             "The first transaction should be rejected, as it contains `FailBox`."
         );
 
         // The second transaction should be accepted
         assert!(
-            valid_block.transactions[1].error.is_none(),
+            valid_block.payload().transactions[1].error.is_none(),
             "The second transaction should be accepted."
         );
     }

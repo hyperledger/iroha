@@ -24,11 +24,8 @@ use iroha_data_model::{
     asset::NewAssetDefinition,
     block::{
         error::BlockRejectionReason,
-        stream::{
-            BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
-            VersionedBlockSubscriptionRequest,
-        },
-        BlockHeader, CommittedBlock, VersionedCommittedBlock,
+        stream::{BlockMessage, BlockSubscriptionRequest},
+        BlockHeader, SignedBlock, VersionedSignedBlock,
     },
     domain::NewDomain,
     http::{BatchedResponse, VersionedBatchedResponse},
@@ -47,7 +44,7 @@ use iroha_data_model::{
     },
     transaction::{error::TransactionLimitError, SignedTransaction, TransactionLimits},
     validator::Validator,
-    VersionedCommittedBlockWrapper,
+    VersionedSignedBlockWrapper,
 };
 use iroha_primitives::{
     addr::{Ipv4Addr, Ipv6Addr},
@@ -265,13 +262,12 @@ mod tests {
 
     #[test]
     fn decode_trigger_sample() {
-        let account_id =
-            <Account as Identifiable>::Id::from_str("alice@wonderland").expect("Valid");
-        let rose_definition_id = <AssetDefinition as Identifiable>::Id::new(
+        let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+        let rose_definition_id = AssetDefinitionId::new(
             "rose".parse().expect("Valid"),
             "wonderland".parse().expect("Valid"),
         );
-        let rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, account_id.clone());
+        let rose_id = AssetId::new(rose_definition_id, account_id.clone());
         let trigger_id = "mint_rose".parse().expect("Valid");
         let action = Action::<FilterBox, Executable>::new(
             vec![MintBox::new(1_u32, rose_id)],

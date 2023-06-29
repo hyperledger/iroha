@@ -1002,7 +1002,7 @@ impl<'wrld> Runtime<state::validator::ValidateTransaction<'wrld>> {
     pub fn execute_validator_validate_transaction(
         &self,
         wsv: &'wrld mut WorldStateView,
-        authority: &<Account as Identifiable>::Id,
+        authority: &AccountId,
         module: &wasmtime::Module,
         transaction: VersionedSignedTransaction,
     ) -> Result<validator::Result> {
@@ -1078,7 +1078,7 @@ impl<'wrld> Runtime<state::validator::ValidateInstruction<'wrld>> {
     pub fn execute_validator_validate_instruction(
         &self,
         wsv: &'wrld mut WorldStateView,
-        authority: &<Account as Identifiable>::Id,
+        authority: &AccountId,
         module: &wasmtime::Module,
         instruction: InstructionBox,
     ) -> Result<validator::Result> {
@@ -1154,7 +1154,7 @@ impl<'wrld> Runtime<state::validator::ValidateQuery<'wrld>> {
     pub fn execute_validator_validate_query(
         &self,
         wsv: &'wrld WorldStateView,
-        authority: &<Account as Identifiable>::Id,
+        authority: &AccountId,
         module: &wasmtime::Module,
         query: QueryBox,
     ) -> Result<validator::Result> {
@@ -1254,7 +1254,7 @@ impl<'wrld> Runtime<state::validator::Migrate<'wrld>> {
     pub fn execute_validator_migration(
         &self,
         wsv: &'wrld mut WorldStateView,
-        authority: &<Account as Identifiable>::Id,
+        authority: &AccountId,
         module: &wasmtime::Module,
     ) -> Result<MigrationResult> {
         let span = wasm_log_span!("Running migration");

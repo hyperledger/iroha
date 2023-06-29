@@ -179,15 +179,13 @@ mod tests {
     use std::str::FromStr as _;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::{
-        block::VersionedCommittedBlock, query::error::FindError, transaction::TransactionLimits,
-    };
+    use iroha_data_model::{query::error::FindError, transaction::TransactionLimits};
     use once_cell::sync::Lazy;
 
     use super::*;
     use crate::{
-        block::*, kura::Kura, smartcontracts::isi::Registrable as _, tx::AcceptedTransaction,
-        wsv::World, PeersIds,
+        block::*, kura::Kura, smartcontracts::isi::Registrable as _,
+        sumeragi::network_topology::Topology, tx::AcceptedTransaction, wsv::World, PeersIds,
     };
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
@@ -292,33 +290,22 @@ mod tests {
         let mut transactions = vec![valid_tx; valid_tx_per_block];
         transactions.append(&mut vec![invalid_tx; invalid_tx_per_block]);
 
-        let first_block: VersionedCommittedBlock = BlockBuilder {
-            transactions: transactions.clone(),
-            event_recommendations: Vec::new(),
-            view_change_index: 0,
-            committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
-            key_pair: ALICE_KEYS.clone(),
-            wsv: &mut wsv.clone(),
-        }
-        .build()
-        .commit_unchecked()
-        .into();
+        let topology = Topology::new(vec![]);
+        let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
+            .chain_first(&mut wsv)
+            .sign(ALICE_KEYS.clone())?
+            .commit(&topology)
+            .expect("Block is valid");
 
         wsv.apply(&first_block)?;
         kura.store_block(first_block);
 
         for _ in 1u64..blocks {
-            let block: VersionedCommittedBlock = BlockBuilder {
-                transactions: transactions.clone(),
-                event_recommendations: Vec::new(),
-                view_change_index: 0,
-                committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
-                key_pair: ALICE_KEYS.clone(),
-                wsv: &mut wsv.clone(),
-            }
-            .build()
-            .commit_unchecked()
-            .into();
+            let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
+                .chain(0, &mut wsv)
+                .sign(ALICE_KEYS.clone())?
+                .commit(&topology)
+                .expect("Block is valid");
 
             wsv.apply(&block)?;
             kura.store_block(block);
@@ -390,7 +377,7 @@ mod tests {
 
         assert_eq!(
             FindBlockHeaderByHash::new(block.hash()).execute(&wsv)?,
-            block.as_v1().header
+            block.payload().header
         );
 
         assert!(
@@ -439,17 +426,12 @@ mod tests {
         let tx_limits = &wsv.transaction_validator().transaction_limits;
         let va_tx = AcceptedTransaction::accept(tx, tx_limits)?;
 
-        let vcb: VersionedCommittedBlock = BlockBuilder {
-            transactions: vec![va_tx.clone()],
-            event_recommendations: Vec::new(),
-            view_change_index: 0,
-            committed_with_topology: crate::sumeragi::network_topology::Topology::new(vec![]),
-            key_pair: ALICE_KEYS.clone(),
-            wsv: &mut wsv.clone(),
-        }
-        .build()
-        .commit_unchecked()
-        .into();
+        let topology = Topology::new(vec![]);
+        let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
+            .chain_first(&mut wsv)
+            .sign(ALICE_KEYS.clone())?
+            .commit(&topology)
+            .expect("Block is valid");
 
         wsv.apply(&vcb)?;
         kura.store_block(vcb);
@@ -468,10 +450,7 @@ mod tests {
 
         let found_accepted = FindTransactionByHash::new(va_tx.hash()).execute(&wsv)?;
         if found_accepted.transaction.error.is_none() {
-            assert_eq!(
-                va_tx.hash().transmute(),
-                found_accepted.transaction.value.hash()
-            )
+            assert_eq!(va_tx.hash(), found_accepted.transaction.hash())
         }
         Ok(())
     }

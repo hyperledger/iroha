@@ -15,7 +15,7 @@ use std::{
 
 use iroha_config::snapshot::Configuration;
 use iroha_crypto::HashOf;
-use iroha_data_model::block::VersionedCommittedBlock;
+use iroha_data_model::block::VersionedSignedBlock;
 use iroha_logger::prelude::*;
 use serde::{de::DeserializeSeed, Serialize};
 use tokio::sync::mpsc;
@@ -219,8 +219,8 @@ pub enum Error {
         /// Height at which block hashes differs between snapshot and [`Kura`]
         height: usize,
         /// Hash of the block stored in snapshot
-        snapshot_block_hash: HashOf<VersionedCommittedBlock>,
+        snapshot_block_hash: HashOf<VersionedSignedBlock>,
         /// Hash of the block stored in kura
-        kura_block_hash: HashOf<VersionedCommittedBlock>,
+        kura_block_hash: HashOf<VersionedSignedBlock>,
     },
 }

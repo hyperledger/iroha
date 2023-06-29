@@ -1,6 +1,6 @@
 //! Translates to warehouse. File-system and persistence-related
 //! logic.  [`Kura`] is the main entity which should be used to store
-//! new [`Block`](`crate::block::VersionedCommittedBlock`)s on the
+//! new [`Block`](`crate::block::VersionedSignedBlock`)s on the
 //! blockchain.
 #![allow(clippy::std_instead_of_alloc, clippy::arithmetic_side_effects)]
 use std::{
@@ -13,19 +13,20 @@ use std::{
 
 use iroha_config::kura::Mode;
 use iroha_crypto::{Hash, HashOf};
-use iroha_data_model::block::VersionedCommittedBlock;
+use iroha_data_model::block::VersionedSignedBlock;
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
+use parity_scale_codec::DecodeAll;
 use parking_lot::Mutex;
 
-use crate::handler::ThreadHandler;
+use crate::{block::CommittedBlock, handler::ThreadHandler};
 
 const INDEX_FILE_NAME: &str = "blocks.index";
 const DATA_FILE_NAME: &str = "blocks.data";
 const HASHES_FILE_NAME: &str = "blocks.hashes";
 const LOCK_FILE_NAME: &str = "kura.lock";
 
-const SIZE_OF_BLOCK_HASH: u64 = std::mem::size_of::<HashOf<VersionedCommittedBlock>>() as u64;
+const SIZE_OF_BLOCK_HASH: u64 = Hash::LENGTH as u64;
 
 /// The interface of Kura subsystem
 #[derive(Debug)]
@@ -39,8 +40,8 @@ pub struct Kura {
     #[allow(clippy::type_complexity)]
     block_data: Mutex<
         Vec<(
-            HashOf<VersionedCommittedBlock>,
-            Option<Arc<VersionedCommittedBlock>>,
+            HashOf<VersionedSignedBlock>,
+            Option<Arc<VersionedSignedBlock>>,
         )>,
     >,
     /// Path to file for plain text blocks.
@@ -143,7 +144,7 @@ impl Kura {
     fn init_fast_mode(
         block_store: &BlockStore,
         block_index_count: usize,
-    ) -> Result<Vec<HashOf<VersionedCommittedBlock>>, Error> {
+    ) -> Result<Vec<HashOf<VersionedSignedBlock>>, Error> {
         let block_hashes_count = block_store
             .read_hashes_count()?
             .try_into()
@@ -158,7 +159,7 @@ impl Kura {
     fn init_strict_mode(
         block_store: &mut BlockStore,
         block_index_count: usize,
-    ) -> Result<Vec<HashOf<VersionedCommittedBlock>>, Error> {
+    ) -> Result<Vec<HashOf<VersionedSignedBlock>>, Error> {
         let mut block_hashes = Vec::with_capacity(block_index_count);
 
         let mut block_indices = vec![BlockIndex::default(); block_index_count];
@@ -170,9 +171,10 @@ impl Kura {
             let mut block_data_buffer = vec![0_u8; block.length.try_into()?];
 
             match block_store.read_block_data(block.start, &mut block_data_buffer) {
-                Ok(_) => match VersionedCommittedBlock::decode_all_versioned(&block_data_buffer) {
+                Ok(_) => match VersionedSignedBlock::decode_all_versioned(&block_data_buffer) {
                     Ok(decoded_block) => {
-                        if previous_block_hash != decoded_block.as_v1().header.previous_block_hash {
+                        if previous_block_hash != decoded_block.payload().header.previous_block_hash
+                        {
                             error!("Block has wrong previous block hash. Not reading any blocks beyond this height.");
                             break;
                         }
@@ -282,7 +284,7 @@ impl Kura {
 
     /// Get the hash of the block at the provided height.
     #[allow(clippy::expect_used)]
-    pub fn get_block_hash(&self, block_height: u64) -> Option<HashOf<VersionedCommittedBlock>> {
+    pub fn get_block_hash(&self, block_height: u64) -> Option<HashOf<VersionedSignedBlock>> {
         let hash_data_guard = self.block_data.lock();
         if block_height == 0 || block_height > hash_data_guard.len() as u64 {
             return None;
@@ -294,7 +296,7 @@ impl Kura {
     }
 
     /// Search through blocks for the height of the block with the given hash.
-    pub fn get_block_height_by_hash(&self, hash: &HashOf<VersionedCommittedBlock>) -> Option<u64> {
+    pub fn get_block_height_by_hash(&self, hash: &HashOf<VersionedSignedBlock>) -> Option<u64> {
         self.block_data
             .lock()
             .iter()
@@ -306,7 +308,7 @@ impl Kura {
     #[allow(clippy::expect_used)]
     // The below lint suggests changing the code into something that does not compile due
     // to the borrow checker.
-    pub fn get_block_by_height(&self, block_height: u64) -> Option<Arc<VersionedCommittedBlock>> {
+    pub fn get_block_by_height(&self, block_height: u64) -> Option<Arc<VersionedSignedBlock>> {
         let mut data_array_guard = self.block_data.lock();
         if block_height == 0 || block_height > data_array_guard.len() as u64 {
             return None;
@@ -329,8 +331,8 @@ impl Kura {
         block_store
             .read_block_data(start, &mut block_buf)
             .expect("Failed to read block data.");
-        let block = VersionedCommittedBlock::decode_all_versioned(&block_buf)
-            .expect("Failed to decode block");
+        let block =
+            VersionedSignedBlock::decode_all_versioned(&block_buf).expect("Failed to decode block");
 
         let block_arc = Arc::new(block);
         data_array_guard[block_number].1 = Some(Arc::clone(&block_arc));
@@ -344,8 +346,8 @@ impl Kura {
     /// call `get_block_by_height` directly.
     pub fn get_block_by_hash(
         &self,
-        block_hash: &HashOf<VersionedCommittedBlock>,
-    ) -> Option<Arc<VersionedCommittedBlock>> {
+        block_hash: &HashOf<VersionedSignedBlock>,
+    ) -> Option<Arc<VersionedSignedBlock>> {
         let index = self
             .block_data
             .lock()
@@ -356,17 +358,17 @@ impl Kura {
     }
 
     /// Put a block in kura's in memory block store.
-    pub fn store_block(&self, block: VersionedCommittedBlock) {
-        self.block_data
-            .lock()
-            .push((block.hash(), Some(Arc::new(block))));
+    pub fn store_block(&self, block: CommittedBlock) {
+        let block = Arc::new(VersionedSignedBlock::from(block));
+        self.block_data.lock().push((block.hash(), Some(block)));
     }
 
     /// Replace the block in `Kura`'s in memory block store.
-    pub fn replace_top_block(&self, block: VersionedCommittedBlock) {
+    pub fn replace_top_block(&self, block: CommittedBlock) {
+        let block = Arc::new(VersionedSignedBlock::from(block));
         let mut data = self.block_data.lock();
         data.pop();
-        data.push((block.hash(), Some(Arc::new(block))));
+        data.push((block.hash(), Some(block)));
     }
 }
 
@@ -465,12 +467,12 @@ impl BlockStore {
         let mut index_file = std::fs::OpenOptions::new()
             .read(true)
             .open(path.clone())
-            .add_err_context(path.clone())?;
+            .add_err_context(&path)?;
         let start_location = start_block_height * (2 * std::mem::size_of::<u64>() as u64);
         let block_count = dest_buffer.len();
 
         if start_location + (2 * std::mem::size_of::<u64>() as u64) * block_count as u64
-            > index_file.metadata().add_err_context(path.clone())?.len()
+            > index_file.metadata().add_err_context(&path)?.len()
         {
             return Err(Error::OutOfBoundsBlockRead {
                 start_block_height,
@@ -479,25 +481,23 @@ impl BlockStore {
         }
         index_file
             .seek(SeekFrom::Start(start_location))
-            .add_err_context(path.clone())?;
-        let mut buffer = [0; core::mem::size_of::<u64>()];
+            .add_err_context(&path)?;
         // (start, length), (start,length) ...
         for current_buffer in dest_buffer.iter_mut() {
+            let mut buffer = [0; core::mem::size_of::<u64>()];
+
             *current_buffer = BlockIndex {
                 start: {
-                    index_file
-                        .read_exact(&mut buffer)
-                        .add_err_context(path.clone())?;
+                    index_file.read_exact(&mut buffer).add_err_context(&path)?;
                     u64::from_le_bytes(buffer)
                 },
                 length: {
-                    index_file
-                        .read_exact(&mut buffer)
-                        .add_err_context(path.clone())?;
+                    index_file.read_exact(&mut buffer).add_err_context(&path)?;
                     u64::from_le_bytes(buffer)
                 },
             };
         }
+
         Ok(())
     }
 
@@ -532,8 +532,8 @@ impl BlockStore {
         let index_file = std::fs::OpenOptions::new()
             .read(true)
             .open(path.clone())
-            .add_err_context(path.clone())?;
-        Ok(index_file.metadata().add_err_context(path)?.len()
+            .add_err_context(&path)?;
+        Ok(index_file.metadata().add_err_context(&path)?.len()
             / (2 * std::mem::size_of::<u64>() as u64))
         // Each entry is 16 bytes.
     }
@@ -546,16 +546,16 @@ impl BlockStore {
         &self,
         start_block_height: u64,
         block_count: usize,
-    ) -> Result<Vec<HashOf<VersionedCommittedBlock>>> {
+    ) -> Result<Vec<HashOf<VersionedSignedBlock>>> {
         let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
         let mut hashes_file = std::fs::OpenOptions::new()
             .read(true)
             .open(path.clone())
-            .add_err_context(path.clone())?;
+            .add_err_context(&path)?;
         let start_location = start_block_height * SIZE_OF_BLOCK_HASH;
 
         if start_location + (SIZE_OF_BLOCK_HASH) * block_count as u64
-            > hashes_file.metadata().add_err_context(path.clone())?.len()
+            > hashes_file.metadata().add_err_context(&path)?.len()
         {
             return Err(Error::OutOfBoundsBlockRead {
                 start_block_height,
@@ -564,22 +564,23 @@ impl BlockStore {
         }
         hashes_file
             .seek(SeekFrom::Start(start_location))
-            .add_err_context(path.clone())?;
+            .add_err_context(&path)?;
 
-        let mut buffer = [0; Hash::LENGTH];
         (0..block_count)
             .map(|_| {
+                let mut buffer = [0; Hash::LENGTH];
+
                 hashes_file
                     .read_exact(&mut buffer)
-                    .add_err_context(path.clone())
-                    .map(|_| HashOf::from_untyped_unchecked(Hash::prehashed(buffer)))
+                    .add_err_context(&path)
+                    .and_then(|_| HashOf::decode_all(&mut buffer.as_slice()).map_err(Error::Codec))
             })
             .collect()
     }
 
     /// Get the number of hashes in the hashes file, which is
     /// calculated as the size of the hashes file in bytes divided by
-    /// `size_of(HashOf<VersionedCommittedBlock>)`.
+    /// `size_of(HashOf<VersionedSignedBlock>)`.
     ///
     /// # Errors
     /// IO Error.
@@ -592,8 +593,8 @@ impl BlockStore {
         let hashes_file = std::fs::OpenOptions::new()
             .read(true)
             .open(path.clone())
-            .add_err_context(path.clone())?;
-        Ok(hashes_file.metadata().add_err_context(path)?.len() / SIZE_OF_BLOCK_HASH)
+            .add_err_context(&path)?;
+        Ok(hashes_file.metadata().add_err_context(&path)?.len() / SIZE_OF_BLOCK_HASH)
     }
 
     /// Read block data starting from the
@@ -611,11 +612,12 @@ impl BlockStore {
         let mut data_file = std::fs::OpenOptions::new()
             .read(true)
             .open(path.clone())
-            .add_err_context(path.clone())?;
+            .add_err_context(&path)?;
         data_file
             .seek(SeekFrom::Start(start_location_in_data_file))
-            .add_err_context(path.clone())?;
-        data_file.read_exact(dest_buffer).add_err_context(path)?;
+            .add_err_context(&path)?;
+        data_file.read_exact(dest_buffer).add_err_context(&path)?;
+
         Ok(())
     }
 
@@ -631,26 +633,26 @@ impl BlockStore {
             .write(true)
             .create(true)
             .open(path.clone())
-            .add_err_context(path.clone())?;
+            .add_err_context(&path)?;
         let start_location = block_height * (2 * std::mem::size_of::<u64>() as u64);
         if start_location + (2 * std::mem::size_of::<u64>() as u64)
-            > index_file.metadata().add_err_context(path.clone())?.len()
+            > index_file.metadata().add_err_context(&path)?.len()
         {
             index_file
                 .set_len(start_location + (2 * std::mem::size_of::<u64>() as u64))
-                .add_err_context(path.clone())?;
+                .add_err_context(&path)?;
         }
         index_file
             .seek(SeekFrom::Start(start_location))
-            .add_err_context(path.clone())?;
+            .add_err_context(&path)?;
         // block0       | block1
         // start, length| start, length  ... et cetera.
         index_file
             .write_all(&start.to_le_bytes())
-            .add_err_context(path.clone())?;
+            .add_err_context(&path)?;
         index_file
             .write_all(&length.to_le_bytes())
-            .add_err_context(path)?;
+            .add_err_context(&path)?;
         Ok(())
     }
 
@@ -670,9 +672,9 @@ impl BlockStore {
         let index_file = std::fs::OpenOptions::new()
             .write(true)
             .open(path.clone())
-            .add_err_context(path.clone())?;
+            .add_err_context(&path)?;
         let new_byte_size = new_count * (2 * std::mem::size_of::<u64>() as u64);
-        index_file.set_len(new_byte_size).add_err_context(path)?;
+        index_file.set_len(new_byte_size).add_err_context(&path)?;
         Ok(())
     }
 
@@ -691,18 +693,18 @@ impl BlockStore {
         let mut data_file = std::fs::OpenOptions::new()
             .write(true)
             .open(path.clone())
-            .add_err_context(path.clone())?;
+            .add_err_context(&path)?;
         if start_location_in_data_file + block_data.len() as u64
-            > data_file.metadata().add_err_context(path.clone())?.len()
+            > data_file.metadata().add_err_context(&path)?.len()
         {
             data_file
                 .set_len(start_location_in_data_file + block_data.len() as u64)
-                .add_err_context(path.clone())?;
+                .add_err_context(&path)?;
         }
         data_file
             .seek(SeekFrom::Start(start_location_in_data_file))
-            .add_err_context(path.clone())?;
-        data_file.write_all(block_data).add_err_context(path)?;
+            .add_err_context(&path)?;
+        data_file.write_all(block_data).add_err_context(&path)?;
         Ok(())
     }
 
@@ -715,36 +717,38 @@ impl BlockStore {
     pub fn write_block_hash(
         &mut self,
         block_height: u64,
-        hash: HashOf<VersionedCommittedBlock>,
+        hash: HashOf<VersionedSignedBlock>,
     ) -> Result<()> {
         let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
         let mut hashes_file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .open(path.clone())
-            .add_err_context(path.clone())?;
+            .add_err_context(&path)?;
         let start_location = block_height * SIZE_OF_BLOCK_HASH;
         if start_location + SIZE_OF_BLOCK_HASH
-            > hashes_file.metadata().add_err_context(path.clone())?.len()
+            > hashes_file.metadata().add_err_context(&path)?.len()
         {
             hashes_file
                 .set_len(start_location + SIZE_OF_BLOCK_HASH)
-                .add_err_context(path.clone())?;
+                .add_err_context(&path)?;
         }
         hashes_file
             .seek(SeekFrom::Start(start_location))
-            .add_err_context(path.clone())?;
-        hashes_file.write_all(hash.as_ref()).add_err_context(path)?;
+            .add_err_context(&path)?;
+        hashes_file
+            .write_all(hash.as_ref())
+            .add_err_context(&path)?;
         Ok(())
     }
 
-    /// Write the hashes to the hashes file overwriting any previous hashes.  
+    /// Write the hashes to the hashes file overwriting any previous hashes.
     ///
     /// # Errors
     /// IO Error.
     pub fn overwrite_block_hashes(
         &mut self,
-        hashes: &[HashOf<VersionedCommittedBlock>],
+        hashes: &[HashOf<VersionedSignedBlock>],
     ) -> Result<()> {
         let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
         let hashes_file = std::fs::OpenOptions::new()
@@ -752,12 +756,12 @@ impl BlockStore {
             .create(true)
             .truncate(true)
             .open(path.clone())
-            .add_err_context(path.clone())?;
+            .add_err_context(&path)?;
         let mut hashes_file = BufWriter::new(hashes_file);
         for hash in hashes {
             hashes_file
                 .write_all(hash.as_ref())
-                .add_err_context(path.clone())?;
+                .add_err_context(&path)?;
         }
         Ok(())
     }
@@ -776,19 +780,19 @@ impl BlockStore {
             .write(true)
             .create(true)
             .open(path.clone())
-            .add_err_context(path)?;
+            .add_err_context(&path)?;
         let path = self.path_to_blockchain.join(DATA_FILE_NAME);
         std::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .open(path.clone())
-            .add_err_context(path)?;
+            .add_err_context(&path)?;
         let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
         std::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .open(path.clone())
-            .add_err_context(path)?;
+            .add_err_context(&path)?;
         Ok(())
     }
 
@@ -799,7 +803,7 @@ impl BlockStore {
     /// # Errors
     /// Fails if any of the required platform-specific functions
     /// fail.
-    pub fn append_block_to_chain(&mut self, block: &VersionedCommittedBlock) -> Result<()> {
+    pub fn append_block_to_chain(&mut self, block: &VersionedSignedBlock) -> Result<()> {
         let bytes = block.encode_versioned();
         let new_block_height = self.read_index_count()?;
         let start_location_in_data_file = if new_block_height == 0 {
@@ -830,7 +834,7 @@ pub enum Error {
     /// Failed to create the directory {1:?}
     MkDir(#[source] std::io::Error, PathBuf),
     /// Failed to serialize/deserialize block
-    Codec(#[from] iroha_version::error::Error),
+    Codec(#[from] parity_scale_codec::Error),
     /// Failed to allocate buffer
     Alloc(#[from] std::collections::TryReserveError),
     /// Tried reading block data out of bounds: {start_block_height}, {block_count}
@@ -851,14 +855,14 @@ pub enum Error {
 trait AddErrContextExt<T> {
     type Context;
 
-    fn add_err_context(self, context: Self::Context) -> Result<T, Error>;
+    fn add_err_context(self, context: &Self::Context) -> Result<T, Error>;
 }
 
 impl<T> AddErrContextExt<T> for Result<T, std::io::Error> {
     type Context = PathBuf;
 
-    fn add_err_context(self, path: Self::Context) -> Result<T, Error> {
-        self.map_err(|e| Error::IO(e, path))
+    fn add_err_context(self, path: &Self::Context) -> Result<T, Error> {
+        self.map_err(|e| Error::IO(e, path.clone()))
     }
 }
 
@@ -869,7 +873,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::block::PendingBlock;
+    use crate::block::ValidBlock;
 
     fn indices<const N: usize>(value: [(u64, u64); N]) -> [BlockIndex; N] {
         let mut ret = [BlockIndex {
@@ -969,7 +973,7 @@ mod tests {
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
-        let dummy_block = PendingBlock::new_dummy().commit_unchecked().into();
+        let dummy_block = ValidBlock::new_dummy().into();
 
         let append_count = 35;
         for _ in 0..append_count {
@@ -985,7 +989,7 @@ mod tests {
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
-        let dummy_block = PendingBlock::new_dummy().commit_unchecked().into();
+        let dummy_block = ValidBlock::new_dummy().into();
 
         let append_count = 35;
         for _ in 0..append_count {
@@ -1001,7 +1005,7 @@ mod tests {
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
-        let dummy_block = PendingBlock::new_dummy().commit_unchecked().into();
+        let dummy_block = ValidBlock::new_dummy().into();
 
         let append_count = 35;
         for _ in 0..append_count {
@@ -1021,15 +1025,14 @@ mod tests {
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
-        let dummy_block: VersionedCommittedBlock =
-            PendingBlock::new_dummy().commit_unchecked().into();
-        let block_data = dummy_block.encode_versioned();
+        let dummy_block = ValidBlock::new_dummy().into();
 
         let append_count = 35;
         for _ in 0..append_count {
             block_store.append_block_to_chain(&dummy_block).unwrap();
         }
 
+        let block_data = dummy_block.encode_versioned();
         for i in 0..append_count {
             let BlockIndex { start, length } = block_store.read_block_index(i).unwrap();
             assert_eq!(i * block_data.len() as u64, start);

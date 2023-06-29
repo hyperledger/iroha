@@ -10,7 +10,7 @@ use derive_more::{Deref, DerefMut};
 use iroha_macro::ffi_impl_opaque;
 use iroha_primitives::const_vec::ConstVec;
 use iroha_schema::{IntoSchema, TypeId};
-use parity_scale_codec::{Decode, Encode, Input};
+use parity_scale_codec::{Decode, Encode};
 #[cfg(not(feature = "ffi_import"))]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
@@ -102,16 +102,6 @@ impl Signature {
         }?;
 
         Ok(())
-    }
-
-    /// Get the payload of the public key in this signature.
-    pub fn key_payload(&self) -> &[u8] {
-        self.public_key.payload()
-    }
-
-    /// Get the encrypted payload of this signature.
-    pub fn signature_payload(&self) -> &[u8] {
-        self.payload.as_ref()
     }
 }
 
@@ -220,29 +210,8 @@ impl<T> SignatureOf<T> {
     /// # Errors
     /// Fails if signing fails
     #[cfg(any(feature = "std", feature = "import_ffi"))]
-    pub fn from_hash(key_pair: KeyPair, hash: HashOf<T>) -> Result<Self, Error> {
+    fn from_hash(key_pair: KeyPair, hash: HashOf<T>) -> Result<Self, Error> {
         Signature::new(key_pair, hash.as_ref()).map(|signature| Self(signature, PhantomData))
-    }
-
-    /// Transmutes signature to some specific type
-    pub fn transmute<F>(self) -> SignatureOf<F> {
-        SignatureOf(self.0, PhantomData)
-    }
-
-    /// Transmutes signature to some specific type
-    ///
-    /// # Warning:
-    ///
-    /// This method uses [`core::mem::transmute`] internally
-    pub const fn transmute_ref<F>(&self) -> &SignatureOf<F> {
-        #[allow(unsafe_code, trivial_casts)]
-        // SAFETY: transmuting is safe, because we're casting a
-        // pointer of type `SignatureOf<T>` into a pointer of type
-        // `SignatureOf<F>`, where `<F>` and `<T>` type parameters are
-        // normally related types that have the exact same alignment.
-        unsafe {
-            &*((self as *const Self).cast::<SignatureOf<F>>())
-        }
     }
 
     /// Verify signature for this hash
@@ -251,7 +220,7 @@ impl<T> SignatureOf<T> {
     ///
     /// Fails if the given hash didn't pass verification
     #[cfg(any(feature = "std", feature = "import_ffi"))]
-    pub fn verify_hash(&self, hash: HashOf<T>) -> Result<(), Error> {
+    fn verify_hash(&self, hash: HashOf<T>) -> Result<(), Error> {
         self.0.verify(hash.as_ref())
     }
 }
@@ -324,7 +293,7 @@ impl<T> Eq for SignatureWrapperOf<T> {}
 #[cfg(not(feature = "ffi_import"))]
 impl<T> PartialOrd for SignatureWrapperOf<T> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.0.public_key().partial_cmp(other.0.public_key())
+        Some(self.cmp(other))
     }
 }
 #[cfg(not(feature = "ffi_import"))]
@@ -349,7 +318,7 @@ impl<T> core::hash::Hash for SignatureWrapperOf<T> {
 ///
 /// GUARANTEE 1: Each signature corresponds to a different public key
 #[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Hash, Encode, Serialize, IntoSchema)]
+#[derive(Hash, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 #[serde(transparent)]
 // Transmute guard
 #[repr(transparent)]
@@ -400,38 +369,6 @@ impl<T> Ord for SignaturesOf<T> {
 }
 
 #[cfg(not(feature = "ffi_import"))]
-impl<'de, T> Deserialize<'de> for SignaturesOf<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::de::Error as _;
-
-        let signatures = <btree_set::BTreeSet<SignatureWrapperOf<T>>>::deserialize(deserializer)?;
-
-        if signatures.is_empty() {
-            return Err(D::Error::custom(
-                "Could not deserialize SignaturesOf<T>. Input contains 0 signatures",
-            ));
-        }
-
-        Ok(Self { signatures })
-    }
-}
-#[cfg(not(feature = "ffi_import"))]
-impl<T> Decode for SignaturesOf<T> {
-    fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
-        let signatures = <btree_set::BTreeSet<SignatureWrapperOf<T>>>::decode(input)?;
-
-        if signatures.is_empty() {
-            return Err("Could not decode SignaturesOf<T>. Input contains 0 signatures".into());
-        }
-
-        Ok(Self { signatures })
-    }
-}
-
-#[cfg(not(feature = "ffi_import"))]
 impl<T> IntoIterator for SignaturesOf<T> {
     type Item = SignatureOf<T>;
     type IntoIter = core::iter::Map<
@@ -475,11 +412,9 @@ impl<T> From<SignaturesOf<T>> for btree_set::BTreeSet<SignatureOf<T>> {
 }
 
 #[cfg(not(feature = "ffi_import"))]
-impl<T> TryFrom<btree_set::BTreeSet<SignatureOf<T>>> for SignaturesOf<T> {
-    type Error = Error;
-
-    fn try_from(signatures: btree_set::BTreeSet<SignatureOf<T>>) -> Result<Self, Self::Error> {
-        signatures.into_iter().collect()
+impl<T> From<btree_set::BTreeSet<SignatureOf<T>>> for SignaturesOf<T> {
+    fn from(source: btree_set::BTreeSet<SignatureOf<T>>) -> Self {
+        source.into_iter().collect()
     }
 }
 
@@ -493,46 +428,19 @@ impl<A> From<SignatureOf<A>> for SignaturesOf<A> {
 }
 
 #[cfg(not(feature = "ffi_import"))]
-impl<A> FromIterator<SignatureOf<A>> for Result<SignaturesOf<A>, Error> {
-    fn from_iter<T: IntoIterator<Item = SignatureOf<A>>>(iter: T) -> Self {
-        let mut iter = iter.into_iter();
-        iter.next()
-            .ok_or(Error::EmptySignatureIter)
-            .map(move |first_signature| core::iter::once(first_signature).chain(iter))
-            .map(|signatures| signatures.map(SignatureWrapperOf).collect())
-            .map(|signatures| SignaturesOf { signatures })
+impl<A> FromIterator<SignatureOf<A>> for SignaturesOf<A> {
+    fn from_iter<T: IntoIterator<Item = SignatureOf<A>>>(signatures: T) -> Self {
+        Self {
+            signatures: signatures.into_iter().map(SignatureWrapperOf).collect(),
+        }
     }
 }
 
 #[cfg(not(feature = "ffi_import"))]
 impl<T> SignaturesOf<T> {
-    /// Transmutes signature generic type
-    ///
-    /// # Warning
-    ///
-    /// This method uses [`core::mem::transmute`] internally
-    #[allow(unsafe_code, clippy::transmute_undefined_repr)]
-    pub fn transmute<F>(self) -> SignaturesOf<F> {
-        // SAFETY: Safe because we are transmuting to a pointer of
-        // type `<F>` which is related to type `<T>`.
-        let signatures = unsafe { core::mem::transmute(self.signatures) };
-        SignaturesOf { signatures }
-    }
-
     /// Adds a signature. If the signature with this key was present, replaces it.
     pub fn insert(&mut self, signature: SignatureOf<T>) {
         self.signatures.insert(SignatureWrapperOf(signature));
-    }
-
-    /// Return signatures that have passed verification, remove all others.
-    #[cfg(feature = "std")]
-    pub fn retain_verified_by_hash(
-        &mut self,
-        hash: HashOf<T>,
-    ) -> impl ExactSizeIterator<Item = &SignatureOf<T>> {
-        self.signatures
-            .retain(|sign| sign.verify_hash(hash).is_ok());
-        self.iter()
     }
 
     /// Return all signatures.
@@ -546,11 +454,6 @@ impl<T> SignaturesOf<T> {
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.signatures.len()
-    }
-
-    /// Clear signatures.
-    pub fn clear(&mut self) {
-        self.signatures.clear()
     }
 
     /// Verify signatures for this hash
@@ -567,6 +470,11 @@ impl<T> SignaturesOf<T> {
                     reason: error.to_string(),
                 })
         })
+    }
+
+    /// Returns true if the set is a subset of another, i.e., other contains at least all the elements in self.
+    pub fn is_subset(&self, other: &Self) -> bool {
+        self.signatures.is_subset(&other.signatures)
     }
 }
 
@@ -587,11 +495,6 @@ impl<T: Encode> SignaturesOf<T> {
     /// Fails if validation of any signature fails
     pub fn verify(&self, item: &T) -> Result<(), SignatureVerificationFail<T>> {
         self.verify_hash(HashOf::new(item))
-    }
-
-    /// Return signatures that have passed verification, remove all others.
-    pub fn retain_verified(&mut self, value: &T) -> impl ExactSizeIterator<Item = &SignatureOf<T>> {
-        self.retain_verified_by_hash(HashOf::new(value))
     }
 }
 
@@ -698,47 +601,15 @@ mod tests {
     #[test]
     #[cfg(feature = "std")]
     #[cfg(not(feature = "ffi_import"))]
-    fn decode_signatures_of() {
-        use parity_scale_codec::DecodeAll;
-
-        let no_signatures: SignaturesOf<i32> = SignaturesOf {
-            signatures: btree_set::BTreeSet::new(),
-        };
-        let bytes = no_signatures.encode();
-
-        let signatures = SignaturesOf::<i32>::decode_all(&mut &bytes[..]);
-        assert!(signatures.is_err());
-    }
-
-    #[test]
-    #[cfg(feature = "std")]
-    #[cfg(not(feature = "ffi_import"))]
-    fn deserialize_signatures_of() -> Result<(), serde_json::Error> {
-        let no_signatures: SignaturesOf<i32> = SignaturesOf {
-            signatures: btree_set::BTreeSet::new(),
-        };
-        let serialized = serde_json::to_string(&no_signatures)?;
-
-        let signatures = serde_json::from_str::<SignaturesOf<i32>>(serialized.as_str());
-        assert!(signatures.is_err());
-
-        Ok(())
-    }
-
-    #[test]
-    #[cfg(feature = "std")]
-    #[cfg(not(feature = "ffi_import"))]
     fn signatures_of_deduplication_by_public_key() {
         let key_pair = KeyPair::generate().expect("Failed to generate keys");
         let signatures = [
             SignatureOf::new(key_pair.clone(), &1).expect("Failed to sign"),
             SignatureOf::new(key_pair.clone(), &2).expect("Failed to sign"),
             SignatureOf::new(key_pair, &3).expect("Failed to sign"),
-        ];
-        let signatures = signatures
-            .into_iter()
-            .collect::<Result<SignaturesOf<u8>, Error>>()
-            .expect("One signature must stay");
+        ]
+        .into_iter()
+        .collect::<SignaturesOf<u8>>();
         // Signatures with the same public key was deduplicated
         assert_eq!(signatures.len(), 1);
     }

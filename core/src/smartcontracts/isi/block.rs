@@ -1,7 +1,7 @@
 //! This module contains trait implementations related to block queries
 use eyre::{Result, WrapErr};
 use iroha_data_model::{
-    block::{BlockHeader, VersionedCommittedBlock},
+    block::{BlockHeader, VersionedSignedBlock},
     evaluate::ExpressionEvaluator,
     query::{
         block::FindBlockHeaderByHash,
@@ -17,9 +17,11 @@ impl ValidQuery for FindAllBlocks {
     fn execute<'wsv>(
         &self,
         wsv: &'wsv WorldStateView,
-    ) -> Result<Box<dyn Iterator<Item = VersionedCommittedBlock> + 'wsv>, QueryExecutionFail> {
+    ) -> Result<Box<dyn Iterator<Item = VersionedSignedBlock> + 'wsv>, QueryExecutionFail> {
         Ok(Box::new(
-            wsv.all_blocks().rev().map(|block| Clone::clone(&*block)),
+            wsv.all_blocks()
+                .rev()
+                .map(|block| VersionedSignedBlock::clone(&block)),
         ))
     }
 }
@@ -33,7 +35,7 @@ impl ValidQuery for FindAllBlockHeaders {
         Ok(Box::new(
             wsv.all_blocks()
                 .rev()
-                .map(|block| block.as_v1().header.clone()),
+                .map(|block| block.payload().header.clone()),
         ))
     }
 }
@@ -51,6 +53,6 @@ impl ValidQuery for FindBlockHeaderByHash {
             .find(|block| block.hash() == hash)
             .ok_or_else(|| QueryExecutionFail::Find(FindError::Block(hash)))?;
 
-        Ok(block.as_v1().header.clone())
+        Ok(block.payload().header.clone())
     }
 }

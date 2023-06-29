@@ -13,8 +13,7 @@ fn find_accounts_with_asset() -> Result<()> {
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
     // Registering new asset definition
-    let definition_id =
-        <AssetDefinition as Identifiable>::Id::from_str("test_coin#wonderland").expect("Valid");
+    let definition_id = AssetDefinitionId::from_str("test_coin#wonderland").expect("Valid");
     let asset_definition = AssetDefinition::quantity(definition_id.clone());
     test_client.submit_blocking(RegisterBox::new(asset_definition.clone()))?;
 
@@ -48,7 +47,7 @@ fn find_accounts_with_asset() -> Result<()> {
     let mint_asset = accounts
         .iter()
         .cloned()
-        .map(|account_id| <Asset as Identifiable>::Id::new(definition_id.clone(), account_id))
+        .map(|account_id| AssetId::new(definition_id.clone(), account_id))
         .map(|asset_id| MintBox::new(1_u32, asset_id))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(mint_asset)?;

@@ -40,6 +40,8 @@ pub enum AcceptTransactionFail {
     TransactionLimit(#[source] TransactionLimitError),
     /// Failure during signature verification
     SignatureVerification(#[source] SignatureVerificationFail<TransactionPayload>),
+    /// The genesis account can only sign transactions in the genesis block
+    UnexpectedGenesisAccountSignature,
 }
 
 fn instruction_size(isi: &InstructionBox) -> usize {
@@ -86,6 +88,10 @@ impl AcceptedTransaction {
         transaction: VersionedSignedTransaction,
         limits: &TransactionLimits,
     ) -> Result<Self, AcceptTransactionFail> {
+        if *iroha_genesis::GENESIS_ACCOUNT_ID == transaction.payload().authority {
+            return Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature);
+        }
+
         match &transaction.payload().instructions {
             Executable::Instructions(instructions) => {
                 let instruction_count: u64 = instructions
@@ -203,10 +209,6 @@ impl TransactionValidator {
         wsv: &mut WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         let authority = &tx.payload().authority;
-
-        if wsv.height() > 0 && *iroha_genesis::GENESIS_ACCOUNT_ID == *authority {
-            return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
-        }
 
         if !wsv
             .domain(&authority.domain_id)

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 use iroha_core::kura::{BlockIndex, BlockStore, LockStatus};
-use iroha_data_model::block::VersionedCommittedBlock;
+use iroha_data_model::block::VersionedSignedBlock;
 use iroha_version::scale::DecodeVersioned;
 
 /// Kura inspector
@@ -136,7 +136,7 @@ fn print_blockchain(block_store_path: &Path, from_height: u64, block_count: u64)
         block_store
             .read_block_data(idx.start, &mut block_buf)
             .expect(&format!("Failed to read block № {} data.", meta_index + 1));
-        let block = VersionedCommittedBlock::decode_all_versioned(&block_buf)
+        let block = VersionedSignedBlock::decode_all_versioned(&block_buf)
             .expect(&format!("Failed to decode block № {}", meta_index + 1));
         println!("Block#{} :", meta_index + 1);
         println!("{block:#?}");

@@ -21,7 +21,7 @@ use http_default::{AsyncWebSocketStream, WebSocketStream};
 use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
-    block::VersionedCommittedBlock,
+    block::VersionedSignedBlock,
     http::VersionedBatchedResponse,
     isi::Instruction,
     predicate::PredicateBox,
@@ -654,7 +654,7 @@ impl Client {
                     PipelineStatus::Rejected(ref reason) => {
                         return Err(reason.clone().into());
                     }
-                    PipelineStatus::Committed => return Ok(hash.transmute()),
+                    PipelineStatus::Committed => return Ok(hash),
                 }
             }
         }
@@ -1036,7 +1036,7 @@ impl Client {
     pub fn listen_for_blocks(
         &self,
         height: NonZeroU64,
-    ) -> Result<impl Iterator<Item = Result<VersionedCommittedBlock>>> {
+    ) -> Result<impl Iterator<Item = Result<VersionedSignedBlock>>> {
         blocks_api::BlockIterator::new(self.blocks_handler(height)?)
     }
 
@@ -1448,10 +1448,7 @@ pub mod events_api {
                     url,
                 } = self;
 
-                let msg =
-                    VersionedEventSubscriptionRequest::from(EventSubscriptionRequest::new(filter))
-                        .encode_versioned();
-
+                let msg = EventSubscriptionRequest::new(filter).encode();
                 InitData::new(R::new(HttpMethod::GET, url).headers(headers), msg, Events)
             }
         }
@@ -1464,8 +1461,7 @@ pub mod events_api {
             type Event = iroha_data_model::prelude::Event;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
-                let event_socket_message =
-                    VersionedEventMessage::decode_all_versioned(&message)?.into_v1();
+                let event_socket_message = EventMessage::decode_all(&mut message.as_slice())?;
                 Ok(event_socket_message.into())
             }
         }
@@ -1532,10 +1528,7 @@ mod blocks_api {
                     url,
                 } = self;
 
-                let msg =
-                    VersionedBlockSubscriptionRequest::from(BlockSubscriptionRequest::new(height))
-                        .encode_versioned();
-
+                let msg = BlockSubscriptionRequest::new(height).encode();
                 InitData::new(R::new(HttpMethod::GET, url).headers(headers), msg, Events)
             }
         }
@@ -1545,11 +1538,10 @@ mod blocks_api {
         pub struct Events;
 
         impl FlowEvents for Events {
-            type Event = iroha_data_model::block::VersionedCommittedBlock;
+            type Event = iroha_data_model::block::VersionedSignedBlock;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
-                let block_msg = VersionedBlockMessage::decode_all_versioned(&message)?.into_v1();
-                Ok(block_msg.into())
+                Ok(BlockMessage::decode_all(&mut message.as_slice()).map(Into::into)?)
             }
         }
     }
@@ -1610,7 +1602,7 @@ pub mod asset {
     }
 
     /// Construct a query to get an asset by its id
-    pub fn by_id(asset_id: impl Into<EvaluatesTo<<Asset as Identifiable>::Id>>) -> FindAssetById {
+    pub fn by_id(asset_id: impl Into<EvaluatesTo<AssetId>>) -> FindAssetById {
         FindAssetById::new(asset_id)
     }
 }
@@ -1632,7 +1624,7 @@ pub mod block {
 
     /// Construct a query to find block header by hash
     pub fn header_by_hash(
-        hash: impl Into<EvaluatesTo<HashOf<VersionedCommittedBlock>>>,
+        hash: impl Into<EvaluatesTo<HashOf<VersionedSignedBlock>>>,
     ) -> FindBlockHeaderByHash {
         FindBlockHeaderByHash::new(hash)
     }

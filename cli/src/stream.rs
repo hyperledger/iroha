@@ -6,6 +6,7 @@ use core::{result::Result, time::Duration};
 
 use futures::{SinkExt, StreamExt};
 use iroha_version::prelude::*;
+use parity_scale_codec::DecodeAll;
 
 #[cfg(test)]
 const TIMEOUT: Duration = Duration::from_millis(10_000);
@@ -34,7 +35,7 @@ where
     /// Unexpected non-binary message received
     NonBinaryMessage,
     /// Error during versioned message decoding
-    IrohaVersion(#[from] iroha_version::error::Error),
+    Decode(#[from] parity_scale_codec::Error),
 }
 
 /// Represents message used by the stream
@@ -56,7 +57,7 @@ pub trait StreamMessage {
 #[async_trait::async_trait]
 pub trait Sink<S>: SinkExt<Self::Message, Error = Self::Err> + Unpin
 where
-    S: EncodeVersioned + Send + Sync + 'static,
+    S: Encode + Send + Sync + 'static,
 {
     /// Error type returned by the sink
     type Err: std::error::Error + Send + Sync + 'static;
@@ -68,10 +69,7 @@ where
     async fn send(&mut self, message: S) -> Result<(), Error<Self::Err>> {
         tokio::time::timeout(
             TIMEOUT,
-            <Self as SinkExt<Self::Message>>::send(
-                self,
-                Self::Message::binary(message.encode_versioned()),
-            ),
+            <Self as SinkExt<Self::Message>>::send(self, Self::Message::binary(message.encode())),
         )
         .await
         .map_err(|_err| Error::SendTimeout)?
@@ -81,7 +79,7 @@ where
 
 /// Trait for reading custom messages from stream
 #[async_trait::async_trait]
-pub trait Stream<R: DecodeVersioned>:
+pub trait Stream<R: DecodeAll>:
     StreamExt<Item = std::result::Result<Self::Message, Self::Err>> + Unpin
 {
     /// Error type returned by the stream
@@ -106,9 +104,7 @@ pub trait Stream<R: DecodeVersioned>:
             return Err(Error::NonBinaryMessage);
         }
 
-        Ok(R::decode_all_versioned(
-            subscription_request_message.as_bytes(),
-        )?)
+        Ok(R::decode_all(&mut subscription_request_message.as_bytes())?)
     }
 }
 
@@ -133,14 +129,14 @@ impl StreamMessage for warp::ws::Message {
 #[async_trait::async_trait]
 impl<M> Sink<M> for warp::ws::WebSocket
 where
-    M: EncodeVersioned + Send + Sync + 'static,
+    M: Encode + Send + Sync + 'static,
 {
     type Err = warp::Error;
     type Message = warp::ws::Message;
 }
 
 #[async_trait::async_trait]
-impl<M: DecodeVersioned> Stream<M> for warp::ws::WebSocket {
+impl<M: DecodeAll> Stream<M> for warp::ws::WebSocket {
     type Err = warp::Error;
     type Message = warp::ws::Message;
 }
@@ -152,14 +148,14 @@ mod ws_client {
     use super::*;
 
     #[async_trait::async_trait]
-    impl<M: DecodeVersioned> Stream<M> for WsClient {
+    impl<M: DecodeAll> Stream<M> for WsClient {
         type Err = warp::test::WsError;
         type Message = warp::ws::Message;
     }
     #[async_trait::async_trait]
     impl<M> Sink<M> for WsClient
     where
-        M: EncodeVersioned + Send + Sync + 'static,
+        M: Encode + Send + Sync + 'static,
     {
         type Err = warp::test::WsError;
         type Message = warp::ws::Message;

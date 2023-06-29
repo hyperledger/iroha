@@ -48,8 +48,8 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_700).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
-    let mouse_id = <Account as Identifiable>::Id::from_str("mouse@wonderland")?;
+    let alice_id = AccountId::from_str("alice@wonderland")?;
+    let mouse_id = AccountId::from_str("mouse@wonderland")?;
 
     // Registering Mouse
     let mouse_key_pair = iroha_crypto::KeyPair::generate()?;
@@ -60,7 +60,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     test_client.submit_blocking(register_mouse)?;
 
     // Registering role
-    let role_id = <Role as Identifiable>::Id::from_str("ACCESS_TO_MOUSE_METADATA")?;
+    let role_id = RoleId::from_str("ACCESS_TO_MOUSE_METADATA")?;
     let role = Role::new(role_id.clone())
         .add_permission(PermissionToken::new(
             "CanSetKeyValueInUserAccount".parse()?,
@@ -102,9 +102,9 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_705).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
-    let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
-    let mouse_id: <Account as Identifiable>::Id = "mouse@wonderland".parse().expect("Valid");
+    let role_id: RoleId = "root".parse().expect("Valid");
+    let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
 
     // Registering Mouse
     let register_mouse = RegisterBox::new(Account::new(mouse_id.clone(), []));

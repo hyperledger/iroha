@@ -25,11 +25,8 @@ use iroha_core::{
 };
 use iroha_data_model::{
     block::{
-        stream::{
-            BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
-            VersionedBlockSubscriptionRequest,
-        },
-        VersionedCommittedBlock,
+        stream::{BlockMessage, BlockSubscriptionRequest},
+        VersionedSignedBlock,
     },
     http::{BatchedResponse, VersionedBatchedResponse},
     prelude::*,
@@ -278,8 +275,7 @@ async fn handle_post_configuration(
 
 #[iroha_futures::telemetry_future]
 async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::Result<()> {
-    let subscription_request: VersionedBlockSubscriptionRequest = stream.recv().await?;
-    let BlockSubscriptionRequest(mut from_height) = subscription_request.into_v1();
+    let BlockSubscriptionRequest(mut from_height) = stream.recv().await?;
 
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(10));
     loop {
@@ -307,10 +303,8 @@ async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::R
             _ = interval.tick() => {
                 if let Some(block) = kura.get_block_by_height(from_height.get()) {
                     stream
-                        // TODO: to avoid clone `VersionedBlockMessage` could be split into sending and receiving parts
-                        .send(VersionedBlockMessage::from(
-                            BlockMessage(VersionedCommittedBlock::clone(&block)),
-                        ))
+                        // TODO: to avoid clone `BlockMessage` could be split into sending and receiving parts
+                        .send(BlockMessage(VersionedSignedBlock::clone(&block)))
                         .await?;
                     from_height = from_height.checked_add(1).expect("Maximum block height is achieved.");
                 }

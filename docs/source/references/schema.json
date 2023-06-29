@@ -657,40 +657,52 @@
   "BlockHeader": {
     "Struct": [
       {
-        "name": "timestamp",
-        "type": "u128"
-      },
-      {
-        "name": "consensus_estimation",
-        "type": "u64"
-      },
-      {
         "name": "height",
         "type": "u64"
       },
       {
-        "name": "view_change_index",
+        "name": "timestamp_ms",
         "type": "u64"
       },
       {
         "name": "previous_block_hash",
-        "type": "Option<HashOf<VersionedCommittedBlock>>"
+        "type": "Option<HashOf<VersionedSignedBlock>>"
       },
       {
         "name": "transactions_hash",
         "type": "Option<HashOf<MerkleTree<VersionedSignedTransaction>>>"
       },
       {
-        "name": "rejected_transactions_hash",
-        "type": "Option<HashOf<MerkleTree<VersionedSignedTransaction>>>"
+        "name": "commit_topology",
+        "type": "Vec<PeerId>"
       },
       {
-        "name": "committed_with_topology",
-        "type": "Vec<PeerId>"
+        "name": "view_change_index",
+        "type": "u64"
+      },
+      {
+        "name": "consensus_estimation_ms",
+        "type": "u64"
       }
     ]
   },
-  "BlockMessage": "VersionedCommittedBlock",
+  "BlockMessage": "VersionedSignedBlock",
+  "BlockPayload": {
+    "Struct": [
+      {
+        "name": "header",
+        "type": "BlockHeader"
+      },
+      {
+        "name": "transactions",
+        "type": "Vec<TransactionValue>"
+      },
+      {
+        "name": "event_recommendations",
+        "type": "Vec<Event>"
+      }
+    ]
+  },
   "BlockRejectionReason": {
     "Enum": [
       {
@@ -709,26 +721,6 @@
       {
         "name": "destination_id",
         "type": "EvaluatesTo<IdBox>"
-      }
-    ]
-  },
-  "CommittedBlock": {
-    "Struct": [
-      {
-        "name": "header",
-        "type": "BlockHeader"
-      },
-      {
-        "name": "transactions",
-        "type": "Vec<TransactionValue>"
-      },
-      {
-        "name": "event_recommendations",
-        "type": "Vec<Event>"
-      },
-      {
-        "name": "signatures",
-        "type": "SignaturesOf<CommittedBlock>"
       }
     ]
   },
@@ -1107,7 +1099,7 @@
       }
     ]
   },
-  "EvaluatesTo<HashOf<VersionedCommittedBlock>>": {
+  "EvaluatesTo<HashOf<VersionedSignedBlock>>": {
     "Struct": [
       {
         "name": "expression",
@@ -1920,7 +1912,7 @@
     "Struct": [
       {
         "name": "hash",
-        "type": "EvaluatesTo<HashOf<VersionedCommittedBlock>>"
+        "type": "EvaluatesTo<HashOf<VersionedSignedBlock>>"
       }
     ]
   },
@@ -1974,7 +1966,7 @@
       {
         "tag": "Block",
         "discriminant": 5,
-        "type": "HashOf<VersionedCommittedBlock>"
+        "type": "HashOf<VersionedSignedBlock>"
       },
       {
         "tag": "Transaction",
@@ -2159,7 +2151,7 @@
   },
   "Hash": "Array<u8, 32>",
   "HashOf<MerkleTree<VersionedSignedTransaction>>": "Hash",
-  "HashOf<VersionedCommittedBlock>": "Hash",
+  "HashOf<VersionedSignedBlock>": "Hash",
   "HashOf<VersionedSignedTransaction>": "Hash",
   "HashOf<WasmSmartContract>": "Hash",
   "HashValue": {
@@ -2172,7 +2164,7 @@
       {
         "tag": "Block",
         "discriminant": 1,
-        "type": "HashOf<VersionedCommittedBlock>"
+        "type": "HashOf<VersionedSignedBlock>"
       }
     ]
   },
@@ -3093,8 +3085,8 @@
   "Option<HashOf<MerkleTree<VersionedSignedTransaction>>>": {
     "Option": "HashOf<MerkleTree<VersionedSignedTransaction>>"
   },
-  "Option<HashOf<VersionedCommittedBlock>>": {
-    "Option": "HashOf<VersionedCommittedBlock>"
+  "Option<HashOf<VersionedSignedBlock>>": {
+    "Option": "HashOf<VersionedSignedBlock>"
   },
   "Option<InstructionBox>": {
     "Option": "InstructionBox"
@@ -3954,14 +3946,14 @@
       }
     ]
   },
-  "SignatureOf<CommittedBlock>": "Signature",
+  "SignatureOf<BlockPayload>": "Signature",
   "SignatureOf<QueryPayload>": "Signature",
   "SignatureOf<TransactionPayload>": "Signature",
-  "SignaturesOf<CommittedBlock>": {
+  "SignaturesOf<BlockPayload>": {
     "Struct": [
       {
         "name": "signatures",
-        "type": "SortedVec<SignatureOf<CommittedBlock>>"
+        "type": "SortedVec<SignatureOf<BlockPayload>>"
       }
     ]
   },
@@ -3970,6 +3962,18 @@
       {
         "name": "signatures",
         "type": "SortedVec<SignatureOf<TransactionPayload>>"
+      }
+    ]
+  },
+  "SignedBlock": {
+    "Struct": [
+      {
+        "name": "signatures",
+        "type": "SignaturesOf<BlockPayload>"
+      },
+      {
+        "name": "payload",
+        "type": "BlockPayload"
       }
     ]
   },
@@ -4109,8 +4113,8 @@
   "SortedVec<RoleId>": {
     "Vec": "RoleId"
   },
-  "SortedVec<SignatureOf<CommittedBlock>>": {
-    "Vec": "SignatureOf<CommittedBlock>"
+  "SortedVec<SignatureOf<BlockPayload>>": {
+    "Vec": "SignatureOf<BlockPayload>"
   },
   "SortedVec<SignatureOf<TransactionPayload>>": {
     "Vec": "SignatureOf<TransactionPayload>"
@@ -4234,7 +4238,7 @@
       },
       {
         "name": "block_hash",
-        "type": "HashOf<VersionedCommittedBlock>"
+        "type": "HashOf<VersionedSignedBlock>"
       }
     ]
   },
@@ -4266,12 +4270,8 @@
         "type": "WasmExecutionFail"
       },
       {
-        "tag": "UnexpectedGenesisAccountSignature",
-        "discriminant": 5
-      },
-      {
         "tag": "Expired",
-        "discriminant": 6
+        "discriminant": 5
       }
     ]
   },
@@ -4680,7 +4680,7 @@
       {
         "tag": "Block",
         "discriminant": 16,
-        "type": "VersionedCommittedBlock"
+        "type": "VersionedSignedBlock"
       },
       {
         "tag": "BlockHeader",
@@ -4820,48 +4820,12 @@
       }
     ]
   },
-  "VersionedBlockMessage": {
+  "VersionedSignedBlock": {
     "Enum": [
       {
         "tag": "V1",
         "discriminant": 1,
-        "type": "BlockMessage"
-      }
-    ]
-  },
-  "VersionedBlockSubscriptionRequest": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "BlockSubscriptionRequest"
-      }
-    ]
-  },
-  "VersionedCommittedBlock": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "CommittedBlock"
-      }
-    ]
-  },
-  "VersionedEventMessage": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "EventMessage"
-      }
-    ]
-  },
-  "VersionedEventSubscriptionRequest": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "EventSubscriptionRequest"
+        "type": "SignedBlock"
       }
     ]
   },
