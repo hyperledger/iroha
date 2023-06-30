@@ -122,6 +122,10 @@ async fn main() -> Result<(), color_eyre::Report> {
         "Hyperledgerいろは2にようこそ！(translation) Welcome to Hyperledger Iroha!"
     );
 
+    assert!(args.submit_genesis || config.sumeragi.trusted_peers.peers.len() > 1,
+        "Only peer in network, yet required to receive genesis topology. This is a configuration error."
+    );
+
     let genesis = args
         .submit_genesis
         .then_some(())
