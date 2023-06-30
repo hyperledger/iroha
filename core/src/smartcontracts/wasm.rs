@@ -4,7 +4,6 @@
 #![allow(clippy::doc_link_with_quotes, clippy::arithmetic_side_effects)]
 
 use error::*;
-use eyre::eyre;
 use import::{
     ExecuteOperations as _, GetAuthority as _, GetBlockHeight as _, GetOperationsToValidate as _,
     SetPermissionTokenSchema as _,
@@ -27,7 +26,7 @@ use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span};
 use iroha_wasm_codec::{self as codec, WasmUsize};
 use state::{Wsv as _, WsvMut as _};
 use wasmtime::{
-    Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
+    Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, TypedFunc,
 };
 
 use super::query::LazyValue;
@@ -132,15 +131,15 @@ mod import {
 pub mod error {
     //! Error types for [`wasm`](super) and their impls
 
-    use wasmtime::Trap;
+    use wasmtime::{Error as WasmtimeError, Trap};
 
     /// `WebAssembly` execution error type
     #[derive(Debug, thiserror::Error, displaydoc::Display)]
     pub enum Error {
         /// Runtime initialization failure
-        Initialization(#[source] eyre::Report),
+        Initialization(#[source] WasmtimeError),
         /// Failed to load module
-        ModuleLoading(#[source] eyre::Report),
+        ModuleLoading(#[source] WasmtimeError),
         /// Module could not be instantiated
         Instantiation(#[from] InstantiationError),
         /// Export error
@@ -148,7 +147,7 @@ pub mod error {
         /// Call to the function exported from module failed
         ExportFnCall(#[from] ExportFnCallError),
         /// Failed to decode object from bytes with length prefix
-        Decode(#[source] eyre::Report),
+        Decode(#[source] WasmtimeError),
     }
 
     /// Instantiation error
@@ -158,7 +157,7 @@ pub mod error {
         /// Linker failed to instantiate module
         ///
         /// [`wasmtime::Linker::instantiate`] failed
-        Linker(#[from] eyre::Report),
+        Linker(#[from] WasmtimeError),
         /// Export which should always be present is missing
         MandatoryExport(#[from] ExportError),
     }
@@ -227,25 +226,24 @@ pub mod error {
     #[derive(Debug, thiserror::Error, displaydoc::Display)]
     pub enum ExportFnCallError {
         /// Failed to execute operation on host
-        HostExecution(#[source] eyre::Report),
+        HostExecution(#[source] wasmtime::Error),
         /// Execution limits exceeded
-        ExecutionLimitsExceeded(#[source] eyre::Report),
+        ExecutionLimitsExceeded(#[source] wasmtime::Error),
         /// Other kind of trap
-        Other(#[source] eyre::Report),
+        Other(#[source] wasmtime::Error),
     }
 
-    impl From<Trap> for ExportFnCallError {
-        fn from(trap: Trap) -> Self {
-            use wasmtime::TrapCode::*;
-
-            match trap.trap_code() {
-                Some(code) => match code {
-                    StackOverflow | MemoryOutOfBounds | TableOutOfBounds | IndirectCallToNull => {
-                        Self::ExecutionLimitsExceeded(trap.into())
-                    }
-                    _ => Self::Other(trap.into()),
+    impl From<wasmtime::Error> for ExportFnCallError {
+        fn from(err: wasmtime::Error) -> Self {
+            match err.downcast_ref() {
+                Some(&trap) => match trap {
+                    Trap::StackOverflow
+                    | Trap::MemoryOutOfBounds
+                    | Trap::TableOutOfBounds
+                    | Trap::IndirectCallToNull => Self::ExecutionLimitsExceeded(err),
+                    _ => Self::Other(err),
                 },
-                None => Self::HostExecution(trap.into()),
+                None => Self::HostExecution(err),
             }
         }
     }
@@ -262,7 +260,7 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 ///
 // TODO: Probably we can do some checks here such as searching for entrypoint function
 pub fn load_module(engine: &Engine, bytes: impl AsRef<[u8]>) -> Result<wasmtime::Module> {
-    Module::new(engine, bytes).map_err(|err| Error::ModuleLoading(eyre!(Box::new(err))))
+    Module::new(engine, bytes).map_err(Error::ModuleLoading)
 }
 
 /// Create [`Engine`] with a predefined configuration.
@@ -273,9 +271,7 @@ pub fn load_module(engine: &Engine, bytes: impl AsRef<[u8]>) -> Result<wasmtime:
 /// Configuration is hardcoded and tested, so this function should never panic.
 pub fn create_engine() -> Engine {
     create_config()
-        .and_then(|config| {
-            Engine::new(&config).map_err(|err| Error::Initialization(eyre!(Box::new(err))))
-        })
+        .and_then(|config| Engine::new(&config).map_err(Error::Initialization))
         .expect("Failed to create WASM engine with a predefined configuration. This is a bug")
 }
 
@@ -284,7 +280,7 @@ fn create_config() -> Result<Config> {
     config
         .consume_fuel(true)
         .cache_config_load_default()
-        .map_err(|err| Error::Initialization(eyre!(Box::new(err))))?;
+        .map_err(Error::Initialization)?;
     Ok(config)
 }
 
@@ -626,7 +622,7 @@ impl<S> Runtime<S> {
             .ok_or_else(|| ExportError::not_found(export::WASM_ALLOC_FN))?
             .into_func()
             .ok_or_else(|| ExportError::not_a_function(export::WASM_ALLOC_FN))?
-            .typed::<WasmUsize, WasmUsize, _>(caller)
+            .typed::<WasmUsize, WasmUsize>(caller)
             .map_err(|_error| {
                 ExportError::wrong_signature::<WasmUsize, WasmUsize>(export::WASM_ALLOC_FN)
             })
@@ -653,7 +649,7 @@ impl<S> Runtime<S> {
         instance
             .get_func(&mut store, func_name)
             .ok_or_else(|| ExportError::not_found(func_name))?
-            .typed::<P, R, _>(&mut store)
+            .typed::<P, R>(&mut store)
             .map_err(|_error| ExportError::wrong_signature::<P, R>(func_name))
     }
 
@@ -674,7 +670,7 @@ impl<S> Runtime<S> {
         let instance = self
             .linker
             .instantiate(&mut store, module)
-            .map_err(|err| InstantiationError::Linker(eyre!(Box::new(err))))?;
+            .map_err(InstantiationError::Linker)?;
 
         Self::check_mandatory_exports(&instance, store)?;
 
@@ -716,6 +712,13 @@ impl<S> Runtime<S> {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("{0}: not a valid log level")]
+struct LogError(u8);
+
+/// It's required by `#[codec::wrap]` to parse well
+type WasmtimeError = wasmtime::Error;
+
 impl<S: state::LogSpan> Runtime<S> {
     /// Log the given string at the given log level
     ///
@@ -723,12 +726,13 @@ impl<S: state::LogSpan> Runtime<S> {
     ///
     /// If log level or string decoding fails
     #[codec::wrap]
-    pub fn log((log_level, msg): (u8, String), state: &S) -> Result<(), Trap> {
+    pub fn log((log_level, msg): (u8, String), state: &S) -> Result<(), WasmtimeError> {
         const TARGET: &str = "WASM";
 
         let _span = state.log_span().enter();
         match LogLevel::from_repr(log_level)
-            .ok_or_else(|| Trap::new(format!("{log_level}: not a valid log level")))?
+            .ok_or(LogError(log_level))
+            .map_err(wasmtime::Error::from)?
         {
             LogLevel::TRACE => {
                 iroha_logger::trace!(target: TARGET, msg);
@@ -783,7 +787,7 @@ impl<S: state::LimitsMut> Runtime<S> {
         let dealloc_fn = Self::get_typed_func(&instance, &mut store, export::WASM_DEALLOC_FN)
             .expect("Checked at instantiation step");
         codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
-            .map_err(|err| Error::Decode(err.into()))
+            .map_err(Error::Decode)
     }
 }
 
@@ -1288,7 +1292,7 @@ impl<'wrld> Runtime<state::validator::Migrate<'wrld>> {
         let dealloc_fn = Self::get_typed_func(&instance, &mut store, export::WASM_DEALLOC_FN)
             .expect("Checked at instantiation step");
         codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
-            .map_err(|err| Error::Decode(err.into()))
+            .map_err(Error::Decode)
     }
 }
 
@@ -1427,7 +1431,7 @@ macro_rules! create_imports {
                     $fn_path,
                 )
             }))*
-            .map_err(|err| Error::Initialization(eyre!(Box::new(err))))
+            .map_err(Error::Initialization)
     };
 }
 
