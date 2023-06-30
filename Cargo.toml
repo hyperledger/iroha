@@ -111,7 +111,7 @@ aead = "0.3.2"
 
 rand = "0.8.5"
 warp = { version = "0.3.5", default-features = false }
-wasmtime = "0.39.1"
+wasmtime = "11.0.1"
 
 tracing = "0.1.37"
 tracing-core = "0.1.30"

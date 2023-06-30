@@ -3,11 +3,22 @@
 #![allow(clippy::arithmetic_side_effects)]
 
 pub use iroha_core_wasm_codec_derive::{wrap, wrap_trait_fn};
-use parity_scale_codec::{DecodeAll, Encode};
-use wasmtime::Trap;
+use parity_scale_codec::{DecodeAll, Encode, Error as ParityError};
+use wasmtime::Result;
 
 /// [`usize`] of wasm
 pub type WasmUsize = u32;
+
+/// The [`Error`] represents Iroha's wasm codec side errors.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// Represents a failure to decode from all input bytes.
+    #[error("failed to decode all bytes: {0}")]
+    DecodeAll(#[from] ParityError),
+    /// Represents an out of bounds memory access.
+    #[error("failed to access memory: {0}")]
+    MemoryAccess(#[from] wasmtime::MemoryAccessError),
+}
 
 /// Decode object from the given `memory` at the given `offset` with the given `len`
 ///
@@ -17,18 +28,18 @@ pub type WasmUsize = u32;
 ///
 /// # Errors
 ///
-/// Fails with [`Trap`] if decoding fails.
+/// Fails with [`Error`] which will be converted into [`wasmtime::Error`] if decoding fails.
 #[allow(clippy::arithmetic_side_effects)]
 pub fn decode_from_memory<C: wasmtime::AsContext, T: DecodeAll>(
     memory: &wasmtime::Memory,
     context: &C,
     offset: WasmUsize,
     len: WasmUsize,
-) -> Result<T, Trap> {
+) -> Result<T> {
     // Accessing memory as a byte slice to avoid the use of unsafe
     let mem_range = offset as usize..(offset + len) as usize;
     let mut bytes = &memory.data(context)[mem_range];
-    T::decode_all(&mut bytes).map_err(|error| Trap::new(error.to_string()))
+    T::decode_all(&mut bytes).map_err(Into::into)
 }
 
 /// Decode the object from a given pointer where first element is the size of the object
@@ -51,7 +62,7 @@ pub fn decode_with_length_prefix_from_memory<
     dealloc_fn: &wasmtime::TypedFunc<(WasmUsize, WasmUsize), ()>,
     mut context: &mut C,
     offset: WasmUsize,
-) -> Result<T, Trap> {
+) -> Result<T> {
     const U32_TO_USIZE_ERROR_MES: &str = "`u32` should always fit in `usize`";
 
     let len_size_bytes: u32 = core::mem::size_of::<WasmUsize>()
@@ -67,12 +78,9 @@ pub fn decode_with_length_prefix_from_memory<
         ..(offset + len).try_into().expect(U32_TO_USIZE_ERROR_MES)];
 
     let obj =
-        T::decode_all(&mut &bytes[len_size_bytes.try_into().expect(U32_TO_USIZE_ERROR_MES)..])
-            .map_err(|err| Trap::new(format!("Failed to decode object: {err}")))?;
+        T::decode_all(&mut &bytes[len_size_bytes.try_into().expect(U32_TO_USIZE_ERROR_MES)..])?;
 
-    dealloc_fn
-        .call(&mut context, (offset, len))
-        .map_err(|err| Trap::new(format!("Failed to call dealloc fn: {err}")))?; // TODO
+    dealloc_fn.call(&mut context, (offset, len))?;
     Ok(obj)
 }
 
@@ -89,7 +97,7 @@ pub fn encode_into_memory<T: Encode>(
     memory: &wasmtime::Memory,
     alloc_fn: &wasmtime::TypedFunc<WasmUsize, WasmUsize>,
     mut context: impl wasmtime::AsContextMut,
-) -> Result<WasmUsize, Trap> {
+) -> Result<WasmUsize> {
     let bytes = encode_with_length_prefix(obj);
 
     let len = bytes
@@ -102,9 +110,7 @@ pub fn encode_into_memory<T: Encode>(
         .try_into()
         .expect("`u32` should always fit in `usize`");
 
-    memory
-        .write(&mut context, offset_usize, &bytes)
-        .map_err(|err| Trap::new(err.to_string()))?;
+    memory.write(&mut context, offset_usize, &bytes)?;
 
     Ok(offset)
 }

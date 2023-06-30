@@ -43,10 +43,10 @@ impl syn::parse::Parse for StateAttr {
 /// # Key notes
 ///
 /// 1. If there is something to encode or decode (input or output) generated signature will always
-/// return `Result<..., Trap>`
+/// return `Result<..., wasmtime::Error>`
 /// 2. If your function returns `T` on success, then generated function will return
-/// `Result<WasmUsize, Trap>`, where `WasmUsize` is the offset of encoded `T` prefixed with length
-/// 3. If your function returns [`Result`] with `Trap` on [`Err`], generated function will pop it up
+/// `Result<WasmUsize, wasmtime::Error>`, where `WasmUsize` is the offset of encoded `T` prefixed with length
+/// 3. If your function returns [`Result`] with `wasmtime::Error` on [`Err`], generated function will pop it up
 /// 4. If your function returns [`Result`] with custom error, then it will be encoded into memory (as in 2)
 /// 5. You can receive constant or mutable reference to *state* as the second parameter of your function
 /// 6. You can have only two function parameters, where second is reserved for *state*,
@@ -178,15 +178,13 @@ fn gen_output(
         param, return_type, ..
     }: &FnClass,
 ) -> syn::Type {
-    let trap_type = quote! {::wasmtime::Trap};
-
     match (param, return_type) {
         (None, None) => parse_quote! { () },
-        (Some(_), None | Some(ReturnType::Result(None, ErrType::Trap))) => parse_quote! {
-            ::core::result::Result<(), #trap_type>
+        (Some(_), None | Some(ReturnType::Result(None, ErrType::WasmtimeError))) => parse_quote! {
+            ::wasmtime::Result<()>
         },
         (_, _) => parse_quote! {
-            ::core::result::Result<iroha_wasm_codec::WasmUsize, #trap_type>
+            ::wasmtime::Result<iroha_wasm_codec::WasmUsize>
         },
     }
 }
@@ -249,31 +247,31 @@ fn gen_body(
         // foo() =>
         // foo()
         //
-        // foo() -> Result<(), Trap> =>
-        // foo() -> Result<(), Trap>
-        (None, None | Some(ReturnType::Result(None, ErrType::Trap))) => quote! {
+        // foo() -> Result<(), wasmtime::Error> =>
+        // foo() -> Result<(), wasmtime::Error>
+        (None, None | Some(ReturnType::Result(None, ErrType::WasmtimeError))) => quote! {
             Self::#inner_fn_ident(#pass_state)
         },
         // foo() -> RetType
         // | foo() -> Result<(), ErrType>
         // | foo() -> Result<OkType, ErrType> =>
-        // foo() -> Result<WasmUsize, Trap>
+        // foo() -> Result<WasmUsize, wasmtime::Error>
         (None, Some(ReturnType::Other(_) | ReturnType::Result(_, ErrType::Other(_)))) => quote! {
             let value = Self::#inner_fn_ident(#pass_state);
             #get_memory
             #get_alloc
             ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
         },
-        // foo() -> Result<OkType, Trap> =>
-        // foo() -> Result<WasmUsize, Trap>
-        (None, Some(ReturnType::Result(Some(ok_type), ErrType::Trap))) => quote! {
+        // foo() -> Result<OkType, wasmtime::Error> =>
+        // foo() -> Result<WasmUsize, wasmtime::Error>
+        (None, Some(ReturnType::Result(Some(ok_type), ErrType::WasmtimeError))) => quote! {
             let value: #ok_type = Self::#inner_fn_ident(#pass_state)?;
             #get_memory
             #get_alloc
             ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
         },
         // foo(Param) =>
-        // foo(WasmUsize, WasmUsize) -> Result<(), Trap>
+        // foo(WasmUsize, WasmUsize) -> Result<(), wasmtime::Error>
         (Some(_param_ty), None) => quote! {
             #get_memory
             #decode_param
@@ -281,9 +279,9 @@ fn gen_body(
             Self::#inner_fn_ident(param, #pass_state);
             Ok(())
         },
-        // foo(Param) -> Result<(), Trap> =>
-        // foo(WasmUsize, WasmUsize) -> Result<(), Trap>
-        (Some(_param_ty), Some(ReturnType::Result(None, ErrType::Trap))) => quote! {
+        // foo(Param) -> Result<(), wasmtime::Error> =>
+        // foo(WasmUsize, WasmUsize) -> Result<(), wasmtime::Error>
+        (Some(_param_ty), Some(ReturnType::Result(None, ErrType::WasmtimeError))) => quote! {
             #get_memory
             #decode_param
 
@@ -292,7 +290,7 @@ fn gen_body(
         // foo(Param) -> RetType
         // | foo(Param) -> Result<(), ErrType>
         // | foo(Param) -> Result<OkType, ErrType> =>
-        // foo(WasmUsize, WasmUsize) -> Result<WasmUsize, Trap>
+        // foo(WasmUsize, WasmUsize) -> Result<WasmUsize, WasmtimeError>
         (
             Some(_param_ty),
             Some(ReturnType::Other(_) | ReturnType::Result(_, ErrType::Other(_))),
@@ -304,16 +302,18 @@ fn gen_body(
             let value = Self::#inner_fn_ident(param, #pass_state);
             ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
         },
-        // foo(Param) -> Result<OkType, Trap> =>
-        // foo(WasmUsize, WasmUsize) -> Result<WasmUsize, Trap>
-        (Some(_param_ty), Some(ReturnType::Result(Some(ok_type), ErrType::Trap))) => quote! {
-            #get_memory
-            #get_alloc
-            #decode_param
+        // foo(Param) -> Result<OkType, wasmtime::Error> =>
+        // foo(WasmUsize, WasmUsize) -> Result<WasmUsize, wasmtime::Error>
+        (Some(_param_ty), Some(ReturnType::Result(Some(ok_type), ErrType::WasmtimeError))) => {
+            quote! {
+                #get_memory
+                #get_alloc
+                #decode_param
 
-            let value: #ok_type = Self::#inner_fn_ident(param, #pass_state)?;
-            ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
-        },
+                let value: #ok_type = Self::#inner_fn_ident(param, #pass_state)?;
+                ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
+            }
+        }
     }
 }
 
@@ -339,9 +339,9 @@ enum ReturnType {
 
 /// Classified error type
 enum ErrType {
-    /// `wasmtime::Trap` error type
-    Trap,
-    /// Something other than `wasmtime::Trap`
+    /// `wasmtime::Error` error type
+    WasmtimeError,
+    /// Something other than `wasmtime::Error`
     #[allow(unused_tuple_struct_fields)] // May be used in future
     Other(syn::Type),
 }
@@ -389,8 +389,8 @@ fn classify_fn(fn_sig: &syn::Signature) -> FnClass {
 
     let err_type_path = unwrap_path(err_type);
     let err_type_last_segment = last_segment(err_type_path);
-    let err_type = if err_type_last_segment.ident == "Trap" {
-        ErrType::Trap
+    let err_type = if err_type_last_segment.ident == "WasmtimeError" {
+        ErrType::WasmtimeError
     } else {
         ErrType::Other(err_type.clone())
     };
