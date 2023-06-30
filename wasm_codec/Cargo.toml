@@ -10,5 +10,6 @@ license.workspace = true
 [dependencies]
 iroha_core_wasm_codec_derive = { version = "=2.0.0-pre-rc.18", path = "derive" }
 
+thiserror = { workspace = true }
 wasmtime = { workspace = true }
 parity-scale-codec = { workspace = true, features = ["derive"] }
