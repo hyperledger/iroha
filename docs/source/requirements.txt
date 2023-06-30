@@ -12,7 +12,7 @@ Jinja2>=3.1.2
 livereload==2.5.1
 MarkupSafe>=2.1.2
 pathtools==0.1.2
-pipreqs==0.4.9
+pipreqs==0.4.12
 port-for==0.3.1
 protobuf==3.18.3
 Pygments==2.7.4
