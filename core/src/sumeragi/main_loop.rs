@@ -160,10 +160,7 @@ impl Sumeragi {
         shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>,
     ) -> Result<(), EarlyReturn> {
         trace!("Listen for genesis");
-        assert!(
-            self.current_topology.is_consensus_required(),
-            "Only peer in network, yet required to receive genesis topology. This is a configuration error."
-        );
+
         loop {
             std::thread::sleep(Duration::from_millis(50));
             early_return(shutdown_receiver).map_err(|e| {
