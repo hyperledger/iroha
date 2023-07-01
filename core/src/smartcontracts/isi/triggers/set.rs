@@ -37,7 +37,7 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 pub type LoadedAction<F> = Action<F, LoadedExecutable>;
 
 /// Specialized structure that maps event filters to Triggers.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Set {
     /// Triggers using [`DataEventFilter`]
     data_triggers: HashMap<TriggerId, LoadedAction<DataEventFilter>>,
@@ -49,23 +49,11 @@ pub struct Set {
     by_call_triggers: HashMap<TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
     /// Trigger ids with type of events they process
     ids: HashMap<TriggerId, TriggeringEventType>,
+    /// Original [`WasmSmartContract`]s by [`TriggerId`] for querying purposes.
+    original_contracts: HashMap<TriggerId, WasmSmartContract>,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     matched_ids: Vec<(Event, TriggerId)>,
-}
-
-impl fmt::Debug for Set {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Set")
-            .field("data_triggers", &self.data_triggers)
-            .field("pipeline_triggers", &self.pipeline_triggers)
-            .field("time_triggers", &self.time_triggers)
-            .field("by_call_triggers", &self.by_call_triggers)
-            .field("ids", &self.ids)
-            .field("matched_ids", &self.matched_ids)
-            .field("engine", &"<Engine is truncated>")
-            .finish()
-    }
 }
 
 impl Clone for Set {
@@ -76,6 +64,7 @@ impl Clone for Set {
             time_triggers: self.time_triggers.clone(),
             by_call_triggers: self.by_call_triggers.clone(),
             ids: self.ids.clone(),
+            original_contracts: self.original_contracts.clone(),
             matched_ids: Vec::default(),
         }
     }
@@ -182,13 +171,17 @@ impl Set {
         } = trigger.action;
 
         let loaded_executable = match executable {
-            Executable::Wasm(bytes) => LoadedExecutable::Wasm(LoadedWasm {
-                blob_hash: HashOf::new(&bytes),
-                module: wasm::load_module(engine, bytes)?,
-            }),
+            Executable::Wasm(bytes) => {
+                let loaded = LoadedExecutable::Wasm(LoadedWasm {
+                    module: wasm::load_module(engine, &bytes)?,
+                    blob_hash: HashOf::new(&bytes),
+                });
+                // Store original executable representation to respond to queries with.
+                self.original_contracts.insert(trigger_id.clone(), bytes);
+                loaded
+            }
             Executable::Instructions(instructions) => LoadedExecutable::Instructions(instructions),
         };
-
         map(self).insert(
             trigger_id.clone(),
             LoadedAction {
@@ -201,6 +194,13 @@ impl Set {
         );
         self.ids.insert(trigger_id, event_type);
         Ok(true)
+    }
+
+    /// Get original [`WasmSmartContract`] for [`TriggerId`].
+    /// Returns `None` if there's no [`Trigger`]
+    /// with specified `id` that has WASM executable
+    pub fn get_original_contract(&self, id: &TriggerId) -> Option<&WasmSmartContract> {
+        self.original_contracts.get(id)
     }
 
     /// Get all contained trigger ids without a particular order
@@ -328,6 +328,7 @@ impl Set {
     ///
     /// Return `false` if [`Set`] doesn't contain the trigger with the given `id`.
     pub fn remove(&mut self, id: &TriggerId) -> bool {
+        self.original_contracts.remove(id);
         self.ids
             .remove(id)
             .map(|event_type| match event_type {
