@@ -72,7 +72,6 @@ pub fn generate_endpoints(input: TokenStream) -> TokenStream {
         let (fun_name, arg_names, arg_types) = match item {
             EndpointItem::ArgCount(arg_count) => {
                 let fun_name = Ident::new(&format!("endpoint{arg_count}"), Span::call_site());
-                #[allow(clippy::expect_used)]
                 let count = arg_count
                     .base10_parse::<usize>()
                     .expect("Already checked at parse stage");
@@ -84,7 +83,6 @@ pub fn generate_endpoints(input: TokenStream) -> TokenStream {
                 name: fun_name,
                 arg_count,
             } => {
-                #[allow(clippy::expect_used)]
                 let count = arg_count
                     .base10_parse::<usize>()
                     .expect("Already checked at parse stage");

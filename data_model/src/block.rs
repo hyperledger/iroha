@@ -315,24 +315,27 @@ mod committed {
     #[cfg(feature = "std")]
     impl From<&CommittedBlock> for Vec<Event> {
         fn from(block: &CommittedBlock) -> Self {
-            let tx = block
-                .transactions
-                .iter()
-                .cloned()
-                .map(|tx| match &tx.error {
-                    None => PipelineEvent {
-                        entity_kind: PipelineEntityKind::Transaction,
-                        status: PipelineStatus::Committed,
-                        hash: tx.payload().hash().into(),
-                    }
-                    .into(),
-                    Some(error) => PipelineEvent {
-                        entity_kind: PipelineEntityKind::Transaction,
-                        status: PipelineStatus::Rejected(error.clone().into()),
-                        hash: tx.payload().hash().into(),
-                    }
-                    .into(),
-                });
+            let tx = block.transactions.iter().cloned().map(|tx| {
+                tx.error.as_ref().map_or_else(
+                    || {
+                        PipelineEvent {
+                            entity_kind: PipelineEntityKind::Transaction,
+                            status: PipelineStatus::Committed,
+                            hash: tx.payload().hash().into(),
+                        }
+                        .into()
+                    },
+                    |error| {
+                        PipelineEvent {
+                            entity_kind: PipelineEntityKind::Transaction,
+                            status: PipelineStatus::Rejected(error.clone().into()),
+                            hash: tx.payload().hash().into(),
+                        }
+                        .into()
+                    },
+                )
+            });
+
             let current_block = core::iter::once(
                 PipelineEvent {
                     entity_kind: PipelineEntityKind::Block,

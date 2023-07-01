@@ -62,8 +62,6 @@ pub mod import {
     pub const QUERY_TRIGGERING_EVENT_FN_NAME: &str = "query_triggering_event";
     /// Name of the imported function to query operation that is to be verified
     pub const QUERY_OPERATION_TO_VALIDATE_FN_NAME: &str = "query_operation_to_validate";
-    /// Name of the imported function to query max log level on host
-    pub const QUERY_MAX_LOG_LEVEL: &str = "query_max_log_level";
     /// Name of the imported function to debug print objects
     pub const DBG_FN_NAME: &str = "dbg";
     /// Name of the imported function to log objects
@@ -581,11 +579,6 @@ impl<S> Runtime<S> {
         Ok(())
     }
 
-    #[codec::wrap(state = "S")]
-    fn query_max_log_level() -> u32 {
-        iroha_logger::layer::max_log_level() as u32
-    }
-
     /// Host-defined function which prints the given string. When this function
     /// is called, the module serializes the string to linear memory and
     /// provides offset and length as parameters
@@ -1076,18 +1069,11 @@ macro_rules! create_imports {
         $linker:ident,
         $(import:: $name:ident => $fn_path:path),* $(,)?
     ) => {
-            $linker.func_wrap(
+        $linker.func_wrap(
                 import::MODULE_NAME,
-                import::QUERY_MAX_LOG_LEVEL,
-                Runtime::query_max_log_level,
+                import::LOG_FN_NAME,
+                Runtime::log,
             )
-            .and_then(|l| {
-                l.func_wrap(
-                    import::MODULE_NAME,
-                    import::LOG_FN_NAME,
-                    Runtime::log,
-                )
-            })
             .and_then(|l| {
                 l.func_wrap(
                     import::MODULE_NAME,
