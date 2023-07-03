@@ -42,6 +42,9 @@ jobs:
       - name: Check schema.json
         if: always()
         run: ./scripts/check.sh schema
+      - name: Check Docker Compose configurations
+        if: always()
+        run: ./scripts/check.sh docker-compose
       - name: Wasm build check
         if: always()
         working-directory: wasm
