@@ -27,4 +27,36 @@ case $1 in
             echo 'Please re-generate schema with `cargo run --release --bin kagami -- schema > docs/source/references/schema.json`'
             exit 1
         };;
+    "docker-compose")
+        do_check() {
+            cmd_base=$1
+            target=$2
+            # FIXME: not nice; add an option to `kagami swarm` to print content into stdout?
+            #        it is not a default behaviour because Kagami resolves `build` path relative
+            #        to the output file location
+            temp_file="docker-compose.TMP.yml"
+
+            eval "$cmd_base $temp_file"
+            diff "$temp_file" "$target" || {
+                echo "Please re-generate \`$target\` with \`$cmd_base $target\`"
+                exit 1
+            }
+        }
+
+        command_base_for_single() {
+            echo "cargo run --release --bin kagami -- swarm -p 1 -s Iroha --force file --config-dir ./configs/peer --build ."
+        }
+
+        command_base_for_multiple_local() {
+            echo "cargo run --release --bin kagami -- swarm -p 4 -s Iroha --force file --config-dir ./configs/peer --build ."
+        }
+
+        command_base_for_default() {
+            echo "cargo run --release --bin kagami -- swarm -p 4 -s Iroha --force file --config-dir ./configs/peer --image hyperledger/iroha2:dev"
+        }
+
+
+        do_check "$(command_base_for_single)" "docker-compose.dev.single.yml"
+        do_check "$(command_base_for_multiple_local)" "docker-compose.dev.local.yml"
+        do_check "$(command_base_for_default)" "docker-compose.dev.yml"
 esac
