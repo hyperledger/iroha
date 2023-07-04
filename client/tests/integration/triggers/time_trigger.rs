@@ -2,7 +2,7 @@
 
 use std::{str::FromStr as _, time::Duration};
 
-use eyre::{Context, Result};
+use eyre::Result;
 use iroha_client::client::{self, Client};
 use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
@@ -203,20 +203,13 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
 
     // Building trigger
     info!("Building trigger");
-    let temp_out_dir =
-        tempfile::tempdir().wrap_err("Failed to create temporary output directory")?;
 
     let wasm = iroha_wasm_builder::Builder::new(
         "tests/integration/smartcontracts/create_nft_for_every_user_trigger",
     )
-    .out_dir(temp_out_dir.path())
     .build()?
     .optimize()?
     .into_bytes()?;
-
-    temp_out_dir
-        .close()
-        .wrap_err("Failed to remove temporary output directory")?;
 
     info!("WASM size is {} bytes", wasm.len());
 

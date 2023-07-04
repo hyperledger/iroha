@@ -3354,7 +3354,8 @@ name = "iroha_wasm_builder"
 version = "2.0.0-pre-rc.16"
 dependencies = [
  "eyre",
- "tempfile",
+ "serde_json",
+ "sha256",
  "wasm-opt",
 ]
 
@@ -3476,7 +3477,6 @@ dependencies = [
  "serde_yaml",
  "spinoff",
  "supports-color 2.0.0",
- "tempfile",
  "vergen",
 ]
 
@@ -4824,9 +4824,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.96"
+version = "1.0.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "057d394a50403bcac12672b2b18fb387ab6d289d957dab67dd201875391e52f1"
+checksum = "46266871c240a00b8f503b877622fe33430b3c7d963bdc0f2adc511e54a1eae3"
 dependencies = [
  "itoa",
  "ryu",
@@ -4969,6 +4969,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest 0.10.7",
+]
+
+[[package]]
+name = "sha256"
+version = "1.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08a975c1bc0941703000eaf232c4d8ce188d8d5408d6344b6b2c8c6262772828"
+dependencies = [
+ "hex",
+ "sha2 0.10.6",
 ]
 
 [[package]]
