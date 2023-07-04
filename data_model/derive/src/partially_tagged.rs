@@ -13,6 +13,7 @@ pub struct PartiallyTaggedEnum {
     attrs: Vec<Attribute>,
     ident: Ident,
     variants: Punctuated<PartiallyTaggedVariant, Token![,]>,
+    generics: Generics,
 }
 
 pub struct PartiallyTaggedVariant {
@@ -29,9 +30,6 @@ impl Parse for PartiallyTaggedEnum {
         let _enum_token = input.parse::<Token![enum]>()?;
         let ident = input.parse::<Ident>()?;
         let generics = input.parse::<Generics>()?;
-        if !generics.params.is_empty() {
-            abort!(generics, "Generics is not supported");
-        }
         let content;
         let _brace_token = syn::braced!(content in input);
         let variants = content.parse_terminated(PartiallyTaggedVariant::parse)?;
@@ -40,6 +38,7 @@ impl Parse for PartiallyTaggedEnum {
             attrs,
             ident,
             variants,
+            generics,
         })
     }
 }
@@ -118,16 +117,26 @@ pub fn impl_partially_tagged_serialize(enum_: &PartiallyTaggedEnum) -> TokenStre
     let (variants_ident, variants_ty, variants_attrs) = variants_to_tuple(enum_.variants());
     let (untagged_variants_ident, untagged_variants_ty, untagged_variants_attrs) =
         variants_to_tuple(enum_.untagged_variants());
+    let serialize_trait_bound: syn::TypeParamBound = parse_quote!(::serde::Serialize);
+    let mut generics = enum_.generics.clone();
+    generics
+        .type_params_mut()
+        .for_each(|type_| type_.bounds.push(serialize_trait_bound.clone()));
+    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
+    let mut ref_internal_generics = enum_.generics.clone();
+    ref_internal_generics.params.push(parse_quote!('re));
+    let (ref_internal_impl_generics, ref_internal_type_generics, ref_internal_where_clause) =
+        ref_internal_generics.split_for_impl();
 
     quote! {
-        impl ::serde::Serialize for #enum_ident {
+        impl #impl_generics ::serde::Serialize for #enum_ident #type_generics #where_clause {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where
                 S: ::serde::Serializer,
             {
                 #[derive(::serde::Serialize)]
                 #(#enum_attrs)*
-                enum #ref_internal_repr_ident<'re> {
+                enum #ref_internal_repr_ident #ref_internal_generics {
                     #(
                         #(
                             #variants_attrs
@@ -137,24 +146,24 @@ pub fn impl_partially_tagged_serialize(enum_: &PartiallyTaggedEnum) -> TokenStre
                 }
 
                 #[inline]
-                fn convert(value: &#enum_ident) -> #ref_internal_repr_ident<'_> {
+                fn convert #ref_internal_impl_generics (value: &'re #enum_ident #type_generics) -> #ref_internal_repr_ident #ref_internal_type_generics #ref_internal_where_clause {
                     match value {
                         #(
-                            #enum_ident::#variants_ident(value) => #ref_internal_repr_ident::#variants_ident(&value),
+                            #enum_ident::#variants_ident(value) => #ref_internal_repr_ident::#variants_ident(value),
                         )*
                     }
                 }
 
                 #[derive(::serde::Serialize)]
                 #[serde(untagged)] // Unaffected by #3330, because Serialize implementations are unaffected
-                enum #ser_helper<'re> {
+                enum #ser_helper #ref_internal_generics {
                     #(
                         #(
                             #untagged_variants_attrs
                         )*
                         #untagged_variants_ident(&'re #untagged_variants_ty),
                     )*
-                    Other(#ref_internal_repr_ident<'re>),
+                    Other(#ref_internal_repr_ident #ref_internal_type_generics),
                 }
 
                 let wrapper = match self {
@@ -181,9 +190,25 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
     let (variants_ident, variants_ty, variants_attrs) = variants_to_tuple(enum_.variants());
     let (untagged_variants_ident, untagged_variants_ty, untagged_variants_attrs) =
         variants_to_tuple(enum_.untagged_variants());
+    let deserialize_trait_bound: syn::TypeParamBound = parse_quote!(::serde::de::DeserializeOwned);
+    let variants_ty_deserialize_bound = variants_ty
+        .iter()
+        .map(|ty| quote!(#ty: #deserialize_trait_bound).to_string())
+        .collect::<Vec<_>>();
+    let mut generics = enum_.generics.clone();
+    generics.type_params_mut().for_each(|type_| {
+        type_.bounds.push(deserialize_trait_bound.clone());
+    });
+    let (_, type_generics, where_clause) = generics.split_for_impl();
+    let mut generics = generics.clone();
+    generics.params.push(parse_quote!('de));
+    let (impl_generics, _, _) = generics.split_for_impl();
+    let internal_repr_generics = enum_.generics.clone();
+    let (internal_repr_impl_generics, internal_repr_type_generics, internal_repr_where_clause) =
+        internal_repr_generics.split_for_impl();
 
     quote! {
-        impl<'de> ::serde::Deserialize<'de> for #enum_ident {
+        impl #impl_generics ::serde::Deserialize<'de> for #enum_ident #type_generics #where_clause {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where
                 D: ::serde::Deserializer<'de>,
@@ -192,17 +217,18 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
                 #(
                     #enum_attrs
                 )*
-                enum #internal_repr_ident {
+                enum #internal_repr_ident #internal_repr_generics {
                     #(
                         #(
                             #variants_attrs
                         )*
+                        #[serde(bound(deserialize = #variants_ty_deserialize_bound))]
                         #variants_ident(#variants_ty),
                     )*
                 }
 
                 #[inline]
-                fn convert(internal: #internal_repr_ident) -> #enum_ident {
+                fn convert #internal_repr_impl_generics (internal: #internal_repr_ident #internal_repr_type_generics) -> #enum_ident #internal_repr_type_generics #internal_repr_where_clause {
                     match internal {
                         #(
                             #internal_repr_ident::#variants_ident(value) => #enum_ident::#variants_ident(value),
@@ -222,19 +248,19 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
                 // enums, but is needed to neatly return the
                 // derive-based solution.#
                 #[derive(Debug)]
-                enum #deser_helper {
+                enum #deser_helper #internal_repr_generics {
                     #(
                         #(
                             #untagged_variants_attrs
                         )*
                         #untagged_variants_ident(#untagged_variants_ty),
                     )*
-                    Other(#internal_repr_ident),
+                    Other(#internal_repr_ident #internal_repr_type_generics),
                 }
 
                 // TODO: remove once `serde::__private::ContentDeserializer` properly handles `u128`.
                 // Tracking issue: https://github.com/serde-rs/serde/issues/2230
-                impl<'de> ::serde::Deserialize<'de> for #deser_helper {
+                impl #impl_generics ::serde::Deserialize<'de> for #deser_helper #type_generics #where_clause {
                     fn deserialize<D: ::serde::Deserializer<'de>>(
                         deserializer: D,
                     ) -> Result<Self, D::Error> {
