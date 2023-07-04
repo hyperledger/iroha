@@ -15,6 +15,9 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 use crate::{conststr::ConstString, ffi};
 
+// TODO: this should probably replace the socket_addr, but API is not compatible
+pub use iroha_primitives_derive::socket_addr as socker_addr2;
+
 #[macro_export]
 /// Convenience macro to concisely construct a [`SocketAddr`]
 ///

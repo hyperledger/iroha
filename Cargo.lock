@@ -3236,6 +3236,7 @@ dependencies = [
  "fixnum",
  "iroha_ffi",
  "iroha_macro",
+ "iroha_primitives_derive",
  "iroha_schema",
  "parity-scale-codec",
  "serde",
@@ -3251,6 +3252,7 @@ dependencies = [
 name = "iroha_primitives_derive"
 version = "2.0.0-pre-rc.16"
 dependencies = [
+ "iroha_primitives",
  "proc-macro2",
  "quote",
 ]
