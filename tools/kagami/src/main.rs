@@ -703,13 +703,9 @@ mod validator {
     }
 
     pub fn construct_validator() -> color_eyre::Result<Vec<u8>> {
-        let build_dir = tempfile::tempdir()
-            .wrap_err("Failed to create temp dir for runtime validator output")?;
-
         // FIXME: will it work when Kagami is run outside of the iroha dir?
         //        https://github.com/hyperledger/iroha/issues/3473
         let wasm_blob = iroha_wasm_builder::Builder::new("../../default_validator")
-            .out_dir(build_dir.path())
             .build()?
             .optimize()?
             .into_bytes()?;

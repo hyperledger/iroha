@@ -329,19 +329,11 @@ fn unregister_trigger() -> Result<()> {
 fn trigger_in_genesis_using_base64() -> Result<()> {
     // Building wasm trigger
 
-    let temp_out_dir =
-        tempfile::tempdir().wrap_err("Failed to create temporary output directory")?;
-
     info!("Building trigger");
     let wasm = iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose")
-        .out_dir(temp_out_dir.path())
         .build()?
         .optimize()?
         .into_bytes()?;
-
-    temp_out_dir
-        .close()
-        .wrap_err("Failed to remove temporary output directory")?;
 
     info!("WASM size is {} bytes", wasm.len());
 
