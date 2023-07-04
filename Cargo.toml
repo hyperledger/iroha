@@ -30,6 +30,7 @@ members = [
   "derive_primitives",
   "genesis",
   "primitives",
+  "primitives/derive",
   "ffi",
   "ffi/derive",
   "futures",
