@@ -73,7 +73,17 @@ macro_rules! nontrivial {
 }
 
 /// Predicate combinator enum.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    PartiallyTaggedSerialize,
+    PartiallyTaggedDeserialize,
+    IntoSchema,
+)]
 // Ideally we would enforce `P: PredicateTrait<Input>` here, but I
 // couldn't find a way to do it without polluting everything
 // downstream with explicit lifetimes, since we would need to
@@ -81,12 +91,13 @@ macro_rules! nontrivial {
 // references (e.g. &Value).
 pub enum GenericPredicateBox<P> {
     /// Logically `&&` the results of applying the predicates.
-    And(NonTrivial<Self>),
-    /// Logically `||` the results of applying the predicates.
-    Or(NonTrivial<Self>),
+    And(NonTrivial<GenericPredicateBox<P>>),
+    /// Logically `||` the results of applying the predicats.
+    Or(NonTrivial<GenericPredicateBox<P>>),
     /// Negate the result of applying the predicate.
-    Not(Box<Self>),
+    Not(Box<GenericPredicateBox<P>>),
     /// The raw predicate that must be applied.
+    #[serde_partially_tagged(untagged)]
     Raw(P),
 }
 
@@ -1136,6 +1147,12 @@ pub mod value {
         ValueOfKey(ValueOfKey),
         /// Forward to [`Metadata::contains`](crate::metadata::Metadata::contains()).
         HasKey(Name),
+    }
+
+    impl From<ValuePredicate> for PredicateBox {
+        fn from(value: ValuePredicate) -> Self {
+            PredicateBox::Raw(value)
+        }
     }
 
     #[cfg(test)]
