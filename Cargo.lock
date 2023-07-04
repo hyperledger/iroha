@@ -3248,6 +3248,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroha_primitives_derive"
+version = "2.0.0-pre-rc.16"
+dependencies = [
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
 name = "iroha_schema"
 version = "2.0.0-pre-rc.16"
 dependencies = [

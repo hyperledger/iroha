@@ -1,0 +1,15 @@
+[package]
+name = "iroha_primitives_derive"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "1.0.23"
+proc-macro2 = "1.0.49"
