@@ -255,6 +255,25 @@ pub fn submit(
     Ok(())
 }
 
+mod filter {
+    use iroha_data_model::predicate::PredicateBox;
+
+    use super::*;
+
+    /// Filter for queries
+    #[derive(Clone, Debug, clap::Parser)]
+    pub struct Filter {
+        /// Predicate for filtering given as JSON string
+        #[clap(value_parser = parse_filter)]
+        pub predicate: PredicateBox,
+    }
+
+    fn parse_filter(s: &str) -> Result<PredicateBox, String> {
+        serde_json::from_str(s)
+            .map_err(|err| format!("Failed to deserialize filter from JSON: {err}"))
+    }
+}
+
 mod events {
     use iroha_client::client::Client;
 
@@ -366,10 +385,12 @@ mod domain {
     }
 
     /// List domains with this command
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(StructOpt, Debug, Clone)]
     pub enum List {
         /// All domains
         All,
+        /// Filter domains by given predicate
+        Filter(filter::Filter),
     }
 
     impl RunArgs for List {
@@ -380,6 +401,9 @@ mod domain {
                 Self::All => client
                     .request(client::domain::all())
                     .wrap_err("Failed to get all domains"),
+                Self::Filter(filter) => client
+                    .request_with_filter(client::domain::all(), filter.predicate)
+                    .wrap_err("Failed to get filtered domains"),
             }?;
             context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
@@ -500,10 +524,12 @@ mod account {
     }
 
     /// List accounts with this command
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(StructOpt, Debug, Clone)]
     pub enum List {
         /// All accounts
         All,
+        /// Filter accounts by given predicate
+        Filter(filter::Filter),
     }
 
     impl RunArgs for List {
@@ -514,6 +540,9 @@ mod account {
                 Self::All => client
                     .request(client::account::all())
                     .wrap_err("Failed to get all accounts"),
+                Self::Filter(filter) => client
+                    .request_with_filter(client::account::all(), filter.predicate)
+                    .wrap_err("Failed to get filtered accounts"),
             }?;
             context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
@@ -788,10 +817,12 @@ mod asset {
     }
 
     /// List assets with this command
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(StructOpt, Debug, Clone)]
     pub enum List {
         /// All assets
         All,
+        /// Filter assets by given predicate
+        Filter(filter::Filter),
     }
 
     impl RunArgs for List {
@@ -802,6 +833,9 @@ mod asset {
                 Self::All => client
                     .request(client::asset::all())
                     .wrap_err("Failed to get all assets"),
+                Self::Filter(filter) => client
+                    .request_with_filter(client::asset::all(), filter.predicate)
+                    .wrap_err("Failed to get filtered assets"),
             }?;
             context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
