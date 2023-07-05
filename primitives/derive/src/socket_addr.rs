@@ -133,8 +133,10 @@ impl syn::parse::Parse for SocketAddress {
     }
 }
 
+// it's fine, these are just segments of IPv6 addresses
+#[allow(clippy::many_single_char_names)]
 pub fn socket_addr_impl(input: TokenStream) -> TokenStream {
-    let socket_address = match syn::parse2::<SocketAddress>(input.clone()) {
+    let socket_address = match syn::parse2::<SocketAddress>(input) {
         Ok(addr) => addr,
         Err(e) => return e.into_compile_error(),
     };
