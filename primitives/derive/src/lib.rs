@@ -1,3 +1,5 @@
+//! Crate containing procedural macros for `iroha_primitives`.
+
 mod socket_addr;
 
 /// Convenience macro to concisely construct a `SocketAddr`

@@ -595,9 +595,9 @@ impl PeerBuilder {
     pub fn build(&mut self) -> Result<Peer> {
         let mut peer = Peer::new()?;
         if let Some(port) = self.port.take() {
-            peer.p2p_address = socket_addr!(127.0.0.1: port);
-            peer.api_address = socket_addr!(127.0.0.1: port + 1);
-            peer.telemetry_address = socket_addr!(127.0.0.1: port + 2);
+            peer.p2p_address = socket_addr!(127.0.0 .1: port);
+            peer.api_address = socket_addr!(127.0.0 .1: port + 1);
+            peer.telemetry_address = socket_addr!(127.0.0 .1: port + 2);
             // prevent field desync
             peer.id.address = peer.p2p_address.clone();
         }
