@@ -16,7 +16,7 @@ use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::PeerId;
 use iroha_logger::{prelude::*, Configuration, ConfigurationProxy, Level};
 use iroha_p2p::{network::message::*, NetworkHandle};
-use iroha_primitives::socket_addr;
+use iroha_primitives::addr::socket_addr;
 use parity_scale_codec::{Decode, Encode};
 use tokio::{
     sync::{mpsc, Barrier},
@@ -50,7 +50,7 @@ async fn network_create() {
     let delay = Duration::from_millis(200);
     setup_logger();
     info!("Starting network tests...");
-    let address = socket_addr!(127,0,0,1; 12_000);
+    let address = socket_addr!(127.0.0.1:12_000);
     let public_key = iroha_crypto::PublicKey::from_str(
         "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
     )
@@ -169,13 +169,13 @@ async fn two_networks() {
     )
     .unwrap();
     info!("Starting first network...");
-    let address1 = socket_addr!(127,0,0,1; 12_005);
+    let address1 = socket_addr!(127.0.0.1:12_005);
     let mut network1 = NetworkHandle::start(address1.clone(), public_key1.clone())
         .await
         .unwrap();
 
     info!("Starting second network...");
-    let address2 = socket_addr!(127,0,0,1; 12_010);
+    let address2 = socket_addr!(127.0.0.1:12_010);
     let network2 = NetworkHandle::start(address2.clone(), public_key2.clone())
         .await
         .unwrap();
@@ -255,7 +255,7 @@ async fn multiple_networks() {
 
     let mut peers = Vec::new();
     for i in 0_u16..10_u16 {
-        let address = socket_addr!(127,0,0,1; 12_015 + ( i * 5));
+        let address = socket_addr!(127.0.0.1: 12_015 + ( i * 5));
         let keypair = KeyPair::generate().unwrap();
         peers.push(PeerId {
             address,
