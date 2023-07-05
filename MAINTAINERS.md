@@ -32,3 +32,4 @@ This is the list of maintainers, including their email address for direct commun
 | Victor Gridnevsky     | [@6r1d](https://github.com/6r1d)                     | gridnevsky@soramitsu.co.jp      | Community manager, documentation, development: JavaScript, TypeScript, Python |
 | Alexander Strokov     | [@astrokov7](https://github.com/astrokov7)           | strokov@soramitsu.co.jp | QA, Python |
 | Michael Timofeev      | [@timofeevmd](https://github.com/timofeevmd)         | timofeev@soramitsu.co.jp | QA |
+| Nikita Strygin        | [@DCNick3](https://github.com/DCNick3)               | moslike6@gmail.com | Development: Rust |
