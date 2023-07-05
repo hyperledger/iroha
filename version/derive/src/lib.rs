@@ -1,12 +1,13 @@
 //! Crate containing schema related macro functionality
 #![allow(clippy::arithmetic_side_effects)]
 
-use std::{collections::HashMap, ops::Range};
+use std::ops::Range;
 
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use proc_macro_error::{abort, abort_call_site, proc_macro_error, OptionExt, ResultExt};
 use quote::{format_ident, quote};
+use rustc_hash::FxHashMap;
 use syn::{
     parse::{Parse, ParseStream},
     parse_macro_input,
@@ -118,7 +119,7 @@ fn impl_version(args: Vec<NestedMeta>, item: TokenStream) -> TokenStream2 {
     } else {
         abort_call_site!("The attribute should be attached to either struct or enum.");
     };
-    let args_map: HashMap<_, _> = args
+    let args_map: FxHashMap<_, _> = args
         .into_iter()
         .filter_map(|meta| {
             if let NestedMeta::Meta(Meta::NameValue(name_value)) = meta {

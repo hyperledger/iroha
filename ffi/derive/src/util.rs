@@ -1,8 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::default::Default;
 
 use proc_macro2::TokenStream;
 use proc_macro_error::{abort, OptionExt};
 use quote::quote;
+use rustc_hash::{FxHashMap, FxHashSet};
 use syn::{parse_quote, visit::Visit, Fields, Ident};
 
 use crate::impl_visitor::{is_doc_attr, unwrap_result_type, Arg, FnDescriptor};
@@ -22,7 +23,7 @@ pub fn gen_derived_methods<'a>(
     fields: &'a syn::Fields,
 ) -> impl Iterator<Item = FnDescriptor<'a>> {
     let struct_derives = parse_derives(attrs).unwrap_or_default();
-    let mut ffi_derives = HashMap::new();
+    let mut ffi_derives = FxHashMap::default();
 
     match fields {
         Fields::Named(syn::FieldsNamed { named, .. }) => named.iter().for_each(|field| {
@@ -63,7 +64,7 @@ pub fn gen_resolve_type(arg: &Arg) -> TokenStream {
 }
 
 /// Parse `getset` attributes to find out which methods it derives
-fn parse_derives(attrs: &[syn::Attribute]) -> Option<HashSet<Derive>> {
+fn parse_derives(attrs: &[syn::Attribute]) -> Option<FxHashSet<Derive>> {
     attrs
         .iter()
         .filter_map(|attr| {
@@ -77,7 +78,7 @@ fn parse_derives(attrs: &[syn::Attribute]) -> Option<HashSet<Derive>> {
             None
         })
         .flatten()
-        .try_fold(HashSet::new(), |mut acc, nested| {
+        .try_fold(FxHashSet::default(), |mut acc, nested| {
             if let syn::NestedMeta::Meta(item) = nested {
                 match item {
                     syn::Meta::NameValue(item) => {

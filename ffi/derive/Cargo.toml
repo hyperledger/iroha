@@ -17,6 +17,7 @@ quote = "1.0.23"
 proc-macro2 = "1.0.49"
 proc-macro-error = "1.0.4"
 derive_more = "0.99.17"
+rustc-hash = "1.1.0"
 
 [dev-dependencies]
 iroha_ffi = { version = "=2.0.0-pre-rc.16", path = "../" }
