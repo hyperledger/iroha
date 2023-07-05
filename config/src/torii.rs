@@ -1,13 +1,13 @@
 //! `Torii` configuration as well as the default values for the URLs used for the main endpoints: `p2p`, `telemetry`, but not `api`.
 #![allow(clippy::std_instead_of_core, clippy::arithmetic_side_effects)]
 use iroha_config_base::derive::{Documented, Proxy};
-use iroha_primitives::{addr::SocketAddr, socket_addr};
+use iroha_primitives::addr::{socket_addr, SocketAddr};
 use serde::{Deserialize, Serialize};
 
 /// Default socket for p2p communication
-pub const DEFAULT_TORII_P2P_ADDR: SocketAddr = socket_addr!(127,0,0,1;1337);
+pub const DEFAULT_TORII_P2P_ADDR: SocketAddr = socket_addr!(127.0.0.1:1337);
 /// Default socket for reporting internal status and metrics
-pub const DEFAULT_TORII_TELEMETRY_ADDR: SocketAddr = socket_addr!(127,0,0,1;8180);
+pub const DEFAULT_TORII_TELEMETRY_ADDR: SocketAddr = socket_addr!(127.0.0.1:8180);
 /// Default maximum size of single transaction
 pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: u32 = 2_u32.pow(15);
 /// Default upper bound on `content-length` specified in the HTTP request header
@@ -52,7 +52,7 @@ pub mod uri {
 
     /// Default socket for listening on external requests
     pub const DEFAULT_API_ADDR: iroha_primitives::addr::SocketAddr =
-        iroha_primitives::socket_addr!(127,0,0,1;8080);
+        iroha_primitives::addr::socket_addr!(127.0.0.1:8080);
     /// Query URI is used to handle incoming Query requests.
     pub const QUERY: &str = "query";
     /// Transaction URI is used to handle incoming ISI requests.

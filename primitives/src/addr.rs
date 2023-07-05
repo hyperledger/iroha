@@ -8,46 +8,13 @@ use alloc::{format, string::String, vec::Vec};
 
 use derive_more::{AsRef, Display, From, IntoIterator};
 use iroha_macro::FromVariant;
+pub use iroha_primitives_derive::socket_addr;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 use crate::{conststr::ConstString, ffi};
-
-// TODO: this should probably replace the socket_addr, but API is not compatible
-pub use iroha_primitives_derive::socket_addr as socker_addr2;
-
-#[macro_export]
-/// Convenience macro to concisely construct a [`SocketAddr`]
-///
-/// # Examples
-/// ```
-/// # use iroha_primitives::socket_addr;
-///
-/// let localhost = socket_addr!(127,0,0,1;8080);
-/// let remote = socket_addr!("example.com";8080);
-/// ```
-macro_rules! socket_addr {
-    ($a:expr,$b:expr,$c:expr,$d:expr;$port:expr) => {
-        $crate::addr::SocketAddr::Ipv4($crate::addr::SocketAddrV4 {
-            ip: $crate::addr::Ipv4Addr::new([$a, $b, $c, $d]),
-            port: $port,
-        })
-    };
-    ($a:expr,$b:expr,$c:expr,$d:expr,$e:expr,$f:expr,$g:expr,$h:expr;$port:expr) => {
-        $crate::addr::SocketAddr::Ipv6($crate::addr::SocketAddrV6 {
-            ip: $crate::addr::Ipv6Addr::new([$a, $b, $c, $d, $e, $f, $g]),
-            port: $port,
-        })
-    };
-    ($host:expr;$port:expr) => {
-        $crate::addr::SocketAddr::Host($crate::addr::SocketAddrHost {
-            host: ($host).into(),
-            port: $port,
-        })
-    };
-}
 
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 #[derive(Debug, Clone, Display, Copy, PartialEq, Eq)]
