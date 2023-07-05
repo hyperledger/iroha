@@ -24,7 +24,7 @@ use iroha_core::prelude::*;
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
-use iroha_primitives::{addr::SocketAddr, socket_addr};
+use iroha_primitives::addr::{socket_addr, SocketAddr};
 use rand::seq::IteratorRandom;
 use tempfile::TempDir;
 use tokio::{
@@ -595,9 +595,9 @@ impl PeerBuilder {
     pub fn build(&mut self) -> Result<Peer> {
         let mut peer = Peer::new()?;
         if let Some(port) = self.port.take() {
-            peer.p2p_address = socket_addr!(127,0,0,1; port);
-            peer.api_address = socket_addr!(127,0,0,1; port + 1);
-            peer.telemetry_address = socket_addr!(127,0,0,1; port + 2);
+            peer.p2p_address = socket_addr!(127.0.0.1: port);
+            peer.api_address = socket_addr!(127.0.0.1: port + 1);
+            peer.telemetry_address = socket_addr!(127.0.0.1: port + 2);
             // prevent field desync
             peer.id.address = peer.p2p_address.clone();
         }
@@ -660,7 +660,7 @@ impl PeerBuilder {
 type PeerWithRuntimeAndClient = (Runtime, Peer, Client);
 
 fn local_unique_port() -> Result<SocketAddr> {
-    Ok(socket_addr!(127,0,0,1; unique_port::get_unique_free_port().map_err(Error::msg)?))
+    Ok(socket_addr!(127.0.0.1: unique_port::get_unique_free_port().map_err(Error::msg)?))
 }
 
 /// Runtime used for testing.
