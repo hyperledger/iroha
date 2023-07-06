@@ -24,3 +24,15 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+
+  - package-ecosystem: "cargo"
+    target-branch: "iroha2-dev"
+    directory: "/wasm/"
+    schedule:
+      interval: "daily"
+
+  - package-ecosystem: "cargo"
+    target-branch: "iroha2-dev"
+    directory: "/default_validator/"
+    schedule:
+      interval: "daily"
