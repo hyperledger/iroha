@@ -159,13 +159,20 @@ def GIVEN_random_character():
     with allure.step(f'GIVEN a "{letter}" name'):
         return letter
 
+@pytest.fixture()
+def GIVEN_random_invalid_base64_character():
+    """Fixture to provide a random invalid base64 character (not a-z,A-Z,0-9,+,/,=)."""
+    letter = random.choice([ch for ch in string.printable if not (ch.isalpha() or ch.isdigit() or ch == "=" or ch == "+" or ch == "/")])
+    with allure.step(f'GIVEN a "{letter}" name'):
+        return letter
+
 # Fixtures for providing specific values or conditions (e.g., name length, string with spaces)
 @pytest.fixture()
 def GIVEN_key_with_invalid_character_in_key(
         GIVEN_public_key,
-        GIVEN_random_character):
+        GIVEN_random_invalid_base64_character):
     """Fixture to provide a public key with an invalid character."""
-    invalid_key = key_with_invalid_character_in_key(GIVEN_public_key, GIVEN_random_character)
+    invalid_key = key_with_invalid_character_in_key(GIVEN_public_key, GIVEN_random_invalid_base64_character)
     with allure.step(f'GIVEN an invalid key "{invalid_key}"'):
         return invalid_key
 

@@ -14,7 +14,7 @@ def domain(expected):
     """
     return match.iroha_have_domain(
         expected=expected,
-        actual=iroha.list_all().domains().get_domains())
+        actual=lambda: iroha.list_all().domains().get_domains())
 
 
 def account(expected):
@@ -26,7 +26,7 @@ def account(expected):
     """
     return match.iroha_have_account(
         expected=expected,
-        actual=iroha.list_all().accounts().get_accounts())
+        actual=lambda: iroha.list_all().accounts().get_accounts())
 
 
 def asset_definition(expected):
@@ -38,7 +38,7 @@ def asset_definition(expected):
     """
     return match.iroha_have_asset_definition(
         expected=expected,
-        actual=iroha.list_all().asset_definitions().get_asset_definitions())
+        actual=lambda: iroha.list_all().asset_definitions().get_asset_definitions())
 
 
 def asset(expected):
@@ -50,7 +50,7 @@ def asset(expected):
     """
     return match.iroha_have_asset(
         expected=expected,
-        actual=iroha.list_all().assets().get_assets())
+        actual=lambda: iroha.list_all().assets().get_assets())
 
 
 def error(expected):

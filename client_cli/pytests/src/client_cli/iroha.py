@@ -34,7 +34,7 @@ class Iroha(ClientCli):
         :param command_name: The name of the command to execute.
         :type command_name: str
         """
-        self.command.insert(2, command_name)
+        self.command.insert(3, command_name)
         self.execute()
 
     def should(self, _expected):
@@ -94,13 +94,13 @@ class Iroha(ClientCli):
         """
         self._execute_command('domain')
         self._storage = json.loads(self.stdout)
+        self._asset_definitions = {}
         for obj in self._storage:
-            asset_defs = obj.get('asset_definitions', {})
+            asset_defs = obj.get('asset_definitions')
             for asset_def in asset_defs.values():
-                definition = asset_def.get('definition', {})
-                value_type = definition.get('value_type')
+                value_type = asset_def.get('value_type')
                 if value_type:
-                    self._asset_definitions[definition['id']] = value_type
+                    self._asset_definitions[asset_def['id']] = value_type
         return self
 
     def get_domains(self):

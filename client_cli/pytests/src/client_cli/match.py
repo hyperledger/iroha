@@ -2,6 +2,7 @@
 This module provides helper functions for matching expected and actual values in Iroha objects.
 """
 
+from typing import Callable
 import allure
 
 from src.client_cli import client_cli
@@ -37,7 +38,7 @@ def iroha_have_account(expected: str, actual: str):
     wait_for(expected, actual)
 
 
-def iroha_have_asset_definition(expected: str, actual: str):
+def iroha_have_asset_definition(expected: str, actual: Callable[[], str]):
     """
     Checks if Iroha has the expected asset definition.
 
