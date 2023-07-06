@@ -55,7 +55,7 @@ def generate_random_string_without_reserved_chars(length):
     """
     Generate a random string with the specified length, excluding reserved characters.
     """
-    allowed_chars = [c for c in string.printable if c not in ReservedChars.ALL.value]
+    allowed_chars = [c for c in [*string.ascii_letters, *string.digits] if c not in ReservedChars.ALL.value]
     return generate_random_string(length, allowed_chars)
 
 
