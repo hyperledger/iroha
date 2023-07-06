@@ -81,6 +81,11 @@ pub struct Args {
     /// More verbose output
     #[structopt(short, long)]
     verbose: bool,
+    /// Skip MST check. By setting this flag searching similar transactions on the server can be omitted.
+    /// Thus if you don't use multisignature transactions you should use this flag as it will increase speed of submitting transactions.
+    /// Also setting this flag could be useful when `iroha_client_cli` is used to submit the same transaction multiple times (like mint for example) in short period of time.
+    #[structopt(long)]
+    skip_mst_check: bool,
     /// Subcommands of client cli
     #[structopt(subcommand)]
     subcommand: Subcommand,
@@ -115,6 +120,10 @@ pub enum Subcommand {
 pub trait RunContext {
     /// Get access to configuration
     fn configuration(&self) -> &ClientConfiguration;
+
+    /// Skip check for MST
+    fn skip_mst_check(&self) -> bool;
+
     /// Serialize and print data
     ///
     /// # Errors
@@ -126,6 +135,7 @@ pub trait RunContext {
 struct PrintJsonContext<W> {
     write: W,
     config: ClientConfiguration,
+    skip_mst_check: bool,
 }
 
 impl<W: std::io::Write> RunContext for PrintJsonContext<W> {
@@ -136,6 +146,10 @@ impl<W: std::io::Write> RunContext for PrintJsonContext<W> {
     fn print_data(&mut self, data: &dyn Serialize) -> Result<()> {
         writeln!(&mut self.write, "{}", serde_json::to_string_pretty(data)?)?;
         Ok(())
+    }
+
+    fn skip_mst_check(&self) -> bool {
+        self.skip_mst_check
     }
 }
 
@@ -176,6 +190,7 @@ fn main() -> Result<()> {
         config: config_opt,
         subcommand,
         verbose,
+        skip_mst_check,
     } = clap::Parser::parse();
     let config = if let Some(config) = config_opt {
         config
@@ -205,6 +220,7 @@ fn main() -> Result<()> {
     let mut context = PrintJsonContext {
         write: stdout(),
         config,
+        skip_mst_check,
     };
 
     subcommand.run(&mut context)
@@ -229,20 +245,24 @@ pub fn submit(
     let tx = iroha_client
         .build_transaction(instructions, metadata)
         .wrap_err(err_msg)?;
-    let tx = match iroha_client.get_original_transaction(
-        &tx,
-        RETRY_COUNT_MST,
-        RETRY_IN_MST,
-    ) {
-        Ok(Some(original_transaction)) if Confirm::new()
-            .with_prompt("There is a similar transaction from your account waiting for more signatures. \
-                          This could be because it wasn't signed with the right key, \
-                          or because it's a multi-signature transaction (MST). \
-                          Do you want to sign this transaction (yes) \
-                          instead of submitting a new transaction (no)?")
-            .interact()
-            .wrap_err("Failed to show interactive prompt.")? => iroha_client.sign_transaction(original_transaction).wrap_err("Failed to sign transaction.")?,
-        _ => tx,
+    let tx = if context.skip_mst_check() {
+        tx
+    } else {
+        match iroha_client.get_original_transaction(
+            &tx,
+            RETRY_COUNT_MST,
+            RETRY_IN_MST,
+        ) {
+            Ok(Some(original_transaction)) if Confirm::new()
+                .with_prompt("There is a similar transaction from your account waiting for more signatures. \
+                            This could be because it wasn't signed with the right key, \
+                            or because it's a multi-signature transaction (MST). \
+                            Do you want to sign this transaction (yes) \
+                            instead of submitting a new transaction (no)?")
+                .interact()
+                .wrap_err("Failed to show interactive prompt.")? => iroha_client.sign_transaction(original_transaction).wrap_err("Failed to sign transaction.")?,
+            _ => tx,
+        }
     };
     #[cfg(debug_assertions)]
     let err_msg = format!("Failed to submit transaction {tx:?}");
