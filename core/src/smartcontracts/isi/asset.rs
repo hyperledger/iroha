@@ -619,7 +619,7 @@ pub mod query {
                 .asset(&id)
                 .map_err(|asset_err| {
                     if let Err(definition_err) = wsv.asset_definition(&id.definition_id) {
-                        Error::Find(Box::new(definition_err))
+                        Error::Find(definition_err)
                     } else {
                         asset_err
                     }
@@ -657,7 +657,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let asset = wsv.asset(&id).map_err(|asset_err| {
                 if let Err(definition_err) = wsv.asset_definition(&id.definition_id) {
-                    Error::Find(Box::new(definition_err))
+                    Error::Find(definition_err)
                 } else {
                     asset_err
                 }
@@ -670,7 +670,7 @@ pub mod query {
                 .map_err(|e| Error::Conversion(e.to_string()))?;
             Ok(store
                 .get(&key)
-                .ok_or_else(|| Error::Find(Box::new(FindError::MetadataKey(key))))?
+                .ok_or_else(|| Error::Find(FindError::MetadataKey(key)))?
                 .clone())
         }
     }

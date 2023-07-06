@@ -21,7 +21,7 @@ use http_default::{AsyncWebSocketStream, WebSocketStream};
 use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
-    block::VersionedCommittedBlock, predicate::PredicateBox, prelude::*,
+    block::VersionedCommittedBlock, isi::Instruction, predicate::PredicateBox, prelude::*,
     transaction::TransactionPayload, ValidationFail,
 };
 use iroha_logger::prelude::*;

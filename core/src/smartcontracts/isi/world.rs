@@ -448,7 +448,7 @@ pub mod query {
             iroha_logger::trace!(%role_id);
 
             wsv.world.roles.get(&role_id).map_or_else(
-                || Err(Error::Find(Box::new(FindError::Role(role_id)))),
+                || Err(Error::Find(FindError::Role(role_id))),
                 |role_ref| Ok(role_ref.clone()),
             )
         }

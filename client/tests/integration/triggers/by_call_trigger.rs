@@ -200,8 +200,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
             .chain()
             .last()
             .expect("At least two error causes expected")
-            .downcast_ref::<Box<FindError>>()
-            .map(std::ops::Deref::deref),
+            .downcast_ref::<FindError>(),
         Some(FindError::Trigger(id)) if *id == trigger_id
     ));
 

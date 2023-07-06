@@ -225,7 +225,7 @@ pub mod query {
             } = wsv
                 .triggers()
                 .inspect_by_id(&id, |action| action.clone_and_box())
-                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))?;
+                .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))?;
 
             let action =
                 Action::new(loaded_executable, repeats, authority, filter).with_metadata(metadata);
@@ -253,7 +253,7 @@ pub mod query {
                         .map(Clone::clone)
                         .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
                 })
-                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id))))?
+                .ok_or_else(|| Error::Find(FindError::Trigger(id)))?
         }
     }
 

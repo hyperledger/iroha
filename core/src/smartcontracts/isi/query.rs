@@ -100,7 +100,9 @@ mod tests {
     use std::str::FromStr as _;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::{block::VersionedCommittedBlock, transaction::TransactionLimits};
+    use iroha_data_model::{
+        block::VersionedCommittedBlock, query::error::FindError, transaction::TransactionLimits,
+    };
     use once_cell::sync::Lazy;
 
     use super::*;
@@ -384,7 +386,10 @@ mod tests {
             .sign(ALICE_KEYS.clone())?;
         let wrong_hash = unapplied_tx.hash();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);
-        assert!(not_found.is_err());
+        assert!(matches!(
+            not_found,
+            Err(Error::Find(FindError::Transaction(_)))
+        ));
 
         let found_accepted = FindTransactionByHash::new(va_tx.hash()).execute(&wsv)?;
         if found_accepted.transaction.error.is_none() {

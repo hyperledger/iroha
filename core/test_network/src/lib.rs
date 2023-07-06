@@ -21,7 +21,7 @@ use iroha_config::{
     torii::Configuration as ToriiConfiguration,
 };
 use iroha_core::prelude::*;
-use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
+use iroha_data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
 use iroha_primitives::addr::{socket_addr, SocketAddr};

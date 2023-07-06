@@ -45,6 +45,34 @@ pub enum AcceptTransactionFail {
     SignatureVerification(#[source] SignatureVerificationFail<TransactionPayload>),
 }
 
+fn instruction_size(isi: &InstructionBox) -> usize {
+    use InstructionBox::*;
+
+    match isi {
+        Register(isi) => isi.object.len() + 1,
+        Unregister(isi) => isi.object_id.len() + 1,
+        Mint(isi) => isi.destination_id.len() + isi.object.len() + 1,
+        Burn(isi) => isi.destination_id.len() + isi.object.len() + 1,
+        Transfer(isi) => isi.destination_id.len() + isi.object.len() + isi.source_id.len() + 1,
+        If(isi) => {
+            let otherwise = isi.otherwise.as_ref().map_or(0, instruction_size);
+            isi.condition.len() + instruction_size(&isi.then) + otherwise + 1
+        }
+        Pair(isi) => {
+            instruction_size(&isi.left_instruction) + instruction_size(&isi.right_instruction) + 1
+        }
+        Sequence(isi) => isi.instructions.iter().map(instruction_size).sum::<usize>() + 1,
+        SetKeyValue(isi) => isi.object_id.len() + isi.key.len() + isi.value.len() + 1,
+        RemoveKeyValue(isi) => isi.object_id.len() + isi.key.len() + 1,
+        Grant(isi) => isi.object.len() + isi.destination_id.len() + 1,
+        Revoke(isi) => isi.object.len() + isi.destination_id.len() + 1,
+        SetParameter(isi) => isi.parameter.len() + 1,
+        NewParameter(isi) => isi.parameter.len() + 1,
+        Upgrade(isi) => isi.object.len() + 1,
+        Fail(_) | ExecuteTrigger(_) => 1,
+    }
+}
+
 impl AcceptedTransaction {
     /// Accept genesis transaction. Transition from [`GenesisTransaction`] to [`AcceptedTransaction`].
     pub fn accept_genesis(tx: GenesisTransaction) -> Self {
@@ -64,7 +92,7 @@ impl AcceptedTransaction {
             Executable::Instructions(instructions) => {
                 let instruction_count: u64 = instructions
                     .iter()
-                    .map(InstructionBox::len)
+                    .map(instruction_size)
                     .sum::<usize>()
                     .try_into()
                     .expect("`usize` should always fit in `u64`");
@@ -292,5 +320,69 @@ impl TransactionValidator {
                 }
                 error.into()
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::str::FromStr as _;
+
+    use super::*;
+
+    fn if_instruction(
+        c: impl Into<Expression>,
+        then: InstructionBox,
+        otherwise: Option<InstructionBox>,
+    ) -> InstructionBox {
+        let condition: Expression = c.into();
+        let condition = EvaluatesTo::new_unchecked(condition);
+        Conditional {
+            condition,
+            then,
+            otherwise,
+        }
+        .into()
+    }
+
+    fn fail() -> InstructionBox {
+        FailBox {
+            message: String::default(),
+        }
+        .into()
+    }
+
+    #[test]
+    fn len_empty_sequence() {
+        assert_eq!(instruction_size(&SequenceBox::new(vec![]).into()), 1);
+    }
+
+    #[test]
+    fn len_if_one_branch() {
+        let instructions = vec![if_instruction(
+            ContextValue {
+                value_name: Name::from_str("a").expect("Cannot fail."),
+            },
+            fail(),
+            None,
+        )];
+
+        assert_eq!(instruction_size(&SequenceBox::new(instructions).into()), 4);
+    }
+
+    #[test]
+    fn len_sequence_if() {
+        let instructions = vec![
+            fail(),
+            if_instruction(
+                ContextValue {
+                    value_name: Name::from_str("b").expect("Cannot fail."),
+                },
+                fail(),
+                Some(fail()),
+            ),
+            fail(),
+        ];
+
+        assert_eq!(instruction_size(&SequenceBox::new(instructions).into()), 7);
     }
 }

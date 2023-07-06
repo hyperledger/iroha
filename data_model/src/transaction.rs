@@ -22,8 +22,11 @@ use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
 use crate::{
-    account::AccountId, isi::InstructionBox, metadata::UnlimitedMetadata, name::Name,
-    prelude::Instruction, Value,
+    account::AccountId,
+    isi::{Instruction, InstructionBox},
+    metadata::UnlimitedMetadata,
+    name::Name,
+    Value,
 };
 
 #[model]

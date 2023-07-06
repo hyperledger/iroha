@@ -1460,7 +1460,7 @@ pub mod error {
                 String,
             ),
             /// Query found nothing
-            Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
+            Find(#[cfg_attr(feature = "std", source)] FindError),
             /// Query found wrong type of asset: {0}
             Conversion(
                 #[skip_from]

@@ -2,7 +2,7 @@
 
 use iroha_client::client::{account, transaction, Client};
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::prelude::*;
+use iroha_data_model::{isi::Instruction, prelude::*};
 use test_network::*;
 
 fn submit_and_get(
