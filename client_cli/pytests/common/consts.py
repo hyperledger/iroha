@@ -16,13 +16,11 @@ class Stderr(Enum):
     """
     CANNOT_BE_EMPTY = 'cannot be empty\n\nFor more information try --help\n'
     REPETITION = 'Repetition'
-    TOO_LONG = 'Name must be between 1 and 128 characters in length'
+    TOO_LONG = 'Name length violation'
     FAILED_TO_FIND_DOMAIN = 'Failed to find domain'
     INVALID_CHARACTER = 'Invalid character'
     INVALID_VALUE_TYPE = 'Matching variant not found'
-    RESERVED_CHARACTER = 'The `@` character is reserved for `account@domain` constructs,' \
-                         ' `#` — for `asset#domain`, `$` — for `trigger$domain` ' \
-                         'and `%` — for `validator%account`.'
+    RESERVED_CHARACTER = 'The `@` character is reserved for `account@domain` constructs, `#` — for `asset#domain` and `$` — for `trigger$domain`'
     WHITESPACES = "White space not allowed"
 
 
@@ -30,7 +28,7 @@ class ReservedChars(Enum):
     """
     Enum for reserved characters in names.
     """
-    SPECIAL = "@#$%"
+    SPECIAL = "@#$"
     WHITESPACES = string.whitespace
     ALL = SPECIAL + WHITESPACES
 
