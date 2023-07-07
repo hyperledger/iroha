@@ -10,5 +10,5 @@ def story_account_unregister_domain():
 @allure.label('sdk_test_id', 'unregister_domain')
 @pytest.mark.xfail(reason="TO DO")
 def test_unregister_domain(
-        GIVEN_new_one_existence_domain):
+        GIVEN_new_one_existing_domain):
     assert 0

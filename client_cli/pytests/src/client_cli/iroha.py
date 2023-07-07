@@ -47,8 +47,8 @@ class Iroha(ClientCli):
         """
         Retrieve domains from the Iroha network and return then as list of ids.
 
-        :return: The current Iroha object.
-        :rtype: Iroha
+        :return: List of domains ids.
+        :rtype: List[str]
         """
         self._execute_command('domain')
         domains = json.loads(self.stdout)
@@ -59,8 +59,8 @@ class Iroha(ClientCli):
         """
         Retrieve accounts from the Iroha network and return them as list of ids.
 
-        :return: The current Iroha object.
-        :rtype: Iroha
+        :return: List of accounts ids. 
+        :rtype: List[str] 
         """
         self._execute_command('account')
         accounts = json.loads(self.stdout)
@@ -71,8 +71,8 @@ class Iroha(ClientCli):
         """
         Retrieve assets from the Iroha network and return them as list of ids.
 
-        :return: The current Iroha object.
-        :rtype: Iroha
+        :return:  List of assets ids.
+        :rtype: List[str] 
         """
         self._execute_command('asset')
         assets = json.loads(self.stdout)
@@ -84,8 +84,8 @@ class Iroha(ClientCli):
         Retrieve asset definitions from the Iroha network
         and return them as map where ids are keys and value types are values
 
-        :return: The current Iroha object.
-        :rtype: Iroha
+        :return: Dict of asset definitions ids with there value type.
+        :rtype: Dict[str, str]
         """
         self._execute_command('domain')
         domains = json.loads(self.stdout)

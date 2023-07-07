@@ -2,10 +2,10 @@ import pytest
 import allure
 
 from test import (
-    GIVEN_new_one_existence_account,
-    GIVEN_existence_asset_definition_with_quantity_value_type,
-    GIVEN_existence_asset_definition_with_store_value_type,
-    GIVEN_new_one_existence_domain,
+    GIVEN_new_one_existing_account,
+    GIVEN_existing_asset_definition_with_quantity_value_type,
+    GIVEN_existing_asset_definition_with_store_value_type,
+    GIVEN_new_one_existing_domain,
     GIVEN_fake_asset_name,
     GIVEN_fake_name,
     GIVEN_public_key,

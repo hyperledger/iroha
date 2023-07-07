@@ -10,5 +10,5 @@ def story_account_unregister_asset_definitions():
 @allure.label('sdk_test_id', 'unregister_asset_definition')
 @pytest.mark.xfail(reason="TO DO")
 def test_unregister_asset_definition(
-        GIVEN_existence_asset_definition_with_quantity_value_type):
+        GIVEN_existing_asset_definition_with_quantity_value_type):
     assert 0

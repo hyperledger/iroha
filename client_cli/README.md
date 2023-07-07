@@ -133,15 +133,15 @@ To know how many units of a particular asset an account has, use `asset get` wit
 
 This query returns the quantity of `XOR#Soramitsu` asset for the `White Rabbit@Soramitsu` account.
 
-It's possible to filter based on account, asset, domain id by using filtering api provided by client cli.
+It's possible to filter based on either account, asset or domain id by using the filtering API provided by the Iroha client CLI.
 
 Generally it looks like this:
 
 ```bash
-./iroha_clien_cli ENTITY list filter PREDICATE
+./iroha_client_cli ENTITY list filter PREDICATE
 ```
 
-Where ENTITY is asset, account or domain and PREDICATE is condition used for filtering serialized using JSON (check ValuePredicate and GenericPredicateBox in [schema](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/schema.json) for reference).
+Where ENTITY is asset, account or domain and PREDICATE is condition used for filtering serialized using JSON (check `ValuePredicate` and `GenericPredicateBox` in [schema](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/schema.json) for reference).
 
 Examples:
 
@@ -151,7 +151,7 @@ Examples:
 # Filter accounts by domain
 ./iroha_client_cli account list filter '{"Identifiable": {"EndsWith": "@wonderland"}}'
 # It is possible to combine filters using "Or" or "And"
-# Filter asset by it's domain id
+# Filter asset by domain
 ./iroha_client_cli asset list filter '{"Or": [{"Identifiable": {"Contains": "#wonderland#"}}, {"And": [{"Identifiable": {"Contains": "##"}}, {"Identifiable": {"EndsWith": "@wonderland"}}]}]}'
 ```
 
