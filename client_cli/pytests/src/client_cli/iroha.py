@@ -3,7 +3,7 @@ This module contains the Iroha class, which is a subclass of ClientCli.
 """
 
 import json
-from typing import Any, Dict, List, Union
+from typing import Dict, List
 from src.client_cli.client_cli import ClientCli, Config
 
 
@@ -21,11 +21,6 @@ class Iroha(ClientCli):
         :type path: str
         """
         super().__init__(config)
-        self._storage: Union[Dict, List] = {}
-        self._domains: Union[Dict, List] = {}
-        self._accounts: Union[Dict, List] = {}
-        self._assets: Union[Dict, List] = {}
-        self._asset_definitions: Dict[str, Any] = {}
 
     def _execute_command(self, command_name: str):
         """
@@ -48,103 +43,57 @@ class Iroha(ClientCli):
         """
         return self
 
-    def domains(self):
+    def domains(self) -> List[str]:
         """
-        Retrieve domains from the Iroha network and store them in the _domains attribute.
+        Retrieve domains from the Iroha network and return then as list of ids.
 
         :return: The current Iroha object.
         :rtype: Iroha
         """
         self._execute_command('domain')
-        self._storage = json.loads(self.stdout)
-        self._domains = [self._storage["id"] for self._storage in self._storage]
-        return self
+        domains = json.loads(self.stdout)
+        domains = [domain["id"] for domain in domains]
+        return domains
 
-    def accounts(self):
+    def accounts(self) -> List[str]:
         """
-        Retrieve accounts from the Iroha network and store them in the _accounts attribute.
+        Retrieve accounts from the Iroha network and return them as list of ids.
 
         :return: The current Iroha object.
         :rtype: Iroha
         """
         self._execute_command('account')
-        self._accounts = json.loads(self.stdout)
-        self._accounts = [self._accounts["id"] for self._accounts in self._accounts]
-        return self
+        accounts = json.loads(self.stdout)
+        accounts = [account["id"] for account in accounts]
+        return accounts
 
-    def assets(self):
+    def assets(self) -> List[str]:
         """
-        Retrieve assets from the Iroha network and store them in the _assets attribute.
+        Retrieve assets from the Iroha network and return them as list of ids.
 
         :return: The current Iroha object.
         :rtype: Iroha
         """
         self._execute_command('asset')
-        self._assets = json.loads(self.stdout)
-        self._assets = [self._assets["id"] for self._assets in self._assets]
-        return self
+        assets = json.loads(self.stdout)
+        assets = [asset["id"] for asset in assets]
+        return assets
 
-    def asset_definitions(self):
+    def asset_definitions(self) -> Dict[str, str]:
         """
         Retrieve asset definitions from the Iroha network
-        and store them in the _asset_definitions attribute.
+        and return them as map where ids are keys and value types are values
 
         :return: The current Iroha object.
         :rtype: Iroha
         """
         self._execute_command('domain')
-        self._storage = json.loads(self.stdout)
-        self._asset_definitions = {}
-        for obj in self._storage:
-            asset_defs = obj.get('asset_definitions')
+        domains = json.loads(self.stdout)
+        asset_definitions = {}
+        for domain in domains:
+            asset_defs = domain.get('asset_definitions')
             for asset_def in asset_defs.values():
                 value_type = asset_def.get('value_type')
                 if value_type:
-                    self._asset_definitions[asset_def['id']] = value_type
-        return self
-
-    def get_domains(self):
-        """
-        Get the list of domains.
-
-        :return: A list of domain IDs.
-        :rtype: list
-        """
-        return self._domains
-
-    def get_accounts(self):
-        """
-        Get the list of accounts.
-
-        :return: A list of account IDs.
-        :rtype: list
-        """
-        return self._accounts
-
-    def get_asset_definitions(self):
-        """
-        Get the dictionary of asset definitions.
-
-        :return: A dictionary containing asset definition IDs as keys
-        and their value types as values.
-        :rtype: dict
-        """
-        return self._asset_definitions
-
-    def get_assets(self):
-        """
-        Get the list of assets.
-
-        :return: A list of asset IDs.
-        :rtype: list
-        """
-        return self._assets
-
-    def get_storage(self):
-        """
-        Get the storage data.
-
-        :return: The storage data in its current form.
-        :rtype: str
-        """
-        return self._storage
+                    asset_definitions[asset_def['id']] = value_type
+        return asset_definitions
