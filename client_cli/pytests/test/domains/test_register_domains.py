@@ -33,24 +33,24 @@ def test_register_empty_domain(
 
 @allure.label('sdk_test_id', 'register_existence_domain')
 def test_register_existence_domain(
-        GIVEN_new_one_existence_domain):
+        GIVEN_new_one_existing_domain):
     with allure.step(
-            f'WHEN client_cli registers an existence domain "{GIVEN_new_one_existence_domain.name}"'):
-        client_cli.register().domain(GIVEN_new_one_existence_domain.name)
+            f'WHEN client_cli registers an existence domain "{GIVEN_new_one_existing_domain.name}"'):
+        client_cli.register().domain(GIVEN_new_one_existing_domain.name)
     with allure.step(
-            f'THEN client_cli should have the domain error:  "{GIVEN_new_one_existence_domain.name}"'):
+            f'THEN client_cli should have the domain error:  "{GIVEN_new_one_existing_domain.name}"'):
         client_cli.should(have.error(Stderr.REPETITION.value))
 
 @allure.label('sdk_test_id', 'register_existence_domain_with_uppercase_letter')
 def test_register_existence_domain_uppercase_with_uppercase_letter(
-        GIVEN_existence_domain_with_uppercase_letter):
+        GIVEN_existing_domain_with_uppercase_letter):
     with allure.step(
             f'WHEN client_cli registers an existence domain, '
-            f'but with uppercase letter "{GIVEN_existence_domain_with_uppercase_letter.name}"'):
-        client_cli.register().domain(GIVEN_existence_domain_with_uppercase_letter.name)
+            f'but with uppercase letter "{GIVEN_existing_domain_with_uppercase_letter.name}"'):
+        client_cli.register().domain(GIVEN_existing_domain_with_uppercase_letter.name)
     with allure.step(
-            f'THEN Iroha should have the domain name "{GIVEN_existence_domain_with_uppercase_letter.name}"'):
-        iroha.should(have.domain(GIVEN_existence_domain_with_uppercase_letter.name))
+            f'THEN Iroha should have the domain name "{GIVEN_existing_domain_with_uppercase_letter.name}"'):
+        iroha.should(have.domain(GIVEN_existing_domain_with_uppercase_letter.name))
 
 @allure.label('sdk_test_id', 'register_one_letter_domain')
 def test_register_one_letter_domain(

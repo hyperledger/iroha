@@ -17,7 +17,7 @@ class Stderr(Enum):
     CANNOT_BE_EMPTY = 'cannot be empty\n\nFor more information try --help\n'
     REPETITION = 'Repetition'
     TOO_LONG = 'Name length violation'
-    FAILED_TO_FIND_DOMAIN = 'Failed to find domain'
+    FAILED_TO_FIND_DOMAIN = 'Entity missing'
     INVALID_CHARACTER = 'Invalid character'
     INVALID_VALUE_TYPE = 'Matching variant not found'
     RESERVED_CHARACTER = 'The `@` character is reserved for `account@domain` constructs, `#` — for `asset#domain` and `$` — for `trigger$domain`'

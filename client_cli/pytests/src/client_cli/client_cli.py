@@ -4,7 +4,7 @@ commands for interacting with Iroha blockchain using the Iroha command-line clie
 """
 import json
 import subprocess
-from time import sleep, time
+from time import sleep, monotonic
 from typing import Callable
 
 import allure
@@ -18,6 +18,9 @@ class ClientCli:
     A class to represent the Iroha client command line interface.
     """
     BASE_PATH = CLIENT_CLI_PATH
+    # --skip-mst-check flag is used because 
+    # MST isn't used in the tests
+    # and don't using this flag results in tests being broken by interactive prompt
     BASE_FLAGS = ['--config=' + PATH_CONFIG_CLIENT_CLI, '--skip-mst-check']
 
     def __init__(self, config: Config):
@@ -48,36 +51,21 @@ class ClientCli:
         """
         self.reset()
 
-    def wait_for(self, expected: str, actual_call: Callable[[], str], timeout=None):
+    def wait_for(self, condition: Callable[[], bool], timeout=None):
         """
         Wait for a certain condition to be met, specified by the expected and actual values.
 
-        :param expected: The expected value.
-        :type expected: str
-        :param actual: The actual value.
-        :type actual: str
+        :param condition: Condition that should be met in given time.
+        :type condition: Callable[[], bool]
         :param timeout: Maximum time to wait for the condition to be met, defaults to None.
         :type timeout: int, optional
         """
         timeout = timeout or self._timeout
-        start_time = time()
-        actual = actual_call()
-        while expected not in actual:
-            if time() - start_time > timeout:
-                allure.attach(
-                    json.dumps(actual),
-                    name='actual',
-                    attachment_type=allure.attachment_type.JSON)
-                allure.attach(
-                    json.dumps(expected),
-                    name='expected',
-                    attachment_type=allure.attachment_type.JSON)
-                raise TimeoutError(f"Expected '{expected}' "
-                                   f"to be in '{actual}' "
-                                   f"after waiting for '{timeout}' seconds.")
+        start_time = monotonic()
+        while not condition():
+            if monotonic() - start_time > timeout:
+                raise TimeoutError(f"Expected condition to be satisfied after waiting for '{timeout}' seconds.")
             sleep(1)
-            actual = actual_call()
-        assert expected in actual
 
     def reset(self):
         """
@@ -255,6 +243,14 @@ class ClientCli:
                         text=True
                 ) as process:
                     self.stdout, self.stderr = process.communicate()
+                    allure.attach(
+                        self.stdout,
+                        name='stdout',
+                        attachment_type=allure.attachment_type.TEXT)
+                    allure.attach(
+                        self.stderr,
+                        name='stderr',
+                        attachment_type=allure.attachment_type.TEXT)
             except Exception as exception:
                 raise RuntimeError(
                     f"Error executing command: {command}. "
