@@ -9,5 +9,5 @@ def story_account_unregister_account():
 @allure.label('sdk_test_id', 'unregister_account')
 @pytest.mark.xfail(reason="TO DO")
 def test_unregister_account(
-        GIVEN_new_one_existence_account):
+        GIVEN_new_one_existing_account):
     assert 0
