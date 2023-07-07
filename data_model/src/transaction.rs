@@ -376,6 +376,7 @@ mod candidate {
     }
 
     impl SignedTransactionCandidate {
+        // we can't validate signatures in no_std, because ursa is not available
         #[cfg(feature = "std")]
         fn validate(mut self) -> Result<SignedTransaction, &'static str> {
             // TODO: Should we tolerate invalid signatures?
@@ -383,11 +384,6 @@ mod candidate {
                 return Err("Transaction contains no valid signatures");
             }
 
-            self.validate_instructions()
-        }
-
-        #[cfg(not(feature = "std"))]
-        fn validate(self) -> Result<SignedTransaction, &'static str> {
             self.validate_instructions()
         }
 
@@ -416,21 +412,39 @@ mod candidate {
 
     impl Decode for SignedTransaction {
         fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
-            SignedTransactionCandidate::decode(input)?
-                .validate()
-                .map_err(Into::into)
+            #[cfg(feature = "std")]
+            {
+                SignedTransactionCandidate::decode(input)?
+                    .validate()
+                    .map_err(Into::into)
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                // we can't enforce signature validity in no_std, so no point in supporting decoding
+                // ideally, `SignedTransaction` would not implement Decode at all, but this is tricky due to usage of `iroha_version`
+                panic!("Decoding `SignedTransaction` is not supported in no_std")
+            }
         }
     }
+    // #[cfg(feature = "std")]
     impl<'de> Deserialize<'de> for SignedTransaction {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: serde::Deserializer<'de>,
         {
-            use serde::de::Error as _;
+            #[cfg(feature = "std")]
+            {
+                use serde::de::Error as _;
 
-            SignedTransactionCandidate::deserialize(deserializer)?
-                .validate()
-                .map_err(D::Error::custom)
+                SignedTransactionCandidate::deserialize(deserializer)?
+                    .validate()
+                    .map_err(D::Error::custom)
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                // See comment in `impl Decode for SignedTransaction`
+                panic!("Deserializing `SignedTransaction` is not supported in no_std")
+            }
         }
     }
 }
