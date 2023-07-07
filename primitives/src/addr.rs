@@ -6,7 +6,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
-use derive_more::{AsRef, Display, From, IntoIterator};
+use derive_more::{AsRef, From, IntoIterator};
 use iroha_macro::FromVariant;
 pub use iroha_primitives_derive::socket_addr;
 use iroha_schema::IntoSchema;
@@ -17,7 +17,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 use crate::{conststr::ConstString, ffi};
 
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
-#[derive(Debug, Clone, Display, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, displaydoc::Display)]
 /// Error when parsing IP or socket address
 pub enum ParseError {
     /// Not enough segments in IP address

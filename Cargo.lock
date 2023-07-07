@@ -1370,6 +1370,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "displaydoc"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "487585f4d0c6655fe74905e2504d8ad6908e4db67f744eb140876906c2f3175d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.23",
+]
+
+[[package]]
 name = "dissimilar"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3225,6 +3236,7 @@ name = "iroha_primitives"
 version = "2.0.0-pre-rc.16"
 dependencies = [
  "derive_more",
+ "displaydoc",
  "fixnum",
  "iroha_ffi",
  "iroha_macro",
