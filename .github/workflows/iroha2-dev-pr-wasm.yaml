@@ -20,13 +20,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RUSTUP_TOOLCHAIN: nightly-2022-12-22
+  RUSTUP_TOOLCHAIN: nightly-2023-06-25
 
 jobs:
   static-analysis:
     runs-on: ubuntu-latest
     container:
-      image: hyperledger/iroha2-ci:nightly-2022-12-22
+      image: hyperledger/iroha2-ci:nightly-2023-06-25
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
@@ -43,7 +43,7 @@ jobs:
   tests:
     runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
-      image: hyperledger/iroha2-ci:nightly-2022-12-22
+      image: hyperledger/iroha2-ci:nightly-2023-06-25
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
