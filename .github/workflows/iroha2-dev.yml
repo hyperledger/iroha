@@ -4,7 +4,7 @@ on:
   push:
     branches: [iroha2-dev]
   # Run the workflow to check that the docker containers are properly buildable
-  pull_request_target:
+  pull_request:
     branches: [iroha2-dev]
     paths:
       - '.github/workflows/**.yml'
