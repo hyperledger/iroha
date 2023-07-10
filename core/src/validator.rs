@@ -25,7 +25,7 @@ impl From<Error> for ValidationFail {
 
                 match call_error {
                     ExecutionLimitsExceeded(_) => Self::TooComplex,
-                    HostExecution(_) | Other(_) => Self::InternalError(call_error.to_string()),
+                    HostExecution(error) | Other(error) => Self::InternalError(error.to_string()),
                 }
             }
             _ => Self::InternalError(err.to_string()),
