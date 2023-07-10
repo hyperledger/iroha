@@ -13,7 +13,7 @@ use std::{
 use eyre::{bail, eyre, Context as _, Result};
 
 /// Current toolchain used to build smartcontracts
-const TOOLCHAIN: &str = "+nightly-2022-12-22";
+const TOOLCHAIN: &str = "+nightly-2023-06-25";
 
 /// WASM Builder for smartcontracts (e.g. triggers and validators).
 ///

@@ -4,7 +4,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 
-RUN pacman -Syu rustup mold musl rust-musl musl-x86_64 openssl libgit2 git docker docker-buildx docker-compose --noconfirm
+RUN pacman -Syu rustup mold musl rust-musl musl openssl libgit2 git docker docker-buildx docker-compose --noconfirm
 
 RUN rustup toolchain install nightly-2023-06-25-x86_64-unknown-linux-gnu
 RUN rustup default nightly-2023-06-25-x86_64-unknown-linux-gnu
@@ -12,7 +12,8 @@ RUN rustup component add llvm-tools-preview clippy
 RUN rustup component add rust-src
 RUN rustup component add rustfmt
 RUN rustup target add wasm32-unknown-unknown
-RUN cargo install cargo-lints cargo-nono webassembly-test-runner
+RUN cargo install cargo-lints
+RUN cargo install webassembly-test-runner
 RUN cargo install cargo-llvm-cov
 
 # TODO: Figure out a way to pull in libgit2, which doesn't crash if this useless variable is gone.
