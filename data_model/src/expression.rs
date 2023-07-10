@@ -496,7 +496,7 @@ impl<V> EvaluatesTo<V> {
     pub fn new_unchecked(expression: impl Into<Expression>) -> Self {
         Self {
             expression: Box::new(expression.into()),
-            _value_type: PhantomData::default(),
+            _value_type: PhantomData,
         }
     }
 

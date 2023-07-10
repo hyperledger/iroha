@@ -307,7 +307,7 @@ mod tests {
     #[test]
     fn find_block_header_by_hash() -> Result<()> {
         let wsv = wsv_with_test_blocks_and_transactions(1, 1, 1)?;
-        let block = wsv.all_blocks().into_iter().last().expect("WSV is empty");
+        let block = wsv.all_blocks().last().expect("WSV is empty");
 
         assert_eq!(
             FindBlockHeaderByHash::new(block.hash()).execute(&wsv)?,
@@ -384,7 +384,7 @@ mod tests {
             .sign(ALICE_KEYS.clone())?;
         let wrong_hash = unapplied_tx.hash();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);
-        assert!(matches!(not_found, Err(_)));
+        assert!(not_found.is_err());
 
         let found_accepted = FindTransactionByHash::new(va_tx.hash()).execute(&wsv)?;
         if found_accepted.transaction.error.is_none() {

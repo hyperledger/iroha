@@ -288,7 +288,7 @@ mod tests {
         assert_eq!(tree.len(), 12);
         assert!(matches!(tree.get(6), Some(None)));
         assert!(matches!(tree.get(11), Some(Some(_))));
-        assert!(matches!(tree.get(12), None));
+        assert!(tree.get(12).is_none());
     }
 
     #[test]

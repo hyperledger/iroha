@@ -147,7 +147,6 @@ impl From<VersionedCommittedBlock> for BlockCommitted {
             hash: block.partial_hash(),
             signatures: block
                 .signatures()
-                .into_iter()
                 .cloned()
                 .collect::<std::collections::BTreeSet<SignatureOf<VersionedCommittedBlock>>>()
                 .try_into()

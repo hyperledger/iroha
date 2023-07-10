@@ -348,7 +348,7 @@ impl<T> core::hash::Hash for SignatureWrapperOf<T> {
 /// the associated signature will be replaced with the new one.
 ///
 /// GUARANTEE 1: Each signature corresponds to a different public key
-#[allow(clippy::derive_hash_xor_eq)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Hash, Encode, Serialize, IntoSchema)]
 #[serde(transparent)]
 // Transmute guard

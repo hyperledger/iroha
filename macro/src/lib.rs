@@ -33,8 +33,8 @@ pub mod error {
     impl<F, T> Default for ErrorTryFromEnum<F, T> {
         fn default() -> Self {
             Self {
-                from: PhantomData::default(),
-                to: PhantomData::default(),
+                from: PhantomData,
+                to: PhantomData,
             }
         }
     }

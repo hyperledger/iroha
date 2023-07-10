@@ -125,10 +125,7 @@ impl Config {
             .expect("Must be some")
             .sumeragi
             .wsv_clone();
-        let mut blocks = blocks_wsv
-            .all_blocks()
-            .into_iter()
-            .skip(blocks_out_of_measure as usize);
+        let mut blocks = blocks_wsv.all_blocks().skip(blocks_out_of_measure as usize);
         let (txs_accepted, txs_rejected) = (0..self.blocks)
             .map(|_| {
                 let block = blocks
