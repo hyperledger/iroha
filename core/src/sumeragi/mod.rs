@@ -62,6 +62,7 @@ pub struct SumeragiHandle {
     queue: Arc<Queue>,
     _thread_handle: Arc<ThreadHandler>,
     // Should be dropped after `_thread_handle` to prevent sumeargi thread from panicking
+    control_message_sender: mpsc::SyncSender<ControlFlowMessage>,
     message_sender: mpsc::SyncSender<MessagePacket>,
 }
 
@@ -186,7 +187,14 @@ impl SumeragiHandle {
 
     /// Deposit a sumeragi network message.
     pub fn incoming_message(&self, msg: MessagePacket) {
-        if let Err(error) = self.message_sender.try_send(msg) {
+        if msg.message.is_none() {
+            if let Err(error) = self.control_message_sender.try_send(ControlFlowMessage {
+                view_change_proofs: msg.view_change_proofs,
+            }) {
+                self.metrics.dropped_messages.inc();
+                error!(?error, "This peer is faulty. Incoming control messages have to be dropped due to low processing speed.");
+            }
+        } else if let Err(error) = self.message_sender.try_send(msg) {
             self.metrics.dropped_messages.inc();
             error!(?error, "This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
         }
@@ -208,6 +216,7 @@ impl SumeragiHandle {
             block_count: BlockCount(block_count),
         }: SumeragiStartArgs,
     ) -> SumeragiHandle {
+        let (control_message_sender, control_message_receiver) = mpsc::sync_channel(100);
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
         let mut blocks_iter = (1..=block_count).map(|block_height| {
@@ -270,6 +279,7 @@ impl SumeragiHandle {
             max_txs_in_block: configuration.max_transactions_in_block as usize,
             kura: Arc::clone(&kura),
             network: network.clone(),
+            control_message_receiver,
             message_receiver,
             debug_force_soft_fork,
             current_topology,
@@ -299,6 +309,7 @@ impl SumeragiHandle {
             network,
             queue,
             kura,
+            control_message_sender,
             message_sender,
             public_wsv_receiver,
             metrics: Metrics::default(),

@@ -269,7 +269,7 @@ pub mod message {
                     for block in blocks.clone() {
                         block_sync.sumeragi.incoming_message(MessagePacket::new(
                             ProofChain::default(),
-                            Message::BlockSyncUpdate(block.into()),
+                            Some(Message::BlockSyncUpdate(block.into())),
                         ));
                     }
                 }
