@@ -7,7 +7,8 @@
     clippy::std_instead_of_alloc,
     clippy::arithmetic_side_effects,
     clippy::trait_duplication_in_bounds,
-    clippy::extra_unused_lifetimes // Thanks to `EnumKind` not knowing how to write a derive macro.
+    clippy::extra_unused_lifetimes, // Thanks to `EnumKind` not knowing how to write a derive macro.
+    clippy::items_after_test_module, // Clippy bug
 )]
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -519,6 +520,12 @@ pub mod parameter {
         }
     }
 
+    pub mod prelude {
+        //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
+
+        pub use super::{Parameter, ParameterId};
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -585,12 +592,6 @@ pub mod parameter {
                 );
             }
         }
-    }
-
-    pub mod prelude {
-        //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
-
-        pub use super::{Parameter, ParameterId};
     }
 }
 
@@ -1927,6 +1928,7 @@ mod ffi {
     }
 }
 
+#[allow(ambiguous_glob_reexports)]
 pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
     pub use iroha_crypto::PublicKey;

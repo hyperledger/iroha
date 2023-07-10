@@ -55,7 +55,7 @@ allow = [
     'clippy::implicit_return',
     'clippy::inconsistent_struct_constructor',
     'clippy::indexing_slicing',
-    'clippy::integer_arithmetic',
+    'clippy::arithmetic_side_effects',
     'clippy::let_underscore_must_use',
     'clippy::match_wildcard_for_single_variants',
     'clippy::missing_docs_in_private_items',

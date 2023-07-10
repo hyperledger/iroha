@@ -515,6 +515,7 @@ mod tests {
         }
 
         #[test]
+        #[allow(clippy::redundant_clone)]
         fn const_string_clone() {
             run_with_strings(|string| {
                 let const_string = ConstString::from(string);

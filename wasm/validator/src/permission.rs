@@ -199,7 +199,7 @@ impl PassCondition for AlwaysPass {
 
 impl<T: Token> From<&T> for AlwaysPass {
     fn from(_: &T) -> Self {
-        Self::default()
+        Self
     }
 }
 
@@ -220,6 +220,6 @@ impl PassCondition for OnlyGenesis {
 
 impl<T: Token> From<&T> for OnlyGenesis {
     fn from(_: &T) -> Self {
-        Self::default()
+        Self
     }
 }

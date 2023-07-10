@@ -61,6 +61,7 @@ pub struct Sumeragi {
     pub transaction_cache: Vec<AcceptedTransaction>,
 }
 
+#[allow(clippy::missing_fields_in_debug)]
 impl Debug for Sumeragi {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sumeragi")
@@ -1288,6 +1289,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::redundant_clone)]
     fn block_sync_invalid_block() {
         let (finalized_wsv, _, mut block) = create_data_for_test();
         let wsv = finalized_wsv.clone();
@@ -1318,6 +1320,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::redundant_clone)]
     fn block_sync_not_proper_height() {
         let (finalized_wsv, _, mut block) = create_data_for_test();
         let wsv = finalized_wsv.clone();
@@ -1336,6 +1339,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::redundant_clone)]
     fn block_sync_commit_block() {
         let (finalized_wsv, _, block) = create_data_for_test();
         let wsv = finalized_wsv.clone();
@@ -1385,6 +1389,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::redundant_clone)]
     fn block_sync_genesis_block_do_not_replace() {
         let (finalized_wsv, _, mut block) = create_data_for_test();
         let wsv = finalized_wsv.clone();
