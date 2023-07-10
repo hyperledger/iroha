@@ -11,7 +11,7 @@ jobs:
   registry:
     runs-on: ubuntu-latest
     container:
-      image: hyperledger/iroha2-ci:nightly-2022-12-22
+      image: hyperledger/iroha2-ci:nightly-2023-06-25
     steps:
       - uses: actions/checkout@v3
       - name: Set up Docker Buildx
@@ -55,7 +55,7 @@ jobs:
   configs:
     runs-on: ubuntu-latest
     container:
-      image: hyperledger/iroha2-ci:nightly-2022-12-22
+      image: hyperledger/iroha2-ci:nightly-2023-06-25
     steps:
       - uses: actions/checkout@v3
         with:
