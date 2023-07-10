@@ -21,11 +21,7 @@ use iroha_crypto::{HashOf, SignatureVerificationFail, SignaturesOf};
 pub use iroha_data_model::prelude::*;
 use iroha_data_model::{
     query::error::FindError,
-    transaction::{
-        error::{TransactionLimitError, TransactionRejectionReason},
-        TransactionLimits, TransactionPayload,
-    },
-    ValidationFail,
+    transaction::{error::TransactionLimitError, TransactionLimits},
 };
 use iroha_genesis::GenesisTransaction;
 use iroha_logger::{debug, error};

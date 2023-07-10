@@ -291,7 +291,7 @@ unsafe fn _decode_from_raw_in_range<T: DecodeAll>(
     len: usize,
     range: RangeFrom<usize>,
 ) -> T {
-    let bytes = Box::from_raw(core::slice::from_raw_parts_mut(ptr as *mut _, len));
+    let bytes = Box::from_raw(core::slice::from_raw_parts_mut(ptr.cast_mut(), len));
 
     #[allow(clippy::expect_fun_call)]
     T::decode_all(&mut &bytes[range]).expect(

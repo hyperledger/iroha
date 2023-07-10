@@ -387,7 +387,7 @@ impl WorldStateView {
         macro_rules! update_params {
             ($ident:ident, $($param:expr => $config:expr),+ $(,)?) => {
                 $(if let Some(param) = self.query_param($param) {
-                    let mut $ident = &mut self.config;
+                    let $ident = &mut self.config;
                     $config = param;
                 })+
 

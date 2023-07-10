@@ -1568,6 +1568,7 @@ pub mod error {
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
+#[allow(ambiguous_glob_reexports)]
 pub mod prelude {
     #[cfg(feature = "http")]
     pub use super::http::*;
