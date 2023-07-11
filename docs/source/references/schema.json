@@ -2070,6 +2070,14 @@
       "decimal_places": 9
     }
   },
+  "ForwardCursor": {
+    "Struct": [
+      {
+        "name": "cursor",
+        "type": "Option<NonZero<u64>>"
+      }
+    ]
+  },
   "GenericPredicateBox<ValuePredicate>": {
     "Enum": [
       {
@@ -2996,9 +3004,6 @@
   "Option<IpfsPath>": {
     "Option": "IpfsPath"
   },
-  "Option<Name>": {
-    "Option": "Name"
-  },
   "Option<NonZero<u32>>": {
     "Option": "NonZero<u32>"
   },
@@ -3016,9 +3021,6 @@
   },
   "Option<TransactionRejectionReason>": {
     "Option": "TransactionRejectionReason"
-  },
-  "Option<u32>": {
-    "Option": "u32"
   },
   "Or": {
     "Struct": [
@@ -3039,18 +3041,6 @@
   "OriginFilter<PeerEvent>": "PeerId",
   "OriginFilter<RoleEvent>": "RoleId",
   "OriginFilter<TriggerEvent>": "TriggerId",
-  "Pagination": {
-    "Struct": [
-      {
-        "name": "start",
-        "type": "Option<u32>"
-      },
-      {
-        "name": "limit",
-        "type": "Option<u32>"
-      }
-    ]
-  },
   "Pair": {
     "Struct": [
       {
@@ -3541,12 +3531,12 @@
         "type": "Compact<u128>"
       },
       {
-        "name": "query",
-        "type": "QueryBox"
-      },
-      {
         "name": "authority",
         "type": "AccountId"
+      },
+      {
+        "name": "query",
+        "type": "QueryBox"
       },
       {
         "name": "filter",
@@ -3554,19 +3544,15 @@
       }
     ]
   },
-  "QueryResult": {
+  "QueryResponse": {
     "Struct": [
       {
         "name": "result",
         "type": "Value"
       },
       {
-        "name": "pagination",
-        "type": "Pagination"
-      },
-      {
-        "name": "sorting",
-        "type": "Sorting"
+        "name": "cursor",
+        "type": "ForwardCursor"
       }
     ]
   },
@@ -3891,24 +3877,24 @@
   "SignedQuery": {
     "Struct": [
       {
-        "name": "payload",
-        "type": "QueryPayload"
-      },
-      {
         "name": "signature",
         "type": "SignatureOf<QueryPayload>"
+      },
+      {
+        "name": "payload",
+        "type": "QueryPayload"
       }
     ]
   },
   "SignedTransaction": {
     "Struct": [
       {
-        "name": "payload",
-        "type": "TransactionPayload"
-      },
-      {
         "name": "signatures",
         "type": "SignaturesOf<TransactionPayload>"
+      },
+      {
+        "name": "payload",
+        "type": "TransactionPayload"
       }
     ]
   },
@@ -4030,14 +4016,6 @@
   "SortedVec<SignatureOf<TransactionPayload>>": {
     "Vec": "SignatureOf<TransactionPayload>"
   },
-  "Sorting": {
-    "Struct": [
-      {
-        "name": "sort_by_metadata_key",
-        "type": "Option<Name>"
-      }
-    ]
-  },
   "String": "String",
   "StringPredicate": {
     "Enum": [
@@ -4123,24 +4101,24 @@
   "TransactionPayload": {
     "Struct": [
       {
-        "name": "authority",
-        "type": "AccountId"
-      },
-      {
         "name": "creation_time_ms",
         "type": "u64"
       },
       {
-        "name": "nonce",
-        "type": "Option<NonZero<u32>>"
+        "name": "authority",
+        "type": "AccountId"
+      },
+      {
+        "name": "instructions",
+        "type": "Executable"
       },
       {
         "name": "time_to_live_ms",
         "type": "Option<NonZero<u64>>"
       },
       {
-        "name": "instructions",
-        "type": "Executable"
+        "name": "nonce",
+        "type": "Option<NonZero<u32>>"
       },
       {
         "name": "metadata",
@@ -4148,7 +4126,7 @@
       }
     ]
   },
-  "TransactionQueryResult": {
+  "TransactionQueryOutput": {
     "Struct": [
       {
         "name": "transaction",
@@ -4200,7 +4178,7 @@
   "TransactionValue": {
     "Struct": [
       {
-        "name": "tx",
+        "name": "value",
         "type": "VersionedSignedTransaction"
       },
       {
@@ -4507,9 +4485,9 @@
         "type": "SignatureCheckCondition"
       },
       {
-        "tag": "TransactionQueryResult",
+        "tag": "TransactionQueryOutput",
         "discriminant": 12,
-        "type": "TransactionQueryResult"
+        "type": "TransactionQueryOutput"
       },
       {
         "tag": "PermissionToken",
@@ -4685,12 +4663,12 @@
       }
     ]
   },
-  "VersionedQueryResult": {
+  "VersionedQueryResponse": {
     "Enum": [
       {
         "tag": "V1",
         "discriminant": 1,
-        "type": "QueryResult"
+        "type": "QueryResponse"
       }
     ]
   },

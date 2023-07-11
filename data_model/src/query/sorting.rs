@@ -8,12 +8,11 @@ use alloc::{
 };
 
 use iroha_data_model_derive::model;
-use iroha_schema::IntoSchema;
-use iroha_version::{Decode, Encode};
+use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::prelude::*;
+use crate::{name::Name, prelude::*};
 
 const SORT_BY_KEY: &str = "sort_by_metadata_key";
 
@@ -21,8 +20,8 @@ const SORT_BY_KEY: &str = "sort_by_metadata_key";
 pub mod model {
     use super::*;
 
-    /// Enum for sorting requests
-    #[derive(Debug, Clone, Default, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    /// Struct for sorting requests
+    #[derive(Debug, Clone, Default, Decode, Encode, Deserialize, Serialize)]
     pub struct Sorting {
         /// Sort query result using [`Name`] of the key in [`Asset`]'s metadata.
         pub sort_by_metadata_key: Option<Name>,
@@ -38,13 +37,13 @@ impl Sorting {
     }
 }
 
-impl From<Sorting> for Vec<(&'static str, String)> {
+impl From<Sorting> for Vec<(&'static str, Name)> {
     fn from(sorting: Sorting) -> Self {
-        let mut vec = Vec::new();
         if let Some(key) = sorting.sort_by_metadata_key {
-            vec.push((SORT_BY_KEY, key.to_string()));
+            return vec![(SORT_BY_KEY, key)];
         }
-        vec
+
+        Vec::new()
     }
 }
 

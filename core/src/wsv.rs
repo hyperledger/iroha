@@ -160,8 +160,8 @@ impl WorldStateView {
     pub fn account_assets(
         &self,
         id: &AccountId,
-    ) -> Result<impl ExactSizeIterator<Item = Asset> + '_, QueryExecutionFail> {
-        self.map_account(id, |account| account.assets.values().cloned())
+    ) -> Result<impl ExactSizeIterator<Item = &Asset>, QueryExecutionFail> {
+        self.map_account(id, |account| account.assets.values())
     }
 
     /// Return a set of all permission tokens granted to this account.
@@ -176,7 +176,7 @@ impl WorldStateView {
         let account = self.account(account_id)?;
 
         let mut tokens = self
-            .account_inherent_permission_tokens(account_id)?
+            .account_inherent_permission_tokens(account_id)
             .collect::<BTreeSet<_>>();
 
         for role_id in &account.roles {
@@ -196,12 +196,11 @@ impl WorldStateView {
     pub fn account_inherent_permission_tokens(
         &self,
         account_id: &AccountId,
-    ) -> Result<impl ExactSizeIterator<Item = &PermissionToken>, FindError> {
+    ) -> impl ExactSizeIterator<Item = &PermissionToken> {
         self.world
             .account_permission_tokens
             .get(account_id)
-            .ok_or_else(|| FindError::Account(account_id.clone()))
-            .map(std::collections::BTreeSet::iter)
+            .map_or_else(Default::default, std::collections::BTreeSet::iter)
     }
 
     /// Return `true` if [`Account`] contains a permission token not associated with any role.

@@ -197,12 +197,12 @@ pub mod scale {
     #[cfg(not(feature = "std"))]
     use alloc::vec::Vec;
 
-    use parity_scale_codec::{Decode, Encode};
+    use parity_scale_codec::{DecodeAll, Encode};
 
     use super::{error::Result, Version};
 
     /// [`Decode`] versioned analog.
-    pub trait DecodeVersioned: Decode + Version {
+    pub trait DecodeVersioned: DecodeAll + Version {
         /// Use this function for versioned objects instead of `decode_all`.
         ///
         /// # Errors

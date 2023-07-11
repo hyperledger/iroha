@@ -10,13 +10,13 @@ use iroha_data_model::{
     prelude::*,
     query::{
         error::{FindError, QueryExecutionFail},
-        TransactionQueryResult,
+        TransactionQueryOutput,
     },
     transaction::TransactionValue,
 };
 use iroha_telemetry::metrics;
 
-use super::{query::Lazy, *};
+use super::*;
 
 pub(crate) struct BlockTransactionIter(Arc<VersionedCommittedBlock>, usize);
 pub(crate) struct BlockTransactionRef(Arc<VersionedCommittedBlock>, usize);
@@ -61,11 +61,11 @@ impl ValidQuery for FindAllTransactions {
     fn execute<'wsv>(
         &self,
         wsv: &'wsv WorldStateView,
-    ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, QueryExecutionFail> {
+    ) -> Result<Box<dyn Iterator<Item = TransactionQueryOutput> + 'wsv>, QueryExecutionFail> {
         Ok(Box::new(
             wsv.all_blocks()
                 .flat_map(BlockTransactionIter::new)
-                .map(|tx| TransactionQueryResult {
+                .map(|tx| TransactionQueryOutput {
                     block_hash: tx.block_hash(),
                     transaction: tx.value(),
                 }),
@@ -78,7 +78,7 @@ impl ValidQuery for FindTransactionsByAccountId {
     fn execute<'wsv>(
         &self,
         wsv: &'wsv WorldStateView,
-    ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, QueryExecutionFail> {
+    ) -> Result<Box<dyn Iterator<Item = TransactionQueryOutput> + 'wsv>, QueryExecutionFail> {
         let account_id = wsv
             .evaluate(&self.account_id)
             .wrap_err("Failed to get account id")
@@ -88,7 +88,7 @@ impl ValidQuery for FindTransactionsByAccountId {
             wsv.all_blocks()
                 .flat_map(BlockTransactionIter::new)
                 .filter(move |tx| *tx.authority() == account_id)
-                .map(|tx| TransactionQueryResult {
+                .map(|tx| TransactionQueryOutput {
                     block_hash: tx.block_hash(),
                     transaction: tx.value(),
                 }),
@@ -98,10 +98,7 @@ impl ValidQuery for FindTransactionsByAccountId {
 
 impl ValidQuery for FindTransactionByHash {
     #[metrics(+"find_transaction_by_hash")]
-    fn execute<'wsv>(
-        &self,
-        wsv: &'wsv WorldStateView,
-    ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, QueryExecutionFail> {
+    fn execute(&self, wsv: &WorldStateView) -> Result<TransactionQueryOutput, QueryExecutionFail> {
         let tx_hash = wsv
             .evaluate(&self.hash)
             .wrap_err("Failed to get hash")
@@ -122,7 +119,7 @@ impl ValidQuery for FindTransactionByHash {
             .iter()
             .find(|transaction| transaction.value.hash() == tx_hash)
             .cloned()
-            .map(|transaction| TransactionQueryResult {
+            .map(|transaction| TransactionQueryOutput {
                 block_hash,
                 transaction,
             })

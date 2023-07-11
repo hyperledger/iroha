@@ -67,6 +67,7 @@ thiserror = { workspace = true }
 displaydoc = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs", "signal"] }
 warp = { workspace = true, features = ["multipart", "websocket"] }
+dashmap = "5.4.0"
 serial_test = "0.8.0"
 once_cell = { workspace = true }
 owo-colors = { workspace = true, features = ["supports-colors"] }

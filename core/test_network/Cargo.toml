@@ -9,6 +9,7 @@ license.workspace = true
 
 [dependencies]
 iroha = { workspace = true, features = ["test-network"] }
+iroha_crypto = { workspace = true }
 iroha_client = { workspace = true }
 iroha_core = { workspace = true }
 iroha_config = { workspace = true }

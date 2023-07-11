@@ -14,7 +14,12 @@ extern crate alloc;
 use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use core::ops::RangeFrom;
 
-use data_model::{isi::Instruction, prelude::*, query::QueryBox, validator::NeedsValidationBox};
+use data_model::{
+    isi::Instruction,
+    prelude::*,
+    query::{Query, QueryBox},
+    validator::NeedsValidationBox,
+};
 use debug::DebugExpectExt as _;
 pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::main;

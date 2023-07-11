@@ -3,7 +3,7 @@
 use std::thread;
 
 use eyre::Result;
-use iroha_client::client::{self, Client};
+use iroha_client::client::{self, Client, QueryResult};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{
     parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
@@ -63,7 +63,9 @@ fn long_multiple_blocks_created() -> Result<()> {
     Client::test(&peer.api_address, &peer.telemetry_address).poll_request(
         client::asset::by_account_id(account_id),
         |result| {
-            result.iter().any(|asset| {
+            let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+
+            assets.iter().any(|asset| {
                 asset.id().definition_id == asset_definition_id
                     && *asset.value() == AssetValue::Quantity(account_has_quantity)
             })

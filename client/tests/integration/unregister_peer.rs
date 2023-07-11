@@ -2,7 +2,7 @@
 use std::thread;
 
 use eyre::Result;
-use iroha_client::client;
+use iroha_client::client::{self, QueryResult};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{
     parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
@@ -64,7 +64,9 @@ fn check_assets(
             Configuration::block_sync_gossip_time(),
             15,
             |result| {
-                result.iter().any(|asset| {
+                let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+
+                assets.iter().any(|asset| {
                     asset.id().definition_id == *asset_definition_id
                         && *asset.value() == AssetValue::Quantity(quantity)
                 })

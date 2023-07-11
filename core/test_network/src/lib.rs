@@ -9,10 +9,10 @@ use std::{
     thread,
 };
 
-use eyre::{Error, Result};
+use eyre::Result;
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha::Iroha;
-use iroha_client::client::Client;
+use iroha_client::client::{Client, QueryOutput};
 use iroha_config::{
     base::proxy::{LoadFromEnv, Override},
     client::Configuration as ClientConfiguration,
@@ -20,8 +20,8 @@ use iroha_config::{
     sumeragi::Configuration as SumeragiConfiguration,
     torii::Configuration as ToriiConfiguration,
 };
-use iroha_core::{prelude::*, smartcontracts::query::Lazy};
-use iroha_data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*};
+use iroha_crypto::prelude::*;
+use iroha_data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
 use iroha_primitives::addr::{socket_addr, SocketAddr};
@@ -650,7 +650,7 @@ impl PeerBuilder {
 type PeerWithRuntimeAndClient = (Runtime, Peer, Client);
 
 fn local_unique_port() -> Result<SocketAddr> {
-    Ok(socket_addr!(127.0.0.1: unique_port::get_unique_free_port().map_err(Error::msg)?))
+    Ok(socket_addr!(127.0.0.1: unique_port::get_unique_free_port().map_err(eyre::Error::msg)?))
 }
 
 /// Runtime used for testing.
@@ -698,61 +698,61 @@ pub trait TestClient: Sized {
     ///
     /// # Errors
     /// If predicate is not satisfied, after maximum retries.
-    fn submit_till<R>(
+    fn submit_till<R: Query + Debug + Clone>(
         &mut self,
-        instruction: impl Instruction + Debug,
+        instruction: impl Instruction + Debug + Clone,
         request: R,
-        f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
+    ) -> eyre::Result<()>
     where
-        R: ValidQuery + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Lazy + Clone + Debug;
+        R::Output: QueryOutput,
+        <R::Output as QueryOutput>::Target: core::fmt::Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>;
 
     /// Submits instructions with polling
     ///
     /// # Errors
     /// If predicate is not satisfied, after maximum retries.
-    fn submit_all_till<R>(
+    fn submit_all_till<R: Query + Debug + Clone>(
         &mut self,
         instructions: Vec<InstructionBox>,
         request: R,
-        f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
+    ) -> eyre::Result<()>
     where
-        R: ValidQuery + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Lazy + Clone + Debug;
+        R::Output: QueryOutput,
+        <R::Output as QueryOutput>::Target: core::fmt::Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>;
 
     /// Polls request till predicate `f` is satisfied, with default period and max attempts.
     ///
     /// # Errors
     /// If predicate is not satisfied after maximum retries.
-    fn poll_request<R>(
+    fn poll_request<R: Query + Debug + Clone>(
         &mut self,
         request: R,
-        f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
+    ) -> eyre::Result<()>
     where
-        R: ValidQuery + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Lazy + Clone + Debug;
+        R::Output: QueryOutput,
+        <R::Output as QueryOutput>::Target: core::fmt::Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>;
 
     /// Polls request till predicate `f` is satisfied with `period` and `max_attempts` supplied.
     ///
     /// # Errors
     /// If predicate is not satisfied after maximum retries.
-    fn poll_request_with_period<R>(
+    fn poll_request_with_period<R: Query + Debug + Clone + Clone>(
         &mut self,
         request: R,
         period: Duration,
         max_attempts: u32,
-        f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
+    ) -> eyre::Result<()>
     where
-        R: ValidQuery + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Lazy + Clone + Debug;
+        R::Output: QueryOutput,
+        <R::Output as QueryOutput>::Target: core::fmt::Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>;
 }
 
 impl TestRuntime for Runtime {
@@ -838,54 +838,54 @@ impl TestClient for Client {
         }
     }
 
-    fn submit_till<R>(
+    fn submit_till<R: Query + Debug + Clone>(
         &mut self,
-        instruction: impl Instruction + Debug,
+        instruction: impl Instruction + Debug + Clone,
         request: R,
-        f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
+    ) -> eyre::Result<()>
     where
-        R: ValidQuery + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Lazy + Clone + Debug,
+        R::Output: QueryOutput,
+        <R::Output as QueryOutput>::Target: core::fmt::Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.submit(instruction)
             .expect("Failed to submit instruction.");
         self.poll_request(request, f)
     }
 
-    fn submit_all_till<R>(
+    fn submit_all_till<R: Query + Debug + Clone>(
         &mut self,
         instructions: Vec<InstructionBox>,
         request: R,
-        f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
+    ) -> eyre::Result<()>
     where
-        R: ValidQuery + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Lazy + Clone + Debug,
+        R::Output: QueryOutput,
+        <R::Output as QueryOutput>::Target: core::fmt::Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.submit_all(instructions)
             .expect("Failed to submit instruction.");
         self.poll_request(request, f)
     }
 
-    fn poll_request_with_period<R>(
+    fn poll_request_with_period<R: Query + Debug + Clone>(
         &mut self,
         request: R,
         period: Duration,
         max_attempts: u32,
-        f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
+    ) -> eyre::Result<()>
     where
-        R: ValidQuery + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Lazy + Clone + Debug,
+        R::Output: QueryOutput,
+        <R::Output as QueryOutput>::Target: core::fmt::Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         let mut query_result = None;
         for _ in 0..max_attempts {
             query_result = match self.request(request.clone()) {
-                Ok(result) if f(&result) => return Ok(result),
+                Ok(result) if f(result.clone()) => return Ok(()),
                 result => Some(result),
             };
             thread::sleep(period);
@@ -893,15 +893,15 @@ impl TestClient for Client {
         Err(eyre::eyre!("Failed to wait for query request completion that would satisfy specified closure. Got this query result instead: {:?}", &query_result))
     }
 
-    fn poll_request<R>(
+    fn poll_request<R: Query + Debug + Clone>(
         &mut self,
         request: R,
-        f: impl Fn(&R::Output) -> bool,
-    ) -> eyre::Result<R::Output>
+        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
+    ) -> eyre::Result<()>
     where
-        R: ValidQuery + Into<QueryBox> + Debug + Clone,
-        <R::Output as TryFrom<Value>>::Error: Into<Error>,
-        R::Output: Lazy + Clone + Debug,
+        R::Output: QueryOutput,
+        <R::Output as QueryOutput>::Target: core::fmt::Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.poll_request_with_period(request, Configuration::pipeline_time() / 2, 10, f)
     }

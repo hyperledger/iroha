@@ -288,27 +288,26 @@ pub mod isi {
 /// Query module provides [`Query`] Domain related implementations.
 pub mod query {
     use eyre::{Result, WrapErr};
-    use iroha_data_model::query::error::QueryExecutionFail as Error;
+    use iroha_data_model::{
+        domain::Domain,
+        query::{error::QueryExecutionFail as Error, MetadataValue},
+    };
 
     use super::*;
-    use crate::smartcontracts::query::Lazy;
 
     impl ValidQuery for FindAllDomains {
         #[metrics(+"find_all_domains")]
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Domain> + 'wsv>, Error> {
             Ok(Box::new(wsv.domains().values().cloned()))
         }
     }
 
     impl ValidQuery for FindDomainById {
         #[metrics(+"find_domain_by_id")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Domain, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get domain id")
@@ -320,10 +319,7 @@ pub mod query {
 
     impl ValidQuery for FindDomainKeyValueByIdAndKey {
         #[metrics(+"find_domain_key_value_by_id_and_key")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get domain id")
@@ -341,10 +337,7 @@ pub mod query {
 
     impl ValidQuery for FindAssetDefinitionKeyValueByIdAndKey {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get asset definition id")

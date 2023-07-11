@@ -269,7 +269,7 @@ pub mod isi {
         for account_id in account_ids {
             accounts_with_token.insert(
                 account_id.clone(),
-                wsv.account_inherent_permission_tokens(account_id)?
+                wsv.account_inherent_permission_tokens(account_id)
                     .filter(|token| token.definition_id == *target_definition_id)
                     .cloned()
                     .collect::<Vec<_>>(),
@@ -405,22 +405,25 @@ pub mod isi {
 pub mod query {
     use eyre::Result;
     use iroha_data_model::{
+        parameter::Parameter,
+        peer::Peer,
+        permission::PermissionTokenDefinition,
         prelude::*,
         query::{
             error::{FindError, QueryExecutionFail as Error},
             permission::DoesAccountHavePermissionToken,
         },
+        role::{Role, RoleId},
     };
 
     use super::*;
-    use crate::smartcontracts::query::Lazy;
 
     impl ValidQuery for FindAllRoles {
         #[metrics(+"find_all_roles")]
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Role> + 'wsv>, Error> {
             Ok(Box::new(wsv.world.roles.values().cloned()))
         }
     }
@@ -430,7 +433,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = RoleId> + 'wsv>, Error> {
             Ok(Box::new(wsv
                .world
                .roles
@@ -443,10 +446,7 @@ pub mod query {
 
     impl ValidQuery for FindRoleByRoleId {
         #[metrics(+"find_role_by_role_id")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Role, Error> {
             let role_id = wsv
                 .evaluate(&self.id)
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
@@ -464,7 +464,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Peer> + 'wsv>, Error> {
             Ok(Box::new(wsv.peers().cloned().map(Peer::new)))
         }
     }
@@ -474,7 +474,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = PermissionTokenDefinition> + 'wsv>, Error> {
             Ok(Box::new(
                 wsv.permission_token_definitions().cloned(),
             ))
@@ -486,17 +486,14 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Parameter> + 'wsv>, Error> {
             Ok(Box::new(wsv.parameters().cloned()))
         }
     }
 
     impl ValidQuery for DoesAccountHavePermissionToken {
         #[metrics("does_account_have_permission_token")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<bool, Error> {
             let authority = wsv
                 .evaluate(&self.account_id)
                 .map_err(|e| Error::Evaluate(e.to_string()))?;

@@ -466,18 +466,20 @@ pub mod query {
 
     use eyre::{Result, WrapErr};
     use iroha_data_model::{
-        evaluate::ExpressionEvaluator, query::error::QueryExecutionFail as Error,
+        account::Account,
+        evaluate::ExpressionEvaluator,
+        permission::PermissionToken,
+        query::{error::QueryExecutionFail as Error, MetadataValue},
     };
 
     use super::*;
-    use crate::smartcontracts::query::Lazy;
 
     impl ValidQuery for FindRolesByAccountId {
         #[metrics(+"find_roles_by_account_id")]
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = RoleId> + 'wsv>, Error> {
             let account_id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to evaluate account id")
@@ -496,7 +498,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = PermissionToken> + 'wsv>, Error> {
             let account_id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to evaluate account id")
@@ -513,7 +515,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
             Ok(Box::new(
                 wsv.domains()
                     .values()
@@ -525,10 +527,7 @@ pub mod query {
 
     impl ValidQuery for FindAccountById {
         #[metrics(+"find_account_by_id")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Account, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get id")
@@ -543,7 +542,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
             let name = wsv
                 .evaluate(&self.name)
                 .wrap_err("Failed to get account name")
@@ -570,7 +569,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.domain_id)
                 .wrap_err("Failed to get domain id")
@@ -583,10 +582,7 @@ pub mod query {
 
     impl ValidQuery for FindAccountKeyValueByIdAndKey {
         #[metrics(+"find_account_key_value_by_id_and_key")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get account id")
@@ -607,7 +603,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
             let asset_definition_id = wsv
                 .evaluate(&self.asset_definition_id)
                 .wrap_err("Failed to get asset id")

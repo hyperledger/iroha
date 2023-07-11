@@ -28,7 +28,7 @@ pub trait Execute {
 }
 
 /// This trait should be implemented for all Iroha Queries.
-pub trait ValidQuery: Query
+pub trait ValidQuery: iroha_data_model::query::Query
 where
     Self::Output: Lazy,
 {
@@ -76,8 +76,8 @@ impl iroha_data_model::evaluate::Context for Context<'_> {
             .execute(self.wsv)
             .map(|value| match value {
                 LazyValue::Value(value) => value,
-                // NOTE: This will only be executed from the validator/executor.
-                // Handing out references to the host system is a security risk
+                // NOTE: This will only be executed when evaluating an expression for an
+                // instruction, i.e. it will only be executed from the validator/executor.
                 LazyValue::Iter(iter) => Value::Vec(iter.collect()),
             })
             .map_err(Into::into)

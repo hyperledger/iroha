@@ -3,7 +3,7 @@
 use std::{str::FromStr as _, time::Duration};
 
 use eyre::Result;
-use iroha_client::client::{self, Client};
+use iroha_client::client::{self, Client, QueryResult};
 use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
 use iroha_logger::info;
@@ -246,7 +246,9 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     for account_id in accounts {
         let start_pattern = "nft_number_";
         let end_pattern = format!("_for_{}#{}", account_id.name, account_id.domain_id);
-        let assets = test_client.request(client::asset::by_account_id(account_id.clone()))?;
+        let assets = test_client
+            .request(client::asset::by_account_id(account_id.clone()))?
+            .collect::<QueryResult<Vec<_>>>()?;
         let count: u64 = assets
             .into_iter()
             .filter(|asset| {
