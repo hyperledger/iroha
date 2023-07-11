@@ -45,44 +45,34 @@ pub mod boilerplate {
 }
 
 /// Errors used in [`crate`].
-#[derive(Debug, Error)]
+#[derive(Debug, Error, displaydoc::Display)]
 pub enum Error {
-    /// Failed to read or write
-    #[error("Failed IO operation: {0}.")]
+    /// Failed IO operation
     Io(#[source] std::sync::Arc<io::Error>),
-    /// Failed to read or write
-    #[error("Message improperly formatted")]
+    /// Message improperly formatted
     Format,
     /// Field is not defined for a peer at this stage
-    #[error("Field is not defined for a peer at this stage")]
     Field,
     /// Parity Scale codec error
-    #[error("Parity Scale codec error")]
     ParityScale(#[from] parity_scale_codec::Error),
     /// Failed to create keys
-    #[error("Failed to create session key")]
     Keys(#[source] CryptographicError),
-    /// Failed to parse address
-    #[error("Failed to parse socket address.")]
+    /// Failed to parse socket address
     Addr(#[from] AddrParseError),
-    /// Connection reset by peer
-    #[error("Connection reset by peer in te middle of message transfer.")]
+    /// Connection reset by peer in the middle of message transfer
     ConnectionResetByPeer,
 }
 
 /// Error in the cryptographic processes.
-#[derive(derive_more::From, Debug, Error)]
+#[derive(derive_more::From, Debug, Error, displaydoc::Display)]
 pub enum CryptographicError {
     /// Decryption failed
-    #[error("Decryption failed")]
     #[from(ignore)]
     Decrypt(aead::Error),
     /// Encryption failed
-    #[error("Encryption failed")]
     #[from(ignore)]
     Encrypt(aead::Error),
     /// Ursa Cryptography error
-    #[error("Ursa Cryptography error")]
     Ursa(CryptoError),
 }
 

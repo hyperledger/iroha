@@ -24,6 +24,7 @@ async-trait = { workspace = true }
 parity-scale-codec = { workspace = true, features = ["derive"] }
 aead = { workspace = true }
 thiserror = { workspace = true }
+displaydoc = "0.2.4"
 derive_more = { workspace = true }
 bytes = { workspace = true }
 
