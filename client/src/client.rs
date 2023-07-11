@@ -150,13 +150,11 @@ where
 }
 
 /// Different errors as a result of query response handling
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ClientQueryError {
     /// Query validation error
-    #[error("Query validation error")]
     Validation(#[from] ValidationFail),
-    /// Some other error
-    #[error("Other error")]
+    /// Other error
     Other(#[from] eyre::Error),
 }
 

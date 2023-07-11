@@ -2874,6 +2874,7 @@ dependencies = [
  "color-eyre",
  "criterion",
  "derive_more",
+ "displaydoc",
  "eyre",
  "futures-util",
  "hex",
