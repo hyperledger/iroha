@@ -76,7 +76,7 @@ pub mod model {
 /// Metadata related errors.
 #[derive(
     Debug,
-    Display,
+    displaydoc::Display,
     Clone,
     PartialEq,
     Eq,
@@ -91,19 +91,14 @@ pub mod model {
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum MetadataError {
     /// Metadata entry is too big
-    #[display(fmt = "Metadata entry is too big")]
     EntryTooBig(#[cfg_attr(feature = "std", source)] SizeError),
     /// Metadata exceeds overall length limit
-    #[display(fmt = "Metadata exceeds overall length limit")]
     OverallSize(#[cfg_attr(feature = "std", source)] SizeError),
-    /// Empty path
-    #[display(fmt = "Path specification empty")]
+    /// Path specification empty
     EmptyPath,
-    /// Middle path segment is missing. I.e. nothing was found at that key
-    #[display(fmt = "{_0}: path segment not found")]
+    /// {0}: path segment not found, i.e. nothing was found at that key
     MissingSegment(Name),
-    /// Middle path segment is not nested metadata. I.e. something was found, but isn't an instance of [`Metadata`]
-    #[display(fmt = "{_0}: path segment not an instance of metadata")]
+    /// {0}: path segment not an instance of metadata. I.e. something was found, but isn't an instance of [`Metadata`]
     InvalidSegment(Name),
 }
 
