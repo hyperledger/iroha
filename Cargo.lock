@@ -2984,6 +2984,7 @@ dependencies = [
  "crossbeam-queue",
  "dashmap",
  "derive_more",
+ "displaydoc",
  "eyre",
  "futures",
  "hex",

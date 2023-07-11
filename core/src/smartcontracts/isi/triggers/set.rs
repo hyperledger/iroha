@@ -24,10 +24,9 @@ use thiserror::Error;
 use crate::smartcontracts::wasm;
 
 /// Error type for [`Set`] operations.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, displaydoc::Display)]
 pub enum Error {
-    /// Preloading error
-    #[error("Failed to preload wasm trigger: {0}")]
+    /// Failed to preload wasm trigger
     Preload(#[from] wasm::error::Error),
 }
 
@@ -572,19 +571,16 @@ impl From<LoadedExecutable> for OptimizedExecutable {
 }
 
 /// [`Set::mod_repeats()`] error
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error, displaydoc::Display)]
 pub enum ModRepeatsError {
-    /// Trigger not found error
-    #[error("Trigger with id = {0} not found")]
+    /// Trigger with id = {0} not found
     NotFound(TriggerId),
     /// Trigger repeats count overflow error
-    #[error("{0}")]
     RepeatsOverflow(#[from] RepeatsOverflowError),
 }
 
-/// Trigger repeats count overflow error
-#[derive(Debug, Copy, Clone, thiserror::Error)]
-#[error("Trigger repeats count overflow")]
+#[derive(Debug, Copy, Clone, thiserror::Error, displaydoc::Display)]
+/// Trigger repeats count overflow
 pub struct RepeatsOverflowError;
 
 impl From<ModRepeatsError> for InstructionExecutionError {
