@@ -64,6 +64,7 @@ parity-scale-codec = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+displaydoc = "0.2.4"
 tokio = { workspace = true, features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs", "signal"] }
 warp = { workspace = true, features = ["multipart", "websocket"] }
 serial_test = "0.8.0"
