@@ -176,9 +176,9 @@ fn try_into_variant(
 
     quote! {
         impl #impl_generics TryFrom<#enum_ty #ty_generics> for #variant_ty #where_clause {
-            type Error = iroha_macro::error::ErrorTryFromEnum<#enum_ty, Self>;
+            type Error = iroha_macro::error::ErrorTryFromEnum<#enum_ty #ty_generics, Self>;
 
-            fn try_from(origin: #enum_ty) -> core::result::Result<Self, Self::Error> {
+            fn try_from(origin: #enum_ty #ty_generics) -> core::result::Result<Self, Self::Error> {
                 if let #enum_ty :: #variant(variant) = origin {
                     Ok(variant)
                 } else {

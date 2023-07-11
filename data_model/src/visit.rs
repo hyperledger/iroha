@@ -4,6 +4,8 @@
 #[cfg(not(feature = "std"))]
 use alloc::format;
 
+use iroha_crypto::PublicKey;
+
 use crate::{evaluate::ExpressionEvaluator, prelude::*, NumericValue};
 
 macro_rules! delegate {

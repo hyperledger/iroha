@@ -3,7 +3,7 @@
 use std::{str::FromStr as _, thread};
 
 use eyre::Result;
-use iroha_client::client;
+use iroha_client::client::{self, QueryResult};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::prelude::*;
 use iroha_primitives::fixed::Fixed;
@@ -31,7 +31,9 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
     // Registering an asset to an account which doesn't have one
     // should result in asset being created
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
-        result.iter().any(|asset| {
+        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+
+        assets.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
                 && *asset.value() == AssetValue::Quantity(0)
         })
@@ -61,7 +63,9 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
 
     // Wait for asset to be registered
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
-        result
+        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+
+        assets
             .iter()
             .any(|asset| asset.id().definition_id == asset_definition_id)
     })?;
@@ -70,7 +74,9 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
 
     // ... and check that it is removed after Unregister
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
-        result
+        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+
+        assets
             .iter()
             .all(|asset| asset.id().definition_id != asset_definition_id)
     })?;
@@ -101,7 +107,9 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     let tx = test_client.build_transaction(instructions, metadata)?;
     test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
-        result.iter().any(|asset| {
+        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+
+        assets.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
                 && *asset.value() == AssetValue::Quantity(quantity)
         })
@@ -132,7 +140,9 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     let tx = test_client.build_transaction(instructions, metadata)?;
     test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
-        result.iter().any(|asset| {
+        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+
+        assets.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
                 && *asset.value() == AssetValue::BigQuantity(quantity)
         })
@@ -165,7 +175,9 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let tx = test_client.build_transaction(instructions, metadata)?;
     test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
-        result.iter().any(|asset| {
+        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+
+        assets.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
                 && *asset.value() == AssetValue::Fixed(quantity)
         })
@@ -185,7 +197,9 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
         .checked_add(quantity2)
         .map_err(|e| eyre::eyre!("{}", e))?;
     test_client.submit_till(mint, client::asset::by_account_id(account_id), |result| {
-        result.iter().any(|asset| {
+        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+
+        assets.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
                 && *asset.value() == AssetValue::Fixed(sum)
         })
@@ -218,19 +232,22 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
     iroha_logger::info!("Creating another asset");
     thread::sleep(pipeline_time * 4);
 
-    let asset_definition_ids = test_client
+    let mut asset_definition_ids = test_client
         .request(client::asset::all_definitions())
         .expect("Failed to execute request.")
+        .collect::<QueryResult<Vec<_>>>()
+        .expect("Failed to execute request.")
         .into_iter()
-        .map(|asset| asset.id().clone())
-        .collect::<Vec<_>>();
+        .map(|asset| asset.id().clone());
     iroha_logger::debug!(
         "Collected asset definitions ID's: {:?}",
         &asset_definition_ids
     );
 
-    assert!(asset_definition_ids.contains(&normal_asset_definition_id));
-    assert!(!asset_definition_ids.contains(&incorrect_asset_definition_id));
+    assert!(asset_definition_ids
+        .any(|asset_definition_id| asset_definition_id == normal_asset_definition_id));
+    assert!(!asset_definition_ids
+        .any(|asset_definition_id| asset_definition_id == incorrect_asset_definition_id));
 
     Ok(())
 }

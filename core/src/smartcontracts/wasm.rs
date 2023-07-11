@@ -686,8 +686,7 @@ impl<'wrld, S: state::GetCommon<'wrld>, R: DefaultExecute> ExecuteOperations<'wr
             .map_err(Into::into)
             .map(|lazy_value| match lazy_value {
                 LazyValue::Value(value) => value,
-                // NOTE: Returning references to the host system is a security risk
-                LazyValue::Iter(iter) => Value::Vec(iter.collect::<Vec<_>>()),
+                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
             })
     }
 
@@ -869,8 +868,7 @@ impl<'wrld> ExecuteOperations<'wrld, state::Validator<'wrld>> for Runtime<state:
             .map_err(Into::into)
             .map(|lazy_value| match lazy_value {
                 LazyValue::Value(value) => value,
-                // NOTE: Returning references to the host system is a security risk
-                LazyValue::Iter(iter) => Value::Vec(iter.collect::<Vec<_>>()),
+                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
             })
     }
 

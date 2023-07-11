@@ -58,7 +58,9 @@ impl ValidateAttribute {
                 continue;
             }
 
-            let Some(proc_macro2::TokenTree::Group(group))= attribute.tokens.clone().into_iter().next() else {
+            let Some(proc_macro2::TokenTree::Group(group)) =
+                attribute.tokens.clone().into_iter().next()
+            else {
                 panic!("Expected parentheses group");
             };
             assert!(

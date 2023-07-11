@@ -17,7 +17,7 @@ use serde::{
     Deserializer,
 };
 
-use self::model::NumericValue;
+pub use self::model::*;
 use super::{
     DebugCustom, Decode, Deserialize, Display, Encode, FromVariant, IntoSchema, Serialize,
 };

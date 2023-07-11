@@ -1,4 +1,4 @@
-use iroha_data_model::prelude::*;
+use iroha_data_model::query::Pagination;
 
 /// Describes a collection to which pagination can be applied.
 /// Implemented for the [`Iterator`] implementors.
@@ -7,53 +7,46 @@ pub trait Paginate: Iterator + Sized {
     fn paginate(self, pagination: Pagination) -> Paginated<Self>;
 }
 
-impl<I: Iterator + Sized> Paginate for I {
+impl<I: Iterator> Paginate for I {
     fn paginate(self, pagination: Pagination) -> Paginated<Self> {
-        Paginated {
-            pagination,
-            iter: self,
-        }
+        Paginated::new(pagination, self)
     }
 }
 
 /// Paginated [`Iterator`].
 /// Not recommended to use directly, only use in iterator chains.
 #[derive(Debug)]
-pub struct Paginated<I: Iterator> {
-    pagination: Pagination,
-    iter: I,
+pub struct Paginated<I: Iterator>(core::iter::Take<core::iter::Skip<I>>);
+
+impl<I: Iterator> Paginated<I> {
+    fn new(pagination: Pagination, iter: I) -> Self {
+        Self(
+            iter.skip(pagination.start.map_or_else(
+                || 0,
+                |start| start.get().try_into().expect("U64 should fit into usize"),
+            ))
+            .take(pagination.limit.map_or_else(
+                || usize::MAX,
+                |limit| limit.get().try_into().expect("U32 should fit into usize"),
+            )),
+        )
+    }
 }
 
 impl<I: Iterator> Iterator for Paginated<I> {
     type Item = I::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(limit) = self.pagination.limit.as_mut() {
-            if *limit == 0 {
-                return None;
-            }
-
-            *limit -= 1
-        }
-
-        #[allow(clippy::option_if_let_else)]
-        // Required because of E0524. 2 closures with unique refs to self
-        if let Some(start) = self.pagination.start.take() {
-            self.iter
-                .nth(start.try_into().expect("u32 should always fit in usize"))
-        } else {
-            self.iter.next()
-        }
+        self.0.next()
     }
-}
-
-/// Filter for warp which extracts pagination
-pub fn paginate() -> impl warp::Filter<Extract = (Pagination,), Error = warp::Rejection> + Copy {
-    warp::query()
 }
 
 #[cfg(test)]
 mod tests {
+    use std::num::{NonZeroU32, NonZeroU64};
+
+    use iroha_data_model::query::pagination::Pagination;
+
     use super::*;
 
     #[test]
@@ -61,7 +54,10 @@ mod tests {
         assert_eq!(
             vec![1_i32, 2_i32, 3_i32]
                 .into_iter()
-                .paginate(Pagination::new(None, None))
+                .paginate(Pagination {
+                    limit: None,
+                    start: None
+                })
                 .collect::<Vec<_>>(),
             vec![1_i32, 2_i32, 3_i32]
         )
@@ -72,21 +68,20 @@ mod tests {
         assert_eq!(
             vec![1_i32, 2_i32, 3_i32]
                 .into_iter()
-                .paginate(Pagination::new(Some(0), None))
-                .collect::<Vec<_>>(),
-            vec![1_i32, 2_i32, 3_i32]
-        );
-        assert_eq!(
-            vec![1_i32, 2_i32, 3_i32]
-                .into_iter()
-                .paginate(Pagination::new(Some(1), None))
+                .paginate(Pagination {
+                    limit: None,
+                    start: NonZeroU64::new(1)
+                })
                 .collect::<Vec<_>>(),
             vec![2_i32, 3_i32]
         );
         assert_eq!(
             vec![1_i32, 2_i32, 3_i32]
                 .into_iter()
-                .paginate(Pagination::new(Some(3), None))
+                .paginate(Pagination {
+                    limit: None,
+                    start: NonZeroU64::new(3)
+                })
                 .collect::<Vec<_>>(),
             Vec::<i32>::new()
         );
@@ -97,21 +92,20 @@ mod tests {
         assert_eq!(
             vec![1_i32, 2_i32, 3_i32]
                 .into_iter()
-                .paginate(Pagination::new(None, Some(0)))
-                .collect::<Vec<_>>(),
-            Vec::<i32>::new()
-        );
-        assert_eq!(
-            vec![1_i32, 2_i32, 3_i32]
-                .into_iter()
-                .paginate(Pagination::new(None, Some(2)))
+                .paginate(Pagination {
+                    limit: NonZeroU32::new(2),
+                    start: None
+                })
                 .collect::<Vec<_>>(),
             vec![1_i32, 2_i32]
         );
         assert_eq!(
             vec![1_i32, 2_i32, 3_i32]
                 .into_iter()
-                .paginate(Pagination::new(None, Some(4)))
+                .paginate(Pagination {
+                    limit: NonZeroU32::new(4),
+                    start: None
+                })
                 .collect::<Vec<_>>(),
             vec![1_i32, 2_i32, 3_i32]
         );
@@ -122,7 +116,10 @@ mod tests {
         assert_eq!(
             vec![1_i32, 2_i32, 3_i32]
                 .into_iter()
-                .paginate(Pagination::new(Some(1), Some(1)))
+                .paginate(Pagination {
+                    limit: NonZeroU32::new(1),
+                    start: NonZeroU64::new(1),
+                })
                 .collect::<Vec<_>>(),
             vec![2_i32]
         )

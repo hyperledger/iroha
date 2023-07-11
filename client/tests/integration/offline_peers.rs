@@ -1,7 +1,7 @@
 #![allow(clippy::restriction)]
 
 use eyre::Result;
-use iroha_client::client;
+use iroha_client::client::{self, QueryResult};
 use iroha_data_model::{
     parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
     prelude::*,
@@ -33,7 +33,9 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
     let alice_has_roses = 13;
 
     //Then
-    let assets = client.request(client::asset::by_account_id(alice_id))?;
+    let assets = client
+        .request(client::asset::by_account_id(alice_id))?
+        .collect::<QueryResult<Vec<_>>>()?;
     let asset = assets
         .iter()
         .find(|asset| asset.id().definition_id == roses)

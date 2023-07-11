@@ -42,7 +42,7 @@ macro_rules! impl_lazy {
 }
 impl_lazy! {
     bool,
-    NumericValue,
+    iroha_data_model::numeric::NumericValue,
     iroha_data_model::role::Role,
     iroha_data_model::asset::Asset,
     iroha_data_model::asset::AssetDefinition,
@@ -50,12 +50,13 @@ impl_lazy! {
     iroha_data_model::domain::Domain,
     iroha_data_model::block::BlockHeader,
     iroha_data_model::query::MetadataValue,
-    iroha_data_model::query::TransactionQueryResult,
+    iroha_data_model::query::TransactionQueryOutput,
     iroha_data_model::trigger::Trigger<iroha_data_model::events::FilterBox, iroha_data_model::trigger::OptimizedExecutable>,
 }
 
 /// Query Request statefully validated on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
+#[repr(transparent)]
 pub struct ValidQueryRequest(VersionedSignedQuery);
 
 impl ValidQueryRequest {
@@ -110,10 +111,7 @@ impl ValidQueryRequest {
 }
 
 impl ValidQuery for QueryBox {
-    fn execute<'wsv>(
-        &self,
-        wsv: &'wsv WorldStateView,
-    ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+    fn execute<'wsv>(&self, wsv: &'wsv WorldStateView) -> Result<LazyValue<'wsv>, Error> {
         iroha_logger::debug!(query=%self, "Executing");
 
         macro_rules! match_all {
@@ -474,7 +472,7 @@ mod tests {
         if found_accepted.transaction.error.is_none() {
             assert_eq!(
                 va_tx.hash().transmute(),
-                found_accepted.transaction.tx.hash()
+                found_accepted.transaction.value.hash()
             )
         }
         Ok(())

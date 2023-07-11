@@ -3,7 +3,7 @@
 use std::{str::FromStr as _, thread};
 
 use eyre::Result;
-use iroha_client::client::{self, Client};
+use iroha_client::client::{self, Client, QueryResult};
 use iroha_data_model::prelude::*;
 use test_network::{PeerBuilder, *};
 
@@ -12,6 +12,8 @@ use super::Configuration;
 fn get_assets(iroha_client: &mut Client, id: &<Account as Identifiable>::Id) -> Vec<Asset> {
     iroha_client
         .request(client::asset::by_account_id(id.clone()))
+        .expect("Failed to execute request.")
+        .collect::<QueryResult<Vec<_>>>()
         .expect("Failed to execute request.")
 }
 

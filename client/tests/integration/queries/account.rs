@@ -3,7 +3,7 @@
 use std::{collections::HashSet, str::FromStr as _};
 
 use eyre::Result;
-use iroha_client::client;
+use iroha_client::client::{self, QueryResult};
 use iroha_data_model::prelude::*;
 use test_network::*;
 
@@ -65,7 +65,9 @@ fn find_accounts_with_asset() -> Result<()> {
         AssetValueType::Quantity
     );
 
-    let found_accounts = test_client.request(client::account::all_with_asset(definition_id))?;
+    let found_accounts = test_client
+        .request(client::account::all_with_asset(definition_id))?
+        .collect::<QueryResult<Vec<_>>>()?;
     let found_ids = found_accounts
         .into_iter()
         .map(|account| account.id().clone())

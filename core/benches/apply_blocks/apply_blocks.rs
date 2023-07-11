@@ -51,7 +51,7 @@ fn create_block(
     let pending_block = PendingBlock {
         header,
         transactions: vec![TransactionValue {
-            tx: transaction,
+            value: transaction,
             error: None,
         }],
         event_recommendations: Vec::new(),

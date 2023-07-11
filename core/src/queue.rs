@@ -170,8 +170,8 @@ impl Queue {
     }
 
     /// Returns all pending transactions.
-    pub fn all_transactions<'q: 'wsv, 'wsv>(
-        &'q self,
+    pub fn all_transactions<'wsv>(
+        &'wsv self,
         wsv: &'wsv WorldStateView,
     ) -> impl Iterator<Item = AcceptedTransaction> + 'wsv {
         self.txs.iter().filter_map(|tx| {

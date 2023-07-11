@@ -436,19 +436,19 @@ pub mod isi {
 /// Asset-related query implementations.
 pub mod query {
     use eyre::{Result, WrapErr as _};
-    use iroha_data_model::query::{
-        asset::IsAssetDefinitionOwner, error::QueryExecutionFail as Error,
+    use iroha_data_model::{
+        asset::{Asset, AssetDefinition},
+        query::{asset::IsAssetDefinitionOwner, error::QueryExecutionFail as Error, MetadataValue},
     };
 
     use super::*;
-    use crate::smartcontracts::query::Lazy;
 
     impl ValidQuery for FindAllAssets {
         #[metrics(+"find_all_assets")]
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Asset> + 'wsv>, Error> {
             Ok(Box::new(
                 wsv.domains()
                     .values()
@@ -468,7 +468,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = AssetDefinition> + 'wsv>, Error> {
             Ok(Box::new(
                 wsv.domains()
                     .values()
@@ -480,10 +480,7 @@ pub mod query {
 
     impl ValidQuery for FindAssetById {
         #[metrics(+"find_asset_by_id")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Asset, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get asset id")
@@ -501,10 +498,7 @@ pub mod query {
 
     impl ValidQuery for FindAssetDefinitionById {
         #[metrics(+"find_asset_defintion_by_id")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<AssetDefinition, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get asset definition id")
@@ -521,7 +515,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Asset> + 'wsv>, Error> {
             let name = wsv
                 .evaluate(&self.name)
                 .wrap_err("Failed to get asset name")
@@ -552,13 +546,13 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Asset> + 'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.account_id)
                 .wrap_err("Failed to get account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
-            Ok(Box::new(wsv.account_assets(&id)?))
+            Ok(Box::new(wsv.account_assets(&id)?.cloned()))
         }
     }
 
@@ -567,7 +561,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Asset> + 'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.asset_definition_id)
                 .wrap_err("Failed to get asset definition id")
@@ -598,7 +592,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Asset> + 'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.domain_id)
                 .wrap_err("Failed to get domain id")
@@ -619,7 +613,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = Asset> + 'wsv>, Error> {
             let domain_id = wsv
                 .evaluate(&self.domain_id)
                 .wrap_err("Failed to get domain id")
@@ -654,10 +648,7 @@ pub mod query {
 
     impl ValidQuery for FindAssetQuantityById {
         #[metrics(+"find_asset_quantity_by_id")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<NumericValue, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get asset id")
@@ -681,10 +672,7 @@ pub mod query {
 
     impl ValidQuery for FindTotalAssetQuantityByAssetDefinitionId {
         #[metrics(+"find_total_asset_quantity_by_asset_definition_id")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<NumericValue, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get asset definition id")
@@ -697,10 +685,7 @@ pub mod query {
 
     impl ValidQuery for FindAssetKeyValueByIdAndKey {
         #[metrics(+"find_asset_key_value_by_id_and_key")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .wrap_err("Failed to get asset id")
@@ -732,10 +717,7 @@ pub mod query {
 
     impl ValidQuery for IsAssetDefinitionOwner {
         #[metrics("is_asset_definition_owner")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<bool, Error> {
             let asset_definition_id = wsv
                 .evaluate(&self.asset_definition_id)
                 .wrap_err("Failed to get asset definition id")

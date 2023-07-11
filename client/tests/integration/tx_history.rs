@@ -1,10 +1,14 @@
 #![allow(clippy::restriction)]
 
-use std::{str::FromStr as _, thread};
+use std::{
+    num::{NonZeroU32, NonZeroU64},
+    str::FromStr as _,
+    thread,
+};
 
 use eyre::Result;
-use iroha_client::client::transaction;
-use iroha_data_model::prelude::*;
+use iroha_client::client::{transaction, QueryResult};
+use iroha_data_model::{prelude::*, query::Pagination};
 use test_network::*;
 
 use super::Configuration;
@@ -52,9 +56,12 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
     let transactions = client
         .request_with_pagination(
             transaction::by_account_id(account_id.clone()),
-            Pagination::new(Some(1), Some(50)),
+            Pagination {
+                limit: NonZeroU32::new(50),
+                start: NonZeroU64::new(1),
+            },
         )?
-        .only_output();
+        .collect::<QueryResult<Vec<_>>>()?;
     assert_eq!(transactions.len(), 50);
 
     let mut prev_creation_time = core::time::Duration::from_millis(0);

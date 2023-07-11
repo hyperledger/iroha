@@ -3,7 +3,7 @@
 use std::str::FromStr as _;
 
 use eyre::Result;
-use iroha_client::client;
+use iroha_client::client::{self, QueryResult};
 use iroha_data_model::prelude::*;
 use test_network::*;
 
@@ -88,7 +88,9 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     test_client.submit_blocking(set_key_value)?;
 
     // Making request to find Alice's roles
-    let found_role_ids = test_client.request(client::role::by_account_id(alice_id))?;
+    let found_role_ids = test_client
+        .request(client::role::by_account_id(alice_id))?
+        .collect::<QueryResult<Vec<_>>>()?;
     assert!(found_role_ids.contains(&role_id));
 
     Ok(())
@@ -118,7 +120,9 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     test_client.submit_blocking(grant_role)?;
 
     // Check that Mouse has root role
-    let found_mouse_roles = test_client.request(client::role::by_account_id(mouse_id.clone()))?;
+    let found_mouse_roles = test_client
+        .request(client::role::by_account_id(mouse_id.clone()))?
+        .collect::<QueryResult<Vec<_>>>()?;
     assert!(found_mouse_roles.contains(&role_id));
 
     // Unregister root role
@@ -126,7 +130,9 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     test_client.submit_blocking(unregister_role)?;
 
     // Check that Mouse doesn't have the root role
-    let found_mouse_roles = test_client.request(client::role::by_account_id(mouse_id))?;
+    let found_mouse_roles = test_client
+        .request(client::role::by_account_id(mouse_id))?
+        .collect::<QueryResult<Vec<_>>>()?;
     assert!(!found_mouse_roles.contains(&role_id));
 
     Ok(())

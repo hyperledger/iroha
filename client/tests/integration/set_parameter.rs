@@ -3,7 +3,7 @@
 use std::str::FromStr;
 
 use eyre::Result;
-use iroha_client::client;
+use iroha_client::client::{self, QueryResult};
 use iroha_data_model::prelude::*;
 use test_network::*;
 
@@ -16,7 +16,9 @@ fn can_change_parameter_value() -> Result<()> {
     let parameter_id = ParameterId::from_str("BlockTime")?;
     let param_box = SetParameterBox::new(parameter);
 
-    let old_params = test_client.request(client::parameter::all())?;
+    let old_params = test_client
+        .request(client::parameter::all())?
+        .collect::<QueryResult<Vec<_>>>()?;
     let param_val_old = old_params
         .iter()
         .find(|param| param.id() == &parameter_id)
@@ -25,8 +27,9 @@ fn can_change_parameter_value() -> Result<()> {
 
     test_client.submit_blocking(param_box)?;
 
-    let new_params = test_client.request(client::parameter::all())?;
-
+    let new_params = test_client
+        .request(client::parameter::all())?
+        .collect::<QueryResult<Vec<_>>>()?;
     let param_val_new = new_params
         .iter()
         .find(|param| param.id() == &parameter_id)

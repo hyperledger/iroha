@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use eyre::Result;
-use iroha_client::client::Client;
+use iroha_client::client::{Client, QueryResult};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{prelude::*, query::permission::FindPermissionTokenSchema};
 use iroha_logger::info;

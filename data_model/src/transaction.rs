@@ -102,20 +102,20 @@ pub mod model {
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct TransactionPayload {
-        /// Account ID of transaction creator.
-        pub authority: AccountId,
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
         pub creation_time_ms: u64,
+        /// Account ID of transaction creator.
+        pub authority: AccountId,
+        /// ISI or a `WebAssembly` smartcontract.
+        pub instructions: Executable,
+        /// If transaction is not committed by this time it will be dropped.
+        #[getset(skip)]
+        pub time_to_live_ms: Option<NonZeroU64>,
         /// Random value to make different hashes for transactions which occur repeatedly and simultaneously.
         // TODO: Only temporary
         #[getset(skip)]
         pub nonce: Option<NonZeroU32>,
-        /// If transaction is not committed by this time it will be dropped.
-        #[getset(skip)]
-        pub time_to_live_ms: Option<NonZeroU64>,
-        /// ISI or a `WebAssembly` smartcontract.
-        pub instructions: Executable,
         /// Store for additional information.
         #[getset(skip)]
         pub metadata: UnlimitedMetadata,
@@ -163,10 +163,10 @@ pub mod model {
     #[ffi_type]
     // TODO: All fields in this struct should be private
     pub struct SignedTransaction {
-        /// [`Transaction`] payload.
-        pub payload: TransactionPayload,
         /// [`iroha_crypto::SignatureOf`]<[`TransactionPayload`]>.
         pub signatures: SignaturesOf<TransactionPayload>,
+        /// [`Transaction`] payload.
+        pub payload: TransactionPayload,
     }
 
     /// Transaction Value used in Instructions and Queries
@@ -374,8 +374,8 @@ mod candidate {
 
     #[derive(Decode, Deserialize)]
     struct SignedTransactionCandidate {
-        payload: TransactionPayload,
         signatures: SignaturesOf<TransactionPayload>,
+        payload: TransactionPayload,
     }
 
     impl SignedTransactionCandidate {
