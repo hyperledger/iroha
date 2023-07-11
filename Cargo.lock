@@ -2823,6 +2823,7 @@ version = "2.0.0-pre-rc.16"
 dependencies = [
  "async-trait",
  "color-eyre",
+ "displaydoc",
  "eyre",
  "futures",
  "iroha_cli_derive",

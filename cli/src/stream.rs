@@ -14,33 +14,27 @@ const TIMEOUT: Duration = Duration::from_millis(10_000);
 const TIMEOUT: Duration = Duration::from_millis(1000);
 
 /// Error type with generic for actual Stream/Sink error type
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, displaydoc::Display, Debug)]
+#[ignore_extra_doc_attributes]
 pub enum Error<InternalStreamError>
 where
     InternalStreamError: std::error::Error + Send + Sync + 'static,
 {
-    /// `recv()` timeout exceeded
-    #[error("Read message timeout")]
+    /// Read message timeout
     ReadTimeout,
-    /// `send()` timeout exceeded
-    #[error("Send message timeout")]
+    /// Send message timeout
     SendTimeout,
-    /// Error, indicating that empty message was received
-    #[error("No message")]
+    /// An empty message was received
     NoMessage,
     /// Error in internal stream representation (typically WebSocket)
     ///
     /// Made without `from` macro because it will break `IrohaVersion` variant conversion
-    #[error("Internal stream error: {0}")]
-    InternalStream(InternalStreamError),
-    /// Error, indicating that `Close` message was received
-    #[error("`Close` message received")]
+    InternalStream(#[source] InternalStreamError),
+    /// `Close` message received
     CloseMessage,
-    /// Error, indicating that only binary messages are expected, but non-binary was received
-    #[error("Non binary message received")]
+    /// Unexpected non-binary message received
     NonBinaryMessage,
-    /// Error message during versioned message decoding
-    #[error("Iroha version error: {0}")]
+    /// Error during versioned message decoding
     IrohaVersion(#[from] iroha_version::error::Error),
 }
 
