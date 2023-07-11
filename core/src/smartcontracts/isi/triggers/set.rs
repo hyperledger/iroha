@@ -208,54 +208,48 @@ impl Set {
     /// Apply `f` to triggers that belong to the given [`DomainId`]
     ///
     /// Return an empty list if [`Set`] doesn't contain any triggers belonging to [`DomainId`].
-    pub fn inspect_by_domain_id<F, R>(
-        &self,
+    pub fn inspect_by_domain_id<'a, F: 'a, R>(
+        &'a self,
         domain_id: &DomainId,
         f: F,
-    ) -> impl ExactSizeIterator<Item = R>
+    ) -> impl Iterator<Item = R> + '_
     where
         F: Fn(&TriggerId, &dyn ActionTrait<Executable = LoadedExecutable>) -> R,
     {
-        self.ids
-            .iter()
-            .filter_map(|(id, event_type)| {
-                let trigger_domain_id = id.domain_id.as_ref()?;
+        let domain_id = domain_id.clone();
 
-                if trigger_domain_id != domain_id {
-                    return None;
-                }
+        self.ids.iter().filter_map(move |(id, event_type)| {
+            let trigger_domain_id = id.domain_id.as_ref()?;
 
-                let result = match event_type {
-                    EventType::Data => self
-                        .data_triggers
-                        .get(id)
-                        .map(|trigger| f(id, trigger))
-                        .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
-                    EventType::Pipeline => self
-                        .pipeline_triggers
-                        .get(id)
-                        .map(|trigger| f(id, trigger))
-                        .expect(
-                            "`Set::pipeline_triggers` doesn't contain required id. This is a bug",
-                        ),
-                    EventType::Time => self
-                        .time_triggers
-                        .get(id)
-                        .map(|trigger| f(id, trigger))
-                        .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
-                    EventType::ExecuteTrigger => self
-                        .by_call_triggers
-                        .get(id)
-                        .map(|trigger| f(id, trigger))
-                        .expect(
-                            "`Set::by_call_triggers` doesn't contain required id. This is a bug",
-                        ),
-                };
+            if *trigger_domain_id != domain_id {
+                return None;
+            }
 
-                Some(result)
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
+            let result = match event_type {
+                EventType::Data => self
+                    .data_triggers
+                    .get(id)
+                    .map(|trigger| f(id, trigger))
+                    .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
+                EventType::Pipeline => self
+                    .pipeline_triggers
+                    .get(id)
+                    .map(|trigger| f(id, trigger))
+                    .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug"),
+                EventType::Time => self
+                    .time_triggers
+                    .get(id)
+                    .map(|trigger| f(id, trigger))
+                    .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
+                EventType::ExecuteTrigger => self
+                    .by_call_triggers
+                    .get(id)
+                    .map(|trigger| f(id, trigger))
+                    .expect("`Set::by_call_triggers` doesn't contain required id. This is a bug"),
+            };
+
+            Some(result)
+        })
     }
 
     /// Apply `f` to the trigger identified by `id`.

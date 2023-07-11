@@ -25,6 +25,7 @@ fn header_name_from_str(str: &str) -> Result<HeaderName> {
 }
 
 /// Default request builder implemented on top of `attohttpc` crate.
+#[derive(Debug)]
 pub struct DefaultRequestBuilder {
     inner: Result<AttoHttpRequestBuilder>,
     body: Option<Vec<u8>>,
@@ -50,6 +51,7 @@ impl DefaultRequestBuilder {
 }
 
 /// Request built by [`DefaultRequestBuilder`].
+#[derive(Debug)]
 pub struct DefaultRequest(AttoHttpRequestBuilderWithBytes);
 
 impl DefaultRequest {
@@ -80,7 +82,7 @@ impl RequestBuilder for DefaultRequestBuilder {
         }
     }
 
-    fn header<K, V>(self, key: K, value: V) -> Self
+    fn header<K, V: ?Sized>(self, key: K, value: &V) -> Self
     where
         K: AsRef<str>,
         V: ToString,
@@ -90,12 +92,12 @@ impl RequestBuilder for DefaultRequestBuilder {
         })
     }
 
-    fn param<K, V>(self, key: K, value: V) -> Self
+    fn param<K, V: ?Sized>(self, key: K, value: &V) -> Self
     where
         K: AsRef<str>,
         V: ToString,
     {
-        self.and_then(|b| Ok(b.param(key, value)))
+        self.and_then(|b| Ok(b.param(key, value.to_string())))
     }
 
     fn body(self, data: Vec<u8>) -> Self {
@@ -150,11 +152,11 @@ impl RequestBuilder for DefaultWebSocketRequestBuilder {
             .uri(url.as_ref())))
     }
 
-    fn param<K, V>(self, _key: K, _val: V) -> Self {
+    fn param<K, V: ?Sized>(self, _key: K, _val: &V) -> Self {
         Self(self.0.and(Err(eyre!("No params expected"))))
     }
 
-    fn header<N, V>(self, name: N, value: V) -> Self
+    fn header<N, V: ?Sized>(self, name: N, value: &V) -> Self
     where
         N: AsRef<str>,
         V: ToString,

@@ -384,7 +384,6 @@ impl Sumeragi {
         // https://github.com/hyperledger/iroha/issues/3396
         // Kura should store the block only upon successful application to the internal WSV to avoid storing a corrupted block.
         // Public-facing WSV update should happen after that and be followed by `BlockCommited` event to prevent client access to uncommitted data.
-        // TODO: Redundant clone
         Strategy::kura_store_block(&self.kura, committed_block);
 
         // Update WSV copy that is public facing

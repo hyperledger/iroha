@@ -38,7 +38,6 @@ use evaluate::Evaluate;
 use events::FilterBox;
 use getset::Getters;
 use iroha_crypto::{HashOf, PublicKey};
-pub use iroha_crypto::{SignatureOf, SignaturesOf};
 use iroha_data_model_derive::{
     model, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize,
 };
@@ -50,7 +49,7 @@ use iroha_primitives::{
 use iroha_schema::IntoSchema;
 pub use numeric::model::NumericValue;
 use parity_scale_codec::{Decode, Encode};
-use prelude::{Executable, TransactionQueryResult, VersionedSignedTransaction};
+use prelude::{Executable, TransactionQueryOutput, VersionedSignedTransaction};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
@@ -69,16 +68,12 @@ pub mod isi;
 pub mod metadata;
 pub mod name;
 pub mod numeric;
-#[cfg(feature = "http")]
-pub mod pagination;
 pub mod peer;
 pub mod permission;
 #[cfg(feature = "http")]
 pub mod predicate;
 pub mod query;
 pub mod role;
-#[cfg(feature = "http")]
-pub mod sorting;
 pub mod transaction;
 pub mod trigger;
 pub mod validator;
@@ -778,7 +773,7 @@ pub mod model {
         Identifiable(IdentifiableBox),
         PublicKey(PublicKey),
         SignatureCheckCondition(SignatureCheckCondition),
-        TransactionQueryResult(TransactionQueryResult),
+        TransactionQueryOutput(TransactionQueryOutput),
         PermissionToken(permission::PermissionToken),
         PermissionTokenSchema(permission::PermissionTokenSchema),
         Hash(HashValue),
@@ -1063,7 +1058,7 @@ impl fmt::Display for Value {
             Value::Identifiable(v) => fmt::Display::fmt(&v, f),
             Value::PublicKey(v) => fmt::Display::fmt(&v, f),
             Value::SignatureCheckCondition(v) => fmt::Display::fmt(&v, f),
-            Value::TransactionQueryResult(_) => write!(f, "TransactionQueryResult"),
+            Value::TransactionQueryOutput(_) => write!(f, "TransactionQueryOutput"),
             Value::PermissionToken(v) => fmt::Display::fmt(&v, f),
             Value::PermissionTokenSchema(v) => fmt::Display::fmt(&v, f),
             Value::Hash(v) => fmt::Display::fmt(&v, f),
@@ -1093,7 +1088,7 @@ impl Value {
             | Identifiable(_)
             | String(_)
             | Name(_)
-            | TransactionQueryResult(_)
+            | TransactionQueryOutput(_)
             | PermissionToken(_)
             | PermissionTokenSchema(_)
             | Hash(_)
@@ -1878,6 +1873,4 @@ pub mod prelude {
         LengthLimits, NumericValue, PredicateTrait, RegistrableBox, ToValue, TriggerBox, TryAsMut,
         TryAsRef, TryToValue, UpgradableBox, ValidationFail, ValidatorDeny, Value,
     };
-    #[cfg(feature = "http")]
-    pub use super::{pagination::prelude::*, sorting::prelude::*};
 }

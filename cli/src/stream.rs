@@ -13,7 +13,7 @@ const TIMEOUT: Duration = Duration::from_millis(10_000);
 const TIMEOUT: Duration = Duration::from_millis(1000);
 
 /// Error type with generic for actual Stream/Sink error type
-#[derive(thiserror::Error, displaydoc::Display, Debug)]
+#[derive(Debug, displaydoc::Display, thiserror::Error)]
 #[ignore_extra_doc_attributes]
 pub enum Error<InternalStreamError>
 where

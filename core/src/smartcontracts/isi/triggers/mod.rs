@@ -195,27 +195,31 @@ pub mod isi {
 
 pub mod query {
     //! Queries associated to triggers.
-    use iroha_data_model::query::error::QueryExecutionFail as Error;
+    use iroha_data_model::{
+        events::FilterBox,
+        query::{error::QueryExecutionFail as Error, MetadataValue},
+        trigger::{OptimizedExecutable, Trigger, TriggerId},
+    };
 
     use super::*;
-    use crate::{prelude::*, smartcontracts::query::Lazy};
+    use crate::prelude::*;
 
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> Result<Box<dyn Iterator<Item = TriggerId> + 'wsv>, Error> {
             Ok(Box::new(wsv.triggers().ids().cloned()))
         }
     }
 
     impl ValidQuery for FindTriggerById {
         #[metrics(+"find_trigger_by_id")]
-        fn execute<'wsv>(
+        fn execute(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+            wsv: &WorldStateView,
+        ) -> Result<Trigger<FilterBox, OptimizedExecutable>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
@@ -243,10 +247,7 @@ pub mod query {
 
     impl ValidQuery for FindTriggerKeyValueByIdAndKey {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
@@ -272,7 +273,10 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> eyre::Result<<Self::Output as Lazy>::Lazy<'wsv>, Error> {
+        ) -> eyre::Result<
+            Box<dyn Iterator<Item = Trigger<FilterBox, OptimizedExecutable>> + 'wsv>,
+            Error,
+        > {
             let domain_id = wsv
                 .evaluate(&self.domain_id)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate domain id. {e}")))?;

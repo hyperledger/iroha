@@ -3,7 +3,7 @@
 use core::sync::atomic::Ordering;
 use std::thread;
 
-use iroha_client::client::{self, Client};
+use iroha_client::client::{self, Client, QueryResult};
 use iroha_data_model::prelude::*;
 use iroha_logger::Level;
 use rand::seq::SliceRandom;
@@ -122,7 +122,9 @@ fn unstable_network(
                 Configuration::pipeline_time(),
                 4,
                 |result| {
-                    result.iter().any(|asset| {
+                    let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+
+                    assets.iter().any(|asset| {
                         asset.id().definition_id == asset_definition_id
                             && *asset.value() == AssetValue::Quantity(account_has_quantity)
                     })

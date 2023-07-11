@@ -1,5 +1,7 @@
 //! `Torii` configuration as well as the default values for the URLs used for the main endpoints: `p2p`, `telemetry`, but not `api`.
 #![allow(clippy::std_instead_of_core, clippy::arithmetic_side_effects)]
+use std::num::NonZeroU64;
+
 use iroha_config_base::derive::{Documented, Proxy};
 use iroha_primitives::addr::{socket_addr, SocketAddr};
 use serde::{Deserialize, Serialize};
@@ -12,6 +14,12 @@ pub const DEFAULT_TORII_TELEMETRY_ADDR: SocketAddr = socket_addr!(127.0.0.1:8180
 pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: u32 = 2_u32.pow(15);
 /// Default upper bound on `content-length` specified in the HTTP request header
 pub const DEFAULT_TORII_MAX_CONTENT_LENGTH: u32 = 2_u32.pow(12) * 4000;
+/// Default max size of a single batch of results from a query
+pub static DEFAULT_TORII_FETCH_SIZE: once_cell::sync::Lazy<NonZeroU64> =
+    once_cell::sync::Lazy::new(|| NonZeroU64::new(10).unwrap());
+/// Default max time a query can remain in the store unaccessed
+pub static DEFAULT_TORII_QUERY_IDLE_TIME_MS: once_cell::sync::Lazy<NonZeroU64> =
+    once_cell::sync::Lazy::new(|| NonZeroU64::new(30_000).unwrap());
 
 /// Structure that defines the configuration parameters of `Torii` which is the routing module.
 /// For example the `p2p_addr`, which is used for consensus and block-synchronisation purposes,
@@ -33,6 +41,10 @@ pub struct Configuration {
     pub max_transaction_size: u32,
     /// Maximum number of bytes in raw message. Used to prevent from DOS attacks.
     pub max_content_len: u32,
+    /// How many query results are returned in one batch
+    pub fetch_size: NonZeroU64,
+    /// Time query can remain in the store if unaccessed
+    pub query_idle_time_ms: NonZeroU64,
 }
 
 impl Default for ConfigurationProxy {
@@ -43,6 +55,8 @@ impl Default for ConfigurationProxy {
             telemetry_url: None,
             max_transaction_size: Some(DEFAULT_TORII_MAX_TRANSACTION_SIZE),
             max_content_len: Some(DEFAULT_TORII_MAX_CONTENT_LENGTH),
+            fetch_size: Some(*DEFAULT_TORII_FETCH_SIZE),
+            query_idle_time_ms: Some(*DEFAULT_TORII_QUERY_IDLE_TIME_MS),
         }
     }
 }
@@ -96,9 +110,11 @@ pub mod tests {
                 telemetry_url in prop::option::of(Just(DEFAULT_TORII_TELEMETRY_ADDR)),
                 max_transaction_size in prop::option::of(Just(DEFAULT_TORII_MAX_TRANSACTION_SIZE)),
                 max_content_len in prop::option::of(Just(DEFAULT_TORII_MAX_CONTENT_LENGTH)),
+                fetch_size in prop::option::of(Just(*DEFAULT_TORII_FETCH_SIZE)),
+                query_idle_time_ms in prop::option::of(Just(*DEFAULT_TORII_QUERY_IDLE_TIME_MS)),
             )
             -> ConfigurationProxy {
-            ConfigurationProxy { p2p_addr, api_url, telemetry_url, max_transaction_size, max_content_len }
+            ConfigurationProxy { p2p_addr, api_url, telemetry_url, max_transaction_size, max_content_len, fetch_size, query_idle_time_ms }
         }
     }
 }

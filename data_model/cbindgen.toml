@@ -1,0 +1,3 @@
+[parse.expand]
+crates = ["iroha_data_model"]
+features = ["ffi_export"]

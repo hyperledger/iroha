@@ -1,6 +1,7 @@
 //! This module contains trait implementations related to block queries
 use eyre::{Result, WrapErr};
 use iroha_data_model::{
+    block::{BlockHeader, VersionedCommittedBlock},
     evaluate::ExpressionEvaluator,
     query::{
         block::FindBlockHeaderByHash,
@@ -10,14 +11,13 @@ use iroha_data_model::{
 use iroha_telemetry::metrics;
 
 use super::*;
-use crate::smartcontracts::query::Lazy;
 
 impl ValidQuery for FindAllBlocks {
     #[metrics(+"find_all_blocks")]
     fn execute<'wsv>(
         &self,
         wsv: &'wsv WorldStateView,
-    ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, QueryExecutionFail> {
+    ) -> Result<Box<dyn Iterator<Item = VersionedCommittedBlock> + 'wsv>, QueryExecutionFail> {
         Ok(Box::new(
             wsv.all_blocks().rev().map(|block| Clone::clone(&*block)),
         ))
@@ -29,7 +29,7 @@ impl ValidQuery for FindAllBlockHeaders {
     fn execute<'wsv>(
         &self,
         wsv: &'wsv WorldStateView,
-    ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, QueryExecutionFail> {
+    ) -> Result<Box<dyn Iterator<Item = BlockHeader> + 'wsv>, QueryExecutionFail> {
         Ok(Box::new(
             wsv.all_blocks()
                 .rev()
@@ -40,10 +40,7 @@ impl ValidQuery for FindAllBlockHeaders {
 
 impl ValidQuery for FindBlockHeaderByHash {
     #[metrics(+"find_block_header")]
-    fn execute<'wsv>(
-        &self,
-        wsv: &'wsv WorldStateView,
-    ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, QueryExecutionFail> {
+    fn execute(&self, wsv: &WorldStateView) -> Result<BlockHeader, QueryExecutionFail> {
         let hash = wsv
             .evaluate(&self.hash)
             .wrap_err("Failed to evaluate hash")

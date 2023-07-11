@@ -10,7 +10,7 @@ use crate::{IdBox, Name, Value};
 mod nontrivial {
     use super::*;
     /// Struct representing a sequence with at least three elements.
-    #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct NonTrivial<T>(Vec<T>);
 
     impl<T> NonTrivial<T> {
@@ -73,7 +73,7 @@ macro_rules! nontrivial {
 }
 
 /// Predicate combinator enum.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 // Ideally we would enforce `P: PredicateTrait<Input>` here, but I
 // couldn't find a way to do it without polluting everything
 // downstream with explicit lifetimes, since we would need to
@@ -282,7 +282,7 @@ pub mod string {
     use super::*;
 
     /// Predicate useful for processing [`String`]s and [`Name`]s.
-    #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum StringPredicate {
         /// Forward to [`str::contains()`]
         Contains(String),
@@ -559,7 +559,7 @@ pub mod numerical {
     use super::*;
 
     /// A lower-inclusive range predicate.
-    #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct SemiInterval<T: Copy + Ord> {
         /// The start of the range (inclusive)
         start: T,
@@ -583,7 +583,7 @@ pub mod numerical {
     impl Copy for SemiInterval<u64> {}
 
     /// A both-inclusive range predicate
-    #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct Interval<T: Copy + Ord> {
         /// The start of the range (inclusive)
         start: T,
@@ -624,7 +624,7 @@ pub mod numerical {
     /// [`Self`] only applies to `Values` that are variants of
     /// compatible types. If the [`Range`] variant and the [`Value`]
     /// variant don't match defaults to `false`.
-    #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum SemiRange {
         /// 32-bit
         U32(SemiInterval<u32>),
@@ -642,7 +642,7 @@ pub mod numerical {
     /// [`Self`] only applies to `Values` that are variants of
     /// compatible types. If the [`Range`] variant and the [`Value`]
     /// variant don't match defaults to `false`.
-    #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+    #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum Range {
         /// 32-bit
         U32(Interval<u32>),
@@ -971,7 +971,7 @@ pub mod value {
     use super::*;
 
     /// A predicate designed for general processing of `Value`.
-    #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum ValuePredicate {
         /// Apply predicate to the [`Identifiable::Id`] and/or [`IdBox`].
         Identifiable(string::StringPredicate),
@@ -1107,14 +1107,14 @@ pub mod value {
     }
 
     /// A predicate that targets the particular `index` of a collection.
-    #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct AtIndex {
         index: u32,
         predicate: Box<ValuePredicate>,
     }
 
     /// A predicate that targets the particular `key` of a collection.
-    #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct ValueOfKey {
         key: Name,
         predicate: Box<ValuePredicate>,
@@ -1124,7 +1124,7 @@ pub mod value {
     /// working with containers. Currently only
     /// [`Metadata`](crate::metadata::Metadata) and [`Vec<Value>`] are
     /// supported.
-    #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum Container {
         /// Forward to [`Iterator::any`]
         Any(Box<ValuePredicate>),
@@ -1267,7 +1267,9 @@ pub mod ip_addr {
 
     /// A Predicate containing independent octuplet masks to be
     /// applied to all elements of an IP version 4 address.
-    #[derive(Debug, Clone, Copy, Encode, Decode, IntoSchema, Serialize, Deserialize)]
+    #[derive(
+        Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
     pub struct Ipv4Predicate([Mask<u8>; 4]);
 
     impl PredicateTrait<Ipv4Addr> for Ipv4Predicate {
@@ -1302,7 +1304,9 @@ pub mod ip_addr {
     /// A Predicate containing independent _hexadecuplets_ (u16
     /// groups) masks to be applied to all elements of an IP version 6
     /// address.
-    #[derive(Debug, Clone, Copy, Encode, Decode, IntoSchema, Serialize, Deserialize)]
+    #[derive(
+        Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
     pub struct Ipv6Predicate([Mask<u16>; 8]);
 
     impl PredicateTrait<Ipv6Addr> for Ipv6Predicate {

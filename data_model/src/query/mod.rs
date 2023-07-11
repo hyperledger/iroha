@@ -6,14 +6,20 @@
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::cmp::Ordering;
 
+#[cfg(feature = "http")]
+pub use cursor::ForwardCursor;
 use derive_more::Display;
-use iroha_crypto::SignatureOf;
+use iroha_crypto::{PublicKey, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
+#[cfg(feature = "http")]
+pub use pagination::Pagination;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "http")]
+pub use sorting::Sorting;
 
 pub use self::model::*;
 use self::{
@@ -27,6 +33,13 @@ use crate::{
     transaction::{TransactionPayload, TransactionValue, VersionedSignedTransaction},
     Identifiable, Value,
 };
+
+#[cfg(feature = "http")]
+pub mod cursor;
+#[cfg(feature = "http")]
+pub mod pagination;
+#[cfg(feature = "http")]
+pub mod sorting;
 
 macro_rules! queries {
     ($($($meta:meta)* $item:item)+) => {
@@ -130,24 +143,40 @@ pub mod model {
     )]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct TransactionQueryResult {
+    pub struct TransactionQueryOutput {
         /// Transaction
         pub transaction: TransactionValue,
         /// The hash of the block to which `tx` belongs to
         pub block_hash: HashOf<VersionedCommittedBlock>,
     }
+
+    /// Type returned from [`Metadata`] queries
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type]
+    pub struct MetadataValue(pub Value);
 }
 
-/// Type returned from [`Metadata`] queries
-pub struct MetadataValue(Value);
-
 impl From<MetadataValue> for Value {
+    #[inline]
     fn from(source: MetadataValue) -> Self {
         source.0
     }
 }
 
 impl From<Value> for MetadataValue {
+    #[inline]
     fn from(source: Value) -> Self {
         Self(source)
     }
@@ -157,7 +186,7 @@ impl Query for QueryBox {
     type Output = Value;
 }
 
-impl TransactionQueryResult {
+impl TransactionQueryOutput {
     #[inline]
     /// Return payload of the transaction
     pub fn payload(&self) -> &TransactionPayload {
@@ -165,14 +194,14 @@ impl TransactionQueryResult {
     }
 }
 
-impl PartialOrd for TransactionQueryResult {
+impl PartialOrd for TransactionQueryOutput {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for TransactionQueryResult {
+impl Ord for TransactionQueryOutput {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.payload()
@@ -189,6 +218,7 @@ pub mod role {
 
     use derive_more::Display;
 
+    use super::Query;
     use crate::prelude::*;
 
     queries! {
@@ -275,6 +305,7 @@ pub mod permission {
 
     use derive_more::Display;
 
+    use super::Query;
     use crate::{
         permission::{self, PermissionTokenSchema},
         prelude::*,
@@ -361,7 +392,7 @@ pub mod account {
 
     use derive_more::Display;
 
-    use super::MetadataValue;
+    use super::{MetadataValue, Query};
     use crate::prelude::*;
 
     queries! {
@@ -523,7 +554,7 @@ pub mod asset {
     use iroha_data_model_derive::model;
 
     pub use self::model::*;
-    use super::MetadataValue;
+    use super::{MetadataValue, Query};
     use crate::prelude::*;
 
     queries! {
@@ -872,7 +903,7 @@ pub mod domain {
 
     use derive_more::Display;
 
-    use super::MetadataValue;
+    use super::{MetadataValue, Query};
     use crate::prelude::*;
 
     queries! {
@@ -1113,7 +1144,7 @@ pub mod transaction {
     use derive_more::Display;
     use iroha_crypto::HashOf;
 
-    use super::{Query, TransactionQueryResult};
+    use super::{Query, TransactionQueryOutput};
     use crate::{
         account::AccountId, expression::EvaluatesTo, prelude::Account,
         transaction::VersionedSignedTransaction,
@@ -1152,15 +1183,15 @@ pub mod transaction {
     }
 
     impl Query for FindAllTransactions {
-        type Output = Vec<TransactionQueryResult>;
+        type Output = Vec<TransactionQueryOutput>;
     }
 
     impl Query for FindTransactionsByAccountId {
-        type Output = Vec<TransactionQueryResult>;
+        type Output = Vec<TransactionQueryOutput>;
     }
 
     impl Query for FindTransactionByHash {
-        type Output = TransactionQueryResult;
+        type Output = TransactionQueryOutput;
     }
 
     impl FindTransactionsByAccountId {
@@ -1258,19 +1289,23 @@ pub mod block {
 pub mod http {
     //! Structures related to sending queries over HTTP
 
+    use getset::Getters;
     use iroha_data_model_derive::model;
 
     pub use self::model::*;
     use super::*;
-    use crate::{
-        account::AccountId, pagination::prelude::*, predicate::PredicateBox, sorting::prelude::*,
-    };
+    use crate::{account::AccountId, predicate::PredicateBox};
+
+    // TODO: Could we make a variant of `Value` that holds only query results?
+    type QueryResult = Value;
 
     declare_versioned_with_scale!(VersionedSignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
-    declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+    declare_versioned_with_scale!(VersionedQueryResponse 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
     #[model]
     pub mod model {
+        use core::num::NonZeroU64;
+
         use super::*;
 
         /// I/O ready structure to send queries.
@@ -1283,15 +1318,17 @@ pub mod http {
         }
 
         /// Payload of a query.
-        #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(
+            Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        )]
         pub(crate) struct QueryPayload {
             /// Timestamp of the query creation.
             #[codec(compact)]
             pub timestamp_ms: u128,
-            /// Query definition.
-            pub query: QueryBox,
             /// Account id of the user who will sign this query.
             pub authority: AccountId,
+            /// Query definition.
+            pub query: QueryBox,
             /// The filter applied to the result on the server-side.
             pub filter: PredicateBox,
         }
@@ -1300,10 +1337,23 @@ pub mod http {
         #[derive(Debug, Clone, Encode, Serialize, IntoSchema)]
         #[version_with_scale(n = 1, versioned = "VersionedSignedQuery")]
         pub struct SignedQuery {
-            /// Payload
-            pub payload: QueryPayload,
             /// Signature of the client who sends this query.
             pub signature: SignatureOf<QueryPayload>,
+            /// Payload
+            pub payload: QueryPayload,
+        }
+
+        /// [`SignedQuery`] response
+        #[derive(Debug, Clone, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[version_with_scale(n = 1, versioned = "VersionedQueryResponse")]
+        #[getset(get = "pub")]
+        pub struct QueryResponse {
+            /// The result of the query execution.
+            #[getset(skip)]
+            pub result: QueryResult,
+            /// Index of the next element in the result set. Client will use this value
+            /// in the next request to continue fetching results of the original query
+            pub cursor: cursor::ForwardCursor,
         }
     }
 
@@ -1314,8 +1364,8 @@ pub mod http {
 
         #[derive(Decode, Deserialize)]
         struct SignedQueryCandidate {
-            payload: QueryPayload,
             signature: SignatureOf<QueryPayload>,
+            payload: QueryPayload,
         }
 
         impl SignedQueryCandidate {
@@ -1331,6 +1381,7 @@ pub mod http {
                 })
             }
         }
+
         impl Decode for SignedQuery {
             fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
                 SignedQueryCandidate::decode(input)?
@@ -1338,6 +1389,7 @@ pub mod http {
                     .map_err(Into::into)
             }
         }
+
         impl<'de> Deserialize<'de> for SignedQuery {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where
@@ -1376,19 +1428,6 @@ pub mod http {
         }
     }
 
-    /// Paginated Query Result
-    // TODO: This is the only structure whose inner fields are exposed. Wrap it in model macro?
-    #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
-    pub struct QueryResult {
-        /// The result of the query execution.
-        pub result: Value,
-        /// pagination
-        pub pagination: Pagination,
-        /// sorting
-        pub sorting: Sorting,
-    }
-
     impl QueryBuilder {
         /// Construct a new request with the `query`.
         pub fn new(query: impl Into<QueryBox>, authority: AccountId) -> Self {
@@ -1419,11 +1458,20 @@ pub mod http {
         pub fn sign(
             self,
             key_pair: iroha_crypto::KeyPair,
-        ) -> Result<SignedQuery, iroha_crypto::error::Error> {
-            SignatureOf::new(key_pair, &self.payload).map(|signature| SignedQuery {
-                payload: self.payload,
-                signature,
-            })
+        ) -> Result<VersionedSignedQuery, iroha_crypto::error::Error> {
+            SignatureOf::new(key_pair, &self.payload)
+                .map(|signature| SignedQuery {
+                    payload: self.payload,
+                    signature,
+                })
+                .map(Into::into)
+        }
+    }
+
+    impl From<QueryResponse> for Value {
+        #[inline]
+        fn from(source: QueryResponse) -> Self {
+            source.result
         }
     }
 
@@ -1431,7 +1479,7 @@ pub mod http {
         //! The prelude re-exports most commonly used traits, structs and macros from this crate.
 
         pub use super::{
-            QueryBuilder, QueryResult, SignedQuery, VersionedQueryResult, VersionedSignedQuery,
+            QueryBuilder, QueryResponse, SignedQuery, VersionedQueryResponse, VersionedSignedQuery,
         };
     }
 }
@@ -1553,6 +1601,6 @@ pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
         peer::prelude::*, permission::prelude::*, role::prelude::*, transaction::*,
-        trigger::prelude::*, Query, QueryBox, TransactionQueryResult,
+        trigger::prelude::*, QueryBox, TransactionQueryOutput,
     };
 }
