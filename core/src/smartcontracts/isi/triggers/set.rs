@@ -19,6 +19,7 @@ use iroha_data_model::{
     query::error::FindError,
     trigger::{action::ActionTrait, OptimizedExecutable, WasmInternalRepr},
 };
+use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
 
 use crate::smartcontracts::wasm;
@@ -41,13 +42,13 @@ pub type LoadedAction<F> = Action<F, LoadedExecutable>;
 #[derive(Default)]
 pub struct Set {
     /// Triggers using [`DataEventFilter`]
-    data_triggers: HashMap<TriggerId, LoadedAction<DataEventFilter>>,
+    pub data_triggers: HashMap<TriggerId, LoadedAction<DataEventFilter>>,
     /// Triggers using [`PipelineEventFilter`]
-    pipeline_triggers: HashMap<TriggerId, LoadedAction<PipelineEventFilter>>,
+    pub pipeline_triggers: HashMap<TriggerId, LoadedAction<PipelineEventFilter>>,
     /// Triggers using [`TimeEventFilter`]
-    time_triggers: HashMap<TriggerId, LoadedAction<TimeEventFilter>>,
+    pub time_triggers: HashMap<TriggerId, LoadedAction<TimeEventFilter>>,
     /// Triggers using [`ExecuteTriggerEventFilter`]
-    by_call_triggers: HashMap<TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
+    pub by_call_triggers: HashMap<TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
     /// Trigger ids with type of events they process
     ids: HashMap<TriggerId, EventType>,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
@@ -537,6 +538,42 @@ pub enum LoadedExecutable {
     Wasm(LoadedWasm),
     /// Vector of ISI
     Instructions(Vec<InstructionBox>),
+}
+
+impl<F: Clone> From<&Action<F, LoadedExecutable>> for SerialAction<F> {
+    fn from(r: &Action<F, LoadedExecutable>) -> Self {
+        let exec = match &r.executable {
+            LoadedExecutable::Wasm(lw) => Executable::Wasm(WasmSmartContract(
+                lw.module
+                    .serialize()
+                    .expect("This failing means iroha was compiled incorrectly"),
+            )),
+            LoadedExecutable::Instructions(vec) => Executable::Instructions(vec.clone()),
+        };
+        SerialAction {
+            executable: exec,
+            repeats: r.repeats.clone(),
+            authority: r.authority.clone(),
+            filter: r.filter.clone(),
+            metadata: r.metadata.clone(),
+        }
+    }
+}
+
+#[derive(Encode, Decode)]
+pub struct SerialAction<F> {
+    /// The executable linked to this action
+    pub executable: Executable,
+    /// The repeating scheme of the action. It's kept as part of the
+    /// action and not inside the [`Trigger`] type, so that further
+    /// sanity checking can be done.
+    pub repeats: Repeats,
+    /// Account executing this action
+    pub authority: AccountId,
+    /// Defines events which trigger the `Action`
+    pub filter: F,
+    /// Metadata used as persistent storage for trigger data.
+    pub metadata: Metadata,
 }
 
 impl core::fmt::Debug for LoadedExecutable {

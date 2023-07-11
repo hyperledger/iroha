@@ -78,7 +78,7 @@ pub mod model {
     pub struct WasmSmartContract(
         /// Raw wasm blob.
         #[serde(with = "base64")]
-        pub(super) Vec<u8>,
+        pub Vec<u8>,
     );
 
     /// Iroha [`Transaction`] payload.

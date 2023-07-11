@@ -62,6 +62,17 @@ impl Validator {
         })
     }
 
+    pub fn into_data_model(&self) -> data_model_validator::Validator {
+        data_model_validator::Validator {
+            wasm: crate::WasmSmartContract(
+                self.loaded_validator
+                    .module
+                    .serialize()
+                    .expect("This failing means iroha was compiled incorrectly"),
+            ),
+        }
+    }
+
     /// Validate operation.
     ///
     /// # Errors
@@ -172,6 +183,12 @@ impl MockValidator {
                 Ok(())
             }
             NeedsValidationBox::Query(_) => Ok(()),
+        }
+    }
+
+    pub fn into_data_model(&self) -> data_model_validator::Validator {
+        data_model_validator::Validator {
+            wasm: crate::WasmSmartContract(Vec::new()),
         }
     }
 

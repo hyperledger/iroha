@@ -26,12 +26,14 @@ use iroha_data_model::{
     block::{CommittedBlock, VersionedCommittedBlock},
     isi::error::{InstructionExecutionError as Error, MathError},
     parameter::Parameter,
+    permission::Permissions,
     prelude::*,
     query::error::{FindError, QueryExecutionFail},
     trigger::action::ActionTrait,
 };
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallVec;
+use parity_scale_codec::{Decode, Encode};
 
 #[cfg(test)]
 use crate::validator::MockValidator as Validator;
@@ -47,6 +49,7 @@ use crate::{
         wasm, Execute,
     },
     tx::TransactionValidator,
+    wsv::triggers::set::SerialAction,
     DomainsMap, Parameters, PeersIds,
 };
 
@@ -135,6 +138,110 @@ impl Clone for WorldStateView {
             metric_tx_amounts_counter: 0,
             engine: self.engine.clone(),
             kura: Arc::clone(&self.kura),
+        }
+    }
+}
+
+/// WSV data to that can be serialized and deserialized.
+#[derive(Encode, Decode)]
+pub struct WSVData {
+    /// Identifications of discovered trusted peers.
+    pub(crate) trusted_peers_ids: Vec<PeerId>,
+    /// Registered domains.
+    pub(crate) domains: Vec<(DomainId, Domain)>,
+    /// Roles. [`Role`] pairs.
+    pub(crate) roles: Vec<(RoleId, Role)>,
+    /// Permission tokens of an account.
+    pub(crate) account_permission_tokens: Vec<(AccountId, Permissions)>,
+    /// Registered permission token ids.
+    pub(crate) permission_token_definitions: Vec<PermissionTokenDefinition>,
+    /// Triggers using [`DataEventFilter`]
+    data_triggers: Vec<(TriggerId, SerialAction<DataEventFilter>)>,
+    /// Triggers using [`PipelineEventFilter`]
+    pipeline_triggers: Vec<(TriggerId, SerialAction<PipelineEventFilter>)>,
+    /// Triggers using [`TimeEventFilter`]
+    time_triggers: Vec<(TriggerId, SerialAction<TimeEventFilter>)>,
+    /// Triggers using [`ExecuteTriggerEventFilter`]
+    by_call_triggers: Vec<(TriggerId, SerialAction<ExecuteTriggerEventFilter>)>,
+    /// Runtime Validator
+    pub(crate) validator: Option<iroha_data_model::validator::Validator>,
+    /// New version of Validator, which will replace `validator` on the next
+    /// [`validator_view()`](WorldStateView::validator_view) call.
+    pub(crate) upgraded_validator: Option<iroha_data_model::validator::Validator>,
+    /// Blockchain.
+    pub block_hashes: Vec<HashOf<VersionedCommittedBlock>>,
+    /// Hashes of transactions mapped onto block height where they stored
+    pub transactions: Vec<(HashOf<VersionedSignedTransaction>, u64)>,
+}
+
+impl From<&WorldStateView> for WSVData {
+    fn from(wsv: &WorldStateView) -> Self {
+        Self {
+            trusted_peers_ids: wsv.world.trusted_peers_ids.iter().cloned().collect(),
+            domains: wsv
+                .world
+                .domains
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            roles: wsv
+                .world
+                .roles
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            account_permission_tokens: wsv
+                .world
+                .account_permission_tokens
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            permission_token_definitions: wsv
+                .world
+                .permission_token_definitions
+                .values()
+                .cloned()
+                .collect(),
+            data_triggers: wsv
+                .world
+                .triggers
+                .data_triggers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.into()))
+                .collect(),
+            pipeline_triggers: wsv
+                .world
+                .triggers
+                .pipeline_triggers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.into()))
+                .collect(),
+            time_triggers: wsv
+                .world
+                .triggers
+                .time_triggers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.into()))
+                .collect(),
+            by_call_triggers: wsv
+                .world
+                .triggers
+                .by_call_triggers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.into()))
+                .collect(),
+            validator: wsv.world.validator.as_ref().map(|v| v.into_data_model()),
+            upgraded_validator: wsv
+                .world
+                .upgraded_validator
+                .as_ref()
+                .map(|v| v.into_data_model()),
+            block_hashes: wsv.block_hashes.clone(),
+            transactions: wsv
+                .transactions
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
         }
     }
 }

@@ -17,13 +17,15 @@ use iroha_crypto::HashOf;
 use iroha_data_model::block::VersionedCommittedBlock;
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
+use parity_scale_codec::{DecodeAll, Encode};
 use parking_lot::Mutex;
 
-use crate::handler::ThreadHandler;
+use crate::{handler::ThreadHandler, wsv::WSVData, WorldStateView};
 
 const INDEX_FILE_NAME: &str = "blocks.index";
 const DATA_FILE_NAME: &str = "blocks.data";
 const LOCK_FILE_NAME: &str = "kura.lock";
+const WSV_FILE_NAME: &str = "wsv.snapshot";
 
 /// The interface of Kura subsystem
 #[derive(Debug)]
@@ -44,6 +46,8 @@ pub struct Kura {
     >,
     /// Path to file for plain text blocks.
     block_plain_text_path: Option<PathBuf>,
+    /// Path to blockchain directory.
+    block_store_path: PathBuf,
 }
 
 impl Kura {
@@ -73,6 +77,7 @@ impl Kura {
             block_store: Mutex::new(block_store),
             block_data: Mutex::new(Vec::new()),
             block_plain_text_path,
+            block_store_path: block_store_path.to_owned(),
         });
 
         Ok(kura)
@@ -87,6 +92,20 @@ impl Kura {
             block_store: Mutex::new(block_store),
             block_data: Mutex::new(Vec::new()),
             block_plain_text_path: None,
+            block_store_path: PathBuf::new(),
+        })
+    }
+
+    /// Create a kura instance that doesn't write to disk. Instead it serves as a handler
+    /// for in-memory blocks only. With tempdir path.
+    pub fn blank_kura_for_testing_with_dir(temp_dir: &Path) -> Arc<Kura> {
+        let block_store = BlockStore::fake_locked_for_tests(temp_dir.to_owned());
+        Arc::new(Self {
+            mode: Mode::Strict,
+            block_store: Mutex::new(block_store),
+            block_data: Mutex::new(Vec::new()),
+            block_plain_text_path: None,
+            block_store_path: temp_dir.to_owned(),
         })
     }
 
@@ -327,6 +346,35 @@ impl Kura {
         let mut data = self.block_data.lock();
         data.pop();
         data.push((block.hash(), Some(block)));
+    }
+
+    /// Store WSV to disk.
+    pub fn store_wsv(&self, wsv: &WorldStateView) {
+        let data: WSVData = wsv.into();
+        let path = self.block_store_path.join(WSV_FILE_NAME);
+
+        std::thread::spawn(move || {
+            let bin_data: Vec<u8> = data.encode();
+
+            let mut wsv_file = std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .create(true)
+                .open(path.clone())
+                .expect("Failed to open wsv file");
+
+            wsv_file
+                .write_all(&bin_data)
+                .expect("Failed to write wsv file");
+        });
+    }
+
+    /// Load WSVData from disk.
+    pub fn try_load_wsv(&self) -> Option<WSVData> {
+        let path = self.block_store_path.join(WSV_FILE_NAME);
+        let binding = std::fs::read(path).ok()?;
+        let mut slice = binding.as_slice();
+        WSVData::decode_all(&mut slice).ok()
     }
 }
 
@@ -990,5 +1038,27 @@ mod tests {
             .unwrap()
             .init()
             .unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn write_then_read_wsv_from_disk_should_fail() {
+        let dir = tempfile::tempdir().unwrap();
+        let kura = Kura::blank_kura_for_testing_with_dir(&dir.path());
+        let mut wsv = WorldStateView::new(crate::World::default(), kura.clone());
+
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let loaded_data = kura.try_load_wsv().unwrap();
+    }
+
+    #[test]
+    fn write_then_read_wsv_from_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let kura = Kura::blank_kura_for_testing_with_dir(&dir.path());
+        let mut wsv = WorldStateView::new(crate::World::default(), kura.clone());
+
+        kura.store_wsv(&wsv);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let loaded_data = kura.try_load_wsv().unwrap();
     }
 }
