@@ -114,7 +114,7 @@ pub mod model {
     /// The reason for rejecting pipeline entity such as transaction or block.
     #[derive(
         Debug,
-        Display,
+        displaydoc::Display,
         Clone,
         PartialEq,
         Eq,
@@ -128,11 +128,9 @@ pub mod model {
     #[cfg_attr(feature = "std", derive(thiserror::Error))]
     #[ffi_type]
     pub enum PipelineRejectionReason {
-        /// The reason for rejecting the block.
-        #[display(fmt = "Block was rejected")]
+        /// Block was rejected
         Block(#[cfg_attr(feature = "std", source)] crate::block::error::BlockRejectionReason),
-        /// The reason for rejecting transaction.
-        #[display(fmt = "Transaction was rejected")]
+        /// Transaction was rejected
         Transaction(
             #[cfg_attr(feature = "std", source)]
             crate::transaction::error::TransactionRejectionReason,

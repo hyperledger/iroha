@@ -599,7 +599,7 @@ pub mod model {
     /// Expression evaluation error
     #[derive(
         Debug,
-        Display,
+        displaydoc::Display,
         Clone,
         PartialEq,
         Eq,
@@ -617,20 +617,16 @@ pub mod model {
     #[ffi_type(opaque)]
     pub enum EvaluationError {
         /// Failed due to math exception
-        #[display(fmt = "Math error")]
         Math(#[cfg_attr(feature = "std", source)] MathError),
-        /// Validation error
-        #[display(fmt = "Validation failed")]
+        /// Validation failed
         Validation(#[cfg_attr(feature = "std", source)] Box<ValidationFail>),
-        /// Value not found in context.
-        #[display(fmt = "{_0}: Value not found in context")]
+        /// `{0}`: Value not found in context
         Find(
             #[skip_from]
             #[skip_try_from]
             String,
         ),
-        /// Conversion EvaluationError
-        #[display(fmt = "Conversion EvaluationError: {_0}")]
+        /// Conversion EvaluationError: `{0}`
         Conversion(
             #[skip_from]
             #[skip_try_from]

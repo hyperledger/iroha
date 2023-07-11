@@ -923,7 +923,7 @@ pub mod error {
         /// Instruction execution error type
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -936,50 +936,42 @@ pub mod error {
             Encode,
             IntoSchema,
         )]
+        #[ignore_extra_doc_attributes]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         // TODO: Only temporarily opaque because of InstructionExecutionError::Repetition
         #[ffi_type(opaque)]
         pub enum InstructionExecutionError {
             /// Instruction does not adhere to Iroha DSL specification
-            #[display(fmt = "Evaluation failed")]
             Evaluate(#[cfg_attr(feature = "std", source)] InstructionEvaluationError),
-            /// Query Error
-            #[display(fmt = "Query failed")]
+            /// Query failed
             Query(#[cfg_attr(feature = "std", source)] QueryExecutionFail),
-            /// Conversion Error
-            #[display(fmt = "Conversion Error: {_0}")]
+            /// Conversion Error: {0}
             Conversion(
                 #[skip_from]
                 #[skip_try_from]
                 String,
             ),
-            /// Failed to find some entity
-            #[display(fmt = "Entity missing")]
+            /// Entity missing
             Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
             /// Repeated instruction
-            #[display(fmt = "Repetition")]
             Repetition(#[cfg_attr(feature = "std", source)] RepetitionError),
-            /// Failed to assert mintability
-            #[display(fmt = "Mintability assertion failed")]
+            /// Mintability assertion failed
             Mintability(#[cfg_attr(feature = "std", source)] MintabilityError),
-            /// Failed due to math exception
-            #[display(fmt = "Illegal math operation")]
+            /// Illegal math operation
             Math(#[cfg_attr(feature = "std", source)] MathError),
-            /// Metadata Error.
-            #[display(fmt = "Metadata error")]
+            /// Metadata error
             Metadata(#[cfg_attr(feature = "std", source)] metadata::MetadataError),
-            /// [`Fail`] error
-            #[display(fmt = "Execution failed: {_0}")]
+            /// Execution failed: {0}
             Fail(
                 #[skip_from]
                 #[skip_try_from]
                 String,
             ),
             /// Invalid instruction parameter
-            #[display(fmt = "Invalid parameter")]
             InvalidParameter(#[cfg_attr(feature = "std", source)] InvalidParameterError),
-            /// Instruction tried to violate Iroha invariant (i.e. burn last key)
-            #[display(fmt = "Iroha invariant violation: {_0}")]
+            /// Iroha invariant violation: {0}
+            ///
+            /// i.e. you can't burn last key
             InvariantViolation(
                 #[skip_from]
                 #[skip_try_from]
@@ -990,7 +982,7 @@ pub mod error {
         /// Evaluation error. This error indicates instruction is not a valid Iroha DSL
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -1007,16 +999,13 @@ pub mod error {
         // TODO: Only temporarily opaque because of problems with FFI
         #[ffi_type(opaque)]
         pub enum InstructionEvaluationError {
-            /// Asset type assertion error
-            #[display(fmt = "Failed to evaluate expression")]
+            /// Failed to evaluate expression
             Expression(#[cfg_attr(feature = "std", source)] evaluate::EvaluationError),
-            /// Parameter type assertion error
-            #[display(fmt = "Instruction of type `{_0}` is not supported")]
+            /// Instruction of type `{0}` is not supported
             Unsupported(InstructionType),
-            /// Failed to find parameter in a permission
-            #[display(fmt = "Failed to find parameter in a permission: {_0}")]
+            /// Failed to find parameter in a permission: {0}
             PermissionParameter(String),
-            #[display(fmt = "Incorrect value type")]
+            /// Incorrect value type
             Type(#[cfg_attr(feature = "std", source)] TypeError),
         }
 
@@ -1048,7 +1037,7 @@ pub mod error {
         /// Type error
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -1064,16 +1053,11 @@ pub mod error {
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[ffi_type]
         pub enum TypeError {
-            /// Asset type assertion error
-            #[display(
-                fmt = "Asset Ids correspond to assets with different underlying types, {_0}"
-            )]
+            /// Asset Ids correspond to assets with different underlying types, {0}
             AssetValueType(#[cfg_attr(feature = "std", source)] Mismatch<AssetValueType>),
-            /// Parameter type assertion error
-            #[display(fmt = "Value passed to the parameter doesn't have the right type, {_0}")]
+            /// Value passed to the parameter doesn't have the right type, {0}
             ParameterValueType(#[cfg_attr(feature = "std", source)] Box<Mismatch<Value>>),
-            /// Asset Id mismatch
-            #[display(fmt = "AssetDefinition Ids don't match, {_0}")]
+            /// AssetDefinition Ids don't match, {0}
             AssetDefinitionId(
                 #[cfg_attr(feature = "std", source)] Box<Mismatch<AssetDefinitionId>>,
             ),
@@ -1082,7 +1066,7 @@ pub mod error {
         /// Math error, which occurs during instruction execution
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -1096,34 +1080,29 @@ pub mod error {
             IntoSchema,
         )]
         // TODO: Only temporarily opaque because of InstructionExecutionError::BinaryOpIncompatibleNumericValueTypes
+        #[ignore_extra_doc_attributes]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[ffi_type(opaque)]
         pub enum MathError {
-            /// Overflow error inside instruction
-            #[display(fmt = "Overflow occurred")]
+            /// Overflow error occurred inside instruction
             Overflow,
-            /// Not enough quantity
-            #[display(fmt = "Not enough quantity to transfer/burn")]
+            /// Not enough quantity to transfer/burn
             NotEnoughQuantity,
             /// Divide by zero
-            #[display(fmt = "Divide by zero")]
             DivideByZero,
-            /// Negative Value encountered
-            #[display(fmt = "Negative value encountered")]
+            /// Negative value encountered
             NegativeValue,
             /// Domain violation
-            #[display(fmt = "Domain violation")]
             DomainViolation,
-            /// Unknown error. No actual function should ever return this if possible.
-            #[display(fmt = "Unknown error")]
+            /// Unknown error
+            ///
+            /// No actual function should ever return this if possible
             Unknown,
             /// Encountered incompatible type of arguments
-            #[display(fmt = "Encountered incompatible type of arguments")]
             BinaryOpIncompatibleNumericValueTypes(
                 #[cfg_attr(feature = "std", source)] BinaryOpIncompatibleNumericValueTypesError,
             ),
-            /// Conversion failed.
-            #[display(fmt = "{_0}")]
+            /// Conversion failed: {0}
             FixedPointConversion(String),
         }
 
@@ -1154,7 +1133,7 @@ pub mod error {
         /// Mintability logic error
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             Copy,
             PartialEq,
@@ -1171,22 +1150,16 @@ pub mod error {
         #[ffi_type]
         #[repr(u8)]
         pub enum MintabilityError {
-            /// Tried to mint an Un-mintable asset.
-            #[display(
-                fmt = "This asset cannot be minted more than once and it was already minted."
-            )]
+            /// This asset cannot be minted more than once and it was already minted
             MintUnmintable,
-            /// Tried to forbid minting on assets that should be mintable.
-            #[display(
-                fmt = "This asset was set as infinitely mintable. You cannot forbid its minting."
-            )]
+            /// This asset was set as infinitely mintable. You cannot forbid its minting
             ForbidMintOnMintable,
         }
 
         /// Invalid instruction parameter error
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -1198,15 +1171,16 @@ pub mod error {
             Encode,
             IntoSchema,
         )]
+        #[ignore_extra_doc_attributes]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[ffi_type(opaque)]
         #[repr(u8)]
         pub enum InvalidParameterError {
-            /// Invalid WASM binary
-            #[display(fmt = "Invalid WASM binary: {_0}")]
+            /// Invalid WASM binary: {0}
             Wasm(String),
-            /// Invalid name length (i.e. too long [`AccountId`])
-            #[display(fmt = "Name length violation")]
+            /// Name length violation
+            ///
+            /// i.e. too long [`AccountId`]
             NameLength,
         }
 

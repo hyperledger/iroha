@@ -972,7 +972,7 @@ pub mod model {
     /// TODO: Move to `validator` module
     #[derive(
         Debug,
-        Display,
+        displaydoc::Display,
         Clone,
         PartialEq,
         Eq,
@@ -985,36 +985,32 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
+    #[ignore_extra_doc_attributes]
     #[ffi_type(opaque)]
     #[cfg_attr(feature = "std", derive(thiserror::Error))]
     pub enum ValidationFail {
-        /// Some operation is not permitted.
-        #[display(fmt = "Operation is not permitted: {_0}")]
+        /// Operation is not permitted: {0}
         NotPermitted(
             #[skip_from]
             #[skip_try_from]
             String,
         ),
-        /// Instruction execution failed.
-        #[display(fmt = "Instruction execution failed")]
+        /// Instruction execution failed
         InstructionFailed(
             #[cfg_attr(feature = "std", source)] isi::error::InstructionExecutionError,
         ),
-        /// Query execution failed.
-        #[display(fmt = "Query execution failed")]
+        /// Query execution failed
         QueryFailed(#[cfg_attr(feature = "std", source)] query::error::QueryExecutionFail),
-        /// Submitted operation is too complex. For example it's a very big WASM binary.
+        /// Operation is too complex, perhaps `WASM_RUNTIME_CONFIG` blockchain parameters should be increased
+        ///
+        /// For example it's a very big WASM binary.
         ///
         /// It's different from [`TransactionRejectionReason::LimitCheck`] because it depends on
         /// validator.
-        #[display(
-            fmt = "Operation is too complex, perhaps `WASM_RUNTIME_CONFIG` blockchain parameters should be increased"
-        )]
         TooComplex,
-        /// Internal error occurred while validating the operation.
+        /// Internal error occurred, please contact the support or check the logs if you are the node owner
+        ///
         /// Usually means a bug inside **Runtime Validator** or **Iroha** implementation.
-        #[display(fmt = "Internal error occurred, please contact the support \
-                         or check the logs if you are the node owner")]
         InternalError(
             /// Contained error message if its used internally. Empty for external users.
             /// Never serialized to not to expose internal errors to the end user.
