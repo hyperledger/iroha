@@ -771,37 +771,28 @@ impl BlockStore<Locked> {
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 /// Error variants for persistent storage logic
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, displaydoc::Display)]
 pub enum Error {
-    /// Generic IO error
-    #[error("Failed reading/writing {_1:?} from disk")]
+    /// Failed reading/writing {1:?} from disk
     IO(#[source] std::io::Error, PathBuf),
-    /// Failed to create the directory
-    #[error("Failed to create the directory {_1:?}")]
+    /// Failed to create the directory {1:?}
     MkDir(std::io::Error, PathBuf),
-    /// Error (de)serializing block
-    #[error("Failed to serialize/deserialize block")]
+    /// Failed to serialize/deserialize block
     Codec(#[from] iroha_version::error::Error),
-    /// Allocation error
-    #[error("Failed to allocate buffer")]
+    /// Failed to allocate buffer
     Alloc(#[from] std::collections::TryReserveError),
-    /// Zero-height block was provided
-    /// The block store tried reading data beyond the end of the block data file.
-    #[error("Tried reading block data out of bounds: {start_block_height}, {block_count}.")]
+    /// Tried reading block data out of bounds: {start_block_height}, {block_count}
     OutOfBoundsBlockRead {
         /// The block height from which the read was supposed to start
         start_block_height: u64,
         /// The actual block count
         block_count: usize,
     },
-    /// Tried to lock an already locked store
-    #[error("Tried to lock block store by creating a lockfile at {0}, but it already exists")]
+    /// Tried to lock block store by creating a lockfile at {0}, but it already exists
     Locked(PathBuf),
-    /// Tried to unlock an already unlocked store
-    #[error("Tried to unlock block store by deleting lockfile at {0}, but it couldn't be found")]
+    /// Tried to unlock block store by deleting lockfile at {0}, but it couldn't be found
     Unlocked(PathBuf),
-    /// Integer conversion error
-    #[error("Conversion of wide integer into narrow integer. This error cannot be caught at compile time at present")]
+    /// Conversion of wide integer into narrow integer failed. This error cannot be caught at compile time at present
     IntConversion(#[from] std::num::TryFromIntError),
 }
 

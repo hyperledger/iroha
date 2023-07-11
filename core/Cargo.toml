@@ -61,6 +61,7 @@ serde_json = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs"] }
 crossbeam-queue = { workspace = true }
 thiserror = { workspace = true }
+displaydoc = "0.2.4"
 wasmtime = { workspace = true }
 parking_lot = { workspace = true, features = ["deadlock_detection"] }
 derive_more = { workspace = true }

@@ -38,7 +38,7 @@ use crate::{
 pub struct AcceptedTransaction(pub(crate) VersionedSignedTransaction);
 
 /// Error type for transaction from [`VersionedSignedTransaction`] to [`AcceptedTransaction`]
-#[derive(Debug, Display, FromVariant, thiserror::Error)]
+#[derive(Debug, FromVariant, thiserror::Error, displaydoc::Display)]
 pub enum AcceptTransactionFail {
     /// Failure during limits check
     TransactionLimit(#[source] TransactionLimitError),
