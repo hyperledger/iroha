@@ -11,7 +11,6 @@ use alloc::{
 #[cfg(feature = "std")]
 use std::collections::BTreeMap;
 
-use derive_more::Display;
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;

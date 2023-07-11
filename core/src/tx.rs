@@ -15,7 +15,6 @@
     clippy::arithmetic_side_effects
 )]
 
-use derive_more::Display;
 use eyre::Result;
 use iroha_crypto::{HashOf, SignatureVerificationFail, SignaturesOf};
 pub use iroha_data_model::prelude::*;
