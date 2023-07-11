@@ -209,5 +209,6 @@ fn configuration_proxy_from_env_returns_err_on_parsing_error() {
     }
 
     let err = Target::from_env(&Env).expect_err("Must not be parsed");
-    assert_eq!(format!("{err}"), "Failed to deserialize the field `FOO`: JSON5:  --> 1:1\n  |\n1 | not u64 for sure\n  | ^---\n  |\n  = expected array, boolean, null, number, object, or string");
+    let err = eyre::Report::new(err);
+    assert_eq!(format!("{err:?}"), "Failed to deserialize the field `FOO`\n\nCaused by:\n    JSON5:  --> 1:1\n      |\n    1 | not u64 for sure\n      | ^---\n      |\n      = expected array, boolean, null, number, object, or string\n\nLocation:\n    config/base/tests/simple.rs:212:15");
 }
