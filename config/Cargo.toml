@@ -23,6 +23,7 @@ strum = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 json5 = { workspace = true }
 thiserror = { workspace = true }
+displaydoc = "0.2.4"
 derive_more = { workspace = true }
 cfg-if = { workspace = true }
 path-absolutize = { workspace = true }

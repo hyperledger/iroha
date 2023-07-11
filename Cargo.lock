@@ -2929,6 +2929,7 @@ version = "2.0.0-pre-rc.16"
 dependencies = [
  "cfg-if",
  "derive_more",
+ "displaydoc",
  "eyre",
  "iroha_config_base",
  "iroha_crypto",

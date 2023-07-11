@@ -13,20 +13,11 @@ use InnerPath::*;
 pub const ALLOWED_CONFIG_EXTENSIONS: [&str; 2] = ["json", "json5"];
 
 /// Error type for [`Path`].
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error, displaydoc::Display)]
 pub enum ExtensionError {
-    /// User provided config file without extension.
-    #[error(
-        "No valid file extension found. Allowed file extensions are: {:?}.",
-        ALLOWED_CONFIG_EXTENSIONS
-    )]
+    /// No valid file extension found. Allowed file extensions are: {ALLOWED_CONFIG_EXTENSIONS:?}
     Missing,
-    /// User provided config file with unsupported extension.
-    #[error(
-        "Provided config file has an unsupported file extension `{0}`, \
-        allowed extensions are: {:?}.",
-        ALLOWED_CONFIG_EXTENSIONS
-    )]
+    /// Provided config file has an unsupported file extension `{0}`, allowed extensions are: {ALLOWED_CONFIG_EXTENSIONS:?}.
     Invalid(String),
 }
 
