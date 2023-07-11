@@ -3218,6 +3218,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "derive_more",
+ "displaydoc",
  "futures",
  "iroha_config_base",
  "iroha_crypto",
