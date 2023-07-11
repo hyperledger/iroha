@@ -74,42 +74,36 @@ pub mod error {
     use wasmtime::Trap;
 
     /// `WebAssembly` execution error type
-    #[derive(Debug, thiserror::Error)]
+    #[derive(Debug, thiserror::Error, displaydoc::Display)]
     pub enum Error {
-        /// Engine or linker could not be created
-        #[error("Runtime initialization failure")]
+        /// Runtime initialization failure
         Initialization(#[source] eyre::Report),
-        /// Module could not be loaded from bytes
-        #[error("Failed to load module")]
+        /// Failed to load module
         ModuleLoading(#[source] eyre::Report),
         /// Module could not be instantiated
-        #[error("Module instantiation failure")]
         Instantiation(#[from] InstantiationError),
         /// Export error
-        #[error("Export error")]
         Export(#[from] ExportError),
         /// Call to the function exported from module failed
-        #[error("Exported function call failed")]
         ExportFnCall(#[from] ExportFnCallError),
-        /// Error during decoding object with length prefix
-        #[error("Failed to decode object from bytes with length prefix")]
+        /// Failed to decode object from bytes with length prefix
         Decode(#[source] eyre::Report),
     }
 
     /// Instantiation error
-    #[derive(Debug, thiserror::Error)]
+    #[derive(Debug, thiserror::Error, displaydoc::Display)]
+    #[ignore_extra_doc_attributes]
     pub enum InstantiationError {
+        /// Linker failed to instantiate module
+        ///
         /// [`wasmtime::Linker::instantiate`] failed
-        #[error("Linker failed to instantiate module")]
         Linker(#[from] eyre::Report),
         /// Export which should always be present is missing
-        #[error("Mandatory export error")]
         MandatoryExport(#[from] ExportError),
     }
 
-    /// Export error
-    #[derive(Debug, Copy, Clone, thiserror::Error)]
-    #[error("Failed to export `{export_name}`")]
+    #[derive(Debug, Copy, Clone, thiserror::Error, displaydoc::Display)]
+    /// Failed to export `{export_name}`
     pub struct ExportError {
         /// Name of the failed export
         pub export_name: &'static str,
@@ -119,19 +113,15 @@ pub mod error {
     }
 
     /// Export error kind
-    #[derive(Debug, Copy, Clone, thiserror::Error)]
+    #[derive(Debug, Copy, Clone, thiserror::Error, displaydoc::Display)]
     pub enum ExportErrorKind {
         /// Named export not found
-        #[error("Not found")]
         NotFound,
         /// Export expected to be a memory, but it's not
-        #[error("Not a memory")]
         NotAMemory,
         /// Export expected to be a function, but it's not
-        #[error("Not a function")]
         NotAFunction,
-        /// Export has a wrong signature
-        #[error("Wrong signature, expected `{0} -> {1}`")]
+        /// Export has a wrong signature, expected `{0} -> {1}`
         WrongSignature(&'static str, &'static str),
     }
 
@@ -173,16 +163,13 @@ pub mod error {
     }
 
     /// Exported function call error
-    #[derive(Debug, thiserror::Error)]
+    #[derive(Debug, thiserror::Error, displaydoc::Display)]
     pub enum ExportFnCallError {
         /// Failed to execute something on the host side
-        #[error("Failed to execute operation on host")]
         HostExecution(#[source] eyre::Report),
         /// Stack overflow, heap overflow or other limits exceeded
-        #[error("Execution limits exceeded")]
         ExecutionLimitsExceeded(#[source] eyre::Report),
         /// Other kind of trap
-        #[error("Other")]
         Other(#[source] eyre::Report),
     }
 

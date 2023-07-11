@@ -16,12 +16,12 @@ use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
 
 /// Error emerge during insertion of `Proof` into `ProofChain`
-#[derive(Error, Debug, Clone, Copy)]
+#[derive(Error, displaydoc::Display, Debug, Clone, Copy)]
 #[allow(missing_docs)]
 pub enum Error {
-    #[error("Block hash of proof doesn't match hash of proof chain")]
+    /// Block hash of proof doesn't match hash of proof chain
     BlockHashMismatch,
-    #[error("View change index is not present in proof chain")]
+    /// View change index is not present in proof chain
     ViewChangeNotFound,
 }
 
