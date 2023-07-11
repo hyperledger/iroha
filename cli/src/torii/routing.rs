@@ -336,19 +336,15 @@ mod subscription {
     use crate::event;
 
     /// Type for any error during subscription handling
-    #[derive(thiserror::Error, Debug)]
+    #[derive(thiserror::Error, displaydoc::Display, Debug)]
     enum Error {
         /// Event consumption resulted in an error
-        #[error("Event consumption resulted in an error: {0}")]
-        Consumer(Box<event::Error>),
+        Consumer(#[source] Box<event::Error>),
         /// Event reception error
-        #[error("Event reception error: {0}")]
         Event(#[from] tokio::sync::broadcast::error::RecvError),
-        /// Error caused by a violation of the Websocket protocol
-        #[error("WebSocket error: {0}")]
+        /// WebSocket error
         WebSocket(#[from] warp::Error),
         /// A `Close` message is received. Not strictly an Error
-        #[error("`Close` message received")]
         CloseMessage,
     }
 
