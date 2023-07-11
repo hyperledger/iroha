@@ -8,4 +8,4 @@ note: the struct `QueryPayload` is defined here
  --> $WORKSPACE/data_model/src/query.rs
   |
   |     pub use self::model::*;
-  |             ^^^^^^^^^^^^^^
+  |             ^^^^^^^^^^^

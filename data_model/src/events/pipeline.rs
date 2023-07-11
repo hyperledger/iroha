@@ -3,7 +3,6 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
-use derive_more::Display;
 use getset::Getters;
 use iroha_crypto::Hash;
 use iroha_data_model_derive::model;
