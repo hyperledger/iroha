@@ -552,7 +552,7 @@ pub mod error {
         /// The reason for rejecting transaction which happened because of transaction.
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -565,38 +565,34 @@ pub mod error {
             Serialize,
             IntoSchema,
         )]
+        #[ignore_extra_doc_attributes]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         // TODO: Temporarily opaque
         #[ffi_type(opaque)]
         pub enum TransactionRejectionReason {
             /// Account does not exist
-            #[display(fmt = "Account does not exist")]
             AccountDoesNotExist(
                 #[skip_from] // NOTE: Such implicit conversions would be too unreadable
                 #[skip_try_from]
                 #[cfg_attr(feature = "std", source)]
                 crate::query::error::FindError,
             ),
-            /// Failed to validate transaction limits (e.g. number of instructions)
-            #[display(fmt = "Unsatisfied limit condition")]
+            /// Failed to validate transaction limits
+            ///
+            /// e.g. number of instructions
             LimitCheck(#[cfg_attr(feature = "std", source)] error::TransactionLimitError),
-            /// Validation failed.
-            #[display(fmt = "Validation failed")]
+            /// Validation failed
             Validation(#[cfg_attr(feature = "std", source)] crate::ValidationFail),
-            /// Failed to execute instruction.
+            /// Failure in instruction execution
             ///
             /// In practice should be fully replaced by [`ValidationFail::Execution`]
             /// and will be removed soon.
-            #[display(fmt = "Failure in instruction execution")]
             InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
-            /// Failed to execute WebAssembly binary.
-            #[display(fmt = "Failure in WebAssembly execution")]
+            /// Failure in WebAssembly execution
             WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
-            /// Genesis account can sign only transactions in the genesis block.
-            #[display(fmt = "The genesis account can only sign transactions in the genesis block")]
+            /// The genesis account can only sign transactions in the genesis block
             UnexpectedGenesisAccountSignature,
-            /// Transaction gets expired.
-            #[display(fmt = "Transaction rejected due to being expired")]
+            /// Transaction rejected due to being expired
             Expired,
         }
     }

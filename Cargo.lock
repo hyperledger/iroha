@@ -3049,6 +3049,7 @@ dependencies = [
  "criterion",
  "dashmap",
  "derive_more",
+ "displaydoc",
  "getset",
  "iroha_client",
  "iroha_crypto",

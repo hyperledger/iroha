@@ -1432,7 +1432,7 @@ pub mod error {
         /// Query errors.
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -1447,32 +1447,27 @@ pub mod error {
         )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         pub enum QueryExecutionFail {
-            /// Query has wrong signature.
-            #[display(fmt = "Query has the wrong signature: {_0}")]
+            /// Query has the wrong signature: {0}
             Signature(
                 #[skip_from]
                 #[skip_try_from]
                 String,
             ),
-            /// Query has wrong expression.
-            #[display(fmt = "Query has a malformed expression: {_0}")]
+            /// Query has a malformed expression: {0}
             Evaluate(
                 #[skip_from]
                 #[skip_try_from]
                 String,
             ),
-            /// Query found nothing.
-            #[display(fmt = "Query found nothing")]
+            /// Query found nothing
             Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
-            /// Query found wrong type of asset.
-            #[display(fmt = "Query found wrong type of asset: {_0}")]
+            /// Query found wrong type of asset: {0}
             Conversion(
                 #[skip_from]
                 #[skip_try_from]
                 String,
             ),
-            /// Query without account.
-            #[display(fmt = "Unauthorized query: account not provided")]
+            /// Unauthorized query: account not provided
             Unauthorized,
         }
 
@@ -1504,7 +1499,7 @@ pub mod error {
         /// Type assertion error
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -1520,48 +1515,33 @@ pub mod error {
         // TODO: Only temporary
         #[ffi_type(opaque)]
         pub enum FindError {
-            /// Failed to find asset
-            #[display(fmt = "Failed to find asset: `{_0}`")]
+            /// Failed to find asset: `{0}`
             Asset(AssetId),
-            /// Failed to find asset definition
-            #[display(fmt = "Failed to find asset definition: `{_0}`")]
+            /// Failed to find asset definition: `{0}`
             AssetDefinition(AssetDefinitionId),
-            /// Failed to find account
-            #[display(fmt = "Failed to find account: `{_0}`")]
+            /// Failed to find account: `{0}`
             Account(AccountId),
-            /// Failed to find domain
-            #[display(fmt = "Failed to find domain: `{_0}`")]
+            /// Failed to find domain: `{0}`
             Domain(DomainId),
-            /// Failed to find metadata key
-            #[display(fmt = "Failed to find metadata key")]
+            /// Failed to find metadata key: `{0}`
             MetadataKey(Name),
-            /// Block with supplied parent hash not found. More description in a string.
-            #[display(fmt = "Block with hash {_0} not found")]
+            /// Block with hash `{0}` not found
             Block(HashOf<VersionedCommittedBlock>),
-            /// Transaction with given hash not found.
-            #[display(fmt = "Transaction not found")]
+            /// Transaction with hash `{0}` not found
             Transaction(HashOf<VersionedSignedTransaction>),
-            /// Peer not found.
-            #[display(fmt = "Peer {_0} not found")]
+            /// Peer with id `{0}` not found
             Peer(PeerId),
-            /// Trigger not found.
-            #[display(fmt = "Failed to find trigger: `{_0}`")]
+            /// Trigger with id `{0}` not found
             Trigger(TriggerId),
-            /// Failed to find Role by id.
-            #[display(fmt = "Failed to find role by id: `{_0}`")]
+            /// Role with id `{0}` not found
             Role(RoleId),
-            /// Failed to find [`PermissionTokenDefinition`] by id.
-            #[display(fmt = "Failed to find permission token definition by id: `{_0}`")]
+            /// Permission token definition with id `{0}` not found
             PermissionTokenDefinition(PermissionTokenId),
-            /// Failed to find [`PermissionToken`] for [`AccountId`].
-            #[cfg_attr(not(feature = "std"), display(fmt = "Failed to find permission token"))]
-            #[cfg_attr(feature = "std", error(transparent))]
+            /// Failed to find permission token
             PermissionToken(PermissionTokenFindError),
-            /// Failed to find specified [`Parameter`] variant.
-            #[display(fmt = "Failed to find specified parameter variant: `{_0}`")]
+            /// Parameter with id `{0}` not found
             Parameter(ParameterId),
-            /// Failed to find [`PublicKey`] at some account.
-            #[display(fmt = "Failed to find public key: `{_0}`")]
+            /// Failed to find [`PublicKey`]: `{0}`
             PublicKey(PublicKey),
         }
     }
