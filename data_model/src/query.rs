@@ -1541,7 +1541,7 @@ pub mod error {
             PermissionToken(PermissionTokenFindError),
             /// Parameter with id `{0}` not found
             Parameter(ParameterId),
-            /// Failed to find [`PublicKey`]: `{0}`
+            /// Failed to find public key: `{0}`
             PublicKey(PublicKey),
         }
     }
