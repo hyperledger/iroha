@@ -9,7 +9,7 @@ on:
       - '**.toml'
       - '.github/workflows/**.yml'
 
-      # Not part of the workspace
+      # Not part of the workspace!!!
       - '!wasm/**'
 
 concurrency:
