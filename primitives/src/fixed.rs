@@ -153,7 +153,7 @@ pub enum FixedPointOperationError {
     DivideByZero,
     /// Domain violation. E.g. computing `sqrt(-1)`
     DomainViolation,
-    /// Unknown Arithmetic error
+    /// Unknown arithmetic error
     Arithmetic,
 }
 

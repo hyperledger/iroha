@@ -98,7 +98,7 @@ pub enum MetadataError {
     EmptyPath,
     /// {0}: path segment not found, i.e. nothing was found at that key
     MissingSegment(Name),
-    /// {0}: path segment not an instance of metadata. I.e. something was found, but isn't an instance of [`Metadata`]
+    /// {0}: path segment not an instance of metadata. I.e. something was found, but isn't an instance of Metadata
     InvalidSegment(Name),
 }
 
