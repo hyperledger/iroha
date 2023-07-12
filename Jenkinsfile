@@ -1,4 +1,4 @@
-@Library('jenkins-library') _
+@Library('jenkins-library@fix/i2-pr-generator-genesisrepo-var') _
 
 def pipeline = new org.iroha2PRDeploy.AppPipeline(steps: this,
     k8sPrDeploy: true,
