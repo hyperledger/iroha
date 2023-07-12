@@ -31,7 +31,6 @@ use iroha_data_model::{
     query,
     query::error::QueryExecutionFail,
 };
-use iroha_logger::prelude::*;
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
 use pagination::{paginate, Paginate};

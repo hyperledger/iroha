@@ -5,7 +5,6 @@
 use core::{result::Result, time::Duration};
 
 use futures::{SinkExt, StreamExt};
-use iroha_logger::prelude::*;
 use iroha_version::prelude::*;
 
 #[cfg(test)]
