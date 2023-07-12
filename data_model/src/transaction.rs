@@ -377,12 +377,8 @@ mod candidate {
 
     impl SignedTransactionCandidate {
         #[cfg(feature = "std")]
-        fn validate(mut self) -> Result<SignedTransaction, &'static str> {
-            // TODO: Should we tolerate invalid signatures?
-            if self.retain_verified_signatures().is_empty() {
-                return Err("Transaction contains no valid signatures");
-            }
-
+        fn validate(self) -> Result<SignedTransaction, &'static str> {
+            self.validate_signatures()?;
             self.validate_instructions()
         }
 
@@ -405,12 +401,10 @@ mod candidate {
         }
 
         #[cfg(feature = "std")]
-        fn retain_verified_signatures(
-            &mut self,
-        ) -> Vec<&iroha_crypto::SignatureOf<TransactionPayload>> {
+        fn validate_signatures(&self) -> Result<(), &'static str> {
             self.signatures
-                .retain_verified_by_hash(self.payload.hash())
-                .collect()
+                .verify_hash(self.payload.hash())
+                .map_err(|_| "Transaction contains invalid signatures")
         }
     }
 
