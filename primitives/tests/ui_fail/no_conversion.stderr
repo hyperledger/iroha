@@ -2,7 +2,7 @@ error[E0308]: mismatched types
  --> tests/ui_fail/no_conversion.rs:4:17
   |
 4 |     Fixed::from(-1_f64);
-  |     ----------- ^^^^^^ expected struct `Fixed`, found `f64`
+  |     ----------- ^^^^^^ expected `Fixed`, found `f64`
   |     |
   |     arguments to this function are incorrect
   |
