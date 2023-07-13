@@ -8,8 +8,8 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-iroha_genesis = { version = "=2.0.0-pre-rc.16", path = "../../genesis"}
-iroha_primitives = { version = "=2.0.0-pre-rc.16", path = "../../primitives" }
-iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "../../data_model", features = ["http"] }
-iroha_crypto = { version = "=2.0.0-pre-rc.16", path = "../../crypto" }
-iroha_schema = { version = "=2.0.0-pre-rc.16", path = "../../schema" }
+iroha_genesis = { workspace = true }
+iroha_primitives = { workspace = true }
+iroha_data_model = { workspace = true, features = ["http"] }
+iroha_crypto = { workspace = true }
+iroha_schema = { workspace = true }

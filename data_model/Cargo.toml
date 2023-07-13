@@ -30,32 +30,32 @@ ffi_export = ["std", "iroha_ffi", "iroha_primitives/ffi_export", "iroha_crypto/f
 transparent_api = []
 
 [dependencies]
-iroha_primitives = { path = "../primitives", version = "=2.0.0-pre-rc.16", default-features = false }
-iroha_data_model_derive = { path = "derive", version = "=2.0.0-pre-rc.16" }
-iroha_crypto = { path = "../crypto", version = "=2.0.0-pre-rc.16", default-features = false }
-iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.16", default-features = false }
-iroha_version = { path = "../version", version = "=2.0.0-pre-rc.16", default-features = false, features = ["derive", "json", "scale"] }
-iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.16" }
-iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.16", optional = true }
+iroha_primitives = { workspace = true }
+iroha_data_model_derive = { workspace = true }
+iroha_crypto = { workspace = true }
+iroha_macro = { workspace = true }
+iroha_version = { workspace = true, features = ["derive", "json", "scale"] }
+iroha_schema = { workspace = true }
+iroha_ffi = { workspace = true, optional = true }
 
-dashmap = { version = "5.4.0", optional = true }
-tokio = { version = "1.23.0", features = ["sync", "rt-multi-thread"], optional = true }
-parity-scale-codec = { version = "3.2.1", default-features = false, features = ["derive"] }
-derive_more = { version = "0.99.17", default-features = false, features = ["as_ref", "display", "constructor", "from_str", "from", "into"] }
-serde = { version = "1.0.151", default-features = false, features = ["derive"] }
-serde_with = {version = "2.2.0", default-features = false, features = ["macros"]}
-serde_json = { version = "1.0.91", default-features = false, features = ["arbitrary_precision"] }
-warp = { version = "0.3.3", default-features = false, optional = true }
-thiserror = { version = "1.0.38", optional = true }
-getset = "0.1.2"
-strum = { version = "0.24.1", default-features = false, features = ["derive"] }
-base64 = { version = "0.13.1", default-features = false, features = ["alloc"]}
+dashmap = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["sync", "rt-multi-thread"] }
+parity-scale-codec = { workspace = true, features = ["derive"] }
+derive_more = { workspace = true, features = ["as_ref", "display", "constructor", "from_str", "from", "into"] }
+serde = { workspace = true, features = ["derive"] }
+serde_with = { workspace = true, features = ["macros"] }
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
+warp = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+getset = { workspace = true }
+strum = { workspace = true, features = ["derive"] }
+base64 = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
-iroha_client = { path = "../client", version = "=2.0.0-pre-rc.16" }
+iroha_client = { workspace = true }
 
-trybuild = "1.0.73"
-criterion = "0.3.6"
+trybuild = { workspace = true }
+criterion = { workspace = true }
 
 [[bench]]
 name = "time_event_filter"

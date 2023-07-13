@@ -24,21 +24,21 @@ std = ["iroha_macro/std", "fixnum/std", "thiserror"]
 ffi_export = ["std", "iroha_ffi"]
 
 [dependencies]
-iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.16", default-features = false }
-iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.16", default-features = false }
-iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.16", optional = true }
-iroha_primitives_derive = { path = "derive" }
+iroha_macro = { workspace = true }
+iroha_schema = { workspace = true }
+iroha_ffi = { workspace = true, optional = true }
+iroha_primitives_derive = { workspace = true }
 
-parity-scale-codec = { version = "3.2.1", default-features = false, features = ["derive"] }
-fixnum = { version = "0.9.1", default-features = false, features = ["serde", "parity", "i64"] }
-derive_more = { version = "0.99.17", default-features = false, features = ["display", "from", "as_ref", "as_mut", "deref", "constructor", "into_iterator"] }
-serde = { version = "1.0.151", default-features = false, features = ["derive"] }
-serde_with = {version = "2.2.0", default-features = false, features = ["macros"]}
+parity-scale-codec = { workspace = true, features = ["derive"] }
+fixnum = { workspace = true, features = ["serde", "parity", "i64"] }
+derive_more = { workspace = true, features = ["display", "from", "as_ref", "as_mut", "deref", "constructor", "into_iterator"] }
+serde = { workspace = true, features = ["derive"] }
+serde_with = { workspace = true, features = ["macros"] }
 smallvec = { version = "1.10.0", default-features = false, features = ["serde", "union"] }
 smallstr = { version = "0.3.0", default-features = false, features = ["serde", "union"] }
-thiserror = { version = "1.0.38", optional = true }
+thiserror = { workspace = true, optional = true }
 
 
 [dev-dependencies]
-serde_json = { version = "1.0.91", default-features = false, features = ["alloc"] }
-trybuild = "1.0.73"
+serde_json = { workspace = true, features = ["alloc"] }
+trybuild = { workspace = true }
