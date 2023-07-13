@@ -8,10 +8,10 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-iroha_schema_derive = { version = "=2.0.0-pre-rc.16", path = "derive" }
+iroha_schema_derive = { workspace = true }
 
-serde = { version = "1.0.151", default-features = false, features = ["derive", "alloc"] }
-fixnum = { version = "0.9.1", default-features = false, features = ["i64"] }
+serde = { workspace = true, features = ["derive", "alloc"] }
+fixnum = { workspace = true, features = ["i64"] }
 
 [dev-dependencies]
 parity-scale-codec = { version = "3.2.1", default-features = false, features = ["derive", "full"] }

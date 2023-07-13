@@ -39,45 +39,45 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha_core = { version = "=2.0.0-pre-rc.16", path = "../core" }
-iroha_macro = { version = "=2.0.0-pre-rc.16", path = "../macro" }
-iroha_logger = { version = "=2.0.0-pre-rc.16", path = "../logger" }
-iroha_futures = { version = "=2.0.0-pre-rc.16", path = "../futures" }
-iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "../data_model", features = ["http"] }
-iroha_telemetry = { version = "=2.0.0-pre-rc.16", path = "../telemetry", optional = true }
-iroha_version = { version = "=2.0.0-pre-rc.16", path = "../version", features = ["http"] }
-iroha_config = { version = "=2.0.0-pre-rc.16", path = "../config" }
-iroha_crypto = { version = "=2.0.0-pre-rc.16", path = "../crypto" }
-iroha_p2p = { version = "=2.0.0-pre-rc.16", path = "../p2p" }
-iroha_schema_gen = { version = "=2.0.0-pre-rc.16", path = "../schema/gen", optional = true }
-iroha_cli_derive = { version = "=2.0.0-pre-rc.16", path = "derive" }
-iroha_genesis = { version = "=2.0.0-pre-rc.16", path = "../genesis" }
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.16", path = "../wasm_builder" }
+iroha_core = { workspace = true }
+iroha_macro = { workspace = true }
+iroha_logger = { workspace = true }
+iroha_futures = { workspace = true }
+iroha_data_model = { workspace = true, features = ["http"] }
+iroha_telemetry = { workspace = true, optional = true }
+iroha_version = { workspace = true, features = ["http"] }
+iroha_config = { workspace = true }
+iroha_crypto = { workspace = true }
+iroha_p2p = { workspace = true }
+iroha_schema_gen = { workspace = true, optional = true }
+iroha_cli_derive = { workspace = true }
+iroha_genesis = { workspace = true }
+iroha_wasm_builder = { workspace = true }
 
 
-async-trait = "0.1.60"
-color-eyre = "0.6.2"
-eyre = "0.6.8"
-tracing = "0.1.37"
-futures = { version = "0.3.25", default-features = false, features = ["std", "async-await"] }
-parity-scale-codec = { version = "3.2.1", default-features = false, features = ["derive"] }
-serde = { version = "1.0.151", features = ["derive"] }
-serde_json = "1.0.91"
-thiserror = "1.0.38"
-tokio = { version = "1.23.0", features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs", "signal"] }
-warp = "0.3.3"
+async-trait = { workspace = true }
+color-eyre = { workspace = true }
+eyre = { workspace = true }
+tracing = { workspace = true }
+futures = { workspace = true, features = ["std", "async-await"] }
+parity-scale-codec = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs", "signal"] }
+warp = { workspace = true, features = ["multipart", "websocket"] }
 serial_test = "0.8.0"
-once_cell = "1.16.0"
-owo-colors = { version = "3.5.0", features = ["supports-colors"] }
-supports-color = "2.0.0"
+once_cell = { workspace = true }
+owo-colors = { workspace = true, features = ["supports-colors"] }
+supports-color = { workspace = true }
 thread-local-panic-hook = { version = "0.1.0", optional = true }
-tempfile = "3.3.0"
+tempfile = { workspace = true }
 
 [build-dependencies]
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.16", path = "../wasm_builder" }
-eyre = "0.6.8"
+iroha_wasm_builder = { workspace = true }
+eyre = { workspace = true }
 
-vergen = { version = "8.1.1", default-features = false, features = ["cargo"] }
+vergen = { workspace = true, features = ["cargo"] }
 
 [package.metadata.cargo-all-features]
 denylist = [

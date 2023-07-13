@@ -20,53 +20,54 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha_config = { version = "=2.0.0-pre-rc.16", path = "../config" }
-iroha_crypto = { version = "=2.0.0-pre-rc.16", path = "../crypto"}
-iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "../data_model", features = ["http"] }
-iroha_primitives = { version = "=2.0.0-pre-rc.16", path = "../primitives" }
-iroha_logger = { version = "=2.0.0-pre-rc.16", path = "../logger"}
-iroha_telemetry = { version ="=2.0.0-pre-rc.16", path = "../telemetry" }
-iroha_version = { version = "=2.0.0-pre-rc.16", path = "../version", features = ["http"] }
+iroha_config = { workspace = true }
+iroha_crypto = { workspace = true }
+iroha_data_model = { workspace = true, features = ["http"] }
+iroha_primitives = { workspace = true }
+iroha_logger = { workspace = true }
+iroha_telemetry = { workspace = true }
+iroha_version = { workspace = true, features = ["http"] }
 
 attohttpc = "0.18.0"
-eyre = "0.6.8"
+eyre = { workspace = true }
 http = "0.2.8"
-url = "2.3.1"
-rand = "0.8.5"
-serde = { version = "1.0.151", features = ["derive"] }
-serde_json = "1.0.91"
-base64 = "0.13.1"
-thiserror = "1.0.38"
-derive_more = "0.99.17"
-parity-scale-codec = { version = "3.2.1", default-features = false, features = ["derive"] }
-tokio = { version = "1.23.0", features = ["rt"] }
-tokio-tungstenite = { version = "0.16", features = ["native-tls"] }
+url = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+thiserror = { workspace = true }
+derive_more = { workspace = true }
+parity-scale-codec = { workspace = true, default-features = false, features = ["derive"] }
+tokio = { workspace = true, features = ["rt"] }
+# TODO: migrate to tokio-tungstenite 0.17 (or newer) and use the workspace dependency
+tokio-tungstenite = { version = "0.16.1", features = ["native-tls"] }
 tungstenite = { version = "0.16", features = ["native-tls"] }
 futures-util = "0.3.25"
 
 [dev-dependencies]
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.16", path = "../wasm_builder" }
+iroha_wasm_builder = { workspace = true }
 
 # TODO: These three activate `transparent_api` but client should never activate this feature.
 # Additionally there is a dependency on iroha_core in dev-dependencies in telemetry/derive
 # Hopefully, once the integration tests migration is finished these can be removed
-iroha = { path = "../cli", features = ["dev-telemetry", "telemetry"] }
-iroha_genesis = { version = "=2.0.0-pre-rc.16", path = "../genesis"}
-test_network = { version = "=2.0.0-pre-rc.16", path = "../core/test_network" }
+iroha = { workspace = true, features = ["dev-telemetry", "telemetry"] }
+iroha_genesis = { workspace = true }
+test_network = { workspace = true }
 
-tokio = { version = "1.23.0", features = ["rt-multi-thread"] }
-criterion = { version = "0.3.6", features = ["html_reports"] }
-color-eyre = "0.6.2"
-tempfile = "3.3.0"
-hex = "0.4.3"
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+criterion = { workspace = true, features = ["html_reports"] }
+color-eyre = { workspace = true }
+tempfile = { workspace = true }
+hex = { workspace = true }
 
-tracing-subscriber = { version = "0.3.16", default-features = false, features = ["fmt", "ansi"] }
+tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
 tracing-flame = "0.2.0"
-once_cell = "1.16.0"
+once_cell = { workspace = true }
 
 [build-dependencies]
-eyre = "0.6.8"
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.16", path = "../wasm_builder" }
+eyre = { workspace = true }
+iroha_wasm_builder = { workspace = true }
 
 [[bench]]
 name = "torii"

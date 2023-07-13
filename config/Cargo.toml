@@ -8,27 +8,27 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-iroha_config_base = { path = "base" }
-iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "../data_model" }
-iroha_primitives = { version = "=2.0.0-pre-rc.16", path = "../primitives" }
-iroha_crypto = { version = "=2.0.0-pre-rc.16", path = "../crypto" }
+iroha_config_base = { workspace = true }
+iroha_data_model = { workspace = true }
+iroha_primitives = { workspace = true }
+iroha_crypto = { workspace = true }
 
-eyre = "0.6.8"
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.16", default-features = false, features = ["fmt", "ansi"] }
-url = { version = "2.3.1", features = ["serde"] }
+eyre = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
+url = { workspace = true, features = ["serde"] }
 
-serde = { version = "1.0.151", default-features = false, features = ["derive"] }
-strum = { version = "0.24.1", default-features = false, features = ["derive"] }
-serde_json = "1.0.91"
-json5 = "0.4.1"
-thiserror = "1.0.38"
-derive_more = "0.99.17"
-cfg-if = "1.0.0"
-path-absolutize = "3.0.14"
+serde = { workspace = true, features = ["derive"] }
+strum = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+json5 = { workspace = true }
+thiserror = { workspace = true }
+derive_more = { workspace = true }
+cfg-if = { workspace = true }
+path-absolutize = { workspace = true }
 
 [dev-dependencies]
-proptest = "1.0.0"
+proptest = { workspace = true }
 
 [features]
 default = []

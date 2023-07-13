@@ -15,10 +15,10 @@ categories = ["development-tools::ffi"]
 non_robust_ref_mut = []
 
 [dependencies]
-iroha_ffi_derive = { version = "=2.0.0-pre-rc.16", path = "derive" }
+iroha_ffi_derive = { workspace = true }
 
-derive_more = { version = "0.99.17", default-features = false, features = ["display"] }
+derive_more = { workspace = true, features = ["display"] }
 
 [dev-dependencies]
 webassembly-test = "0.1.0"
-getset = "0.1.2"
+getset = { workspace = true }

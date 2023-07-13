@@ -15,26 +15,26 @@ dev-telemetry = []
 metric-instrumentation = []
 
 [dependencies]
-iroha_config = { version = "=2.0.0-pre-rc.16", path = "../config" }
-iroha_logger = { version = "=2.0.0-pre-rc.16", path = "../logger" }
-iroha_futures = { version = "=2.0.0-pre-rc.16", path = "../futures", features = ["telemetry"] }
-iroha_telemetry_derive = { version = "=2.0.0-pre-rc.16", path = "derive" }
+iroha_config = { workspace = true }
+iroha_logger = { workspace = true }
+iroha_futures = { workspace = true, features = ["telemetry"] }
+iroha_telemetry_derive = { workspace = true }
 
-async-trait = "0.1.60"
+async-trait = { workspace = true }
 chrono = "0.4.23"
-eyre = "0.6.8"
-futures = { version = "0.3.25", default-features = false, features = ["std", "async-await"] }
-serde_json = "1.0.91"
+eyre = { workspace = true }
+futures = { workspace = true, features = ["std", "async-await"] }
+serde_json = { workspace = true }
 streaming-stats = "0.2.3"
-serde = { version = "1.0.151", features = ["derive"] }
-tokio = { version = "1.23.0", features = ["rt", "rt-multi-thread", "macros"] }
-tokio-stream = { version = "0.1.11", features = ["fs"] }
-tokio-tungstenite = "0.17.2"
-url = { version = "2.3.1", features = ["serde"] }
-prometheus = { version = "0.13.3", default-features = false }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+tokio-stream = { workspace = true, features = ["fs"] }
+tokio-tungstenite = { workspace = true }
+url = { workspace = true, features = ["serde"] }
+prometheus = { workspace = true }
 
 
 [build-dependencies]
-eyre = "0.6.8"
-vergen = { version = "8.1.1", default-features = false, features = ["cargo", "git", "gitoxide"] }
+eyre = { workspace = true }
+vergen = { workspace = true, features = ["cargo", "git", "gitoxide"] }
 
