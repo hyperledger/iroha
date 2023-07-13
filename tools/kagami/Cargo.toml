@@ -10,30 +10,30 @@ description = "A tool used to generate cryptographic keys, docs, the schema and 
 license.workspace = true
 
 [dependencies]
-iroha_crypto = { version = "=2.0.0-pre-rc.16", path = "../../crypto" }
-iroha_config = { version = "=2.0.0-pre-rc.16", path = "../../config" }
-iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "../../data_model" }
-iroha_schema_gen = { version = "=2.0.0-pre-rc.16", path = "../../schema/gen" }
-iroha_primitives = { version = "2.0.0-pre-rc.16", path = "../../primitives" }
-iroha_genesis = { version = "=2.0.0-pre-rc.16", path = "../../genesis" }
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.16", path = "../../wasm_builder" }
+iroha_crypto = { workspace = true }
+iroha_config = { workspace = true }
+iroha_data_model = { workspace = true }
+iroha_schema_gen = { workspace = true }
+iroha_primitives = { workspace = true }
+iroha_genesis = { workspace = true }
+iroha_wasm_builder = { workspace = true }
 
-color-eyre = "0.6.2"
-clap = { version = "4.2.1", features = ["derive"] }
-serde_json = "1.0.91"
-derive_more = "0.99.17"
-serde = { version = "1.0.151", default-features = false, features = ["derive"] }
-serde_yaml = "0.9.21"
-expect-test = "1.4.1"
-pathdiff = "0.2.1"
-path-absolutize = "3.1.0"
-spinoff = { version = "0.7.0", features = ["aesthetic"] }
-owo-colors = { version = "3.5.0", features = ["supports-colors"] }
-supports-color = "2.0.0"
-inquire = "0.6.2"
-duct = "0.13.6"
-tempfile = "3.6.0"
+color-eyre = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+derive_more = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_yaml = { workspace = true }
+expect-test = { workspace = true }
+pathdiff = { workspace = true }
+path-absolutize = { workspace = true }
+spinoff = { workspace = true, features = ["aesthetic"] }
+owo-colors = { workspace = true, features = ["supports-colors"] }
+supports-color = { workspace = true }
+inquire = { workspace = true }
+duct = { workspace = true }
+tempfile = { workspace = true }
 
 [build-dependencies]
-eyre = "0.6.8"
-vergen = { version = "8.1.1", default-features = false, features = ["git", "gitoxide"] }
+eyre = { workspace = true }
+vergen = { workspace = true, features = ["git", "gitoxide"] }

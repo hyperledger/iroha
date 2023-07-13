@@ -20,18 +20,19 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha_client = { version = "=2.0.0-pre-rc.16", path = "../client" }
-iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "../data_model" }
-iroha_primitives = { version = "=2.0.0-pre-rc.16", path = "../primitives" }
-iroha_crypto = { version = "=2.0.0-pre-rc.16", path = "../crypto" }
-iroha_config = { version = "=2.0.0-pre-rc.16", path = "../config" }
+iroha_client = { workspace = true }
+iroha_data_model = { workspace = true }
+iroha_primitives = { workspace = true }
+iroha_crypto = { workspace = true }
+iroha_config = { workspace = true }
 
-color-eyre = "0.6.2"
+color-eyre = { workspace = true }
+# TODO: migrate to clap v4 (and use the workspace dependency)
 clap = { version = "3.2.23", features = ["derive"] }
 dialoguer = { version = "0.10.2", default-features = false }
-json5 = "0.4.1"
-once_cell = "1.16.0"
-serde_json = "1.0.93"
+json5 = { workspace = true }
+once_cell = { workspace = true }
+serde_json = { workspace = true }
 erased-serde = "0.3.24"
 
 [build-dependencies]

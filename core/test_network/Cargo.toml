@@ -8,19 +8,19 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-iroha = { path = "../../cli", features = ["test-network"] }
-iroha_client = { version = "=2.0.0-pre-rc.16", path = "../../client" }
-iroha_core = { version = "=2.0.0-pre-rc.16", path = "../../core" }
-iroha_config = { version = "=2.0.0-pre-rc.16", path = "../../config" }
-iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "../../data_model" }
-iroha_primitives = { version = "=2.0.0-pre-rc.16", path = "../../primitives" }
-iroha_logger = { version = "=2.0.0-pre-rc.16", path = "../../logger" }
-iroha_genesis = { version = "=2.0.0-pre-rc.16", path = "../../genesis" }
+iroha = { workspace = true, features = ["test-network"] }
+iroha_client = { workspace = true }
+iroha_core = { workspace = true }
+iroha_config = { workspace = true }
+iroha_data_model = { workspace = true }
+iroha_primitives = { workspace = true }
+iroha_logger = { workspace = true }
+iroha_genesis = { workspace = true }
 
 
-eyre = "0.6.8"
-futures = { version = "0.3.25", default-features = false, features = ["std", "async-await"] }
-rand = "0.8.5"
-tempfile = "3.3.0"
-tokio = { version = "1.23.0", features = ["rt", "rt-multi-thread", "macros"] }
+eyre = { workspace = true }
+futures = { workspace = true, features = ["std", "async-await"] }
+rand = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 unique_port = "0.2.1"

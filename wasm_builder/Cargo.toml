@@ -9,8 +9,8 @@ license.workspace = true
 categories = ["development-tools::build-utils"]
 
 [dependencies]
-eyre = "0.6.8"
-serde_json = "1.0.99"
+eyre = { workspace = true }
+serde_json = { workspace = true }
 sha256 = "1.1.4"
-path-absolutize = "3.1.0"
+path-absolutize = { workspace = true }
 wasm-opt = "0.113.0"

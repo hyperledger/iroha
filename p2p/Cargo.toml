@@ -9,23 +9,23 @@ license.workspace = true
 categories = ["network-programming"]
 
 [dependencies]
-iroha_logger = { version = "=2.0.0-pre-rc.16", path = "../logger" }
-iroha_crypto = { version = "=2.0.0-pre-rc.16", path = "../crypto" }
-iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "../data_model" }
-iroha_primitives = { version = "=2.0.0-pre-rc.16", path = "../primitives" }
-iroha_config_base = { version = "=2.0.0-pre-rc.16", path = "../config/base" }
-iroha_data_model_derive = { version = "=2.0.0-pre-rc.16", path = "../data_model/derive" }
+iroha_logger = { workspace = true }
+iroha_crypto = { workspace = true }
+iroha_data_model = { workspace = true }
+iroha_primitives = { workspace = true }
+iroha_config_base = { workspace = true }
+iroha_data_model_derive = { workspace = true }
 
-rand = "0.8.5"
-tokio = { version = "1.23.0", features = ["rt-multi-thread", "macros", "io-util", "net"] }
-async-stream = "0.3.3"
-futures = { version = "0.3.25", default-features = false, features = ["alloc"] }
-async-trait = "0.1.60"
-parity-scale-codec = { version = "3.2.1", features = ["derive"] }
-aead = "0.3.2"
-thiserror = "1.0.38"
-derive_more = "0.99.17"
-bytes = "1.4.0"
+rand = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-util", "net"] }
+async-stream = { workspace = true }
+futures = { workspace = true, features = ["alloc"] }
+async-trait = { workspace = true }
+parity-scale-codec = { workspace = true, features = ["derive"] }
+aead = { workspace = true }
+thiserror = { workspace = true }
+derive_more = { workspace = true }
+bytes = { workspace = true }
 
 [dev-dependencies]
-test_network = { version = "=2.0.0-pre-rc.16", path = "../core/test_network" }
+test_network = { workspace = true }

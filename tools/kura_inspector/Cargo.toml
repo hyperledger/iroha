@@ -8,8 +8,8 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-iroha_core = { path = "../../core" }
-iroha_version = { path = "../../version" }
-iroha_data_model = { path = "../../data_model" }
+iroha_core = { workspace = true }
+iroha_version = { workspace = true }
+iroha_data_model = { workspace = true }
 
-clap = { version = "3.2.23", features = ["derive", "cargo"] }
+clap = { workspace = true, features = ["derive", "cargo"] }
