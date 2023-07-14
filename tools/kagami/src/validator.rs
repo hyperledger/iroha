@@ -6,7 +6,7 @@ use swarm::AbsolutePath;
 
 use super::*;
 
-#[derive(ClapArgs, Debug, Clone, Copy)]
+#[derive(ClapArgs, Debug, Clone)]
 pub struct Args;
 
 impl<T: Write> RunArgs<T> for Args {
@@ -17,14 +17,13 @@ impl<T: Write> RunArgs<T> for Args {
             .wrap_err("Failed to write wasm validator into the buffer.")
     }
 }
+
 pub fn compute_validator_path() -> Result<PathBuf> {
     // If `CARGO_MANIFEST_DIR` is set, it means the `kagami` binary is run via `cargo run`
     // command, otherwise it is called as a standalone
     std::env::var("CARGO_MANIFEST_DIR").map_or_else(
         |_| {
-            let source_dir = tempfile::tempdir()
-                .wrap_err("Failed to create temp dir for default runtime validator sources")?;
-            let out_dir = AbsolutePath::try_from(source_dir.path().join(DIR_CLONE))?;
+            let out_dir = AbsolutePath::try_from(PathBuf::from(".").join(DIR_CLONE))?;
             swarm::shallow_git_clone(GIT_ORIGIN, GIT_REVISION, &out_dir)?;
             Ok(out_dir.to_path_buf().join("default_validator"))
         },

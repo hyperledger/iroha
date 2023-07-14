@@ -36,5 +36,5 @@ prometheus = { workspace = true }
 
 [build-dependencies]
 eyre = { workspace = true }
-vergen = { workspace = true, features = ["cargo", "git", "gitoxide"] }
+vergen = { workspace = true, features = ["cargo", "git", "git2"] }
 

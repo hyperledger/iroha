@@ -1,6 +1,8 @@
 #!/bin/sh
 set -e
 
+KAGAMI_BIN_PATH=${2:-"./target/release/kagami"}
+
 case $1 in
     "docs")
         cargo run --release --bin kagami -- docs | diff - docs/source/references/config.md || {
@@ -25,6 +27,15 @@ case $1 in
     "schema")
         cargo run --release --bin kagami -- schema | diff - docs/source/references/schema.json || {
             echo 'Please re-generate schema with `cargo run --release --bin kagami -- schema > docs/source/references/schema.json`'
+            exit 1
+        };;
+    "validator")
+        if [ ! -e "$KAGAMI_BIN_PATH" ]; then
+            echo 'Please run this check from Iroha root dir after compiling with `--release` flag or provide a valid path to `kagami` binary as a second argument'
+            exit 1
+        fi
+        $KAGAMI_BIN_PATH validator > /dev/null || {
+            echo 'Failed to run `kagami validator` as a standalone binary without invoking `cargo`'
             exit 1
         };;
     "docker-compose")

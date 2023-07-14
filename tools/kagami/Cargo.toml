@@ -36,4 +36,5 @@ tempfile = { workspace = true }
 
 [build-dependencies]
 eyre = { workspace = true }
-vergen = { workspace = true, features = ["git", "gitoxide"] }
+vergen = { workspace = true, features = ["git", "git2"] }
+git2 = "0.17.2"

@@ -77,7 +77,9 @@ pub enum Args {
     Config(config::Args),
     /// Generate a Markdown reference of configuration parameters
     Docs(Box<docs::Args>),
-    /// Generate the default validator
+    /// Generate the default validator. It clones the Iroha repo
+    /// behind the scenes if the command is run from a standalone
+    /// binary
     Validator(validator::Args),
     /// Generate Docker Compose configuration
     Swarm(swarm::Args),

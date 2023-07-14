@@ -49,6 +49,9 @@ jobs:
         if: always()
         working-directory: wasm
         run: mold --run cargo build --target wasm32-unknown-unknown --quiet
+      - name: Check validator generation as standalone
+        if: always()
+        run: ./scripts/check.sh validator
 
   with_coverage:
     runs-on: [self-hosted, Linux, iroha2ci]
