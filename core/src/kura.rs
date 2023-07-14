@@ -776,7 +776,7 @@ pub enum Error {
     /// Failed reading/writing {1:?} from disk
     IO(#[source] std::io::Error, PathBuf),
     /// Failed to create the directory {1:?}
-    MkDir(std::io::Error, PathBuf),
+    MkDir(#[source] std::io::Error, PathBuf),
     /// Failed to serialize/deserialize block
     Codec(#[from] iroha_version::error::Error),
     /// Failed to allocate buffer

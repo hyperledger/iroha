@@ -1538,7 +1538,7 @@ pub mod error {
             /// Permission token definition with id `{0}` not found
             PermissionTokenDefinition(PermissionTokenId),
             /// Failed to find permission token
-            PermissionToken(PermissionTokenFindError),
+            PermissionToken(#[cfg_attr(feature = "std", source)] PermissionTokenFindError),
             /// Parameter with id `{0}` not found
             Parameter(ParameterId),
             /// Failed to find public key: `{0}`

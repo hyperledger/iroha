@@ -16,9 +16,9 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 use crate::{conststr::ConstString, ffi};
 
+/// Error when parsing an address
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, displaydoc::Display)]
-/// Error when parsing IP or socket address
 pub enum ParseError {
     /// Not enough segments in IP address
     NotEnoughSegments,
