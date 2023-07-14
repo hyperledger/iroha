@@ -47,7 +47,7 @@ serde_with = { workspace = true, features = ["macros"] }
 serde_json = { workspace = true, features = ["arbitrary_precision"] }
 warp = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
-displaydoc = { version = "0.2.4", default-features = false }
+displaydoc = { workspace = true }
 getset = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 base64 = { workspace = true, features = ["alloc"] }
