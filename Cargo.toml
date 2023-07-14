@@ -93,6 +93,7 @@ expect-test = "1.4.1"
 eyre = "0.6.8"
 color-eyre = "0.6.2"
 thiserror = { version = "1.0.38", default-features = false }
+displaydoc = { version = "0.2.4", default-features = false }
 
 cfg-if = "1.0.0"
 derive_more = { version = "0.99.17", default-features = false }
@@ -165,7 +166,6 @@ members = [
   "wasm_codec/derive",
   "wasm_builder",
 ]
-
 
 [profile.deploy]
 inherits = "release"

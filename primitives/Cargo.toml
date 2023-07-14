@@ -37,7 +37,7 @@ serde_with = { workspace = true, features = ["macros"] }
 smallvec = { version = "1.10.0", default-features = false, features = ["serde", "union"] }
 smallstr = { version = "0.3.0", default-features = false, features = ["serde", "union"] }
 thiserror = { workspace = true, optional = true }
-displaydoc = { version = "0.2.4", default-features = false }
+displaydoc = { workspace = true }
 
 
 [dev-dependencies]
