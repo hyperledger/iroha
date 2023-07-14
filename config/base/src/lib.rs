@@ -412,10 +412,7 @@ pub mod derive {
     #[test]
     fn unknown_field_fmt() {
         assert_eq!(
-            format!(
-                "{}",
-                Error::UnknownField(Field(vec!["a".into(), "b".into()]))
-            ),
+            Error::UnknownField(Field(vec!["a".into(), "b".into()])).to_string(),
             "Got unknown field: `a.b`"
         );
     }

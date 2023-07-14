@@ -96,9 +96,9 @@ pub enum MetadataError {
     OverallSize(#[cfg_attr(feature = "std", source)] SizeError),
     /// Path specification empty
     EmptyPath,
-    /// {0}: path segment not found, i.e. nothing was found at that key
+    /// `{0}`: path segment not found, i.e. nothing was found at that key
     MissingSegment(Name),
-    /// {0}: path segment not an instance of metadata. I.e. something was found, but isn't an instance of Metadata
+    /// `{0}`: path segment not an instance of metadata
     InvalidSegment(Name),
 }
 

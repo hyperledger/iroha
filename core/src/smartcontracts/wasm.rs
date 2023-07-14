@@ -102,8 +102,8 @@ pub mod error {
         MandatoryExport(#[from] ExportError),
     }
 
-    #[derive(Debug, Copy, Clone, thiserror::Error, displaydoc::Display)]
     /// Failed to export `{export_name}`
+    #[derive(Debug, Copy, Clone, thiserror::Error, displaydoc::Display)]
     pub struct ExportError {
         /// Name of the failed export
         pub export_name: &'static str,
@@ -165,9 +165,9 @@ pub mod error {
     /// Exported function call error
     #[derive(Debug, thiserror::Error, displaydoc::Display)]
     pub enum ExportFnCallError {
-        /// Failed to execute something on the host side
+        /// Failed to execute operation on host
         HostExecution(#[source] eyre::Report),
-        /// Stack overflow, heap overflow or other limits exceeded
+        /// Execution limits exceeded
         ExecutionLimitsExceeded(#[source] eyre::Report),
         /// Other kind of trap
         Other(#[source] eyre::Report),
