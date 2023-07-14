@@ -573,14 +573,14 @@ impl From<LoadedExecutable> for OptimizedExecutable {
 /// [`Set::mod_repeats()`] error
 #[derive(Debug, Clone, thiserror::Error, displaydoc::Display)]
 pub enum ModRepeatsError {
-    /// Trigger with id = {0} not found
+    /// Trigger with id = `{0}` not found
     NotFound(TriggerId),
     /// Trigger repeats count overflow error
     RepeatsOverflow(#[from] RepeatsOverflowError),
 }
 
-#[derive(Debug, Copy, Clone, thiserror::Error, displaydoc::Display)]
 /// Trigger repeats count overflow
+#[derive(Debug, Copy, Clone, thiserror::Error, displaydoc::Display)]
 pub struct RepeatsOverflowError;
 
 impl From<ModRepeatsError> for InstructionExecutionError {

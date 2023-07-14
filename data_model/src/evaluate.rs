@@ -619,13 +619,13 @@ pub mod model {
         Math(#[cfg_attr(feature = "std", source)] MathError),
         /// Validation failed
         Validation(#[cfg_attr(feature = "std", source)] Box<ValidationFail>),
-        /// `{0}`: Value not found in context
+        /// `{0}`: Value not found in the context
         Find(
             #[skip_from]
             #[skip_try_from]
             String,
         ),
-        /// Conversion EvaluationError: `{0}`
+        /// Conversion evaluation error: {0}
         Conversion(
             #[skip_from]
             #[skip_try_from]
