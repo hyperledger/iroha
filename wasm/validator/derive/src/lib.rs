@@ -13,77 +13,36 @@ mod validate;
 
 /// Annotate the user-defined function that starts the execution of a validator.
 ///
-/// Validators are only checking if an operation is **invalid**, not if it is valid.
-/// A validator can either deny the operation or pass it to the next validator if there is one.
-///
-/// # Attributes
-///
-/// This macro must have an attribute describing entrypoint parameters.
-///
-/// The syntax is:
-///
-/// ```ignore
-/// #[iroha_validator::entrypoint(params = "[<type>,*]")]
-/// ```
-///
-/// where `<type>` is one of:
-///
-/// - `authority`: optional, represents a signer account id who submits an operation
-/// - `operation`: mandatory, represents an operation that is being validated
-///
-/// Parameters will be passed to the entrypoint function in the order they are specified.
-///
-/// ## Authority
-///
-/// A real function parameter type corresponding to the `authority` should have
-/// `iroha_validator::data_model::prelude::AccountId` type.
-///
-/// ## Operation
-///
-/// A real function parameter type corresponding to the `transaction` should have
-/// `iroha_validator::data_model::prelude::NeedsValidationBox` type.
-///
-/// # Panics
-///
-/// - If got unexpected syntax of attribute
-/// - If the function does not have a return type
+/// There are 4 acceptable forms of this macro usage. See examples.
 ///
 /// # Examples
 ///
-/// Using only `query` parameter:
-///
-// `ignore` because this macro idiomatically should be imported from `iroha_wasm` crate.
-//
 /// ```ignore
 /// use iroha_validator::prelude::*;
 ///
-/// #[entrypoint(params = "[operation]")]
-/// pub fn validate(operation: NeedsValidationBox) -> Result {
-///     if let NeedsValidationBox::Query(_) = operation {
-///         deny!("No queries are allowed")
-///     }
+/// #[entrypoint]
+/// pub fn migrate() -> MigrationResult {
+///     todo!()
+/// }
 ///
-///     pass!()
+/// #[entrypoint]
+/// pub fn validate_transaction(
+///     authority: AccountId,
+///     transaction: VersionedSignedTransaction,
+/// ) -> Result {
+///     todo!()
+/// }
+///
+/// #[entrypoint]
+/// pub fn validate_instruction(authority: AccountId, instruction: InstructionBox) -> Result {
+///     todo!()
+/// }
+///
+/// #[entrypoint]
+/// pub fn validate_query(authority: AccountId, query: QueryBox) -> Result {
+///     todo!()
 /// }
 /// ```
-///
-/// Using both `authority` and `operation` parameters:
-///
-/// ```ignore
-/// use iroha_validator::prelude::*;
-///
-/// #[entrypoint(params = "[authority, operation]")]
-/// pub fn validate(authority: AccountId, _: NeedsValidationBox) -> Result {
-///     let admin_domain = parse!("admin_domain" as AccountId);
-///
-///     if authority.domain_id != admin_domain {
-///         deny!("No operations are allowed")
-///     }
-///
-///     pass!()
-/// }
-/// ```
-///
 #[proc_macro_attribute]
 pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     entrypoint::impl_entrypoint(attr, item)
