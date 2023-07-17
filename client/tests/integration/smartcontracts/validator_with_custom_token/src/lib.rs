@@ -11,6 +11,7 @@
 //! get access to control all domains. Remember that this is just a test example.
 
 #![no_std]
+#![allow(missing_docs, clippy::missing_errors_doc)]
 
 extern crate alloc;
 
@@ -276,28 +277,37 @@ impl ExpressionEvaluator for CustomValidator {
     }
 }
 
-/// Migration entrypoint.
 #[entrypoint]
 pub fn migrate() -> MigrationResult {
     CustomValidator::migrate()
 }
 
-/// Validate operation
-#[entrypoint(params = "[authority, operation]")]
-pub fn validate(authority: AccountId, operation: NeedsValidationBox) -> Result {
+#[entrypoint]
+pub fn validate_transaction(
+    authority: AccountId,
+    transaction: VersionedSignedTransaction,
+) -> Result {
     let mut validator = CustomValidator(DefaultValidator::new());
 
-    match operation {
-        NeedsValidationBox::Transaction(transaction) => {
-            validator.visit_transaction(&authority, &transaction);
-        }
-        NeedsValidationBox::Instruction(instruction) => {
-            validator.visit_instruction(&authority, &instruction);
-        }
-        NeedsValidationBox::Query(query) => {
-            validator.visit_query(&authority, &query);
-        }
-    }
+    validator.visit_transaction(&authority, &transaction);
+
+    validator.0.verdict
+}
+
+#[entrypoint]
+pub fn validate_instruction(authority: AccountId, instruction: InstructionBox) -> Result {
+    let mut validator = CustomValidator(DefaultValidator::new());
+
+    validator.visit_instruction(&authority, &instruction);
+
+    validator.0.verdict
+}
+
+#[entrypoint]
+pub fn validate_query(authority: AccountId, query: QueryBox) -> Result {
+    let mut validator = CustomValidator(DefaultValidator::new());
+
+    validator.visit_query(&authority, &query);
 
     validator.0.verdict
 }

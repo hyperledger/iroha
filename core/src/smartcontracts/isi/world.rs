@@ -243,7 +243,7 @@ pub mod isi {
                 })?;
 
             let world = wsv.world_mut();
-            let _ = world.upgraded_validator.insert(new_validator);
+            let _ = world.validator.insert(new_validator);
 
             wsv.emit_events(std::iter::once(ValidatorEvent::Upgraded));
 

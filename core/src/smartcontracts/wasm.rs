@@ -6,7 +6,7 @@
 use error::*;
 use eyre::eyre;
 use import::{
-    ExecuteOperations as _, QueryAuthority as _, QueryOperationToValidate as _,
+    ExecuteOperations as _, GetAuthority as _, GetOperationsToValidate as _,
     SetPermissionTokenSchema as _,
 };
 use iroha_config::{
@@ -15,16 +15,17 @@ use iroha_config::{
 };
 use iroha_data_model::{
     account::AccountId,
+    isi::InstructionBox,
     permission::PermissionTokenSchema,
     prelude::*,
-    validator::{self, MigrationResult, NeedsValidationBox},
+    validator::{self, MigrationResult},
     ValidationFail,
 };
 use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
 use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span, Level as LogLevel};
 use iroha_wasm_codec::{self as codec, WasmUsize};
-use state::GetCommon as _;
+use state::{Wsv as _, WsvMut as _};
 use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
@@ -46,8 +47,14 @@ mod export {
     pub const WASM_MEMORY_NAME: &str = "memory";
     /// Name of the exported entry for smart contract or trigger execution
     pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
-    /// Name of the exported entry for validator to validate operation
-    pub const VALIDATOR_VALIDATE_FN_NAME: &str = "_iroha_validator_validate";
+    /// Name of the exported entry for validator to validate transaction
+    pub const VALIDATOR_VALIDATE_TRANSACTION_FN_NAME: &str =
+        "_iroha_validator_validate_transaction";
+    /// Name of the exported entry for validator to validate instruction
+    pub const VALIDATOR_VALIDATE_INSTRUCTION_FN_NAME: &str =
+        "_iroha_validator_validate_instruction";
+    /// Name of the exported entry for validator to validate query
+    pub const VALIDATOR_VALIDATE_QUERY_FN_NAME: &str = "_iroha_validator_validate_query";
     /// Name of the exported entry for validator to perform migration
     pub const VALIDATOR_MIGRATE_FN_NAME: &str = "_iroha_validator_migrate";
 }
@@ -64,11 +71,15 @@ mod import {
     /// Name of the imported function to execute queries
     pub const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
     /// Name of the imported function to query trigger authority
-    pub const QUERY_AUTHORITY_FN_NAME: &str = "query_authority";
+    pub const GET_AUTHORITY_FN_NAME: &str = "get_authority";
     /// Name of the imported function to query event that triggered the smart contract execution
-    pub const QUERY_TRIGGERING_EVENT_FN_NAME: &str = "query_triggering_event";
-    /// Name of the imported function to query operation that is to be verified
-    pub const QUERY_OPERATION_TO_VALIDATE_FN_NAME: &str = "query_operation_to_validate";
+    pub const GET_TRIGGERING_EVENT_FN_NAME: &str = "get_triggering_event";
+    /// Name of the imported function to get transaction that is to be verified
+    pub const GET_TRANSACTION_TO_VALIDATE_FN_NAME: &str = "get_transaction_to_validate";
+    /// Name of the imported function to get instruction that is to be verified
+    pub const GET_INSTRUCTION_TO_VALIDATE_FN_NAME: &str = "get_instruction_to_validate";
+    /// Name of the imported function to get query that is to be verified
+    pub const GET_QUERY_TO_VALIDATE_FN_NAME: &str = "get_query_to_validate";
     /// Name of the imported function to debug print objects
     pub const DBG_FN_NAME: &str = "dbg";
     /// Name of the imported function to log objects
@@ -79,7 +90,7 @@ mod import {
     pub trait ExecuteOperations<S> {
         /// Execute `query` on host
         #[codec::wrap_trait_fn]
-        fn execute_query(query: QueryBox, state: &mut S) -> Result<Value, ValidationFail>;
+        fn execute_query(query: QueryBox, state: &S) -> Result<Value, ValidationFail>;
 
         /// Execute `instruction` on host
         #[codec::wrap_trait_fn]
@@ -89,14 +100,20 @@ mod import {
         ) -> Result<(), ValidationFail>;
     }
 
-    pub trait QueryAuthority<S> {
+    pub trait GetAuthority<S> {
         #[codec::wrap_trait_fn]
-        fn query_authority(state: &S) -> AccountId;
+        fn get_authority(state: &S) -> AccountId;
     }
 
-    pub trait QueryOperationToValidate<S> {
+    pub trait GetOperationsToValidate<S> {
         #[codec::wrap_trait_fn]
-        fn query_operation_to_validate(state: &S) -> NeedsValidationBox;
+        fn get_transaction_to_validate(state: &S) -> VersionedSignedTransaction;
+
+        #[codec::wrap_trait_fn]
+        fn get_instruction_to_validate(state: &S) -> InstructionBox;
+
+        #[codec::wrap_trait_fn]
+        fn get_query_to_validate(state: &S) -> QueryBox;
     }
 
     pub trait SetPermissionTokenSchema<S> {
@@ -264,7 +281,8 @@ fn create_config() -> Result<Config> {
     Ok(config)
 }
 
-#[derive(Clone)]
+/// Limits checker for smartcontracts.
+#[derive(Copy, Clone)]
 struct LimitsValidator {
     /// Number of instructions in the smartcontract
     instruction_count: u64,
@@ -273,6 +291,14 @@ struct LimitsValidator {
 }
 
 impl LimitsValidator {
+    /// Create new [`LimitsValidator`]
+    pub fn new(max_instruction_count: u64) -> Self {
+        Self {
+            instruction_count: 0,
+            max_instruction_count,
+        }
+    }
+
     /// Checks if number of instructions in wasm smartcontract exceeds maximum
     ///
     /// # Errors
@@ -292,8 +318,6 @@ impl LimitsValidator {
 
 pub mod state {
     //! All supported states for [`Runtime`](super::Runtime)
-
-    use iroha_data_model::validator::NeedsValidationBox;
 
     use super::*;
 
@@ -319,8 +343,6 @@ pub mod state {
     /// Common data for states
     pub struct Common<'wrld> {
         pub(super) authority: AccountId,
-        /// Ensures smartcontract adheres to limits
-        pub(super) validator: Option<LimitsValidator>,
         pub(super) store_limits: StoreLimits,
         pub(super) wsv: &'wrld mut WorldStateView,
         /// Span inside of which all logs are recorded for this smart contract
@@ -338,22 +360,9 @@ pub mod state {
             Self {
                 wsv,
                 authority,
-                validator: None,
                 store_limits: store_limits_from_config(&config),
                 log_span,
             }
-        }
-
-        /// Add [`LimitsValidator`] to the common state
-        #[must_use]
-        pub fn with_validator(mut self, max_instruction_count: u64) -> Self {
-            let validator = LimitsValidator {
-                instruction_count: 0,
-                max_instruction_count,
-            };
-
-            self.validator = Some(validator);
-            self
         }
     }
 
@@ -379,43 +388,52 @@ pub mod state {
         fn authority(&self) -> &AccountId;
     }
 
-    /// Trait to retrieve common data from concrete state
-    pub trait GetCommon<'wrld>: LogSpan + LimitsMut {
-        /// Get common data
-        fn common(&self) -> &Common<'wrld>;
+    /// Trait to get an immutable reference to [`WorldStateView`]
+    pub trait Wsv {
+        /// Get immutable [`WorldStateView`]
+        fn wsv(&self) -> &WorldStateView;
+    }
 
-        /// Get common data by mutable reference
-        fn common_mut(&mut self) -> &mut Common<'wrld>;
+    /// Trait to get mutable reference to [`WorldStateView`]
+    pub trait WsvMut {
+        /// Get mutable [`WorldStateView`]
+        fn wsv_mut(&mut self) -> &mut WorldStateView;
     }
 
     /// Smart Contract execution state
-    pub struct SmartContract<'wrld>(pub(super) Common<'wrld>);
-
-    impl<'wrld> GetCommon<'wrld> for SmartContract<'wrld> {
-        fn common(&self) -> &Common<'wrld> {
-            &self.0
-        }
-
-        fn common_mut(&mut self) -> &mut Common<'wrld> {
-            &mut self.0
-        }
+    pub struct SmartContract<'wrld> {
+        pub(super) common: Common<'wrld>,
+        /// Should be set for smart contract validation only.
+        pub(super) limits_validator: Option<LimitsValidator>,
     }
 
     impl LogSpan for SmartContract<'_> {
         fn log_span(&self) -> &Span {
-            &self.0.log_span
+            &self.common.log_span
         }
     }
 
     impl LimitsMut for SmartContract<'_> {
         fn limits_mut(&mut self) -> &mut StoreLimits {
-            &mut self.0.store_limits
+            &mut self.common.store_limits
         }
     }
 
     impl Authority for SmartContract<'_> {
         fn authority(&self) -> &AccountId {
-            &self.0.authority
+            &self.common.authority
+        }
+    }
+
+    impl Wsv for SmartContract<'_> {
+        fn wsv(&self) -> &WorldStateView {
+            self.common.wsv
+        }
+    }
+
+    impl WsvMut for SmartContract<'_> {
+        fn wsv_mut(&mut self) -> &mut WorldStateView {
+            self.common.wsv
         }
     }
 
@@ -424,16 +442,6 @@ pub mod state {
         pub(super) common: Common<'wrld>,
         /// Event which activated this trigger
         pub(super) triggering_event: Event,
-    }
-
-    impl<'wrld> GetCommon<'wrld> for Trigger<'wrld> {
-        fn common(&self) -> &Common<'wrld> {
-            &self.common
-        }
-
-        fn common_mut(&mut self) -> &mut Common<'wrld> {
-            &mut self.common
-        }
     }
 
     impl LogSpan for Trigger<'_> {
@@ -454,57 +462,106 @@ pub mod state {
         }
     }
 
+    impl Wsv for Trigger<'_> {
+        fn wsv(&self) -> &WorldStateView {
+            self.common.wsv
+        }
+    }
+
+    impl WsvMut for Trigger<'_> {
+        fn wsv_mut(&mut self) -> &mut WorldStateView {
+            self.common.wsv
+        }
+    }
+
     pub mod validator {
         //! States related to *Validator* execution.
 
         use super::*;
 
-        /// State for executing `validate()` entrypoint of validator
-        pub struct Validate<'wrld> {
+        /// Struct to encapsulate common state for `validate_transaction()` and
+        /// `validate_instruction()` entrypoints.
+        ///
+        /// *Mut* means that [`WorldStateView`] will be mutated.
+        pub struct ValidateMut<'wrld, T> {
             pub(in super::super) common: Common<'wrld>,
-            pub(in super::super) operation_to_validate: NeedsValidationBox,
+            pub(in super::super) to_validate: T,
         }
 
-        impl<'wrld> GetCommon<'wrld> for Validate<'wrld> {
-            fn common(&self) -> &Common<'wrld> {
-                &self.common
-            }
-
-            fn common_mut(&mut self) -> &mut Common<'wrld> {
-                &mut self.common
-            }
-        }
-
-        impl LogSpan for Validate<'_> {
+        impl<T> LogSpan for ValidateMut<'_, T> {
             fn log_span(&self) -> &Span {
                 &self.common.log_span
             }
         }
 
-        impl LimitsMut for Validate<'_> {
+        impl<T> LimitsMut for ValidateMut<'_, T> {
             fn limits_mut(&mut self) -> &mut StoreLimits {
                 &mut self.common.store_limits
             }
         }
 
-        impl Authority for Validate<'_> {
+        impl<T> Authority for ValidateMut<'_, T> {
             fn authority(&self) -> &AccountId {
                 &self.common.authority
             }
         }
 
-        /// State for executing `migrate()` entrypoint of validator
-        pub struct Migrate<'wrld>(pub(in super::super) Common<'wrld>);
-
-        impl<'wrld> GetCommon<'wrld> for Migrate<'wrld> {
-            fn common(&self) -> &Common<'wrld> {
-                &self.0
-            }
-
-            fn common_mut(&mut self) -> &mut Common<'wrld> {
-                &mut self.0
+        impl<T> Wsv for ValidateMut<'_, T> {
+            fn wsv(&self) -> &WorldStateView {
+                self.common.wsv
             }
         }
+
+        impl<T> WsvMut for ValidateMut<'_, T> {
+            fn wsv_mut(&mut self) -> &mut WorldStateView {
+                self.common.wsv
+            }
+        }
+
+        /// State for executing `validate_transaction()` entrypoint of validator
+        pub type ValidateTransaction<'wrld> = ValidateMut<'wrld, VersionedSignedTransaction>;
+
+        /// State for executing `validate_instruction()` entrypoint of validator
+        pub type ValidateInstruction<'wrld> = ValidateMut<'wrld, InstructionBox>;
+
+        /// State for executing `validate_query()` entrypoint of validator
+        ///
+        /// Does not implement [`WsvMut`] because it contains immutable reference to
+        /// [`WorldStateView`] since it shouldn't be changed during *query* validation.
+        pub struct ValidateQuery<'wrld> {
+            pub(in super::super) authority: AccountId,
+            pub(in super::super) store_limits: StoreLimits,
+            pub(in super::super) wsv: &'wrld WorldStateView,
+            pub(in super::super) log_span: Span,
+            pub(in super::super) query: QueryBox,
+        }
+
+        impl LogSpan for ValidateQuery<'_> {
+            fn log_span(&self) -> &Span {
+                &self.log_span
+            }
+        }
+
+        impl LimitsMut for ValidateQuery<'_> {
+            fn limits_mut(&mut self) -> &mut StoreLimits {
+                &mut self.store_limits
+            }
+        }
+
+        impl Authority for ValidateQuery<'_> {
+            fn authority(&self) -> &AccountId {
+                &self.authority
+            }
+        }
+
+        impl Wsv for ValidateQuery<'_> {
+            fn wsv(&self) -> &WorldStateView {
+                self.wsv
+            }
+        }
+
+        /// State for executing `migrate()` entrypoint of validator
+        pub struct Migrate<'wrld>(pub(in super::super) Common<'wrld>);
 
         impl LimitsMut for Migrate<'_> {
             fn limits_mut(&mut self) -> &mut StoreLimits {
@@ -521,6 +578,18 @@ pub mod state {
         impl Authority for Migrate<'_> {
             fn authority(&self) -> &AccountId {
                 &self.0.authority
+            }
+        }
+
+        impl Wsv for Migrate<'_> {
+            fn wsv(&self) -> &WorldStateView {
+                self.0.wsv
+            }
+        }
+
+        impl WsvMut for Migrate<'_> {
+            fn wsv_mut(&mut self) -> &mut WorldStateView {
+                self.0.wsv
             }
         }
     }
@@ -647,7 +716,7 @@ impl<S: state::LogSpan> Runtime<S> {
     ///
     /// If log level or string decoding fails
     #[codec::wrap]
-    fn log((log_level, msg): (u8, String), state: &S) -> Result<(), Trap> {
+    pub fn log((log_level, msg): (u8, String), state: &S) -> Result<(), Trap> {
         const TARGET: &str = "WASM";
 
         let _span = state.log_span().enter();
@@ -685,79 +754,77 @@ impl<S: state::LimitsMut> Runtime<S> {
 
         store
     }
-}
 
-impl<'wrld, S: state::GetCommon<'wrld>> Runtime<S> {
-    fn execute_smart_contract_with_state(
-        &mut self,
-        bytes: impl AsRef<[u8]>,
+    fn execute_validator_validate_internal(
+        &self,
+        module: &wasmtime::Module,
         state: S,
-    ) -> Result<()> {
+        validate_fn_name: &'static str,
+    ) -> Result<validator::Result> {
         let mut store = self.create_store(state);
-        let smart_contract = self.create_smart_contract(&mut store, bytes)?;
+        let instance = self.instantiate_module(module, &mut store)?;
 
-        Self::execute_main_with_store(&smart_contract, &mut store)
+        let validate_fn = Self::get_typed_func(&instance, &mut store, validate_fn_name)?;
+
+        // NOTE: This function takes ownership of the pointer
+        let offset = validate_fn
+            .call(&mut store, ())
+            .map_err(ExportFnCallError::from)?;
+
+        let memory =
+            Self::get_memory(&mut (&instance, &mut store)).expect("Checked at instantiation step");
+        let dealloc_fn = Self::get_typed_func(&instance, &mut store, export::WASM_DEALLOC_FN)
+            .expect("Checked at instantiation step");
+        codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
+            .map_err(|err| Error::Decode(err.into()))
     }
 }
 
-/// Marker trait to have [`import::ExecuteOperations`] default-implemented for concrete [`Runtime`]
-trait DefaultExecute {}
-
-impl<'wrld, S: state::GetCommon<'wrld>, R: DefaultExecute> import::ExecuteOperations<S> for R {
-    /// Default implementation of [`execute_query()`]
-    #[codec::wrap]
-    fn execute_query(query: QueryBox, state: &mut S) -> Result<Value, ValidationFail> {
+#[allow(clippy::needless_pass_by_value)]
+impl<S: state::Authority + state::Wsv + state::WsvMut> Runtime<S> {
+    fn default_execute_query(query: QueryBox, state: &S) -> Result<Value, ValidationFail> {
         iroha_logger::debug!(%query, "Executing");
 
-        let common_state = state.common_mut();
-        let wsv: &mut WorldStateView = common_state.wsv;
+        let wsv = state.wsv();
 
         // NOTE: Smart contract (not validator) is trying to execute the query, validate it first
         // TODO: Validation should be skipped when executing smart contract.
         // There should be two steps validation and execution. First smart contract
         // is validated and then it's executed. Here it's validating in both steps.
         // Add a flag indicating whether smart contract is being validated or executed
-        wsv.validator_view()
-            .clone() // Cloning validator is a cheap operation
-            .validate(wsv, &common_state.authority, query.clone())?;
+        wsv.validator()
+            .validate_query(wsv, state.authority(), query.clone())?;
 
         query
             .execute(wsv)
-            .map_err(Into::into)
             .map(|lazy_value| match lazy_value {
                 LazyValue::Value(value) => value,
                 LazyValue::Iter(iter) => Value::Vec(iter.collect()),
             })
+            .map_err(Into::into)
     }
 
-    /// Default implementation of [`execute_instruction()`]
-    #[codec::wrap]
-    fn execute_instruction(
+    fn default_execute_instruction(
         instruction: InstructionBox,
         state: &mut S,
     ) -> Result<(), ValidationFail> {
         debug!(%instruction, "Executing");
 
-        let common_state = state.common_mut();
-
-        if let Some(ref mut validator) = common_state.validator {
-            validator.check_instruction_limits()?;
-        }
-
         // TODO: Validation should be skipped when executing smart contract.
         // There should be two steps validation and execution. First smart contract
         // is validated and then it's executed. Here it's validating in both steps.
         // Add a flag indicating whether smart contract is being validated or executed
-        let wsv: &mut WorldStateView = common_state.wsv;
-        wsv.validator_view()
+        let authority = state.authority().clone();
+        let wsv = state.wsv_mut();
+        wsv.validator()
                 .clone() // Cloning validator is a cheap operation
-                .validate(wsv, &common_state.authority, instruction)
+                .validate_instruction(wsv, &authority, instruction)
     }
 }
 
-impl<S: state::Authority> import::QueryAuthority<S> for Runtime<S> {
+impl<S: state::Authority> import::GetAuthority<S> for Runtime<S> {
     #[codec::wrap]
-    fn query_authority(state: &S) -> AccountId {
+    fn get_authority(state: &S) -> AccountId {
         state.authority().clone()
     }
 }
@@ -777,7 +844,10 @@ impl<'wrld> Runtime<state::SmartContract<'wrld>> {
         bytes: impl AsRef<[u8]>,
     ) -> Result<()> {
         let span = wasm_log_span!("Smart contract execution", %authority);
-        let state = state::SmartContract(state::Common::new(wsv, authority, self.config, span));
+        let state = state::SmartContract {
+            common: state::Common::new(wsv, authority, self.config, span),
+            limits_validator: None,
+        };
 
         self.execute_smart_contract_with_state(bytes, state)
     }
@@ -797,16 +867,49 @@ impl<'wrld> Runtime<state::SmartContract<'wrld>> {
         max_instruction_count: u64,
     ) -> Result<()> {
         let span = wasm_log_span!("Smart contract validation", %authority);
-        let state = state::SmartContract(
-            state::Common::new(wsv, authority, self.config, span)
-                .with_validator(max_instruction_count),
-        );
+        let state = state::SmartContract {
+            common: state::Common::new(wsv, authority, self.config, span),
+            limits_validator: Some(LimitsValidator::new(max_instruction_count)),
+        };
 
         self.execute_smart_contract_with_state(bytes, state)
     }
+
+    fn execute_smart_contract_with_state(
+        &mut self,
+        bytes: impl AsRef<[u8]>,
+        state: state::SmartContract<'wrld>,
+    ) -> Result<()> {
+        let mut store = self.create_store(state);
+        let smart_contract = self.create_smart_contract(&mut store, bytes)?;
+
+        Self::execute_main_with_store(&smart_contract, &mut store)
+    }
 }
 
-impl DefaultExecute for Runtime<state::SmartContract<'_>> {}
+impl<'wrld> import::ExecuteOperations<state::SmartContract<'wrld>>
+    for Runtime<state::SmartContract<'wrld>>
+{
+    #[codec::wrap]
+    fn execute_query(
+        query: QueryBox,
+        state: &state::SmartContract<'wrld>,
+    ) -> Result<Value, ValidationFail> {
+        Self::default_execute_query(query, state)
+    }
+
+    #[codec::wrap]
+    fn execute_instruction(
+        instruction: InstructionBox,
+        state: &mut state::SmartContract<'wrld>,
+    ) -> Result<(), ValidationFail> {
+        if let Some(limits_validator) = state.limits_validator.as_mut() {
+            limits_validator.check_instruction_limits()?;
+        }
+
+        Self::default_execute_instruction(instruction, state)
+    }
+}
 
 impl<'wrld> Runtime<state::Trigger<'wrld>> {
     /// Executes the given wasm trigger module
@@ -836,118 +939,301 @@ impl<'wrld> Runtime<state::Trigger<'wrld>> {
     }
 
     #[codec::wrap]
-    fn query_triggering_event(state: &state::Trigger) -> Event {
+    fn get_triggering_event(state: &state::Trigger) -> Event {
         state.triggering_event.clone()
     }
 }
 
-impl DefaultExecute for Runtime<state::Trigger<'_>> {}
-
-impl<'wrld> Runtime<state::validator::Validate<'wrld>> {
-    /// Execute the given module of runtime validator
-    ///
-    /// # Errors
-    ///
-    /// - if failed to instantiate provided `module`
-    /// - if unable to find expected main function export
-    /// - if the execution of the smartcontract fails
-    /// - if unable to decode [`validator::Result`]
-    pub fn execute_validator_module(
-        &self,
-        wsv: &'wrld mut WorldStateView,
-        authority: &<Account as Identifiable>::Id,
-        module: &wasmtime::Module,
-        operation: &validator::NeedsValidationBox,
-    ) -> Result<validator::Result> {
-        let span = wasm_log_span!("Runtime validation");
-        let state = state::validator::Validate {
-            common: state::Common::new(wsv, authority.clone(), self.config, span),
-            operation_to_validate: operation.clone(),
-        };
-
-        let mut store = self.create_store(state);
-        let instance = self.instantiate_module(module, &mut store)?;
-
-        let validate_fn =
-            Self::get_typed_func(&instance, &mut store, export::VALIDATOR_VALIDATE_FN_NAME)?;
-
-        // NOTE: This function takes ownership of the pointer
-        let offset = validate_fn
-            .call(&mut store, ())
-            .map_err(ExportFnCallError::from)?;
-
-        let memory =
-            Self::get_memory(&mut (&instance, &mut store)).expect("Checked at instantiation step");
-        let dealloc_fn = Self::get_typed_func(&instance, &mut store, export::WASM_DEALLOC_FN)
-            .expect("Checked at instantiation step");
-        codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
-            .map_err(|err| Error::Decode(err.into()))
-    }
-}
-
-impl<'wrld> import::ExecuteOperations<state::validator::Validate<'wrld>>
-    for Runtime<state::validator::Validate<'wrld>>
-{
+impl<'wrld> import::ExecuteOperations<state::Trigger<'wrld>> for Runtime<state::Trigger<'wrld>> {
     #[codec::wrap]
     fn execute_query(
         query: QueryBox,
-        state: &mut state::validator::Validate<'wrld>,
+        state: &state::Trigger<'wrld>,
     ) -> Result<Value, ValidationFail> {
-        debug!(%query, "Executing as validator");
-
-        query
-            .execute(state.common_mut().wsv)
-            .map_err(Into::into)
-            .map(|lazy_value| match lazy_value {
-                LazyValue::Value(value) => value,
-                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
-            })
+        Self::default_execute_query(query, state)
     }
 
     #[codec::wrap]
     fn execute_instruction(
         instruction: InstructionBox,
-        state: &mut state::validator::Validate<'wrld>,
+        state: &mut state::Trigger<'wrld>,
+    ) -> Result<(), ValidationFail> {
+        Self::default_execute_instruction(instruction, state)
+    }
+}
+
+/// Marker trait to auto-implement [`import::ExecuteOperations`] for a concrete
+/// *Validator* [`Runtime`].
+///
+/// *Mut* means that [`WorldStateView`] will be mutated.
+trait ExecuteOperationsAsValidatorMut<S> {}
+
+impl<R, S> import::ExecuteOperations<S> for R
+where
+    R: ExecuteOperationsAsValidatorMut<S>,
+    S: state::Wsv + state::WsvMut + state::Authority,
+{
+    #[codec::wrap]
+    fn execute_query(query: QueryBox, state: &S) -> Result<Value, ValidationFail> {
+        debug!(%query, "Executing as validator");
+
+        query
+            .execute(state.wsv())
+            .map(|lazy_value| match lazy_value {
+                LazyValue::Value(value) => value,
+                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
+            })
+            .map_err(Into::into)
+    }
+
+    #[codec::wrap]
+    fn execute_instruction(
+        instruction: InstructionBox,
+        state: &mut S,
     ) -> Result<(), ValidationFail> {
         debug!(%instruction, "Executing as validator");
 
-        let common_state = state.common_mut();
         instruction
-            .execute(&common_state.authority, common_state.wsv)
+            .execute(&state.authority().clone(), state.wsv_mut())
             .map_err(Into::into)
     }
 }
 
-impl<'wrld> import::QueryOperationToValidate<state::validator::Validate<'wrld>>
-    for Runtime<state::validator::Validate<'wrld>>
+/// Marker trait to auto-implement [`import::SetPermissionTokenSchema`] for a concrete [`Runtime`].
+///
+/// Useful because in *Validator* exist more entrypoints than just `migrate()` which is the
+/// only entrypoint allowed to execute operations on permission tokens.
+trait FakeSetPermissionTokenSchema<S> {
+    /// Entrypoint function name for panic message
+    const ENTRYPOINT_FN_NAME: &'static str;
+}
+
+impl<R, S> import::SetPermissionTokenSchema<S> for R
+where
+    R: FakeSetPermissionTokenSchema<S>,
 {
     #[codec::wrap]
-    fn query_operation_to_validate(
-        state: &state::validator::Validate<'wrld>,
-    ) -> NeedsValidationBox {
-        state.operation_to_validate.clone()
+    fn set_permission_token_schema(_schema: PermissionTokenSchema, _state: &mut S) {
+        panic!(
+            "Validator `{}()` entrypoint should not set permission token schema",
+            Self::ENTRYPOINT_FN_NAME
+        )
     }
 }
 
-impl<'wrld> import::SetPermissionTokenSchema<state::validator::Validate<'wrld>>
-    for Runtime<state::validator::Validate<'wrld>>
-{
-    /// Fake `set_permission_token_schema()`.
+impl<'wrld> Runtime<state::validator::ValidateTransaction<'wrld>> {
+    /// Execute `validate_transaction()` entrypoint of the given module of runtime validator
     ///
-    /// This is needed because `validate()` entrypoint exists in the same binary as
-    /// `migrate()` entrypoint.
+    /// # Errors
     ///
-    /// # Panics
-    ///
-    /// Panic with error message if called, because it should never be called from
-    /// `validate()` entrypoint.
-    #[codec::wrap]
-    fn set_permission_token_schema(
-        _schema: PermissionTokenSchema,
-        _state: &mut state::validator::Validate<'wrld>,
-    ) {
-        panic!("Validator `validate()` entrypoint should not set permission token schema")
+    /// - if failed to instantiate provided `module`
+    /// - if unable to find expected function export
+    /// - if the execution of the smartcontract fails
+    /// - if unable to decode [`validator::Result`]
+    pub fn execute_validator_validate_transaction(
+        &self,
+        wsv: &'wrld mut WorldStateView,
+        authority: &<Account as Identifiable>::Id,
+        module: &wasmtime::Module,
+        transaction: VersionedSignedTransaction,
+    ) -> Result<validator::Result> {
+        let span = wasm_log_span!("Running `validate_transaction()`");
+
+        self.execute_validator_validate_internal(
+            module,
+            state::validator::ValidateTransaction {
+                common: state::Common::new(wsv, authority.clone(), self.config, span),
+                to_validate: transaction,
+            },
+            export::VALIDATOR_VALIDATE_TRANSACTION_FN_NAME,
+        )
     }
+}
+
+impl<'wrld> ExecuteOperationsAsValidatorMut<state::validator::ValidateTransaction<'wrld>>
+    for Runtime<state::validator::ValidateTransaction<'wrld>>
+{
+}
+
+impl<'wrld> import::GetOperationsToValidate<state::validator::ValidateTransaction<'wrld>>
+    for Runtime<state::validator::ValidateTransaction<'wrld>>
+{
+    #[codec::wrap]
+    fn get_transaction_to_validate(
+        state: &state::validator::ValidateTransaction<'wrld>,
+    ) -> VersionedSignedTransaction {
+        state.to_validate.clone()
+    }
+
+    #[codec::wrap]
+    fn get_instruction_to_validate(
+        _state: &state::validator::ValidateTransaction<'wrld>,
+    ) -> InstructionBox {
+        panic!("Validator `validate_transaction()` entrypoint should not query instruction to validate")
+    }
+
+    #[codec::wrap]
+    fn get_query_to_validate(_state: &state::validator::ValidateTransaction<'wrld>) -> QueryBox {
+        panic!("Validator `validate_transaction()` entrypoint should not query query to validate")
+    }
+}
+
+impl<'wrld> FakeSetPermissionTokenSchema<state::validator::ValidateTransaction<'wrld>>
+    for Runtime<state::validator::ValidateTransaction<'wrld>>
+{
+    const ENTRYPOINT_FN_NAME: &'static str = "validate_transaction";
+}
+
+impl<'wrld> Runtime<state::validator::ValidateInstruction<'wrld>> {
+    /// Execute `validate_instruction()` entrypoint of the given module of runtime validator
+    ///
+    /// # Errors
+    ///
+    /// - if failed to instantiate provided `module`
+    /// - if unable to find expected function export
+    /// - if the execution of the smartcontract fails
+    /// - if unable to decode [`validator::Result`]
+    pub fn execute_validator_validate_instruction(
+        &self,
+        wsv: &'wrld mut WorldStateView,
+        authority: &<Account as Identifiable>::Id,
+        module: &wasmtime::Module,
+        instruction: InstructionBox,
+    ) -> Result<validator::Result> {
+        let span = wasm_log_span!("Running `validate_instruction()`");
+
+        self.execute_validator_validate_internal(
+            module,
+            state::validator::ValidateInstruction {
+                common: state::Common::new(wsv, authority.clone(), self.config, span),
+                to_validate: instruction,
+            },
+            export::VALIDATOR_VALIDATE_INSTRUCTION_FN_NAME,
+        )
+    }
+}
+
+impl<'wrld> ExecuteOperationsAsValidatorMut<state::validator::ValidateInstruction<'wrld>>
+    for Runtime<state::validator::ValidateInstruction<'wrld>>
+{
+}
+
+impl<'wrld> import::GetOperationsToValidate<state::validator::ValidateInstruction<'wrld>>
+    for Runtime<state::validator::ValidateInstruction<'wrld>>
+{
+    #[codec::wrap]
+    fn get_transaction_to_validate(
+        _state: &state::validator::ValidateInstruction<'wrld>,
+    ) -> VersionedSignedTransaction {
+        panic!("Validator `validate_instruction()` entrypoint should not query transaction to validate")
+    }
+
+    #[codec::wrap]
+    fn get_instruction_to_validate(
+        state: &state::validator::ValidateInstruction<'wrld>,
+    ) -> InstructionBox {
+        state.to_validate.clone()
+    }
+
+    #[codec::wrap]
+    fn get_query_to_validate(_state: &state::validator::ValidateInstruction<'wrld>) -> QueryBox {
+        panic!("Validator `validate_instruction()` entrypoint should not query query to validate")
+    }
+}
+
+impl<'wrld> FakeSetPermissionTokenSchema<state::validator::ValidateInstruction<'wrld>>
+    for Runtime<state::validator::ValidateInstruction<'wrld>>
+{
+    const ENTRYPOINT_FN_NAME: &'static str = "validate_instruction";
+}
+
+impl<'wrld> Runtime<state::validator::ValidateQuery<'wrld>> {
+    /// Execute `validate_query()` entrypoint of the given module of runtime validator
+    ///
+    /// # Errors
+    ///
+    /// - if failed to instantiate provided `module`
+    /// - if unable to find expected function export
+    /// - if the execution of the smartcontract fails
+    /// - if unable to decode [`validator::Result`]
+    pub fn execute_validator_validate_query(
+        &self,
+        wsv: &'wrld WorldStateView,
+        authority: &<Account as Identifiable>::Id,
+        module: &wasmtime::Module,
+        query: QueryBox,
+    ) -> Result<validator::Result> {
+        let span = wasm_log_span!("Running `validate_query()`");
+
+        self.execute_validator_validate_internal(
+            module,
+            state::validator::ValidateQuery {
+                wsv,
+                authority: authority.clone(),
+                store_limits: state::store_limits_from_config(&self.config),
+                log_span: span,
+                query,
+            },
+            export::VALIDATOR_VALIDATE_QUERY_FN_NAME,
+        )
+    }
+}
+
+impl<'wrld> import::ExecuteOperations<state::validator::ValidateQuery<'wrld>>
+    for Runtime<state::validator::ValidateQuery<'wrld>>
+{
+    #[codec::wrap]
+    fn execute_query(
+        query: QueryBox,
+        state: &state::validator::ValidateQuery<'wrld>,
+    ) -> Result<Value, ValidationFail> {
+        debug!(%query, "Executing as validator");
+
+        query
+            .execute(state.wsv())
+            .map(|lazy_value| match lazy_value {
+                LazyValue::Value(value) => value,
+                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
+            })
+            .map_err(Into::into)
+    }
+
+    #[codec::wrap]
+    fn execute_instruction(
+        _instruction: InstructionBox,
+        _state: &mut state::validator::ValidateQuery<'wrld>,
+    ) -> Result<(), ValidationFail> {
+        panic!("Validator `validate_query()` entrypoint should not execute instructions")
+    }
+}
+
+impl<'wrld> import::GetOperationsToValidate<state::validator::ValidateQuery<'wrld>>
+    for Runtime<state::validator::ValidateQuery<'wrld>>
+{
+    #[codec::wrap]
+    fn get_transaction_to_validate(
+        _state: &state::validator::ValidateQuery<'wrld>,
+    ) -> VersionedSignedTransaction {
+        panic!("Validator `validate_query()` entrypoint should not query transaction to validate")
+    }
+
+    #[codec::wrap]
+    fn get_instruction_to_validate(
+        _state: &state::validator::ValidateQuery<'wrld>,
+    ) -> InstructionBox {
+        panic!("Validator `validate_query()` entrypoint should not query instruction to validate")
+    }
+
+    #[codec::wrap]
+    fn get_query_to_validate(state: &state::validator::ValidateQuery<'wrld>) -> QueryBox {
+        state.query.clone()
+    }
+}
+
+impl<'wrld> FakeSetPermissionTokenSchema<state::validator::ValidateQuery<'wrld>>
+    for Runtime<state::validator::ValidateQuery<'wrld>>
+{
+    const ENTRYPOINT_FN_NAME: &'static str = "validate_query";
 }
 
 impl<'wrld> Runtime<state::validator::Migrate<'wrld>> {
@@ -992,56 +1278,38 @@ impl<'wrld> Runtime<state::validator::Migrate<'wrld>> {
     }
 }
 
-impl<'wrld> import::ExecuteOperations<state::validator::Migrate<'wrld>>
+impl<'wrld> ExecuteOperationsAsValidatorMut<state::validator::Migrate<'wrld>>
     for Runtime<state::validator::Migrate<'wrld>>
 {
-    #[codec::wrap]
-    fn execute_query(
-        query: QueryBox,
-        state: &mut state::validator::Migrate<'wrld>,
-    ) -> Result<Value, ValidationFail> {
-        debug!(%query, "Executing as validator during migration");
-
-        query
-            .execute(state.common_mut().wsv)
-            .map(|lazy_value| match lazy_value {
-                LazyValue::Value(value) => value,
-                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
-            })
-            .map_err(Into::into)
-    }
-
-    #[codec::wrap]
-    fn execute_instruction(
-        instruction: InstructionBox,
-        state: &mut state::validator::Migrate<'wrld>,
-    ) -> Result<(), ValidationFail> {
-        debug!(%instruction, "Executing as validator during migration");
-
-        let common_state = state.common_mut();
-        instruction
-            .execute(&common_state.authority, common_state.wsv)
-            .map_err(Into::into)
-    }
 }
 
-impl<'wrld> import::QueryOperationToValidate<state::validator::Migrate<'wrld>>
+/// Fake implementation of [`import::GetOperationsToValidate`].
+///
+/// This is needed because `migrate()` entrypoint exists in the same binary as
+/// `validate_*()` entrypoints.
+///
+/// # Panics
+///
+/// Panics with error message if called, because it should never be called from
+/// `migrate()` entrypoint.
+impl<'wrld> import::GetOperationsToValidate<state::validator::Migrate<'wrld>>
     for Runtime<state::validator::Migrate<'wrld>>
 {
-    /// Fake `query_operation_to_validate()`.
-    ///
-    /// This is needed because `migrate()` entrypoint exists in the same binary as
-    /// `validate()` entrypoint.
-    ///
-    /// # Panics
-    ///
-    /// Panic with error message if called, because it should never be called from
-    /// `migrate()` entrypoint.
     #[codec::wrap]
-    fn query_operation_to_validate(
+    fn get_transaction_to_validate(
         _state: &state::validator::Migrate<'wrld>,
-    ) -> NeedsValidationBox {
-        panic!("Validator `migrate()` entrypoint should not query operation to validate")
+    ) -> VersionedSignedTransaction {
+        panic!("Validator `migrate()` entrypoint should not query transaction to validate")
+    }
+
+    #[codec::wrap]
+    fn get_instruction_to_validate(_state: &state::validator::Migrate<'wrld>) -> InstructionBox {
+        panic!("Validator `migrate()` entrypoint should not query instruction to validate")
+    }
+
+    #[codec::wrap]
+    fn get_query_to_validate(_state: &state::validator::Migrate<'wrld>) -> QueryBox {
+        panic!("Validator `migrate()` entrypoint should not query query to validate")
     }
 }
 
@@ -1055,7 +1323,7 @@ impl<'wrld> import::SetPermissionTokenSchema<state::validator::Migrate<'wrld>>
     ) {
         debug!(%schema, "Setting permission token schema");
 
-        state.common_mut().wsv.set_permission_token_schema(schema)
+        state.wsv_mut().set_permission_token_schema(schema)
     }
 }
 
@@ -1155,7 +1423,7 @@ impl<'wrld> RuntimeBuilder<state::SmartContract<'wrld>> {
             create_imports!(linker,
                 import::EXECUTE_ISI_FN_NAME => Runtime::<state::SmartContract<'_>>::execute_instruction,
                 import::EXECUTE_QUERY_FN_NAME => Runtime::<state::SmartContract<'_>>::execute_query,
-                import::QUERY_AUTHORITY_FN_NAME => Runtime::<state::SmartContract<'_>>::query_authority,
+                import::GET_AUTHORITY_FN_NAME => Runtime::<state::SmartContract<'_>>::get_authority,
             )?;
             Ok(linker)
         })
@@ -1175,29 +1443,79 @@ impl<'wrld> RuntimeBuilder<state::Trigger<'wrld>> {
             create_imports!(linker,
                 import::EXECUTE_ISI_FN_NAME => Runtime::<state::Trigger<'_>>::execute_instruction,
                 import::EXECUTE_QUERY_FN_NAME => Runtime::<state::Trigger<'_>>::execute_query,
-                import::QUERY_AUTHORITY_FN_NAME => Runtime::<state::Trigger<'_>>::query_authority,
-                import::QUERY_TRIGGERING_EVENT_FN_NAME => Runtime::query_triggering_event,
+                import::GET_AUTHORITY_FN_NAME => Runtime::<state::Trigger<'_>>::get_authority,
+                import::GET_TRIGGERING_EVENT_FN_NAME => Runtime::get_triggering_event,
             )?;
             Ok(linker)
         })
     }
 }
 
-impl<'wrld> RuntimeBuilder<state::validator::Validate<'wrld>> {
-    /// Builds the [`Runtime`] for *Validator* execution
+impl<'wrld> RuntimeBuilder<state::validator::ValidateTransaction<'wrld>> {
+    /// Builds the [`Runtime`] for *Validator* `validate_transaction()` execution
     ///
     /// # Errors
     ///
     /// Fails if failed to create default linker.
-    pub fn build(self) -> Result<Runtime<state::validator::Validate<'wrld>>> {
+    pub fn build(self) -> Result<Runtime<state::validator::ValidateTransaction<'wrld>>> {
         self.finalize(|engine| {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::EXECUTE_ISI_FN_NAME => Runtime::<state::validator::Validate<'_>>::execute_instruction,
-                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::validator::Validate<'_>>::execute_query,
-                import::QUERY_AUTHORITY_FN_NAME => Runtime::<state::validator::Validate<'_>>::query_authority,
-                import::QUERY_OPERATION_TO_VALIDATE_FN_NAME => Runtime::query_operation_to_validate,
+                import::EXECUTE_ISI_FN_NAME => Runtime::<state::validator::ValidateTransaction<'_>>::execute_instruction,
+                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::validator::ValidateTransaction<'_>>::execute_query,
+                import::GET_AUTHORITY_FN_NAME => Runtime::<state::validator::ValidateTransaction<'_>>::get_authority,
+                import::GET_TRANSACTION_TO_VALIDATE_FN_NAME => Runtime::get_transaction_to_validate,
+                import::GET_INSTRUCTION_TO_VALIDATE_FN_NAME => Runtime::get_instruction_to_validate,
+                import::GET_QUERY_TO_VALIDATE_FN_NAME => Runtime::get_query_to_validate,
+                import::SET_PERMISSION_TOKEN_SCHEMA_FN_NAME => Runtime::set_permission_token_schema,
+            )?;
+            Ok(linker)
+        })
+    }
+}
+
+impl<'wrld> RuntimeBuilder<state::validator::ValidateInstruction<'wrld>> {
+    /// Builds the [`Runtime`] for *Validator* `validate_instruction()` execution
+    ///
+    /// # Errors
+    ///
+    /// Fails if failed to create default linker.
+    pub fn build(self) -> Result<Runtime<state::validator::ValidateInstruction<'wrld>>> {
+        self.finalize(|engine| {
+            let mut linker = Linker::new(engine);
+
+            create_imports!(linker,
+                import::EXECUTE_ISI_FN_NAME => Runtime::<state::validator::ValidateInstruction<'_>>::execute_instruction,
+                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::validator::ValidateInstruction<'_>>::execute_query,
+                import::GET_AUTHORITY_FN_NAME => Runtime::<state::validator::ValidateInstruction<'_>>::get_authority,
+                import::GET_TRANSACTION_TO_VALIDATE_FN_NAME => Runtime::get_transaction_to_validate,
+                import::GET_INSTRUCTION_TO_VALIDATE_FN_NAME => Runtime::get_instruction_to_validate,
+                import::GET_QUERY_TO_VALIDATE_FN_NAME => Runtime::get_query_to_validate,
+                import::SET_PERMISSION_TOKEN_SCHEMA_FN_NAME => Runtime::set_permission_token_schema,
+            )?;
+            Ok(linker)
+        })
+    }
+}
+
+impl<'wrld> RuntimeBuilder<state::validator::ValidateQuery<'wrld>> {
+    /// Builds the [`Runtime`] for *Validator* `validate_query()` execution
+    ///
+    /// # Errors
+    ///
+    /// Fails if failed to create default linker.
+    pub fn build(self) -> Result<Runtime<state::validator::ValidateQuery<'wrld>>> {
+        self.finalize(|engine| {
+            let mut linker = Linker::new(engine);
+
+            create_imports!(linker,
+                import::EXECUTE_ISI_FN_NAME => Runtime::<state::validator::ValidateQuery<'_>>::execute_instruction,
+                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::validator::ValidateQuery<'_>>::execute_query,
+                import::GET_AUTHORITY_FN_NAME => Runtime::<state::validator::ValidateQuery<'_>>::get_authority,
+                import::GET_TRANSACTION_TO_VALIDATE_FN_NAME => Runtime::get_transaction_to_validate,
+                import::GET_INSTRUCTION_TO_VALIDATE_FN_NAME => Runtime::get_instruction_to_validate,
+                import::GET_QUERY_TO_VALIDATE_FN_NAME => Runtime::get_query_to_validate,
                 import::SET_PERMISSION_TOKEN_SCHEMA_FN_NAME => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
@@ -1218,8 +1536,10 @@ impl<'wrld> RuntimeBuilder<state::validator::Migrate<'wrld>> {
             create_imports!(linker,
                 import::EXECUTE_ISI_FN_NAME => Runtime::<state::validator::Migrate<'_>>::execute_instruction,
                 import::EXECUTE_QUERY_FN_NAME => Runtime::<state::validator::Migrate<'_>>::execute_query,
-                import::QUERY_AUTHORITY_FN_NAME => Runtime::query_authority,
-                import::QUERY_OPERATION_TO_VALIDATE_FN_NAME => Runtime::query_operation_to_validate,
+                import::GET_AUTHORITY_FN_NAME => Runtime::get_authority,
+                import::GET_TRANSACTION_TO_VALIDATE_FN_NAME => Runtime::get_transaction_to_validate,
+                import::GET_INSTRUCTION_TO_VALIDATE_FN_NAME => Runtime::get_instruction_to_validate,
+                import::GET_QUERY_TO_VALIDATE_FN_NAME => Runtime::get_query_to_validate,
                 import::SET_PERMISSION_TOKEN_SCHEMA_FN_NAME => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
@@ -1537,7 +1857,7 @@ mod tests {
             r#"
             (module
                 ;; Import host function to execute
-                (import "iroha" "{query_triggering_event_fn_name}"
+                (import "iroha" "{get_triggering_event_fn_name}"
                     (func $exec_fn (param) (result i32)))
 
                 {memory_and_alloc}
@@ -1550,7 +1870,7 @@ mod tests {
                     drop))
             "#,
             main_fn_name = export::WASM_MAIN_FN_NAME,
-            query_triggering_event_fn_name = import::QUERY_TRIGGERING_EVENT_FN_NAME,
+            get_triggering_event_fn_name = import::GET_TRIGGERING_EVENT_FN_NAME,
             memory_and_alloc = memory_and_alloc(&query_hex),
         );
 

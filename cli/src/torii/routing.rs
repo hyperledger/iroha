@@ -94,35 +94,57 @@ async fn handle_queries(
 
     cursor: ForwardCursor,
 ) -> Result<Scale<VersionedBatchedResponse<Value>>> {
-    // TODO: Remove wsv clone
-    let mut wsv = sumeragi.wsv_clone();
-    let valid_request = ValidQueryRequest::validate(request, &mut wsv)?;
+    let valid_request = sumeragi.apply_wsv(|wsv| ValidQueryRequest::validate(request, wsv))?;
     let request_id = (&valid_request, &sorting, &pagination);
 
-    let (query_id, curr_cursor, mut live_query) = if let Some(query_id) = cursor.query_id {
+    if let Some(query_id) = cursor.query_id {
         let live_query = query_store
             .remove(&query_id, &request_id)
             .ok_or(Error::UnknownCursor)?;
 
-        (query_id, cursor.cursor.map(NonZeroU64::get), live_query)
-    } else {
-        let res = valid_request.execute(&wsv).map_err(ValidationFail::from)?;
+        return construct_query_response(
+            request_id,
+            &query_store,
+            query_id,
+            cursor.cursor.map(NonZeroU64::get),
+            live_query,
+        );
+    }
+
+    sumeragi.apply_wsv(|wsv| {
+        let res = valid_request.execute(wsv).map_err(ValidationFail::from)?;
 
         match res {
             LazyValue::Value(batch) => {
                 let cursor = ForwardCursor::default();
                 let result = BatchedResponse { batch, cursor };
-                return Ok(Scale(result.into()));
+                Ok(Scale(result.into()))
             }
             LazyValue::Iter(iter) => {
                 let live_query = apply_sorting_and_pagination(iter, &sorting, pagination);
                 let query_id = uuid::Uuid::new_v4().to_string();
 
-                (query_id, Some(0), live_query.batched(fetch_size))
+                let curr_cursor = Some(0);
+                let live_query = live_query.batched(fetch_size);
+                construct_query_response(
+                    request_id,
+                    &query_store,
+                    query_id,
+                    curr_cursor,
+                    live_query,
+                )
             }
         }
-    };
+    })
+}
 
+fn construct_query_response(
+    request_id: (&ValidQueryRequest, &Sorting, &Pagination),
+    query_store: &LiveQueryStore,
+    query_id: String,
+    curr_cursor: Option<u64>,
+    mut live_query: Batched<Vec<Value>>,
+) -> Result<Scale<VersionedBatchedResponse<Value>>> {
     let (batch, next_cursor) = live_query.next_batch(curr_cursor)?;
 
     if !live_query.is_depleted() {
@@ -202,16 +224,15 @@ async fn handle_pending_transactions(
     sumeragi: SumeragiHandle,
     pagination: Pagination,
 ) -> Result<Scale<Vec<VersionedSignedTransaction>>> {
-    // TODO: Don't clone wsv here
-    let wsv = sumeragi.wsv_clone();
-
-    let query_response = queue
-        .all_transactions(&wsv)
-        .map(Into::into)
-        .paginate(pagination)
-        .collect::<Vec<_>>();
-    // TODO:
-    //.batched(fetch_size)
+    let query_response = sumeragi.apply_wsv(|wsv| {
+        queue
+            .all_transactions(wsv)
+            .map(Into::into)
+            .paginate(pagination)
+            .collect::<Vec<_>>()
+        // TODO:
+        //.batched(fetch_size)
+    });
 
     Ok(Scale(query_response))
 }

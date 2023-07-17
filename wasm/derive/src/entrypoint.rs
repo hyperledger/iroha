@@ -56,14 +56,14 @@ impl iroha_derive_primitives::params::ConstructArg for ParamType {
         match self {
             ParamType::Authority => {
                 parse_quote! {
-                    ::iroha_wasm::query_authority()
+                    ::iroha_wasm::get_authority()
                 }
             }
             ParamType::TriggeringEvent => {
                 parse_quote! {{
                     use ::iroha_wasm::debug::DebugExpectExt as _;
 
-                    let top_event = ::iroha_wasm::query_triggering_event();
+                    let top_event = ::iroha_wasm::get_triggering_event();
                     ::iroha_wasm::debug::DebugExpectExt::dbg_expect(
                         ::core::convert::TryInto::try_into(top_event),
                         "Failed to convert top-level event to the concrete one"

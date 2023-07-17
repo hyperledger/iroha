@@ -893,20 +893,6 @@ pub mod model {
         pub(super) max: u32,
     }
 
-    #[derive(
-        Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
-    )]
-    #[ffi_type]
-    #[cfg_attr(feature = "std", derive(thiserror::Error))]
-    #[display(fmt = "Validator denied the operation {operation}")]
-    pub struct ValidatorDeny {
-        /// Denial reason.
-        #[cfg_attr(feature = "std", source)]
-        pub reason: ValidationFail,
-        /// Denied operation.
-        pub operation: crate::validator::NeedsValidationBox,
-    }
-
     /// Operation validation failed.
     ///
     /// # Note
@@ -1924,6 +1910,6 @@ pub mod prelude {
         query::prelude::*, role::prelude::*, transaction::prelude::*, trigger::prelude::*,
         validator::prelude::*, EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox,
         LengthLimits, NumericValue, PredicateTrait, RegistrableBox, ToValue, TriggerBox, TryAsMut,
-        TryAsRef, TryToValue, UpgradableBox, ValidationFail, ValidatorDeny, Value,
+        TryAsRef, TryToValue, UpgradableBox, ValidationFail, Value,
     };
 }

@@ -18,7 +18,6 @@ use data_model::{
     isi::Instruction,
     prelude::*,
     query::{Query, QueryBox},
-    validator::NeedsValidationBox,
 };
 use debug::DebugExpectExt as _;
 pub use iroha_data_model as data_model;
@@ -159,14 +158,14 @@ impl iroha_data_model::evaluate::Context for Context {
 }
 
 /// Query the authority of the smart contract
-pub fn query_authority() -> AccountId {
+pub fn get_authority() -> AccountId {
     #[cfg(not(test))]
-    use host::query_authority as host_query_authority;
+    use host::get_authority as host_get_authority;
     #[cfg(test)]
-    use tests::_iroha_wasm_query_authority_mock as host_query_authority;
+    use tests::_iroha_wasm_get_authority_mock as host_get_authority;
 
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host_query_authority()) }
+    unsafe { decode_with_length_prefix_from_raw(host_get_authority()) }
 }
 
 /// Query the event which have triggered trigger execution.
@@ -174,30 +173,50 @@ pub fn query_authority() -> AccountId {
 /// # Traps
 ///
 /// Host side will generate a trap if this function was not called from a trigger.
-pub fn query_triggering_event() -> Event {
+pub fn get_triggering_event() -> Event {
     #[cfg(not(test))]
-    use host::query_triggering_event as host_query_triggering_event;
+    use host::get_triggering_event as host_get_triggering_event;
     #[cfg(test)]
-    use tests::_iroha_wasm_query_triggering_event_mock as host_query_triggering_event;
+    use tests::_iroha_wasm_get_triggering_event_mock as host_get_triggering_event;
 
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host_query_triggering_event()) }
+    unsafe { decode_with_length_prefix_from_raw(host_get_triggering_event()) }
 }
 
-/// Query an operation which is to be validated
+/// Query [`VersionedSignedTransaction`] to validate.
 ///
 /// # Traps
 ///
-/// Host side will generate a trap if this function was not called from a
-/// validator's `validate()` entrypoint.
-pub fn query_operation_to_validate() -> NeedsValidationBox {
-    #[cfg(not(test))]
-    use host::query_operation_to_validate as host_query_operation_to_validate;
-    #[cfg(test)]
-    use tests::_iroha_wasm_query_operation_to_validate_mock as host_query_operation_to_validate;
-
+/// Host side will generate a trap if this function was called not from a
+/// validator `validate_transaction()` entrypoint.
+#[cfg(not(test))]
+pub fn get_transaction_to_validate() -> VersionedSignedTransaction {
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host_query_operation_to_validate()) }
+    unsafe { decode_with_length_prefix_from_raw(host::get_transaction_to_validate()) }
+}
+
+/// Query [`InstructionBox`] to validate.
+///
+/// # Traps
+///
+/// Host side will generate a trap if this function was called not from a
+/// validator `validate_instruction()` entrypoint.
+#[cfg(not(test))]
+pub fn get_instruction_to_validate() -> InstructionBox {
+    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(host::get_instruction_to_validate()) }
+}
+
+/// Query [`QueryBox`] to validate.
+///
+/// # Traps
+///
+/// Host side will generate a trap if this function was called not from a
+/// validator `validate_query()` entrypoint.
+#[cfg(not(test))]
+pub fn get_query_to_validate() -> QueryBox {
+    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(host::get_query_to_validate()) }
 }
 
 /// Set new [`PermissionTokenSchema`].
@@ -243,21 +262,35 @@ mod host {
         /// # Warning
         ///
         /// This function does transfer ownership of the result to the caller
-        pub(super) fn query_authority() -> *const u8;
+        pub(super) fn get_authority() -> *const u8;
 
         /// Get the triggering event
         ///
         /// # Warning
         ///
         /// This function does transfer ownership of the result to the caller
-        pub(super) fn query_triggering_event() -> *const u8;
+        pub(super) fn get_triggering_event() -> *const u8;
 
-        /// Get the operation to validate
+        /// Get [`VersionedSignedTransaction`] to validate
         ///
         /// # Warning
         ///
         /// This function does transfer ownership of the result to the caller
-        pub(super) fn query_operation_to_validate() -> *const u8;
+        pub(super) fn get_transaction_to_validate() -> *const u8;
+
+        /// Get [`InstructionBox`] to validate
+        ///
+        /// # Warning
+        ///
+        /// This function does transfer ownership of the result to the caller
+        pub(super) fn get_instruction_to_validate() -> *const u8;
+
+        /// Get [`QueryBox`] to validate
+        ///
+        /// # Warning
+        ///
+        /// This function does transfer ownership of the result to the caller
+        pub(super) fn get_query_to_validate() -> *const u8;
 
         /// Set new [`PermissionTokenSchema`].
         pub(super) fn set_permission_token_schema(ptr: *const u8, len: usize);
@@ -414,13 +447,6 @@ mod tests {
         ))
         .into()
     }
-    fn get_test_operation() -> NeedsValidationBox {
-        let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
-        let rose_definition_id: AssetDefinitionId = "rose#wonderland".parse().expect("Valid");
-        let alice_rose_id = AssetId::new(rose_definition_id, alice_id);
-
-        NeedsValidationBox::Instruction(MintBox::new(1u32, alice_rose_id).into())
-    }
 
     #[no_mangle]
     pub unsafe extern "C" fn _iroha_wasm_execute_instruction_mock(
@@ -447,18 +473,13 @@ mod tests {
     }
 
     #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_query_authority_mock() -> *const u8 {
+    pub unsafe extern "C" fn _iroha_wasm_get_authority_mock() -> *const u8 {
         ManuallyDrop::new(encode_with_length_prefix(&get_test_authority())).as_ptr()
     }
 
     #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_query_triggering_event_mock() -> *const u8 {
+    pub unsafe extern "C" fn _iroha_wasm_get_triggering_event_mock() -> *const u8 {
         ManuallyDrop::new(encode_with_length_prefix(&get_test_event())).as_ptr()
-    }
-
-    #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_query_operation_to_validate_mock() -> *const u8 {
-        ManuallyDrop::new(encode_with_length_prefix(&get_test_operation())).as_ptr()
     }
 
     #[webassembly_test]
@@ -480,17 +501,12 @@ mod tests {
     }
 
     #[webassembly_test]
-    fn get_authority() {
-        assert_eq!(query_authority(), get_test_authority());
+    fn get_authority_test() {
+        assert_eq!(get_authority(), get_test_authority());
     }
 
     #[webassembly_test]
-    fn get_trigger_event() {
-        assert_eq!(query_triggering_event(), get_test_event());
-    }
-
-    #[webassembly_test]
-    fn get_operation_to_validate() {
-        assert_eq!(query_operation_to_validate(), get_test_operation());
+    fn get_triggering_event_test() {
+        assert_eq!(get_triggering_event(), get_test_event());
     }
 }

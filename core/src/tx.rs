@@ -307,9 +307,9 @@ impl TransactionValidator {
         let tx: VersionedSignedTransaction = tx.into();
         let authority = tx.payload().authority.clone();
 
-        wsv.validator_view()
+        wsv.validator()
             .clone() // Cloning validator is a cheap operation
-            .validate(wsv, &authority, tx)
+            .validate_transaction(wsv, &authority, tx)
             .map_err(|error| {
                 if let ValidationFail::InternalError(msg) = &error {
                     error!(
