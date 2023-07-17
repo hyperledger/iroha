@@ -69,7 +69,7 @@ impl ValidQueryRequest {
     /// - Account has incorrect permissions
     pub fn validate(
         query: VersionedSignedQuery,
-        wsv: &mut WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<Self, ValidationFail> {
         let account_has_public_key = wsv
             .map_account(query.authority(), |account| {
@@ -82,9 +82,8 @@ impl ValidQueryRequest {
             ))
             .into());
         }
-        wsv.validator_view()
-            .clone()
-            .validate(wsv, query.authority(), query.query().clone())?;
+        wsv.validator()
+            .validate_query(wsv, query.authority(), query.query().clone())?;
         Ok(Self(query))
     }
 

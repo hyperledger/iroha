@@ -1,14 +1,15 @@
 //! Structures and impls related to *runtime* `Validator`s processing.
 
 use derive_more::DebugCustom;
+#[cfg(test)]
+use iroha_data_model::transaction::Executable;
 use iroha_data_model::{
     account::AccountId,
+    isi::InstructionBox,
+    query::QueryBox,
+    transaction::VersionedSignedTransaction,
     validator::{self as data_model_validator, MigrationResult},
     ValidationFail,
-};
-#[cfg(test)]
-use iroha_data_model::{
-    isi::InstructionBox, transaction::Executable, validator::NeedsValidationBox,
 };
 use iroha_logger::trace;
 
@@ -63,32 +64,84 @@ impl Validator {
         })
     }
 
-    /// Validate operation.
+    /// Validate [`VersionedSignedTransaction`].
     ///
     /// # Errors
     ///
     /// - Failed to prepare runtime for WASM execution;
     /// - Failed to execute the entrypoint of the WASM blob;
     /// - Validator denied the operation.
-    pub fn validate(
+    pub fn validate_transaction(
         &self,
         wsv: &mut WorldStateView,
         authority: &AccountId,
-        operation: impl Into<data_model_validator::NeedsValidationBox>,
+        transaction: VersionedSignedTransaction,
     ) -> Result<(), ValidationFail> {
-        let operation = operation.into();
-
-        let runtime = wasm::RuntimeBuilder::<wasm::state::validator::Validate>::new()
+        let runtime = wasm::RuntimeBuilder::<wasm::state::validator::ValidateTransaction>::new()
             .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
             .with_configuration(wsv.config.wasm_runtime_config)
             .build()?;
 
-        trace!("Running validator");
-        runtime.execute_validator_module(
+        trace!("Running transaction validation");
+        runtime.execute_validator_validate_transaction(
             wsv,
             authority,
             &self.loaded_validator.module,
-            &operation,
+            transaction,
+        )?
+    }
+
+    /// Validate [`InstructionBox`].
+    ///
+    /// # Errors
+    ///
+    /// - Failed to prepare runtime for WASM execution;
+    /// - Failed to execute the entrypoint of the WASM blob;
+    /// - Validator denied the operation.
+    pub fn validate_instruction(
+        &self,
+        wsv: &mut WorldStateView,
+        authority: &AccountId,
+        instruction: InstructionBox,
+    ) -> Result<(), ValidationFail> {
+        let runtime = wasm::RuntimeBuilder::<wasm::state::validator::ValidateInstruction>::new()
+            .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+            .with_configuration(wsv.config.wasm_runtime_config)
+            .build()?;
+
+        trace!("Running instruction validation");
+        runtime.execute_validator_validate_instruction(
+            wsv,
+            authority,
+            &self.loaded_validator.module,
+            instruction,
+        )?
+    }
+
+    /// Validate [`QueryBox`].
+    ///
+    /// # Errors
+    ///
+    /// - Failed to prepare runtime for WASM execution;
+    /// - Failed to execute the entrypoint of the WASM blob;
+    /// - Validator denied the operation.
+    pub fn validate_query(
+        &self,
+        wsv: &WorldStateView,
+        authority: &AccountId,
+        query: QueryBox,
+    ) -> Result<(), ValidationFail> {
+        let runtime = wasm::RuntimeBuilder::<wasm::state::validator::ValidateQuery>::new()
+            .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+            .with_configuration(wsv.config.wasm_runtime_config)
+            .build()?;
+
+        trace!("Running query validation");
+        runtime.execute_validator_validate_query(
+            wsv,
+            authority,
+            &self.loaded_validator.module,
+            query,
         )?
     }
 
@@ -146,35 +199,56 @@ impl MockValidator {
         panic!("You probably don't need this method in tests")
     }
 
-    /// Mock for operation validation.
+    /// Mock for transaction validation.
     /// Will just execute instructions if there are some.
     ///
     /// Without this step invalid transactions won't be marked as rejected in
     /// [`ChainedBlock::validate`].
-    /// Real [`Validator`] assumes that internal WASM performs this.
+    ///
+    /// # Errors
+    ///
+    /// Fails if instruction execution fails
+    pub fn validate_transaction(
+        &self,
+        wsv: &mut WorldStateView,
+        authority: &AccountId,
+        transaction: VersionedSignedTransaction,
+    ) -> Result<(), ValidationFail> {
+        let (_authority, Executable::Instructions(instructions)) = transaction.into() else {
+            return Ok(());
+        };
+        for isi in instructions {
+            Self::execute_instruction(wsv, authority, isi)?;
+        }
+        Ok(())
+    }
+
+    /// Mock for instruction validation. Will just execute instruction.
+    ///
+    /// # Errors
+    ///
+    /// Fails if instruction execution fails
+    pub fn validate_instruction(
+        &self,
+        wsv: &mut WorldStateView,
+        authority: &AccountId,
+        instruction: InstructionBox,
+    ) -> Result<(), ValidationFail> {
+        Self::execute_instruction(wsv, authority, instruction)
+    }
+
+    /// Mock for query validation.
     ///
     /// # Errors
     ///
     /// Never fails.
-    pub fn validate(
+    pub fn validate_query(
         &self,
-        wsv: &mut WorldStateView,
-        authority: &AccountId,
-        operation: impl Into<data_model_validator::NeedsValidationBox>,
+        _wsv: &WorldStateView,
+        _authority: &AccountId,
+        _query: QueryBox,
     ) -> Result<(), ValidationFail> {
-        match operation.into() {
-            NeedsValidationBox::Instruction(isi) => Self::execute_instruction(wsv, authority, isi),
-            NeedsValidationBox::Transaction(tx) => {
-                let (_authority, Executable::Instructions(instructions)) = tx.into() else {
-                    return Ok(());
-                };
-                for isi in instructions {
-                    Self::execute_instruction(wsv, authority, isi)?;
-                }
-                Ok(())
-            }
-            NeedsValidationBox::Query(_) => Ok(()),
-        }
+        Ok(())
     }
 
     /// Mock for validator migration.
