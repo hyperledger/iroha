@@ -3,7 +3,6 @@
 use std::thread::{self, JoinHandle};
 
 use eyre::Result;
-use iroha_crypto::HashOf;
 use iroha_data_model::{
     parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
     prelude::*,
@@ -117,12 +116,11 @@ fn committed_block_must_be_available_in_kura() {
 
     let event = event_iter.next().expect("Block must be committed");
     let Ok(Event::Pipeline(PipelineEvent { entity_kind: PipelineEntityKind::Block, status: PipelineStatus::Committed, hash })) = event else { panic!("Received unexpected event") };
-    let hash = HashOf::from_untyped_unchecked(hash);
 
     peer.iroha
         .as_ref()
         .expect("Must be some")
         .kura
-        .get_block_height_by_hash(&hash)
+        .get_block_height_by_hash(&hash.typed())
         .expect("Block committed event was received earlier");
 }

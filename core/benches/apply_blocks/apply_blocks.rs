@@ -42,10 +42,7 @@ fn create_block(
         committed_with_topology: Vec::new(),
     };
 
-    let signature = SignatureOf::from_hash(
-        key_pair,
-        HashOf::from_untyped_unchecked(Hash::new(header.payload())),
-    )?;
+    let signature = SignatureOf::from_hash(key_pair, Hash::new(header.payload()).typed())?;
     let signatures = SignaturesOf::from(signature);
 
     let pending_block = PendingBlock {

@@ -99,7 +99,7 @@ mod tests {
 
     use std::str::FromStr as _;
 
-    use iroha_crypto::{Hash, HashOf, KeyPair};
+    use iroha_crypto::{Hash, KeyPair};
     use iroha_data_model::{block::VersionedCommittedBlock, transaction::TransactionLimits};
     use once_cell::sync::Lazy;
 
@@ -314,11 +314,9 @@ mod tests {
             block.as_v1().header
         );
 
-        assert!(
-            FindBlockHeaderByHash::new(HashOf::from_untyped_unchecked(Hash::new([42])))
+        assert!(FindBlockHeaderByHash::new(Hash::new([42]).typed())
                 .execute(&wsv)
-                .is_err()
-        );
+                .is_err());
 
         Ok(())
     }

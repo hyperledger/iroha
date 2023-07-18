@@ -289,7 +289,7 @@ mod committed {
                 data.extend(s.key_payload());
                 data.extend(s.signature_payload());
             }
-            HashOf::from_untyped_unchecked(Hash::new(&data))
+            Hash::new(&data).typed()
         }
 
         /// Return signatures that are verified with the `hash` of this block

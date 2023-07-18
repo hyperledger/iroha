@@ -183,11 +183,8 @@ impl BlockBuilder<'_> {
             .hash();
         // TODO: Validate Event recommendations somehow?
 
-        let signature = SignatureOf::from_hash(
-            self.key_pair,
-            HashOf::from_untyped_unchecked(Hash::new(header.payload())),
-        )
-        .expect("Signing of new block failed.");
+        let signature = SignatureOf::from_hash(self.key_pair, Hash::new(header.payload()).typed())
+            .expect("Signing of new block failed.");
         let signatures = SignaturesOf::from(signature);
 
         PendingBlock {
@@ -206,7 +203,7 @@ impl PendingBlock {
 
     /// Calculate the partial hash of the current block.
     pub fn partial_hash(&self) -> HashOf<Self> {
-        HashOf::from_untyped_unchecked(Hash::new(self.header.payload()))
+        Hash::new(self.header.payload()).typed()
     }
 
     /// Return signatures that are verified with the `hash` of this block,
@@ -462,7 +459,7 @@ impl Revalidate for VersionedCommittedBlock {
 
                     topology.verify_signatures(
                         &mut block.signatures.clone(),
-                        HashOf::from_untyped_unchecked(block.partial_hash().internal),
+                        block.partial_hash().internal.typed(),
                     )?;
                 }
 

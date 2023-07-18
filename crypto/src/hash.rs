@@ -82,6 +82,27 @@ impl Hash {
     }
 }
 
+#[cfg(feature = "std")]
+impl Hash {
+    /// Convert an untyped (raw) hash into a typed hash.
+    ///
+    /// # Usage
+    ///
+    /// In many situations the `Hash` is "colored" to a specific type of
+    /// entity, so it's possible to use Rust's type system to prevent
+    /// common errors.
+    ///
+    /// However, most hashes are computed from sources in which the
+    /// type is externally imposed, such as computing the hashes of
+    /// the branches of the Merkle tree, the signatures of a block
+    /// and/or computing the hash from a raw stream of bytes.  **This
+    /// function cannot check your code for type validity, so this
+    /// must be enforced by the user**.
+    pub fn typed<T>(self) -> HashOf<T> {
+        HashOf(self, PhantomData)
+    }
+}
+
 impl From<Hash> for [u8; Hash::LENGTH] {
     #[inline]
     fn from(hash: Hash) -> Self {
@@ -177,6 +198,7 @@ impl IntoSchema for Hash {
     fn type_name() -> String {
         "Hash".to_owned()
     }
+
     fn update_schema_map(map: &mut iroha_schema::MetaMap) {
         if !map.contains_key::<Self>() {
             <[u8; Self::LENGTH]>::update_schema_map(map);
@@ -259,15 +281,6 @@ impl<T> HashOf<T> {
     pub const fn transmute<F>(self) -> HashOf<F> {
         HashOf(self.0, PhantomData)
     }
-
-    /// Adds type information to the hash. Be careful about using this function
-    /// since it is not possible to validate the correctness of the conversion.
-    /// Prefer creating new hashes with [`HashOf::new`] whenever possible
-    #[must_use]
-    #[deprecated]
-    pub const fn from_untyped_unchecked(hash: Hash) -> Self {
-        HashOf(hash, PhantomData)
-    }
 }
 
 #[cfg(any(feature = "std", feature = "ffi_import"))]
@@ -283,6 +296,7 @@ impl<T: IntoSchema> IntoSchema for HashOf<T> {
     fn type_name() -> String {
         format!("HashOf<{}>", T::type_name())
     }
+
     fn update_schema_map(map: &mut iroha_schema::MetaMap) {
         if !map.contains_key::<Self>() {
             Hash::update_schema_map(map);
