@@ -1,10 +1,5 @@
 //! Contains the end-point querying logic.  This is where you need to
 //! add any custom end-point related logic.
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -38,6 +33,7 @@ use crate::{
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
 };
 
+/// `Content-type` header constant.
 const APPLICATION_JSON: &str = "application/json";
 
 /// General trait for all response handlers
@@ -55,6 +51,7 @@ pub trait ResponseHandler<T = Vec<u8>> {
 pub struct QueryResponseHandler<R>(PhantomData<R>);
 
 impl<R> Default for QueryResponseHandler<R> {
+    #[inline]
     fn default() -> Self {
         Self(PhantomData)
     }
@@ -77,6 +74,7 @@ pub trait Sign {
 }
 
 impl Sign for TransactionBuilder {
+    #[inline]
     fn sign(
         self,
         key_pair: iroha_crypto::KeyPair,
@@ -86,6 +84,7 @@ impl Sign for TransactionBuilder {
 }
 
 impl Sign for VersionedSignedTransaction {
+    #[inline]
     fn sign(
         self,
         key_pair: iroha_crypto::KeyPair,
@@ -102,7 +101,7 @@ where
     type Output = QueryHandlerResult<ClientQueryRequest<R>>;
 
     fn handle(self, resp: Response<Vec<u8>>) -> Self::Output {
-        // Separate-compilation friendly response handling
+        /// Separate-compilation friendly response handling
         fn _handle_query_response_base(
             resp: &Response<Vec<u8>>,
         ) -> QueryHandlerResult<VersionedPaginatedQueryResult> {
@@ -151,6 +150,7 @@ where
 
 /// Different errors as a result of query response handling
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
+#[allow(clippy::module_name_repetitions)]
 pub enum ClientQueryError {
     /// Query validation error
     Validation(#[from] ValidationFail),
@@ -172,6 +172,7 @@ pub struct TransactionResponseHandler;
 impl ResponseHandler for TransactionResponseHandler {
     type Output = Result<()>;
 
+    #[inline]
     fn handle(self, resp: Response<Vec<u8>>) -> Self::Output {
         if resp.status() == StatusCode::OK {
             Ok(())
@@ -240,6 +241,7 @@ impl From<ResponseReport> for eyre::Report {
 /// The only difference is that this struct has `output` field extracted from the result
 /// accordingly to the source query.
 #[derive(Clone, Debug)]
+#[allow(clippy::module_name_repetitions)] // This naming convention allows it to be imported directly, without confusion.
 pub struct ClientQueryRequest<R>
 where
     R: Query + Debug,
@@ -263,6 +265,7 @@ where
     <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
 {
     /// Extracts output as is
+    #[allow(clippy::missing_inline_in_public_items)] // Explicit template
     pub fn only_output(self) -> R::Output {
         self.output
     }
@@ -288,13 +291,7 @@ where
             .map_err(Into::into)
             .wrap_err("Unexpected type")?;
 
-        Ok(Self {
-            output,
-            pagination,
-            sorting,
-            total,
-            filter,
-        })
+        Ok(Self { output, filter, pagination, sorting, total })
     }
 }
 
@@ -406,6 +403,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if signature generation fails
+    #[inline]
     pub fn sign_transaction<Tx: Sign>(
         &self,
         transaction: Tx,
@@ -419,6 +417,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if signature generation fails
+    #[inline]
     pub fn sign_query(&self, query: QueryBuilder) -> Result<SignedQuery> {
         query
             .sign(self.key_pair.clone())
@@ -430,6 +429,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
+    #[allow(clippy::missing_inline_in_public_items)] // Opaque template
     pub fn submit(
         &self,
         instruction: impl Instruction + Debug,
@@ -443,6 +443,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
+    #[allow(clippy::missing_inline_in_public_items)] // Opaque template
     pub fn submit_all(
         &self,
         instructions: impl IntoIterator<Item = impl Instruction>,
@@ -456,6 +457,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
+    #[allow(clippy::missing_inline_in_public_items)] // Opaque template
     pub fn submit_with_metadata(
         &self,
         instruction: impl Instruction,
@@ -470,6 +472,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
+    #[allow(clippy::missing_inline_in_public_items)] // Opaque template
     pub fn submit_all_with_metadata(
         &self,
         instructions: impl IntoIterator<Item = impl Instruction>,
@@ -483,6 +486,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
+    #[allow(clippy::missing_inline_in_public_items)] // Complex
     pub fn submit_transaction(
         &self,
         transaction: &VersionedSignedTransaction,
@@ -503,6 +507,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending a transaction to a peer fails or there is an error in the response
+    #[allow(clippy::missing_inline_in_public_items)] // Complex
     pub fn submit_transaction_blocking(
         &self,
         transaction: &VersionedSignedTransaction,
@@ -576,9 +581,9 @@ impl Client {
     ) -> Result<HashOf<TransactionPayload>> {
         while let Some(event) = event_iterator.next().await {
             if let Event::Pipeline(this_event) = event? {
-                match this_event.status() {
+                match &this_event.status() {
                     PipelineStatus::Validating => {}
-                    PipelineStatus::Rejected(ref reason) => {
+                    PipelineStatus::Rejected(reason) => {
                         return Err(reason.clone().into());
                     }
                     PipelineStatus::Committed => return Ok(hash.transmute()),
@@ -597,6 +602,7 @@ impl Client {
     /// it is better to use a response handler anyway. It allows to abstract from implementation details.
     ///
     /// For general usage example see [`Client::prepare_query_request`].
+    #[must_use]
     pub fn prepare_transaction_request<B: RequestBuilder>(
         &self,
         transaction: &VersionedSignedTransaction,
@@ -1150,6 +1156,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if request build fails
+    #[must_use]
     pub fn prepare_status_request<B>(&self) -> (B, StatusResponseHandler)
     where
         B: RequestBuilder,
@@ -1190,7 +1197,7 @@ pub mod stream_api {
         /// - Sending failed
         /// - Message not received in stream during connection or subscription
         /// - Message is an error
-        pub fn new<I: Init<DefaultWebSocketRequestBuilder>>(
+        pub(super) fn new<I: Init<DefaultWebSocketRequestBuilder>>(
             handler: I,
         ) -> Result<SyncIterator<I::Next>> {
             trace!("Creating `SyncIterator`");
@@ -1370,6 +1377,7 @@ pub mod events_api {
             }
         }
 
+
         impl<R: RequestBuilder> FlowInit<R> for Init {
             type Next = Events;
 
@@ -1382,7 +1390,7 @@ pub mod events_api {
 
                 let msg =
                     VersionedEventSubscriptionRequest::from(EventSubscriptionRequest::new(filter))
-                        .encode_versioned();
+                    .encode_versioned();
 
                 InitData::new(R::new(HttpMethod::GET, url).headers(headers), msg, Events)
             }
@@ -1395,6 +1403,7 @@ pub mod events_api {
         impl FlowEvents for Events {
             type Event = iroha_data_model::prelude::Event;
 
+            #[inline]
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 let event_socket_message =
                     VersionedEventMessage::decode_all_versioned(&message)?.into_v1();
@@ -1410,7 +1419,7 @@ pub mod events_api {
     pub type AsyncEventStream = stream_api::AsyncStream<flow::Events>;
 }
 
-mod blocks_api {
+pub(crate) mod blocks_api {
     use super::*;
     use crate::http::ws::{
         conn_flow::{Events as FlowEvents, Init as FlowInit, InitData},
@@ -1418,10 +1427,10 @@ mod blocks_api {
     };
 
     /// Blocks API flow. For documentation and usage examples, refer to [`crate::http::ws::conn_flow`].
-    pub mod flow {
+    pub(crate) mod flow {
         use std::num::NonZeroU64;
 
-        use iroha_data_model::block::stream::*;
+        use iroha_data_model::block::stream::{BlockSubscriptionRequest, VersionedBlockMessage, VersionedBlockSubscriptionRequest};
 
         use super::*;
 
@@ -1454,6 +1463,7 @@ mod blocks_api {
             }
         }
 
+        
         impl<R: RequestBuilder> FlowInit<R> for Init {
             type Next = Events;
 
@@ -1490,7 +1500,7 @@ mod blocks_api {
     pub(super) type BlockIterator = stream_api::SyncIterator<flow::Events>;
 
     /// Async stream for getting blocks from the `WebSocket` stream.
-    pub type AsyncBlockStream = stream_api::AsyncStream<flow::Events>;
+    pub(super) type AsyncBlockStream = stream_api::AsyncStream<flow::Events>;
 }
 
 pub mod account {
@@ -1498,16 +1508,21 @@ pub mod account {
     use super::*;
 
     /// Construct a query to get all accounts
+    #[must_use]
+    #[inline]
     pub const fn all() -> FindAllAccounts {
         FindAllAccounts
     }
 
     /// Construct a query to get account by id
+    #[must_use]
+    #[inline]
     pub fn by_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindAccountById {
         FindAccountById::new(account_id)
     }
 
     /// Construct a query to get all accounts containing specified asset
+    #[allow(clippy::missing_inline_in_public_items)] // Opaque template
     pub fn all_with_asset(
         asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
     ) -> FindAccountsWithAsset {
@@ -1520,16 +1535,22 @@ pub mod asset {
     use super::*;
 
     /// Construct a query to get all assets
+    #[must_use]
+    #[inline]
     pub const fn all() -> FindAllAssets {
         FindAllAssets
     }
 
     /// Construct a query to get all asset definitions
+    #[must_use]
+    #[inline]
     pub const fn all_definitions() -> FindAllAssetsDefinitions {
         FindAllAssetsDefinitions
     }
 
     /// Construct a query to get asset definition by its id
+    #[must_use]
+    #[inline]
     pub fn definition_by_id(
         asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
     ) -> FindAssetDefinitionById {
@@ -1537,11 +1558,15 @@ pub mod asset {
     }
 
     /// Construct a query to get all assets by account id
+    #[must_use]
+    #[inline]
     pub fn by_account_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindAssetsByAccountId {
         FindAssetsByAccountId::new(account_id)
     }
 
     /// Construct a query to get an asset by its id
+    #[must_use]
+    #[inline]
     pub fn by_id(asset_id: impl Into<EvaluatesTo<<Asset as Identifiable>::Id>>) -> FindAssetById {
         FindAssetById::new(asset_id)
     }
@@ -1553,16 +1578,22 @@ pub mod block {
     use super::*;
 
     /// Construct a query to find all blocks
+    #[must_use]
+    #[inline]
     pub const fn all() -> FindAllBlocks {
         FindAllBlocks
     }
 
     /// Construct a query to find all block headers
+    #[must_use]
+    #[inline]
     pub const fn all_headers() -> FindAllBlockHeaders {
         FindAllBlockHeaders
     }
 
     /// Construct a query to find block header by hash
+    #[must_use]
+    #[inline]
     pub fn header_by_hash(
         hash: impl Into<EvaluatesTo<HashOf<VersionedCommittedBlock>>>,
     ) -> FindBlockHeaderByHash {
@@ -1572,14 +1603,18 @@ pub mod block {
 
 pub mod domain {
     //! Module with queries for domains
-    use super::*;
+    use super::{DomainId, EvaluatesTo, FindAllDomains, FindDomainById};
 
     /// Construct a query to get all domains
+    #[must_use]
+    #[inline]
     pub const fn all() -> FindAllDomains {
         FindAllDomains
     }
 
     /// Construct a query to get all domain by id
+    #[must_use]
+    #[inline]
     pub fn by_id(domain_id: impl Into<EvaluatesTo<DomainId>>) -> FindDomainById {
         FindDomainById::new(domain_id)
     }
@@ -1591,11 +1626,15 @@ pub mod transaction {
     use super::*;
 
     /// Construct a query to find all transactions
+    #[must_use]
+    #[inline]
     pub fn all() -> FindAllTransactions {
         FindAllTransactions
     }
 
     /// Construct a query to retrieve transactions for account
+    #[must_use]
+    #[inline]
     pub fn by_account_id(
         account_id: impl Into<EvaluatesTo<AccountId>>,
     ) -> FindTransactionsByAccountId {
@@ -1603,6 +1642,8 @@ pub mod transaction {
     }
 
     /// Construct a query to retrieve transaction by hash
+    #[must_use]
+    #[inline]
     pub fn by_hash(
         hash: impl Into<EvaluatesTo<HashOf<VersionedSignedTransaction>>>,
     ) -> FindTransactionByHash {
@@ -1612,10 +1653,12 @@ pub mod transaction {
 
 pub mod trigger {
     //! Module with queries for triggers
-    use super::*;
+    use super::{EvaluatesTo, FindTriggersByDomainId};
 
     /// Construct a query to get triggers by domain id
-    pub fn by_domain_id(domain_id: impl Into<EvaluatesTo<DomainId>>) -> FindTriggersByDomainId {
+    #[must_use]
+    #[inline]
+    pub fn by_domain_id(domain_id: impl Into<EvaluatesTo<super::DomainId>>) -> FindTriggersByDomainId {
         FindTriggersByDomainId::new(domain_id)
     }
 }
@@ -1625,12 +1668,16 @@ pub mod permission {
     use super::*;
 
     /// Construct a query to get all registered [`PermissionTokenDefinition`]s
+    #[must_use]
+    #[inline]
     pub const fn all_definitions() -> FindAllPermissionTokenDefinitions {
-        FindAllPermissionTokenDefinitions {}
+        FindAllPermissionTokenDefinitions
     }
 
     /// Construct a query to get all [`PermissionToken`] granted
     /// to account with given [`Id`][AccountId]
+    #[must_use]
+    #[inline]
     pub fn by_account_id(
         account_id: impl Into<EvaluatesTo<AccountId>>,
     ) -> FindPermissionTokensByAccountId {
@@ -1643,21 +1690,29 @@ pub mod role {
     use super::*;
 
     /// Construct a query to retrieve all roles
+    #[must_use]
+    #[inline]
     pub const fn all() -> FindAllRoles {
         FindAllRoles
     }
 
     /// Construct a query to retrieve all role ids
+    #[must_use]
+    #[inline]
     pub const fn all_ids() -> FindAllRoleIds {
         FindAllRoleIds
     }
 
     /// Construct a query to retrieve a role by its id
+    #[must_use]
+    #[inline]
     pub fn by_id(role_id: impl Into<EvaluatesTo<RoleId>>) -> FindRoleByRoleId {
         FindRoleByRoleId::new(role_id)
     }
 
     /// Construct a query to retrieve all roles for an account
+    #[must_use]
+    #[inline]
     pub fn by_account_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindRolesByAccountId {
         FindRolesByAccountId::new(account_id)
     }
@@ -1665,11 +1720,12 @@ pub mod role {
 
 pub mod parameter {
     //! Module with queries for config parameters
-    use super::*;
 
     /// Construct a query to retrieve all config parameters
-    pub const fn all() -> FindAllParameters {
-        FindAllParameters
+    #[must_use]
+    #[inline]
+    pub const fn all() -> super::FindAllParameters {
+        super::FindAllParameters
     }
 }
 

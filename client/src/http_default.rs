@@ -12,7 +12,7 @@ use attohttpc::{
 use eyre::{eyre, Error, Result, WrapErr};
 use http::header::HeaderName;
 use tungstenite::{stream::MaybeTlsStream, WebSocket};
-pub use tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
+pub(crate) use tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
 use url::Url;
 
 use crate::http::{Method, RequestBuilder, Response};
@@ -25,7 +25,7 @@ fn header_name_from_str(str: &str) -> Result<HeaderName> {
 }
 
 /// Default request builder implemented on top of `attohttpc` crate.
-pub struct DefaultRequestBuilder {
+pub(crate) struct DefaultRequestBuilder {
     inner: Result<AttoHttpRequestBuilder>,
     body: Option<Vec<u8>>,
 }
@@ -43,21 +43,21 @@ impl DefaultRequestBuilder {
     }
 
     /// Build request by consuming self.
-    pub fn build(self) -> Result<DefaultRequest> {
+    pub(crate) fn build(self) -> Result<DefaultRequest> {
         self.inner
             .map(|b| DefaultRequest(b.bytes(self.body.map_or_else(Vec::new, |vec| vec))))
     }
 }
 
 /// Request built by [`DefaultRequestBuilder`].
-pub struct DefaultRequest(AttoHttpRequestBuilderWithBytes);
+pub(crate) struct DefaultRequest(AttoHttpRequestBuilderWithBytes);
 
 impl DefaultRequest {
     /// Sends itself and returns byte response
     ///
     /// # Errors
     /// Fails if request building and sending fails or response transformation fails
-    pub fn send(mut self) -> Result<Response<Bytes>> {
+    pub(crate) fn send(mut self) -> Result<Response<Bytes>> {
         let (method, url) = {
             let inspect = self.0.inspect();
             (inspect.method().clone(), inspect.url().clone())
@@ -146,35 +146,35 @@ impl DefaultWebSocketStreamRequest {
 impl RequestBuilder for DefaultWebSocketRequestBuilder {
     fn new(method: Method, url: Url) -> Self {
         Self(Ok(http::Request::builder()
-            .method(method)
-            .uri(url.as_ref())))
+                .method(method)
+                .uri(url.as_ref())))
     }
 
     fn param<K, V>(self, _key: K, _val: V) -> Self {
         Self(self.0.and(Err(eyre!("No params expected"))))
-    }
+         }
 
-    fn header<N, V>(self, name: N, value: V) -> Self
-    where
-        N: AsRef<str>,
-        V: ToString,
-    {
-        self.and_then(|b| Ok(b.header(header_name_from_str(name.as_ref())?, value.to_string())))
-    }
+         fn header<N, V>(self, name: N, value: V) -> Self
+         where
+             N: AsRef<str>,
+             V: ToString,
+         {
+             self.and_then(|b| Ok(b.header(header_name_from_str(name.as_ref())?, value.to_string())))
+         }
 
-    fn body(self, data: Vec<u8>) -> Self {
-        self.and_then(|b| {
-            if data.is_empty() {
-                Ok(b)
-            } else {
-                Err(eyre!("Empty body expected, got: {:?}", data))
-            }
-        })
-    }
-}
+         fn body(self, data: Vec<u8>) -> Self {
+             self.and_then(|b| {
+                 if data.is_empty() {
+                     Ok(b)
+                 } else {
+                     Err(eyre!("Empty body expected, got: {:?}", data))
+                 }
+             })
+         }
+     }
 
-pub type WebSocketStream = WebSocket<MaybeTlsStream<TcpStream>>;
-pub type AsyncWebSocketStream =
+pub(crate) type WebSocketStream = WebSocket<MaybeTlsStream<TcpStream>>;
+pub(crate) type AsyncWebSocketStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 struct ClientResponse(AttoHttpResponse);
@@ -182,6 +182,7 @@ struct ClientResponse(AttoHttpResponse);
 impl TryFrom<ClientResponse> for Response<Bytes> {
     type Error = Error;
 
+    #[allow(clippy::missing_inline_in_public_items)] // Complex
     fn try_from(response: ClientResponse) -> Result<Self> {
         let ClientResponse(response) = response;
         let mut builder = Response::builder().status(response.status());

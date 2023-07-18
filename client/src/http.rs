@@ -11,6 +11,7 @@ use url::Url;
 ///
 /// The order of builder methods invocation is not strict. There is no guarantee that builder user calls
 /// all methods. Only [`RequestBuilder::new`] is the required one.
+#[allow(clippy::missing_inline_in_public_items)] // Explicit template
 pub trait RequestBuilder {
     /// Create a new builder with specified method and URL. Entrypoint for most client operations.
     #[must_use]
@@ -249,6 +250,7 @@ pub mod ws {
             E: Events,
         {
             /// Construct new item.
+            #[allow(clippy::missing_inline_in_public_items)] // Explicit template
             pub fn new(req: R, first_message: Vec<u8>, next: E) -> Self {
                 Self {
                     req,
@@ -293,6 +295,7 @@ pub mod ws {
     ///
     /// # Errors
     /// Fails if passed URL doesn't have a valid protocol
+    #[inline]
     pub fn transform_ws_url(mut url: Url) -> Result<Url> {
         match url.scheme() {
             "https" => url.set_scheme("wss").expect("Valid substitution"),

@@ -1,4 +1,24 @@
 //! Crate contains iroha client which talks to iroha network via http
+#![deny(
+    clippy::pedantic,
+    clippy::correctness,
+    clippy::style,
+    clippy::suspicious,
+    clippy::perf,
+    clippy::unwrap_used,
+    clippy::todo,
+    clippy::dbg_macro,
+    clippy::unused_peekable,
+    clippy::empty_line_after_outer_attr,
+    clippy::derive_partial_eq_without_eq,
+    missing_docs,
+    variant_size_differences,
+    unused_tuple_struct_fields,
+    explicit_outlives_requirements,
+    non_ascii_idents,
+    unreachable_pub
+)]
+#![allow(clippy::implicit_return, clippy::wildcard_imports)]
 
 /// Module with iroha client itself
 pub mod client;
@@ -15,7 +35,8 @@ pub mod samples {
     use iroha_crypto::KeyPair;
 
     /// Get sample client configuration.
-    #[allow(clippy::expect_used)]
+    #[must_use]
+    #[inline]
     pub fn get_client_config(key_pair: &KeyPair) -> Configuration {
         let (public_key, private_key) = key_pair.clone().into();
         ConfigurationProxy {
@@ -39,6 +60,6 @@ pub mod samples {
             ..ConfigurationProxy::default()
         }
         .build()
-        .expect("Client config should build as all required fields were provided")
+            .expect("Client config should build as all required fields were provided")
     }
 }
