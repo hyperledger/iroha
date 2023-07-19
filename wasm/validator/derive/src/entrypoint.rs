@@ -66,12 +66,8 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     match &fn_item.sig.ident {
         fn_name if fn_name == "validate" => impl_validate_entrypoint(attr, fn_item),
-        fn_name if fn_name == "permission_token_schema" => {
-            impl_permission_token_schema_entrypoint(&attr, fn_item)
-        }
-        _ => panic!(
-            "Validator entrypoint name should be either `validate` or `permission_token_schema`"
-        ),
+        fn_name if fn_name == "migrate" => impl_migrate_entrypoint(&attr, fn_item),
+        _ => panic!("Validator entrypoint name should be either `validate` or `migrate`"),
     }
 }
 
@@ -133,10 +129,7 @@ fn impl_validate_entrypoint(attr: TokenStream, fn_item: syn::ItemFn) -> TokenStr
     .into()
 }
 
-fn impl_permission_token_schema_entrypoint(
-    attr: &TokenStream,
-    fn_item: syn::ItemFn,
-) -> TokenStream {
+fn impl_migrate_entrypoint(attr: &TokenStream, fn_item: syn::ItemFn) -> TokenStream {
     let syn::ItemFn {
         attrs,
         vis,
@@ -147,11 +140,11 @@ fn impl_permission_token_schema_entrypoint(
 
     assert!(
         matches!(sig.output, syn::ReturnType::Type(_, _)),
-        "Validator `permission_token_schema()` entrypoint must have `PermissionTokenSchema` return type"
+        "Validator `permission_tokens()` entrypoint must have `MigrationResult` return type"
     );
     assert!(
         attr.is_empty(),
-        "`#[entrypoint]` macro for Validator `permission_token_schema` entrypoint accepts no attributes"
+        "`#[entrypoint]` macro for Validator `migrate` entrypoint accepts no attributes"
     );
 
     quote! {
@@ -162,11 +155,9 @@ fn impl_permission_token_schema_entrypoint(
         /// This function transfers the ownership of allocated [`Vec`](alloc::vec::Vec).
         #[no_mangle]
         #[doc(hidden)]
-        unsafe extern "C" fn _iroha_validator_permission_token_schema() -> *const u8 {
-            let tokens: ::iroha_validator::PermissionTokenSchema = #fn_name();
-            let bytes = ::iroha_validator::iroha_wasm::encode_with_length_prefix(
-                &tokens.serialize()
-            );
+        unsafe extern "C" fn _iroha_validator_migrate() -> *const u8 {
+            let res: ::iroha_validator::data_model::validator::MigrationResult = #fn_name();
+            let bytes = ::core::mem::ManuallyDrop::new(::iroha_validator::iroha_wasm::encode_with_length_prefix(&res));
 
             ::core::mem::ManuallyDrop::new(bytes).as_ptr()
         }

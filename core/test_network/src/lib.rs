@@ -96,6 +96,10 @@ impl TestGenesis for GenesisNetwork {
             PermissionToken::new("CanUnregisterAnyPeer".parse().unwrap(), &());
         let unregister_any_role_permission =
             PermissionToken::new("CanUnregisterAnyRole".parse().unwrap(), &());
+        let unregister_wonderland_domain = PermissionToken::new(
+            "CanUnregisterDomain".parse().unwrap(),
+            &DomainId::from_str("wonderland").unwrap(),
+        );
         let upgrade_validator_permission =
             PermissionToken::new("CanUpgradeValidator".parse().unwrap(), &());
 
@@ -104,6 +108,7 @@ impl TestGenesis for GenesisNetwork {
             burn_rose_permission,
             unregister_any_peer_permission,
             unregister_any_role_permission,
+            unregister_wonderland_domain,
             upgrade_validator_permission,
         ] {
             genesis.transactions[0]

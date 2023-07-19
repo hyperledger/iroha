@@ -16,7 +16,7 @@ pub trait AttrParser<Inner: syn::parse::Parse> {
             .then(|| attr.parse_args::<Inner>())
             .map_or_else(
                 || {
-                    Err(syn::Error::new_spanned(
+                    Err(syn::parse::Error::new_spanned(
                         attr,
                         format!(
                             "Attribute must be in form #[{}...]",

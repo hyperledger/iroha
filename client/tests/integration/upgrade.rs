@@ -1,11 +1,11 @@
 #![allow(clippy::restriction)]
 
-use std::path::Path;
+use std::{path::Path, str::FromStr as _};
 
 use eyre::Result;
-use iroha_client::client::Client;
+use iroha_client::client::{self, Client};
 use iroha_crypto::KeyPair;
-use iroha_data_model::{prelude::*, query::permission::FindPermissionTokenSchema};
+use iroha_data_model::{prelude::*, query::permission::DoesAccountHavePermissionToken};
 use iroha_logger::info;
 use test_network::*;
 
@@ -54,16 +54,28 @@ fn validator_upgrade_should_work() -> Result<()> {
 }
 
 #[test]
-fn validator_upgrade_should_update_tokens() -> Result<()> {
+fn validator_upgrade_should_run_migration() -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_990).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    let can_unregister_domain_token_id = "CanUnregisterDomain".parse().unwrap();
 
     // Check that `CanUnregisterDomain` exists
     let definitions = client.request(FindPermissionTokenSchema)?;
     assert!(definitions
         .token_ids()
         .iter()
-        .any(|id| id == &"CanUnregisterDomain".parse().unwrap()));
+        .any(|id| id == &can_unregister_domain_token_id));
+
+    // Check that Alice has permission to unregister Wonderland
+    let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    assert!(client.request(DoesAccountHavePermissionToken::new(
+        alice_id.clone(),
+        PermissionToken::new(
+            can_unregister_domain_token_id.clone(),
+            &DomainId::from_str("wonderland").unwrap()
+        ),
+    ))?);
 
     upgrade_validator(
         &client,
@@ -75,14 +87,52 @@ fn validator_upgrade_should_update_tokens() -> Result<()> {
     assert!(!definitions
         .token_ids()
         .iter()
-        .any(|id| id == &"CanUnregisterDomain".parse().unwrap()));
+        .any(|id| id == &can_unregister_domain_token_id));
+
+    let can_control_domain_lives_token_id = "CanControlDomainLives".parse().unwrap();
 
     assert!(definitions
         .token_ids()
         .iter()
-        .any(|id| id == &"CanControlDomainLives".parse().unwrap()));
+        .any(|id| id == &can_control_domain_lives_token_id));
+
+    // Check that Alice has `can_control_domain_lives` permission
+    assert!(client.request(DoesAccountHavePermissionToken::new(
+        alice_id,
+        PermissionToken::new(can_control_domain_lives_token_id, &(),),
+    ))?);
 
     Ok(())
+}
+
+#[test]
+fn migration_fail_should_not_cause_any_effects() {
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_995).start_with_runtime();
+    wait_for_genesis_committed(&vec![client.clone()], 0);
+
+    let assert_domain_does_not_exist = |client: &Client, domain_id: &DomainId| {
+        client
+            .request(client::domain::by_id(domain_id.clone()))
+            .expect_err(&format!("There should be no `{domain_id}` domain"));
+    };
+
+    // Health check. Checking that things registered in migration are not registered in the genesis
+
+    let domain_registered_in_migration: DomainId =
+        "failed_migration_test_domain".parse().expect("Valid");
+    assert_domain_does_not_exist(&client, &domain_registered_in_migration);
+
+    let _err = upgrade_validator(
+        &client,
+        "tests/integration/smartcontracts/validator_with_migration_fail",
+    )
+    .expect_err("Upgrade should fail due to migration failure");
+
+    // Checking that things registered in migration does not exist after failed migration
+    assert_domain_does_not_exist(&client, &domain_registered_in_migration);
+
+    // The fact that query in previous assertion does not fail means that validator haven't
+    // been changed, because `validator_with_migration_fail` does not allow any queries
 }
 
 fn upgrade_validator(client: &Client, validator: impl AsRef<Path>) -> Result<()> {

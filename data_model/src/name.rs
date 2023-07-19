@@ -110,6 +110,14 @@ impl FromStr for Name {
     }
 }
 
+impl TryFrom<String> for Name {
+    type Error = ParseError;
+
+    fn try_from(candidate: String) -> Result<Self, Self::Error> {
+        Self::validate_str(&candidate).map(|_| Self(ConstString::from(candidate)))
+    }
+}
+
 impl<'de> Deserialize<'de> for Name {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where

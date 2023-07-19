@@ -343,10 +343,7 @@ mod subscription {
     /// There should be a [`warp::filters::ws::Message::close()`]
     /// message to end subscription
     #[iroha_futures::telemetry_future]
-    pub(crate) async fn handle_subscription(
-        events: EventsSender,
-        stream: WebSocket,
-    ) -> eyre::Result<()> {
+    pub async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
         let mut consumer = event::Consumer::new(stream).await?;
 
         match subscribe_forever(events, &mut consumer).await {

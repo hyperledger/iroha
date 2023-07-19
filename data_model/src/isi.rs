@@ -901,7 +901,7 @@ pub mod error {
         pub enum InstructionEvaluationError {
             /// Failed to evaluate expression
             Expression(#[cfg_attr(feature = "std", source)] evaluate::EvaluationError),
-            /// Instruction of type `{0}` is not supported
+            /// Unsupported parameter type for instruction of type `{0}`
             Unsupported(InstructionType),
             /// Failed to find parameter in a permission: {0}
             PermissionParameter(String),

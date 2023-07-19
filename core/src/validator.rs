@@ -2,7 +2,8 @@
 
 use derive_more::DebugCustom;
 use iroha_data_model::{
-    account::AccountId, permission::PermissionTokenSchema, validator as data_model_validator,
+    account::AccountId,
+    validator::{self as data_model_validator, MigrationResult},
     ValidationFail,
 };
 #[cfg(test)]
@@ -67,7 +68,7 @@ impl Validator {
     /// # Errors
     ///
     /// - Failed to prepare runtime for WASM execution;
-    /// - Failed to execute WASM blob;
+    /// - Failed to execute the entrypoint of the WASM blob;
     /// - Validator denied the operation.
     pub fn validate(
         &self,
@@ -77,7 +78,7 @@ impl Validator {
     ) -> Result<(), ValidationFail> {
         let operation = operation.into();
 
-        let runtime = wasm::RuntimeBuilder::<wasm::state::Validator>::new()
+        let runtime = wasm::RuntimeBuilder::<wasm::state::validator::Validate>::new()
             .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
             .with_configuration(wsv.config.wasm_runtime_config)
             .build()?;
@@ -91,23 +92,24 @@ impl Validator {
         )?
     }
 
-    /// Get permission token definitions defined in *Validator*.
+    /// Run migration.
     ///
     /// # Errors
     ///
     /// - Failed to prepare runtime for WASM execution;
-    /// - Failed to execute WASM blob.
-    pub fn permission_tokens(
+    /// - Failed to execute entrypoint of the WASM blob.
+    pub fn migrate(
         &self,
-        wsv: &WorldStateView,
-    ) -> Result<PermissionTokenSchema, wasm::error::Error> {
-        let runtime = wasm::RuntimeBuilder::<wasm::state::ValidatorPermissionTokens>::new()
+        wsv: &mut WorldStateView,
+        authority: &AccountId,
+    ) -> Result<MigrationResult, wasm::error::Error> {
+        let runtime = wasm::RuntimeBuilder::<wasm::state::validator::Migrate>::new()
             .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
             .with_configuration(wsv.config.wasm_runtime_config)
             .build()?;
 
         runtime
-            .execute_validator_permission_token_schema(&self.loaded_validator.module)
+            .execute_validator_migration(wsv, authority, &self.loaded_validator.module)
             .map_err(Into::into)
     }
 }
@@ -175,16 +177,17 @@ impl MockValidator {
         }
     }
 
-    /// Mock for retrieving permission token definitions.
+    /// Mock for validator migration.
     ///
     /// # Errors
     ///
     /// Never fails.
-    pub fn permission_tokens(
+    pub fn migrate(
         &self,
-        _wsv: &WorldStateView,
-    ) -> Result<PermissionTokenSchema, wasm::error::Error> {
-        Ok(PermissionTokenSchema::default())
+        _wsv: &mut WorldStateView,
+        _authority: &AccountId,
+    ) -> Result<MigrationResult, wasm::error::Error> {
+        Ok(Ok(()))
     }
 
     fn execute_instruction(

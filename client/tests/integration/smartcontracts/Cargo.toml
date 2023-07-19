@@ -13,6 +13,7 @@ members = [
     "mint_rose",
     "validator_with_admin",
     "validator_with_custom_token",
+    "validator_with_migration_fail",
 ]
 
 [profile.dev]
@@ -32,3 +33,4 @@ iroha_schema = { version = "=2.0.0-pre-rc.16", path = "../../../../schema" }
 
 parity-scale-codec = { version = "3.2.1", default-features = false }
 panic-halt = "0.2.0"
+anyhow = { version = "1.0.71", default-features = false }
