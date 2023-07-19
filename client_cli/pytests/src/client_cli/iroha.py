@@ -97,10 +97,10 @@ class Iroha(ClientCli):
         for obj in self._storage:
             asset_defs = obj.get('asset_definitions', {})
             for asset_def in asset_defs.values():
-                definition = asset_def.get('definition', {})
-                value_type = definition.get('value_type')
-                if value_type:
-                    self._asset_definitions[definition['id']] = value_type
+                asset_id = asset_def.get('id')
+                value_type = asset_def.get('value_type')
+                if asset_id and value_type:
+                    self._asset_definitions[asset_id] = value_type
         return self
 
     def get_domains(self):
