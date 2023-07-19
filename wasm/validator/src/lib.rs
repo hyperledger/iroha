@@ -7,19 +7,22 @@ extern crate alloc;
 #[cfg(feature = "default-validator")]
 extern crate self as iroha_validator;
 
+use alloc::vec::Vec;
+
 #[cfg(feature = "default-validator")]
 pub use default::DefaultValidator;
 pub use iroha_schema::MetaMap;
 use iroha_wasm::data_model::{
-    permission::PermissionTokenId, validator::Result, visit::Visit, ValidationFail,
+    permission::PermissionTokenId,
+    validator::{MigrationResult, Result},
+    visit::Visit,
+    ValidationFail,
 };
 pub use iroha_wasm::{self, data_model};
 
 #[cfg(feature = "default-validator")]
 pub mod default;
 pub mod permission;
-
-use alloc::vec::Vec;
 
 /// Shortcut for `return Ok(())`.
 #[macro_export]
@@ -154,8 +157,18 @@ impl PermissionTokenSchema {
 
 /// Validator of Iroha operations
 pub trait Validate: Visit {
-    /// Get all [`PermissionTokenDefinition`]'s defined by validator.
-    fn permission_token_schema() -> PermissionTokenSchema;
+    /// Migrate previous validator to the current version.
+    ///
+    /// This function should be called by `migrate` entrypoint,
+    /// which will be called by Iroha only once just before upgrading validator.
+    ///
+    /// # Errors
+    ///
+    /// Concrete errors are specific to the implementation.
+    ///
+    /// If `migrate()` entrypoint fails then the whole `Upgrade` instruction
+    /// will be denied and previous validator will stay unchanged.
+    fn migrate() -> MigrationResult;
 
     /// Validator verdict.
     fn verdict(&self) -> &Result;
@@ -171,7 +184,12 @@ pub mod prelude {
 
     pub use iroha_validator_derive::{entrypoint, Token, ValidateGrantRevoke};
     pub use iroha_wasm::{
-        data_model::{prelude::*, validator::Result, visit::Visit, ValidationFail},
+        data_model::{
+            prelude::*,
+            validator::{MigrationError, MigrationResult, Result},
+            visit::Visit,
+            ValidationFail,
+        },
         prelude::*,
         Context,
     };

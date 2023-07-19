@@ -78,6 +78,11 @@ pub mod model {
 
 // TODO: Use getset to derive this
 impl PermissionTokenSchema {
+    /// Construct new [`PermissionTokenSchema`]
+    pub fn new(token_ids: Vec<PermissionTokenId>, schema: String) -> Self {
+        Self { token_ids, schema }
+    }
+
     /// Return id of this token
     pub fn token_ids(&self) -> &[PermissionTokenId] {
         &self.token_ids

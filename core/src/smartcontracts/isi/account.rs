@@ -530,7 +530,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<Account, Error> {
             let id = wsv
                 .evaluate(&self.id)
-                .wrap_err("Failed to get id")
+                .wrap_err("Failed to evaluate id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id);
             wsv.map_account(&id, Clone::clone).map_err(Into::into)
@@ -545,7 +545,7 @@ pub mod query {
         ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
             let name = wsv
                 .evaluate(&self.name)
-                .wrap_err("Failed to get account name")
+                .wrap_err("Failed to evaluate account name")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%name);
             Ok(Box::new(
@@ -572,7 +572,7 @@ pub mod query {
         ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
             let id = wsv
                 .evaluate(&self.domain_id)
-                .wrap_err("Failed to get domain id")
+                .wrap_err("Failed to evaluate domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
 
             iroha_logger::trace!(%id);
@@ -585,11 +585,11 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
             let id = wsv
                 .evaluate(&self.id)
-                .wrap_err("Failed to get account id")
+                .wrap_err("Failed to evaluate account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let key = wsv
                 .evaluate(&self.key)
-                .wrap_err("Failed to get key")
+                .wrap_err("Failed to evaluate key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%id, %key);
             wsv.map_account(&id, |account| account.metadata.get(&key).map(Clone::clone))?
@@ -606,7 +606,7 @@ pub mod query {
         ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
             let asset_definition_id = wsv
                 .evaluate(&self.asset_definition_id)
-                .wrap_err("Failed to get asset id")
+                .wrap_err("Failed to evaluate asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%asset_definition_id);
 

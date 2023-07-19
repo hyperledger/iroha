@@ -1,16 +1,20 @@
-//! Runtime Validator which allows any instruction executed by `admin@admin` account.
-//! If authority is not `admin@admin` then [`DefaultValidator`] is used as a backup.
+//! Runtime Validator which copies [`DefaultValidator`] logic but forbids any queries and fails to migrate.
 
 #![no_std]
 
+#[cfg(not(test))]
+extern crate panic_halt;
+
+extern crate alloc;
+
+use alloc::{borrow::ToOwned as _, format};
+
+use anyhow::anyhow;
 use iroha_validator::{
     data_model::evaluate::{EvaluationError, ExpressionEvaluator},
     parse,
     prelude::*,
 };
-
-#[cfg(not(test))]
-extern crate panic_halt;
 
 struct CustomValidator(DefaultValidator);
 
@@ -23,15 +27,14 @@ macro_rules! delegate {
 }
 
 impl Visit for CustomValidator {
-    fn visit_instruction(&mut self, authority: &AccountId, isi: &InstructionBox) {
-        if parse!("admin@admin" as AccountId) != *authority {
-            self.0.visit_instruction(authority, isi);
-        }
+    fn visit_query(&mut self, _authority: &AccountId, _query: &QueryBox) {
+        deny!(self, "All queries are forbidden")
     }
 
     delegate! {
         visit_expression<V>(&EvaluatesTo<V>),
 
+        visit_instruction(&InstructionBox),
         visit_sequence(&SequenceBox),
         visit_if(&Conditional),
         visit_pair(&Pair),
@@ -93,7 +96,20 @@ impl Visit for CustomValidator {
 impl Validate for CustomValidator {
     /// Migration should be applied on blockchain with [`DefaultValidator`]
     fn migrate() -> MigrationResult {
-        Ok(())
+        // Performing side-effects to check in the test that it won't be applied after failure
+
+        // Registering a new domain (using ISI)
+        let domain_id = parse!("failed_migration_test_domain" as DomainId);
+        RegisterBox::new(Domain::new(domain_id))
+            .execute()
+            .map_err(|error| {
+                format!(
+                    "{:?}",
+                    anyhow!(error).context("Failed to register test domain")
+                )
+            })?;
+
+        Err("This validator always fails to migrate".to_owned())
     }
 
     fn verdict(&self) -> &Result {
@@ -120,8 +136,7 @@ pub fn migrate() -> MigrationResult {
     CustomValidator::migrate()
 }
 
-/// Allow operation if authority is `admin@admin` and if not,
-/// fallback to [`DefaultValidator::validate()`].
+/// Validation entrypoint.
 #[entrypoint(params = "[authority, operation]")]
 pub fn validate(authority: AccountId, operation: NeedsValidationBox) -> Result {
     let mut validator = CustomValidator(DefaultValidator::new());

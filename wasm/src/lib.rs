@@ -188,7 +188,8 @@ pub fn query_triggering_event() -> Event {
 ///
 /// # Traps
 ///
-/// Host side will generate a trap if this function was not called from a validator.
+/// Host side will generate a trap if this function was not called from a
+/// validator's `validate()` entrypoint.
 pub fn query_operation_to_validate() -> NeedsValidationBox {
     #[cfg(not(test))]
     use host::query_operation_to_validate as host_query_operation_to_validate;
@@ -197,6 +198,22 @@ pub fn query_operation_to_validate() -> NeedsValidationBox {
 
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
     unsafe { decode_with_length_prefix_from_raw(host_query_operation_to_validate()) }
+}
+
+/// Set new [`PermissionTokenSchema`].
+///
+/// # Errors
+///
+/// - If execution on Iroha side failed
+///
+/// # Traps
+///
+/// Host side will generate a trap if this function was not called from a
+/// validator's `migrate()` entrypoint.
+#[cfg(not(test))]
+pub fn set_permission_token_schema(schema: &data_model::permission::PermissionTokenSchema) {
+    // Safety: - ownership of the returned result is transferred into `_decode_from_raw`
+    unsafe { encode_and_execute(&schema, host::set_permission_token_schema) }
 }
 
 #[cfg(not(test))]
@@ -241,6 +258,9 @@ mod host {
         ///
         /// This function does transfer ownership of the result to the caller
         pub(super) fn query_operation_to_validate() -> *const u8;
+
+        /// Set new [`PermissionTokenSchema`].
+        pub(super) fn set_permission_token_schema(ptr: *const u8, len: usize);
     }
 }
 

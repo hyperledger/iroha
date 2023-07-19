@@ -555,6 +555,7 @@ pub mod parameter {
 }
 
 #[model]
+#[allow(irrefutable_let_patterns)] // Triggered from derives macros
 pub mod model {
     use super::*;
 

@@ -993,6 +993,19 @@ impl WorldStateView {
         self.events_buffer
             .extend(data_events.into_iter().map(Into::into));
     }
+
+    /// Set new permission token schema.
+    ///
+    /// Produces [`PermissionTokenSchemaUpdateEvent`].
+    pub fn set_permission_token_schema(&mut self, schema: PermissionTokenSchema) {
+        let old_schema = std::mem::replace(&mut self.world.permission_token_schema, schema.clone());
+        self.emit_events(std::iter::once(WorldEvent::PermissionTokenSchemaUpdate(
+            PermissionTokenSchemaUpdateEvent {
+                old_schema,
+                new_schema: schema,
+            },
+        )))
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 [package]
-name = "validator_with_custom_token"
+name = "validator_with_migration_fail"
 
 edition.workspace = true
 version.workspace = true
@@ -12,8 +12,5 @@ crate-type = ['cdylib']
 
 [dependencies]
 iroha_validator.workspace = true
-iroha_schema.workspace = true
-
-parity-scale-codec.workspace = true
 panic-halt.workspace = true
 anyhow.workspace = true

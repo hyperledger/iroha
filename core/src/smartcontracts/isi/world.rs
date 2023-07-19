@@ -17,12 +17,9 @@ impl Registrable for NewRole {
 
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
-    use std::collections::HashSet;
-
     use eyre::Result;
     use iroha_data_model::{
         isi::error::{InvalidParameterError, RepetitionError},
-        permission::PermissionTokenId,
         prelude::*,
         query::error::FindError,
     };
@@ -178,122 +175,6 @@ pub mod isi {
         }
     }
 
-    fn register_permission_token_definition(
-        token_id: PermissionTokenId,
-        wsv: &mut WorldStateView,
-    ) -> Result<(), RepetitionError> {
-        let permission_token_ids = &mut wsv.world_mut().permission_token_schema.token_ids;
-
-        // Keep permission tokens sorted
-        if let Err(pos) = permission_token_ids.binary_search(&token_id) {
-            permission_token_ids.insert(pos, token_id);
-        } else {
-            return Err(RepetitionError {
-                instruction_type: InstructionType::Register,
-                id: IdBox::PermissionTokenId(token_id),
-            });
-        }
-
-        Ok(())
-    }
-
-    fn unregister_permission_token_definition(
-        token_id: &PermissionTokenId,
-        wsv: &mut WorldStateView,
-    ) -> Result<(), Error> {
-        remove_token_from_roles(token_id, wsv)?;
-        remove_token_from_accounts(token_id, wsv)?;
-
-        let permission_token_ids = &mut wsv.world_mut().permission_token_schema.token_ids;
-
-        if let Ok(pos) = permission_token_ids.binary_search(token_id) {
-            permission_token_ids.remove(pos);
-        } else {
-            return Err(FindError::PermissionToken(token_id.clone()).into());
-        }
-
-        Ok(())
-    }
-
-    /// Remove all tokens with specified definition id from all registered roles
-    fn remove_token_from_roles(
-        token_id: &PermissionTokenId,
-        wsv: &mut WorldStateView,
-    ) -> Result<(), Error> {
-        let mut roles_containing_token = Vec::new();
-
-        for (role_id, role) in wsv.roles().iter() {
-            if role
-                .permissions
-                .iter()
-                .any(|token| token.definition_id == *token_id)
-            {
-                roles_containing_token.push(role_id.clone())
-            }
-        }
-
-        let mut events = Vec::with_capacity(roles_containing_token.len());
-        let world = wsv.world_mut();
-        for role_id in roles_containing_token {
-            if let Some(role) = world.roles.get_mut(&role_id) {
-                role.permissions
-                    .retain(|token| token.definition_id != *token_id);
-                events.push(RoleEvent::PermissionRemoved(PermissionRemoved {
-                    role_id: role_id.clone(),
-                    permission_token_id: token_id.clone(),
-                }));
-            } else {
-                error!(%role_id, "role not found. This is a bug");
-                return Err(FindError::Role(role_id.clone()).into());
-            }
-        }
-
-        wsv.emit_events(events);
-
-        Ok(())
-    }
-
-    /// Remove all tokens with specified definition id from all accounts in all domains
-    fn remove_token_from_accounts(
-        token_id: &PermissionTokenId,
-        wsv: &mut WorldStateView,
-    ) -> Result<(), Error> {
-        let mut accounts_with_token = std::collections::HashMap::new();
-
-        let account_ids = wsv
-            .domains()
-            .values()
-            .flat_map(|domain| domain.accounts.values())
-            .map(|account| &account.id);
-
-        for account_id in account_ids {
-            accounts_with_token.insert(
-                account_id.clone(),
-                wsv.account_inherent_permission_tokens(account_id)
-                    .filter(|token| token.definition_id == *token_id)
-                    .cloned()
-                    .collect::<Vec<_>>(),
-            );
-        }
-
-        let mut events = Vec::new();
-        for (account_id, tokens) in accounts_with_token {
-            for token in tokens {
-                if !wsv.remove_account_permission(&account_id, &token) {
-                    error!(%token, "token not found. This is a bug");
-                    return Err(FindError::PermissionToken(token.definition_id.clone()).into());
-                }
-                events.push(AccountEvent::PermissionRemoved(AccountPermissionChanged {
-                    account_id: account_id.clone(),
-                    permission_id: token.definition_id,
-                }));
-            }
-        }
-        wsv.emit_events(events);
-
-        Ok(())
-    }
-
     impl Execute for SetParameter {
         #[metrics(+"set_parameter")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
@@ -336,7 +217,7 @@ pub mod isi {
 
     impl Execute for Upgrade<Validator> {
         #[metrics(+"upgrade_validator")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             #[cfg(test)]
             use crate::validator::MockValidator as Validator;
             #[cfg(not(test))]
@@ -345,55 +226,26 @@ pub mod isi {
             let raw_validator = self.object;
             let engine = wsv.engine.clone(); // Cloning engine is cheap
 
-            let (new_validator, new_token_schema) =
-                || -> Result<_, crate::smartcontracts::wasm::error::Error> {
-                    {
-                        let new_validator = Validator::new(raw_validator, &engine)?;
-                        let new_token_schema = new_validator.permission_tokens(wsv)?;
-                        Ok((new_validator, new_token_schema))
-                    }
-                }()
+            let new_validator = Validator::new(raw_validator, &engine)
+                .and_then(|new_validator| {
+                    new_validator
+                        .migrate(wsv, authority)
+                        .map(|migration_result| migration_result.map(|_: ()| new_validator))
+                })
                 .map_err(|error| {
                     InvalidParameterError::Wasm(format!("{:?}", eyre::Report::from(error)))
+                })?
+                .map_err(|migration_error| {
+                    InvalidParameterError::Wasm(format!(
+                        "{:?}",
+                        eyre::eyre!(migration_error).wrap_err("Migration failed"),
+                    ))
                 })?;
 
             let world = wsv.world_mut();
             let _ = world.upgraded_validator.insert(new_validator);
 
-            {
-                let mut tokens = HashSet::new();
-
-                for token_id in &new_token_schema.token_ids {
-                    if !tokens.insert(token_id.clone()) {
-                        return Err(InvalidParameterError::Wasm(format!(
-                            "Retrieved permission tokens definitions contain duplicate: `{token_id}`",
-                        ))
-                        .into());
-                    }
-                }
-            }
-
-            let old_token_schema = wsv.permission_token_schema().clone();
-            for token_id in &old_token_schema.token_ids {
-                if !new_token_schema.token_ids.contains(token_id) {
-                    unregister_permission_token_definition(token_id, wsv)?;
-                }
-
-                wsv.world_mut().permission_token_schema.schema = new_token_schema.schema.clone();
-            }
-            for token_id in &new_token_schema.token_ids {
-                wsv.world_mut().permission_token_schema.schema = new_token_schema.schema.clone();
-
-                if !old_token_schema.token_ids.contains(token_id) {
-                    register_permission_token_definition(token_id.clone(), wsv)?;
-                }
-            }
-            wsv.emit_events(Some(PermissionTokenSchemaUpdateEvent {
-                old_schema: old_token_schema,
-                new_schema: new_token_schema,
-            }));
-
-            wsv.emit_events(Some(ValidatorEvent::Upgraded));
+            wsv.emit_events(std::iter::once(ValidatorEvent::Upgraded));
 
             Ok(())
         }

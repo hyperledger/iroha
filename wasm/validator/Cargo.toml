@@ -11,12 +11,13 @@ default = ["default-validator"]
 # Enables debugging tools such as `dbg()` and `DebugUnwrapExt`
 debug = ["iroha_wasm/debug"]
 # Enables predefined default validator
-default-validator = []
+default-validator = ["dep:anyhow"]
 
 [dependencies]
 iroha_wasm = { version = "2.0.0-pre-rc.16", path = ".." }
 iroha_schema = { path = "../../schema", version = "=2.0.0-pre-rc.16" }
 iroha_validator_derive = { version = "2.0.0-pre-rc.16", path = "derive" }
+anyhow = {version = "1.0.71", default-features = false, optional = true}
 
 parity-scale-codec = { version = "3.1.5", default-features = false }
 serde_json = { version = "1.0.91", default-features = false }
