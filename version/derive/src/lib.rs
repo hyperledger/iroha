@@ -3,18 +3,15 @@
 
 use std::ops::Range;
 
-use proc_macro::TokenStream;
-use proc_macro2::{Span, TokenStream as TokenStream2};
-use proc_macro_error::{abort, abort_call_site, proc_macro_error, OptionExt, ResultExt};
+use manyhow::{bail, error_message, manyhow, Result};
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
-use rustc_hash::FxHashMap;
-use syn::{
+use syn2::{
     parse::{Parse, ParseStream},
-    parse_macro_input,
+    parse_quote,
     punctuated::Punctuated,
-    spanned::Spanned,
-    AttributeArgs, Error as SynError, Ident, ItemEnum, ItemStruct, Lit, LitInt, Meta, NestedMeta,
-    Path, Result as SynResult, Token,
+    Data, DeriveInput, Error as SynError, Expr, Ident, Lit, LitInt, Meta, Path,
+    Result as SynResult, Token,
 };
 
 const VERSION_NUMBER_ARG_NAME: &str = "n";
@@ -32,27 +29,24 @@ const CONTENT_FIELD_NAME: &str = "content";
 ///
 /// ### Examples
 /// See [`declare_versioned`](`declare_versioned()`).
-#[proc_macro_error]
+#[manyhow]
 #[proc_macro_attribute]
-pub fn version(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(attr as AttributeArgs);
-    impl_version(args, item).into()
+pub fn version(args: TokenStream, item: TokenStream) -> Result<TokenStream> {
+    impl_version(args, &item)
 }
 
 /// See [`version()`] for more information.
-#[proc_macro_error]
+#[manyhow]
 #[proc_macro_attribute]
-pub fn version_with_scale(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(attr as AttributeArgs);
-    impl_version(args, item).into()
+pub fn version_with_scale(args: TokenStream, item: TokenStream) -> Result<TokenStream> {
+    impl_version(args, &item)
 }
 
 /// See [`version()`] for more information.
-#[proc_macro_error]
+#[manyhow]
 #[proc_macro_attribute]
-pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(attr as AttributeArgs);
-    impl_version(args, item).into()
+pub fn version_with_json(args: TokenStream, item: TokenStream) -> Result<TokenStream> {
+    impl_version(args, &item)
 }
 
 /// Used to generate a versioned container with the given name and given range of supported versions.
@@ -91,107 +85,193 @@ pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///    _ => Err("Unsupported version.".to_string()),
 /// }.unwrap();
 /// ```
+#[manyhow]
 #[proc_macro]
-pub fn declare_versioned(input: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(input as DeclareVersionedArgs);
-    impl_declare_versioned(&args, true, true).into()
+pub fn declare_versioned(input: TokenStream) -> Result<TokenStream> {
+    let args = syn2::parse2(input)?;
+    Ok(impl_declare_versioned(&args, true, true))
 }
 
 /// See [`declare_versioned`](`declare_versioned()`) for more information.
+#[manyhow]
 #[proc_macro]
-pub fn declare_versioned_with_scale(input: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(input as DeclareVersionedArgs);
-    impl_declare_versioned(&args, true, false).into()
+pub fn declare_versioned_with_scale(input: TokenStream) -> Result<TokenStream> {
+    let args = syn2::parse2(input)?;
+    Ok(impl_declare_versioned(&args, true, false))
 }
 
 /// See [`declare_versioned`](`declare_versioned()`) for more information.
+#[manyhow]
 #[proc_macro]
-pub fn declare_versioned_with_json(input: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(input as DeclareVersionedArgs);
-    impl_declare_versioned(&args, false, true).into()
+pub fn declare_versioned_with_json(input: TokenStream) -> Result<TokenStream> {
+    let args = syn2::parse2(input)?;
+    Ok(impl_declare_versioned(&args, false, true))
 }
 
-fn impl_version(args: Vec<NestedMeta>, item: TokenStream) -> TokenStream2 {
-    let (item, struct_name, generics) =
-        if let Ok(item_struct) = syn::parse::<ItemStruct>(item.clone()) {
-            (
-                quote!(#item_struct),
-                item_struct.ident,
-                item_struct.generics,
-            )
-        } else if let Ok(item_enum) = syn::parse::<ItemEnum>(item) {
-            (quote!(#item_enum), item_enum.ident, item_enum.generics)
+// NOTE: this type is temporary and will be replaced with `manyhow::Emitter` when it's exposed
+// see https://github.com/ModProg/manyhow/issues/2#issuecomment-1643604170
+struct Accumulator(Vec<manyhow::Error>);
+impl Accumulator {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Emits an error
+    pub fn emit(&mut self, error: impl manyhow::ToTokensError + 'static) {
+        self.0.push(manyhow::Error::from(error));
+    }
+
+    /// Checks if any errors were emitted
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Errors if not [`Self::is_empty`]
+    pub fn into_result(self) -> Result<()> {
+        if self.is_empty() {
+            Ok(())
         } else {
-            abort_call_site!("The attribute should be attached to either struct or enum.");
-        };
-    let args_map: FxHashMap<_, _> = args
-        .into_iter()
-        .filter_map(|meta| {
-            if let NestedMeta::Meta(Meta::NameValue(name_value)) = meta {
-                Some((
-                    name_value
-                        .path
-                        .get_ident()
-                        .expect_or_abort("Expected single identifier for attribute argument key.")
-                        .to_string(),
-                    name_value.lit,
-                ))
-            } else {
-                None
-            }
-        })
-        .collect();
+            let mut error = manyhow::Error::from(manyhow::SilentError);
 
-    for name in args_map.keys() {
-        if ![VERSION_NUMBER_ARG_NAME, VERSIONED_STRUCT_ARG_NAME].contains(&name.as_str()) {
-            abort!(name.span(), "Unknown field");
+            for e in self.0 {
+                error.push(e);
+            }
+
+            Err(error)
         }
     }
-    let version_number = args_map
-        .get(VERSION_NUMBER_ARG_NAME)
-        .expect_or_abort(&format!(
-            "No version number argument with name {VERSION_NUMBER_ARG_NAME} found.",
-        ));
-    #[allow(clippy::str_to_string)]
-    let version_number: u32 = if let Lit::Int(number) = version_number {
-        number
-            .base10_parse()
-            .expect_or_abort("Failed to parse version number integer literal.")
-    } else {
-        abort!(
-            version_number.span(),
-            "Version number argument should have an integer value."
-        )
+}
+
+struct VersionArgs {
+    version_number: u32,
+    // suggestion: change macro API to accept an `Ident` directly (idents as string literals are meh)
+    versioned_struct_name: String,
+}
+
+impl VersionArgs {
+    fn parse_from_args(args: TokenStream) -> Result<Self> {
+        struct RawArgs(Punctuated<Meta, Token![,]>);
+        impl Parse for RawArgs {
+            fn parse(input: ParseStream) -> syn2::Result<Self> {
+                Ok(Self(Punctuated::parse_terminated(input)?))
+            }
+        }
+
+        let RawArgs(args) = syn2::parse2(args)?;
+        let mut accum = Accumulator::new();
+
+        let mut version_number = None;
+        let mut versioned_struct_name = None;
+        for arg in &args {
+            let Meta::NameValue(arg) = arg else {
+                // uhh, this is kinda ugly
+                // see https://github.com/ModProg/manyhow/issues/6
+                accum.emit(error_message!(
+                    arg,
+                    "Expected an argument of form `#[...(name = value)]`"
+                ));
+                continue;
+            };
+
+            // ideally, these two should be done in "parallel": one check does not depend on another
+            // this is, actually, pretty often needed when writing proc macros...
+            let Some(name) = arg.path.get_ident() else {
+                accum.emit(error_message!(
+                    &arg.path,
+                    "Expected single identifier for attribute argument key."
+                ));
+                continue;
+            };
+            let Expr::Lit(syn2::ExprLit { lit: value, .. }) = &arg.value else {
+                accum.emit(error_message!(
+                    &arg.value,
+                    "Expected a literal for attribute argument value."
+                ));
+                continue;
+            };
+
+            match name.to_string().as_str() {
+                VERSION_NUMBER_ARG_NAME => {
+                    let Lit::Int(int) = value else {
+                        accum.emit(error_message!(
+                            value,
+                            "Expected an integer literal for version number."
+                        ));
+                        continue;
+                    };
+                    version_number = Some(int.base10_parse()?);
+                }
+                VERSIONED_STRUCT_ARG_NAME => {
+                    let Lit::Str(str) = value else {
+                        accum.emit(error_message!(
+                            value,
+                            "Expected a string literal for versioned struct name."
+                        ));
+                        continue;
+                    };
+                    versioned_struct_name = Some(str.value());
+                }
+                _ => {
+                    accum.emit(error_message!(name, "Unknown argument `{}`", name));
+                    continue;
+                }
+            }
+        }
+
+        if version_number.is_none() {
+            accum.emit(error_message!(
+                &args,
+                "Missing argument `{}`",
+                VERSION_NUMBER_ARG_NAME
+            ));
+        }
+        if versioned_struct_name.is_none() {
+            accum.emit(error_message!(
+                &args,
+                "Missing argument `{}`",
+                VERSIONED_STRUCT_ARG_NAME
+            ));
+        }
+
+        accum.into_result()?;
+
+        Ok(Self {
+            version_number: version_number.unwrap(),
+            versioned_struct_name: versioned_struct_name.unwrap(),
+        })
+    }
+}
+
+fn impl_version(args: TokenStream, item: &TokenStream) -> Result<TokenStream> {
+    let VersionArgs {
+        version_number,
+        versioned_struct_name,
+    } = VersionArgs::parse_from_args(args)?;
+    let (struct_name, generics) = {
+        let item = syn2::parse2::<DeriveInput>(item.clone())?;
+        match &item.data {
+            Data::Struct(_) | Data::Enum(_) => {}
+            _ => bail!("The attribute should be attached to either struct or enum."),
+        }
+        (item.ident.clone(), item.generics)
     };
-    let versioned_struct_name = args_map
-        .get(VERSIONED_STRUCT_ARG_NAME)
-        .expect_or_abort(&format!(
-            "No versioned struct name argument with name {VERSION_NUMBER_ARG_NAME} found.",
-        ));
-    #[allow(clippy::str_to_string)]
-    let versioned_struct_name = if let Lit::Str(name) = versioned_struct_name {
-        name.value()
-    } else {
-        abort!(
-            version_number.span(),
-            "Versioned struct name argument should have a string value."
-        )
-    };
+
     let alias_type_name = format_ident!("_{}V{}", versioned_struct_name, version_number);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-    quote!(
+    Ok(quote!(
         /// Autogenerated alias type to link versioned item to its container.
         #[allow(clippy::redundant_pub_crate)]
         pub(crate) type #alias_type_name #impl_generics = #struct_name #ty_generics #where_clause;
 
         #item
-    )
+    ))
 }
 
 struct DeclareVersionedArgs {
     pub enum_name: Ident,
-    pub generics: syn::Generics,
+    pub generics: syn2::Generics,
     pub range: Range<u8>,
     pub _comma: Option<Token![,]>,
     pub derive: Punctuated<Path, Token![,]>,
@@ -220,7 +300,7 @@ impl DeclareVersionedArgs {
 impl Parse for DeclareVersionedArgs {
     fn parse(input: ParseStream) -> SynResult<Self> {
         let enum_name: Ident = input.parse()?;
-        let generics: syn::Generics = input.parse()?;
+        let generics: syn2::Generics = input.parse()?;
         let start_version: LitInt = input.parse()?;
         let start_version: u8 = start_version.base10_parse()?;
         let _: Token![..] = input.parse::<Token![..]>()?;
@@ -242,21 +322,21 @@ impl Parse for DeclareVersionedArgs {
     }
 }
 
-fn impl_decode_versioned(enum_name: &Ident, generics: &syn::Generics) -> proc_macro2::TokenStream {
+fn impl_decode_versioned(enum_name: &Ident, generics: &syn2::Generics) -> proc_macro2::TokenStream {
     let mut decode_where_clause = generics
         .where_clause
         .clone()
-        .unwrap_or_else(|| syn::parse_quote!(where));
+        .unwrap_or_else(|| parse_quote!(where));
     decode_where_clause
         .predicates
-        .push(syn::parse_quote!(Self: parity_scale_codec::DecodeAll));
+        .push(parse_quote!(Self: parity_scale_codec::DecodeAll));
     let mut encode_where_clause = generics
         .where_clause
         .clone()
-        .unwrap_or_else(|| syn::parse_quote!(where));
+        .unwrap_or_else(|| parse_quote!(where));
     encode_where_clause
         .predicates
-        .push(syn::parse_quote!(Self: parity_scale_codec::Encode));
+        .push(parse_quote!(Self: parity_scale_codec::Encode));
     let (impl_generics, ty_generics, _) = generics.split_for_impl();
 
     quote! (
@@ -293,7 +373,7 @@ fn impl_decode_versioned(enum_name: &Ident, generics: &syn::Generics) -> proc_ma
 
 fn impl_json(
     enum_name: &Ident,
-    generics: &syn::Generics,
+    generics: &syn2::Generics,
     version_field_name: &str,
 ) -> proc_macro2::TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -336,7 +416,7 @@ fn impl_declare_versioned(
     args: &DeclareVersionedArgs,
     with_scale: bool,
     with_json: bool,
-) -> TokenStream2 {
+) -> TokenStream {
     let version_idents = args.version_idents();
     let version_struct_idents = args.version_struct_idents();
     let version_numbers = args.version_numbers();
