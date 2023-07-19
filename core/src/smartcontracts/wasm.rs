@@ -5,6 +5,10 @@
 
 use error::*;
 use eyre::eyre;
+use import::{
+    ExecuteOperations as _, QueryAuthority as _, QueryOperationToValidate as _,
+    SetPermissionTokenSchema as _,
+};
 use iroha_config::{
     base::proxy::Builder,
     wasm::{Configuration, ConfigurationProxy},
@@ -13,7 +17,7 @@ use iroha_data_model::{
     account::AccountId,
     permission::PermissionTokenSchema,
     prelude::*,
-    validator::{self, NeedsValidationBox},
+    validator::{self, MigrationResult, NeedsValidationBox},
     ValidationFail,
 };
 use iroha_logger::debug;
@@ -31,7 +35,7 @@ use crate::{
     wsv::WorldStateView,
 };
 
-pub mod export {
+mod export {
     //! Module functions names exported from wasm to iroha
 
     /// Exported function to allocate memory
@@ -44,13 +48,14 @@ pub mod export {
     pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
     /// Name of the exported entry for validator to validate operation
     pub const VALIDATOR_VALIDATE_FN_NAME: &str = "_iroha_validator_validate";
-    /// Name of the exported entry for validator to retrieve [`PermissionTokenSchema`]s
-    pub const VALIDATOR_PERMISSION_TOKEN_SCHEMA_FN_NAME: &str =
-        "_iroha_validator_permission_token_schema";
+    /// Name of the exported entry for validator to perform migration
+    pub const VALIDATOR_MIGRATE_FN_NAME: &str = "_iroha_validator_migrate";
 }
 
-pub mod import {
-    //! Module functions names imported from iroha to wasm
+mod import {
+    //! Module functions names imported from iroha to wasm and related traits
+
+    use super::*;
 
     /// Name of the linked wasm module
     pub const MODULE_NAME: &str = "iroha";
@@ -68,6 +73,36 @@ pub mod import {
     pub const DBG_FN_NAME: &str = "dbg";
     /// Name of the imported function to log objects
     pub const LOG_FN_NAME: &str = "log";
+    /// Name of the imported function to set new [`PermissionTokenSchema`]
+    pub const SET_PERMISSION_TOKEN_SCHEMA_FN_NAME: &str = "set_permission_token_schema";
+
+    pub trait ExecuteOperations<S> {
+        /// Execute `query` on host
+        #[codec::wrap_trait_fn]
+        fn execute_query(query: QueryBox, state: &mut S) -> Result<Value, ValidationFail>;
+
+        /// Execute `instruction` on host
+        #[codec::wrap_trait_fn]
+        fn execute_instruction(
+            instruction: InstructionBox,
+            state: &mut S,
+        ) -> Result<(), ValidationFail>;
+    }
+
+    pub trait QueryAuthority<S> {
+        #[codec::wrap_trait_fn]
+        fn query_authority(state: &S) -> AccountId;
+    }
+
+    pub trait QueryOperationToValidate<S> {
+        #[codec::wrap_trait_fn]
+        fn query_operation_to_validate(state: &S) -> NeedsValidationBox;
+    }
+
+    pub trait SetPermissionTokenSchema<S> {
+        #[codec::wrap_trait_fn]
+        fn set_permission_token_schema(schema: PermissionTokenSchema, state: &mut S);
+    }
 }
 
 pub mod error {
@@ -419,56 +454,74 @@ pub mod state {
         }
     }
 
-    /// Validator execution state
-    pub struct Validator<'wrld> {
-        pub(super) common: Common<'wrld>,
-        pub(super) operation_to_validate: NeedsValidationBox,
-    }
+    pub mod validator {
+        //! States related to *Validator* execution.
 
-    impl<'wrld> GetCommon<'wrld> for Validator<'wrld> {
-        fn common(&self) -> &Common<'wrld> {
-            &self.common
+        use super::*;
+
+        /// State for executing `validate()` entrypoint of validator
+        pub struct Validate<'wrld> {
+            pub(in super::super) common: Common<'wrld>,
+            pub(in super::super) operation_to_validate: NeedsValidationBox,
         }
 
-        fn common_mut(&mut self) -> &mut Common<'wrld> {
-            &mut self.common
+        impl<'wrld> GetCommon<'wrld> for Validate<'wrld> {
+            fn common(&self) -> &Common<'wrld> {
+                &self.common
+            }
+
+            fn common_mut(&mut self) -> &mut Common<'wrld> {
+                &mut self.common
+            }
         }
-    }
 
-    impl LogSpan for Validator<'_> {
-        fn log_span(&self) -> &Span {
-            &self.common.log_span
+        impl LogSpan for Validate<'_> {
+            fn log_span(&self) -> &Span {
+                &self.common.log_span
+            }
         }
-    }
 
-    impl LimitsMut for Validator<'_> {
-        fn limits_mut(&mut self) -> &mut StoreLimits {
-            &mut self.common.store_limits
+        impl LimitsMut for Validate<'_> {
+            fn limits_mut(&mut self) -> &mut StoreLimits {
+                &mut self.common.store_limits
+            }
         }
-    }
 
-    impl Authority for Validator<'_> {
-        fn authority(&self) -> &AccountId {
-            &self.common.authority
+        impl Authority for Validate<'_> {
+            fn authority(&self) -> &AccountId {
+                &self.common.authority
+            }
         }
-    }
 
-    /// State for executing `permission_tokens()` entrypoint of validator
-    pub struct ValidatorPermissionTokens {
-        /// Span inside of which all logs are recorded for this smart contract
-        pub(super) log_span: Span,
-        pub(super) store_limits: StoreLimits,
-    }
+        /// State for executing `migrate()` entrypoint of validator
+        pub struct Migrate<'wrld>(pub(in super::super) Common<'wrld>);
 
-    impl LogSpan for ValidatorPermissionTokens {
-        fn log_span(&self) -> &Span {
-            &self.log_span
+        impl<'wrld> GetCommon<'wrld> for Migrate<'wrld> {
+            fn common(&self) -> &Common<'wrld> {
+                &self.0
+            }
+
+            fn common_mut(&mut self) -> &mut Common<'wrld> {
+                &mut self.0
+            }
         }
-    }
 
-    impl LimitsMut for ValidatorPermissionTokens {
-        fn limits_mut(&mut self) -> &mut StoreLimits {
-            &mut self.store_limits
+        impl LimitsMut for Migrate<'_> {
+            fn limits_mut(&mut self) -> &mut StoreLimits {
+                &mut self.0.store_limits
+            }
+        }
+
+        impl LogSpan for Migrate<'_> {
+            fn log_span(&self) -> &Span {
+                &self.0.log_span
+            }
+        }
+
+        impl Authority for Migrate<'_> {
+            fn authority(&self) -> &AccountId {
+                &self.0.authority
+            }
         }
     }
 }
@@ -647,23 +700,10 @@ impl<'wrld, S: state::GetCommon<'wrld>> Runtime<S> {
     }
 }
 
-trait ExecuteOperations<'wrld, S> {
-    /// Execute `query` on host
-    #[codec::wrap_trait_fn]
-    fn execute_query(query: QueryBox, state: &mut S) -> Result<Value, ValidationFail>;
-
-    /// Execute `instruction` on host
-    #[codec::wrap_trait_fn]
-    fn execute_instruction(
-        instruction: InstructionBox,
-        state: &mut S,
-    ) -> Result<(), ValidationFail>;
-}
-
-/// Marker trait to have [`ExecuteOperations`] default-implemented for concrete [`Runtime`]
+/// Marker trait to have [`import::ExecuteOperations`] default-implemented for concrete [`Runtime`]
 trait DefaultExecute {}
 
-impl<'wrld, S: state::GetCommon<'wrld>, R: DefaultExecute> ExecuteOperations<'wrld, S> for R {
+impl<'wrld, S: state::GetCommon<'wrld>, R: DefaultExecute> import::ExecuteOperations<S> for R {
     /// Default implementation of [`execute_query()`]
     #[codec::wrap]
     fn execute_query(query: QueryBox, state: &mut S) -> Result<Value, ValidationFail> {
@@ -715,21 +755,11 @@ impl<'wrld, S: state::GetCommon<'wrld>, R: DefaultExecute> ExecuteOperations<'wr
     }
 }
 
-trait QueryAuthority<S> {
-    #[codec::wrap_trait_fn]
-    fn query_authority(state: &S) -> AccountId;
-}
-
-impl<S: state::Authority> QueryAuthority<S> for Runtime<S> {
+impl<S: state::Authority> import::QueryAuthority<S> for Runtime<S> {
     #[codec::wrap]
     fn query_authority(state: &S) -> AccountId {
         state.authority().clone()
     }
-}
-
-trait QueryOperationToValidate<S> {
-    #[codec::wrap_trait_fn]
-    fn query_operation_to_validate(state: &S) -> NeedsValidationBox;
 }
 
 impl<'wrld> Runtime<state::SmartContract<'wrld>> {
@@ -813,7 +843,7 @@ impl<'wrld> Runtime<state::Trigger<'wrld>> {
 
 impl DefaultExecute for Runtime<state::Trigger<'_>> {}
 
-impl<'wrld> Runtime<state::Validator<'wrld>> {
+impl<'wrld> Runtime<state::validator::Validate<'wrld>> {
     /// Execute the given module of runtime validator
     ///
     /// # Errors
@@ -830,7 +860,7 @@ impl<'wrld> Runtime<state::Validator<'wrld>> {
         operation: &validator::NeedsValidationBox,
     ) -> Result<validator::Result> {
         let span = wasm_log_span!("Runtime validation");
-        let state = state::Validator {
+        let state = state::validator::Validate {
             common: state::Common::new(wsv, authority.clone(), self.config, span),
             operation_to_validate: operation.clone(),
         };
@@ -855,13 +885,15 @@ impl<'wrld> Runtime<state::Validator<'wrld>> {
     }
 }
 
-impl<'wrld> ExecuteOperations<'wrld, state::Validator<'wrld>> for Runtime<state::Validator<'wrld>> {
+impl<'wrld> import::ExecuteOperations<state::validator::Validate<'wrld>>
+    for Runtime<state::validator::Validate<'wrld>>
+{
     #[codec::wrap]
     fn execute_query(
         query: QueryBox,
-        state: &mut state::Validator<'wrld>,
+        state: &mut state::validator::Validate<'wrld>,
     ) -> Result<Value, ValidationFail> {
-        iroha_logger::debug!(%query, "Executing as validator");
+        debug!(%query, "Executing as validator");
 
         query
             .execute(state.common_mut().wsv)
@@ -875,7 +907,7 @@ impl<'wrld> ExecuteOperations<'wrld, state::Validator<'wrld>> for Runtime<state:
     #[codec::wrap]
     fn execute_instruction(
         instruction: InstructionBox,
-        state: &mut state::Validator<'wrld>,
+        state: &mut state::validator::Validate<'wrld>,
     ) -> Result<(), ValidationFail> {
         debug!(%instruction, "Executing as validator");
 
@@ -886,42 +918,68 @@ impl<'wrld> ExecuteOperations<'wrld, state::Validator<'wrld>> for Runtime<state:
     }
 }
 
-impl<'wrld> QueryOperationToValidate<state::Validator<'wrld>> for Runtime<state::Validator<'wrld>> {
+impl<'wrld> import::QueryOperationToValidate<state::validator::Validate<'wrld>>
+    for Runtime<state::validator::Validate<'wrld>>
+{
     #[codec::wrap]
-    fn query_operation_to_validate(state: &state::Validator<'wrld>) -> NeedsValidationBox {
+    fn query_operation_to_validate(
+        state: &state::validator::Validate<'wrld>,
+    ) -> NeedsValidationBox {
         state.operation_to_validate.clone()
     }
 }
 
-impl Runtime<state::ValidatorPermissionTokens> {
-    /// Execute `permission_tokens()` entrypoint of *Validator*
+impl<'wrld> import::SetPermissionTokenSchema<state::validator::Validate<'wrld>>
+    for Runtime<state::validator::Validate<'wrld>>
+{
+    /// Fake `set_permission_token_schema()`.
+    ///
+    /// This is needed because `validate()` entrypoint exists in the same binary as
+    /// `migrate()` entrypoint.
+    ///
+    /// # Panics
+    ///
+    /// Panic with error message if called, because it should never be called from
+    /// `validate()` entrypoint.
+    #[codec::wrap]
+    fn set_permission_token_schema(
+        _schema: PermissionTokenSchema,
+        _state: &mut state::validator::Validate<'wrld>,
+    ) {
+        panic!("Validator `validate()` entrypoint should not set permission token schema")
+    }
+}
+
+impl<'wrld> Runtime<state::validator::Migrate<'wrld>> {
+    /// Execute `migrate()` entrypoint of *Validator*
     ///
     /// # Errors
     ///
     /// - if failed to instantiate provided `module`
-    /// - if failed to get export function for `permission_tokens()`
+    /// - if failed to get export function for `migrate()`
     /// - if failed to call export function
-    /// - if failed to decode `PermissionTokenSchema`
-    pub fn execute_validator_permission_token_schema(
+    /// - if failed to decode [`MigrationResult`]
+    pub fn execute_validator_migration(
         &self,
+        wsv: &'wrld mut WorldStateView,
+        authority: &<Account as Identifiable>::Id,
         module: &wasmtime::Module,
-    ) -> Result<PermissionTokenSchema> {
-        let log_span = wasm_log_span!("Retrieving permission tokens");
-        let state = state::ValidatorPermissionTokens {
-            log_span,
-            store_limits: state::store_limits_from_config(&self.config),
-        };
+    ) -> Result<MigrationResult> {
+        let span = wasm_log_span!("Running migration");
+        let state = state::validator::Migrate(state::Common::new(
+            wsv,
+            authority.clone(),
+            self.config,
+            span,
+        ));
 
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
 
-        let permission_tokens_fn = Self::get_typed_func(
-            &instance,
-            &mut store,
-            export::VALIDATOR_PERMISSION_TOKEN_SCHEMA_FN_NAME,
-        )?;
+        let migrate_fn =
+            Self::get_typed_func(&instance, &mut store, export::VALIDATOR_MIGRATE_FN_NAME)?;
 
-        let offset = permission_tokens_fn
+        let offset = migrate_fn
             .call(&mut store, ())
             .map_err(ExportFnCallError::from)?;
 
@@ -934,79 +992,70 @@ impl Runtime<state::ValidatorPermissionTokens> {
     }
 }
 
-impl ExecuteOperations<'_, state::ValidatorPermissionTokens>
-    for Runtime<state::ValidatorPermissionTokens>
+impl<'wrld> import::ExecuteOperations<state::validator::Migrate<'wrld>>
+    for Runtime<state::validator::Migrate<'wrld>>
 {
-    /// Fake `execute_query()`.
-    ///
-    /// This is needed because `permission_tokens()` entrypoint exists in the same binary as
-    /// validation entrypoint.
-    ///
-    /// # Panics
-    ///
-    /// Panic with error message if called, because it should never be called from
-    /// `permission_tokens()` entrypoint
     #[codec::wrap]
     fn execute_query(
-        _query: QueryBox,
-        _state: &mut state::ValidatorPermissionTokens,
+        query: QueryBox,
+        state: &mut state::validator::Migrate<'wrld>,
     ) -> Result<Value, ValidationFail> {
-        panic!("Validator `permission_tokens()` entrypoint should not execute queries")
+        debug!(%query, "Executing as validator during migration");
+
+        query
+            .execute(state.common_mut().wsv)
+            .map(|lazy_value| match lazy_value {
+                LazyValue::Value(value) => value,
+                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
+            })
+            .map_err(Into::into)
     }
 
-    /// Fake `execute_instruction()`.
-    ///
-    /// This is needed because `permission_tokens()` entrypoint exists in the same binary as
-    /// validation entrypoint.
-    ///
-    /// # Panics
-    ///
-    /// Panic with error message if called, because it should never be called from
-    /// `permission_tokens()` entrypoint
     #[codec::wrap]
     fn execute_instruction(
-        _instruction: InstructionBox,
-        _state: &mut state::ValidatorPermissionTokens,
+        instruction: InstructionBox,
+        state: &mut state::validator::Migrate<'wrld>,
     ) -> Result<(), ValidationFail> {
-        panic!("Validator `permission_tokens()` entrypoint should not execute instructions")
+        debug!(%instruction, "Executing as validator during migration");
+
+        let common_state = state.common_mut();
+        instruction
+            .execute(&common_state.authority, common_state.wsv)
+            .map_err(Into::into)
     }
 }
 
-impl QueryAuthority<state::ValidatorPermissionTokens>
-    for Runtime<state::ValidatorPermissionTokens>
-{
-    /// Fake `query_authority()`.
-    ///
-    /// This is needed because `permission_tokens()` entrypoint exists in the same binary as
-    /// validation entrypoint.
-    ///
-    /// # Panics
-    ///
-    /// Panic with error message if called, because it should never be called from
-    /// `permission_tokens()` entrypoint
-    #[codec::wrap]
-    fn query_authority(_state: &state::ValidatorPermissionTokens) -> AccountId {
-        panic!("Validator `permission_tokens()` entrypoint should not query authority")
-    }
-}
-
-impl QueryOperationToValidate<state::ValidatorPermissionTokens>
-    for Runtime<state::ValidatorPermissionTokens>
+impl<'wrld> import::QueryOperationToValidate<state::validator::Migrate<'wrld>>
+    for Runtime<state::validator::Migrate<'wrld>>
 {
     /// Fake `query_operation_to_validate()`.
     ///
-    /// This is needed because `permission_tokens()` entrypoint exists in the same binary as
-    /// validation entrypoint.
+    /// This is needed because `migrate()` entrypoint exists in the same binary as
+    /// `validate()` entrypoint.
     ///
     /// # Panics
     ///
     /// Panic with error message if called, because it should never be called from
-    /// `permission_tokens()` entrypoint
+    /// `migrate()` entrypoint.
     #[codec::wrap]
     fn query_operation_to_validate(
-        _state: &state::ValidatorPermissionTokens,
+        _state: &state::validator::Migrate<'wrld>,
     ) -> NeedsValidationBox {
-        panic!("Validator `permission_tokens()` entrypoint should not query operation to validate")
+        panic!("Validator `migrate()` entrypoint should not query operation to validate")
+    }
+}
+
+impl<'wrld> import::SetPermissionTokenSchema<state::validator::Migrate<'wrld>>
+    for Runtime<state::validator::Migrate<'wrld>>
+{
+    #[codec::wrap]
+    fn set_permission_token_schema(
+        schema: PermissionTokenSchema,
+        state: &mut state::validator::Migrate<'wrld>,
+    ) {
+        debug!(%schema, "Setting permission token schema");
+
+        state.common_mut().wsv.set_permission_token_schema(schema)
     }
 }
 
@@ -1134,42 +1183,44 @@ impl<'wrld> RuntimeBuilder<state::Trigger<'wrld>> {
     }
 }
 
-impl<'wrld> RuntimeBuilder<state::Validator<'wrld>> {
+impl<'wrld> RuntimeBuilder<state::validator::Validate<'wrld>> {
     /// Builds the [`Runtime`] for *Validator* execution
     ///
     /// # Errors
     ///
     /// Fails if failed to create default linker.
-    pub fn build(self) -> Result<Runtime<state::Validator<'wrld>>> {
+    pub fn build(self) -> Result<Runtime<state::validator::Validate<'wrld>>> {
         self.finalize(|engine| {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::EXECUTE_ISI_FN_NAME => Runtime::<state::Validator<'_>>::execute_instruction,
-                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::Validator<'_>>::execute_query,
-                import::QUERY_AUTHORITY_FN_NAME => Runtime::<state::Validator<'_>>::query_authority,
+                import::EXECUTE_ISI_FN_NAME => Runtime::<state::validator::Validate<'_>>::execute_instruction,
+                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::validator::Validate<'_>>::execute_query,
+                import::QUERY_AUTHORITY_FN_NAME => Runtime::<state::validator::Validate<'_>>::query_authority,
                 import::QUERY_OPERATION_TO_VALIDATE_FN_NAME => Runtime::query_operation_to_validate,
+                import::SET_PERMISSION_TOKEN_SCHEMA_FN_NAME => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
         })
     }
 }
 
-impl RuntimeBuilder<state::ValidatorPermissionTokens> {
+impl<'wrld> RuntimeBuilder<state::validator::Migrate<'wrld>> {
     /// Builds the [`Runtime`] to execute `permission_tokens()` entrypoint of *Validator*
     ///
     /// # Errors
     ///
     /// Fails if failed to create default linker.
-    pub fn build(self) -> Result<Runtime<state::ValidatorPermissionTokens>> {
+    pub fn build(self) -> Result<Runtime<state::validator::Migrate<'wrld>>> {
         self.finalize(|engine| {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::EXECUTE_ISI_FN_NAME => Runtime::execute_instruction,
-                import::EXECUTE_QUERY_FN_NAME => Runtime::execute_query,
+                import::EXECUTE_ISI_FN_NAME => Runtime::<state::validator::Migrate<'_>>::execute_instruction,
+                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::validator::Migrate<'_>>::execute_query,
                 import::QUERY_AUTHORITY_FN_NAME => Runtime::query_authority,
                 import::QUERY_OPERATION_TO_VALIDATE_FN_NAME => Runtime::query_operation_to_validate,
+                import::SET_PERMISSION_TOKEN_SCHEMA_FN_NAME => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
         })

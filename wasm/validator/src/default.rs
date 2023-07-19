@@ -1,13 +1,14 @@
 //! Definition of Iroha default validator and accompanying validation functions
 #![allow(missing_docs, clippy::missing_errors_doc)]
 
-use alloc::{borrow::ToOwned as _, format, string::String, vec::Vec};
+use alloc::{borrow::ToOwned as _, format, string::String};
 
 use account::{
     visit_burn_account_public_key, visit_mint_account_public_key,
     visit_mint_account_signature_check_condition, visit_remove_account_key_value,
     visit_set_account_key_value, visit_unregister_account,
 };
+use anyhow::anyhow;
 use asset::{
     visit_burn_asset, visit_mint_asset, visit_register_asset, visit_remove_asset_key_value,
     visit_set_asset_key_value, visit_transfer_asset, visit_unregister_asset,
@@ -16,9 +17,8 @@ use asset_definition::{
     visit_remove_asset_definition_key_value, visit_set_asset_definition_key_value,
     visit_transfer_asset_definition, visit_unregister_asset_definition,
 };
-use data_model::evaluate::ExpressionEvaluator;
+use data_model::{evaluate::ExpressionEvaluator, visit::Visit};
 use domain::{visit_remove_domain_key_value, visit_set_domain_key_value, visit_unregister_domain};
-use iroha_wasm::data_model::visit::Visit;
 use parameter::{visit_new_parameter, visit_set_parameter};
 use peer::visit_unregister_peer;
 use permission_token::{visit_grant_account_permission, visit_revoke_account_permission};
@@ -84,18 +84,19 @@ macro_rules! token {
 pub(crate) use map_all_crate_tokens;
 
 impl Validate for DefaultValidator {
-    fn permission_token_schema() -> PermissionTokenSchema {
-        let mut schema = PermissionTokenSchema::default();
+    fn migrate() -> MigrationResult {
+        Self::ensure_schema_is_empty()?;
 
-        macro_rules! add_to_schema {
-            ($token_ty:ty) => {
-                schema.insert::<$token_ty>();
-            };
-        }
+        let schema = Self::permission_token_schema();
 
-        map_all_crate_tokens!(add_to_schema);
+        let (token_ids, schema_str) = schema.serialize();
+        iroha_validator::iroha_wasm::set_permission_token_schema(
+            &iroha_validator::data_model::permission::PermissionTokenSchema::new(
+                token_ids, schema_str,
+            ),
+        );
 
-        schema
+        Ok(())
     }
 
     fn verdict(&self) -> &Result {
@@ -126,6 +127,40 @@ impl DefaultValidator {
             verdict: Ok(()),
             host: iroha_wasm::Host,
         }
+    }
+
+    pub fn permission_token_schema() -> PermissionTokenSchema {
+        let mut schema = iroha_validator::PermissionTokenSchema::default();
+
+        macro_rules! add_to_schema {
+            ($token_ty:ty) => {
+                schema.insert::<$token_ty>();
+            };
+        }
+
+        map_all_crate_tokens!(add_to_schema);
+
+        schema
+    }
+
+    fn ensure_schema_is_empty() -> MigrationResult {
+        let current_schema = FindPermissionTokenSchema.execute().map_err(|error| {
+            format!(
+                "{:?}",
+                anyhow!(error).context("Failed to find permission token schema")
+            )
+        })?;
+
+        if !current_schema.token_ids().is_empty() {
+            return Err(
+                "Permission token schema is not empty. Default Validator don't \
+                 know how to process previous permission tokens. Write your own \
+                 validator with a proper migration."
+                    .to_owned(),
+            );
+        }
+
+        Ok(())
     }
 }
 

@@ -100,7 +100,7 @@ impl Checker {
 
 #[test]
 fn committed_block_must_be_available_in_kura() {
-    let (_rt, peer, client) = <PeerBuilder>::new().with_port(10_985).start_with_runtime();
+    let (_rt, peer, client) = <PeerBuilder>::new().with_port(11_040).start_with_runtime();
     wait_for_genesis_committed(&[client.clone()], 0);
 
     let event_filter = PipelineEventFilter::new()

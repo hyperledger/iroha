@@ -58,7 +58,7 @@ pub mod model {
         Domain(domain::DomainEvent),
         Role(role::RoleEvent),
         Trigger(trigger::TriggerEvent),
-        PermissionToken(permission::PermissionTokenSchemaUpdateEvent),
+        PermissionTokenSchemaUpdate(permission::PermissionTokenSchemaUpdateEvent),
         Configuration(config::ConfigurationEvent),
         Validator(validator::ValidatorEvent),
     }
@@ -552,7 +552,7 @@ impl WorldEvent {
             WorldEvent::Trigger(trigger_event) => {
                 events.push(DataEvent::Trigger(trigger_event));
             }
-            WorldEvent::PermissionToken(token_event) => {
+            WorldEvent::PermissionTokenSchemaUpdate(token_event) => {
                 events.push(DataEvent::PermissionToken(token_event));
             }
             WorldEvent::Configuration(config_event) => {
