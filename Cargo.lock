@@ -3442,14 +3442,13 @@ version = "2.0.0-pre-rc.16"
 dependencies = [
  "iroha_macro",
  "iroha_version",
+ "manyhow",
  "parity-scale-codec",
- "proc-macro-error",
  "proc-macro2",
  "quote",
- "rustc-hash",
  "serde",
  "serde_json",
- "syn 1.0.109",
+ "syn 2.0.26",
  "trybuild",
 ]
 
@@ -3688,6 +3687,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b823e83b2affd8f40a9ee8c29dbc56404c1e34cd2710921f2801e2cf29527afa"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "manyhow"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bd36e9fda56207708aaa550916d2b3fa2eb59fc4eeb711aabdcb995e29f27d6"
+dependencies = [
+ "darling_core",
+ "manyhow-macros",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.26",
+]
+
+[[package]]
+name = "manyhow-macros"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f77799897bae27ab96fc15f4a1139b0ae27bdcc9fa103032dae75112c1e781d1"
+dependencies = [
+ "proc-macro-utils",
+ "proc-macro2",
+ "quote",
 ]
 
 [[package]]
@@ -4322,6 +4345,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "version_check",
+]
+
+[[package]]
+name = "proc-macro-utils"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f59e109e2f795a5070e69578c4dc101068139f74616778025ae1011d4cd41a8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "smallvec",
 ]
 
 [[package]]
