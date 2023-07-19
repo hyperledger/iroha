@@ -11,11 +11,10 @@ license.workspace = true
 proc-macro = true
 
 [dependencies]
-syn = { workspace = true, features = ["full"] }
+syn2 = { workspace = true, features = ["default", "full"] }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
-proc-macro-error = { workspace = true }
-rustc-hash = { workspace = true }
+manyhow = { workspace = true }
 
 [dev-dependencies]
 iroha_version = { workspace = true, features = ["scale", "json"] }
