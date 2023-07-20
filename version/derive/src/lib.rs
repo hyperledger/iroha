@@ -3,19 +3,17 @@
 
 use std::ops::Range;
 
-use manyhow::{bail, error_message, manyhow, Result};
+use darling::{ast::NestedMeta, FromMeta};
+use manyhow::{bail, manyhow, Result};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn2::{
     parse::{Parse, ParseStream},
     parse_quote,
     punctuated::Punctuated,
-    Data, DeriveInput, Error as SynError, Expr, Ident, Lit, LitInt, Meta, Path,
-    Result as SynResult, Token,
+    Data, DeriveInput, Error as SynError, Ident, LitInt, Path, Result as SynResult, Token,
 };
 
-const VERSION_NUMBER_ARG_NAME: &str = "n";
-const VERSIONED_STRUCT_ARG_NAME: &str = "versioned";
 const VERSION_FIELD_NAME: &str = "version";
 const CONTENT_FIELD_NAME: &str = "content";
 
@@ -70,7 +68,7 @@ pub fn version_with_json(args: TokenStream, item: TokenStream) -> Result<TokenSt
 ///
 /// declare_versioned!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant);
 ///
-/// #[version(n = 1, versioned = "VersionedMessage")]
+/// #[version(version = 1, versioned_alias = "VersionedMessage")]
 /// #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
 /// pub struct Message1;
 ///
@@ -108,156 +106,29 @@ pub fn declare_versioned_with_json(input: TokenStream) -> Result<TokenStream> {
     Ok(impl_declare_versioned(&args, false, true))
 }
 
-// NOTE: this type is temporary and will be replaced with `manyhow::Emitter` when it's exposed
-// see https://github.com/ModProg/manyhow/issues/2#issuecomment-1643604170
-struct Accumulator(Vec<manyhow::Error>);
-impl Accumulator {
-    fn new() -> Self {
-        Self(Vec::new())
-    }
-
-    /// Emits an error
-    pub fn emit(&mut self, error: impl manyhow::ToTokensError + 'static) {
-        self.0.push(manyhow::Error::from(error));
-    }
-
-    /// Checks if any errors were emitted
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    /// Errors if not [`Self::is_empty`]
-    pub fn into_result(self) -> Result<()> {
-        if self.is_empty() {
-            Ok(())
-        } else {
-            let mut error = manyhow::Error::from(manyhow::SilentError);
-
-            for e in self.0 {
-                error.push(e);
-            }
-
-            Err(error)
-        }
-    }
-}
-
+#[derive(FromMeta)]
 struct VersionArgs {
-    version_number: u32,
-    // suggestion: change macro API to accept an `Ident` directly (idents as string literals are meh)
-    versioned_struct_name: String,
-}
-
-impl VersionArgs {
-    fn parse_from_args(args: TokenStream) -> Result<Self> {
-        struct RawArgs(Punctuated<Meta, Token![,]>);
-        impl Parse for RawArgs {
-            fn parse(input: ParseStream) -> syn2::Result<Self> {
-                Ok(Self(Punctuated::parse_terminated(input)?))
-            }
-        }
-
-        let RawArgs(args) = syn2::parse2(args)?;
-        let mut accum = Accumulator::new();
-
-        let mut version_number = None;
-        let mut versioned_struct_name = None;
-        for arg in &args {
-            let Meta::NameValue(arg) = arg else {
-                // uhh, this is kinda ugly
-                // see https://github.com/ModProg/manyhow/issues/6
-                accum.emit(error_message!(
-                    arg,
-                    "Expected an argument of form `#[...(name = value)]`"
-                ));
-                continue;
-            };
-
-            // ideally, these two should be done in "parallel": one check does not depend on another
-            // this is, actually, pretty often needed when writing proc macros...
-            let Some(name) = arg.path.get_ident() else {
-                accum.emit(error_message!(
-                    &arg.path,
-                    "Expected single identifier for attribute argument key."
-                ));
-                continue;
-            };
-            let Expr::Lit(syn2::ExprLit { lit: value, .. }) = &arg.value else {
-                accum.emit(error_message!(
-                    &arg.value,
-                    "Expected a literal for attribute argument value."
-                ));
-                continue;
-            };
-
-            match name.to_string().as_str() {
-                VERSION_NUMBER_ARG_NAME => {
-                    let Lit::Int(int) = value else {
-                        accum.emit(error_message!(
-                            value,
-                            "Expected an integer literal for version number."
-                        ));
-                        continue;
-                    };
-                    version_number = Some(int.base10_parse()?);
-                }
-                VERSIONED_STRUCT_ARG_NAME => {
-                    let Lit::Str(str) = value else {
-                        accum.emit(error_message!(
-                            value,
-                            "Expected a string literal for versioned struct name."
-                        ));
-                        continue;
-                    };
-                    versioned_struct_name = Some(str.value());
-                }
-                _ => {
-                    accum.emit(error_message!(name, "Unknown argument `{}`", name));
-                    continue;
-                }
-            }
-        }
-
-        if version_number.is_none() {
-            accum.emit(error_message!(
-                &args,
-                "Missing argument `{}`",
-                VERSION_NUMBER_ARG_NAME
-            ));
-        }
-        if versioned_struct_name.is_none() {
-            accum.emit(error_message!(
-                &args,
-                "Missing argument `{}`",
-                VERSIONED_STRUCT_ARG_NAME
-            ));
-        }
-
-        accum.into_result()?;
-
-        Ok(Self {
-            version_number: version_number.unwrap(),
-            versioned_struct_name: versioned_struct_name.unwrap(),
-        })
-    }
+    version: u32,
+    versioned_alias: syn2::Ident,
 }
 
 fn impl_version(args: TokenStream, item: &TokenStream) -> Result<TokenStream> {
+    let args = NestedMeta::parse_meta_list(args)?;
     let VersionArgs {
-        version_number,
-        versioned_struct_name,
-    } = VersionArgs::parse_from_args(args)?;
+        version,
+        versioned_alias,
+    } = VersionArgs::from_list(&args)?;
+
     let (struct_name, generics) = {
         let item = syn2::parse2::<DeriveInput>(item.clone())?;
         match &item.data {
             Data::Struct(_) | Data::Enum(_) => {}
             _ => bail!("The attribute should be attached to either struct or enum."),
         }
-        (item.ident.clone(), item.generics)
+        (item.ident, item.generics)
     };
 
-    let alias_type_name = format_ident!("_{}V{}", versioned_struct_name, version_number);
+    let alias_type_name = format_ident!("_{}V{}", versioned_alias, version);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     Ok(quote!(

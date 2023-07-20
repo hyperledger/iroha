@@ -22,11 +22,11 @@ mod tests {
 
         declare_versioned!(VersionedMessage 1..3, Debug, Clone, iroha_macro::FromVariant);
 
-        #[version(n = 1, versioned = "VersionedMessage")]
+        #[version(version = 1, versioned_alias = "VersionedMessage")]
         #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
         pub struct Message;
 
-        #[version(n = 2, versioned = "VersionedMessage")]
+        #[version(version = 2, versioned_alias = "VersionedMessage")]
         #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
         pub struct Message2;
     }
@@ -38,15 +38,15 @@ mod tests {
 
         declare_versioned!(VersionedMessage 1..4, Debug, Clone, iroha_macro::FromVariant);
 
-        #[version(n = 1, versioned = "VersionedMessage")]
+        #[version(version = 1, versioned_alias = "VersionedMessage")]
         #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
         pub struct Message;
 
-        #[version(n = 2, versioned = "VersionedMessage")]
+        #[version(version = 2, versioned_alias = "VersionedMessage")]
         #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
         pub struct Message2;
 
-        #[version(n = 3, versioned = "VersionedMessage")]
+        #[version(version = 3, versioned_alias = "VersionedMessage")]
         #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
         pub struct Message3(pub String);
     }

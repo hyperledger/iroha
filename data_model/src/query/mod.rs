@@ -1332,7 +1332,7 @@ pub mod http {
 
         /// I/O ready structure to send queries.
         #[derive(Debug, Clone, Encode, Serialize, IntoSchema)]
-        #[version_with_scale(n = 1, versioned = "VersionedSignedQuery")]
+        #[version_with_scale(version = 1, versioned_alias = "VersionedSignedQuery")]
         pub struct SignedQuery {
             /// Signature of the client who sends this query.
             pub signature: SignatureOf<QueryPayload>,
