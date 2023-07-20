@@ -41,7 +41,7 @@ impl VersionedPacket {
 }
 
 /// Helper structure, wrapping messages and view change proofs.
-#[version_with_scale(n = 1, versioned = "VersionedPacket")]
+#[version_with_scale(version = 1, versioned_alias = "VersionedPacket")]
 #[derive(Debug, Clone, Decode, Encode)]
 pub struct MessagePacket {
     /// Proof of view change. As part of this message handling, all

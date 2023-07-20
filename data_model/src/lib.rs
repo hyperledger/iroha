@@ -1841,7 +1841,7 @@ pub mod http {
 
         /// Batched response of a query sent to torii
         #[derive(Debug, Clone, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-        #[version_with_scale(n = 1, versioned = "VersionedBatchedResponse")]
+        #[version_with_scale(version = 1, versioned_alias = "VersionedBatchedResponse")]
         #[getset(get = "pub")]
         #[must_use]
         pub struct BatchedResponse<T> {
