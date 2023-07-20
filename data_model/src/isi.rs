@@ -19,10 +19,7 @@ use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
 use crate::{seal, Registered};
 
 /// Marker trait designating instruction
-pub trait Instruction: Into<InstructionBox> + seal::Sealed {
-    /// Length of contained instructions and queries.
-    fn len(&self) -> usize;
-}
+pub trait Instruction: Into<InstructionBox> + seal::Sealed {}
 
 macro_rules! isi {
     ($($meta:meta)* $item:item) => {
@@ -135,124 +132,27 @@ pub mod model {
         Fail(FailBox),
     }
 
-    impl Instruction for InstructionBox {
-        fn len(&self) -> usize {
-            use InstructionBox::*;
+    impl Instruction for InstructionBox {}
 
-            match self {
-                Register(register_box) => register_box.len(),
-                Unregister(unregister_box) => unregister_box.len(),
-                Mint(mint_box) => mint_box.len(),
-                Burn(burn_box) => burn_box.len(),
-                Transfer(transfer_box) => transfer_box.len(),
-                If(if_box) => if_box.len(),
-                Pair(pair_box) => pair_box.len(),
-                Sequence(sequence) => sequence.len(),
-                Fail(fail_box) => fail_box.len(),
-                SetKeyValue(set_key_value) => set_key_value.len(),
-                RemoveKeyValue(remove_key_value) => remove_key_value.len(),
-                Grant(grant_box) => grant_box.len(),
-                Revoke(revoke_box) => revoke_box.len(),
-                ExecuteTrigger(execute_trigger) => execute_trigger.len(),
-                SetParameter(set_parameter) => set_parameter.len(),
-                NewParameter(new_parameter) => new_parameter.len(),
-                Upgrade(upgrade_box) => upgrade_box.len(),
-            }
-        }
-    }
-
-    impl Instruction for SetKeyValueBox {
-        fn len(&self) -> usize {
-            self.object_id.len() + self.key.len() + self.value.len() + 1
-        }
-    }
-    impl Instruction for RemoveKeyValueBox {
-        fn len(&self) -> usize {
-            self.object_id.len() + self.key.len() + 1
-        }
-    }
-    impl Instruction for RegisterBox {
-        fn len(&self) -> usize {
-            self.object.len() + 1
-        }
-    }
-    impl Instruction for UnregisterBox {
-        fn len(&self) -> usize {
-            self.object_id.len() + 1
-        }
-    }
-    impl Instruction for MintBox {
-        fn len(&self) -> usize {
-            self.destination_id.len() + self.object.len() + 1
-        }
-    }
-    impl Instruction for BurnBox {
-        fn len(&self) -> usize {
-            self.destination_id.len() + self.object.len() + 1
-        }
-    }
-    impl Instruction for TransferBox {
-        fn len(&self) -> usize {
-            self.destination_id.len() + self.object.len() + self.source_id.len() + 1
-        }
-    }
-    impl Instruction for GrantBox {
-        fn len(&self) -> usize {
-            self.object.len() + self.destination_id.len() + 1
-        }
-    }
-    impl Instruction for RevokeBox {
-        fn len(&self) -> usize {
-            self.object.len() + self.destination_id.len() + 1
-        }
-    }
-    impl Instruction for SetParameterBox {
-        fn len(&self) -> usize {
-            self.parameter.len() + 1
-        }
-    }
-    impl Instruction for NewParameterBox {
-        fn len(&self) -> usize {
-            self.parameter.len() + 1
-        }
-    }
-    impl Instruction for UpgradeBox {
-        fn len(&self) -> usize {
-            self.object.len() + 1
-        }
-    }
-    impl Instruction for ExecuteTriggerBox {
-        fn len(&self) -> usize {
-            1
-        }
-    }
-    impl Instruction for FailBox {
-        fn len(&self) -> usize {
-            1
-        }
-    }
+    impl Instruction for SetKeyValueBox {}
+    impl Instruction for RemoveKeyValueBox {}
+    impl Instruction for RegisterBox {}
+    impl Instruction for UnregisterBox {}
+    impl Instruction for MintBox {}
+    impl Instruction for BurnBox {}
+    impl Instruction for TransferBox {}
+    impl Instruction for GrantBox {}
+    impl Instruction for RevokeBox {}
+    impl Instruction for SetParameterBox {}
+    impl Instruction for NewParameterBox {}
+    impl Instruction for UpgradeBox {}
+    impl Instruction for ExecuteTriggerBox {}
+    impl Instruction for FailBox {}
 
     // Composite instructions
-    impl Instruction for SequenceBox {
-        fn len(&self) -> usize {
-            self.instructions
-                .iter()
-                .map(InstructionBox::len)
-                .sum::<usize>()
-                + 1
-        }
-    }
-    impl Instruction for Conditional {
-        fn len(&self) -> usize {
-            let otherwise = self.otherwise.as_ref().map_or(0, InstructionBox::len);
-            self.condition.len() + self.then.len() + otherwise + 1
-        }
-    }
-    impl Instruction for Pair {
-        fn len(&self) -> usize {
-            self.left_instruction.len() + self.right_instruction.len() + 1
-        }
-    }
+    impl Instruction for SequenceBox {}
+    impl Instruction for Conditional {}
+    impl Instruction for Pair {}
 }
 
 mod transparent {
@@ -1240,81 +1140,9 @@ pub mod error {
 pub mod prelude {
     pub use super::{
         Burn, BurnBox, Conditional, ExecuteTrigger, ExecuteTriggerBox, FailBox, Grant, GrantBox,
-        Instruction, InstructionBox, Mint, MintBox, NewParameter, NewParameterBox, Pair, Register,
-        RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox,
-        SetKeyValue, SetKeyValueBox, SetParameter, SetParameterBox, Transfer, TransferBox,
-        Unregister, UnregisterBox, Upgrade, UpgradeBox,
+        InstructionBox, Mint, MintBox, NewParameter, NewParameterBox, Pair, Register, RegisterBox,
+        RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox, SetKeyValue,
+        SetKeyValueBox, SetParameter, SetParameterBox, Transfer, TransferBox, Unregister,
+        UnregisterBox, Upgrade, UpgradeBox,
     };
-}
-
-#[cfg(test)]
-mod tests {
-    #[cfg(not(feature = "std"))]
-    use alloc::vec;
-    use core::str::FromStr;
-
-    use super::*;
-
-    fn if_instruction(
-        c: impl Into<Expression>,
-        then: InstructionBox,
-        otherwise: Option<InstructionBox>,
-    ) -> InstructionBox {
-        let condition: Expression = c.into();
-        let condition = EvaluatesTo::new_unchecked(condition);
-        Conditional {
-            condition,
-            then,
-            otherwise,
-        }
-        .into()
-    }
-
-    fn fail() -> InstructionBox {
-        FailBox {
-            message: String::default(),
-        }
-        .into()
-    }
-
-    #[test]
-    fn len_empty_sequence() {
-        assert_eq!(InstructionBox::from(SequenceBox::new(vec![])).len(), 1);
-    }
-
-    #[test]
-    fn len_if_one_branch() {
-        let instructions = vec![if_instruction(
-            ContextValue {
-                value_name: Name::from_str("a").expect("Cannot fail."),
-            },
-            fail(),
-            None,
-        )];
-
-        assert_eq!(
-            InstructionBox::from(SequenceBox::new(instructions)).len(),
-            4
-        );
-    }
-
-    #[test]
-    fn len_sequence_if() {
-        let instructions = vec![
-            fail(),
-            if_instruction(
-                ContextValue {
-                    value_name: Name::from_str("b").expect("Cannot fail."),
-                },
-                fail(),
-                Some(fail()),
-            ),
-            fail(),
-        ];
-
-        assert_eq!(
-            InstructionBox::from(SequenceBox::new(instructions)).len(),
-            7
-        );
-    }
 }

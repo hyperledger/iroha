@@ -477,11 +477,11 @@ pub fn visit_transfer<V: Visit + ?Sized>(
     let object = evaluate_expr!(visitor, authority, <isi as Transfer>::object());
 
     let (IdBox::AssetId(source_id), IdBox::AccountId(destination_id)) = (
-            evaluate_expr!(visitor, authority, <isi as Transfer>::source_id()),
-            evaluate_expr!(visitor, authority, <isi as Transfer>::destination_id()),
-        ) else {
-            return visitor.visit_unsupported(authority, isi);
-        };
+        evaluate_expr!(visitor, authority, <isi as Transfer>::source_id()),
+        evaluate_expr!(visitor, authority, <isi as Transfer>::destination_id()),
+    ) else {
+        return visitor.visit_unsupported(authority, isi);
+    };
 
     match object {
         Value::Numeric(object) => visitor.visit_transfer_asset(

@@ -47,7 +47,7 @@ impl ValidQuery for FindBlockHeaderByHash {
         let block = wsv
             .all_blocks()
             .find(|block| block.hash() == hash)
-            .ok_or_else(|| QueryExecutionFail::Find(Box::new(FindError::Block(hash))))?;
+            .ok_or_else(|| QueryExecutionFail::Find(FindError::Block(hash)))?;
 
         Ok(block.as_v1().header.clone())
     }
