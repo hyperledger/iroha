@@ -3341,6 +3341,7 @@ dependencies = [
 name = "iroha_version_derive"
 version = "2.0.0-pre-rc.16"
 dependencies = [
+ "darling",
  "iroha_macro",
  "iroha_version",
  "manyhow",
@@ -3587,9 +3588,9 @@ dependencies = [
 [[package]]
 name = "manyhow"
 version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "927cc3a197e078f29f3acc289d6355af6c988a2e6a4e9175940221ec3a65c484"
+source = "git+https://github.com/DCNick3/manyhow.git?rev=3f48c16fbf6fa8f45dd9428ff191722863867be1#3f48c16fbf6fa8f45dd9428ff191722863867be1"
 dependencies = [
+ "darling_core",
  "manyhow-macros",
  "proc-macro2",
  "quote",
@@ -3599,8 +3600,7 @@ dependencies = [
 [[package]]
 name = "manyhow-macros"
 version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e92933413756c852c7300b968ea310598328e01f260e1039086fe22764331c82"
+source = "git+https://github.com/DCNick3/manyhow.git?rev=3f48c16fbf6fa8f45dd9428ff191722863867be1#3f48c16fbf6fa8f45dd9428ff191722863867be1"
 dependencies = [
  "proc-macro-utils",
  "proc-macro2",

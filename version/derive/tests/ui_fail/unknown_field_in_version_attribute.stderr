@@ -1,8 +1,8 @@
-error: Unknown argument `derive`
+error: Unknown field: `derive`
  --> tests/ui_fail/unknown_field_in_version_attribute.rs:7:50
   |
 7 | #[version(n = 1, versioned = "VersionedMessage", derive = "Clone")]
-  |                                                  ^^^^^^
+  |                                                  ^^^^^^^^^^^^^^^^
 
 error[E0412]: cannot find type `_VersionedMessageV1` in this scope
  --> tests/ui_fail/unknown_field_in_version_attribute.rs:5:1

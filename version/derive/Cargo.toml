@@ -14,7 +14,10 @@ proc-macro = true
 syn2 = { workspace = true, features = ["default", "full"] }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
-manyhow = "0.4.2"
+
+# Using an unreleased version for `darling` support
+manyhow = { git = "https://github.com/ModProg/manyhow.git", rev = "41387d7a9d0be7c918801fe5225ca5a094d57c51", features = ["darling"] }
+darling = { version = "0.20.1" }
 
 [dev-dependencies]
 iroha_version = { workspace = true, features = ["scale", "json"] }
