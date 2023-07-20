@@ -213,7 +213,11 @@ impl SumeragiHandle {
             kura,
             network,
             genesis_network,
-            block_count: BlockCount(block_count),
+            block_count:
+                BlockCount {
+                    total: block_count,
+                    skip: skip_block_count,
+                },
         }: SumeragiStartArgs,
     ) -> SumeragiHandle {
         let (control_message_sender, control_message_receiver) = mpsc::sync_channel(100);
@@ -224,7 +228,9 @@ impl SumeragiHandle {
                 .expect("Sumeragi should be able to load the block that was reported as presented. If not, the block storage was probably disconnected.")
         });
 
-        let block_iter_except_last = (&mut blocks_iter).take(block_count.saturating_sub(1));
+        let block_iter_except_last = (&mut blocks_iter)
+            .skip(skip_block_count)
+            .take(block_count.saturating_sub(1));
         for block in block_iter_except_last {
             block.revalidate(&mut wsv).expect(
                 "The block should be valid in init. Blocks loaded from kura assumed to be valid",

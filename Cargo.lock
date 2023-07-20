@@ -2983,7 +2983,6 @@ dependencies = [
  "iroha_config",
  "iroha_crypto",
  "iroha_data_model",
- "iroha_dsl",
  "iroha_genesis",
  "iroha_logger",
  "iroha_primitives",
