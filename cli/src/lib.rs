@@ -242,10 +242,12 @@ impl Iroha {
             std::path::Path::new(&config.kura.block_store_path),
             config.kura.debug_output_new_blocks,
         )?;
-        let wsv = WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura));
 
         let notify_shutdown = Arc::new(Notify::new());
-        let block_count = kura.init()?;
+        let (wsv, block_count) = kura.init()?;
+        let wsv = wsv.unwrap_or_else(|| {
+            WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura))
+        });
 
         let queue = Arc::new(Queue::from_configuration(&config.queue));
         if Self::start_telemetry(telemetry, &config).await? {

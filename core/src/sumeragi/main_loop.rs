@@ -989,6 +989,10 @@ pub(crate) fn run(
             is_genesis_peer,
         );
     }
+
+    if let Err(error) = sumeragi.kura.write_snapshot(&sumeragi.wsv) {
+        iroha_logger::error!(?error, "Failed to write WorldStateView snapshot")
+    }
 }
 
 fn add_signatures<const EXPECT_VALID: bool>(

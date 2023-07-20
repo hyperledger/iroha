@@ -17,11 +17,16 @@ use iroha_data_model::{
     isi::error::{InstructionExecutionError, MathError},
     prelude::*,
     query::error::FindError,
-    trigger::{action::ActionTrait, OptimizedExecutable, WasmInternalRepr},
+    trigger::{action::ActionTrait, OptimizedExecutable, Trigger, WasmInternalRepr},
+};
+use serde::{
+    de::{DeserializeSeed, MapAccess, Visitor},
+    ser::{SerializeMap, SerializeStruct},
+    Serialize, Serializer,
 };
 use thiserror::Error;
 
-use crate::smartcontracts::wasm;
+use crate::{smartcontracts::wasm, wsv::WasmSeed};
 
 /// Error type for [`Set`] operations.
 #[derive(Debug, Error, displaydoc::Display)]
@@ -37,6 +42,8 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 pub type LoadedAction<F> = Action<F, LoadedExecutable>;
 
 /// Specialized structure that maps event filters to Triggers.
+// NB: `Set` has custom `Serialize` and `DeserializeSeed` implementations
+// which need to be manually updated when changing the struct
 #[derive(Debug, Default)]
 pub struct Set {
     /// Triggers using [`DataEventFilter`]
@@ -54,6 +61,144 @@ pub struct Set {
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     matched_ids: Vec<(Event, TriggerId)>,
+}
+
+/// Helper struct for serializing triggers.
+struct TriggersWithContext<'s, F> {
+    /// Triggers being serialized
+    triggers: &'s HashMap<TriggerId, LoadedAction<F>>,
+    /// Containing Set, used for looking up origignal [`WasmSmartContract`]s
+    /// during serialization.
+    set: &'s Set,
+}
+
+impl<'s, F> TriggersWithContext<'s, F> {
+    fn new(triggers: &'s HashMap<TriggerId, LoadedAction<F>>, set: &'s Set) -> Self {
+        Self { triggers, set }
+    }
+}
+
+impl<F: Clone + Serialize> Serialize for TriggersWithContext<'_, F> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.triggers.len()))?;
+        for (id, action) in self.triggers.iter() {
+            let action = self.set.get_original_action(id, action.clone());
+            map.serialize_entry(&id, &action)?;
+        }
+        map.end()
+    }
+}
+
+impl Serialize for Set {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut set = serializer.serialize_struct("Set", 6)?;
+        set.serialize_field(
+            "data_triggers",
+            &TriggersWithContext::new(&self.data_triggers, self),
+        )?;
+        set.serialize_field(
+            "pipeline_triggers",
+            &TriggersWithContext::new(&self.pipeline_triggers, self),
+        )?;
+        set.serialize_field(
+            "time_triggers",
+            &TriggersWithContext::new(&self.time_triggers, self),
+        )?;
+        set.serialize_field(
+            "by_call_triggers",
+            &TriggersWithContext::new(&self.by_call_triggers, self),
+        )?;
+        set.serialize_field("ids", &self.ids)?;
+        set.end()
+    }
+}
+
+impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
+    type Value = Set;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct SetVisitor<'e> {
+            loader: WasmSeed<'e, Set>,
+        }
+
+        impl<'de> Visitor<'de> for SetVisitor<'_> {
+            type Value = Set;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct Set")
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut set = Set::default();
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "data_triggers" => {
+                            let triggers: HashMap<TriggerId, Action<DataEventFilter, Executable>> =
+                                map.next_value()?;
+                            for (id, action) in triggers {
+                                set.add_data_trigger(self.loader.engine, Trigger::new(id, action))
+                                    .unwrap();
+                            }
+                        }
+                        "pipeline_triggers" => {
+                            let triggers: HashMap<
+                                TriggerId,
+                                Action<PipelineEventFilter, Executable>,
+                            > = map.next_value()?;
+                            for (id, action) in triggers {
+                                set.add_pipeline_trigger(
+                                    self.loader.engine,
+                                    Trigger::new(id, action),
+                                )
+                                .unwrap();
+                            }
+                        }
+                        "time_triggers" => {
+                            let triggers: HashMap<TriggerId, Action<TimeEventFilter, Executable>> =
+                                map.next_value()?;
+                            for (id, action) in triggers {
+                                set.add_time_trigger(self.loader.engine, Trigger::new(id, action))
+                                    .unwrap();
+                            }
+                        }
+                        "by_call_triggers" => {
+                            let triggers: HashMap<
+                                TriggerId,
+                                Action<ExecuteTriggerEventFilter, Executable>,
+                            > = map.next_value()?;
+                            for (id, action) in triggers {
+                                set.add_by_call_trigger(
+                                    self.loader.engine,
+                                    Trigger::new(id, action),
+                                )
+                                .unwrap();
+                            }
+                        }
+                        "ids" => {
+                            set.ids = map.next_value()?;
+                        }
+                        _ => { /* Ignore unknown fields */ }
+                    }
+                }
+
+                Ok(set)
+            }
+        }
+
+        deserializer.deserialize_map(SetVisitor { loader: self })
+    }
 }
 
 impl Clone for Set {
@@ -199,8 +344,42 @@ impl Set {
     /// Get original [`WasmSmartContract`] for [`TriggerId`].
     /// Returns `None` if there's no [`Trigger`]
     /// with specified `id` that has WASM executable
+    #[inline]
     pub fn get_original_contract(&self, id: &TriggerId) -> Option<&WasmSmartContract> {
         self.original_contracts.get(id)
+    }
+
+    fn get_original_action<F: Clone>(
+        &self,
+        id: &TriggerId,
+        action: LoadedAction<F>,
+    ) -> Action<F, Executable> {
+        let Action {
+            executable,
+            repeats,
+            authority,
+            filter,
+            metadata,
+        } = action;
+
+        let original_executable = match executable {
+            LoadedExecutable::Wasm(_) => {
+                let original_wasm = self
+                    .get_original_contract(id)
+                    .cloned()
+                    .expect("No original smartcontract saved for trigger. This is a bug.");
+                Executable::Wasm(original_wasm)
+            }
+            LoadedExecutable::Instructions(isi) => Executable::Instructions(isi),
+        };
+
+        Action {
+            executable: original_executable,
+            repeats,
+            authority,
+            filter,
+            metadata,
+        }
     }
 
     /// Get all contained trigger ids without a particular order
