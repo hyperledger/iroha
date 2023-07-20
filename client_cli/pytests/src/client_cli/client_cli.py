@@ -193,6 +193,26 @@ class ClientCli:
         self.execute()
         return self
 
+    def burn(self, account, asset, quantity: str):
+        """
+        Executes the 'burn' command for the given asset
+
+        :param asset: The asset to be transferred.
+        :type asset: str
+
+        :param quantity: The quantity of the asset to be transferred.
+        :type quantity: str
+        :return: The current ClientCli object.
+        :rtype: ClientCli
+        """
+        self.command.append('asset')
+        self.command.append('burn')
+        self.command.append('--account=' + repr(account))
+        self.command.append('--asset=' + repr(asset))
+        self.command.append('--quantity=' + quantity)
+        self.execute()
+        return self
+
     def definition(self, asset: str, domain: str, value_type: str):
         """
         Executes the 'definition' command for the given asset, domain, and value type.

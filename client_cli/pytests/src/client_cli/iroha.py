@@ -84,6 +84,18 @@ class Iroha(ClientCli):
         self._assets = [self._assets["id"] for self._assets in self._assets]
         return self
 
+    def get_quantity(self, asset_id):
+        """
+        Get the quantity of the asset with the specified ID.
+
+        :param asset_id: The asset ID.
+        :return: The quantity of the asset or None if the asset was not found.
+        """
+        for asset in json.loads(self.stdout):
+            if asset["id"] == asset_id:
+                return str(asset["value"]["Quantity"])
+        return None
+
     def asset_definitions(self):
         """
         Retrieve asset definitions from the Iroha network

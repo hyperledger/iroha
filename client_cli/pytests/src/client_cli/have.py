@@ -52,6 +52,18 @@ def asset(expected):
         expected=expected,
         actual=iroha.list_all().assets().get_assets())
 
+def asset_quantity(asset_id, expected_quantity):
+    """
+    Check if the expected asset quantity is present in the list of assets.
+
+    :param asset_id: The asset ID.
+    :param expected_quantity: The expected quantity of the asset.
+    :return: True if the asset quantity matches the expected quantity, False otherwise.
+    """
+    return match.iroha_have_asset(
+        expected_quantity,
+        actual=iroha.list_all().assets().get_quantity(asset_id))
+
 
 def error(expected):
     """
