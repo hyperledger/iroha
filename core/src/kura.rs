@@ -18,18 +18,21 @@ use iroha_data_model::block::VersionedCommittedBlock;
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use parking_lot::Mutex;
+use serde::{de::DeserializeSeed, Serialize};
 
-use crate::handler::ThreadHandler;
+use crate::{
+    handler::ThreadHandler,
+    wsv::{WorldStateView, WsvSeed},
+};
 
 const INDEX_FILE_NAME: &str = "blocks.index";
 const DATA_FILE_NAME: &str = "blocks.data";
+const SNAPSHOT_FILE_NAME: &str = "snapshot.data";
 const LOCK_FILE_NAME: &str = "kura.lock";
 
 /// The interface of Kura subsystem
 #[derive(Debug)]
 pub struct Kura {
-    // TODO: Kura doesn't have different initialisation modes!!!
-    #[allow(dead_code)]
     /// The mode of initialisation of [`Kura`].
     mode: Mode,
     /// The block storage
@@ -115,8 +118,43 @@ impl Kura {
     /// - file storage is unavailable
     /// - data in file storage is invalid or corrupted
     #[iroha_logger::log(skip_all, name = "kura_init")]
-    pub fn init(&self) -> Result<BlockCount> {
+    pub fn init(self: &Arc<Self>) -> Result<(Option<WorldStateView>, BlockCount)> {
         let block_store = self.block_store.lock();
+
+        let mut wsv = None;
+        let mut skip_block_count = 0usize;
+
+        if matches!(self.mode, Mode::Fast) {
+            let mut data = Vec::new();
+            match block_store.read_snapshot_data(&mut data) {
+                Ok(_) => {
+                    let seed = WsvSeed { kura: self.clone() };
+                    let mut deserializer = serde_json::Deserializer::from_slice(&data);
+                    match seed.deserialize(&mut deserializer) {
+                        Ok(read_wsv) => {
+                            skip_block_count = read_wsv
+                                .height()
+                                .try_into()
+                                .expect("We don't have 4 billion blocks.");
+                            iroha_logger::trace!(?skip_block_count, "Read WSV from snapshot");
+                            wsv = Some(read_wsv);
+                        }
+                        Err(e) => {
+                            iroha_logger::warn!(
+                                ?e,
+                                "Kura initialized in Fast mode but failed to deserialize snapshot file"
+                            )
+                        }
+                    }
+                }
+                Err(e) => {
+                    iroha_logger::warn!(
+                        ?e,
+                        "Kura initialized in Fast mode but failed to read snapshot file"
+                    )
+                }
+            }
+        }
 
         let block_index_count: usize = block_store
             .read_index_count()?
@@ -152,7 +190,22 @@ impl Kura {
         // The none value is set in order to indicate that the blocks exist on disk but
         // are not yet loaded.
         *self.block_data.lock() = block_hashes.into_iter().map(|hash| (hash, None)).collect();
-        Ok(BlockCount(block_count))
+        Ok((
+            wsv,
+            BlockCount {
+                total: block_count,
+                skip: skip_block_count,
+            },
+        ))
+    }
+
+    /// Write `wsv` to snapshot file
+    ///
+    /// # Errors
+    /// - Serialization
+    /// - I/O
+    pub fn write_snapshot(&self, wsv: &WorldStateView) -> Result<()> {
+        self.block_store.lock().write_snapshot_data(wsv)
     }
 
     #[allow(clippy::expect_used, clippy::cognitive_complexity, clippy::panic)]
@@ -386,9 +439,15 @@ impl Unlocked {
     }
 }
 
-/// Newtype wrapper for block count
+/// Loaded block count
 #[derive(Clone, Copy, Debug)]
-pub struct BlockCount(pub usize);
+pub struct BlockCount {
+    /// Total count of blocks in store
+    pub total: usize,
+    /// Count of blocks already applied
+    /// to loaded WSV snapshot
+    pub skip: usize,
+}
 
 /// Marker struct for typestate, signifies that store is protected by
 /// a lockfile owned by this instance of [`BlockStore`] and thus can be written into.
@@ -570,6 +629,21 @@ impl<L: Lock> BlockStore<L> {
         // Each entry is 16 bytes.
     }
 
+    /// Read snaphsot data
+    ///
+    /// # Errors
+    /// IO Error.
+    pub fn read_snapshot_data(&self, buf: &mut Vec<u8>) -> Result<()> {
+        let path = self.path_to_blockchain.join(SNAPSHOT_FILE_NAME);
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .open(path.clone())
+            .map_err(|e| Error::IO(e, path.clone()))?;
+        file.read_to_end(buf)
+            .map_err(|e| Error::IO(e, path.clone()))?;
+        Ok(())
+    }
+
     /// Read block data starting from the
     /// `start_location_in_data_file` in data file in order to fill
     /// `dest_buffer`.
@@ -718,6 +792,25 @@ impl BlockStore<Locked> {
         Ok(())
     }
 
+    /// Serialize and write`data` to snapshot file,
+    /// overwriting any previously stored data.
+    ///
+    /// # Errors
+    /// IO Error.
+    pub fn write_snapshot_data<T: Serialize>(&mut self, data: &T) -> Result<()> {
+        let path = self.path_to_blockchain.join(SNAPSHOT_FILE_NAME);
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path.clone())
+            .map_err(|e| Error::IO(e, path.clone()))?;
+        let mut serializer = serde_json::Serializer::new(file);
+        data.serialize(&mut serializer)
+            .map_err(Error::Serialization)?;
+        Ok(())
+    }
+
     /// Create the index and data files if they do not
     /// already exist.
     ///
@@ -779,6 +872,8 @@ pub enum Error {
     MkDir(#[source] std::io::Error, PathBuf),
     /// Failed to serialize/deserialize block
     Codec(#[from] iroha_version::error::Error),
+    /// Error (de)serializing [`WorldStateView`] snapshot
+    Serialization(#[from] serde_json::Error),
     /// Failed to allocate buffer
     Alloc(#[from] std::collections::TryReserveError),
     /// Tried reading block data out of bounds: {start_block_height}, {block_count}
