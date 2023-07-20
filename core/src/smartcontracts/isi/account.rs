@@ -50,7 +50,7 @@ pub mod isi {
             match wsv.asset(&asset_id) {
                 Err(err) => match err {
                     QueryExecutionFail::Find(find_err)
-                        if matches!(*find_err, FindError::Asset(_)) =>
+                        if matches!(find_err, FindError::Asset(_)) =>
                     {
                         assert_can_register(&asset_id.definition_id, wsv, &self.object.value)?;
                         let asset = wsv

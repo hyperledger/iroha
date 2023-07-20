@@ -15,7 +15,10 @@ pub fn impl_model(input: &syn::ItemMod) -> TokenStream {
     } = input;
 
     let syn::Visibility::Public(vis_public) = vis else {
-        abort!(input, "The `model` attribute can only be used on public modules");
+        abort!(
+            input,
+            "The `model` attribute can only be used on public modules"
+        );
     };
     if ident != "model" {
         abort!(

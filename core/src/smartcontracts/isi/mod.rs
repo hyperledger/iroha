@@ -443,7 +443,7 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use core::str::FromStr;
+    use core::str::FromStr as _;
     use std::sync::Arc;
 
     use iroha_crypto::KeyPair;

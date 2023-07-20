@@ -373,8 +373,15 @@ fn classify_fn(fn_sig: &syn::Signature) -> FnClass {
         };
     }
 
-    let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments { args: generics, ..}) = &output_last_segment.arguments else {
-        abort!(output_last_segment.arguments, "`Result` return type should have generic arguments");
+    let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+        args: generics,
+        ..
+    }) = &output_last_segment.arguments
+    else {
+        abort!(
+            output_last_segment.arguments,
+            "`Result` return type should have generic arguments"
+        );
     };
 
     let ok_type = classify_ok_type(generics);
@@ -434,7 +441,11 @@ fn classify_params_and_state(
 
 fn parse_state_param(param: &syn::PatType) -> Result<&syn::Type, Diagnostic> {
     let syn::Pat::Ident(pat_ident) = &*param.pat else {
-        return Err(diagnostic!(param, Level::Error, "State parameter should be an ident"));
+        return Err(diagnostic!(
+            param,
+            Level::Error,
+            "State parameter should be an ident"
+        ));
     };
     if !["state", "_state"].contains(&&*pat_ident.ident.to_string()) {
         return Err(diagnostic!(
@@ -445,7 +456,11 @@ fn parse_state_param(param: &syn::PatType) -> Result<&syn::Type, Diagnostic> {
     }
 
     let syn::Type::Reference(ty_ref) = &*param.ty else {
-        return Err(diagnostic!(param.ty, Level::Error, "State parameter should be either reference or mutable reference"));
+        return Err(diagnostic!(
+            param.ty,
+            Level::Error,
+            "State parameter should be either reference or mutable reference"
+        ));
     };
 
     Ok(&*ty_ref.elem)
@@ -458,7 +473,10 @@ fn classify_ok_type(
         .first()
         .expect_or_abort("First generic argument expected in `Result` return type");
     let syn::GenericArgument::Type(ok_type) = ok_generic else {
-        abort!(ok_generic, "First generic of `Result` return type expected to be a type");
+        abort!(
+            ok_generic,
+            "First generic of `Result` return type expected to be a type"
+        );
     };
 
     if let syn::Type::Tuple(syn::TypeTuple { elems, .. }) = ok_type {
@@ -473,15 +491,17 @@ fn extract_err_type(generics: &Punctuated<syn::GenericArgument, syn::Token![,]>)
         .iter()
         .nth(1)
         .expect_or_abort("Second generic argument expected in `Result` return type");
-    let syn::GenericArgument::Type(err_type) = err_generic else
-    {
-        abort!(err_generic, "Second generic of `Result` return type expected to be a type");
+    let syn::GenericArgument::Type(err_type) = err_generic else {
+        abort!(
+            err_generic,
+            "Second generic of `Result` return type expected to be a type"
+        );
     };
     err_type
 }
 
 fn unwrap_path(ty: &syn::Type) -> &syn::Path {
-    let syn::Type::Path(syn::TypePath {ref path, ..}) = *ty else {
+    let syn::Type::Path(syn::TypePath { ref path, .. }) = *ty else {
         abort!(ty, "Expected path");
     };
 

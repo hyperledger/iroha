@@ -55,7 +55,8 @@ impl Name {
             .chars()
             .count()
             .try_into()
-            .map(|len| range.contains(&len)) else {
+            .map(|len| range.contains(&len))
+        else {
             return Err(InvalidParameterError::NameLength);
         };
         Ok(())

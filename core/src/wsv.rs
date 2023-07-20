@@ -474,7 +474,7 @@ impl WorldStateView {
                 account
                     .assets
                     .get(id)
-                    .ok_or_else(|| QueryExecutionFail::from(Box::new(FindError::Asset(id.clone()))))
+                    .ok_or_else(|| QueryExecutionFail::from(FindError::Asset(id.clone())))
                     .map(Clone::clone)
             },
         )?

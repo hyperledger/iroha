@@ -116,7 +116,14 @@ fn committed_block_must_be_available_in_kura() {
         .expect("Failed to submit transaction");
 
     let event = event_iter.next().expect("Block must be committed");
-    let Ok(Event::Pipeline(PipelineEvent { entity_kind: PipelineEntityKind::Block, status: PipelineStatus::Committed, hash })) = event else { panic!("Received unexpected event") };
+    let Ok(Event::Pipeline(PipelineEvent {
+        entity_kind: PipelineEntityKind::Block,
+        status: PipelineStatus::Committed,
+        hash,
+    })) = event
+    else {
+        panic!("Received unexpected event")
+    };
     let hash = HashOf::from_untyped_unchecked(hash);
 
     peer.iroha
