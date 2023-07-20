@@ -9,10 +9,14 @@ use iroha_data_model::{
     validator as data_model_validator, ValidationFail,
 };
 use iroha_logger::trace;
+use serde::{
+    de::{DeserializeSeed, MapAccess, VariantAccess, Visitor},
+    Deserialize, Deserializer, Serialize,
+};
 
-use super::{
+use crate::{
     smartcontracts::{wasm, Execute as _},
-    wsv::WorldStateView,
+    wsv::{WasmSeed, WorldStateView},
 };
 
 impl From<wasm::error::Error> for ValidationFail {
@@ -48,7 +52,7 @@ pub enum MigrationError {
 /// So in fact it's more like an **Executor**, and it probably will be renamed soon.
 ///
 /// Can be upgraded with [`Upgrade`](iroha_data_model::isi::Upgrade) instruction.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize)]
 pub enum Validator {
     /// Initial validator that allows all operations and performs no permission checking.
     #[default]
@@ -60,8 +64,64 @@ pub enum Validator {
 /// Validator provided by user.
 ///
 /// Used to not to leak private data to the user.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(transparent)]
 pub struct UserProvidedValidator(LoadedValidator);
+
+impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Validator> {
+    type Value = Validator;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ValidatorVisitor<'l> {
+            loader: &'l WasmSeed<'l, Validator>,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(variant_identifier)]
+        enum Field {
+            Initial,
+            UserProvided,
+        }
+
+        impl<'de> Visitor<'de> for ValidatorVisitor<'_> {
+            type Value = Validator;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("an enum variant")
+            }
+
+            fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::EnumAccess<'de>,
+            {
+                match data.variant()? {
+                    ("Initial", variant) => {
+                        variant.unit_variant()?;
+                        Ok(Validator::Initial)
+                    }
+                    ("UserProvided", variant) => {
+                        let loaded =
+                            variant.newtype_variant_seed(self.loader.cast::<LoadedValidator>())?;
+                        Ok(Validator::UserProvided(UserProvidedValidator(loaded)))
+                    }
+                    (other, _) => Err(serde::de::Error::unknown_variant(
+                        other,
+                        &["Initial", "UserProvided"],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_enum(
+            "Validator",
+            &["Initial", "UserProvided"],
+            ValidatorVisitor { loader: &self },
+        )
+    }
+}
 
 impl Validator {
     /// Validate [`VersionedSignedTransaction`].
@@ -211,10 +271,12 @@ impl Validator {
 ///
 /// Creating a [`wasmtime::Module`] is expensive, so we do it once on [`migrate()`](Validator::migrate)
 /// step and reuse it later on validating steps.
-#[derive(DebugCustom, Clone)]
+#[derive(DebugCustom, Clone, Serialize)]
 #[debug(fmt = "LoadedValidator {{ module: <Module is truncated> }}")]
 struct LoadedValidator {
+    #[serde(skip)]
     module: wasmtime::Module,
+    raw_validator: data_model_validator::Validator,
 }
 
 impl LoadedValidator {
@@ -223,7 +285,48 @@ impl LoadedValidator {
         raw_validator: data_model_validator::Validator,
     ) -> Result<Self, wasm::error::Error> {
         Ok(Self {
-            module: wasm::load_module(engine, raw_validator.wasm)?,
+            module: wasm::load_module(engine, &raw_validator.wasm)?,
+            raw_validator,
         })
+    }
+}
+
+impl<'de> DeserializeSeed<'de> for WasmSeed<'_, LoadedValidator> {
+    type Value = LoadedValidator;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct LoadedValidatorVisitor<'l> {
+            loader: &'l WasmSeed<'l, LoadedValidator>,
+        }
+
+        impl<'de> Visitor<'de> for LoadedValidatorVisitor<'_> {
+            type Value = LoadedValidator;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct LoadedValidator")
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                while let Some(key) = map.next_key::<String>()? {
+                    if key.as_str() == "raw_validator" {
+                        let validator: data_model_validator::Validator = map.next_value()?;
+                        return Ok(LoadedValidator::load(self.loader.engine, validator).unwrap());
+                    }
+                }
+                Err(serde::de::Error::missing_field("raw_validator"))
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "LoadedValidator",
+            &["raw_validator"],
+            LoadedValidatorVisitor { loader: &self },
+        )
     }
 }

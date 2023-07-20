@@ -40,7 +40,9 @@ pub mod model {
     }
 
     /// Event type which could invoke trigger execution.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema)]
+    #[derive(
+        Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, Serialize, Deserialize,
+    )]
     pub enum TriggeringEventType {
         /// Pipeline event.
         Pipeline,

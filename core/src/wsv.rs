@@ -11,6 +11,7 @@ use std::{
     borrow::Borrow,
     collections::{BTreeSet, HashMap},
     fmt::Debug,
+    marker::PhantomData,
     sync::Arc,
     time::Duration,
 };
@@ -34,6 +35,10 @@ use iroha_data_model::{
 };
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallVec;
+use serde::{
+    de::{DeserializeSeed, MapAccess, Visitor},
+    Deserializer, Serialize,
+};
 
 use crate::{
     kura::Kura,
@@ -51,7 +56,7 @@ use crate::{
 
 /// The global entity consisting of `domains`, `triggers` and etc.
 /// For example registration of domain, will have this as an ISI target.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize)]
 pub struct World {
     /// Iroha config parameters.
     pub(crate) parameters: Parameters,
@@ -69,6 +74,169 @@ pub struct World {
     pub(crate) triggers: TriggerSet,
     /// Runtime Validator
     pub(crate) validator: Validator,
+}
+
+// Loader for [`Set`]
+#[derive(Clone, Copy)]
+pub(crate) struct WasmSeed<'e, T> {
+    pub engine: &'e wasmtime::Engine,
+    _marker: PhantomData<T>,
+}
+
+impl<'e, T> WasmSeed<'e, T> {
+    pub fn cast<U>(&self) -> WasmSeed<'e, U> {
+        WasmSeed {
+            engine: self.engine,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<'e, 'de, T> DeserializeSeed<'de> for WasmSeed<'e, Option<T>>
+where
+    WasmSeed<'e, T>: DeserializeSeed<'de, Value = T>,
+{
+    type Value = Option<T>;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct OptionVisitor<'l, T> {
+            loader: WasmSeed<'l, T>,
+            _marker: PhantomData<T>,
+        }
+
+        impl<'e, 'de, T> Visitor<'de> for OptionVisitor<'e, T>
+        where
+            WasmSeed<'e, T>: DeserializeSeed<'de, Value = T>,
+        {
+            type Value = Option<T>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct World")
+            }
+
+            fn visit_none<E>(self) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(None)
+            }
+
+            fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                Some(self.loader.deserialize(deserializer)).transpose()
+            }
+        }
+
+        let visitor = OptionVisitor {
+            loader: self.cast::<T>(),
+            _marker: PhantomData,
+        };
+        deserializer.deserialize_option(visitor)
+    }
+}
+
+impl<'de> DeserializeSeed<'de> for WasmSeed<'_, World> {
+    type Value = World;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct WorldVisitor<'l> {
+            loader: &'l WasmSeed<'l, World>,
+        }
+
+        impl<'de> Visitor<'de> for WorldVisitor<'_> {
+            type Value = World;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct World")
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut parameters = None;
+                let mut trusted_peers_ids = None;
+                let mut domains = None;
+                let mut roles = None;
+                let mut account_permission_tokens = None;
+                let mut permission_token_schema = None;
+                let mut triggers = None;
+                let mut validator = None;
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "parameters" => {
+                            parameters = Some(map.next_value()?);
+                        }
+                        "trusted_peers_ids" => {
+                            trusted_peers_ids = Some(map.next_value()?);
+                        }
+                        "domains" => {
+                            domains = Some(map.next_value()?);
+                        }
+                        "roles" => {
+                            roles = Some(map.next_value()?);
+                        }
+                        "account_permission_tokens" => {
+                            account_permission_tokens = Some(map.next_value()?);
+                        }
+                        "permission_token_schema" => {
+                            permission_token_schema = Some(map.next_value()?);
+                        }
+                        "triggers" => {
+                            triggers = Some(map.next_value_seed(self.loader.cast::<TriggerSet>())?);
+                        }
+                        "validator" => {
+                            validator = Some(map.next_value_seed(self.loader.cast::<Validator>())?);
+                        }
+                        _ => { /* Skip unknown fields */ }
+                    }
+                }
+
+                Ok(World {
+                    parameters: parameters
+                        .ok_or_else(|| serde::de::Error::missing_field("parameters"))?,
+                    trusted_peers_ids: trusted_peers_ids
+                        .ok_or_else(|| serde::de::Error::missing_field("trusted_peers_ids"))?,
+                    domains: domains.ok_or_else(|| serde::de::Error::missing_field("domains"))?,
+                    roles: roles.ok_or_else(|| serde::de::Error::missing_field("roles"))?,
+                    account_permission_tokens: account_permission_tokens.ok_or_else(|| {
+                        serde::de::Error::missing_field("account_permission_tokens")
+                    })?,
+                    permission_token_schema: permission_token_schema.ok_or_else(|| {
+                        serde::de::Error::missing_field("permission_token_schema")
+                    })?,
+                    triggers: triggers
+                        .ok_or_else(|| serde::de::Error::missing_field("triggers"))?,
+                    validator: validator
+                        .ok_or_else(|| serde::de::Error::missing_field("validator"))?,
+                })
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "World",
+            &[
+                "parameters",
+                "trusted_peers_ids",
+                "domains",
+                "roles",
+                "account_permission_tokens",
+                "permission_token_schema",
+                "triggers",
+                "validator",
+            ],
+            WorldVisitor { loader: &self },
+        )
+    }
 }
 
 impl World {
@@ -97,6 +265,7 @@ impl World {
 }
 
 /// Current state of the blockchain aligned with `Iroha` module.
+#[derive(Serialize)]
 pub struct WorldStateView {
     /// The world. Contains `domains`, `triggers`, `roles` and other data representing the current state of the blockchain.
     pub world: World,
@@ -107,16 +276,103 @@ pub struct WorldStateView {
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: HashMap<HashOf<VersionedSignedTransaction>, u64>,
     /// Buffer containing events generated during `WorldStateView::apply`. Renewed on every block commit.
+    #[serde(skip)]
     pub events_buffer: Vec<Event>,
     /// Accumulated amount of any asset that has been transacted.
+    #[serde(skip)]
     pub metric_tx_amounts: f64,
     /// Count of how many mints, transfers and burns have happened.
+    #[serde(skip)]
     pub metric_tx_amounts_counter: u64,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
+    #[serde(skip)]
     pub engine: wasmtime::Engine,
 
     /// Reference to Kura subsystem.
+    #[serde(skip)]
     kura: Arc<Kura>,
+}
+
+/// Context necessary for deserializing [`WorldStateView`]
+pub struct WsvSeed {
+    /// Kura subsystem reference
+    pub kura: Arc<Kura>,
+}
+
+impl<'de> DeserializeSeed<'de> for WsvSeed {
+    type Value = WorldStateView;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct WorldStateViewVisitor {
+            loader: WsvSeed,
+        }
+
+        impl<'de> Visitor<'de> for WorldStateViewVisitor {
+            type Value = WorldStateView;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct WorldStateView")
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut world = None;
+                let mut config = None;
+                let mut block_hashes = None;
+                let mut transactions = None;
+
+                let engine = wasm::create_engine();
+
+                let wasm_seed: WasmSeed<()> = WasmSeed {
+                    engine: &engine,
+                    _marker: PhantomData,
+                };
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "world" => {
+                            world = Some(map.next_value_seed(wasm_seed.cast::<World>())?);
+                        }
+                        "config" => {
+                            config = Some(map.next_value()?);
+                        }
+                        "block_hashes" => {
+                            block_hashes = Some(map.next_value()?);
+                        }
+                        "transactions" => {
+                            transactions = Some(map.next_value()?);
+                        }
+                        _ => { /* Skip unknown fields */ }
+                    }
+                }
+
+                Ok(WorldStateView {
+                    world: world.ok_or_else(|| serde::de::Error::missing_field("world"))?,
+                    config: config.ok_or_else(|| serde::de::Error::missing_field("config"))?,
+                    block_hashes: block_hashes
+                        .ok_or_else(|| serde::de::Error::missing_field("block_hashes"))?,
+                    transactions: transactions
+                        .ok_or_else(|| serde::de::Error::missing_field("transactions"))?,
+                    kura: self.loader.kura,
+                    engine,
+                    events_buffer: Vec::new(),
+                    metric_tx_amounts: 0f64,
+                    metric_tx_amounts_counter: 0u64,
+                })
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "WorldStateView",
+            &["world", "config", "block_hashes", "transactions"],
+            WorldStateViewVisitor { loader: self },
+        )
+    }
 }
 
 impl Clone for WorldStateView {
@@ -431,7 +687,7 @@ impl WorldStateView {
 
     /// Get transaction validator
     pub fn transaction_validator(&self) -> TransactionValidator {
-        TransactionValidator::new(self.config.borrow().transaction_limits)
+        TransactionValidator::new(self.config.transaction_limits)
     }
 
     /// Get a reference to the latest block. Returns none if genesis is not committed.
