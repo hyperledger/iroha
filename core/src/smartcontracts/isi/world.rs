@@ -123,7 +123,7 @@ pub mod isi {
 
             for permission in &role.permissions {
                 if !wsv
-                    .permission_token_definitions()
+                    .permission_token_schema()
                     .token_ids
                     .contains(&permission.definition_id)
                 {
@@ -182,7 +182,7 @@ pub mod isi {
         token_id: PermissionTokenId,
         wsv: &mut WorldStateView,
     ) -> Result<(), RepetitionError> {
-        let permission_token_ids = &mut wsv.world_mut().permission_token_definitions.token_ids;
+        let permission_token_ids = &mut wsv.world_mut().permission_token_schema.token_ids;
 
         // Keep permission tokens sorted
         if let Err(pos) = permission_token_ids.binary_search(&token_id) {
@@ -204,7 +204,7 @@ pub mod isi {
         remove_token_from_roles(token_id, wsv)?;
         remove_token_from_accounts(token_id, wsv)?;
 
-        let permission_token_ids = &mut wsv.world_mut().permission_token_definitions.token_ids;
+        let permission_token_ids = &mut wsv.world_mut().permission_token_schema.token_ids;
 
         if let Ok(pos) = permission_token_ids.binary_search(token_id) {
             permission_token_ids.remove(pos);
@@ -270,7 +270,7 @@ pub mod isi {
             accounts_with_token.insert(
                 account_id.clone(),
                 wsv.account_inherent_permission_tokens(account_id)
-                    .filter(|token| token.definition_id == *target_definition_id)
+                    .filter(|token| token.definition_id == *token_id)
                     .cloned()
                     .collect::<Vec<_>>(),
             );
@@ -373,18 +373,16 @@ pub mod isi {
                 }
             }
 
-            let old_token_schema = wsv.permission_token_definitions().clone();
+            let old_token_schema = wsv.permission_token_schema().clone();
             for token_id in &old_token_schema.token_ids {
                 if !new_token_schema.token_ids.contains(token_id) {
                     unregister_permission_token_definition(token_id, wsv)?;
                 }
 
-                wsv.world_mut().permission_token_definitions.schema =
-                    new_token_schema.schema.clone();
+                wsv.world_mut().permission_token_schema.schema = new_token_schema.schema.clone();
             }
             for token_id in &new_token_schema.token_ids {
-                wsv.world_mut().permission_token_definitions.schema =
-                    new_token_schema.schema.clone();
+                wsv.world_mut().permission_token_schema.schema = new_token_schema.schema.clone();
 
                 if !old_token_schema.token_ids.contains(token_id) {
                     register_permission_token_definition(token_id.clone(), wsv)?;
@@ -407,7 +405,7 @@ pub mod query {
     use iroha_data_model::{
         parameter::Parameter,
         peer::Peer,
-        permission::PermissionTokenDefinition,
+        permission::PermissionTokenSchema,
         prelude::*,
         query::{
             error::{FindError, QueryExecutionFail as Error},
@@ -470,14 +468,9 @@ pub mod query {
     }
 
     impl ValidQuery for FindPermissionTokenSchema {
-        #[metrics("find_all_permission_token_ids")]
-        fn execute<'wsv>(
-            &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<Box<dyn Iterator<Item = PermissionTokenDefinition> + 'wsv>, Error> {
-            Ok(Box::new(
-                wsv.permission_token_definitions().cloned(),
-            ))
+        #[metrics("find_permission_token_schema")]
+        fn execute(&self, wsv: &WorldStateView) -> Result<PermissionTokenSchema, Error> {
+            Ok(wsv.permission_token_schema().clone())
         }
     }
 
@@ -497,13 +490,13 @@ pub mod query {
             let authority = wsv
                 .evaluate(&self.account_id)
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let permission_token = wsv
+            let given_permission_token = wsv
                 .evaluate(&self.permission_token)
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
 
             Ok(wsv
                 .account_permission_tokens(&authority)?
-                .any(|permission_token| *permission_token == self.permission_token))
+                .any(|permission_token| *permission_token == given_permission_token))
         }
     }
 }

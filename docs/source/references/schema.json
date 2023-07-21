@@ -618,6 +618,30 @@
       }
     ]
   },
+  "BatchedResponse<Value>": {
+    "Struct": [
+      {
+        "name": "batch",
+        "type": "Value"
+      },
+      {
+        "name": "cursor",
+        "type": "ForwardCursor"
+      }
+    ]
+  },
+  "BatchedResponse<Vec<VersionedSignedTransaction>>": {
+    "Struct": [
+      {
+        "name": "batch",
+        "type": "Vec<VersionedSignedTransaction>"
+      },
+      {
+        "name": "cursor",
+        "type": "ForwardCursor"
+      }
+    ]
+  },
   "BinaryOpIncompatibleNumericValueTypesError": {
     "Struct": [
       {
@@ -707,9 +731,6 @@
         "type": "SignaturesOf<CommittedBlock>"
       }
     ]
-  },
-  "Compact<u128>": {
-    "Int": "Compact"
   },
   "Conditional": {
     "Struct": [
@@ -2073,6 +2094,10 @@
   "ForwardCursor": {
     "Struct": [
       {
+        "name": "query_id",
+        "type": "Option<String>"
+      },
+      {
         "name": "cursor",
         "type": "Option<NonZero<u64>>"
       }
@@ -3016,6 +3041,9 @@
   "Option<PipelineStatusKind>": {
     "Option": "PipelineStatusKind"
   },
+  "Option<String>": {
+    "Option": "String"
+  },
   "Option<TimeInterval>": {
     "Option": "TimeInterval"
   },
@@ -3527,10 +3555,6 @@
   "QueryPayload": {
     "Struct": [
       {
-        "name": "timestamp_ms",
-        "type": "Compact<u128>"
-      },
-      {
         "name": "authority",
         "type": "AccountId"
       },
@@ -3541,18 +3565,6 @@
       {
         "name": "filter",
         "type": "GenericPredicateBox<ValuePredicate>"
-      }
-    ]
-  },
-  "QueryResponse": {
-    "Struct": [
-      {
-        "name": "result",
-        "type": "Value"
-      },
-      {
-        "name": "cursor",
-        "type": "ForwardCursor"
       }
     ]
   },
@@ -4615,8 +4627,29 @@
   "Vec<Vec<InstructionBox>>": {
     "Vec": "Vec<InstructionBox>"
   },
+  "Vec<VersionedSignedTransaction>": {
+    "Vec": "VersionedSignedTransaction"
+  },
   "Vec<u8>": {
     "Vec": "u8"
+  },
+  "VersionedBatchedResponse<Value>": {
+    "Enum": [
+      {
+        "tag": "V1",
+        "discriminant": 1,
+        "type": "BatchedResponse<Value>"
+      }
+    ]
+  },
+  "VersionedBatchedResponse<Vec<VersionedSignedTransaction>>": {
+    "Enum": [
+      {
+        "tag": "V1",
+        "discriminant": 1,
+        "type": "BatchedResponse<Vec<VersionedSignedTransaction>>"
+      }
+    ]
   },
   "VersionedBlockMessage": {
     "Enum": [
@@ -4660,15 +4693,6 @@
         "tag": "V1",
         "discriminant": 1,
         "type": "EventSubscriptionRequest"
-      }
-    ]
-  },
-  "VersionedQueryResponse": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "QueryResponse"
       }
     ]
   },
