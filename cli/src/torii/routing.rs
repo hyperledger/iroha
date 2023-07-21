@@ -531,48 +531,51 @@ impl Torii {
             .and(warp::path(uri::HEALTH))
             .and_then(|| async { Ok::<_, Infallible>(handle_health()) });
 
-        let get_router = warp::get()
-            .and(endpoint3(
+        let get_router = warp::get().and(
+            endpoint3(
                 handle_pending_transactions,
                 warp::path(uri::PENDING_TRANSACTIONS)
                     .and(add_state!(self.queue, self.sumeragi))
                     .and(paginate()),
-            ))
+            )
             .or(endpoint2(
                 handle_get_configuration,
                 warp::path(uri::CONFIGURATION)
                     .and(add_state!(self.iroha_cfg))
                     .and(warp::body::json()),
-            ));
+            )),
+        );
 
         #[cfg(feature = "schema-endpoint")]
         let get_router = get_router.or(warp::path(uri::SCHEMA)
             .and_then(|| async { Ok::<_, Infallible>(handle_schema().await) }));
 
         let post_router = warp::post()
-            .and(endpoint3(
-                handle_instructions,
-                warp::path(uri::TRANSACTION)
-                    .and(add_state!(self.queue, self.sumeragi))
-                    .and(warp::body::content_length_limit(
-                        self.iroha_cfg.torii.max_content_len.into(),
-                    ))
-                    .and(body::versioned()),
-            ))
-            .or(endpoint4(
-                handle_queries,
-                warp::path(uri::QUERY)
-                    .and(add_state!(self.sumeragi))
-                    .and(paginate())
-                    .and(sorting())
-                    .and(body::versioned()),
-            ))
-            .or(endpoint2(
-                handle_post_configuration,
-                warp::path(uri::CONFIGURATION)
-                    .and(add_state!(self.iroha_cfg))
-                    .and(warp::body::json()),
-            ))
+            .and(
+                endpoint3(
+                    handle_instructions,
+                    warp::path(uri::TRANSACTION)
+                        .and(add_state!(self.queue, self.sumeragi))
+                        .and(warp::body::content_length_limit(
+                            self.iroha_cfg.torii.max_content_len.into(),
+                        ))
+                        .and(body::versioned()),
+                )
+                .or(endpoint4(
+                    handle_queries,
+                    warp::path(uri::QUERY)
+                        .and(add_state!(self.sumeragi))
+                        .and(paginate())
+                        .and(sorting())
+                        .and(body::versioned()),
+                ))
+                .or(endpoint2(
+                    handle_post_configuration,
+                    warp::path(uri::CONFIGURATION)
+                        .and(add_state!(self.iroha_cfg))
+                        .and(warp::body::json()),
+                )),
+            )
             .recover(|rejection| async move { body::recover_versioned(rejection) });
 
         let events_ws_router = warp::path(uri::SUBSCRIPTION)
