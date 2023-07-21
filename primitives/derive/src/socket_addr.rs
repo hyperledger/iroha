@@ -1,8 +1,9 @@
 use std::net;
 
+use manyhow::Result;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::quote;
-use syn::{bracketed, parse::ParseStream, Token};
+use syn2::{bracketed, parse::ParseStream, Token};
 
 /// Stringify [`TokenStream`], without inserting any spaces in between
 fn stringify_tokens(tokens: TokenStream) -> String {
@@ -38,13 +39,13 @@ enum IpAddress {
     // so we parse them separately on the `syn` level
     IPv6 {
         #[allow(unused)]
-        bracket_token: syn::token::Bracket,
+        bracket_token: syn2::token::Bracket,
         ip_tokens: TokenStream,
     },
 }
 
 impl IpAddress {
-    fn parse_v4(input: ParseStream) -> syn::Result<Self> {
+    fn parse_v4(input: ParseStream) -> syn2::Result<Self> {
         input.step(|cursor| {
             let mut rest = *cursor;
 
@@ -66,7 +67,7 @@ impl IpAddress {
         })
     }
 
-    fn parse_v6(input: ParseStream) -> syn::Result<Self> {
+    fn parse_v6(input: ParseStream) -> syn2::Result<Self> {
         let ip_tokens;
         Ok(IpAddress::IPv6 {
             bracket_token: bracketed!(ip_tokens in input),
@@ -74,7 +75,7 @@ impl IpAddress {
         })
     }
 
-    fn parse_tokens(&self) -> syn::Result<net::IpAddr> {
+    fn parse_tokens(&self) -> syn2::Result<net::IpAddr> {
         match self {
             IpAddress::IPv4 { ip_tokens } => {
                 let ip_string = stringify_tokens(ip_tokens.clone());
@@ -82,7 +83,7 @@ impl IpAddress {
                     .parse::<net::Ipv4Addr>()
                     .map(net::IpAddr::V4)
                     .map_err(|e| {
-                        syn::Error::new_spanned(
+                        syn2::Error::new_spanned(
                             ip_tokens,
                             format!("Failed to parse `{}` as an IPv4 address: {}", ip_string, e),
                         )
@@ -94,7 +95,7 @@ impl IpAddress {
                     .parse::<net::Ipv6Addr>()
                     .map(net::IpAddr::V6)
                     .map_err(|e| {
-                        syn::Error::new_spanned(
+                        syn2::Error::new_spanned(
                             ip_tokens,
                             format!("Failed to parse `{}` as an IPv6 address: {}", ip_string, e),
                         )
@@ -104,11 +105,11 @@ impl IpAddress {
     }
 }
 
-impl syn::parse::Parse for IpAddress {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
+impl syn2::parse::Parse for IpAddress {
+    fn parse(input: ParseStream) -> syn2::Result<Self> {
         let lookahead = input.lookahead1();
 
-        if lookahead.peek(syn::token::Bracket) {
+        if lookahead.peek(syn2::token::Bracket) {
             Self::parse_v6(input)
         } else {
             Self::parse_v4(input)
@@ -120,14 +121,14 @@ struct SocketAddress {
     ip: IpAddress,
     #[allow(unused)]
     colon: Token![:],
-    port: syn::Expr,
+    port: syn2::Expr,
 }
 
-impl syn::parse::Parse for SocketAddress {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
+impl syn2::parse::Parse for SocketAddress {
+    fn parse(input: ParseStream) -> syn2::Result<Self> {
         let ip = input.parse::<IpAddress>()?;
         let colon = input.parse::<Token![:]>()?;
-        let port = input.parse::<syn::Expr>()?;
+        let port = input.parse::<syn2::Expr>()?;
 
         Ok(SocketAddress { ip, colon, port })
     }
@@ -135,19 +136,13 @@ impl syn::parse::Parse for SocketAddress {
 
 // it's fine, these are just segments of IPv6 addresses
 #[allow(clippy::many_single_char_names)]
-pub fn socket_addr_impl(input: TokenStream) -> TokenStream {
-    let socket_address = match syn::parse2::<SocketAddress>(input) {
-        Ok(addr) => addr,
-        Err(e) => return e.into_compile_error(),
-    };
+pub fn socket_addr_impl(input: TokenStream) -> Result<TokenStream> {
+    let socket_address = syn2::parse2::<SocketAddress>(input)?;
 
-    let ip_address = match socket_address.ip.parse_tokens() {
-        Ok(addr) => addr,
-        Err(e) => return e.into_compile_error(),
-    };
+    let ip_address = socket_address.ip.parse_tokens()?;
     let port = socket_address.port;
 
-    match ip_address {
+    Ok(match ip_address {
         net::IpAddr::V4(v4) => {
             let [a, b, c, d] = v4.octets();
             quote! {
@@ -170,17 +165,21 @@ pub fn socket_addr_impl(input: TokenStream) -> TokenStream {
                 )
             }
         }
-    }
+    })
 }
 
 #[cfg(test)]
 mod tests {
+    use manyhow::ToTokensError;
+
     use super::*;
 
     #[test]
     fn parse_ipv4() {
         assert_eq!(
-            socket_addr_impl(quote!(127.0.0.1:8080)).to_string(),
+            socket_addr_impl(quote!(127.0.0.1:8080))
+                .unwrap()
+                .to_string(),
             quote! {
                 ::iroha_primitives::addr::SocketAddr::Ipv4(
                     ::iroha_primitives::addr::SocketAddrV4 {
@@ -196,7 +195,7 @@ mod tests {
     #[test]
     fn parse_ipv6() {
         assert_eq!(
-            socket_addr_impl(quote!([2001:db8::1]:8080)).to_string(),
+            socket_addr_impl(quote!([2001:db8::1]:8080)).unwrap().to_string(),
             quote! {
                 ::iroha_primitives::addr::SocketAddr::Ipv6(
                     ::iroha_primitives::addr::SocketAddrV6 {
@@ -215,6 +214,7 @@ mod tests {
             socket_addr_impl(
                 quote!(127.0.0.1:unique_port::get_unique_free_port().map_err(Error::msg)?)
             )
+            .unwrap()
             .to_string(),
             quote! {
                 ::iroha_primitives::addr::SocketAddr::Ipv4(
@@ -231,9 +231,9 @@ mod tests {
     #[test]
     fn error_parens() {
         assert_eq!(
-            socket_addr_impl(quote!(127.(0.0.1):8080)).to_string(),
+            socket_addr_impl(quote!(127.(0.0.1):8080)).unwrap_err().to_token_stream().to_string(),
             quote! {
-                compile_error! { "Failed to parse `127.(0.0.1)` as an IPv4 address: invalid IPv4 address syntax" }
+                ::core::compile_error! { "Failed to parse `127.(0.0.1)` as an IPv4 address: invalid IPv4 address syntax" }
             }
                 .to_string()
         );
@@ -242,9 +242,12 @@ mod tests {
     #[test]
     fn error_extra_tokens() {
         assert_eq!(
-            socket_addr_impl(quote!(127.0.0.1:8080 1 2 3)).to_string(),
+            socket_addr_impl(quote!(127.0.0.1:8080 1 2 3))
+                .unwrap_err()
+                .to_token_stream()
+                .to_string(),
             quote! {
-                compile_error! { "unexpected token" }
+                ::core::compile_error! { "unexpected token" }
             }
             .to_string()
         );
