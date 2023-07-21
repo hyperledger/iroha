@@ -3587,8 +3587,8 @@ dependencies = [
 
 [[package]]
 name = "manyhow"
-version = "0.4.2"
-source = "git+https://github.com/DCNick3/manyhow.git?rev=3f48c16fbf6fa8f45dd9428ff191722863867be1#3f48c16fbf6fa8f45dd9428ff191722863867be1"
+version = "0.5.0"
+source = "git+https://github.com/ModProg/manyhow.git?rev=eb431de5d3e12075e157ed1ecd7aff87a5d3bbee#eb431de5d3e12075e157ed1ecd7aff87a5d3bbee"
 dependencies = [
  "darling_core",
  "manyhow-macros",
@@ -3599,8 +3599,8 @@ dependencies = [
 
 [[package]]
 name = "manyhow-macros"
-version = "0.4.2"
-source = "git+https://github.com/DCNick3/manyhow.git?rev=3f48c16fbf6fa8f45dd9428ff191722863867be1#3f48c16fbf6fa8f45dd9428ff191722863867be1"
+version = "0.5.0"
+source = "git+https://github.com/ModProg/manyhow.git?rev=eb431de5d3e12075e157ed1ecd7aff87a5d3bbee#eb431de5d3e12075e157ed1ecd7aff87a5d3bbee"
 dependencies = [
  "proc-macro-utils",
  "proc-macro2",
