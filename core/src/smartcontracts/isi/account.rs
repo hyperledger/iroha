@@ -262,7 +262,7 @@ pub mod isi {
             wsv.account_mut(&account_id)?;
 
             if !wsv
-                .permission_token_definitions()
+                .permission_token_schema()
                 .token_ids
                 .contains(&permission_id)
             {

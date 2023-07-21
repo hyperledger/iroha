@@ -26,7 +26,7 @@ use color_eyre::{
 };
 use dialoguer::Confirm;
 use erased_serde::Serialize;
-use iroha_client::client::Client;
+use iroha_client::client::{Client, QueryResult};
 use iroha_config::{client::Configuration as ClientConfiguration, path::Path as ConfigPath};
 use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
@@ -381,7 +381,7 @@ mod domain {
                     .request(client::domain::all())
                     .wrap_err("Failed to get all domains"),
             }?;
-            context.print_data(&vec)?;
+            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
         }
     }
@@ -390,7 +390,7 @@ mod domain {
 mod account {
     use std::fmt::Debug;
 
-    use iroha_client::client;
+    use iroha_client::client::{self};
 
     use super::*;
 
@@ -515,7 +515,7 @@ mod account {
                     .request(client::account::all())
                     .wrap_err("Failed to get all accounts"),
             }?;
-            context.print_data(&vec)?;
+            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
         }
     }
@@ -579,7 +579,7 @@ mod account {
             let permissions = client
                 .request(find_all_permissions)
                 .wrap_err("Failed to get all account permissions")?;
-            context.print_data(&permissions)?;
+            context.print_data(&permissions.collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
         }
     }
@@ -803,7 +803,7 @@ mod asset {
                     .request(client::asset::all())
                     .wrap_err("Failed to get all assets"),
             }?;
-            context.print_data(&vec)?;
+            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
         }
     }

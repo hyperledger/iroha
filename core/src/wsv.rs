@@ -66,7 +66,7 @@ pub struct World {
     /// Permission tokens of an account.
     pub(crate) account_permission_tokens: crate::PermissionTokensMap,
     /// Registered permission token ids.
-    pub(crate) permission_token_definitions: PermissionTokenSchema,
+    pub(crate) permission_token_schema: PermissionTokenSchema,
     /// Triggers
     pub(crate) triggers: TriggerSet,
     /// Runtime Validator
@@ -631,8 +631,8 @@ impl WorldStateView {
 
     /// Get all permission token definitions
     #[inline]
-    pub fn permission_token_definitions(&self) -> &crate::PermissionTokenSchema {
-        &self.world.permission_token_definitions
+    pub fn permission_token_schema(&self) -> &crate::PermissionTokenSchema {
+        &self.world.permission_token_schema
     }
 
     /// Construct [`WorldStateView`] with specific [`Configuration`].

@@ -31,6 +31,7 @@ use iroha_data_model::{
         BlockHeader, CommittedBlock, VersionedCommittedBlock,
     },
     domain::NewDomain,
+    http::{BatchedResponse, VersionedBatchedResponse},
     ipfs::IpfsPath,
     predicate::{
         ip_addr::{Ipv4Predicate, Ipv6Predicate},
@@ -40,7 +41,10 @@ use iroha_data_model::{
         GenericPredicateBox, NonTrivial, PredicateBox,
     },
     prelude::*,
-    query::error::{FindError, QueryExecutionFail},
+    query::{
+        error::{FindError, QueryExecutionFail},
+        ForwardCursor,
+    },
     transaction::{error::TransactionLimitError, SignedTransaction, TransactionLimits},
     validator::Validator,
     VersionedCommittedBlockWrapper,
