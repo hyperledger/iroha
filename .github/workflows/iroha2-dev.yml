@@ -9,7 +9,7 @@ env:
 
 # Note jobs in this workflow are run on `push` meaning that there's
 # no point in burning our AWS self-hosted runners' time. Hence
-# `ubuntu-latest` and not `[self-hosted, Linux]`.
+# `ubuntu-latest` and not `[self-hosted, Linux]`
 jobs:
   registry:
     runs-on: [self-hosted, Linux, iroha2-dev-push]
