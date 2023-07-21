@@ -29,21 +29,21 @@ const CONTENT_FIELD_NAME: &str = "content";
 #[manyhow]
 #[proc_macro_attribute]
 pub fn version(args: TokenStream, item: TokenStream) -> Result<TokenStream> {
-    impl_version(args, item)
+    impl_version(args, &item)
 }
 
 /// See [`version()`] for more information.
 #[manyhow]
 #[proc_macro_attribute]
 pub fn version_with_scale(args: TokenStream, item: TokenStream) -> Result<TokenStream> {
-    impl_version(args, item)
+    impl_version(args, &item)
 }
 
 /// See [`version()`] for more information.
 #[manyhow]
 #[proc_macro_attribute]
 pub fn version_with_json(args: TokenStream, item: TokenStream) -> Result<TokenStream> {
-    impl_version(args, item)
+    impl_version(args, &item)
 }
 
 /// Used to generate a versioned container with the given name and given range of supported versions.
@@ -111,7 +111,7 @@ struct VersionArgs {
     versioned_alias: syn2::Ident,
 }
 
-fn impl_version(args: TokenStream, item: TokenStream) -> Result<TokenStream> {
+fn impl_version(args: TokenStream, item: &TokenStream) -> Result<TokenStream> {
     let args = NestedMeta::parse_meta_list(args)?;
     let VersionArgs {
         version,
