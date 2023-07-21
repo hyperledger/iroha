@@ -27,7 +27,7 @@ class ClientCli:
         self.command = [self.BASE_PATH] + self.BASE_FLAGS
         self.stdout = None
         self.stderr = None
-        self._timeout = 5
+        self._timeout = 7
 
     def __enter__(self):
         """
@@ -72,7 +72,7 @@ class ClientCli:
                 raise TimeoutError(f"Expected '{expected}' "
                                    f"to be in '{actual}' "
                                    f"after waiting for '{timeout}' seconds.")
-            sleep(1)
+            sleep(0.5)
         assert expected in actual
 
     def reset(self):

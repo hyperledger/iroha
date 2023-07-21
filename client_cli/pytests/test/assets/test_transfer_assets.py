@@ -18,7 +18,7 @@ def test_transfer_asset(
                      f'of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}'
                      f'to {GIVEN_new_one_existence_account.name}'):
         client_cli.transfer(
-            asset=GIVEN_currently_account_quantity_with_two_quantity_of_asset,
+            asset=GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition,
             source_account=GIVEN_currently_authorized_account,
             target_account=GIVEN_new_one_existence_account,
             quantity="1")
