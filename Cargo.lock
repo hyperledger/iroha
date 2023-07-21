@@ -3245,9 +3245,10 @@ name = "iroha_primitives_derive"
 version = "2.0.0-pre-rc.16"
 dependencies = [
  "iroha_primitives",
+ "manyhow",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.26",
 ]
 
 [[package]]

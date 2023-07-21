@@ -15,8 +15,8 @@ syn2 = { workspace = true, features = ["default", "full"] }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
 
-manyhow = { version = "0.5.1", features = ["darling"] }
-darling = { version = "0.20.1" }
+manyhow = { workspace = true }
+darling = { workspace = true }
 
 [dev-dependencies]
 iroha_version = { workspace = true, features = ["scale", "json"] }
