@@ -1319,7 +1319,7 @@ pub mod http {
 
         /// I/O ready structure to send queries.
         #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-        #[version_with_scale(n = 1, versioned = "VersionedSignedQuery")]
+        #[version_with_scale(version = 1, versioned_alias = "VersionedSignedQuery")]
         pub struct SignedQuery {
             /// Payload
             pub payload: QueryPayload,
@@ -1331,7 +1331,7 @@ pub mod http {
         #[derive(
             Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
         )]
-        #[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
+        #[version_with_scale(version = 1, versioned_alias = "VersionedQueryResult")]
         #[serde(transparent)]
         #[repr(transparent)]
         // TODO: This should be a separate type, not just wrap Value because it infects Value
@@ -1343,7 +1343,7 @@ pub mod http {
     /// Paginated Query Result
     // TODO: This is the only structure whose inner fields are exposed. Wrap it in model macro?
     #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[version_with_scale(n = 1, versioned = "VersionedPaginatedQueryResult")]
+    #[version_with_scale(version = 1, versioned_alias = "VersionedPaginatedQueryResult")]
     pub struct PaginatedQueryResult {
         /// The result of the query execution.
         pub result: QueryResult,

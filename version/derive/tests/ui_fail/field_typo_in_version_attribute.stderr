@@ -1,14 +1,14 @@
-error: Unknown field: `versiond`. Did you mean `versioned`?
- --> tests/ui_fail/field_typo_in_version_attribute.rs:7:18
+error: Unknown field: `versiond_alias`. Did you mean `versioned_alias`?
+ --> tests/ui_fail/field_typo_in_version_attribute.rs:7:24
   |
-7 | #[version(n = 1, versiond = "VersionedMessage")]
-  |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7 | #[version(version = 1, versiond_alias = "VersionedMessage")]
+  |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-error: Missing field `versioned`
+error: Missing field `versioned_alias`
  --> tests/ui_fail/field_typo_in_version_attribute.rs:7:1
   |
-7 | #[version(n = 1, versiond = "VersionedMessage")]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7 | #[version(version = 1, versiond_alias = "VersionedMessage")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `version` (in Nightly builds, run with -Z macro-backtrace for more info)
 

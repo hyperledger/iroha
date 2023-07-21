@@ -1,8 +1,8 @@
-error: Missing field `n`
+error: Missing field `version`
  --> tests/ui_fail/field_missing_in_version_attribute.rs:7:1
   |
-7 | #[version(versioned = "VersionedMessage")]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7 | #[version(versioned_alias = "VersionedMessage")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the attribute macro `version` (in Nightly builds, run with -Z macro-backtrace for more info)
 

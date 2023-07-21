@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 declare_versioned!(VersionedMessage 1..2);
 
-#[version(versioned = "VersionedMessage")]
+#[version(versioned_alias = "VersionedMessage")]
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 struct Message;
 

@@ -151,7 +151,7 @@ pub mod model {
     /// After a transaction is signed and before it can be processed any further,
     /// the transaction must be accepted by the `Iroha` peer.
     /// The peer verifies the signatures and checks the limits.
-    #[version(n = 1, versioned = "VersionedSignedTransaction")]
+    #[version(version = 1, versioned_alias = "VersionedSignedTransaction")]
     #[derive(
         Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Serialize, IntoSchema,
     )]
