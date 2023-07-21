@@ -1297,10 +1297,10 @@ pub mod http {
     use crate::{account::AccountId, predicate::PredicateBox};
 
     // TODO: Could we make a variant of `Value` that holds only query results?
-    type QueryResult = Value;
+    /// Type representing Result of executing a query
+    pub type QueryOutput = Value;
 
     declare_versioned_with_scale!(VersionedSignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
-    declare_versioned_with_scale!(VersionedQueryResponse 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
     #[model]
     pub mod model {
@@ -1322,9 +1322,6 @@ pub mod http {
             Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
         )]
         pub(crate) struct QueryPayload {
-            /// Timestamp of the query creation.
-            #[codec(compact)]
-            pub timestamp_ms: u128,
             /// Account id of the user who will sign this query.
             pub authority: AccountId,
             /// Query definition.
@@ -1341,19 +1338,6 @@ pub mod http {
             pub signature: SignatureOf<QueryPayload>,
             /// Payload
             pub payload: QueryPayload,
-        }
-
-        /// [`SignedQuery`] response
-        #[derive(Debug, Clone, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-        #[version_with_scale(n = 1, versioned = "VersionedQueryResponse")]
-        #[getset(get = "pub")]
-        pub struct QueryResponse {
-            /// The result of the query execution.
-            #[getset(skip)]
-            pub result: QueryResult,
-            /// Index of the next element in the result set. Client will use this value
-            /// in the next request to continue fetching results of the original query
-            pub cursor: cursor::ForwardCursor,
         }
     }
 
@@ -1431,11 +1415,8 @@ pub mod http {
     impl QueryBuilder {
         /// Construct a new request with the `query`.
         pub fn new(query: impl Into<QueryBox>, authority: AccountId) -> Self {
-            let timestamp_ms = crate::current_time().as_millis();
-
             Self {
                 payload: QueryPayload {
-                    timestamp_ms,
                     query: query.into(),
                     authority,
                     filter: PredicateBox::default(),
@@ -1468,19 +1449,10 @@ pub mod http {
         }
     }
 
-    impl From<QueryResponse> for Value {
-        #[inline]
-        fn from(source: QueryResponse) -> Self {
-            source.result
-        }
-    }
-
     pub mod prelude {
         //! The prelude re-exports most commonly used traits, structs and macros from this crate.
 
-        pub use super::{
-            QueryBuilder, QueryResponse, SignedQuery, VersionedQueryResponse, VersionedSignedQuery,
-        };
+        pub use super::{QueryBuilder, SignedQuery, VersionedSignedQuery};
     }
 }
 

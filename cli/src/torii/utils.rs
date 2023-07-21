@@ -66,4 +66,4 @@ impl<O: Reply, E: Reply> Reply for WarpResult<O, E> {
     }
 }
 
-iroha_cli_derive::generate_endpoints!(2, 3, 4, 5, 7);
+iroha_cli_derive::generate_endpoints!(2, 3, 4, 5, 6, 7);

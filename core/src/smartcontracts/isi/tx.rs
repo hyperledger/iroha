@@ -34,7 +34,10 @@ impl Iterator for BlockTransactionIter {
         let block = self.0.as_v1();
 
         if self.1 < block.transactions.len() {
-            return Some(BlockTransactionRef(Arc::clone(&self.0), self.1));
+            let res = Some(BlockTransactionRef(Arc::clone(&self.0), self.1));
+
+            self.1 += 1;
+            return res;
         }
 
         None

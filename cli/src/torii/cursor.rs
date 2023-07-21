@@ -1,6 +1,4 @@
-use std::num::NonZeroUsize;
-
-use iroha_data_model::query::ForwardCursor;
+use std::num::{NonZeroU64, NonZeroUsize};
 
 use crate::torii::{Error, Result};
 
@@ -13,7 +11,7 @@ impl<I: IntoIterator> Batch for I {
         Batched {
             iter: self.into_iter(),
             batch_size,
-            cursor: ForwardCursor::default(),
+            cursor: Some(0),
         }
     }
 }
@@ -24,11 +22,11 @@ impl<I: IntoIterator> Batch for I {
 pub struct Batched<I: IntoIterator> {
     iter: I::IntoIter,
     batch_size: NonZeroUsize,
-    cursor: ForwardCursor,
+    cursor: Option<u64>,
 }
 
 impl<I: IntoIterator + FromIterator<I::Item>> Batched<I> {
-    pub(crate) fn next_batch(&mut self, cursor: ForwardCursor) -> Result<(I, ForwardCursor)> {
+    pub(crate) fn next_batch(&mut self, cursor: Option<u64>) -> Result<(I, Option<NonZeroU64>)> {
         if cursor != self.cursor {
             return Err(Error::UnknownCursor);
         }
@@ -41,7 +39,7 @@ impl<I: IntoIterator + FromIterator<I::Item>> Batched<I> {
             .take(self.batch_size.get())
             .collect();
 
-        self.cursor.cursor = if let Some(cursor) = self.cursor.cursor {
+        self.cursor = if let Some(cursor) = self.cursor {
             if batch_size >= self.batch_size.get() {
                 let batch_size = self
                     .batch_size
@@ -57,23 +55,24 @@ impl<I: IntoIterator + FromIterator<I::Item>> Batched<I> {
                 None
             }
         } else if batch_size >= self.batch_size.get() {
-            Some(self.batch_size.try_into().expect("usize should fit in u64"))
+            Some(
+                self.batch_size
+                    .get()
+                    .try_into()
+                    .expect("usize should fit in u64"),
+            )
         } else {
             None
         };
 
-        Ok((batch, self.cursor))
+        Ok((
+            batch,
+            self.cursor
+                .map(|cursor| NonZeroU64::new(cursor).expect("Cursor is never 0")),
+        ))
     }
 
     pub fn is_depleted(&self) -> bool {
-        self.cursor.cursor.is_none()
-    }
-}
-
-impl<I: Iterator> Iterator for Batched<I> {
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next()
+        self.cursor.is_none()
     }
 }

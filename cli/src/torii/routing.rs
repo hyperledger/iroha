@@ -5,7 +5,10 @@
 // FIXME: This can't be fixed, because one trait in `warp` is private.
 #![allow(opaque_hidden_inferred_bound)]
 
-use std::{cmp::Ordering, num::NonZeroUsize};
+use std::{
+    cmp::Ordering,
+    num::{NonZeroU64, NonZeroUsize},
+};
 
 use cursor::Batch;
 use eyre::WrapErr;
@@ -28,13 +31,13 @@ use iroha_data_model::{
         },
         VersionedCommittedBlock,
     },
+    http::{BatchedResponse, VersionedBatchedResponse},
     prelude::*,
     query::{ForwardCursor, Pagination, Sorting},
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
 use pagination::Paginate;
-use parity_scale_codec::Encode;
 use tokio::task;
 
 use super::*;
@@ -90,39 +93,48 @@ async fn handle_queries(
     pagination: Pagination,
 
     cursor: ForwardCursor,
-) -> Result<Scale<VersionedQueryResponse>> {
-    let (query_id, mut live_query) = if cursor.cursor.is_some() {
-        let query_id = (&request, &sorting, &pagination).encode();
-        query_store.remove(&query_id).ok_or(Error::UnknownCursor)?
-    } else {
-        let mut wsv = sumeragi.wsv_clone();
+) -> Result<Scale<VersionedBatchedResponse<Value>>> {
+    // TODO: Remove wsv clone
+    let mut wsv = sumeragi.wsv_clone();
+    let valid_request = ValidQueryRequest::validate(request, &mut wsv)?;
+    let request_id = (&valid_request, &sorting, &pagination);
 
-        let valid_request = ValidQueryRequest::validate(request, &mut wsv)?;
+    let (query_id, curr_cursor, mut live_query) = if let Some(query_id) = cursor.query_id {
+        let live_query = query_store
+            .remove(&query_id, &request_id)
+            .ok_or(Error::UnknownCursor)?;
+
+        (query_id, cursor.cursor.map(NonZeroU64::get), live_query)
+    } else {
         let res = valid_request.execute(&wsv).map_err(ValidationFail::from)?;
 
         match res {
-            LazyValue::Value(result) => {
+            LazyValue::Value(batch) => {
                 let cursor = ForwardCursor::default();
-                let result = QueryResponse { result, cursor };
+                let result = BatchedResponse { batch, cursor };
                 return Ok(Scale(result.into()));
             }
             LazyValue::Iter(iter) => {
-                let query_id = (&valid_request, &sorting, &pagination).encode();
-                let query = apply_sorting_and_pagination(iter, &sorting, pagination);
-                (query_id, query.batched(fetch_size))
+                let live_query = apply_sorting_and_pagination(iter, &sorting, pagination);
+                let query_id = uuid::Uuid::new_v4().to_string();
+
+                (query_id, Some(0), live_query.batched(fetch_size))
             }
         }
     };
 
-    let (batch, next_cursor) = live_query.next_batch(cursor)?;
+    let (batch, next_cursor) = live_query.next_batch(curr_cursor)?;
 
     if !live_query.is_depleted() {
-        query_store.insert(query_id, live_query);
+        query_store.insert(query_id.clone(), request_id, live_query);
     }
 
-    let query_response = QueryResponse {
-        result: Value::Vec(batch),
-        cursor: next_cursor,
+    let query_response = BatchedResponse {
+        batch: Value::Vec(batch),
+        cursor: ForwardCursor {
+            query_id: Some(query_id),
+            cursor: next_cursor,
+        },
     };
 
     Ok(Scale(query_response.into()))
@@ -192,16 +204,16 @@ async fn handle_pending_transactions(
 ) -> Result<Scale<Vec<VersionedSignedTransaction>>> {
     // TODO: Don't clone wsv here
     let wsv = sumeragi.wsv_clone();
-    Ok(Scale(
-        queue
-            .all_transactions(&wsv)
-            .map(Into::into)
-            .paginate(pagination)
-            .collect::<Vec<_>>(),
-        // TODO:
-        // NOTE: batching is done after collecting the result of pagination
-        //.batched(fetch_size)
-    ))
+
+    let query_response = queue
+        .all_transactions(&wsv)
+        .map(Into::into)
+        .paginate(pagination)
+        .collect::<Vec<_>>();
+    // TODO:
+    //.batched(fetch_size)
+
+    Ok(Scale(query_response))
 }
 
 #[iroha_futures::telemetry_future]
@@ -495,7 +507,7 @@ impl Torii {
             endpoint3(
                 handle_pending_transactions,
                 warp::path(uri::PENDING_TRANSACTIONS)
-                    .and(add_state!(self.queue, self.sumeragi))
+                    .and(add_state!(self.queue, self.sumeragi,))
                     .and(paginate()),
             )
             .or(endpoint2(

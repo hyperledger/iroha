@@ -4,7 +4,9 @@
 #![allow(clippy::arithmetic_side_effects)]
 
 use iroha_crypto::MerkleTree;
-use iroha_data_model::{block::stream::prelude::*, query::error::QueryExecutionFail};
+use iroha_data_model::{
+    block::stream::prelude::*, http::VersionedBatchedResponse, query::error::QueryExecutionFail,
+};
 use iroha_genesis::RawGenesisBlock;
 use iroha_schema::prelude::*;
 
@@ -47,7 +49,8 @@ pub fn build_schemas() -> MetaMap {
         VersionedBlockSubscriptionRequest,
         VersionedEventMessage,
         VersionedEventSubscriptionRequest,
-        VersionedQueryResponse,
+        VersionedBatchedResponse<Value>,
+        VersionedBatchedResponse<Vec<VersionedSignedTransaction>>,
         VersionedSignedQuery,
 
         // Never referenced, but present in type signature. Like `PhantomData<X>`
@@ -98,6 +101,8 @@ types!(
     BTreeSet<PublicKey>,
     BTreeSet<RoleId>,
     BTreeSet<SignatureWrapperOf<CommittedBlock>>,
+    BatchedResponse<Value>,
+    BatchedResponse<Vec<VersionedSignedTransaction>>,
     BlockHeader,
     BlockMessage,
     BlockRejectionReason,
@@ -219,6 +224,7 @@ types!(
     FindTriggersByDomainId,
     FixNum,
     Fixed,
+    ForwardCursor,
     GrantBox,
     Greater,
     Hash,
@@ -258,8 +264,8 @@ types!(
     NewParameterBox,
     NewRole,
     NonTrivial<PredicateBox>,
+    NonZeroU64,
     Not,
-    ValidationFail,
     NumericValue,
     Option<DomainId>,
     Option<Duration>,
@@ -268,11 +274,10 @@ types!(
     Option<HashOf<VersionedCommittedBlock>>,
     Option<InstructionBox>,
     Option<IpfsPath>,
-    Option<Name>,
     Option<PipelineEntityKind>,
     Option<PipelineStatusKind>,
+    Option<String>,
     Option<TimeInterval>,
-    Option<u32>,
     Or,
     OriginFilter<AccountEvent>,
     OriginFilter<AssetDefinitionEvent>,
@@ -281,7 +286,6 @@ types!(
     OriginFilter<PeerEvent>,
     OriginFilter<RoleEvent>,
     OriginFilter<TriggerEvent>,
-    QueryResponse,
     Pair,
     Parameter,
     ParameterId,
@@ -356,6 +360,7 @@ types!(
     TriggerNumberOfExecutionsChanged,
     UnregisterBox,
     UpgradableBox,
+    ValidationFail,
     Validator,
     ValidatorEvent,
     Value,
@@ -366,14 +371,16 @@ types!(
     Vec<PeerId>,
     Vec<PredicateBox>,
     Vec<Value>,
+    Vec<VersionedSignedTransaction>,
     Vec<u8>,
+    VersionedBatchedResponse<Value>,
+    VersionedBatchedResponse<Vec<VersionedSignedTransaction>>,
     VersionedBlockMessage,
     VersionedBlockSubscriptionRequest,
     VersionedCommittedBlock,
     VersionedCommittedBlockWrapper,
     VersionedEventMessage,
     VersionedEventSubscriptionRequest,
-    VersionedQueryResponse,
     VersionedSignedQuery,
     VersionedSignedTransaction,
     WasmExecutionFail,
@@ -391,7 +398,6 @@ types!(
     u32,
     u64,
     u8,
-    NonZeroU64,
 );
 
 #[cfg(test)]
@@ -415,6 +421,7 @@ mod tests {
             BlockHeader, CommittedBlock, VersionedCommittedBlock,
         },
         domain::NewDomain,
+        http::{BatchedResponse, VersionedBatchedResponse},
         ipfs::IpfsPath,
         predicate::{
             ip_addr::{Ipv4Predicate, Ipv6Predicate},
@@ -424,7 +431,10 @@ mod tests {
             GenericPredicateBox, NonTrivial, PredicateBox,
         },
         prelude::*,
-        query::error::{FindError, QueryExecutionFail},
+        query::{
+            error::{FindError, QueryExecutionFail},
+            ForwardCursor,
+        },
         transaction::{error::TransactionLimitError, SignedTransaction, TransactionLimits},
         validator::Validator,
         VersionedCommittedBlockWrapper,
@@ -456,22 +466,7 @@ mod tests {
     }
 
     fn generate_test_map() -> BTreeMap<core::any::TypeId, String> {
-        let mut map = generate_map! {insert_into_test_map};
-
-        if map
-            .insert(
-                core::any::TypeId::of::<iroha_schema::Compact<u128>>(),
-                <iroha_schema::Compact<u128> as iroha_schema::TypeId>::id(),
-            )
-            .is_some()
-        {
-            panic!(
-                "{}: Duplicate type id. Make sure that type ids are unique",
-                <iroha_schema::Compact<u128> as iroha_schema::TypeId>::id(),
-            );
-        }
-
-        map
+        generate_map! {insert_into_test_map}
     }
 
     // For `PhantomData` wrapped types schemas aren't expanded recursively.

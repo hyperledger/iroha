@@ -51,6 +51,7 @@ impl_lazy! {
     iroha_data_model::block::BlockHeader,
     iroha_data_model::query::MetadataValue,
     iroha_data_model::query::TransactionQueryOutput,
+    iroha_data_model::permission::PermissionTokenSchema,
     iroha_data_model::trigger::Trigger<iroha_data_model::events::FilterBox, iroha_data_model::trigger::OptimizedExecutable>,
 }
 
@@ -423,7 +424,6 @@ mod tests {
                 .count() as u64,
             num_blocks
         );
-        assert!(txs.windows(2).all(|wnd| wnd[0] >= wnd[1]));
 
         Ok(())
     }

@@ -20,6 +20,7 @@ use iroha_core::{
     EventsSender,
 };
 use iroha_data_model::Value;
+use parity_scale_codec::Encode;
 use tokio::{sync::Notify, time::sleep};
 use utils::*;
 use warp::{
@@ -41,18 +42,19 @@ type LiveQuery = Batched<Vec<Value>>;
 
 #[derive(Default)]
 struct LiveQueryStore {
-    queries: DashMap<Vec<u8>, (LiveQuery, Instant)>,
+    queries: DashMap<(String, Vec<u8>), (LiveQuery, Instant)>,
 }
 
 impl LiveQueryStore {
-    fn insert(&self, request: Vec<u8>, live_query: LiveQuery) {
-        self.queries.insert(request, (live_query, Instant::now()));
+    fn insert<T: Encode>(&self, query_id: String, request: T, live_query: LiveQuery) {
+        self.queries
+            .insert((query_id, request.encode()), (live_query, Instant::now()));
     }
 
-    fn remove(&self, request: &Vec<u8>) -> Option<(Vec<u8>, LiveQuery)> {
+    fn remove<T: Encode>(&self, query_id: &str, request: &T) -> Option<LiveQuery> {
         self.queries
-            .remove(request)
-            .map(|(query_id, (query, _))| (query_id, query))
+            .remove(&(query_id.to_string(), request.encode()))
+            .map(|(_, (output, _))| output)
     }
 
     // TODO: Add notifier channel to enable graceful shutdown

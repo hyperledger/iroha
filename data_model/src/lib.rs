@@ -1817,6 +1817,50 @@ pub fn current_time() -> core::time::Duration {
         .expect("Failed to get the current system time")
 }
 
+#[cfg(feature = "http")]
+pub mod http {
+    //! Structures related to HTTP communication
+
+    use iroha_data_model_derive::model;
+    use iroha_schema::IntoSchema;
+    use iroha_version::declare_versioned_with_scale;
+
+    pub use self::model::*;
+    use crate::prelude::QueryOutput;
+
+    declare_versioned_with_scale!(VersionedBatchedResponse<T> 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+
+    #[model]
+    pub mod model {
+        use getset::Getters;
+        use iroha_version::version_with_scale;
+        use parity_scale_codec::{Decode, Encode};
+        use serde::{Deserialize, Serialize};
+
+        use super::*;
+
+        /// Batched response of a query sent to torii
+        #[derive(Debug, Clone, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[version_with_scale(n = 1, versioned = "VersionedBatchedResponse")]
+        #[getset(get = "pub")]
+        #[must_use]
+        pub struct BatchedResponse<T> {
+            /// Current batch
+            pub batch: T,
+            /// Index of the next element in the result set. Client will use this value
+            /// in the next request to continue fetching results of the original query
+            pub cursor: crate::query::cursor::ForwardCursor,
+        }
+    }
+
+    impl From<BatchedResponse<Self>> for QueryOutput {
+        #[inline]
+        fn from(source: BatchedResponse<Self>) -> Self {
+            source.batch
+        }
+    }
+}
+
 mod ffi {
     //! Definitions and implementations of FFI related functionalities
 

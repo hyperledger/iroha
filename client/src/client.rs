@@ -22,6 +22,7 @@ use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConf
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
     block::VersionedCommittedBlock,
+    http::VersionedBatchedResponse,
     isi::Instruction,
     predicate::PredicateBox,
     prelude::*,
@@ -47,7 +48,7 @@ const APPLICATION_JSON: &str = "application/json";
 
 /// Phantom struct that handles responses of Query API.
 /// Depending on input query struct, transforms a response into appropriate output.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone)]
 pub struct QueryResponseHandler<R> {
     query_request: QueryRequest,
     _output_type: PhantomData<R>,
@@ -104,10 +105,10 @@ where
         // Separate-compilation friendly response handling
         fn _handle_query_response_base(
             resp: &Response<Vec<u8>>,
-        ) -> QueryResult<VersionedQueryResponse> {
+        ) -> QueryResult<VersionedBatchedResponse<Value>> {
             match resp.status() {
                 StatusCode::OK => {
-                    let res = VersionedQueryResponse::decode_all_versioned(resp.body());
+                    let res = VersionedBatchedResponse::decode_all_versioned(resp.body());
                     res.wrap_err(
                         "Failed to decode response from Iroha. \
                          You are likely using a version of the client library \
@@ -143,13 +144,13 @@ where
         }
 
         let response = _handle_query_response_base(resp)
-            .map(|VersionedQueryResponse::V1(response)| response)?;
+            .map(|VersionedBatchedResponse::V1(response)| response)?;
 
-        let value = R::try_from(response.result)
+        let value = R::try_from(response.batch)
             .map_err(Into::into)
             .wrap_err("Unexpected type")?;
 
-        self.query_request.server_cursor = response.cursor;
+        self.query_request.query_cursor = response.cursor;
         Ok(value)
     }
 }
@@ -242,7 +243,7 @@ pub trait QueryOutput: Into<Value> + TryFrom<Value> {
 }
 
 /// Iterable query output
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone)]
 pub struct ResultSet<T> {
     query_handler: QueryResponseHandler<Vec<T>>,
 
@@ -259,7 +260,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.client_cursor >= self.iter.len() {
-            self.query_handler.query_request.server_cursor.get()?;
+            self.query_handler.query_request.query_cursor.cursor?;
 
             let request = match self.query_handler.query_request.clone().assemble().build() {
                 Err(err) => return Some(Err(ClientQueryError::Other(err))),
@@ -322,6 +323,7 @@ impl_query_result! {
     iroha_data_model::block::BlockHeader,
     iroha_data_model::query::MetadataValue,
     iroha_data_model::query::TransactionQueryOutput,
+    iroha_data_model::permission::PermissionTokenSchema,
     iroha_data_model::trigger::Trigger<iroha_data_model::events::FilterBox, iroha_data_model::trigger::OptimizedExecutable>,
 }
 
@@ -360,19 +362,21 @@ pub struct QueryRequest {
     request: Vec<u8>,
     sorting: Sorting,
     pagination: Pagination,
-    server_cursor: ForwardCursor,
+    query_cursor: ForwardCursor,
 }
 
 impl QueryRequest {
     #[cfg(test)]
     fn dummy() -> Self {
+        let torii_url = iroha_config::torii::uri::DEFAULT_API_ADDR;
+
         Self {
-            torii_url: uri::QUERY.parse().unwrap(),
+            torii_url: format!("http://{torii_url}").parse().unwrap(),
             headers: HashMap::new(),
             request: Vec::new(),
             sorting: Sorting::default(),
             pagination: Pagination::default(),
-            server_cursor: ForwardCursor::default(),
+            query_cursor: ForwardCursor::default(),
         }
     }
     fn assemble(self) -> DefaultRequestBuilder {
@@ -383,7 +387,7 @@ impl QueryRequest {
         .headers(self.headers)
         .params(Vec::from(self.sorting))
         .params(Vec::from(self.pagination))
-        .params(Vec::from(self.server_cursor))
+        .params(Vec::from(self.query_cursor))
         .body(self.request)
     }
 }
@@ -805,7 +809,7 @@ impl Client {
             request,
             sorting,
             pagination,
-            server_cursor: ForwardCursor::default(),
+            query_cursor: ForwardCursor::default(),
         };
 
         Ok((
@@ -833,9 +837,7 @@ impl Client {
         let (req, mut resp_handler) =
             self.prepare_query_request::<R>(request, filter, pagination, sorting)?;
 
-        let kita = req.build()?;
-        //println!("Request: {kita:?}");
-        let response = kita.send()?;
+        let response = req.build()?.send()?;
         let value = resp_handler.handle(&response)?;
         let output = QueryOutput::new(value, resp_handler);
 
