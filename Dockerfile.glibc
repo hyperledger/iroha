@@ -24,6 +24,8 @@ RUN mold --run cargo build --target x86_64-unknown-linux-gnu --profile deploy
 # final image
 FROM alpine:3.18
 
+ENV  GLIBC_REPO=https://github.com/sgerrand/alpine-pkg-glibc
+ENV  GLIBC_VERSION=2.35-r1
 ARG  STORAGE=/storage
 ARG  TARGET_DIR=/iroha/target/x86_64-unknown-linux-gnu/deploy
 ENV  BIN_PATH=/usr/local/bin/
@@ -33,7 +35,12 @@ ENV  IROHA2_GENESIS_PATH=$CONFIG_DIR/genesis.json
 ENV  KURA_BLOCK_STORE_PATH=$STORAGE
 
 RUN  set -ex && \
-     apk --update add curl ca-certificates && \
+     apk --update add libstdc++ curl ca-certificates gcompat && \
+     for pkg in glibc-${GLIBC_VERSION} glibc-bin-${GLIBC_VERSION}; \
+         do curl -sSL ${GLIBC_REPO}/releases/download/${GLIBC_VERSION}/${pkg}.apk -o /tmp/${pkg}.apk; done && \
+     apk add --force-overwrite --allow-untrusted /tmp/*.apk && \
+     rm -v /tmp/*.apk && \
+     /usr/glibc-compat/sbin/ldconfig /lib /usr/glibc-compat/lib && \
      adduser --disabled-password iroha --shell /bin/bash --home /app && \
      mkdir -p $CONFIG_DIR && \
      mkdir $STORAGE && \
