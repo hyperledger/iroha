@@ -3077,10 +3077,13 @@ dependencies = [
 name = "iroha_derive"
 version = "2.0.0-pre-rc.16"
 dependencies = [
+ "darling",
+ "impls",
  "iroha_macro",
+ "manyhow",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.26",
  "trybuild",
 ]
 

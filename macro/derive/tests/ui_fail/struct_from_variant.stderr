@@ -1,7 +1,7 @@
-error: proc-macro derive panicked
+error: Unsupported shape `struct`. Expected enum with named fields, unnamed fields, or no fields.
  --> tests/ui_fail/struct_from_variant.rs:1:10
   |
 1 | #[derive(iroha_derive::FromVariant)]
   |          ^^^^^^^^^^^^^^^^^^^^^^^^^
   |
-  = help: message: Only enums are supported
+  = note: this error originates in the derive macro `iroha_derive::FromVariant` (in Nightly builds, run with -Z macro-backtrace for more info)
