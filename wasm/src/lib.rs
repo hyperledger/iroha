@@ -154,7 +154,7 @@ impl iroha_data_model::evaluate::Context for Context {
 }
 
 /// Query the authority of the smart contract
-pub fn query_authority() -> <Account as Identifiable>::Id {
+pub fn query_authority() -> AccountId {
     #[cfg(not(test))]
     use host::query_authority as host_query_authority;
     #[cfg(test)]
@@ -377,7 +377,7 @@ mod tests {
         let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
         FindAccountById::new(account_id).into()
     }
-    fn get_test_authority() -> <Account as Identifiable>::Id {
+    fn get_test_authority() -> AccountId {
         "alice@wonderland".parse().expect("Valid")
     }
     fn get_test_expression() -> EvaluatesTo<NumericValue> {
@@ -390,10 +390,9 @@ mod tests {
         .into()
     }
     fn get_test_operation() -> NeedsValidationBox {
-        let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
-        let rose_definition_id: <AssetDefinition as Identifiable>::Id =
-            "rose#wonderland".parse().expect("Valid");
-        let alice_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, alice_id);
+        let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
+        let rose_definition_id: AssetDefinitionId = "rose#wonderland".parse().expect("Valid");
+        let alice_rose_id = AssetId::new(rose_definition_id, alice_id);
 
         NeedsValidationBox::Instruction(MintBox::new(1u32, alice_rose_id).into())
     }

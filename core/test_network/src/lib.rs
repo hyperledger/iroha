@@ -85,29 +85,19 @@ impl TestGenesis for GenesisNetwork {
             <Account as Identifiable>::Id::from_str("alice@wonderland").expect("valid names");
 
         let mint_rose_permission = PermissionToken::new(
-            "can_mint_assets_with_definition"
-                .parse()
-                .expect("valid names"),
-        )
-        .with_params([(
-            "asset_definition_id".parse().expect("valid names"),
-            IdBox::from(rose_definition_id.clone()).into(),
-        )]);
+            "CanMintAssetsWithDefinition".parse().unwrap(),
+            &rose_definition_id,
+        );
         let burn_rose_permission = PermissionToken::new(
-            "can_burn_assets_with_definition"
-                .parse()
-                .expect("valid names"),
-        )
-        .with_params([(
-            "asset_definition_id".parse().expect("valid names"),
-            IdBox::from(rose_definition_id).into(),
-        )]);
+            "CanBurnAssetsWithDefinition".parse().unwrap(),
+            &rose_definition_id,
+        );
         let unregister_any_peer_permission =
-            PermissionToken::new("can_unregister_any_peer".parse().expect("valid names"));
+            PermissionToken::new("CanUnregisterAnyPeer".parse().unwrap(), &());
         let unregister_any_role_permission =
-            PermissionToken::new("can_unregister_any_role".parse().expect("valid names"));
+            PermissionToken::new("CanUnregisterAnyRole".parse().unwrap(), &());
         let upgrade_validator_permission =
-            PermissionToken::new("can_upgrade_validator".parse().expect("valid names"));
+            PermissionToken::new("CanUpgradeValidator".parse().unwrap(), &());
 
         for permission in [
             mint_rose_permission,

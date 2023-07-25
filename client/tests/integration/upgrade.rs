@@ -5,7 +5,7 @@ use std::path::Path;
 use eyre::Result;
 use iroha_client::client::Client;
 use iroha_crypto::KeyPair;
-use iroha_data_model::{prelude::*, query::permission::FindAllPermissionTokenDefinitions};
+use iroha_data_model::{prelude::*, query::permission::FindPermissionTokenSchema};
 use iroha_logger::info;
 use test_network::*;
 
@@ -58,29 +58,29 @@ fn validator_upgrade_should_update_tokens() -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_990).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
-    // Check that `can_unregister_domain` exists
-    let can_unregister_domain_token_id: PermissionTokenId = "can_unregister_domain".parse()?;
-    let definitions = client.request(FindAllPermissionTokenDefinitions)?;
+    // Check that `CanUnregisterDomain` exists
+    let definitions = client.request(FindPermissionTokenSchema)?;
     assert!(definitions
-        .into_iter()
-        .any(|definition| definition.id() == &can_unregister_domain_token_id));
+        .token_ids()
+        .iter()
+        .any(|id| id == &"CanUnregisterDomain".parse().unwrap()));
 
     upgrade_validator(
         &client,
         "tests/integration/smartcontracts/validator_with_custom_token",
     )?;
 
-    // Check that `can_unregister_domain` doesn't exist
-    let definitions = client.request(FindAllPermissionTokenDefinitions)?;
+    // Check that `CanUnregisterDomain` doesn't exist
+    let definitions = client.request(FindPermissionTokenSchema)?;
     assert!(!definitions
+        .token_ids()
         .iter()
-        .any(|definition| definition.id() == &can_unregister_domain_token_id));
+        .any(|id| id == &"CanUnregisterDomain".parse().unwrap()));
 
-    // Check that `can_control_domain_lives` exists
-    let can_control_domain_lives: PermissionTokenId = "can_control_domain_lives".parse()?;
     assert!(definitions
+        .token_ids()
         .iter()
-        .any(|definition| definition.id() == &can_control_domain_lives));
+        .any(|id| id == &"CanControlDomainLives".parse().unwrap()));
 
     Ok(())
 }

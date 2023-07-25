@@ -72,7 +72,7 @@ pub mod model {
     )]
     #[serde(transparent)]
     #[repr(transparent)]
-    #[ffi_type(opaque)]
+    #[ffi_type(unsafe {robust})]
     pub struct NewRole {
         #[allow(missing_docs)]
         #[id(transparent)]

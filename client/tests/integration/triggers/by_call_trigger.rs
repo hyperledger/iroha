@@ -107,8 +107,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
     // Registering trigger that should fail on execution
-    let bad_trigger_id =
-        <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str("bad_trigger")?;
+    let bad_trigger_id = TriggerId::from_str("bad_trigger")?;
     // Invalid instruction
     let bad_trigger_instructions = vec![MintBox::new(1_u32, account_id.clone())];
     let register_bad_trigger = RegisterBox::new(Trigger::new(
@@ -126,7 +125,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
     test_client.submit(register_bad_trigger)?;
 
     // Registering normal trigger
-    let trigger_id = <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str(TRIGGER_NAME)?;
+    let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
     let trigger_instructions = vec![MintBox::new(1_u32, asset_id.clone())];
     let register_trigger = RegisterBox::new(Trigger::new(
         trigger_id,
@@ -160,8 +159,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = AccountId::from_str("alice@wonderland")?;
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-    let trigger_id =
-        <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str("self_modifying_trigger")?;
+    let trigger_id = TriggerId::from_str("self_modifying_trigger")?;
 
     let trigger_instructions = vec![MintBox::new(1_u32, asset_id.clone())];
     let register_trigger = RegisterBox::new(Trigger::new(
@@ -219,8 +217,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = AccountId::from_str("alice@wonderland")?;
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-    let trigger_id =
-        <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str("self_modifying_trigger")?;
+    let trigger_id = TriggerId::from_str("self_modifying_trigger")?;
 
     let trigger_instructions = vec![
         MintBox::new(1_u32, trigger_id.clone()),
@@ -265,8 +262,7 @@ fn unregister_trigger() -> Result<()> {
     let account_id = AccountId::from_str("alice@wonderland")?;
 
     // Registering trigger
-    let trigger_id =
-        <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str("empty_trigger")?;
+    let trigger_id = TriggerId::from_str("empty_trigger")?;
     let trigger = Trigger::new(
         trigger_id.clone(),
         Action::new(
@@ -337,9 +333,8 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
     info!("WASM size is {} bytes", wasm.len());
 
     let wasm_base64 = serde_json::json!(base64::encode(&wasm)).to_string();
-    let account_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
-    let trigger_id =
-        <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str("genesis_trigger")?;
+    let account_id = AccountId::from_str("alice@wonderland")?;
+    let trigger_id = TriggerId::from_str("genesis_trigger")?;
 
     let trigger = Trigger::new(
         trigger_id.clone(),
@@ -394,12 +389,8 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = AccountId::from_str("alice@wonderland")?;
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-    let trigger_id_unregister =
-        <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str("unregister_other_trigger")?;
-    let trigger_id_should_be_unregistered =
-        <Trigger<FilterBox, Executable> as Identifiable>::Id::from_str(
-            "should_be_unregistered_trigger",
-        )?;
+    let trigger_id_unregister = TriggerId::from_str("unregister_other_trigger")?;
+    let trigger_id_should_be_unregistered = TriggerId::from_str("should_be_unregistered_trigger")?;
 
     let trigger_unregister_instructions = vec![UnregisterBox::new(
         trigger_id_should_be_unregistered.clone(),

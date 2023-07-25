@@ -76,7 +76,7 @@ pub trait Visit: ExpressionEvaluator {
         visit_find_all_domains(&FindAllDomains),
         visit_find_all_parammeters(&FindAllParameters),
         visit_find_all_peers(&FindAllPeers),
-        visit_find_all_permission_token_definitions(&FindAllPermissionTokenDefinitions),
+        visit_find_all_permission_token_definitions(&FindPermissionTokenSchema),
         visit_find_all_role_ids(&FindAllRoleIds),
         visit_find_all_roles(&FindAllRoles),
         visit_find_all_transactions(&FindAllTransactions),
@@ -211,7 +211,7 @@ pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, qu
         visit_find_all_domains(FindAllDomains),
         visit_find_all_parammeters(FindAllParameters),
         visit_find_all_peers(FindAllPeers),
-        visit_find_all_permission_token_definitions(FindAllPermissionTokenDefinitions),
+        visit_find_all_permission_token_definitions(FindPermissionTokenSchema),
         visit_find_all_role_ids(FindAllRoleIds),
         visit_find_all_roles(FindAllRoles),
         visit_find_all_transactions(FindAllTransactions),
@@ -300,7 +300,7 @@ pub fn visit_instruction<V: Visit + ?Sized>(
 
 pub fn visit_expression<V: Visit + ?Sized, X>(
     visitor: &mut V,
-    authority: &<Account as Identifiable>::Id,
+    authority: &AccountId,
     expression: &EvaluatesTo<X>,
 ) {
     macro_rules! visit_binary_math_expression {
@@ -719,7 +719,7 @@ leaf_visitors! {
     visit_find_all_domains(&FindAllDomains),
     visit_find_all_parammeters(&FindAllParameters),
     visit_find_all_peers(&FindAllPeers),
-    visit_find_all_permission_token_definitions(&FindAllPermissionTokenDefinitions),
+    visit_find_all_permission_token_definitions(&FindPermissionTokenSchema),
     visit_find_all_role_ids(&FindAllRoleIds),
     visit_find_all_roles(&FindAllRoles),
     visit_find_all_transactions(&FindAllTransactions),

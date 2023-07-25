@@ -58,6 +58,7 @@ pub mod model {
     use iroha_crypto::HashOf;
 
     use super::*;
+    use crate::permission::PermissionTokenId;
 
     /// Sized container for all possible Queries.
     #[allow(clippy::enum_variant_names)]
@@ -77,90 +78,49 @@ pub mod model {
         IntoSchema,
     )]
     #[ffi_type]
+    #[allow(missing_docs)]
     pub enum QueryBox {
-        /// [`FindAllAccounts`] variant.
         FindAllAccounts(FindAllAccounts),
-        /// [`FindAccountById`] variant.
         FindAccountById(FindAccountById),
-        /// [`FindAccountKeyValueByIdAndKey`] variant.
         FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey),
-        /// [`FindAccountsByName`] variant.
         FindAccountsByName(FindAccountsByName),
-        /// [`FindAccountsByDomainId`] variant.
         FindAccountsByDomainId(FindAccountsByDomainId),
-        /// [`FindAccountsWithAsset`] variant.
         FindAccountsWithAsset(FindAccountsWithAsset),
-        /// [`FindAllAssets`] variant.
         FindAllAssets(FindAllAssets),
-        /// [`FindAllAssetsDefinitions`] variant.
         FindAllAssetsDefinitions(FindAllAssetsDefinitions),
-        /// [`FindAssetById`] variant.
         FindAssetById(FindAssetById),
-        /// [`FindAssetDefinitionById`] variant.
         FindAssetDefinitionById(FindAssetDefinitionById),
-        /// [`FindAssetsByName`] variant.
         FindAssetsByName(FindAssetsByName),
-        /// [`FindAssetsByAccountId`] variant.
         FindAssetsByAccountId(FindAssetsByAccountId),
-        /// [`FindAssetsByAssetDefinitionId`] variant.
         FindAssetsByAssetDefinitionId(FindAssetsByAssetDefinitionId),
-        /// [`FindAssetsByDomainId`] variant.
         FindAssetsByDomainId(FindAssetsByDomainId),
-        /// [`FindAssetsByDomainIdAndAssetDefinitionId`] variant.
         FindAssetsByDomainIdAndAssetDefinitionId(FindAssetsByDomainIdAndAssetDefinitionId),
-        /// [`FindAssetQuantityById`] variant.
         FindAssetQuantityById(FindAssetQuantityById),
-        /// [`FindTotalAssetQuantityByAssetDefinitionId`] variant.
         FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
-        /// [`IsAssetDefinitionOwner`] variant.
         IsAssetDefinitionOwner(IsAssetDefinitionOwner),
-        /// [`FindAssetKeyValueByIdAndKey`] variant.
         FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
-        /// [`FindAssetKeyValueByIdAndKey`] variant.
         FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey),
-        /// [`FindAllDomains`] variant.
         FindAllDomains(FindAllDomains),
-        /// [`FindDomainById`] variant.
         FindDomainById(FindDomainById),
-        /// [`FindDomainKeyValueByIdAndKey`] variant.
         FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey),
-        /// [`FindAllPeers`] variant.
         FindAllPeers(FindAllPeers),
-        /// [`FindAllBlocks`] variant.
         FindAllBlocks(FindAllBlocks),
-        /// [`FindAllBlockHeaders`] variant.
         FindAllBlockHeaders(FindAllBlockHeaders),
-        /// [`FindBlockHeaderByHash`] variant.
         FindBlockHeaderByHash(FindBlockHeaderByHash),
-        /// [`FindAllTransactions`] variant.
         FindAllTransactions(FindAllTransactions),
-        /// [`FindTransactionsByAccountId`] variant.
         FindTransactionsByAccountId(FindTransactionsByAccountId),
-        /// [`FindTransactionByHash`] variant.
         FindTransactionByHash(FindTransactionByHash),
-        /// [`FindPermissionTokensByAccountId`] variant.
         FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
-        /// [`FindAllPermissionTokenDefinitions`] variant.
-        FindAllPermissionTokenDefinitions(FindAllPermissionTokenDefinitions),
-        /// [`DoesAccountHavePermissionToken`] variant.
+        FindPermissionTokenSchema(FindPermissionTokenSchema),
         DoesAccountHavePermissionToken(DoesAccountHavePermissionToken),
-        /// [`FindAllActiveTriggerIds`] variant.
         FindAllActiveTriggerIds(FindAllActiveTriggerIds),
-        /// [`FindTriggerById`] variant.
         FindTriggerById(FindTriggerById),
-        /// [`FindTriggerKeyValueByIdAndKey`] variant.
         FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
-        /// [`FindTriggersByDomainId`] variant.
         FindTriggersByDomainId(FindTriggersByDomainId),
-        /// [`FindAllRoles`] variant.
         FindAllRoles(FindAllRoles),
-        /// [`FindAllRoleIds`] variant.
         FindAllRoleIds(FindAllRoleIds),
-        /// [`FindRoleByRoleId`] variant.
         FindRoleByRoleId(FindRoleByRoleId),
-        /// [`FindRolesByAccountId`] variant.
         FindRolesByAccountId(FindRolesByAccountId),
-        /// [`FindAllParameters`] variant.
         FindAllParameters(FindAllParameters),
     }
 
@@ -300,14 +260,16 @@ pub mod permission {
 
     use derive_more::Display;
 
-    use crate::{permission, prelude::*};
+    use crate::{
+        permission::{self, PermissionTokenSchema},
+        prelude::*,
+    };
 
     queries! {
-        /// [`FindAllPermissionTokenDefinitions`] Iroha Query finds all registered
-        /// [`PermissionTokenDefinition`][crate::permission::PermissionTokenDefinition]s
+        /// Finds all registered permission tokens
         #[derive(Copy, Display)]
         #[ffi_type]
-        pub struct FindAllPermissionTokenDefinitions;
+        pub struct FindPermissionTokenSchema;
 
         /// [`FindPermissionTokensByAccountId`] Iroha Query finds all [`PermissionToken`]s
         /// for a specified account.
@@ -329,12 +291,12 @@ pub mod permission {
             /// `Id` of an account to check.
             pub account_id: EvaluatesTo<AccountId>,
             /// `PermissionToken` to check for.
-            pub permission_token: permission::PermissionToken,
+            pub permission_token: EvaluatesTo<permission::PermissionToken>,
         }
     }
 
-    impl Query for FindAllPermissionTokenDefinitions {
-        type Output = Vec<PermissionTokenDefinition>;
+    impl Query for FindPermissionTokenSchema {
+        type Output = PermissionTokenSchema;
     }
 
     impl Query for FindPermissionTokensByAccountId {
@@ -349,11 +311,11 @@ pub mod permission {
         /// Construct [`DoesAccountHavePermissionToken`].
         pub fn new(
             account_id: impl Into<EvaluatesTo<AccountId>>,
-            permission_token: permission::PermissionToken,
+            permission_token: impl Into<EvaluatesTo<permission::PermissionToken>>,
         ) -> Self {
             Self {
                 account_id: account_id.into(),
-                permission_token,
+                permission_token: permission_token.into(),
             }
         }
     }
@@ -370,7 +332,7 @@ pub mod permission {
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
         pub use super::{
-            DoesAccountHavePermissionToken, FindAllPermissionTokenDefinitions,
+            DoesAccountHavePermissionToken, FindPermissionTokenSchema,
             FindPermissionTokensByAccountId,
         };
     }
@@ -1486,31 +1448,6 @@ pub mod error {
             Encode,
             IntoSchema,
         )]
-        #[ffi_type]
-        #[display(
-            fmt = "Failed to find permission token `{permission_token_id}` for account `{account_id}`"
-        )]
-        #[cfg_attr(feature = "std", derive(thiserror::Error))]
-        pub struct PermissionTokenFindError {
-            pub account_id: AccountId,
-            pub permission_token_id: PermissionTokenId,
-        }
-
-        /// Type assertion error
-        #[derive(
-            Debug,
-            displaydoc::Display,
-            Clone,
-            PartialEq,
-            Eq,
-            PartialOrd,
-            Ord,
-            Deserialize,
-            Serialize,
-            Decode,
-            Encode,
-            IntoSchema,
-        )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         // TODO: Only temporary
         #[ffi_type(opaque)]
@@ -1535,10 +1472,8 @@ pub mod error {
             Trigger(TriggerId),
             /// Role with id `{0}` not found
             Role(RoleId),
-            /// Permission token definition with id `{0}` not found
-            PermissionTokenDefinition(PermissionTokenId),
-            /// Failed to find permission token
-            PermissionToken(#[cfg_attr(feature = "std", source)] PermissionTokenFindError),
+            /// Failed to find [`PermissionToken`] by id.
+            PermissionToken(PermissionTokenId),
             /// Parameter with id `{0}` not found
             Parameter(ParameterId),
             /// Failed to find public key: `{0}`

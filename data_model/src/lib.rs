@@ -40,7 +40,7 @@ use getset::Getters;
 use iroha_crypto::{HashOf, PublicKey};
 pub use iroha_crypto::{SignatureOf, SignaturesOf};
 use iroha_data_model_derive::{
-    model, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize, VariantDiscriminant,
+    model, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize,
 };
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_primitives::{
@@ -50,11 +50,9 @@ use iroha_primitives::{
 use iroha_schema::IntoSchema;
 pub use numeric::model::NumericValue;
 use parity_scale_codec::{Decode, Encode};
-use prelude::{Executable, TransactionQueryResult};
+use prelude::{Executable, TransactionQueryResult, VersionedSignedTransaction};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
-use strum::EnumDiscriminants;
-use transaction::VersionedSignedTransaction;
 
 pub use self::model::*;
 use crate::{account::SignatureCheckCondition, name::Name};
@@ -85,34 +83,6 @@ pub mod transaction;
 pub mod trigger;
 pub mod validator;
 pub mod visit;
-
-mod utils {
-    use core::fmt::*;
-
-    /// Format `input` separating items with a comma,
-    /// wrapping the whole output into provided characters.
-    ///
-    /// # Errors
-    ///
-    /// - if cannot write to the `f`
-    pub fn format_comma_separated<T: Display>(
-        mut input: impl Iterator<Item = T>,
-        (open, close): (char, char),
-        f: &mut Formatter<'_>,
-    ) -> Result {
-        f.write_char(open)?;
-
-        if let Some(item) = input.next() {
-            f.write_fmt(format_args!("{item}"))?;
-        }
-
-        for item in input {
-            f.write_fmt(format_args!(", {item}"))?;
-        }
-
-        f.write_char(close)
-    }
-}
 
 mod seal {
     use crate::{isi::prelude::*, query::prelude::*};
@@ -182,7 +152,7 @@ mod seal {
         FindTransactionsByAccountId,
         FindTransactionByHash,
         FindPermissionTokensByAccountId,
-        FindAllPermissionTokenDefinitions,
+        FindPermissionTokenSchema,
         DoesAccountHavePermissionToken,
         FindAllActiveTriggerIds,
         FindTriggerById,
@@ -259,12 +229,6 @@ impl<EXPECTED, GOT> EnumTryAsError<EXPECTED, GOT> {
 
 #[cfg(feature = "std")]
 impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED, GOT> {}
-
-/// Trait to define associated constant of type `T`
-pub trait AssociatedConstant<T> {
-    /// Associated constant value
-    const VALUE: T;
-}
 
 pub mod parameter {
     //! Structures, traits and impls related to `Paramater`s.
@@ -616,29 +580,29 @@ pub mod model {
         IntoSchema,
     )]
     #[allow(clippy::enum_variant_names)]
-    #[ffi_type]
+    #[ffi_type(local)]
     pub enum IdBox {
         /// [`DomainId`](`domain::DomainId`) variant.
-        DomainId(<domain::Domain as Identifiable>::Id),
+        DomainId(domain::DomainId),
         /// [`AccountId`](`account::AccountId`) variant.
         #[display(fmt = "{_0}")]
-        AccountId(<account::Account as Identifiable>::Id),
+        AccountId(account::AccountId),
         /// [`AssetDefinitionId`](`asset::AssetDefinitionId`) variant.
         #[display(fmt = "{_0}")]
-        AssetDefinitionId(<asset::AssetDefinition as Identifiable>::Id),
+        AssetDefinitionId(asset::AssetDefinitionId),
         /// [`AssetId`](`asset::AssetId`) variant.
         #[display(fmt = "{_0}")]
-        AssetId(<asset::Asset as Identifiable>::Id),
+        AssetId(asset::AssetId),
         /// [`PeerId`](`peer::PeerId`) variant.
-        PeerId(<peer::Peer as Identifiable>::Id),
+        PeerId(peer::PeerId),
         /// [`TriggerId`](trigger::TriggerId) variant.
-        TriggerId(<trigger::Trigger<FilterBox, Executable> as Identifiable>::Id),
+        TriggerId(trigger::TriggerId),
         /// [`RoleId`](`role::RoleId`) variant.
-        RoleId(<role::Role as Identifiable>::Id),
-        /// [`PermissionTokenId`](`permission::PermissionTokenId`) variant.
-        PermissionTokenDefinitionId(<permission::PermissionTokenDefinition as Identifiable>::Id),
+        RoleId(role::RoleId),
+        /// [`PermissionToken`](`permission::PermissionToken`) variant.
+        PermissionTokenId(permission::PermissionTokenId),
         /// [`ParameterId`](`parameter::ParameterId`) variant.
-        ParameterId(<parameter::Parameter as Identifiable>::Id),
+        ParameterId(parameter::ParameterId),
     }
 
     /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
@@ -722,8 +686,6 @@ pub mod model {
         Trigger(TriggerBox),
         /// [`Role`](`role::Role`) variant.
         Role(role::Role),
-        /// [`PermissionTokenDefinition`](`permission::PermissionTokenDefinition`) variant.
-        PermissionTokenDefinition(permission::PermissionTokenDefinition),
         /// [`Parameter`](`parameter::Parameter`) variant.
         Parameter(parameter::Parameter),
     }
@@ -789,25 +751,12 @@ pub mod model {
         PartialOrd,
         Ord,
         FromVariant,
-        EnumDiscriminants,
-        VariantDiscriminant,
         Decode,
         Encode,
         PartiallyTaggedDeserialize,
         PartiallyTaggedSerialize,
         IntoSchema,
     )]
-    #[strum_discriminants(
-        name(ValueKind),
-        derive(Display, Decode, Encode, Deserialize, Serialize, IntoSchema),
-        cfg_attr(
-            any(feature = "ffi_import", feature = "ffi_export"),
-            derive(iroha_ffi::FfiType)
-        ),
-        allow(missing_docs),
-        repr(u8)
-    )]
-    #[variant_discriminant(name(ValueKind))]
     #[allow(clippy::enum_variant_names, missing_docs)]
     #[ffi_type(opaque)]
     pub enum Value {
@@ -831,6 +780,7 @@ pub mod model {
         SignatureCheckCondition(SignatureCheckCondition),
         TransactionQueryResult(TransactionQueryResult),
         PermissionToken(permission::PermissionToken),
+        PermissionTokenSchema(permission::PermissionTokenSchema),
         Hash(HashValue),
         Block(VersionedCommittedBlockWrapper),
         BlockHeader(block::BlockHeader),
@@ -1052,7 +1002,6 @@ impl IdentifiableBox {
             IdentifiableBox::Asset(a) => a.id().clone().into(),
             IdentifiableBox::Trigger(a) => a.id().clone().into(),
             IdentifiableBox::Role(a) => a.id().clone().into(),
-            IdentifiableBox::PermissionTokenDefinition(a) => a.id().clone().into(),
             IdentifiableBox::Parameter(a) => a.id().clone().into(),
         }
     }
@@ -1116,6 +1065,7 @@ impl fmt::Display for Value {
             Value::SignatureCheckCondition(v) => fmt::Display::fmt(&v, f),
             Value::TransactionQueryResult(_) => write!(f, "TransactionQueryResult"),
             Value::PermissionToken(v) => fmt::Display::fmt(&v, f),
+            Value::PermissionTokenSchema(v) => fmt::Display::fmt(&v, f),
             Value::Hash(v) => fmt::Display::fmt(&v, f),
             Value::Block(v) => fmt::Display::fmt(&**v, f),
             Value::BlockHeader(v) => fmt::Display::fmt(&v, f),
@@ -1145,6 +1095,7 @@ impl Value {
             | Name(_)
             | TransactionQueryResult(_)
             | PermissionToken(_)
+            | PermissionTokenSchema(_)
             | Hash(_)
             | Block(_)
             | Ipv4Addr(_)
@@ -1183,30 +1134,24 @@ where
 
 // TODO: The following macros looks very similar. Try to generalize them under one macro
 macro_rules! from_and_try_from_value_idbox {
-    ( $($variant:ident( $ty:ty ),)+ $(,)? ) => {
-        $(
-            impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Value, Self>;
+    ( $($variant:ident( $ty:ty ),)+ $(,)? ) => { $(
+        impl TryFrom<Value> for $ty {
+            type Error = ErrorTryFromEnum<Value, Self>;
 
-                fn try_from(value: Value) -> Result<Self, Self::Error> {
-                    if let Value::Id(IdBox::$variant(id)) = value {
-                        Ok(id)
-                    } else {
-                        Err(Self::Error::default())
-                    }
+            fn try_from(value: Value) -> Result<Self, Self::Error> {
+                if let Value::Id(IdBox::$variant(id)) = value {
+                    Ok(id)
+                } else {
+                    Err(Self::Error::default())
                 }
             }
+        }
 
-            impl From<$ty> for Value {
-                fn from(id: $ty) -> Self {
-                    Value::Id(IdBox::$variant(id))
-                }
+        impl From<$ty> for Value {
+            fn from(id: $ty) -> Self {
+                Value::Id(IdBox::$variant(id))
             }
-
-            impl AssociatedConstant<ValueKind> for $ty {
-                const VALUE: ValueKind = ValueKind::Id;
-            }
-        )+
+        })+
     };
 }
 
@@ -1228,12 +1173,8 @@ macro_rules! from_and_try_from_value_identifiable {
             fn from(id: $ty) -> Self {
                 Value::Identifiable(IdentifiableBox::$variant(id))
             }
-        }
-
-        impl AssociatedConstant<ValueKind> for $ty {
-            const VALUE: ValueKind = ValueKind::Identifiable;
-        }
-    )+ };
+        } )+
+    };
 }
 
 macro_rules! from_and_try_from_and_try_as_value_hash {
@@ -1287,54 +1228,52 @@ macro_rules! from_and_try_from_and_try_as_value_hash {
 }
 
 macro_rules! from_and_try_from_and_try_as_value_numeric {
-    ( $( $variant:ident($ty:ty),)+ $(,)? ) => {
-        $(
-            impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Value, Self>;
+    ( $( $variant:ident($ty:ty),)+ $(,)? ) => { $(
+        impl TryFrom<Value> for $ty {
+            type Error = ErrorTryFromEnum<Value, Self>;
 
-                #[inline]
-                fn try_from(value: Value) -> Result<Self, Self::Error> {
-                    if let Value::Numeric(NumericValue::$variant(value)) = value {
-                        Ok(value)
-                    } else {
-                        Err(Self::Error::default())
-                    }
+            #[inline]
+            fn try_from(value: Value) -> Result<Self, Self::Error> {
+                if let Value::Numeric(NumericValue::$variant(value)) = value {
+                    Ok(value)
+                } else {
+                    Err(Self::Error::default())
                 }
             }
+        }
 
-            impl From<$ty> for Value {
-                #[inline]
-                fn from(value: $ty) -> Self {
-                    Value::Numeric(NumericValue::$variant(value))
+        impl From<$ty> for Value {
+            #[inline]
+            fn from(value: $ty) -> Self {
+                Value::Numeric(NumericValue::$variant(value))
+            }
+        }
+
+        impl TryAsMut<$ty> for NumericValue {
+            type Error = crate::EnumTryAsError<$ty, NumericValue>;
+
+            #[inline]
+            fn try_as_mut(&mut self) -> Result<&mut $ty, Self::Error> {
+                if let NumericValue:: $variant (value) = self {
+                    Ok(value)
+                } else {
+                    Err(crate::EnumTryAsError::got(*self))
                 }
             }
+        }
 
-            impl TryAsMut<$ty> for NumericValue {
-                type Error = crate::EnumTryAsError<$ty, NumericValue>;
+        impl TryAsRef<$ty> for NumericValue {
+            type Error = crate::EnumTryAsError<$ty, NumericValue>;
 
-                #[inline]
-                fn try_as_mut(&mut self) -> Result<&mut $ty, Self::Error> {
-                    if let NumericValue:: $variant (value) = self {
-                        Ok(value)
-                    } else {
-                        Err(crate::EnumTryAsError::got(*self))
-                    }
+            #[inline]
+            fn try_as_ref(&self) -> Result<& $ty, Self::Error> {
+                if let NumericValue:: $variant (value) = self {
+                    Ok(value)
+                } else {
+                    Err(crate::EnumTryAsError::got(*self))
                 }
             }
-
-            impl TryAsRef<$ty> for NumericValue {
-                type Error = crate::EnumTryAsError<$ty, NumericValue>;
-
-                #[inline]
-                fn try_as_ref(&self) -> Result<& $ty, Self::Error> {
-                    if let NumericValue:: $variant (value) = self {
-                        Ok(value)
-                    } else {
-                        Err(crate::EnumTryAsError::got(*self))
-                    }
-                }
-            }
-        )+
+        })+
     };
 }
 
@@ -1363,7 +1302,6 @@ from_and_try_from_value_identifiable!(
     Asset(asset::Asset),
     Trigger(TriggerBox),
     Role(role::Role),
-    PermissionTokenDefinition(permission::PermissionTokenDefinition),
     Parameter(parameter::Parameter),
 );
 
@@ -1417,7 +1355,6 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
             Trigger(TriggerBox::Raw(trigger)) => Ok(RegistrableBox::Trigger(trigger)),
             Domain(_)
-            | PermissionTokenDefinition(_)
             | Account(_)
             | AssetDefinition(_)
             | Role(_)

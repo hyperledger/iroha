@@ -77,7 +77,7 @@ impl ValidQuery for QueryBox {
             FindTransactionsByAccountId,
             FindTransactionByHash,
             FindPermissionTokensByAccountId,
-            FindAllPermissionTokenDefinitions,
+            FindPermissionTokenSchema,
             DoesAccountHavePermissionToken,
             FindAssetDefinitionKeyValueByIdAndKey,
             FindAllActiveTriggerIds,

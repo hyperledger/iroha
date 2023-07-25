@@ -15,7 +15,11 @@ default-validator = []
 
 [dependencies]
 iroha_wasm = { version = "2.0.0-pre-rc.16", path = ".." }
+iroha_schema = { path = "../../schema", version = "=2.0.0-pre-rc.16" }
 iroha_validator_derive = { version = "2.0.0-pre-rc.16", path = "derive" }
+
+parity-scale-codec = { version = "3.1.5", default-features = false }
+serde_json = { version = "1.0.91", default-features = false }
 
 [dev-dependencies]
 webassembly-test.workspace = true
