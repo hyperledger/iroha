@@ -112,23 +112,22 @@ pub mod isi {
         fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let role = self.object.build(authority);
 
-            for permission in &role.permissions {
-                let definition = wsv
-                    .permission_token_definitions()
-                    .get(&permission.definition_id)
-                    .ok_or_else(|| {
-                        FindError::PermissionTokenDefinition(permission.definition_id.clone())
-                    })?;
-
-                permissions::check_permission_token_parameters(permission, definition)?;
-            }
-
             if wsv.roles().contains_key(role.id()) {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
                     id: IdBox::RoleId(role.id),
                 }
                 .into());
+            }
+
+            for permission in &role.permissions {
+                if !wsv
+                    .permission_token_definitions()
+                    .token_ids
+                    .contains(&permission.definition_id)
+                {
+                    return Err(FindError::PermissionToken(permission.definition_id.clone()).into());
+                }
             }
 
             let world = wsv.world_mut();
@@ -179,54 +178,46 @@ pub mod isi {
     }
 
     fn register_permission_token_definition(
-        definition: PermissionTokenDefinition,
+        token_id: PermissionTokenId,
         wsv: &mut WorldStateView,
-    ) -> Result<(), Error> {
-        let definition_id = definition.id().clone();
+    ) -> Result<(), RepetitionError> {
+        let permission_token_ids = &mut wsv.world_mut().permission_token_definitions.token_ids;
 
-        let world = wsv.world_mut();
-        if world
-            .permission_token_definitions
-            .contains_key(&definition_id)
-        {
+        // Keep permission tokens sorted
+        if let Err(pos) = permission_token_ids.binary_search(&token_id) {
+            permission_token_ids.insert(pos, token_id);
+        } else {
             return Err(RepetitionError {
                 instruction_type: InstructionType::Register,
-                id: IdBox::PermissionTokenDefinitionId(definition_id),
-            }
-            .into());
+                id: IdBox::PermissionTokenId(token_id),
+            });
         }
-
-        world
-            .permission_token_definitions
-            .insert(definition_id, definition.clone());
-
-        wsv.emit_events(Some(PermissionTokenEvent::DefinitionCreated(definition)));
 
         Ok(())
     }
 
     fn unregister_permission_token_definition(
-        definition_id: PermissionTokenId,
+        token_id: &PermissionTokenId,
         wsv: &mut WorldStateView,
     ) -> Result<(), Error> {
-        remove_token_from_roles(wsv, &definition_id)?;
-        remove_token_from_accounts(wsv, &definition_id)?;
+        remove_token_from_roles(token_id, wsv)?;
+        remove_token_from_accounts(token_id, wsv)?;
 
-        let world = wsv.world_mut();
-        let definition = world
-            .permission_token_definitions
-            .remove(&definition_id)
-            .ok_or_else(|| FindError::PermissionTokenDefinition(definition_id))?;
+        let permission_token_ids = &mut wsv.world_mut().permission_token_definitions.token_ids;
 
-        wsv.emit_events(Some(PermissionTokenEvent::DefinitionDeleted(definition)));
+        if let Ok(pos) = permission_token_ids.binary_search(token_id) {
+            permission_token_ids.remove(pos);
+        } else {
+            return Err(FindError::PermissionToken(token_id.clone()).into());
+        }
 
         Ok(())
     }
 
     /// Remove all tokens with specified definition id from all registered roles
     fn remove_token_from_roles(
+        token_id: &PermissionTokenId,
         wsv: &mut WorldStateView,
-        target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,
     ) -> Result<(), Error> {
         let mut roles_containing_token = Vec::new();
 
@@ -234,7 +225,7 @@ pub mod isi {
             if role
                 .permissions
                 .iter()
-                .any(|token| token.definition_id == *target_definition_id)
+                .any(|token| token.definition_id == *token_id)
             {
                 roles_containing_token.push(role_id.clone())
             }
@@ -245,10 +236,10 @@ pub mod isi {
         for role_id in roles_containing_token {
             if let Some(role) = world.roles.get_mut(&role_id) {
                 role.permissions
-                    .retain(|token| token.definition_id != *target_definition_id);
+                    .retain(|token| token.definition_id != *token_id);
                 events.push(RoleEvent::PermissionRemoved(PermissionRemoved {
                     role_id: role_id.clone(),
-                    permission_definition_id: target_definition_id.clone(),
+                    permission_token_id: token_id.clone(),
                 }));
             } else {
                 error!(%role_id, "role not found. This is a bug");
@@ -263,8 +254,8 @@ pub mod isi {
 
     /// Remove all tokens with specified definition id from all accounts in all domains
     fn remove_token_from_accounts(
+        token_id: &PermissionTokenId,
         wsv: &mut WorldStateView,
-        target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,
     ) -> Result<(), Error> {
         let mut accounts_with_token = std::collections::HashMap::new();
 
@@ -273,7 +264,7 @@ pub mod isi {
                 (
                     account.id().clone(),
                     wsv.account_inherent_permission_tokens(account)
-                        .filter(|token| token.definition_id == *target_definition_id)
+                        .filter(|token| token.definition_id == *token_id)
                         .collect::<Vec<_>>(),
                 )
             });
@@ -286,9 +277,7 @@ pub mod isi {
             for token in tokens {
                 if !wsv.remove_account_permission(&account_id, &token) {
                     error!(%token, "token not found. This is a bug");
-                    return Err(
-                        FindError::PermissionTokenDefinition(token.definition_id.clone()).into(),
-                    );
+                    return Err(FindError::PermissionToken(token.definition_id.clone()).into());
                 }
                 events.push(AccountEvent::PermissionRemoved(AccountPermissionChanged {
                     account_id: account_id.clone(),
@@ -352,13 +341,12 @@ pub mod isi {
             let raw_validator = self.object;
             let engine = wsv.engine.clone(); // Cloning engine is cheap
 
-            let (new_validator, new_permission_token_definitions) =
+            let (new_validator, new_token_schema) =
                 || -> Result<_, crate::smartcontracts::wasm::error::Error> {
                     {
                         let new_validator = Validator::new(raw_validator, &engine)?;
-                        let new_permission_token_definitions =
-                            new_validator.permission_tokens(wsv)?;
-                        Ok((new_validator, new_permission_token_definitions))
+                        let new_token_schema = new_validator.permission_tokens(wsv)?;
+                        Ok((new_validator, new_token_schema))
                     }
                 }()
                 .map_err(|error| {
@@ -368,36 +356,40 @@ pub mod isi {
             let world = wsv.world_mut();
             let _ = world.upgraded_validator.insert(new_validator);
 
-            let old_permission_token_definitions = wsv
-                .permission_token_definitions()
-                .values()
-                .cloned()
-                .collect::<HashSet<_>>();
-            let new_permission_token_definitions = {
+            {
                 let mut tokens = HashSet::new();
-                for token in new_permission_token_definitions {
-                    let token_id = token.id().clone();
-                    let newly_inserted = tokens.insert(token);
-                    if !newly_inserted {
+
+                for token_id in &new_token_schema.token_ids {
+                    if !tokens.insert(token_id.clone()) {
                         return Err(InvalidParameterError::Wasm(format!(
                             "Retrieved permission tokens definitions contain duplicate: `{token_id}`",
                         ))
                         .into());
                     }
                 }
-                tokens
-            };
+            }
 
-            old_permission_token_definitions
-                .difference(&new_permission_token_definitions)
-                .try_for_each(|definition| {
-                    unregister_permission_token_definition(definition.id().clone(), wsv)
-                })?;
+            let old_token_schema = wsv.permission_token_definitions().clone();
+            for token_id in &old_token_schema.token_ids {
+                if !new_token_schema.token_ids.contains(token_id) {
+                    unregister_permission_token_definition(token_id, wsv)?;
+                }
 
-            new_permission_token_definitions
-                .difference(&old_permission_token_definitions)
-                .cloned()
-                .try_for_each(|definition| register_permission_token_definition(definition, wsv))?;
+                wsv.world_mut().permission_token_definitions.schema =
+                    new_token_schema.schema.clone();
+            }
+            for token_id in &new_token_schema.token_ids {
+                wsv.world_mut().permission_token_definitions.schema =
+                    new_token_schema.schema.clone();
+
+                if !old_token_schema.token_ids.contains(token_id) {
+                    register_permission_token_definition(token_id.clone(), wsv)?;
+                }
+            }
+            wsv.emit_events(Some(PermissionTokenSchemaUpdateEvent {
+                old_schema: old_token_schema,
+                new_schema: new_token_schema,
+            }));
 
             wsv.emit_events(Some(ValidatorEvent::Upgraded));
 
@@ -461,14 +453,10 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for FindAllPermissionTokenDefinitions {
-        #[metrics("find_all_token_ids")]
+    impl ValidQuery for FindPermissionTokenSchema {
+        #[metrics("find_all_permission_token_ids")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            Ok(wsv
-                .permission_token_definitions()
-                .values()
-                .cloned()
-                .collect())
+            Ok(wsv.permission_token_definitions().clone())
         }
     }
 
@@ -480,15 +468,18 @@ pub mod query {
     }
 
     impl ValidQuery for DoesAccountHavePermissionToken {
-        #[metrics("does_account_have_permission")]
+        #[metrics("does_account_have_permission_token")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let authority = wsv
                 .evaluate(&self.account_id)
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let permission_token = wsv
+                .evaluate(&self.permission_token)
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
 
             wsv.map_account(&authority, |account| {
                 wsv.account_permission_tokens(account)
-                    .contains(&self.permission_token)
+                    .contains(&permission_token)
             })
         }
     }

@@ -44,11 +44,7 @@ pub type DomainsMap = HashMap<<Domain as Identifiable>::Id, Domain>;
 pub type RolesMap = HashMap<<Role as Identifiable>::Id, Role>;
 
 /// API to work with a collections of [`AccountId`] [`Permissions`] mappings.
-pub type PermissionTokensMap = HashMap<<Account as Identifiable>::Id, Permissions>;
-
-/// API to work with a collections of [`PermissionTokenDefinitionId`] : [`PermissionTokenDefinition`] mappings.
-pub type PermissionTokenDefinitionsMap =
-    HashMap<<PermissionTokenDefinition as Identifiable>::Id, PermissionTokenDefinition>;
+pub type PermissionTokensMap = HashMap<AccountId, Permissions>;
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
 pub type EventsSender = broadcast::Sender<Event>;

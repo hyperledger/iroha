@@ -181,11 +181,11 @@ impl MeasurerUnit {
         ));
         self.client.submit_blocking(register_me)?;
 
-        let can_burn_my_asset = PermissionToken::new("can_burn_user_asset".parse()?)
-            .with_params([("asset_id".parse()?, asset_id.clone().into())]);
+        let can_burn_my_asset =
+            PermissionToken::new("CanBurnUserAsset".parse().unwrap(), &asset_id);
         let allow_alice_to_burn_my_asset = GrantBox::new(can_burn_my_asset, alice_id.clone());
-        let can_transfer_my_asset = PermissionToken::new("can_transfer_user_asset".parse()?)
-            .with_params([("asset_id".parse()?, asset_id.clone().into())]);
+        let can_transfer_my_asset =
+            PermissionToken::new("CanTransferUserAsset".parse().unwrap(), &asset_id);
         let allow_alice_to_transfer_my_asset = GrantBox::new(can_transfer_my_asset, alice_id);
         let grant_tx = TransactionBuilder::new(account_id)
             .with_instructions([

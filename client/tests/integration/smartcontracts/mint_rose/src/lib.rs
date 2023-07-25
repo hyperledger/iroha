@@ -13,10 +13,10 @@ use iroha_wasm::data_model::prelude::*;
 
 /// Mint 1 rose for authority
 #[iroha_wasm::main(params = "[authority]")]
-fn main(authority: <Account as Identifiable>::Id) {
-    let rose_definition_id = <AssetDefinition as Identifiable>::Id::from_str("rose#wonderland")
+fn main(authority: AccountId) {
+    let rose_definition_id = AssetDefinitionId::from_str("rose#wonderland")
         .dbg_expect("Failed to parse `rose#wonderland` asset definition id");
-    let rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, authority);
+    let rose_id = AssetId::new(rose_definition_id, authority);
 
     MintBox::new(1_u32, rose_id)
         .execute()

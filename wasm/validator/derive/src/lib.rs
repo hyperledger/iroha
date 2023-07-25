@@ -100,11 +100,11 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #[validate(permission::asset::Owner)]
 /// struct CanDoSomethingWithAsset {
 ///     some_data: String,
-///     asset_id: <Asset as Identifiable>::Id,
+///     asset_id: AssetId,
 /// }
 ///
 /// #[entrypoint(params = "[authority, operation]")]
-/// fn validate(authority: <Account as Identifiable>::Id, operation: NeedsValidationBox) -> Result {
+/// fn validate(authority: AccountId, operation: NeedsValidationBox) -> Result {
 ///     let NeedsValidationBox::Instruction(instruction) = operation else {
 ///         pass!();
 ///     };
@@ -113,7 +113,7 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 ///     CanDoSomethingWithAsset {
 ///        some_data: "some data".to_owned(),
-///        asset_id: parse!("rose#wonderland" as <Asset as Identifiable>::Id),
+///        asset_id: parse!("rose#wonderland" as AssetId),
 ///     }.is_owned_by(&authority)
 /// }
 /// ```

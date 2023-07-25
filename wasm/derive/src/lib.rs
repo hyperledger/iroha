@@ -56,7 +56,7 @@ mod entrypoint;
 /// use iroha_wasm::{data_model::prelude::*, dbg};
 ///
 /// #[iroha_wasm::main(params = "[authority]")]
-/// fn main(authority: <Account as Identifiable>::Id) {
+/// fn main(authority: AccountId) {
 ///     dbg(&format!("Trigger authority: {authority}"));
 /// }
 /// ```
@@ -66,7 +66,7 @@ mod entrypoint;
 /// use iroha_wasm::{data_model::prelude::*, dbg};
 ///
 /// #[iroha_wasm::main(params = "[authority, triggering_event]")]
-/// fn main(authority: <Account as Identifiable>::Id, event: DataEvent) {
+/// fn main(authority: AccountId, event: DataEvent) {
 ///     dbg(&format!(
 ///         "Trigger authority: {authority};\n\
 ///          Triggering event: {event:?}"
