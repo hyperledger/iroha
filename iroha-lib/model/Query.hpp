@@ -41,6 +41,7 @@ public:
     Query& getRolePermissions(
             const std::string& account_id,
             const std::string& role_id);
+    Query& getPeers(const std::string& account_id);
 
     const iroha::protocol::Query signAndAddSignature();
 

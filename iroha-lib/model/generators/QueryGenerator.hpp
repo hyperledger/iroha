@@ -64,6 +64,10 @@ public:
             uint64_t counter,
             const uint64_t created_time,
             const std::string& role_id);
+    std::shared_ptr<iroha::protocol::Query> generateGetPeers(
+            const std::string& account_id,
+            uint64_t counter,
+            const uint64_t created_time);
 
 private:
     std::shared_ptr<iroha::protocol::Query> generateQuery(

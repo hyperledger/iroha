@@ -126,6 +126,7 @@ iroha_lib::GrpcClient(
 - [x] [getAssetInfo](https://iroha.readthedocs.io/en/main/develop/api/queries.html#get-asset-info)
 - [x] [getRoles](https://iroha.readthedocs.io/en/main/develop/api/queries.html#get-roles)
 - [x] [getRolePermissions](https://iroha.readthedocs.io/en/main/develop/api/queries.html#get-role-permissions)
+- [x] [getPeers](https://iroha.readthedocs.io/en/main/develop/api/queries.html#get-peers)
 
 
 ## Compatibility and release policy
