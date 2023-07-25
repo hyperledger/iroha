@@ -210,4 +210,17 @@ std::shared_ptr<iroha::protocol::Query> QueryGenerator::generateGetRolePermissio
     return query;
 }
 
+std::shared_ptr<iroha::protocol::Query> QueryGenerator::generateGetPeers(
+        const std::string& account_id,
+        uint64_t counter,
+        const uint64_t created_time)
+{
+    auto query = generateQuery(
+                account_id,
+                counter,
+                created_time);
+    query->mutable_payload()->mutable_get_peers();
+    return query;
+}
+
 }
