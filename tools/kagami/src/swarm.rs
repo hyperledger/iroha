@@ -898,6 +898,7 @@ mod serialize_docker_compose {
 
     const COMMAND_SUBMIT_GENESIS: &str = "iroha --submit-genesis";
     const DOCKER_COMPOSE_VERSION: &str = "3.8";
+    const PLATFORM_ARCHITECTURE: &str = "linux/amd64";
 
     #[derive(Serialize, Debug)]
     pub struct DockerCompose {
@@ -935,10 +936,23 @@ mod serialize_docker_compose {
         }
     }
 
+    #[derive(Debug)]
+    struct PlatformArchitecture;
+
+    impl Serialize for PlatformArchitecture {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(PLATFORM_ARCHITECTURE)
+        }
+    }
+
     #[derive(Serialize, Debug)]
     pub struct DockerComposeService {
         #[serde(flatten)]
         source: ServiceSource,
+        platform: PlatformArchitecture,
         environment: FullPeerEnv,
         ports: Vec<PairColon<u16, u16>>,
         volumes: Vec<PairColon<String, String>>,
@@ -978,6 +992,7 @@ mod serialize_docker_compose {
 
             Self {
                 source,
+                platform: PlatformArchitecture,
                 command,
                 init: AlwaysTrue,
                 volumes: volumes.into_iter().map(|(a, b)| PairColon(a, b)).collect(),
@@ -1138,7 +1153,7 @@ mod serialize_docker_compose {
 
         use super::{
             CompactPeerEnv, DockerCompose, DockerComposeService, DockerComposeVersion, FullPeerEnv,
-            PairColon, ServiceSource,
+            PairColon, PlatformArchitecture, ServiceSource,
         };
         use crate::swarm::serialize_docker_compose::{AlwaysTrue, ServiceCommand};
 
@@ -1241,6 +1256,7 @@ mod serialize_docker_compose {
                     map.insert(
                         "iroha0".to_owned(),
                         DockerComposeService {
+                            platform: PlatformArchitecture,
                             source: ServiceSource::Build(PathBuf::from(".")),
                             environment: CompactPeerEnv {
                                 key_pair: key_pair.clone(),
@@ -1275,6 +1291,7 @@ mod serialize_docker_compose {
                 services:
                   iroha0:
                     build: .
+                    platform: linux/amd64
                     environment:
                       IROHA_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
                       IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8"}'
@@ -1576,6 +1593,7 @@ mod tests {
             services:
               iroha0:
                 build: ./iroha-cloned
+                platform: linux/amd64
                 environment:
                   IROHA_PUBLIC_KEY: ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13
                   IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5f8d1291bf6b762ee748a87182345d135fd167062857aa4f20ba39f25e74c4b0f0321eb4139163c35f88bf78520ff7071499d7f4e79854550028a196c7b49e13"}'
@@ -1595,6 +1613,7 @@ mod tests {
                 command: iroha --submit-genesis
               iroha1:
                 build: ./iroha-cloned
+                platform: linux/amd64
                 environment:
                   IROHA_PUBLIC_KEY: ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C
                   IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"8d34d2c6a699c61e7a9d5aabbbd07629029dfb4f9a0800d65aa6570113edb465a88554aa5c86d28d0eebec497235664433e807881cd31e12a1af6c4d8b0f026c"}'
@@ -1611,6 +1630,7 @@ mod tests {
                 init: true
               iroha2:
                 build: ./iroha-cloned
+                platform: linux/amd64
                 environment:
                   IROHA_PUBLIC_KEY: ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4
                   IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"cf4515a82289f312868027568c0da0ee3f0fde7fef1b69deb47b19fde7cbc169312c1b7b5de23d366adcf23cd6db92ce18b2aa283c7d9f5033b969c2dc2b92f4"}'
@@ -1627,6 +1647,7 @@ mod tests {
                 init: true
               iroha3:
                 build: ./iroha-cloned
+                platform: linux/amd64
                 environment:
                   IROHA_PUBLIC_KEY: ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE
                   IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"ab0e99c2b845b4ac7b3e88d25a860793c7eb600a25c66c75cba0bae91e955aa6854457b2e3d6082181da73dc01c1e6f93a72d0c45268dc8845755287e98a5dee"}'
