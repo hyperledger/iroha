@@ -536,14 +536,16 @@ impl PrepareConfig {
 
                 let spinner = ui.spinner_validator();
 
-                let validator_path = match source {
-                    ResolvedImageSource::Build { ref path } => {
-                        super::validator::compute_validator_path_with_swarm_dir(path).wrap_err(
-                            "Failed to construct the validator path from swarm build directory",
-                        )?
-                    }
-                    _ => super::validator::compute_validator_path()
-                        .wrap_err("Failed to construct the validator")?,
+                let validator_path = if let ResolvedImageSource::Build { ref path } = source {
+                    super::validator::compute_validator_path_with_build_dir(path).wrap_err(
+                        "Failed to construct the validator path from swarm build directory",
+                    )?
+                } else {
+                    let out_dir = tempfile::tempdir()
+                        .wrap_err("Failed to generate a tempdir for validator sources")?
+                        .into_path();
+                    super::validator::compute_validator_path(out_dir)
+                        .wrap_err("Failed to construct the validator")?
                 };
                 let validator = super::validator::construct_validator(validator_path)?;
 
