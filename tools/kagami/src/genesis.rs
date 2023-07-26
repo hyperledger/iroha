@@ -178,7 +178,10 @@ pub fn generate_default(validator_path: Option<PathBuf>) -> color_eyre::Result<R
 }
 
 fn construct_validator() -> color_eyre::Result<Validator> {
-    let path = super::validator::compute_validator_path()?;
+    let temp_dir = tempfile::tempdir()
+        .wrap_err("Failed to generate a tempdir for validator sources")?
+        .into_path();
+    let path = super::validator::compute_validator_path(temp_dir)?;
     let wasm_blob = super::validator::construct_validator(path)?;
     Ok(Validator::new(WasmSmartContract::from_compiled(wasm_blob)))
 }

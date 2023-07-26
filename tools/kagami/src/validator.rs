@@ -6,46 +6,67 @@ use swarm::AbsolutePath;
 
 use super::*;
 
-#[derive(ClapArgs, Debug, Clone, Copy)]
-pub struct Args;
+#[derive(ClapArgs, Debug, Clone)]
+pub struct Args {
+    /// Directory path to clone Iroha sources to. Only
+    /// used in case when `kagami` is run as a separate
+    /// binary. A temporary directory is created for this
+    /// purpose if this option is not provided but cloning
+    /// is still needed.
+    #[clap(long)]
+    clone_dir: Option<PathBuf>,
+}
 
 impl<T: Write> RunArgs<T> for Args {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-        let path = compute_validator_path()?;
+        let clone_dir = match self.clone_dir {
+            Some(dir) => dir,
+            None => tempfile::tempdir()
+                .wrap_err("Failed to generate a tempdir for validator sources")?
+                .into_path(),
+        };
+        let path = compute_validator_path(clone_dir.as_path())?;
         writer
             .write_all(&construct_validator(path)?)
             .wrap_err("Failed to write wasm validator into the buffer.")
     }
 }
-pub fn compute_validator_path() -> Result<PathBuf> {
-    // If `CARGO_MANIFEST_DIR` is set, it means the `kagami` binary is run via `cargo run`
-    // command, otherwise it is called as a standalone
+
+/// A function computing where the validator file should be stored depending on whether `kagami` is
+/// run as a standalone binary or via cargo. This is determined based on whether
+/// the `CARGO_MANIFEST_DIR` env variable is set.
+pub fn compute_validator_path(out_dir: impl AsRef<Path>) -> Result<PathBuf> {
     std::env::var("CARGO_MANIFEST_DIR").map_or_else(
         |_| {
-            let source_dir = tempfile::tempdir()
-                .wrap_err("Failed to create temp dir for default runtime validator sources")?;
-            let out_dir = AbsolutePath::try_from(source_dir.path().join(DIR_CLONE))?;
+            let out_dir = AbsolutePath::try_from(PathBuf::from(out_dir.as_ref()).join(DIR_CLONE))?;
             swarm::shallow_git_clone(GIT_ORIGIN, GIT_REVISION, &out_dir)?;
             Ok(out_dir.to_path_buf().join("default_validator"))
         },
-        |manifest_dir| Ok(Path::new(&manifest_dir).join("../../default_validator")),
+        |manifest_dir| Ok(Path::new(&manifest_dir).join("default_validator")),
     )
 }
 
 /// Variant of [`compute_validator_path()`] to be used via `kagami swarm` to avoid double repo
 /// cloning if `swarm` subcommand has already done that.
-pub fn compute_validator_path_with_swarm_dir(swarm_dir: impl AsRef<Path>) -> Result<PathBuf> {
-    swarm_dir
+pub fn compute_validator_path_with_build_dir(build_dir: impl AsRef<Path>) -> Result<PathBuf> {
+    let validator_path = build_dir
         .as_ref()
-        .join("../../default_validator")
+        .join("default_validator")
         .absolutize()
         .map(|abs_path| abs_path.to_path_buf())
         .wrap_err_with(|| {
             format!(
                 "Failed to construct absolute path for: {}",
-                swarm_dir.as_ref().display(),
+                build_dir.as_ref().display(),
             )
-        })
+        });
+    // Setting this so that [`Builder`](iroha_wasm_builder::Builder) doesn't pollute
+    // the swarm output dir with a `target` remnant
+    std::env::set_var(
+        "IROHA_WASM_BUILDER_OUT_DIR",
+        build_dir.as_ref().join("target"),
+    );
+    validator_path
 }
 
 pub fn construct_validator(relative_path: impl AsRef<Path>) -> Result<Vec<u8>> {
