@@ -130,10 +130,7 @@ pub fn generate_default(validator_path: Option<PathBuf>) -> color_eyre::Result<R
     );
     let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
     let grant_permission_to_set_parameters = GrantBox::new(
-        PermissionToken {
-            definition_id: "CanSetParameters".parse()?,
-            payload: Vec::new(),
-        },
+        PermissionToken::new("CanSetParameters".parse()?, &()),
         alice_id,
     );
     let register_user_metadata_access = RegisterBox::new(

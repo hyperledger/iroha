@@ -2,6 +2,7 @@ version: '3.8'
 services:
   iroha0:
     image: hyperledger/iroha2:dev
+    platform: linux/amd64
     environment:
       IROHA_PUBLIC_KEY: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB
       IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb"}'
@@ -21,6 +22,7 @@ services:
     command: iroha --submit-genesis
   iroha1:
     image: hyperledger/iroha2:dev
+    platform: linux/amd64
     environment:
       IROHA_PUBLIC_KEY: ed0120815BBDC9775D28C3633269B25F22D048E2AA2E36017CBE5AD85F15220BEB6F6F
       IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"c02ffad5e455e7ec620d74de5769681e4d8385906bce5a437eb67452a9efbbc2815bbdc9775d28c3633269b25f22d048e2aa2e36017cbe5ad85f15220beb6f6f"}'
@@ -37,6 +39,7 @@ services:
     init: true
   iroha2:
     image: hyperledger/iroha2:dev
+    platform: linux/amd64
     environment:
       IROHA_PUBLIC_KEY: ed0120F417E0371E6ADB32FD66749477402B1AB67F84A8E9B082E997980CC91F327736
       IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"29c5ed1409cb10fd791bc4ff8a6cb5e22a5fae7e36f448ef3ea2988b1319a88bf417e0371e6adb32fd66749477402b1ab67f84a8e9b082e997980cc91f327736"}'
@@ -53,6 +56,7 @@ services:
     init: true
   iroha3:
     image: hyperledger/iroha2:dev
+    platform: linux/amd64
     environment:
       IROHA_PUBLIC_KEY: ed0120A66522370D60B9C09E79ADE2E9BB1EF2E78733A944B999B3A6AEE687CE476D61
       IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5eed4855fad183c451aac39dfc50831607e4cf408c98e2b977f3ce4a2df42ce2a66522370d60b9c09e79ade2e9bb1ef2e78733a944b999b3a6aee687ce476d61"}'
