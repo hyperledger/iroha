@@ -3403,10 +3403,12 @@ dependencies = [
 name = "iroha_schema_derive"
 version = "2.0.0-pre-rc.18"
 dependencies = [
+ "darling",
  "iroha_schema",
+ "manyhow",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.26",
  "trybuild",
 ]
 
@@ -3754,6 +3756,7 @@ dependencies = [
  "manyhow-macros",
  "proc-macro2",
  "quote",
+ "syn 1.0.109",
  "syn 2.0.26",
 ]
 
