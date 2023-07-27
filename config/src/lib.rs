@@ -46,5 +46,5 @@ pub enum PostConfiguration {
     ///
     /// To silence all logging events that aren't `ERROR`s
     /// `curl -X POST -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"LogLevel": "ERROR"}' -i`
-    LogLevel(logger::Level),
+    LogLevel(iroha_data_model::Level),
 }

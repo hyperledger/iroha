@@ -1,26 +1,8 @@
 //! WASM logging utilities
 
+pub use iroha_data_model::Level;
+
 use super::*;
-
-/// Log level supported by the host
-// NOTE: This struct must be exact duplicate of `config::logger::Level`
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-#[allow(clippy::upper_case_acronyms)]
-#[repr(u8)]
-pub enum Level {
-    /// Trace
-    TRACE,
-    /// Debug
-    DEBUG,
-    /// Info (Default)
-    #[default]
-    INFO,
-    /// Warn
-    WARN,
-    /// Error
-    ERROR,
-}
-
 #[cfg(not(test))]
 mod host {
     #[link(wasm_import_module = "iroha")]
