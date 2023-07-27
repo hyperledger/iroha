@@ -112,10 +112,8 @@ pub struct LevelFilter<S> {
 static CURRENT_LEVEL: AtomicU8 = AtomicU8::new(0);
 
 /// Return max log level
-#[allow(unsafe_code)]
-pub fn max_log_level() -> iroha_config::logger::Level {
-    // SAFETY: `u8` and `logger::Level` have the same representation
-    unsafe { core::mem::transmute(CURRENT_LEVEL.load(Ordering::Relaxed)) }
+pub fn max_log_level() -> u8 {
+    CURRENT_LEVEL.load(Ordering::Relaxed)
 }
 
 impl<S: Subscriber> LevelFilter<S> {
@@ -151,7 +149,7 @@ impl<S: Subscriber> EventInspectorTrait for LevelFilter<S> {
 
     fn event(&self, event: &Event<'_>) {
         let level = Self::level_as_u8(*event.metadata().level());
-        if level >= max_log_level() as u8 {
+        if level >= max_log_level() {
             self.subscriber.event(event)
         }
     }

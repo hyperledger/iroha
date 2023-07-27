@@ -130,7 +130,7 @@ pub trait Reload<T> {
 ///     let level = config.max_log_level.value();
 ///     let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level);
 ///     let (filter, handle) = reload::Layer::new(level_filter);
-///     config.max_log_level.set_handle(handle).unwrap();
+///     config.max_log_level.set_handle(iroha_config::logger::ReloadHandle(handle)).unwrap();
 /// }
 ///
 /// impl<T: Subscriber + Debug> ReloadMut<Level> for Handle<LevelFilter, T> {

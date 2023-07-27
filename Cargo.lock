@@ -3277,6 +3277,7 @@ dependencies = [
  "console-subscriber",
  "derive_more",
  "iroha_config",
+ "iroha_data_model",
  "once_cell",
  "serde_json",
  "tokio",
