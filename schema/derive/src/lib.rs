@@ -1,54 +1,33 @@
 //! Crate with derive `IntoSchema` macro
 
 #![allow(clippy::arithmetic_side_effects)]
+// darling-generated code triggers this lint
+#![allow(clippy::option_if_let_else)]
 
-use proc_macro::TokenStream;
-use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
-use quote::quote;
-use syn::{
-    parse::{Parse, ParseStream, Result},
-    parse_macro_input, parse_quote,
-    spanned::Spanned,
-    Attribute, Data, DataEnum, DataStruct, DeriveInput, Expr, Field, Fields, FieldsNamed,
-    FieldsUnnamed, GenericParam, Generics, LitStr, Meta, NestedMeta, Type,
-};
+use darling::{ast::Style, FromAttributes, FromDeriveInput, FromField, FromMeta, FromVariant};
+use manyhow::{bail, emit, error_message, manyhow, Emitter, Result};
+use proc_macro2::{Span, TokenStream};
+use quote::{quote, ToTokens};
+use syn2::parse_quote;
 
 /// Derive [`iroha_schema::TypeId`]
 ///
 /// Check out [`iroha_schema`] documentation
+#[manyhow]
 #[proc_macro_derive(TypeId, attributes(type_id))]
-pub fn type_id_derive(input: TokenStream) -> TokenStream {
-    let mut input = parse_macro_input!(input as DeriveInput);
-    impl_type_id(&mut input).into()
+pub fn type_id_derive(input: TokenStream) -> Result<TokenStream> {
+    let mut input = syn2::parse2(input)?;
+    Ok(impl_type_id(&mut input))
 }
 
-fn impl_type_id(input: &mut DeriveInput) -> TokenStream2 {
+fn impl_type_id(input: &mut syn2::DeriveInput) -> TokenStream {
     let name = &input.ident;
 
-    if let Some(bound) = input.attrs.iter().find_map(|attr| {
-        if let Ok(Meta::List(list)) = attr.parse_meta() {
-            if list.path.is_ident("type_id") {
-                let type_id = list.nested.first().expect("Missing type_id");
-
-                if let NestedMeta::Meta(Meta::NameValue(name_value)) = type_id {
-                    if name_value.path.is_ident("bound") {
-                        if let syn::Lit::Str(bound) = &name_value.lit {
-                            return Some(bound.parse().expect("Invalid bound"));
-                        }
-                    }
-                }
-            }
-        }
-
-        None
-    }) {
-        input.generics.make_where_clause().predicates.push(bound);
-    } else {
-        input
-            .generics
-            .type_params_mut()
-            .for_each(|ty_param| ty_param.bounds.push(parse_quote! {iroha_schema::TypeId}));
-    }
+    input.generics.type_params_mut().for_each(|ty_param| {
+        ty_param
+            .bounds
+            .push(syn2::parse_quote! {iroha_schema::TypeId})
+    });
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let type_id_body = trait_body(name, &input.generics, true);
@@ -62,32 +41,121 @@ fn impl_type_id(input: &mut DeriveInput) -> TokenStream2 {
     }
 }
 
-mod kw {
-    syn::custom_keyword!(transparent);
+#[derive(Debug, Clone)]
+enum Transparent {
+    NotTransparent,
+    Transparent(Option<syn2::Type>),
 }
 
-struct TransparentAttr {
-    _transparent_kw: kw::transparent,
-    equal_ty: Option<(syn::token::Eq, syn::Type)>,
+impl FromMeta for Transparent {
+    fn from_none() -> Option<Self> {
+        Some(Self::NotTransparent)
+    }
+
+    fn from_word() -> darling::Result<Self> {
+        Ok(Self::Transparent(None))
+    }
+
+    fn from_string(value: &str) -> darling::Result<Self> {
+        let ty = syn2::parse_str(value)?;
+        Ok(Self::Transparent(Some(ty)))
+    }
 }
 
-impl Parse for TransparentAttr {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let transparent_kw = input.parse()?;
+#[derive(Debug, Clone, FromAttributes)]
+#[darling(attributes(schema))]
+struct SchemaAttributes {
+    transparent: Transparent,
+}
 
-        let equal_ty = if let Ok(equal) = input.parse() {
-            let ty_str: syn::LitStr = input.parse()?;
-            let ty = syn::parse_str(&ty_str.value())?;
-            Some((equal, ty))
-        } else {
-            None
-        };
+// NOTE: this will fail on unknown attributes.. This is not ideal
+#[derive(Debug, Clone, FromAttributes)]
+#[darling(attributes(codec))]
+struct CodecAttributes {
+    #[darling(default)]
+    skip: bool,
+    #[darling(default)]
+    compact: bool,
+    index: Option<u8>,
+}
 
-        Ok(TransparentAttr {
-            _transparent_kw: transparent_kw,
-            equal_ty,
+type IntoSchemaData = darling::ast::Data<IntoSchemaVariant, IntoSchemaField>;
+
+#[derive(Debug, Clone)]
+struct IntoSchemaInput {
+    ident: syn2::Ident,
+    generics: syn2::Generics,
+    data: IntoSchemaData,
+    schema_attrs: SchemaAttributes,
+}
+
+impl FromDeriveInput for IntoSchemaInput {
+    fn from_derive_input(input: &syn2::DeriveInput) -> darling::Result<Self> {
+        let ident = input.ident.clone();
+        let generics = input.generics.clone();
+        let data = darling::ast::Data::try_from(&input.data)?;
+        let schema_attrs = SchemaAttributes::from_attributes(&input.attrs)?;
+
+        Ok(Self {
+            ident,
+            generics,
+            data,
+            schema_attrs,
         })
     }
+}
+
+#[derive(Debug, Clone)]
+struct IntoSchemaVariant {
+    ident: syn2::Ident,
+    discriminant: Option<syn2::Expr>,
+    fields: IntoSchemaFields,
+    codec_attrs: CodecAttributes,
+}
+
+impl FromVariant for IntoSchemaVariant {
+    fn from_variant(variant: &syn2::Variant) -> darling::Result<Self> {
+        let ident = variant.ident.clone();
+        let discriminant = variant.discriminant.as_ref().map(|(_, expr)| expr.clone());
+        let fields = IntoSchemaFields::try_from(&variant.fields)?;
+        let codec_attrs = CodecAttributes::from_attributes(&variant.attrs)?;
+
+        Ok(Self {
+            ident,
+            discriminant,
+            fields,
+            codec_attrs,
+        })
+    }
+}
+
+type IntoSchemaFields = darling::ast::Fields<IntoSchemaField>;
+
+#[derive(Debug, Clone)]
+struct IntoSchemaField {
+    ident: Option<syn2::Ident>,
+    ty: syn2::Type,
+    codec_attrs: CodecAttributes,
+}
+
+impl FromField for IntoSchemaField {
+    fn from_field(field: &syn2::Field) -> darling::Result<Self> {
+        let ident = field.ident.clone();
+        let ty = field.ty.clone();
+        let codec_attrs = CodecAttributes::from_attributes(&field.attrs)?;
+
+        Ok(Self {
+            ident,
+            ty,
+            codec_attrs,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CodegenField {
+    ident: Option<syn2::Ident>,
+    ty: syn2::Type,
 }
 
 /// Derive [`iroha_schema::IntoSchema`] and [`iroha_schema::TypeId`]
@@ -98,9 +166,13 @@ impl Parse for TransparentAttr {
 ///
 /// - If found invalid `transparent` attribute
 /// - If it's impossible to infer the type for transparent attribute
-#[proc_macro_derive(IntoSchema, attributes(schema))]
-pub fn schema_derive(input: TokenStream) -> TokenStream {
-    let mut input = parse_macro_input!(input as DeriveInput);
+#[manyhow]
+#[proc_macro_derive(IntoSchema, attributes(schema, codec))]
+pub fn schema_derive(input: TokenStream) -> Result<TokenStream> {
+    let original_input = input.clone();
+
+    let input: syn2::DeriveInput = syn2::parse2(input)?;
+    let mut input = IntoSchemaInput::from_derive_input(&input)?;
 
     input.generics.type_params_mut().for_each(|ty_param| {
         ty_param
@@ -108,48 +180,39 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
             .push(parse_quote! {iroha_schema::IntoSchema})
     });
 
-    let impl_type_id = impl_type_id(&mut input.clone());
+    let mut emitter = Emitter::new();
 
-    let impl_schema = input
-        .attrs
-        .iter()
-        .find_map(|attr| {
-            attr.path
-                .is_ident("schema")
-                .then(|| {
-                    let token = attr
-                        .tokens
-                        .clone()
-                        .into_iter()
-                        .next()
-                        .expect("Expected tokens in schema attribute");
-                    let stream = if let proc_macro2::TokenTree::Group(group) = token {
-                        group.stream()
-                    } else {
-                        panic!("Expected group in schema attribute")
-                    };
-                    syn::parse::<TransparentAttr>(stream.into()).ok()
-                })
-                .flatten()
-        })
-        .map(|transparent_attr| {
-            transparent_attr
-                .equal_ty
-                .map_or_else(|| infer_transparent_type(&input.data).clone(), |(_, ty)| ty)
-        })
-        .map_or_else(
-            || impl_into_schema(&input),
-            |transparent_type| impl_transparent_into_schema(&input, &transparent_type),
-        );
+    let impl_type_id = impl_type_id(&mut syn2::parse2(original_input).unwrap());
 
-    quote! {
+    let impl_schema = match &input.schema_attrs.transparent {
+        Transparent::NotTransparent => impl_into_schema(&input),
+        Transparent::Transparent(transparent_type) => {
+            let transparent_type = transparent_type
+                .clone()
+                .unwrap_or_else(|| infer_transparent_type(&input.data, &mut emitter));
+            Ok(impl_transparent_into_schema(&input, &transparent_type))
+        }
+    };
+    let impl_schema = match impl_schema {
+        Ok(impl_schema) => impl_schema,
+        Err(err) => {
+            emitter.emit(err);
+            quote!()
+        }
+    };
+
+    emitter.into_result()?;
+
+    Ok(quote! {
         #impl_type_id
         #impl_schema
-    }
-    .into()
+    })
 }
 
-fn impl_transparent_into_schema(input: &DeriveInput, transparent_type: &syn::Type) -> TokenStream2 {
+fn impl_transparent_into_schema(
+    input: &IntoSchemaInput,
+    transparent_type: &syn2::Type,
+) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let name = &input.ident;
 
@@ -174,13 +237,13 @@ fn impl_transparent_into_schema(input: &DeriveInput, transparent_type: &syn::Typ
     }
 }
 
-fn impl_into_schema(input: &DeriveInput) -> TokenStream2 {
+fn impl_into_schema(input: &IntoSchemaInput) -> Result<TokenStream> {
     let name = &input.ident;
     let type_name_body = trait_body(name, &input.generics, false);
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let metadata = metadata(&input.data);
+    let metadata = metadata(&input.data)?;
 
-    quote! {
+    Ok(quote! {
         impl #impl_generics iroha_schema::IntoSchema for #name #ty_generics #where_clause {
             fn type_name() -> String {
                 #type_name_body
@@ -190,96 +253,108 @@ fn impl_into_schema(input: &DeriveInput) -> TokenStream2 {
                #metadata
             }
         }
-    }
+    })
 }
 
-fn infer_transparent_type(input: &Data) -> &syn::Type {
+fn infer_transparent_type(input: &IntoSchemaData, emitter: &mut Emitter) -> syn2::Type {
     const TRY_MESSAGE: &str =
         "try to specify it explicitly using #[schema(transparent = \"Type\")]";
 
     match input {
-        Data::Enum(data_enum) => {
-            assert!(
-                data_enum.variants.len() == 1,
-                "Enums with only one variant support transparent type inference, {}",
-                TRY_MESSAGE
-            );
+        IntoSchemaData::Enum(variants) => {
+            if variants.len() != 1 {
+                emit!(
+                    emitter,
+                    "Enums with only one variant support transparent type inference, {}",
+                    TRY_MESSAGE
+                );
+                return parse_quote!(());
+            }
 
-            let variant = data_enum.variants.iter().next().unwrap();
-            let syn::Fields::Unnamed(unnamed_fields) = &variant.fields else {
-                panic!(
+            let variant = variants.iter().next().unwrap();
+            if variant.fields.style != Style::Tuple {
+                emit!(
+                    emitter,
                     "Only unnamed fields are supported for transparent type inference, {}",
                     TRY_MESSAGE,
-                )
-            };
+                );
+                return parse_quote!(());
+            }
 
-            assert!(
-                unnamed_fields.unnamed.len() == 1,
-                "Enums with only one unnamed field support transparent type inference, {}",
-                TRY_MESSAGE
-            );
-            let field = unnamed_fields.unnamed.iter().next().unwrap();
+            if variant.fields.len() != 1 {
+                emit!(
+                    emitter,
+                    "Enums with only one unnamed field support transparent type inference, {}",
+                    TRY_MESSAGE,
+                );
+                return parse_quote!(());
+            }
+            let field = variant.fields.iter().next().unwrap();
 
-            &field.ty
+            field.ty.clone()
         }
-        Data::Struct(DataStruct {
-            fields: Fields::Named(fields),
+        IntoSchemaData::Struct(IntoSchemaFields {
+            style: Style::Struct,
+            fields,
             ..
         }) => {
-            assert!(
-                fields.named.len() == 1,
-                "Structs with only one named field support transparent type inference, {}",
-                TRY_MESSAGE
-            );
-            let field = fields.named.iter().next().expect("Checked via `len`");
-            &field.ty
-        }
-        Data::Struct(DataStruct {
-            fields: Fields::Unnamed(unnamed_fields),
-            ..
-        }) => {
-            assert!(
-                unnamed_fields.unnamed.len() == 1,
-                "Structs with only one unnamed field support transparent type inference, {}",
-                TRY_MESSAGE
-            );
-            let field = unnamed_fields
-                .unnamed
-                .iter()
-                .next()
-                .expect("Checked via `len`");
+            if fields.len() != 1 {
+                emit!(
+                    emitter,
+                    "Structs with only one named field support transparent type inference, {}",
+                    TRY_MESSAGE
+                );
+                return parse_quote!(());
+            }
 
-            &field.ty
+            let field = fields.iter().next().expect("Checked via `len`");
+            field.ty.clone()
         }
-        Data::Struct(DataStruct {
-            fields: Fields::Unit,
+        IntoSchemaData::Struct(IntoSchemaFields {
+            style: Style::Tuple,
+            fields,
             ..
         }) => {
-            panic!(
+            if fields.len() != 1 {
+                emit!(
+                    emitter,
+                    "Structs with only one unnamed field support transparent type inference, {}",
+                    TRY_MESSAGE
+                );
+                return parse_quote!(());
+            }
+            let field = fields.iter().next().expect("Checked via `len`");
+
+            field.ty.clone()
+        }
+        IntoSchemaData::Struct(IntoSchemaFields {
+            style: Style::Unit, ..
+        }) => {
+            emit!(
+                emitter,
                 "Transparent attribute type inference is not supported for unit structs, {}",
-                TRY_MESSAGE,
-            )
-        }
-        Data::Union(_) => {
-            panic!(
-                "Transparent attribute type inference is not supported for unions, {}",
-                TRY_MESSAGE,
-            )
+                TRY_MESSAGE
+            );
+            parse_quote!(())
         }
     }
 }
 
 /// Body of [`IntoSchema::type_name`] method
-fn trait_body(name: &Ident, generics: &Generics, is_type_id_trait: bool) -> TokenStream2 {
+fn trait_body(
+    name: &syn2::Ident,
+    generics: &syn2::Generics,
+    is_type_id_trait: bool,
+) -> TokenStream {
     let generics = &generics
         .params
         .iter()
         .filter_map(|param| match param {
-            GenericParam::Type(ty) => Some(&ty.ident),
+            syn2::GenericParam::Type(ty) => Some(&ty.ident),
             _ => None,
         })
         .collect::<Vec<_>>();
-    let name = LitStr::new(&name.to_string(), Span::call_site());
+    let name = syn2::LitStr::new(&name.to_string(), Span::call_site());
 
     if generics.is_empty() {
         return quote! { format!("{}", #name) };
@@ -294,7 +369,7 @@ fn trait_body(name: &Ident, generics: &Generics, is_type_id_trait: bool) -> Toke
             .join(", "),
     );
     format_str.push('>');
-    let format_str = LitStr::new(&format_str, Span::mixed_site());
+    let format_str = syn2::LitStr::new(&format_str, Span::mixed_site());
 
     let generics = if is_type_id_trait {
         quote!(#(<#generics as iroha_schema::TypeId>::id()),*)
@@ -312,52 +387,50 @@ fn trait_body(name: &Ident, generics: &Generics, is_type_id_trait: bool) -> Toke
 }
 
 /// Returns schema method body
-fn metadata(data: &Data) -> TokenStream2 {
+fn metadata(data: &IntoSchemaData) -> Result<TokenStream> {
     let (types, expr) = match &data {
-        Data::Enum(data_enum) => metadata_for_enums(data_enum),
-        Data::Struct(DataStruct {
-            fields: Fields::Named(fields),
+        IntoSchemaData::Enum(variants) => metadata_for_enums(variants)?,
+        IntoSchemaData::Struct(IntoSchemaFields {
+            style: Style::Struct,
+            fields,
             ..
         }) => metadata_for_structs(fields),
-        Data::Struct(DataStruct {
-            fields: Fields::Unnamed(unnamed),
+        IntoSchemaData::Struct(IntoSchemaFields {
+            style: Style::Tuple,
+            fields,
             ..
-        }) => metadata_for_tuplestructs(unnamed),
-        Data::Struct(DataStruct {
-            fields: Fields::Unit,
-            ..
+        }) => metadata_for_tuplestructs(fields),
+        IntoSchemaData::Struct(IntoSchemaFields {
+            style: Style::Unit, ..
         }) => {
-            let expr = syn::parse2(quote! {
+            let expr: syn2::Expr = parse_quote! {
                 iroha_schema::Metadata::Tuple(
                     iroha_schema::UnnamedFieldsMeta {
                         types: Vec::new()
                     }
                 )
-            })
-            .expect("Failed to parse metadata tuple");
+            };
             (vec![], expr)
         }
-        #[allow(clippy::unimplemented)]
-        Data::Union(_) => unimplemented!("Unimplemented for union"),
     };
 
-    quote! {
+    Ok(quote! {
         if !map.contains_key::<Self>() {
             map.insert::<Self>(#expr); #(
 
             <#types as iroha_schema::IntoSchema>::update_schema_map(map); )*
         }
-    }
+    })
 }
 
 /// Returns types for which schema should be called and metadata for tuplestruct
-fn metadata_for_tuplestructs(fields: &FieldsUnnamed) -> (Vec<Type>, Expr) {
-    let fields = fields.unnamed.iter().filter_map(filter_map_fields_types);
+fn metadata_for_tuplestructs(fields: &[IntoSchemaField]) -> (Vec<syn2::Type>, syn2::Expr) {
+    let fields = fields.iter().filter_map(convert_field_to_codegen);
     let fields_ty = fields.clone().map(|field| field.ty).collect();
     let types = fields
         .map(|field| field.ty)
         .map(|ty| quote! { core::any::TypeId::of::<#ty>()});
-    let expr = syn::parse2(quote! {
+    let expr = parse_quote! {
         iroha_schema::Metadata::Tuple(
             iroha_schema::UnnamedFieldsMeta {
                 types: {
@@ -367,17 +440,16 @@ fn metadata_for_tuplestructs(fields: &FieldsUnnamed) -> (Vec<Type>, Expr) {
                 }
             }
         )
-    })
-    .expect("Failed to parse metadata for tuplestructs");
+    };
     (fields_ty, expr)
 }
 
 /// Returns types for which schema should be called and metadata for struct
-fn metadata_for_structs(fields: &FieldsNamed) -> (Vec<Type>, Expr) {
-    let fields = fields.named.iter().filter_map(filter_map_fields_types);
+fn metadata_for_structs(fields: &[IntoSchemaField]) -> (Vec<syn2::Type>, syn2::Expr) {
+    let fields = fields.iter().filter_map(convert_field_to_codegen);
     let declarations = fields.clone().map(|field| field_to_declaration(&field));
     let fields_ty = fields.map(|field| field.ty).collect();
-    let expr = syn::parse2(quote! {
+    let expr = parse_quote! {
         iroha_schema::Metadata::Struct(
             iroha_schema::NamedFieldsMeta {
                 declarations: {
@@ -387,76 +459,71 @@ fn metadata_for_structs(fields: &FieldsNamed) -> (Vec<Type>, Expr) {
                 }
             }
         )
-    })
-    .expect("Failed to parse metadata for structs");
+    };
     (fields_ty, expr)
 }
 
 /// Takes variant fields and gets its type
-#[allow(clippy::panic)]
-fn variant_field(fields: &Fields) -> Option<Type> {
-    let field = match fields {
-        Fields::Unit => return None,
-        Fields::Unnamed(fields) if fields.unnamed.len() == 1 => &fields.unnamed[0],
-        Fields::Unnamed(_) => {
-            panic!("Use at most 1 field in unnamed enum variants. Check out styleguide")
+fn variant_field(fields: &IntoSchemaFields) -> Result<Option<syn2::Type>> {
+    let field = match fields.style {
+        Style::Unit => return Ok(None),
+        Style::Tuple if fields.len() == 1 => fields.iter().next().unwrap(),
+        Style::Tuple => {
+            bail!("Use at most 1 field in unnamed enum variants. Check out styleguide");
         }
-        Fields::Named(_) => {
-            panic!("Please don't use named fields on enums. It is against iroha styleguide")
+        Style::Struct => {
+            bail!("Please don't use named fields on enums. It is against iroha styleguide")
         }
     };
-    filter_map_fields_types(field).map(|this_field| this_field.ty)
+    Ok(convert_field_to_codegen(field).map(|this_field| this_field.ty))
 }
 
 /// Returns types for which schema should be called and metadata for struct
-fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
-    let variants = data_enum
-        .variants
+fn metadata_for_enums(variants: &[IntoSchemaVariant]) -> Result<(Vec<syn2::Type>, syn2::Expr)> {
+    let variant_exprs: Vec<_> = variants
         .iter()
         .enumerate()
-        .filter(|(_, variant)| !should_skip(&variant.attrs))
+        .filter(|(_, variant)| !variant.codec_attrs.skip)
         .map(|(discriminant, variant)| {
-            let discriminant = variant_index(variant, discriminant);
-            assert!(
-                variant.discriminant.is_none(),
-                "Fieldless enums with explicit discriminants are not allowed"
-            );
+            let discriminant = variant_index(variant, discriminant)?;
+            if variant.discriminant.is_some() {
+                bail!("Fieldless enums with explicit discriminants are not allowed")
+            }
 
             let name = &variant.ident;
-            let ty = variant_field(&variant.fields).map_or_else(
+            let ty = variant_field(&variant.fields)?.map_or_else(
                 || quote! { None },
                 |ty| quote! { Some(core::any::TypeId::of::<#ty>()) },
             );
-            quote! {
+            Ok(quote! {
                 iroha_schema::EnumVariant {
                     tag: String::from(stringify!(#name)),
                     discriminant: #discriminant,
                     ty: #ty,
                 }
-            }
-        });
-    let fields_ty = data_enum
-        .variants
+            })
+        })
+        .collect::<Result<_>>()?;
+    let fields_ty = variants
         .iter()
-        .filter(|variant| !should_skip(&variant.attrs))
-        .filter_map(|variant| variant_field(&variant.fields))
-        .collect();
-    let expr = syn::parse2(quote! {
+        .filter(|variant| !variant.codec_attrs.skip)
+        .filter_map(|variant| variant_field(&variant.fields).transpose())
+        .collect::<Result<_>>()?;
+    let expr = parse_quote! {
         iroha_schema::Metadata::Enum(iroha_schema::EnumMeta {
             variants: {
                 let mut variants = Vec::new();
-                #( variants.push(#variants); )*
+                #( variants.push(#variant_exprs); )*
                 variants
             }
         })
-    })
-    .expect("Failed to parse metadata for enums");
+    };
 
-    (fields_ty, expr)
+    Ok((fields_ty, expr))
 }
 
 /// Generates declaration for field
-fn field_to_declaration(field: &Field) -> TokenStream2 {
+fn field_to_declaration(field: &CodegenField) -> TokenStream {
     let ident = field.ident.as_ref().expect("Field to declaration");
     let ty = &field.ty;
 
@@ -468,94 +535,36 @@ fn field_to_declaration(field: &Field) -> TokenStream2 {
     }
 }
 
-/// Look for a `#[codec(compact)]` outer attribute on the given `Field`.
-fn is_compact(field: &Field) -> bool {
-    find_meta_item(field.attrs.iter(), |meta| {
-        if let NestedMeta::Meta(Meta::Path(ref path)) = meta {
-            if path.is_ident("compact") {
-                return Some(());
-            }
-        }
-
-        None
-    })
-    .is_some()
-}
-
-/// Look for a `#[codec(skip)]` in the given attributes.
-fn should_skip(attrs: &[Attribute]) -> bool {
-    find_meta_item(attrs.iter(), |meta| {
-        if let NestedMeta::Meta(Meta::Path(ref path)) = meta {
-            if path.is_ident("skip") {
-                return Some(path.span());
-            }
-        }
-
-        None
-    })
-    .is_some()
-}
-
-/// Look for a `#[scale(index = $int)]` attribute on a variant. If no attribute
+/// Look for a `#[codec(index = $int)]` attribute on a variant. If no attribute
 /// is found, fall back to the discriminant or just the variant index.
-fn variant_index(v: &syn::Variant, i: usize) -> TokenStream2 {
-    // first look for an attribute
-    let index = find_meta_item(v.attrs.iter(), |meta| {
-        if let NestedMeta::Meta(Meta::NameValue(ref nv)) = meta {
-            if nv.path.is_ident("index") {
-                if let syn::Lit::Int(ref val) = nv.lit {
-                    let byte = val
-                        .base10_parse::<u8>()
-                        .expect("Internal error, index attribute must have been checked");
-                    return Some(byte);
-                }
-            }
+fn variant_index(v: &IntoSchemaVariant, i: usize) -> Result<TokenStream> {
+    Ok(match (v.codec_attrs.index, v.discriminant.as_ref()) {
+        // first, try to use index from the `codec` attribute
+        (Some(index), _) => index.to_token_stream(),
+        // then try to use explicit discriminant
+        (_, Some(discriminant)) => discriminant.to_token_stream(),
+        // then fallback to just variant index
+        (_, _) => {
+            let index = u8::try_from(i).map_err(|_| error_message!("Too many enum variants"))?;
+            index.to_token_stream()
         }
-
-        None
-    });
-
-    // then fallback to discriminant or just index
-    index
-        .map(|int| quote! { #int })
-        .or_else(|| {
-            v.discriminant.as_ref().map(|(_, expr)| {
-                let n: syn::Lit = syn::parse2(quote! { #expr })
-                    .expect("Fallback in variant_index failed to parse");
-                quote! { #n }
-            })
-        })
-        .unwrap_or_else(|| quote! { #i as u8 })
-}
-
-/// Finds specific attribute with codec ident satisfying predicate
-fn find_meta_item<'attr, F, R, I, M>(mut itr: I, mut pred: F) -> Option<R>
-where
-    F: FnMut(M) -> Option<R> + Clone,
-    I: Iterator<Item = &'attr Attribute>,
-    M: Parse,
-{
-    itr.find_map(|attr| {
-        attr.path
-            .is_ident("codec")
-            .then(|| pred(attr.parse_args().ok()?))
-            .flatten()
     })
 }
 
-/// Filter map function for types
-fn filter_map_fields_types(field: &Field) -> Option<Field> {
-    //skip if #[codec(skip)] used
-    if should_skip(&field.attrs) {
+/// Convert field to the codegen representation, filtering out skipped fields.
+fn convert_field_to_codegen(field: &IntoSchemaField) -> Option<CodegenField> {
+    if field.codec_attrs.skip {
         return None;
     }
-    if is_compact(field) {
+    let ty = if field.codec_attrs.compact {
         let ty = &field.ty;
-        let mut field = field.clone();
-        field.ty = syn::parse2(quote! { iroha_schema::Compact<#ty> })
-            .expect("Failed to parse compact schema variant");
-        Some(field)
+        parse_quote!(iroha_schema::Compact<#ty>)
     } else {
-        Some(field.clone())
-    }
+        field.ty.clone()
+    };
+
+    Some(CodegenField {
+        ident: field.ident.clone(),
+        ty,
+    })
 }

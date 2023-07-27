@@ -13,17 +13,34 @@ pub struct Foo2<T, K> {
 
 #[derive(IntoSchema)]
 pub struct Foo3<T: Clone> {
-   _value1: T,
+    _value1: T,
 }
 
 #[derive(IntoSchema)]
 pub struct Foo4<T: iroha_schema::IntoSchema> {
-   _value1: T,
+    _value1: T,
 }
 
 #[derive(IntoSchema)]
 pub struct Foo5<T: IntoSchema> {
-   _value1: T,
+    _value1: T,
+}
+
+#[derive(IntoSchema)]
+#[schema(transparent)]
+pub struct AutoTransparent(u32);
+
+#[derive(IntoSchema)]
+#[schema(transparent = "String")]
+pub struct FakeString {}
+
+#[derive(IntoSchema)]
+pub enum Enum {
+    Zero,
+    // how does it work? We don't allow discriminants, but still try to parse them?
+    One,
+    #[codec(index = 42)]
+    FortyTwo,
 }
 
 pub fn main() {}

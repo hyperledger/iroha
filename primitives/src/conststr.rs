@@ -6,7 +6,12 @@
 )]
 
 #[cfg(not(feature = "std"))]
-use alloc::{borrow::ToOwned as _, boxed::Box, format, string::String};
+use alloc::{
+    borrow::ToOwned as _,
+    boxed::Box,
+    format,
+    string::{String, ToString as _},
+};
 use core::{
     borrow::Borrow,
     cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd},
@@ -21,7 +26,7 @@ use core::{
 };
 
 use derive_more::{DebugCustom, Display};
-use iroha_schema::IntoSchema;
+use iroha_schema::{Ident, IntoSchema, MetaMap, TypeId};
 use parity_scale_codec::{WrapperTypeDecode, WrapperTypeEncode};
 use serde::{
     de::{Deserialize, Deserializer, Error, Visitor},
@@ -48,10 +53,9 @@ const MAX_INLINED_STRING_LEN: usize = 2 * size_of::<usize>() - 1;
 /// | Box     | ptr   | len                | tag (always 0) |
 /// +---------+-------+--------------------+----------------+
 /// ```
-#[derive(DebugCustom, Display, IntoSchema)]
+#[derive(DebugCustom, Display)]
 #[display(fmt = "{}", "&**self")]
 #[debug(fmt = "{:?}", "&**self")]
-#[schema(transparent = "String")]
 #[repr(C)]
 pub union ConstString {
     inlined: InlinedString,
@@ -269,6 +273,30 @@ impl WrapperTypeEncode for ConstString {}
 
 impl WrapperTypeDecode for ConstString {
     type Wrapped = String;
+}
+
+// darling doesn't support unions, so this can't be derived
+impl TypeId for ConstString {
+    fn id() -> Ident {
+        "ConstString".to_string()
+    }
+}
+
+impl IntoSchema for ConstString {
+    fn type_name() -> Ident {
+        "String".to_string()
+    }
+
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            if !map.contains_key::<String>() {
+                <String as iroha_schema::IntoSchema>::update_schema_map(map);
+            }
+            if let Some(schema) = map.get::<String>() {
+                map.insert::<Self>(schema.clone());
+            }
+        }
+    }
 }
 
 #[derive(DebugCustom)]
