@@ -13,8 +13,8 @@ use std::{
 use futures::{prelude::*, stream::FuturesUnordered, task::AtomicWaker};
 use iroha_config_base::proxy::Builder;
 use iroha_crypto::KeyPair;
-use iroha_data_model::prelude::PeerId;
-use iroha_logger::{prelude::*, Configuration, ConfigurationProxy, Level};
+use iroha_data_model::{prelude::PeerId, Level};
+use iroha_logger::{prelude::*, Configuration, ConfigurationProxy};
 use iroha_p2p::{network::message::*, NetworkHandle};
 use iroha_primitives::addr::socket_addr;
 use parity_scale_codec::{Decode, Encode};

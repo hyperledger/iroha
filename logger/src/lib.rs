@@ -19,7 +19,8 @@ use std::{
 };
 
 use color_eyre::{eyre::WrapErr, Report, Result};
-pub use iroha_config::logger::{Configuration, ConfigurationProxy, Level};
+use iroha_config::logger::into_tracing_level;
+pub use iroha_config::logger::{Configuration, ConfigurationProxy};
 pub use telemetry::{Telemetry, TelemetryFields, TelemetryLayer};
 use tokio::sync::mpsc::Receiver;
 pub use tracing::{
@@ -94,10 +95,12 @@ fn add_bunyan<L>(configuration: &Configuration, layer: L) -> Result<Telemetries>
 where
     L: tracing_subscriber::Layer<Registry> + Debug + Send + Sync + 'static,
 {
-    let level: tracing::Level = configuration.max_log_level.value().into();
+    let level: tracing::Level = into_tracing_level(configuration.max_log_level.value());
     let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level);
     let (filter, handle) = reload::Layer::new(level_filter);
-    configuration.max_log_level.set_handle(handle);
+    configuration
+        .max_log_level
+        .set_handle(iroha_config::logger::ReloadHandle(handle));
     let (bunyan_layer, storage_layer) = match configuration.log_file_path.clone() {
         Some(path) => (
             Some(BunyanFormattingLayer::new(

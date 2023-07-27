@@ -3,13 +3,13 @@
 #![allow(clippy::std_instead_of_core)]
 use core::fmt::Debug;
 
-use derive_more::{Deref, DerefMut};
+use derive_more::{Deref, DerefMut, From};
 use iroha_config_base::{
     derive::{Documented, Proxy},
     runtime_upgrades::{handle, ReloadError, ReloadMut},
 };
+use iroha_data_model::Level;
 use serde::{Deserialize, Serialize};
-use strum::FromRepr;
 use tracing::Subscriber;
 use tracing_subscriber::{filter::LevelFilter, reload::Handle};
 
@@ -19,43 +19,27 @@ const DEFAULT_TERMINAL_COLORS: bool = true;
 #[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
 const DEFAULT_TOKIO_CONSOLE_ADDR: &str = "127.0.0.1:5555";
 
-/// Log level for reading from environment and (de)serializing
-#[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, FromRepr,
-)]
-#[allow(clippy::upper_case_acronyms)]
-#[repr(u8)]
-pub enum Level {
-    /// Trace
-    TRACE,
-    /// Debug
-    DEBUG,
-    /// Info (Default)
-    #[default]
-    INFO,
-    /// Warn
-    WARN,
-    /// Error
-    ERROR,
-}
-
-impl From<Level> for tracing::Level {
-    fn from(level: Level) -> Self {
-        match level {
-            Level::TRACE => Self::TRACE,
-            Level::DEBUG => Self::DEBUG,
-            Level::INFO => Self::INFO,
-            Level::WARN => Self::WARN,
-            Level::ERROR => Self::ERROR,
-        }
+/// Convert [`Level`] into [`tracing::Level`]
+pub fn into_tracing_level(level: Level) -> tracing::Level {
+    match level {
+        Level::TRACE => tracing::Level::TRACE,
+        Level::DEBUG => tracing::Level::DEBUG,
+        Level::INFO => tracing::Level::INFO,
+        Level::WARN => tracing::Level::WARN,
+        Level::ERROR => tracing::Level::ERROR,
     }
 }
 
-impl<T: Subscriber + Debug> ReloadMut<Level> for Handle<LevelFilter, T> {
-    fn reload(&mut self, level: Level) -> Result<(), ReloadError> {
-        let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level.into());
+/// Wrapper for [`Handle`] to implement [`ReloadMut`]
+#[derive(From)]
+pub struct ReloadHandle<T>(pub Handle<LevelFilter, T>);
 
-        Handle::reload(self, level_filter).map_err(|err| {
+impl<T: Subscriber + Debug> ReloadMut<Level> for ReloadHandle<T> {
+    fn reload(&mut self, level: Level) -> Result<(), ReloadError> {
+        let level_filter =
+            tracing_subscriber::filter::LevelFilter::from_level(into_tracing_level(level));
+
+        Handle::reload(&self.0, level_filter).map_err(|err| {
             if err.is_dropped() {
                 ReloadError::Dropped
             } else {

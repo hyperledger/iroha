@@ -52,6 +52,7 @@ use parity_scale_codec::{Decode, Encode};
 use prelude::{Executable, TransactionQueryOutput, VersionedSignedTransaction};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
+use strum::FromRepr;
 
 pub use self::model::*;
 use crate::{account::SignatureCheckCondition, name::Name};
@@ -786,6 +787,7 @@ pub mod model {
         #[debug(fmt = "{_0:?}")]
         Numeric(NumericValue),
         Validator(validator::Validator),
+        LogLevel(Level),
     }
 
     /// Enum for all supported hash types
@@ -953,6 +955,40 @@ pub mod model {
             String,
         ),
     }
+
+    /// Log level for reading from environment and (de)serializing
+    #[derive(
+        Debug,
+        Display,
+        Clone,
+        Copy,
+        Default,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Deserialize,
+        Serialize,
+        Encode,
+        Decode,
+        FromRepr,
+        IntoSchema,
+    )]
+    #[allow(clippy::upper_case_acronyms)]
+    #[repr(u8)]
+    pub enum Level {
+        /// Trace
+        TRACE,
+        /// Debug
+        DEBUG,
+        /// Info (Default)
+        #[default]
+        INFO,
+        /// Warn
+        WARN,
+        /// Error
+        ERROR,
+    }
 }
 
 impl Identifiable for TriggerBox {
@@ -1058,6 +1094,7 @@ impl fmt::Display for Value {
             Value::TransactionLimits(v) => fmt::Display::fmt(&v, f),
             Value::LengthLimits(v) => fmt::Display::fmt(&v, f),
             Value::Validator(v) => write!(f, "Validator({} bytes)", v.wasm.as_ref().len()),
+            Value::LogLevel(v) => fmt::Display::fmt(&v, f),
         }
     }
 }
@@ -1087,7 +1124,8 @@ impl Value {
             | TransactionLimits(_)
             | LengthLimits(_)
             | Numeric(_)
-            | Validator(_) => 1_usize,
+            | Validator(_)
+            | LogLevel(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => Evaluate::len(&s.0),

@@ -21,7 +21,9 @@ use iroha_config::{
     torii::Configuration as ToriiConfiguration,
 };
 use iroha_crypto::prelude::*;
-use iroha_data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query};
+use iroha_data_model::{
+    isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query, Level,
+};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
 use iroha_primitives::addr::{socket_addr, SocketAddr};
@@ -165,7 +167,7 @@ impl Network {
         start_port: Option<u16>,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
-        configuration.logger.max_log_level = iroha_logger::Level::INFO.into();
+        configuration.logger.max_log_level = Level::INFO.into();
         let network = Network::new_with_offline_peers(
             Some(configuration),
             n_peers,
