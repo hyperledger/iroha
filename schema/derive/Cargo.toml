@@ -11,9 +11,11 @@ license.workspace = true
 proc-macro = true
 
 [dependencies]
-syn = { workspace = true, features = ["default", "full"] }
+syn2 = { workspace = true, features = ["default", "full"] }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
+manyhow = { workspace = true, features = ["syn1", "darling"] }
+darling = { workspace = true }
 
 [dev-dependencies]
 iroha_schema = { workspace = true}
