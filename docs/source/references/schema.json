@@ -2633,6 +2633,30 @@
       }
     ]
   },
+  "Level": {
+    "Enum": [
+      {
+        "tag": "TRACE",
+        "discriminant": 0
+      },
+      {
+        "tag": "DEBUG",
+        "discriminant": 1
+      },
+      {
+        "tag": "INFO",
+        "discriminant": 2
+      },
+      {
+        "tag": "WARN",
+        "discriminant": 3
+      },
+      {
+        "tag": "ERROR",
+        "discriminant": 4
+      }
+    ]
+  },
   "Limits": {
     "Struct": [
       {
@@ -4545,6 +4569,11 @@
         "tag": "Validator",
         "discriminant": 21,
         "type": "Validator"
+      },
+      {
+        "tag": "LogLevel",
+        "discriminant": 22,
+        "type": "Level"
       }
     ]
   },

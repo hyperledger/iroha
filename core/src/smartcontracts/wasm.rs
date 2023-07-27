@@ -19,11 +19,11 @@ use iroha_data_model::{
     permission::PermissionTokenSchema,
     prelude::*,
     validator::{self, MigrationResult},
-    ValidationFail,
+    Level as LogLevel, ValidationFail,
 };
 use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
-use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span, Level as LogLevel};
+use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span};
 use iroha_wasm_codec::{self as codec, WasmUsize};
 use state::{Wsv as _, WsvMut as _};
 use wasmtime::{
