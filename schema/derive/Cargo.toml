@@ -18,6 +18,6 @@ manyhow = { workspace = true, features = ["syn1", "darling"] }
 darling = { workspace = true }
 
 [dev-dependencies]
-iroha_schema = { workspace = true}
+iroha_schema = { workspace = true }
 
 trybuild = { workspace = true }
