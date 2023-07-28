@@ -75,6 +75,7 @@ bytes = "1.4.0"
 
 vergen = { version = "8.1.1", default-features = false }
 trybuild = "1.0.73"
+impls = "1.0.3"
 
 base64 = { version = "0.13.1", default-features = false }
 hex = { version = "0.4.3", default-features = false }

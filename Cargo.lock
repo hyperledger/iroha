@@ -3397,6 +3397,7 @@ dependencies = [
  "iroha_schema_derive",
  "parity-scale-codec",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

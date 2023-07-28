@@ -21,4 +21,4 @@ darling = { workspace = true }
 iroha_macro = { workspace = true }
 
 trybuild = { workspace = true }
-impls = "1.0.3"
+impls = { workspace = true }

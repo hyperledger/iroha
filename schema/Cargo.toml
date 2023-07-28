@@ -14,5 +14,6 @@ serde = { workspace = true, features = ["derive", "alloc"] }
 fixnum = { workspace = true, features = ["i64"] }
 
 [dev-dependencies]
-parity-scale-codec = { version = "3.2.1", default-features = false, features = ["derive", "full"] }
-impls = "1.0.3"
+parity-scale-codec = { workspace = true, default-features = false, features = ["derive", "full"] }
+impls = { workspace = true }
+serde_json = { workspace = true, features = ["std"] }
