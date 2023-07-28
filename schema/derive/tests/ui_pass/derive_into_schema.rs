@@ -37,7 +37,6 @@ pub struct FakeString {}
 #[derive(IntoSchema)]
 pub enum Enum {
     Zero,
-    // how does it work? We don't allow discriminants, but still try to parse them?
     One,
     #[codec(index = 42)]
     FortyTwo,
