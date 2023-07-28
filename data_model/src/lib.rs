@@ -1859,6 +1859,14 @@ pub mod http {
             source.batch
         }
     }
+
+    impl<T> From<BatchedResponse<T>> for (T, crate::query::cursor::ForwardCursor) {
+        fn from(source: BatchedResponse<T>) -> Self {
+            let BatchedResponse { batch, cursor } = source;
+
+            (batch, cursor)
+        }
+    }
 }
 
 mod ffi {
