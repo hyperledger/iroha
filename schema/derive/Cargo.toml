@@ -11,7 +11,7 @@ license.workspace = true
 proc-macro = true
 
 [dependencies]
-syn = { workspace = true, features = ["full"] }
+syn = { workspace = true, features = ["default", "full"] }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
 

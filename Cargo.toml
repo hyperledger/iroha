@@ -1,6 +1,6 @@
 [workspace.package]
 edition = "2021"
-version = "2.0.0-pre-rc.16"
+version = "2.0.0-pre-rc.18"
 # TODO: teams are being deprecated update the authors URL
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 
@@ -15,37 +15,37 @@ categories = ["cryptography::cryptocurrencies"]
 
 [workspace.dependencies]
 iroha = { path = "cli" }
-iroha_cli_derive = { version = "=2.0.0-pre-rc.16", path = "cli/derive" }
-iroha_macro_utils = { version = "=2.0.0-pre-rc.16", path = "macro/utils" }
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.16", path = "wasm_builder" }
-iroha_telemetry = { version = "=2.0.0-pre-rc.16", path = "telemetry" }
-iroha_telemetry_derive = { version = "=2.0.0-pre-rc.16", path = "telemetry/derive" }
-iroha_p2p = { version = "=2.0.0-pre-rc.16", path = "p2p" }
-iroha_data_model_derive = { version = "=2.0.0-pre-rc.16", path = "data_model/derive" }
-iroha_core = { version = "=2.0.0-pre-rc.16", path = "core" }
-iroha_primitives = { version = "=2.0.0-pre-rc.16", path = "primitives", default-features = false }
-iroha_primitives_derive = { version = "=2.0.0-pre-rc.16", path = "primitives/derive" }
-iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "data_model" }
-iroha_client = { version = "=2.0.0-pre-rc.16", path = "client" }
-iroha_config = { version = "=2.0.0-pre-rc.16", path = "config" }
-iroha_config_base = { version = "=2.0.0-pre-rc.16", path = "config/base" }
-iroha_config_derive = { version = "=2.0.0-pre-rc.16", path = "config/base/derive" }
-iroha_schema_gen = { version = "=2.0.0-pre-rc.16", path = "schema/gen" }
-iroha_schema = { version = "=2.0.0-pre-rc.16", path = "schema", default-features = false }
-iroha_schema_derive = { version = "=2.0.0-pre-rc.16", path = "schema/derive" }
-iroha_logger = { version = "=2.0.0-pre-rc.16", path = "logger" }
-iroha_crypto = { version = "=2.0.0-pre-rc.16", path = "crypto", default-features = false }
-iroha_macro = { version = "=2.0.0-pre-rc.16", path = "macro", default-features = false }
-iroha_derive = { version = "=2.0.0-pre-rc.16", path = "macro/derive" }
-iroha_futures = { version = "=2.0.0-pre-rc.16", path = "futures" }
-iroha_futures_derive = { version = "=2.0.0-pre-rc.16", path = "futures/derive" }
-iroha_genesis = { version = "=2.0.0-pre-rc.16", path = "genesis" }
-iroha_ffi = { version = "=2.0.0-pre-rc.16", path = "ffi" }
-iroha_ffi_derive = { version = "=2.0.0-pre-rc.16", path = "ffi/derive" }
-iroha_version = { version = "=2.0.0-pre-rc.16", path = "version", default-features = false }
-iroha_version_derive = { version = "=2.0.0-pre-rc.16", path = "version/derive", default-features = false }
-iroha_wasm_codec = { version = "=2.0.0-pre-rc.16", path = "wasm_codec" }
-test_network = { version = "=2.0.0-pre-rc.16", path = "core/test_network" }
+iroha_cli_derive = { version = "=2.0.0-pre-rc.18", path = "cli/derive" }
+iroha_macro_utils = { version = "=2.0.0-pre-rc.18", path = "macro/utils" }
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.18", path = "wasm_builder" }
+iroha_telemetry = { version = "=2.0.0-pre-rc.18", path = "telemetry" }
+iroha_telemetry_derive = { version = "=2.0.0-pre-rc.18", path = "telemetry/derive" }
+iroha_p2p = { version = "=2.0.0-pre-rc.18", path = "p2p" }
+iroha_data_model_derive = { version = "=2.0.0-pre-rc.18", path = "data_model/derive" }
+iroha_core = { version = "=2.0.0-pre-rc.18 ", path = "core" }
+iroha_primitives = { version = "=2.0.0-pre-rc.18", path = "primitives", default-features = false }
+iroha_primitives_derive = { version = "=2.0.0-pre-rc.18", path = "primitives/derive" }
+iroha_data_model = { version = "=2.0.0-pre-rc.18", path = "data_model" }
+iroha_client = { version = "=2.0.0-pre-rc.18", path = "client" }
+iroha_config = { version = "=2.0.0-pre-rc.18", path = "config" }
+iroha_config_base = { version = "=2.0.0-pre-rc.18", path = "config/base" }
+iroha_config_derive = { version = "=2.0.0-pre-rc.18", path = "config/base/derive" }
+iroha_schema_gen = { version = "=2.0.0-pre-rc.18", path = "schema/gen" }
+iroha_schema = { version = "=2.0.0-pre-rc.18", path = "schema", default-features = false }
+iroha_schema_derive = { version = "=2.0.0-pre-rc.18", path = "schema/derive" }
+iroha_logger = { version = "=2.0.0-pre-rc.18", path = "logger" }
+iroha_crypto = { version = "=2.0.0-pre-rc.18", path = "crypto", default-features = false }
+iroha_macro = { version = "=2.0.0-pre-rc.18", path = "macro", default-features = false }
+iroha_derive = { version = "=2.0.0-pre-rc.18", path = "macro/derive" }
+iroha_futures = { version = "=2.0.0-pre-rc.18", path = "futures" }
+iroha_futures_derive = { version = "=2.0.0-pre-rc.18", path = "futures/derive" }
+iroha_genesis = { version = "=2.0.0-pre-rc.18", path = "genesis" }
+iroha_ffi = { version = "=2.0.0-pre-rc.18", path = "ffi" }
+iroha_ffi_derive = { version = "=2.0.0-pre-rc.18", path = "ffi/derive" }
+iroha_version = { version = "=2.0.0-pre-rc.18", path = "version", default-features = false }
+iroha_version_derive = { version = "=2.0.0-pre-rc.18", path = "version/derive", default-features = false }
+iroha_wasm_codec = { version = "=2.0.0-pre-rc.18", path = "wasm_codec" }
+test_network = { version = "=2.0.0-pre-rc.18", path = "core/test_network" }
 
 proc-macro-error = "1.0.4"
 proc-macro2 = "1.0.49"

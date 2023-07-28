@@ -497,7 +497,7 @@ mod state {
 
             // We take our public key from our `id` and will replace it with theirs when we read it
             // Packing length and message in one network packet for efficiency
-            let data = peer_id.public_key.encode();
+            let data = peer_id.public_key().encode();
 
             let data = &cryptographer.encrypt(data.as_slice())?;
 
