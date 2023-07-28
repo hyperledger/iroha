@@ -288,7 +288,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             .into_iter()
             .map(|peer_id| {
                 // Determine who is responsible for connecting
-                let peer_public_key_hash = blake2b_hash(peer_id.public_key.payload());
+                let peer_public_key_hash = blake2b_hash(peer_id.public_key().payload());
                 let is_active = self_public_key_hash > peer_public_key_hash;
                 (peer_id, is_active)
             })
@@ -303,8 +303,8 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             // Peer is not connected but should
             .filter_map(|(peer, is_active)| (
                 !self.peers.contains_key(&peer.public_key)
-                && !self.connecting_peers.values().any(|public_key| &peer.public_key == public_key)
-                && *is_active
+                    && !self.connecting_peers.values().any(|public_key| peer.public_key == *public_key)
+                    && *is_active
             ).then_some(peer))
             .cloned()
             .collect::<Vec<_>>();
@@ -333,7 +333,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
 
         let conn_id = self.get_conn_id();
         self.connecting_peers
-            .insert(conn_id, peer.public_key.clone());
+            .insert(conn_id, peer.public_key().clone());
         let service_message_sender = self.service_message_sender.clone();
         connecting::<T, K, E>(
             // NOTE: we intentionally use peer's address and our public key, it's used during handshake
