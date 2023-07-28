@@ -146,11 +146,13 @@ where
         let response = _handle_query_response_base(resp)
             .map(|VersionedBatchedResponse::V1(response)| response)?;
 
-        let value = R::try_from(response.batch)
+        let (batch, cursor) = response.into();
+
+        let value = R::try_from(batch)
             .map_err(Into::into)
             .wrap_err("Unexpected type")?;
 
-        self.query_request.query_cursor = response.cursor;
+        self.query_request.query_cursor = cursor;
         Ok(value)
     }
 }
@@ -260,7 +262,15 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.client_cursor >= self.iter.len() {
-            self.query_handler.query_request.query_cursor.cursor?;
+            if self
+                .query_handler
+                .query_request
+                .query_cursor
+                .cursor()
+                .is_none()
+            {
+                return None;
+            }
 
             let request = match self.query_handler.query_request.clone().assemble().build() {
                 Err(err) => return Some(Err(ClientQueryError::Other(err))),
