@@ -6,7 +6,7 @@ use alloc::format;
 
 use iroha_crypto::PublicKey;
 
-use crate::{evaluate::ExpressionEvaluator, prelude::*, NumericValue};
+use crate::{evaluate::ExpressionEvaluator, isi::Log, prelude::*, NumericValue};
 
 macro_rules! delegate {
     ( $($visitor:ident $(<$param:ident $(: $bound:path)?>)?($operation:ty)),+ $(,)? ) => { $(
@@ -61,6 +61,7 @@ pub trait Visit: ExpressionEvaluator {
         visit_execute_trigger(ExecuteTrigger),
         visit_new_parameter(NewParameter),
         visit_set_parameter(SetParameter),
+        visit_log(Log),
 
         // Visit QueryBox
         visit_does_account_have_permission_token(&DoesAccountHavePermissionToken),
@@ -274,6 +275,11 @@ pub fn visit_instruction<V: Visit + ?Sized>(
                 InstructionBox::ExecuteTrigger(isi) => {
                     let trigger_id = evaluate_expr!(visitor, authority, <isi as ExecuteTrigger>::trigger_id());
                     visitor.visit_execute_trigger(authority, ExecuteTrigger{trigger_id});
+                }
+                InstructionBox::Log(isi) => {
+                    let msg = evaluate_expr!(visitor, authority, <isi as LogBox>::msg());
+                    let level = evaluate_expr!(visitor, authority, <isi as LogBox>::level());
+                    visitor.visit_log(authority, Log { msg, level })
                 } $(
                 InstructionBox::$isi(isi) => {
                     visitor.$visitor(authority, isi);
@@ -704,6 +710,7 @@ leaf_visitors! {
     visit_set_parameter(SetParameter),
     visit_execute_trigger(ExecuteTrigger),
     visit_fail(&FailBox),
+    visit_log(Log),
 
     // Query visitors
     visit_does_account_have_permission_token(&DoesAccountHavePermissionToken),
