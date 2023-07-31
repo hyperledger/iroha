@@ -307,6 +307,16 @@ pub fn visit_instruction<V: Validate + ?Sized>(
                         let res = isi.execute();
                         isi_validators!(@handle_isi_result res);
                     }
+                }
+                InstructionBox::Log(isi) => {
+                    let msg = evaluate_expr!(validator, authority, <isi as LogBox>::msg());
+                    let level = evaluate_expr!(validator, authority, <isi as LogBox>::level());
+                    validator.visit_log(authority, Log{level, msg});
+
+                    if validator.verdict().is_ok() {
+                        let res = isi.execute();
+                        isi_validators!(@handle_isi_result res);
+                    }
                 } $(
                 InstructionBox::$isi(isi) => {
                     validator.$validator(authority, isi);

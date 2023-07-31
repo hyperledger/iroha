@@ -16,7 +16,7 @@ use strum::EnumDiscriminants;
 
 pub use self::model::*;
 use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
-use crate::{seal, Registered};
+use crate::{seal, Level, Registered};
 
 /// Marker trait designating instruction
 pub trait Instruction: Into<InstructionBox> + seal::Sealed {}
@@ -126,6 +126,8 @@ pub mod model {
         NewParameter(NewParameterBox),
         /// `Upgrade` variant.
         Upgrade(UpgradeBox),
+        /// `Log` variant.
+        Log(LogBox),
 
         /// `Fail` variant.
         #[debug(fmt = "{_0:?}")]
@@ -148,6 +150,7 @@ pub mod model {
     impl Instruction for UpgradeBox {}
     impl Instruction for ExecuteTriggerBox {}
     impl Instruction for FailBox {}
+    impl Instruction for LogBox {}
 
     // Composite instructions
     impl Instruction for SequenceBox {}
@@ -302,6 +305,15 @@ mod transparent {
     pub struct ExecuteTrigger {
         /// Id of a trigger to execute
         pub trigger_id: TriggerId,
+    }
+
+    /// Generic instruction for logging messages
+    #[derive(Debug, Clone)]
+    pub struct Log {
+        /// Message to be logged
+        pub msg: String,
+        /// Log level of the message
+        pub level: Level,
     }
 }
 
@@ -572,6 +584,20 @@ isi! {
     }
 }
 
+isi! {
+    /// Instruction to print logs
+    #[derive(Display)]
+    #[display(fmt = "LOG({level}): {msg}")]
+    #[ffi_type]
+    pub struct LogBox {
+        /// Message log level
+        #[serde(flatten)]
+        pub level: EvaluatesTo<Level>,
+        /// Msg to be logged
+        pub msg: EvaluatesTo<String>,
+    }
+}
+
 impl ExecuteTriggerBox {
     /// Construct [`ExecuteTriggerBox`]
     pub fn new<I>(trigger_id: I) -> Self
@@ -786,6 +812,19 @@ impl UpgradeBox {
     pub fn new<O: Into<EvaluatesTo<UpgradableBox>>>(object: O) -> Self {
         Self {
             object: object.into(),
+        }
+    }
+}
+
+impl LogBox {
+    /// Construct [`LogBox`]
+    pub fn new<L: Into<EvaluatesTo<Level>>, M: Into<EvaluatesTo<String>>>(
+        level: L,
+        msg: M,
+    ) -> Self {
+        Self {
+            level: level.into(),
+            msg: msg.into(),
         }
     }
 }
@@ -1140,9 +1179,9 @@ pub mod error {
 pub mod prelude {
     pub use super::{
         Burn, BurnBox, Conditional, ExecuteTrigger, ExecuteTriggerBox, FailBox, Grant, GrantBox,
-        InstructionBox, Mint, MintBox, NewParameter, NewParameterBox, Pair, Register, RegisterBox,
-        RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox, SetKeyValue,
-        SetKeyValueBox, SetParameter, SetParameterBox, Transfer, TransferBox, Unregister,
-        UnregisterBox, Upgrade, UpgradeBox,
+        InstructionBox, Log, LogBox, Mint, MintBox, NewParameter, NewParameterBox, Pair, Register,
+        RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox,
+        SetKeyValue, SetKeyValueBox, SetParameter, SetParameterBox, Transfer, TransferBox,
+        Unregister, UnregisterBox, Upgrade, UpgradeBox,
     };
 }
