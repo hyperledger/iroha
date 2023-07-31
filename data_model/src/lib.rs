@@ -107,6 +107,7 @@ mod seal {
         NewParameterBox,
         UpgradeBox,
         ExecuteTriggerBox,
+        LogBox,
 
         // Composite instructions
         SequenceBox,

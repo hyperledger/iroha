@@ -22,6 +22,7 @@ pub mod isi {
         isi::error::{InvalidParameterError, RepetitionError},
         prelude::*,
         query::error::FindError,
+        Level,
     };
 
     use super::*;
@@ -235,6 +236,27 @@ pub mod isi {
             wsv.world_mut().validator = upgraded_validator;
 
             wsv.emit_events(std::iter::once(ValidatorEvent::Upgraded));
+
+            Ok(())
+        }
+    }
+
+    impl Execute for Log {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            _wsv: &mut WorldStateView,
+        ) -> std::result::Result<(), Error> {
+            const TARGET: &str = "log_isi";
+            let Self { level, msg } = self;
+
+            match level {
+                Level::TRACE => iroha_logger::trace!(target: TARGET, "{}", msg),
+                Level::DEBUG => iroha_logger::debug!(target: TARGET, "{}", msg),
+                Level::INFO => iroha_logger::info!(target: TARGET, "{}", msg),
+                Level::WARN => iroha_logger::warn!(target: TARGET, "{}", msg),
+                Level::ERROR => iroha_logger::error!(target: TARGET, "{}", msg),
+            }
 
             Ok(())
         }
