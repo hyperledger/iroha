@@ -621,6 +621,7 @@ pub mod error {
                 SetParameter(_) => "set parameter",
                 NewParameter(_) => "new parameter",
                 Upgrade(_) => "upgrade",
+                Log(_) => "log",
             };
             write!(
                 f,

@@ -69,6 +69,7 @@ fn instruction_size(isi: &InstructionBox) -> usize {
         SetParameter(isi) => isi.parameter.len() + 1,
         NewParameter(isi) => isi.parameter.len() + 1,
         Upgrade(isi) => isi.object.len() + 1,
+        Log(isi) => isi.msg.len() + isi.msg.len() + 1,
         Fail(_) | ExecuteTrigger(_) => 1,
     }
 }

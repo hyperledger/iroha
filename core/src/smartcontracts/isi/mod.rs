@@ -67,6 +67,7 @@ impl Execute for InstructionBox {
             SetParameter,
             NewParameter,
             Upgrade,
+            Log,
         }
     }
 }
@@ -427,6 +428,15 @@ impl Execute for UpgradeBox {
                 Upgrade::<Validator> { object }.execute(authority, wsv)
             }
         }
+    }
+}
+
+impl Execute for LogBox {
+    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        let level = wsv.evaluate(&self.level)?;
+        let msg = wsv.evaluate(&self.msg)?;
+
+        Log { level, msg }.execute(authority, wsv)
     }
 }
 

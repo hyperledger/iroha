@@ -1143,6 +1143,14 @@
       }
     ]
   },
+  "EvaluatesTo<Level>": {
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
+  },
   "EvaluatesTo<Name>": {
     "Struct": [
       {
@@ -1184,6 +1192,14 @@
     ]
   },
   "EvaluatesTo<RoleId>": {
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
+  },
+  "EvaluatesTo<String>": {
     "Struct": [
       {
         "name": "expression",
@@ -2382,8 +2398,13 @@
         "type": "UpgradeBox"
       },
       {
-        "tag": "Fail",
+        "tag": "Log",
         "discriminant": 16,
+        "type": "LogBox"
+      },
+      {
+        "tag": "Fail",
+        "discriminant": 17,
         "type": "FailBox"
       }
     ]
@@ -2550,8 +2571,12 @@
         "discriminant": 15
       },
       {
-        "tag": "Fail",
+        "tag": "Log",
         "discriminant": 16
+      },
+      {
+        "tag": "Fail",
+        "discriminant": 17
       }
     ]
   },
@@ -2666,6 +2691,18 @@
       {
         "name": "max_entry_byte_size",
         "type": "u32"
+      }
+    ]
+  },
+  "LogBox": {
+    "Struct": [
+      {
+        "name": "level",
+        "type": "EvaluatesTo<Level>"
+      },
+      {
+        "name": "msg",
+        "type": "EvaluatesTo<String>"
       }
     ]
   },
