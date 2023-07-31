@@ -167,7 +167,7 @@
       },
       {
         "name": "permission_id",
-        "type": "PermissionTokenId"
+        "type": "Name"
       }
     ]
   },
@@ -618,6 +618,30 @@
       }
     ]
   },
+  "BatchedResponse<Value>": {
+    "Struct": [
+      {
+        "name": "batch",
+        "type": "Value"
+      },
+      {
+        "name": "cursor",
+        "type": "ForwardCursor"
+      }
+    ]
+  },
+  "BatchedResponse<Vec<VersionedSignedTransaction>>": {
+    "Struct": [
+      {
+        "name": "batch",
+        "type": "Vec<VersionedSignedTransaction>"
+      },
+      {
+        "name": "cursor",
+        "type": "ForwardCursor"
+      }
+    ]
+  },
   "BinaryOpIncompatibleNumericValueTypesError": {
     "Struct": [
       {
@@ -707,9 +731,6 @@
         "type": "SignaturesOf<CommittedBlock>"
       }
     ]
-  },
-  "Compact<u128>": {
-    "Int": "Compact"
   },
   "Conditional": {
     "Struct": [
@@ -898,7 +919,7 @@
       {
         "tag": "PermissionToken",
         "discriminant": 7,
-        "type": "PermissionTokenEvent"
+        "type": "PermissionTokenSchemaUpdateEvent"
       },
       {
         "tag": "Configuration",
@@ -932,7 +953,7 @@
       },
       {
         "name": "permission_token",
-        "type": "PermissionToken"
+        "type": "EvaluatesTo<PermissionToken>"
       }
     ]
   },
@@ -1139,6 +1160,14 @@
     ]
   },
   "EvaluatesTo<Parameter>": {
+    "Struct": [
+      {
+        "name": "expression",
+        "type": "Expression"
+      }
+    ]
+  },
+  "EvaluatesTo<PermissionToken>": {
     "Struct": [
       {
         "name": "expression",
@@ -1786,7 +1815,6 @@
   "FindAllDomains": null,
   "FindAllParameters": null,
   "FindAllPeers": null,
-  "FindAllPermissionTokenDefinitions": null,
   "FindAllRoleIds": null,
   "FindAllRoles": null,
   "FindAllTransactions": null,
@@ -1963,27 +1991,23 @@
         "type": "RoleId"
       },
       {
-        "tag": "PermissionTokenDefinition",
-        "discriminant": 10,
-        "type": "PermissionTokenId"
-      },
-      {
         "tag": "PermissionToken",
-        "discriminant": 11,
-        "type": "PermissionTokenFindError"
+        "discriminant": 10,
+        "type": "Name"
       },
       {
         "tag": "Parameter",
-        "discriminant": 12,
+        "discriminant": 11,
         "type": "ParameterId"
       },
       {
         "tag": "PublicKey",
-        "discriminant": 13,
+        "discriminant": 12,
         "type": "PublicKey"
       }
     ]
   },
+  "FindPermissionTokenSchema": null,
   "FindPermissionTokensByAccountId": {
     "Struct": [
       {
@@ -2067,6 +2091,18 @@
       "decimal_places": 9
     }
   },
+  "ForwardCursor": {
+    "Struct": [
+      {
+        "name": "query_id",
+        "type": "Option<String>"
+      },
+      {
+        "name": "cursor",
+        "type": "Option<NonZero<u64>>"
+      }
+    ]
+  },
   "GenericPredicateBox<ValuePredicate>": {
     "Enum": [
       {
@@ -2116,7 +2152,6 @@
     ]
   },
   "Hash": "Array<u8, 32>",
-  "HashOf<CommittedBlock>": "Hash",
   "HashOf<MerkleTree<VersionedSignedTransaction>>": "Hash",
   "HashOf<VersionedCommittedBlock>": "Hash",
   "HashOf<VersionedSignedTransaction>": "Hash",
@@ -2173,9 +2208,9 @@
         "type": "RoleId"
       },
       {
-        "tag": "PermissionTokenDefinitionId",
+        "tag": "PermissionTokenId",
         "discriminant": 7,
-        "type": "PermissionTokenId"
+        "type": "Name"
       },
       {
         "tag": "ParameterId",
@@ -2242,13 +2277,8 @@
         "type": "Role"
       },
       {
-        "tag": "PermissionTokenDefinition",
-        "discriminant": 11,
-        "type": "PermissionTokenDefinition"
-      },
-      {
         "tag": "Parameter",
-        "discriminant": 12,
+        "discriminant": 11,
         "type": "Parameter"
       }
     ]
@@ -2999,9 +3029,6 @@
   "Option<IpfsPath>": {
     "Option": "IpfsPath"
   },
-  "Option<Name>": {
-    "Option": "Name"
-  },
   "Option<NonZero<u32>>": {
     "Option": "NonZero<u32>"
   },
@@ -3014,14 +3041,14 @@
   "Option<PipelineStatusKind>": {
     "Option": "PipelineStatusKind"
   },
+  "Option<String>": {
+    "Option": "String"
+  },
   "Option<TimeInterval>": {
     "Option": "TimeInterval"
   },
   "Option<TransactionRejectionReason>": {
     "Option": "TransactionRejectionReason"
-  },
-  "Option<u32>": {
-    "Option": "u32"
   },
   "Or": {
     "Struct": [
@@ -3042,42 +3069,6 @@
   "OriginFilter<PeerEvent>": "PeerId",
   "OriginFilter<RoleEvent>": "RoleId",
   "OriginFilter<TriggerEvent>": "TriggerId",
-  "PaginatedQueryResult": {
-    "Struct": [
-      {
-        "name": "result",
-        "type": "QueryResult"
-      },
-      {
-        "name": "filter",
-        "type": "GenericPredicateBox<ValuePredicate>"
-      },
-      {
-        "name": "pagination",
-        "type": "Pagination"
-      },
-      {
-        "name": "sorting",
-        "type": "Sorting"
-      },
-      {
-        "name": "total",
-        "type": "u64"
-      }
-    ]
-  },
-  "Pagination": {
-    "Struct": [
-      {
-        "name": "start",
-        "type": "Option<u32>"
-      },
-      {
-        "name": "limit",
-        "type": "Option<u32>"
-      }
-    ]
-  },
   "Pair": {
     "Struct": [
       {
@@ -3175,8 +3166,8 @@
         "type": "RoleId"
       },
       {
-        "name": "permission_definition_id",
-        "type": "PermissionTokenId"
+        "name": "permission_token_id",
+        "type": "Name"
       }
     ]
   },
@@ -3184,57 +3175,35 @@
     "Struct": [
       {
         "name": "definition_id",
-        "type": "PermissionTokenId"
-      },
-      {
-        "name": "params",
-        "type": "SortedMap<Name, Value>"
-      }
-    ]
-  },
-  "PermissionTokenDefinition": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "PermissionTokenId"
-      },
-      {
-        "name": "params",
-        "type": "SortedMap<Name, ValueKind>"
-      }
-    ]
-  },
-  "PermissionTokenEvent": {
-    "Enum": [
-      {
-        "tag": "DefinitionCreated",
-        "discriminant": 0,
-        "type": "PermissionTokenDefinition"
-      },
-      {
-        "tag": "DefinitionDeleted",
-        "discriminant": 1,
-        "type": "PermissionTokenDefinition"
-      }
-    ]
-  },
-  "PermissionTokenFindError": {
-    "Struct": [
-      {
-        "name": "account_id",
-        "type": "AccountId"
-      },
-      {
-        "name": "permission_token_id",
-        "type": "PermissionTokenId"
-      }
-    ]
-  },
-  "PermissionTokenId": {
-    "Struct": [
-      {
-        "name": "name",
         "type": "Name"
+      },
+      {
+        "name": "payload",
+        "type": "Vec<u8>"
+      }
+    ]
+  },
+  "PermissionTokenSchema": {
+    "Struct": [
+      {
+        "name": "token_ids",
+        "type": "Vec<Name>"
+      },
+      {
+        "name": "schema",
+        "type": "String"
+      }
+    ]
+  },
+  "PermissionTokenSchemaUpdateEvent": {
+    "Struct": [
+      {
+        "name": "old_schema",
+        "type": "PermissionTokenSchema"
+      },
+      {
+        "name": "new_schema",
+        "type": "PermissionTokenSchema"
       }
     ]
   },
@@ -3499,9 +3468,9 @@
         "type": "FindPermissionTokensByAccountId"
       },
       {
-        "tag": "FindAllPermissionTokenDefinitions",
+        "tag": "FindPermissionTokenSchema",
         "discriminant": 31,
-        "type": "FindAllPermissionTokenDefinitions"
+        "type": "FindPermissionTokenSchema"
       },
       {
         "tag": "DoesAccountHavePermissionToken",
@@ -3586,16 +3555,12 @@
   "QueryPayload": {
     "Struct": [
       {
-        "name": "timestamp_ms",
-        "type": "Compact<u128>"
+        "name": "authority",
+        "type": "AccountId"
       },
       {
         "name": "query",
         "type": "QueryBox"
-      },
-      {
-        "name": "authority",
-        "type": "AccountId"
       },
       {
         "name": "filter",
@@ -3603,7 +3568,6 @@
       }
     ]
   },
-  "QueryResult": "Value",
   "RaiseTo": {
     "Struct": [
       {
@@ -3925,24 +3889,24 @@
   "SignedQuery": {
     "Struct": [
       {
-        "name": "payload",
-        "type": "QueryPayload"
-      },
-      {
         "name": "signature",
         "type": "SignatureOf<QueryPayload>"
+      },
+      {
+        "name": "payload",
+        "type": "QueryPayload"
       }
     ]
   },
   "SignedTransaction": {
     "Struct": [
       {
-        "name": "payload",
-        "type": "TransactionPayload"
-      },
-      {
         "name": "signatures",
         "type": "SignaturesOf<TransactionPayload>"
+      },
+      {
+        "name": "payload",
+        "type": "TransactionPayload"
       }
     ]
   },
@@ -4049,12 +4013,6 @@
       "value": "Value"
     }
   },
-  "SortedMap<Name, ValueKind>": {
-    "Map": {
-      "key": "Name",
-      "value": "ValueKind"
-    }
-  },
   "SortedVec<PermissionToken>": {
     "Vec": "PermissionToken"
   },
@@ -4069,14 +4027,6 @@
   },
   "SortedVec<SignatureOf<TransactionPayload>>": {
     "Vec": "SignatureOf<TransactionPayload>"
-  },
-  "Sorting": {
-    "Struct": [
-      {
-        "name": "sort_by_metadata_key",
-        "type": "Option<Name>"
-      }
-    ]
   },
   "String": "String",
   "StringPredicate": {
@@ -4163,24 +4113,24 @@
   "TransactionPayload": {
     "Struct": [
       {
-        "name": "authority",
-        "type": "AccountId"
-      },
-      {
         "name": "creation_time_ms",
         "type": "u64"
       },
       {
-        "name": "nonce",
-        "type": "Option<NonZero<u32>>"
+        "name": "authority",
+        "type": "AccountId"
+      },
+      {
+        "name": "instructions",
+        "type": "Executable"
       },
       {
         "name": "time_to_live_ms",
         "type": "Option<NonZero<u64>>"
       },
       {
-        "name": "instructions",
-        "type": "Executable"
+        "name": "nonce",
+        "type": "Option<NonZero<u32>>"
       },
       {
         "name": "metadata",
@@ -4188,7 +4138,7 @@
       }
     ]
   },
-  "TransactionQueryResult": {
+  "TransactionQueryOutput": {
     "Struct": [
       {
         "name": "transaction",
@@ -4196,7 +4146,7 @@
       },
       {
         "name": "block_hash",
-        "type": "HashOf<CommittedBlock>"
+        "type": "HashOf<VersionedCommittedBlock>"
       }
     ]
   },
@@ -4240,7 +4190,7 @@
   "TransactionValue": {
     "Struct": [
       {
-        "name": "tx",
+        "name": "value",
         "type": "VersionedSignedTransaction"
       },
       {
@@ -4547,9 +4497,9 @@
         "type": "SignatureCheckCondition"
       },
       {
-        "tag": "TransactionQueryResult",
+        "tag": "TransactionQueryOutput",
         "discriminant": 12,
-        "type": "TransactionQueryResult"
+        "type": "TransactionQueryOutput"
       },
       {
         "tag": "PermissionToken",
@@ -4557,127 +4507,44 @@
         "type": "PermissionToken"
       },
       {
-        "tag": "Hash",
+        "tag": "PermissionTokenSchema",
         "discriminant": 14,
+        "type": "PermissionTokenSchema"
+      },
+      {
+        "tag": "Hash",
+        "discriminant": 15,
         "type": "HashValue"
       },
       {
         "tag": "Block",
-        "discriminant": 15,
+        "discriminant": 16,
         "type": "VersionedCommittedBlock"
       },
       {
         "tag": "BlockHeader",
-        "discriminant": 16,
+        "discriminant": 17,
         "type": "BlockHeader"
       },
       {
         "tag": "Ipv4Addr",
-        "discriminant": 17,
+        "discriminant": 18,
         "type": "Ipv4Addr"
       },
       {
         "tag": "Ipv6Addr",
-        "discriminant": 18,
+        "discriminant": 19,
         "type": "Ipv6Addr"
       },
       {
         "tag": "Numeric",
-        "discriminant": 19,
+        "discriminant": 20,
         "type": "NumericValue"
       },
       {
         "tag": "Validator",
-        "discriminant": 20,
+        "discriminant": 21,
         "type": "Validator"
-      }
-    ]
-  },
-  "ValueKind": {
-    "Enum": [
-      {
-        "tag": "Bool",
-        "discriminant": 0
-      },
-      {
-        "tag": "String",
-        "discriminant": 1
-      },
-      {
-        "tag": "Name",
-        "discriminant": 2
-      },
-      {
-        "tag": "Vec",
-        "discriminant": 3
-      },
-      {
-        "tag": "LimitedMetadata",
-        "discriminant": 4
-      },
-      {
-        "tag": "MetadataLimits",
-        "discriminant": 5
-      },
-      {
-        "tag": "TransactionLimits",
-        "discriminant": 6
-      },
-      {
-        "tag": "LengthLimits",
-        "discriminant": 7
-      },
-      {
-        "tag": "Id",
-        "discriminant": 8
-      },
-      {
-        "tag": "Identifiable",
-        "discriminant": 9
-      },
-      {
-        "tag": "PublicKey",
-        "discriminant": 10
-      },
-      {
-        "tag": "SignatureCheckCondition",
-        "discriminant": 11
-      },
-      {
-        "tag": "TransactionQueryResult",
-        "discriminant": 12
-      },
-      {
-        "tag": "PermissionToken",
-        "discriminant": 13
-      },
-      {
-        "tag": "Hash",
-        "discriminant": 14
-      },
-      {
-        "tag": "Block",
-        "discriminant": 15
-      },
-      {
-        "tag": "BlockHeader",
-        "discriminant": 16
-      },
-      {
-        "tag": "Ipv4Addr",
-        "discriminant": 17
-      },
-      {
-        "tag": "Ipv6Addr",
-        "discriminant": 18
-      },
-      {
-        "tag": "Numeric",
-        "discriminant": 19
-      },
-      {
-        "tag": "Validator",
-        "discriminant": 20
       }
     ]
   },
@@ -4745,6 +4612,9 @@
   "Vec<InstructionBox>": {
     "Vec": "InstructionBox"
   },
+  "Vec<Name>": {
+    "Vec": "Name"
+  },
   "Vec<PeerId>": {
     "Vec": "PeerId"
   },
@@ -4757,8 +4627,29 @@
   "Vec<Vec<InstructionBox>>": {
     "Vec": "Vec<InstructionBox>"
   },
+  "Vec<VersionedSignedTransaction>": {
+    "Vec": "VersionedSignedTransaction"
+  },
   "Vec<u8>": {
     "Vec": "u8"
+  },
+  "VersionedBatchedResponse<Value>": {
+    "Enum": [
+      {
+        "tag": "V1",
+        "discriminant": 1,
+        "type": "BatchedResponse<Value>"
+      }
+    ]
+  },
+  "VersionedBatchedResponse<Vec<VersionedSignedTransaction>>": {
+    "Enum": [
+      {
+        "tag": "V1",
+        "discriminant": 1,
+        "type": "BatchedResponse<Vec<VersionedSignedTransaction>>"
+      }
+    ]
   },
   "VersionedBlockMessage": {
     "Enum": [
@@ -4802,15 +4693,6 @@
         "tag": "V1",
         "discriminant": 1,
         "type": "EventSubscriptionRequest"
-      }
-    ]
-  },
-  "VersionedPaginatedQueryResult": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "PaginatedQueryResult"
       }
     ]
   },

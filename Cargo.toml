@@ -1,6 +1,6 @@
 [workspace.package]
 edition = "2021"
-version = "2.0.0-pre-rc.16"
+version = "2.0.0-pre-rc.18"
 # TODO: teams are being deprecated update the authors URL
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 
@@ -15,42 +15,45 @@ categories = ["cryptography::cryptocurrencies"]
 
 [workspace.dependencies]
 iroha = { path = "cli" }
-iroha_cli_derive = { version = "=2.0.0-pre-rc.16", path = "cli/derive" }
-iroha_macro_utils = { version = "=2.0.0-pre-rc.16", path = "macro/utils" }
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.16", path = "wasm_builder" }
-iroha_telemetry = { version = "=2.0.0-pre-rc.16", path = "telemetry" }
-iroha_telemetry_derive = { version = "=2.0.0-pre-rc.16", path = "telemetry/derive" }
-iroha_p2p = { version = "=2.0.0-pre-rc.16", path = "p2p" }
-iroha_data_model_derive = { version = "=2.0.0-pre-rc.16", path = "data_model/derive" }
-iroha_core = { version = "=2.0.0-pre-rc.16", path = "core" }
-iroha_primitives = { version = "=2.0.0-pre-rc.16", path = "primitives", default-features = false }
-iroha_primitives_derive = { version = "=2.0.0-pre-rc.16", path = "primitives/derive" }
-iroha_data_model = { version = "=2.0.0-pre-rc.16", path = "data_model" }
-iroha_client = { version = "=2.0.0-pre-rc.16", path = "client" }
-iroha_config = { version = "=2.0.0-pre-rc.16", path = "config" }
-iroha_config_base = { version = "=2.0.0-pre-rc.16", path = "config/base" }
-iroha_config_derive = { version = "=2.0.0-pre-rc.16", path = "config/base/derive" }
-iroha_schema_gen = { version = "=2.0.0-pre-rc.16", path = "schema/gen" }
-iroha_schema = { version = "=2.0.0-pre-rc.16", path = "schema", default-features = false }
-iroha_schema_derive = { version = "=2.0.0-pre-rc.16", path = "schema/derive" }
-iroha_logger = { version = "=2.0.0-pre-rc.16", path = "logger" }
-iroha_crypto = { version = "=2.0.0-pre-rc.16", path = "crypto", default-features = false }
-iroha_macro = { version = "=2.0.0-pre-rc.16", path = "macro", default-features = false }
-iroha_derive = { version = "=2.0.0-pre-rc.16", path = "macro/derive" }
-iroha_futures = { version = "=2.0.0-pre-rc.16", path = "futures" }
-iroha_futures_derive = { version = "=2.0.0-pre-rc.16", path = "futures/derive" }
-iroha_genesis = { version = "=2.0.0-pre-rc.16", path = "genesis" }
-iroha_ffi = { version = "=2.0.0-pre-rc.16", path = "ffi" }
-iroha_ffi_derive = { version = "=2.0.0-pre-rc.16", path = "ffi/derive" }
-iroha_version = { version = "=2.0.0-pre-rc.16", path = "version", default-features = false }
-iroha_version_derive = { version = "=2.0.0-pre-rc.16", path = "version/derive", default-features = false }
-iroha_wasm_codec = { version = "=2.0.0-pre-rc.16", path = "wasm_codec" }
-test_network = { version = "=2.0.0-pre-rc.16", path = "core/test_network" }
+iroha_cli_derive = { version = "=2.0.0-pre-rc.18", path = "cli/derive" }
+iroha_macro_utils = { version = "=2.0.0-pre-rc.18", path = "macro/utils" }
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.18", path = "wasm_builder" }
+iroha_telemetry = { version = "=2.0.0-pre-rc.18", path = "telemetry" }
+iroha_telemetry_derive = { version = "=2.0.0-pre-rc.18", path = "telemetry/derive" }
+iroha_p2p = { version = "=2.0.0-pre-rc.18", path = "p2p" }
+iroha_data_model_derive = { version = "=2.0.0-pre-rc.18", path = "data_model/derive" }
+iroha_core = { version = "=2.0.0-pre-rc.18 ", path = "core" }
+iroha_primitives = { version = "=2.0.0-pre-rc.18", path = "primitives", default-features = false }
+iroha_primitives_derive = { version = "=2.0.0-pre-rc.18", path = "primitives/derive" }
+iroha_data_model = { version = "=2.0.0-pre-rc.18", path = "data_model" }
+iroha_client = { version = "=2.0.0-pre-rc.18", path = "client" }
+iroha_config = { version = "=2.0.0-pre-rc.18", path = "config" }
+iroha_config_base = { version = "=2.0.0-pre-rc.18", path = "config/base" }
+iroha_config_derive = { version = "=2.0.0-pre-rc.18", path = "config/base/derive" }
+iroha_schema_gen = { version = "=2.0.0-pre-rc.18", path = "schema/gen" }
+iroha_schema = { version = "=2.0.0-pre-rc.18", path = "schema", default-features = false }
+iroha_schema_derive = { version = "=2.0.0-pre-rc.18", path = "schema/derive" }
+iroha_logger = { version = "=2.0.0-pre-rc.18", path = "logger" }
+iroha_crypto = { version = "=2.0.0-pre-rc.18", path = "crypto", default-features = false }
+iroha_macro = { version = "=2.0.0-pre-rc.18", path = "macro", default-features = false }
+iroha_derive = { version = "=2.0.0-pre-rc.18", path = "macro/derive" }
+iroha_futures = { version = "=2.0.0-pre-rc.18", path = "futures" }
+iroha_futures_derive = { version = "=2.0.0-pre-rc.18", path = "futures/derive" }
+iroha_genesis = { version = "=2.0.0-pre-rc.18", path = "genesis" }
+iroha_ffi = { version = "=2.0.0-pre-rc.18", path = "ffi" }
+iroha_ffi_derive = { version = "=2.0.0-pre-rc.18", path = "ffi/derive" }
+iroha_version = { version = "=2.0.0-pre-rc.18", path = "version", default-features = false }
+iroha_version_derive = { version = "=2.0.0-pre-rc.18", path = "version/derive", default-features = false }
+iroha_wasm_codec = { version = "=2.0.0-pre-rc.18", path = "wasm_codec" }
+test_network = { version = "=2.0.0-pre-rc.18", path = "core/test_network" }
 
 proc-macro-error = "1.0.4"
 proc-macro2 = "1.0.49"
-syn = { version = "1.0.107", default-features = false }
+syn = { package = "syn", version = "1.0.109", default-features = false }
+syn2 = { package = "syn", version = "2.0.25", default-features = false }
 quote = "1.0.23"
+manyhow = { version = "0.5.1", features = ["darling"] }
+darling = "0.20.1"
 
 futures = { version = "0.3.25", default-features = false }
 async-stream = "0.3.3"
@@ -93,6 +96,7 @@ expect-test = "1.4.1"
 eyre = "0.6.8"
 color-eyre = "0.6.2"
 thiserror = { version = "1.0.38", default-features = false }
+displaydoc = { version = "0.2.4", default-features = false }
 
 cfg-if = "1.0.0"
 derive_more = { version = "0.99.17", default-features = false }
@@ -105,7 +109,7 @@ ursa = "0.3.7"
 aead = "0.3.2"
 
 rand = "0.8.5"
-warp = { version = "0.3.3", default-features = false }
+warp = { version = "0.3.5", default-features = false }
 wasmtime = "0.39.1"
 
 tracing = "0.1.37"
@@ -165,7 +169,6 @@ members = [
   "wasm_codec/derive",
   "wasm_builder",
 ]
-
 
 [profile.deploy]
 inherits = "release"

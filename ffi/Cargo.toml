@@ -17,7 +17,7 @@ non_robust_ref_mut = []
 [dependencies]
 iroha_ffi_derive = { workspace = true }
 
-derive_more = { workspace = true, features = ["display"] }
+derive_more = { workspace = true, features = ["display", "constructor"] }
 
 [dev-dependencies]
 webassembly-test = "0.1.0"

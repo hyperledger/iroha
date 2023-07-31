@@ -204,7 +204,7 @@ pub mod message {
     }
 
     /// Message's variants that are used by peers to communicate in the process of consensus.
-    #[version_with_scale(n = 1, versioned = "VersionedMessage")]
+    #[version_with_scale(version = 1, versioned_alias = "VersionedMessage")]
     #[derive(Debug, Clone, Decode, Encode, FromVariant)]
     pub enum Message {
         /// Request for blocks after the block with `Hash` for the peer with `PeerId`.

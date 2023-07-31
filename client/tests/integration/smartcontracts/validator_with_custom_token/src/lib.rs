@@ -1,20 +1,35 @@
 //! Runtime Validator which allows domain (un-)registration only for users who own
 //! [`token::CanControlDomainLives`] permission token.
 //!
+//! This validator should be applied on top of the blockchain with [`DefaultValidator`].
+//!
 //! It also doesn't have [`iroha_validator::default::domain::tokens::CanUnregisterDomain`].
+//!
+//! In migration it replaces [`iroha_validator::default::domain::tokens::CanUnregisterDomain`]
+//! with [`token::CanControlDomainLives`] for all accounts.
+//! So it doesn't matter which domain user was able to unregister before migration, they will
+//! get access to control all domains. Remember that this is just a test example.
 
 #![no_std]
+#![allow(missing_docs, clippy::missing_errors_doc)]
 
 extern crate alloc;
 
+use alloc::string::String;
+
+use anyhow::anyhow;
+use iroha_schema::IntoSchema;
 use iroha_validator::{
     data_model::evaluate::{EvaluationError, ExpressionEvaluator},
     permission::Token as _,
     prelude::*,
 };
+use parity_scale_codec::{Decode, Encode};
 
 #[cfg(not(test))]
 extern crate panic_halt;
+
+use alloc::format;
 
 mod token {
     //! Module with custom token.
@@ -22,7 +37,7 @@ mod token {
     use super::*;
 
     /// Token to identify if user can (un-)register domains.
-    #[derive(Token, ValidateGrantRevoke)]
+    #[derive(Token, ValidateGrantRevoke, Decode, Encode, IntoSchema)]
     #[validate(iroha_validator::permission::OnlyGenesis)]
     pub struct CanControlDomainLives;
 }
@@ -39,6 +54,107 @@ macro_rules! delegate {
 
 impl CustomValidator {
     const CAN_CONTROL_DOMAIN_LIVES: token::CanControlDomainLives = token::CanControlDomainLives;
+
+    fn get_all_accounts_with_can_unregister_domain_permission(
+    ) -> Result<Vec<(Account, DomainId)>, MigrationError> {
+        let can_unregister_domain_definition_id = PermissionTokenId::try_from(
+            iroha_validator::default::domain::tokens::CanUnregisterDomain::type_name(),
+        )
+        .unwrap();
+
+        let accounts = FindAllAccounts.execute().map_err(|error| {
+            format!("{:?}", anyhow!(error).context("Failed to get all accounts"))
+        })?;
+
+        let mut found_accounts = Vec::new();
+
+        for account in accounts {
+            let permission_tokens = FindPermissionTokensByAccountId::new(account.id().clone())
+                .execute()
+                .map_err(|error| {
+                    format!(
+                        "{:?}",
+                        anyhow!(error).context(format!(
+                            "Failed to get permissions for account `{}`",
+                            account.id()
+                        ))
+                    )
+                })?;
+
+            for token in permission_tokens {
+                if token.definition_id() == &can_unregister_domain_definition_id {
+                    let domain_id = DomainId::decode(&mut token.payload()).map_err(|error| {
+                        format!(
+                            "{:?}",
+                            anyhow!(error)
+                                .context("Failed to decode `DomainId` from token payload")
+                        )
+                    })?;
+                    found_accounts.push((account, domain_id));
+                    break;
+                }
+            }
+        }
+
+        Ok(found_accounts)
+    }
+
+    #[allow(single_use_lifetimes)] // Other suggested syntax is incorrect
+    fn replace_token(accounts: &[(Account, DomainId)]) -> MigrationResult {
+        let can_unregister_domain_definition_id = PermissionTokenId::try_from(
+            iroha_validator::default::domain::tokens::CanUnregisterDomain::type_name(),
+        )
+        .unwrap();
+
+        let can_control_domain_lives_definition_id =
+            PermissionTokenId::try_from(token::CanControlDomainLives::type_name()).unwrap();
+
+        accounts
+            .iter()
+            .try_for_each(|(account, domain_id)| {
+                RevokeBox::new(
+                    PermissionToken::new(can_unregister_domain_definition_id.clone(), domain_id),
+                    account.id().clone(),
+                )
+                .execute()
+                .map_err(|error| {
+                    format!(
+                        "{:?}",
+                        anyhow!(error).context(format!(
+                            "Failed to revoke `{}` token from account `{}`",
+                            can_unregister_domain_definition_id,
+                            account.id()
+                        ))
+                    )
+                })?;
+
+                GrantBox::new(
+                    PermissionToken::new(can_control_domain_lives_definition_id.clone(), &()),
+                    account.id().clone(),
+                )
+                .execute()
+                .map_err(|error| {
+                    format!(
+                        "{:?}",
+                        anyhow!(error).context(format!(
+                            "Failed to grant `{}` token from account `{}`",
+                            can_control_domain_lives_definition_id,
+                            account.id()
+                        ))
+                    )
+                })
+            })
+            .map_err(|error| {
+                iroha_validator::iroha_wasm::error!(&error);
+                format!(
+                    "{:?}",
+                    anyhow!(error).context(format!(
+                        "Failed to replace `{}` token with `{}` for accounts",
+                        can_unregister_domain_definition_id, can_control_domain_lives_definition_id,
+                    ))
+                )
+            })
+    }
 }
 
 impl Visit for CustomValidator {
@@ -47,7 +163,7 @@ impl Visit for CustomValidator {
             pass!(self);
         }
 
-        deny!(self, "Can't register new domain");
+        deny!(self, "You don't have permission to register a new domain");
     }
 
     fn visit_unregister_domain(
@@ -59,7 +175,7 @@ impl Visit for CustomValidator {
             pass!(self);
         }
 
-        deny!(self, "Can't unregister new domain");
+        deny!(self, "You don't have permission to unregister domain");
     }
 
     delegate! {
@@ -125,20 +241,22 @@ impl Visit for CustomValidator {
 }
 
 impl Validate for CustomValidator {
-    fn permission_tokens() -> Vec<PermissionTokenDefinition> {
-        let mut tokens = DefaultValidator::permission_tokens();
+    /// Migration should be applied on blockchain with [`DefaultValidator`]
+    fn migrate() -> MigrationResult {
+        let accounts = Self::get_all_accounts_with_can_unregister_domain_permission()?;
 
-        // TODO: Not very convenient usage.
-        // We need to come up with a better way.
-        if let Some(pos) = tokens.iter().position(|definition| {
-            definition
-                == &iroha_validator::default::domain::tokens::CanUnregisterDomain::definition()
-        }) {
-            tokens.remove(pos);
-        }
+        let mut schema = DefaultValidator::permission_token_schema();
+        schema.remove::<iroha_validator::default::domain::tokens::CanUnregisterDomain>();
+        schema.insert::<token::CanControlDomainLives>();
 
-        tokens.push(token::CanControlDomainLives::definition());
-        tokens
+        let (token_ids, schema_str) = schema.serialize();
+        iroha_validator::iroha_wasm::set_permission_token_schema(
+            &iroha_validator::data_model::permission::PermissionTokenSchema::new(
+                token_ids, schema_str,
+            ),
+        );
+
+        Self::replace_token(&accounts)
     }
 
     fn verdict(&self) -> &Result {
@@ -159,28 +277,37 @@ impl ExpressionEvaluator for CustomValidator {
     }
 }
 
-/// Entrypoint to return permission token definitions defined in this validator.
 #[entrypoint]
-pub fn permission_tokens() -> Vec<PermissionTokenDefinition> {
-    CustomValidator::permission_tokens()
+pub fn migrate() -> MigrationResult {
+    CustomValidator::migrate()
 }
 
-/// Validate operation
-#[entrypoint(params = "[authority, operation]")]
-pub fn validate(authority: AccountId, operation: NeedsValidationBox) -> Result {
+#[entrypoint]
+pub fn validate_transaction(
+    authority: AccountId,
+    transaction: VersionedSignedTransaction,
+) -> Result {
     let mut validator = CustomValidator(DefaultValidator::new());
 
-    match operation {
-        NeedsValidationBox::Transaction(transaction) => {
-            validator.visit_transaction(&authority, &transaction);
-        }
-        NeedsValidationBox::Instruction(instruction) => {
-            validator.visit_instruction(&authority, &instruction);
-        }
-        NeedsValidationBox::Query(query) => {
-            validator.visit_query(&authority, &query);
-        }
-    }
+    validator.visit_transaction(&authority, &transaction);
+
+    validator.0.verdict
+}
+
+#[entrypoint]
+pub fn validate_instruction(authority: AccountId, instruction: InstructionBox) -> Result {
+    let mut validator = CustomValidator(DefaultValidator::new());
+
+    validator.visit_instruction(&authority, &instruction);
+
+    validator.0.verdict
+}
+
+#[entrypoint]
+pub fn validate_query(authority: AccountId, query: QueryBox) -> Result {
+    let mut validator = CustomValidator(DefaultValidator::new());
+
+    validator.visit_query(&authority, &query);
 
     validator.0.verdict
 }

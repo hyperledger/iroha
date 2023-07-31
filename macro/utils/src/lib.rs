@@ -1,9 +1,7 @@
 //! Module for various functions and structs to build macros in iroha.
 
-use syn::parse::Parse;
-
 /// Trait for attribute parsing generalization
-pub trait AttrParser<Inner: Parse> {
+pub trait AttrParser<Inner: syn::parse::Parse> {
     /// Attribute identifier `#[IDENT...]`
     const IDENT: &'static str;
 
@@ -18,7 +16,7 @@ pub trait AttrParser<Inner: Parse> {
             .then(|| attr.parse_args::<Inner>())
             .map_or_else(
                 || {
-                    Err(syn::Error::new_spanned(
+                    Err(syn::parse::Error::new_spanned(
                         attr,
                         format!(
                             "Attribute must be in form #[{}...]",

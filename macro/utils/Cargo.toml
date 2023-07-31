@@ -15,7 +15,7 @@ maintenance = { status = "actively-developed" }
 [features]
 
 [dependencies]
-syn = { workspace = true }
+syn = { workspace = true, features = ["default", "parsing", "printing"] }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
 proc-macro-error = { workspace = true }

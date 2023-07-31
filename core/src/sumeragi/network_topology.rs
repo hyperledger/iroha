@@ -184,14 +184,8 @@ impl Topology {
     }
 
     /// Perform sequence of actions after block committed.
-    pub fn update_topology(&mut self, block: &VersionedCommittedBlock, new_peers: HashSet<PeerId>) {
-        self.lift_up_peers(
-            &block
-                .signatures()
-                .map(|s| s.public_key())
-                .cloned()
-                .collect::<Vec<PublicKey>>(),
-        );
+    pub fn update_topology(&mut self, block_signees: &[PublicKey], new_peers: HashSet<PeerId>) {
+        self.lift_up_peers(block_signees);
         self.rotate_set_a();
         self.update_peer_list(new_peers);
     }
@@ -203,8 +197,13 @@ impl Topology {
         new_peers: HashSet<PeerId>,
     ) -> Self {
         let mut topology = Topology::new(block.as_v1().header().committed_with_topology.clone());
+        let block_signees = block
+            .signatures()
+            .map(|s| s.public_key())
+            .cloned()
+            .collect::<Vec<PublicKey>>();
 
-        topology.update_topology(block, new_peers);
+        topology.update_topology(&block_signees, new_peers);
 
         // Rotate all once for every view_change
         topology.rotate_all_n(view_change_index);
@@ -283,21 +282,18 @@ pub enum Role {
 }
 
 /// Error during signature verification
-#[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(thiserror::Error, displaydoc::Display, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignatureVerificationError {
-    /// Error when block doesn't have enough valid signatures
-    #[error("The block doesn't have enough valid signatures to be committed ({votes_count} out of {min_votes_for_commit}).")]
+    /// The block doesn't have enough valid signatures to be committed ({votes_count} out of {min_votes_for_commit})
     NotEnoughSignatures {
         /// Current number of signatures
         votes_count: usize,
         /// Minimal required number of signatures
         min_votes_for_commit: usize,
     },
-    /// Error when block doesn't have proxy tail signature
-    #[error("The block doesn't have proxy tail signature")]
+    /// The block doesn't have proxy tail signature
     ProxyTailMissing,
-    /// Error when block doesn't have leader signature
-    #[error("The block doesn't have leader signature")]
+    /// The block doesn't have leader signature
     LeaderMissing,
 }
 

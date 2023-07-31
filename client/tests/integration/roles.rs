@@ -3,7 +3,7 @@
 use std::str::FromStr as _;
 
 use eyre::Result;
-use iroha_client::client;
+use iroha_client::client::{self, QueryResult};
 use iroha_data_model::prelude::*;
 use test_network::*;
 
@@ -25,7 +25,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");
-    let token = PermissionToken::new("token".parse().expect("Valid"));
+    let token = PermissionToken::new("token".parse()?, &());
     let role = Role::new(role_id).add_permission(token);
 
     test_client.submit(RegisterBox::new(role))?;
@@ -61,14 +61,14 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     // Registering role
     let role_id = <Role as Identifiable>::Id::from_str("ACCESS_TO_MOUSE_METADATA")?;
     let role = Role::new(role_id.clone())
-        .add_permission(
-            PermissionToken::new("can_set_key_value_in_user_account".parse()?)
-                .with_params([("account_id".parse()?, mouse_id.clone().into())]),
-        )
-        .add_permission(
-            PermissionToken::new("can_remove_key_value_in_user_account".parse()?)
-                .with_params([("account_id".parse()?, mouse_id.clone().into())]),
-        );
+        .add_permission(PermissionToken::new(
+            "CanSetKeyValueInUserAccount".parse()?,
+            &mouse_id,
+        ))
+        .add_permission(PermissionToken::new(
+            "CanRemoveKeyValueInUserAccount".parse()?,
+            &mouse_id,
+        ));
     let register_role = RegisterBox::new(role);
     test_client.submit_blocking(register_role)?;
 
@@ -88,7 +88,9 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     test_client.submit_blocking(set_key_value)?;
 
     // Making request to find Alice's roles
-    let found_role_ids = test_client.request(client::role::by_account_id(alice_id))?;
+    let found_role_ids = test_client
+        .request(client::role::by_account_id(alice_id))?
+        .collect::<QueryResult<Vec<_>>>()?;
     assert!(found_role_ids.contains(&role_id));
 
     Ok(())
@@ -108,12 +110,9 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     test_client.submit_blocking(register_mouse)?;
 
     // Register root role
-    let register_role = RegisterBox::new(
-        Role::new(role_id.clone()).add_permission(
-            PermissionToken::new("can_set_key_value_in_user_account".parse()?)
-                .with_params([("account_id".parse()?, alice_id.into())]),
-        ),
-    );
+    let register_role = RegisterBox::new(Role::new(role_id.clone()).add_permission(
+        PermissionToken::new("CanSetKeyValueInUserAccount".parse()?, &alice_id),
+    ));
     test_client.submit_blocking(register_role)?;
 
     // Grant root role to Mouse
@@ -121,7 +120,9 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     test_client.submit_blocking(grant_role)?;
 
     // Check that Mouse has root role
-    let found_mouse_roles = test_client.request(client::role::by_account_id(mouse_id.clone()))?;
+    let found_mouse_roles = test_client
+        .request(client::role::by_account_id(mouse_id.clone()))?
+        .collect::<QueryResult<Vec<_>>>()?;
     assert!(found_mouse_roles.contains(&role_id));
 
     // Unregister root role
@@ -129,7 +130,9 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     test_client.submit_blocking(unregister_role)?;
 
     // Check that Mouse doesn't have the root role
-    let found_mouse_roles = test_client.request(client::role::by_account_id(mouse_id))?;
+    let found_mouse_roles = test_client
+        .request(client::role::by_account_id(mouse_id))?
+        .collect::<QueryResult<Vec<_>>>()?;
     assert!(!found_mouse_roles.contains(&role_id));
 
     Ok(())

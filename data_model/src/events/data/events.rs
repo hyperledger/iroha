@@ -58,7 +58,7 @@ pub mod model {
         Domain(domain::DomainEvent),
         Role(role::RoleEvent),
         Trigger(trigger::TriggerEvent),
-        PermissionToken(permission::PermissionTokenEvent),
+        PermissionTokenSchemaUpdate(permission::PermissionTokenSchemaUpdateEvent),
         Configuration(config::ConfigurationEvent),
         Validator(validator::ValidatorEvent),
     }
@@ -84,7 +84,7 @@ pub mod model {
         /// Role event
         Role(role::RoleEvent),
         /// Permission token event
-        PermissionToken(permission::PermissionTokenEvent),
+        PermissionToken(permission::PermissionTokenSchemaUpdateEvent),
         /// Configuration event
         Configuration(config::ConfigurationEvent),
         /// Validator event
@@ -237,26 +237,48 @@ mod role {
         #[getset(get = "pub")]
         #[ffi_type]
         pub struct PermissionRemoved {
-            /// Role id
             pub role_id: RoleId,
-            /// [`PermissionTokenDefinition`] id. All [`PermissionToken`]s with this definition id were removed.
-            pub permission_definition_id: PermissionTokenId,
+            // TODO: Skipped temporarily because of FFI
+            #[getset(skip)]
+            pub permission_token_id: PermissionTokenId,
         }
     }
 }
 
 mod permission {
-    //! This module contains [`PermissionTokenEvent`]
+    //! This module contains [`PermissionTokenSchemaUpdateEvent`]
 
+    pub use self::model::*;
     use super::*;
+    use crate::permission::PermissionTokenSchema;
 
-    data_event! {
-        #[has_origin(origin = PermissionTokenDefinition)]
-        pub enum PermissionTokenEvent {
-            #[has_origin(permission_token_definition => permission_token_definition.id())]
-            DefinitionCreated(PermissionTokenDefinition),
-            #[has_origin(permission_token_definition => permission_token_definition.id())]
-            DefinitionDeleted(PermissionTokenDefinition),
+    #[model]
+    pub mod model {
+        use super::*;
+
+        /// Information about permission tokens update.
+        /// Only happens when registering new validator
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
+        #[getset(get = "pub")]
+        #[ffi_type]
+        pub struct PermissionTokenSchemaUpdateEvent {
+            /// Previous set of permission tokens
+            pub old_schema: PermissionTokenSchema,
+            /// New set of permission tokens
+            pub new_schema: PermissionTokenSchema,
         }
     }
 }
@@ -268,6 +290,7 @@ mod account {
 
     pub use self::model::*;
     use super::*;
+    use crate::name::Name;
 
     // type alias required by `Filter` macro
     type AccountMetadataChanged = MetadataChanged<AccountId>;
@@ -320,6 +343,8 @@ mod account {
         #[ffi_type]
         pub struct AccountPermissionChanged {
             pub account_id: AccountId,
+            // TODO: Skipped temporarily because of FFI
+            #[getset(skip)]
             pub permission_id: PermissionTokenId,
         }
 
@@ -343,6 +368,13 @@ mod account {
         pub struct AccountRoleChanged {
             pub account_id: AccountId,
             pub role_id: RoleId,
+        }
+    }
+
+    impl AccountPermissionChanged {
+        /// Get permission id
+        pub fn permission_id(&self) -> &Name {
+            &self.permission_id
         }
     }
 }
@@ -520,7 +552,7 @@ impl WorldEvent {
             WorldEvent::Trigger(trigger_event) => {
                 events.push(DataEvent::Trigger(trigger_event));
             }
-            WorldEvent::PermissionToken(token_event) => {
+            WorldEvent::PermissionTokenSchemaUpdate(token_event) => {
                 events.push(DataEvent::PermissionToken(token_event));
             }
             WorldEvent::Configuration(config_event) => {
@@ -585,7 +617,7 @@ pub mod prelude {
         config::ConfigurationEvent,
         domain::{DomainEvent, DomainEventFilter, DomainFilter},
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
-        permission::PermissionTokenEvent,
+        permission::PermissionTokenSchemaUpdateEvent,
         role::{PermissionRemoved, RoleEvent, RoleEventFilter, RoleFilter},
         trigger::{
             TriggerEvent, TriggerEventFilter, TriggerFilter, TriggerNumberOfExecutionsChanged,

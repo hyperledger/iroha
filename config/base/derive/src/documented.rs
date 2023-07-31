@@ -36,8 +36,9 @@ fn impl_get_doc_recursive(docs: Vec<LitStr>, ast: &StructWithFields) -> proc_mac
             ) -> core::result::Result<std::option::Option<String>, ::iroha_config_base::derive::Error>
             {
                 Err(::iroha_config_base::derive::Error::UnknownField(
-                    inner_field.as_ref().iter().map(ToString::to_string).collect()
-                ))
+                    ::iroha_config_base::derive::Field(
+                        inner_field.as_ref().iter().map(ToString::to_string).collect()
+                )))
             }
         };
     }
@@ -84,8 +85,9 @@ fn impl_get_doc_recursive(docs: Vec<LitStr>, ast: &StructWithFields) -> proc_mac
             let doc = match inner_field {
                 #(#variants)*
                 field => return Err(::iroha_config_base::derive::Error::UnknownField(
-                    field.iter().map(ToString::to_string).collect()
-                )),
+                    ::iroha_config_base::derive::Field(
+                        field.iter().map(ToString::to_string).collect()
+                ))),
             };
             Ok(doc)
         }
@@ -162,8 +164,9 @@ fn impl_get_recursive(ast: &StructWithFields) -> proc_macro2::TokenStream {
                 T: AsRef<[&'a str]> + Send + 'a,
             {
                 Err(::iroha_config_base::derive::Error::UnknownField(
-                    inner_field.as_ref().iter().map(ToString::to_string).collect()
-                ))
+                    ::iroha_config_base::derive::Field(
+                        inner_field.as_ref().iter().map(ToString::to_string).collect()
+                )))
             }
         };
     }
@@ -217,8 +220,9 @@ fn impl_get_recursive(ast: &StructWithFields) -> proc_macro2::TokenStream {
             let value = match inner_field {
                 #(#variants)*
                 field => return Err(::iroha_config_base::derive::Error::UnknownField(
-                    field.iter().map(ToString::to_string).collect()
-                )),
+                    ::iroha_config_base::derive::Field(
+                        field.iter().map(ToString::to_string).collect()
+                ))),
             };
             Ok(value)
         }

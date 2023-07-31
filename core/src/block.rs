@@ -32,43 +32,36 @@ use crate::{
 };
 
 /// Errors occurred on block commit
-#[derive(Debug, Error, Clone, Copy)]
+#[derive(Debug, Error, displaydoc::Display, Clone, Copy)]
 pub enum BlockCommitError {
     /// Error during signature verification
-    #[error("Error during signature verification")]
     SignatureVerificationError(#[from] SignatureVerificationError),
 }
 
 /// Errors occurred on signing block or adding additional signature
-#[derive(Debug, Error)]
+#[derive(Debug, Error, displaydoc::Display)]
 pub enum BlockSignError {
     /// Failed to create signature
-    #[error("Failed to create signature")]
     Sign(#[source] iroha_crypto::error::Error),
     /// Failed to add signature for block
-    #[error("Failed to add signature for block")]
     AddSignature(#[source] iroha_crypto::error::Error),
 }
 
 /// Errors occurred on block revalidation
-#[derive(Debug, Error)]
+#[derive(Debug, Error, displaydoc::Display)]
 pub enum BlockRevalidationError {
     /// Block is empty
-    #[error("Block is empty")]
     Empty,
     /// Block has committed transactions
-    #[error("Block has committed transactions")]
     HasCommittedTransactions,
-    /// Mismatch between the actual and expected hashes of the latest block
-    #[error("Mismatch between the actual and expected hashes of the latest block. Expected: {:?}, actual: {:?}", expected, actual)]
+    /// Mismatch between the actual and expected hashes of the latest block. Expected: {expected:?}, actual: {actual:?}
     LatestBlockHashMismatch {
         /// Expected value
         expected: Option<HashOf<VersionedCommittedBlock>>,
         /// Actual value
         actual: Option<HashOf<VersionedCommittedBlock>>,
     },
-    /// Mismatch between the actual and expected height of the latest block
-    #[error("Mismatch between the actual and expected height of the latest block. Expected: {}, actual: {}", expected, actual)]
+    /// Mismatch between the actual and expected height of the latest block. Expected: {expected}, actual: {actual}
     LatestBlockHeightMismatch {
         /// Expected value
         expected: u64,
@@ -76,20 +69,12 @@ pub enum BlockRevalidationError {
         actual: u64,
     },
     /// The transaction hash stored in the block header does not match the actual transaction hash
-    #[error("The transaction hash stored in the block header does not match the actual transaction hash")]
     TransactionHashMismatch,
     /// The hash of a rejected transaction stored in the block header does not match the actual hash or this transaction
-    #[error("The hash of a rejected transaction stored in the block header does not match the actual hash or this transaction")]
     RejectedTransactionHashMismatch,
     /// Error during transaction revalidation
-    #[error("Error during transaction revalidation")]
     TransactionRevalidation(#[from] TransactionRevalidationError),
-    /// Mismatch between the actual and expected topology
-    #[error(
-        "Mismatch between the actual and expected topology. Expected: {:?}, actual: {:?}",
-        expected,
-        actual
-    )]
+    /// Mismatch between the actual and expected topology. Expected: {expected:?}, actual: {actual:?}
     TopologyMismatch {
         /// Expected value
         expected: Vec<PeerId>,
@@ -97,24 +82,19 @@ pub enum BlockRevalidationError {
         actual: Vec<PeerId>,
     },
     /// Error during block signatures check
-    #[error("Error during block signatures check")]
     SignatureVerification(#[from] SignatureVerificationError),
     /// Received view change index is too large
-    #[error("Received view change index is too large")]
     ViewChangeIndexTooLarge,
 }
 
 /// Error during transaction revalidation
-#[derive(Debug, Error)]
+#[derive(Debug, Error, displaydoc::Display)]
 pub enum TransactionRevalidationError {
     /// Failed to accept transaction
-    #[error("Failed to accept transaction")]
     Accept(#[from] AcceptTransactionFail),
     /// Transaction isn't valid but must be
-    #[error("Transaction isn't valid but must be")]
     NotValid(#[from] TransactionRejectionReason),
     /// Rejected transaction in valid
-    #[error("Rejected transaction in valid")]
     RejectedIsValid,
 }
 
@@ -173,7 +153,7 @@ impl BlockBuilder<'_> {
         for tx in self.transactions {
             match transaction_validator.validate(tx, height == 1, self.wsv) {
                 Ok(transaction) => txs.push(TransactionValue {
-                    tx: transaction,
+                    value: transaction,
                     error: None,
                 }),
                 Err((transaction, error)) => {
@@ -183,7 +163,7 @@ impl BlockBuilder<'_> {
                         "Transaction validation failed",
                     );
                     txs.push(TransactionValue {
-                        tx: transaction,
+                        value: transaction,
                         error: Some(error),
                     });
                 }
@@ -192,13 +172,13 @@ impl BlockBuilder<'_> {
         header.transactions_hash = txs
             .iter()
             .filter(|tx| tx.error.is_none())
-            .map(|tx| tx.tx.hash())
+            .map(|tx| tx.value.hash())
             .collect::<MerkleTree<_>>()
             .hash();
         header.rejected_transactions_hash = txs
             .iter()
             .filter(|tx| tx.error.is_some())
-            .map(|tx| tx.tx.hash())
+            .map(|tx| tx.value.hash())
             .collect::<MerkleTree<_>>()
             .hash();
         // TODO: Validate Event recommendations somehow?
@@ -407,7 +387,7 @@ impl Revalidate for PendingBlock {
     fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
         self.transactions
             .iter()
-            .any(|tx| wsv.has_transaction(tx.tx.hash()))
+            .any(|tx| wsv.has_transaction(tx.value.hash()))
     }
 }
 
@@ -510,7 +490,7 @@ impl Revalidate for VersionedCommittedBlock {
             VersionedCommittedBlock::V1(block) => block
                 .transactions
                 .iter()
-                .any(|tx| wsv.has_transaction(tx.tx.hash())),
+                .any(|tx| wsv.has_transaction(tx.value.hash())),
         }
     }
 }
@@ -525,7 +505,7 @@ fn revalidate_hashes(
     transactions
         .iter()
         .filter(|tx| tx.error.is_none())
-        .map(|tx| tx.tx.hash())
+        .map(|tx| tx.value.hash())
         .collect::<MerkleTree<_>>()
         .hash()
         .eq(&transactions_hash)
@@ -535,7 +515,7 @@ fn revalidate_hashes(
     transactions
         .iter()
         .filter(|tx| tx.error.is_some())
-        .map(|tx| tx.tx.hash())
+        .map(|tx| tx.value.hash())
         .collect::<MerkleTree<_>>()
         .hash()
         .eq(&rejected_transactions_hash)
@@ -556,10 +536,10 @@ fn revalidate_transactions(
         if tx.error.is_some() {
             let _rejected_tx = if is_genesis {
                 Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(
-                    tx.tx,
+                    tx.value,
                 )))
             } else {
-                AcceptedTransaction::accept(tx.tx, &transaction_validator.transaction_limits)
+                AcceptedTransaction::accept(tx.value, &transaction_validator.transaction_limits)
             }
             .map_err(TransactionRevalidationError::Accept)
             .and_then(|tx| {
@@ -571,10 +551,10 @@ fn revalidate_transactions(
         } else {
             let tx = if is_genesis {
                 Ok(AcceptedTransaction::accept_genesis(GenesisTransaction(
-                    tx.tx,
+                    tx.value,
                 )))
             } else {
-                AcceptedTransaction::accept(tx.tx, &transaction_validator.transaction_limits)
+                AcceptedTransaction::accept(tx.value, &transaction_validator.transaction_limits)
             }
             .map_err(TransactionRevalidationError::Accept)?;
 

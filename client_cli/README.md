@@ -133,6 +133,28 @@ To know how many units of a particular asset an account has, use `asset get` wit
 
 This query returns the quantity of `XOR#Soramitsu` asset for the `White Rabbit@Soramitsu` account.
 
+It's possible to filter based on either account, asset or domain id by using the filtering API provided by the Iroha client CLI.
+
+Generally it looks like this:
+
+```bash
+./iroha_client_cli ENTITY list filter PREDICATE
+```
+
+Where ENTITY is asset, account or domain and PREDICATE is condition used for filtering serialized using JSON (check `ValuePredicate` and `GenericPredicateBox` in [schema](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/schema.json) for reference).
+
+Examples:
+
+```bash
+# Filter domains by id
+./iroha_client_cli domain list filter '{"Identifiable": {"Is": "wonderland"}}'
+# Filter accounts by domain
+./iroha_client_cli account list filter '{"Identifiable": {"EndsWith": "@wonderland"}}'
+# It is possible to combine filters using "Or" or "And"
+# Filter asset by domain
+./iroha_client_cli asset list filter '{"Or": [{"Identifiable": {"Contains": "#wonderland#"}}, {"And": [{"Identifiable": {"Contains": "##"}}, {"Identifiable": {"EndsWith": "@wonderland"}}]}]}'
+```
+
 ### Execute WASM transaction
 
 Use `--file` to specify a path to the WASM file:

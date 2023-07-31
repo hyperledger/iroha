@@ -262,7 +262,10 @@ mod tests {
                 assert_eq!(arb_cfg.account_id, example_cfg.account_id);
                 assert_eq!(arb_cfg.transaction_time_to_live_ms, example_cfg.transaction_time_to_live_ms);
                 assert_eq!(arb_cfg.transaction_status_timeout_ms, example_cfg.transaction_status_timeout_ms);
-                assert_eq!(arb_cfg.transaction_limits, example_cfg.transaction_limits);
+                #[allow(deprecated)] // For testing purposes only
+                {
+                    assert_eq!(arb_cfg.transaction_limits, example_cfg.transaction_limits);
+                }
                 assert_eq!(arb_cfg.add_transaction_nonce, example_cfg.add_transaction_nonce);
             }
         }

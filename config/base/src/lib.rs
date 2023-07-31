@@ -304,18 +304,33 @@ pub mod derive {
     pub static CONFIG_REFERENCE: &str =
         "https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/config.md";
 
+    /// Represents a path to a nested field in a config structure
+    #[derive(Debug, Deserialize)]
+    #[serde(transparent)]
+    pub struct Field(pub Vec<String>);
+
+    impl std::fmt::Display for Field {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            // separate fields with dots
+            std::fmt::Display::fmt(&self.0.join("."), f)
+        }
+    }
+
     // TODO: deal with `#[serde(skip)]`
     /// Derive `Configurable` and `Proxy` error
-    #[derive(Debug, Error, Deserialize)]
+    #[derive(Debug, Error, Deserialize, displaydoc::Display)]
+    #[ignore_extra_doc_attributes]
     #[allow(clippy::enum_variant_names)]
     pub enum Error {
+        /// Got unknown field: `{0}`
+        ///
         /// Used in [`Documented`] trait for wrong query errors
-        #[error("Got unknown field: `{}`", .0.join("."))]
-        UnknownField(Vec<String>),
+        UnknownField(Field),
 
+        /// Failed to deserialize the field `{field}`
+        ///
         /// Used in [`Documented`] and [`super::proxy::LoadFromEnv`] trait for deserialization
         /// errors
-        #[error("Failed to deserialize the field `{}`: {}", .field, .error)]
         #[serde(skip)]
         FieldDeserialization {
             /// Field name (known at compile time)
@@ -325,8 +340,7 @@ pub mod derive {
             error: eyre::Report,
         },
 
-        /// When a field is missing.
-        #[error("Please add `{}` to the configuration.", .field)]
+        /// Please add `{field}` to the configuration
         #[serde(skip)]
         MissingField {
             /// Field name
@@ -336,12 +350,10 @@ pub mod derive {
         },
 
         /// Key pair creation failed, most likely because the keys don't form a pair
-        #[error("Key pair creation failed")]
         Crypto(#[from] iroha_crypto::error::Error),
 
         // IMO this variant should not exist. If the value is inferred, we should only warn people if the inferred value is different from the provided one.
-        /// Inferred field was provided by accident and we don't want it to be provided, because the value is inferred from other fields
-        #[error("You should remove the field `{}` as its value is determined by other configuration parameters.", .field)]
+        /// You should remove the field `{field}` as its value is determined by other configuration parameters
         #[serde(skip)]
         ProvidedInferredField {
             /// Field name
@@ -350,8 +362,7 @@ pub mod derive {
             message: &'static str,
         },
 
-        /// Value that is unacceptable to Iroha was encountered when deserializing the config
-        #[error("The value {} of {} is wrong. \nPlease change the value.", .value, .field)]
+        /// The value {value} of `{field}` is wrong. Please change the value
         #[serde(skip)]
         InsaneValue {
             /// The value of the field that's incorrect
@@ -363,13 +374,15 @@ pub mod derive {
             // docstring: &'static str,  // TODO: Inline the docstring for easy access
         },
 
+        /// Reading file from disk failed
+        ///
         /// Used in the [`LoadFromDisk`](`crate::proxy::LoadFromDisk`) trait for file read errors
-        #[error("Reading file from disk failed.")]
         #[serde(skip)]
         Disk(#[from] std::io::Error),
 
+        /// Deserializing JSON failed
+        ///
         /// Used in [`LoadFromDisk`](`crate::proxy::LoadFromDisk`) trait for deserialization errors
-        #[error("Deserializing JSON failed")]
         #[serde(skip)]
         Json5(#[from] json5::Error),
     }
@@ -394,6 +407,14 @@ pub mod derive {
                 error: eyre::eyre!("JSON5: {}", error),
             }
         }
+    }
+
+    #[test]
+    fn unknown_field_fmt() {
+        assert_eq!(
+            Error::UnknownField(Field(vec!["a".into(), "b".into()])).to_string(),
+            "Got unknown field: `a.b`"
+        );
     }
 }
 

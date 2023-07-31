@@ -64,14 +64,20 @@ parity-scale-codec = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+displaydoc = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs", "signal"] }
 warp = { workspace = true, features = ["multipart", "websocket"] }
-serial_test = "0.8.0"
 once_cell = { workspace = true }
 owo-colors = { workspace = true, features = ["supports-colors"] }
 supports-color = { workspace = true }
-thread-local-panic-hook = { version = "0.1.0", optional = true }
 tempfile = { workspace = true }
+dashmap = { workspace = true }
+
+thread-local-panic-hook = { version = "0.1.0", optional = true }
+uuid = { version = "1.4.1", features = ["v4"] }
+
+[dev-dependencies]
+serial_test = "0.8.0"
 
 [build-dependencies]
 iroha_wasm_builder = { workspace = true }

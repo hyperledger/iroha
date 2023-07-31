@@ -264,7 +264,6 @@ impl<T> HashOf<T> {
     /// since it is not possible to validate the correctness of the conversion.
     /// Prefer creating new hashes with [`HashOf::new`] whenever possible
     #[must_use]
-    #[deprecated]
     pub const fn from_untyped_unchecked(hash: Hash) -> Self {
         HashOf(hash, PhantomData)
     }

@@ -3,7 +3,7 @@
 use std::{str::FromStr as _, thread};
 
 use eyre::Result;
-use iroha_client::client::{self, Client};
+use iroha_client::client::{self, Client, QueryResult};
 use iroha_data_model::prelude::*;
 use test_network::{PeerBuilder, *};
 
@@ -12,6 +12,8 @@ use super::Configuration;
 fn get_assets(iroha_client: &mut Client, id: &<Account as Identifiable>::Id) -> Vec<Asset> {
     iroha_client
         .request(client::asset::by_account_id(id.clone()))
+        .expect("Failed to execute request.")
+        .collect::<QueryResult<Vec<_>>>()
         .expect("Failed to execute request.")
 }
 
@@ -181,11 +183,7 @@ fn permissions_differ_not_only_by_names() {
     // Granting permission to Alice to modify metadata in Mouse's hats
     let mouse_hat_id = <Asset as Identifiable>::Id::new(hat_definition_id, mouse_id.clone());
     let allow_alice_to_set_key_value_in_hats = GrantBox::new(
-        PermissionToken::new("can_set_key_value_in_user_asset".parse().expect("Valid"))
-            .with_params([(
-                "asset_id".parse().expect("Valid"),
-                mouse_hat_id.clone().into(),
-            )]),
+        PermissionToken::new("CanSetKeyValueInUserAsset".parse().unwrap(), &mouse_hat_id),
         alice_id.clone(),
     );
 
@@ -219,8 +217,10 @@ fn permissions_differ_not_only_by_names() {
 
     // Granting permission to Alice to modify metadata in Mouse's shoes
     let allow_alice_to_set_key_value_in_shoes = GrantBox::new(
-        PermissionToken::new("can_set_key_value_in_user_asset".parse().expect("Valid"))
-            .with_params([("asset_id".parse().expect("Valid"), mouse_shoes_id.into())]),
+        PermissionToken::new(
+            "CanSetKeyValueInUserAsset".parse().unwrap(),
+            &mouse_shoes_id,
+        ),
         alice_id,
     );
 
@@ -242,23 +242,13 @@ fn permissions_differ_not_only_by_names() {
 mod token_parameters {
     use super::*;
 
-    static TEST_TOKEN_DEFINITION_ID: once_cell::sync::Lazy<
-        <PermissionTokenDefinition as Identifiable>::Id,
-    > = once_cell::sync::Lazy::new(|| {
-        <PermissionTokenDefinition as Identifiable>::Id::new(
-            "test_permission_token_definition".parse().expect("Valid"),
-        )
-    });
-
-    static NUMBER_PARAMETER_NAME: once_cell::sync::Lazy<Name> =
-        once_cell::sync::Lazy::new(|| "number".parse().expect("Valid"));
-    static STRING_PARAMETER_NAME: once_cell::sync::Lazy<Name> =
-        once_cell::sync::Lazy::new(|| "string".parse().expect("Valid"));
+    static TEST_TOKEN_DEFINITION_ID: once_cell::sync::Lazy<PermissionTokenId> =
+        once_cell::sync::Lazy::new(|| "TestPermissionTokenDefinition".parse().expect("Valid"));
 
     #[ignore = "ignore, more in #2851"]
     #[test]
     fn token_with_missing_parameters_is_not_accepted() {
-        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone());
+        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone(), &());
         let expect = "Expected to fail to grant permission token without parameters";
 
         run_grant_token_error_test(token.clone(), expect);
@@ -268,8 +258,7 @@ mod token_parameters {
     #[ignore = "ignore, more in #2851"]
     #[test]
     fn token_with_one_missing_parameter_is_not_accepted() {
-        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone())
-            .with_params([(NUMBER_PARAMETER_NAME.clone(), 1_u32.into())]);
+        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone(), &1_u32);
         let expect = "Expected to fail to grant permission token with one missing parameter";
 
         run_grant_token_error_test(token.clone(), expect);
@@ -279,13 +268,7 @@ mod token_parameters {
     #[ignore = "ignore, more in #2851"]
     #[test]
     fn token_with_changed_parameter_name_is_not_accepted() {
-        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
-            (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
-            (
-                "it's_a_trap".parse().expect("Valid"),
-                "test".to_owned().into(),
-            ),
-        ]);
+        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone(), &(1_u32, "test"));
         let expect = "Expected to fail to grant permission token with one changed parameter";
 
         run_grant_token_error_test(token.clone(), expect);
@@ -295,14 +278,10 @@ mod token_parameters {
     #[ignore = "ignore, more in #2851"]
     #[test]
     fn token_with_extra_parameter_is_not_accepted() {
-        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
-            (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
-            (STRING_PARAMETER_NAME.clone(), "test".to_owned().into()),
-            (
-                "extra_param".parse().expect("Valid"),
-                "extra_test".to_owned().into(),
-            ),
-        ]);
+        let token = PermissionToken::new(
+            TEST_TOKEN_DEFINITION_ID.clone(),
+            &(1_u32, "test", "extra_test"),
+        );
         let expect = "Expected to fail to grant permission token with extra parameter";
 
         run_grant_token_error_test(token.clone(), expect);
@@ -312,13 +291,10 @@ mod token_parameters {
     #[ignore = "ignore, more in #2851"]
     #[test]
     fn token_with_wrong_parameter_type_is_not_accepted() {
-        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone()).with_params([
-            (NUMBER_PARAMETER_NAME.clone(), 1_u32.into()),
-            (
-                STRING_PARAMETER_NAME.clone(),
-                Value::Name("test".parse().expect("Valid")),
-            ),
-        ]);
+        let token = PermissionToken::new(
+            TEST_TOKEN_DEFINITION_ID.clone(),
+            &(91_u32, Value::Name("test".parse().expect("Valid"))),
+        );
         let expect = "Expected to fail to grant permission token with wrong parameter type";
 
         run_grant_token_error_test(token.clone(), expect);

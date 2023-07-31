@@ -1,8 +1,10 @@
 #![allow(clippy::restriction)]
 
+use std::num::{NonZeroU32, NonZeroU64};
+
 use eyre::Result;
-use iroha_client::client::asset;
-use iroha_data_model::prelude::*;
+use iroha_client::client::{asset, QueryResult};
+use iroha_data_model::{asset::AssetDefinition, prelude::*, query::Pagination};
 use test_network::*;
 
 #[test]
@@ -20,8 +22,14 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     client.submit_all_blocking(register)?;
 
     let vec = client
-        .request_with_pagination(asset::all_definitions(), Pagination::new(Some(5), Some(5)))?
-        .only_output();
+        .request_with_pagination(
+            asset::all_definitions(),
+            Pagination {
+                limit: NonZeroU32::new(5),
+                start: NonZeroU64::new(5),
+            },
+        )?
+        .collect::<QueryResult<Vec<_>>>()?;
     assert_eq!(vec.len(), 5);
     Ok(())
 }

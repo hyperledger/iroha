@@ -55,7 +55,8 @@ impl Name {
             .chars()
             .count()
             .try_into()
-            .map(|len| range.contains(&len)) else {
+            .map(|len| range.contains(&len))
+        else {
             return Err(InvalidParameterError::NameLength);
         };
         Ok(())
@@ -106,6 +107,14 @@ impl FromStr for Name {
 
     fn from_str(candidate: &str) -> Result<Self, Self::Err> {
         Self::validate_str(candidate).map(|_| Self(ConstString::from(candidate)))
+    }
+}
+
+impl TryFrom<String> for Name {
+    type Error = ParseError;
+
+    fn try_from(candidate: String) -> Result<Self, Self::Error> {
+        Self::validate_str(&candidate).map(|_| Self(ConstString::from(candidate)))
     }
 }
 

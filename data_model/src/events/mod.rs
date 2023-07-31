@@ -156,14 +156,14 @@ pub mod stream {
 
         /// Message sent by the stream producer.
         /// Event sent by the peer.
-        #[version_with_scale(n = 1, versioned = "VersionedEventMessage")]
+        #[version_with_scale(version = 1, versioned_alias = "VersionedEventMessage")]
         #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
         pub struct EventMessage(pub Event);
 
         /// Message sent by the stream consumer.
         /// Request sent by the client to subscribe to events.
-        #[version_with_scale(n = 1, versioned = "VersionedEventSubscriptionRequest")]
+        #[version_with_scale(version = 1, versioned_alias = "VersionedEventSubscriptionRequest")]
         #[derive(Debug, Clone, Constructor, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
         pub struct EventSubscriptionRequest(pub FilterBox);

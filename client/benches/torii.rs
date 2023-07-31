@@ -87,14 +87,19 @@ fn query_requests(criterion: &mut Criterion) {
     let mut failures_count = 0;
     let _dropable = group.throughput(Throughput::Bytes(request.encode().len() as u64));
     let _dropable2 = group.bench_function("query", |b| {
-        b.iter(|| match iroha_client.request(request.clone()) {
-            Ok(assets) => {
-                assert!(!assets.is_empty());
-                success_count += 1;
-            }
-            Err(e) => {
-                eprintln!("Query failed: {e}");
-                failures_count += 1;
+        b.iter(|| {
+            match iroha_client
+                .request(request.clone())
+                .and_then(|iter| iter.collect::<Result<Vec<_>, _>>())
+            {
+                Ok(assets) => {
+                    assert!(!assets.is_empty());
+                    success_count += 1;
+                }
+                Err(e) => {
+                    eprintln!("Query failed: {e}");
+                    failures_count += 1;
+                }
             }
         });
     });

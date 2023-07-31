@@ -19,6 +19,8 @@ RUN rustup component add rust-src
 # Install musl C++ toolchain to build wasm-opt
 RUN wget -c http://musl.cc/x86_64-linux-musl-native.tgz -O - | tar -xz
 RUN ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-g++ /x86_64-linux-musl-native/bin/musl-g++
+RUN ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc-ar /x86_64-linux-musl-native/bin/musl-ar
+RUN ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc-ranlib /x86_64-linux-musl-native/bin/musl-ranlib
 ENV PATH="$PATH:/x86_64-linux-musl-native/bin"
 ENV RUSTFLAGS="-C link-arg=-static"
 ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc
@@ -30,7 +32,7 @@ RUN cargo build --target x86_64-unknown-linux-musl --features vendored --profile
 
 
 # final image
-FROM alpine:3.16
+FROM alpine:3.18
 
 ARG  STORAGE=/storage
 ARG  TARGET_DIR=/iroha/target/x86_64-unknown-linux-musl/deploy

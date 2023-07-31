@@ -10,7 +10,7 @@ categories = ["development-tools::build-utils"]
 
 [dependencies]
 eyre = { workspace = true }
-serde_json = { workspace = true }
-sha256 = "1.1.4"
+serde_json = { workspace = true, features = ["std"] }
+sha256 = "1.2.2"
 path-absolutize = { workspace = true }
 wasm-opt = "0.113.0"

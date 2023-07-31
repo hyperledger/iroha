@@ -1,12 +1,18 @@
 #![allow(clippy::restriction, clippy::pedantic)]
 
-use std::{collections::HashSet, str::FromStr as _};
+use std::{
+    collections::HashSet,
+    num::{NonZeroU32, NonZeroU64},
+    str::FromStr as _,
+};
 
 use eyre::{Result, WrapErr as _};
-use iroha_client::client;
+use iroha_client::client::{self, QueryResult};
 use iroha_data_model::{
+    account::Account,
     predicate::{string, value, PredicateBox},
     prelude::*,
+    query::{Pagination, Sorting},
 };
 use test_network::*;
 
@@ -21,7 +27,7 @@ fn correct_pagination_assets_after_creating_new_one() {
     let mut assets = vec![];
     let mut instructions = vec![];
 
-    for i in 0..10_u128 {
+    for i in 0..20_u128 {
         let asset_definition_id =
             AssetDefinitionId::from_str(&format!("xor{i}#wonderland")).expect("Valid");
         let asset_definition = AssetDefinition::store(asset_definition_id.clone());
@@ -56,30 +62,31 @@ fn correct_pagination_assets_after_creating_new_one() {
     let res = test_client
         .request_with_pagination_and_sorting(
             client::asset::by_account_id(account_id.clone()),
-            Pagination::new(None, Some(5)),
+            Pagination {
+                limit: NonZeroU32::new(5),
+                start: None,
+            },
             sorting.clone(),
         )
+        .expect("Valid")
+        .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
 
-    assert_eq!(
-        res.output
-            .iter()
-            .map(|asset| asset.id().definition_id.name.clone())
-            .collect::<Vec<_>>(),
-        assets
+    assert!(res
+        .iter()
+        .map(|asset| &asset.id().definition_id.name)
+        .eq(assets
             .iter()
             .take(5)
-            .map(|asset| asset.id().definition_id.name.clone())
-            .collect::<Vec<_>>()
-    );
+            .map(|asset| &asset.id().definition_id.name)));
 
-    let new_asset_definition_id = AssetDefinitionId::from_str("xor10#wonderland").expect("Valid");
+    let new_asset_definition_id = AssetDefinitionId::from_str("xor20#wonderland").expect("Valid");
     let new_asset_definition = AssetDefinition::store(new_asset_definition_id.clone());
     let mut new_asset_metadata = Metadata::new();
     new_asset_metadata
         .insert_with_limits(
             sort_by_metadata_key,
-            10_u128.to_value(),
+            20_u128.to_value(),
             MetadataLimits::new(10, 23),
         )
         .expect("Valid");
@@ -98,25 +105,24 @@ fn correct_pagination_assets_after_creating_new_one() {
     let res = test_client
         .request_with_pagination_and_sorting(
             client::asset::by_account_id(account_id),
-            Pagination::new(Some(5), Some(6)),
+            Pagination {
+                limit: NonZeroU32::new(13),
+                start: NonZeroU64::new(8),
+            },
             sorting,
         )
+        .expect("Valid")
+        .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
 
-    let mut right = assets.into_iter().skip(5).take(5).collect::<Vec<_>>();
-
-    right.push(new_asset);
-
-    assert_eq!(
-        res.output
-            .into_iter()
-            .map(|asset| asset.id().definition_id.name.clone())
-            .collect::<Vec<_>>(),
-        right
-            .into_iter()
-            .map(|asset| asset.id().definition_id.name.clone())
-            .collect::<Vec<_>>()
-    );
+    assert!(res
+        .iter()
+        .map(|asset| &asset.id().definition_id.name)
+        .eq(assets
+            .iter()
+            .skip(8)
+            .chain(core::iter::once(&new_asset))
+            .map(|asset| &asset.id().definition_id.name)));
 }
 
 #[test]
@@ -157,22 +163,22 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .request_with_sorting_and_filter(
+        .request_with_filter_and_sorting(
             client::asset::all_definitions(),
             Sorting::by_metadata_key(sort_by_metadata_key.clone()),
             PredicateBox::new(value::ValuePredicate::Identifiable(
                 string::StringPredicate::starts_with("xor_"),
             )),
         )
+        .expect("Valid")
+        .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
 
     assert!(res
-        .output
         .iter()
         .map(Identifiable::id)
         .eq(asset_definitions.iter().rev()));
     assert!(res
-        .output
         .iter()
         .map(|asset_definition| asset_definition.metadata())
         .eq(assets_metadata.iter().rev()));
@@ -208,22 +214,19 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .request_with_sorting_and_filter(
+        .request_with_filter_and_sorting(
             client::account::all(),
             Sorting::by_metadata_key(sort_by_metadata_key.clone()),
             PredicateBox::new(value::ValuePredicate::Identifiable(
                 string::StringPredicate::starts_with("charlie"),
             )),
         )
+        .expect("Valid")
+        .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
 
+    assert!(res.iter().map(Identifiable::id).eq(accounts.iter().rev()));
     assert!(res
-        .output
-        .iter()
-        .map(Identifiable::id)
-        .eq(accounts.iter().rev()));
-    assert!(res
-        .output
         .iter()
         .map(|account| account.metadata())
         .eq(accounts_metadata.iter().rev()));
@@ -258,7 +261,7 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .request_with_pagination_and_filter_and_sorting(
+        .request_with_filter_and_pagination_and_sorting(
             client::domain::all(),
             Pagination::default(),
             Sorting::by_metadata_key(sort_by_metadata_key.clone()),
@@ -266,15 +269,12 @@ fn correct_sorting_of_entities() {
                 string::StringPredicate::starts_with("neverland"),
             )),
         )
+        .expect("Valid")
+        .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
 
+    assert!(res.iter().map(Identifiable::id).eq(domains.iter().rev()));
     assert!(res
-        .output
-        .iter()
-        .map(Identifiable::id)
-        .eq(domains.iter().rev()));
-    assert!(res
-        .output
         .iter()
         .map(|domain| domain.metadata())
         .eq(domains_metadata.iter().rev()));
@@ -310,20 +310,22 @@ fn correct_sorting_of_entities() {
         string::StringPredicate::starts_with("neverland_"),
     ));
     let res = test_client
-        .request_with_pagination_and_filter_and_sorting(
+        .request_with_filter_and_pagination_and_sorting(
             client::domain::all(),
             Pagination::default(),
             Sorting::by_metadata_key(sort_by_metadata_key),
             filter,
         )
+        .expect("Valid")
+        .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
 
-    assert_eq!(res.output[0].id(), &domains[1]);
-    assert_eq!(res.output[1].id(), &domains[0]);
-    assert_eq!(res.output[2].id(), &domains[2]);
-    assert_eq!(res.output[0].metadata(), &domains_metadata[1]);
-    assert_eq!(res.output[1].metadata(), &domains_metadata[0]);
-    assert_eq!(res.output[2].metadata(), &domains_metadata[2]);
+    assert_eq!(res[0].id(), &domains[1]);
+    assert_eq!(res[1].id(), &domains[0]);
+    assert_eq!(res[2].id(), &domains[2]);
+    assert_eq!(res[0].metadata(), &domains_metadata[1]);
+    assert_eq!(res[1].metadata(), &domains_metadata[0]);
+    assert_eq!(res[2].metadata(), &domains_metadata[2]);
 }
 
 #[test]
@@ -370,22 +372,18 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
         .wrap_err("Failed to register accounts")?;
 
     let res = test_client
-        .request_with_sorting_and_filter(
+        .request_with_filter_and_sorting(
             client::account::all(),
             Sorting::by_metadata_key(sort_by_metadata_key),
             PredicateBox::new(value::ValuePredicate::Identifiable(
                 string::StringPredicate::starts_with("charlie"),
             )),
         )
-        .wrap_err("Failed to submit request")?;
+        .wrap_err("Failed to submit request")?
+        .collect::<QueryResult<Vec<_>>>()?;
 
-    let accounts = accounts_a.into_iter().rev().chain(accounts_b.into_iter());
-    assert!(res
-        .output
-        .iter()
-        .map(Identifiable::id)
-        .cloned()
-        .eq(accounts));
+    let accounts = accounts_a.iter().rev().chain(accounts_b.iter());
+    assert!(res.iter().map(Identifiable::id).eq(accounts));
 
     Ok(())
 }

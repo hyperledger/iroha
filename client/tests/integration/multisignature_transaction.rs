@@ -3,7 +3,7 @@
 use std::{str::FromStr as _, thread, time::Duration};
 
 use eyre::Result;
-use iroha_client::client::{self, Client};
+use iroha_client::client::{self, Client, QueryResult};
 use iroha_config::client::Configuration as ClientConfiguration;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{
@@ -79,8 +79,11 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     .unwrap();
     let client_1 = Client::new(&client_configuration).expect("Invalid client configuration");
     let request = client::asset::by_account_id(alice_id);
+    let assets = client_1
+        .request(request.clone())?
+        .collect::<QueryResult<Vec<_>>>()?;
     assert_eq!(
-        client_1.request(request.clone())?.len(),
+        assets.len(),
         2 // Alice has roses and cabbage from Genesis
     );
     let (public_key2, private_key2) = key_pair_2.into();
@@ -94,7 +97,9 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
         .expect("Found no pending transaction for this account.");
     client_2.submit_transaction(&client_2.sign_transaction(transaction)?)?;
     thread::sleep(pipeline_time);
-    let assets = client_1.request(request)?;
+    let assets = client_1
+        .request(request)?
+        .collect::<QueryResult<Vec<_>>>()?;
     assert!(!assets.is_empty());
     let camomile_asset = assets
         .iter()

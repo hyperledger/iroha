@@ -26,7 +26,7 @@ use color_eyre::{
 };
 use dialoguer::Confirm;
 use erased_serde::Serialize;
-use iroha_client::client::Client;
+use iroha_client::client::{Client, QueryResult};
 use iroha_config::{client::Configuration as ClientConfiguration, path::Path as ConfigPath};
 use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
@@ -81,6 +81,11 @@ pub struct Args {
     /// More verbose output
     #[structopt(short, long)]
     verbose: bool,
+    /// Skip MST check. By setting this flag searching similar transactions on the server can be omitted.
+    /// Thus if you don't use multisignature transactions you should use this flag as it will increase speed of submitting transactions.
+    /// Also setting this flag could be useful when `iroha_client_cli` is used to submit the same transaction multiple times (like mint for example) in short period of time.
+    #[structopt(long)]
+    skip_mst_check: bool,
     /// Subcommands of client cli
     #[structopt(subcommand)]
     subcommand: Subcommand,
@@ -115,6 +120,10 @@ pub enum Subcommand {
 pub trait RunContext {
     /// Get access to configuration
     fn configuration(&self) -> &ClientConfiguration;
+
+    /// Skip check for MST
+    fn skip_mst_check(&self) -> bool;
+
     /// Serialize and print data
     ///
     /// # Errors
@@ -126,6 +135,7 @@ pub trait RunContext {
 struct PrintJsonContext<W> {
     write: W,
     config: ClientConfiguration,
+    skip_mst_check: bool,
 }
 
 impl<W: std::io::Write> RunContext for PrintJsonContext<W> {
@@ -136,6 +146,10 @@ impl<W: std::io::Write> RunContext for PrintJsonContext<W> {
     fn print_data(&mut self, data: &dyn Serialize) -> Result<()> {
         writeln!(&mut self.write, "{}", serde_json::to_string_pretty(data)?)?;
         Ok(())
+    }
+
+    fn skip_mst_check(&self) -> bool {
+        self.skip_mst_check
     }
 }
 
@@ -176,6 +190,7 @@ fn main() -> Result<()> {
         config: config_opt,
         subcommand,
         verbose,
+        skip_mst_check,
     } = clap::Parser::parse();
     let config = if let Some(config) = config_opt {
         config
@@ -205,6 +220,7 @@ fn main() -> Result<()> {
     let mut context = PrintJsonContext {
         write: stdout(),
         config,
+        skip_mst_check,
     };
 
     subcommand.run(&mut context)
@@ -229,20 +245,24 @@ pub fn submit(
     let tx = iroha_client
         .build_transaction(instructions, metadata)
         .wrap_err(err_msg)?;
-    let tx = match iroha_client.get_original_transaction(
-        &tx,
-        RETRY_COUNT_MST,
-        RETRY_IN_MST,
-    ) {
-        Ok(Some(original_transaction)) if Confirm::new()
-            .with_prompt("There is a similar transaction from your account waiting for more signatures. \
-                          This could be because it wasn't signed with the right key, \
-                          or because it's a multi-signature transaction (MST). \
-                          Do you want to sign this transaction (yes) \
-                          instead of submitting a new transaction (no)?")
-            .interact()
-            .wrap_err("Failed to show interactive prompt.")? => iroha_client.sign_transaction(original_transaction).wrap_err("Failed to sign transaction.")?,
-        _ => tx,
+    let tx = if context.skip_mst_check() {
+        tx
+    } else {
+        match iroha_client.get_original_transaction(
+            &tx,
+            RETRY_COUNT_MST,
+            RETRY_IN_MST,
+        ) {
+            Ok(Some(original_transaction)) if Confirm::new()
+                .with_prompt("There is a similar transaction from your account waiting for more signatures. \
+                            This could be because it wasn't signed with the right key, \
+                            or because it's a multi-signature transaction (MST). \
+                            Do you want to sign this transaction (yes) \
+                            instead of submitting a new transaction (no)?")
+                .interact()
+                .wrap_err("Failed to show interactive prompt.")? => iroha_client.sign_transaction(original_transaction).wrap_err("Failed to sign transaction.")?,
+            _ => tx,
+        }
     };
     #[cfg(debug_assertions)]
     let err_msg = format!("Failed to submit transaction {tx:?}");
@@ -253,6 +273,25 @@ pub fn submit(
         .wrap_err(err_msg)?;
     context.print_data(&hash)?;
     Ok(())
+}
+
+mod filter {
+    use iroha_data_model::predicate::PredicateBox;
+
+    use super::*;
+
+    /// Filter for queries
+    #[derive(Clone, Debug, clap::Parser)]
+    pub struct Filter {
+        /// Predicate for filtering given as JSON string
+        #[clap(value_parser = parse_filter)]
+        pub predicate: PredicateBox,
+    }
+
+    fn parse_filter(s: &str) -> Result<PredicateBox, String> {
+        serde_json::from_str(s)
+            .map_err(|err| format!("Failed to deserialize filter from JSON: {err}"))
+    }
 }
 
 mod events {
@@ -366,10 +405,12 @@ mod domain {
     }
 
     /// List domains with this command
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(StructOpt, Debug, Clone)]
     pub enum List {
         /// All domains
         All,
+        /// Filter domains by given predicate
+        Filter(filter::Filter),
     }
 
     impl RunArgs for List {
@@ -380,8 +421,11 @@ mod domain {
                 Self::All => client
                     .request(client::domain::all())
                     .wrap_err("Failed to get all domains"),
+                Self::Filter(filter) => client
+                    .request_with_filter(client::domain::all(), filter.predicate)
+                    .wrap_err("Failed to get filtered domains"),
             }?;
-            context.print_data(&vec)?;
+            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
         }
     }
@@ -390,7 +434,7 @@ mod domain {
 mod account {
     use std::fmt::Debug;
 
-    use iroha_client::client;
+    use iroha_client::client::{self};
 
     use super::*;
 
@@ -500,10 +544,12 @@ mod account {
     }
 
     /// List accounts with this command
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(StructOpt, Debug, Clone)]
     pub enum List {
         /// All accounts
         All,
+        /// Filter accounts by given predicate
+        Filter(filter::Filter),
     }
 
     impl RunArgs for List {
@@ -514,8 +560,11 @@ mod account {
                 Self::All => client
                     .request(client::account::all())
                     .wrap_err("Failed to get all accounts"),
+                Self::Filter(filter) => client
+                    .request_with_filter(client::account::all(), filter.predicate)
+                    .wrap_err("Failed to get filtered accounts"),
             }?;
-            context.print_data(&vec)?;
+            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
         }
     }
@@ -579,7 +628,7 @@ mod account {
             let permissions = client
                 .request(find_all_permissions)
                 .wrap_err("Failed to get all account permissions")?;
-            context.print_data(&permissions)?;
+            context.print_data(&permissions.collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
         }
     }
@@ -788,10 +837,12 @@ mod asset {
     }
 
     /// List assets with this command
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(StructOpt, Debug, Clone)]
     pub enum List {
         /// All assets
         All,
+        /// Filter assets by given predicate
+        Filter(filter::Filter),
     }
 
     impl RunArgs for List {
@@ -802,8 +853,11 @@ mod asset {
                 Self::All => client
                     .request(client::asset::all())
                     .wrap_err("Failed to get all assets"),
+                Self::Filter(filter) => client
+                    .request_with_filter(client::asset::all(), filter.predicate)
+                    .wrap_err("Failed to get filtered assets"),
             }?;
-            context.print_data(&vec)?;
+            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
         }
     }

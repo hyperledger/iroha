@@ -2,8 +2,22 @@
 This module contains functions for checking expected results in tests.
 """
 
+import json
+import allure
+
 from src.client_cli import client_cli, iroha, match
 
+def expected_in_actual(expected, actual) -> bool:
+    allure.attach(
+        json.dumps(actual),
+        name='actual',
+        attachment_type=allure.attachment_type.JSON)
+    allure.attach(
+        json.dumps(expected),
+        name='expected',
+        attachment_type=allure.attachment_type.JSON)
+
+    return expected in actual
 
 def domain(expected):
     """
@@ -12,9 +26,10 @@ def domain(expected):
     :param expected: The expected domain object.
     :return: True if the domain is present, False otherwise.
     """
-    return match.iroha_have_domain(
-        expected=expected,
-        actual=iroha.list_all().domains().get_domains())
+    def domain_in_domains() -> bool:
+        domains = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected}"}}}}').domains() 
+        return expected_in_actual(expected, domains)
+    return client_cli.wait_for(domain_in_domains)
 
 
 def account(expected):
@@ -24,9 +39,10 @@ def account(expected):
     :param expected: The expected account object.
     :return: True if the account is present, False otherwise.
     """
-    return match.iroha_have_account(
-        expected=expected,
-        actual=iroha.list_all().accounts().get_accounts())
+    def account_in_accounts() -> bool:
+        accounts = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected}"}}}}').accounts() 
+        return expected_in_actual(expected, accounts)
+    return client_cli.wait_for(account_in_accounts)
 
 
 def asset_definition(expected):
@@ -36,10 +52,11 @@ def asset_definition(expected):
     :param expected: The expected asset definition object.
     :return: True if the asset definition is present, False otherwise.
     """
-    return match.iroha_have_asset_definition(
-        expected=expected,
-        actual=iroha.list_all().asset_definitions().get_asset_definitions())
-
+    expected_domain = expected.split('#')[1]
+    def asset_definition_in_asset_definitions() -> bool:
+        asset_definitions = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected_domain}"}}}}').asset_definitions()
+        return expected_in_actual(expected, asset_definitions)
+    return client_cli.wait_for(asset_definition_in_asset_definitions)
 
 def asset(expected):
     """
@@ -48,9 +65,10 @@ def asset(expected):
     :param expected: The expected asset object.
     :return: True if the asset is present, False otherwise.
     """
-    return match.iroha_have_asset(
-        expected=expected,
-        actual=iroha.list_all().assets().get_assets())
+    def asset_in_assets() -> bool:
+        assets = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected}"}}}}').assets() 
+        return expected_in_actual(expected, assets)
+    return client_cli.wait_for(asset_in_assets)
 
 def asset_quantity(asset_id, expected_quantity):
     """

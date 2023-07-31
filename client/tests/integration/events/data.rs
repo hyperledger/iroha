@@ -3,7 +3,7 @@ use std::{fmt::Write as _, str::FromStr, sync::mpsc, thread};
 
 use eyre::Result;
 use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
-use parity_scale_codec::Encode;
+use parity_scale_codec::Encode as _;
 use test_network::*;
 
 use crate::wasm::utils::wasm_template;
@@ -163,17 +163,8 @@ fn produce_multiple_events() -> Result<()> {
     // Registering role
     let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
     let role_id = <Role as Identifiable>::Id::from_str("TEST_ROLE")?;
-    let token_1 = PermissionToken::new(
-        "can_remove_key_value_in_user_account"
-            .parse()
-            .expect("valid"),
-    )
-    .with_params([(
-        "account_id".parse().expect("valid"),
-        alice_id.clone().into(),
-    )]);
-    let token_2 = PermissionToken::new("can_set_key_value_in_user_account".parse().expect("valid"))
-        .with_params([("account_id".parse().expect("valid"), alice_id.into())]);
+    let token_1 = PermissionToken::new("CanRemoveKeyValueInUserAccount".parse()?, &alice_id);
+    let token_2 = PermissionToken::new("CanSetKeyValueInUserAccount".parse()?, &alice_id);
     let role = iroha_data_model::role::Role::new(role_id.clone())
         .add_permission(token_1.clone())
         .add_permission(token_2.clone());
@@ -207,13 +198,13 @@ fn produce_multiple_events() -> Result<()> {
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
-                permission_id: token_1.definition_id().clone(),
+                permission_id: token_1.definition_id.clone(),
             },
         ))),
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
-                permission_id: token_2.definition_id().clone(),
+                permission_id: token_2.definition_id.clone(),
             },
         ))),
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(
@@ -225,13 +216,13 @@ fn produce_multiple_events() -> Result<()> {
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
-                permission_id: token_1.definition_id().clone(),
+                permission_id: token_1.definition_id,
             },
         ))),
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
-                permission_id: token_2.definition_id().clone(),
+                permission_id: token_2.definition_id,
             },
         ))),
         WorldEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(

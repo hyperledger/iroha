@@ -3,7 +3,7 @@
 use std::str::FromStr as _;
 
 use eyre::Result;
-use iroha_client::client;
+use iroha_client::client::{self, QueryResult};
 use iroha_data_model::prelude::*;
 use test_network::*;
 
@@ -30,11 +30,13 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
 
     //Then
     let request = client::asset::by_account_id(account_id);
-    let query_result = client.request(request)?;
+    let query_result = client.request(request)?.collect::<QueryResult<Vec<_>>>()?;
     assert!(query_result
         .iter()
         .all(|asset| asset.id().definition_id != wrong_asset_definition_id));
-    let definition_query_result = client.request(client::asset::all_definitions())?;
+    let definition_query_result = client
+        .request(client::asset::all_definitions())?
+        .collect::<QueryResult<Vec<_>>>()?;
     assert!(definition_query_result
         .iter()
         .all(|asset| *asset.id() != wrong_asset_definition_id));

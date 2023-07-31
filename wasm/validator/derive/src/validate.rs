@@ -58,7 +58,9 @@ impl ValidateAttribute {
                 continue;
             }
 
-            let Some(proc_macro2::TokenTree::Group(group))= attribute.tokens.clone().into_iter().next() else {
+            let Some(proc_macro2::TokenTree::Group(group)) =
+                attribute.tokens.clone().into_iter().next()
+            else {
                 panic!("Expected parentheses group");
             };
             assert!(
@@ -194,10 +196,7 @@ fn gen_validate_impl(isi_name: IsiName, pass_condition: &Type) -> proc_macro2::T
         #[doc = #pass_condition_str]
         #[doc = "`]"]
         #[inline]
-        fn #fn_name(
-            &self,
-            authority: &<::iroha_validator::data_model::account::Account as ::iroha_validator::data_model::prelude::Identifiable>::Id
-        ) -> ::iroha_validator::data_model::validator::Result {
+        fn #fn_name(&self, authority: &::iroha_validator::data_model::account::AccountId) -> ::iroha_validator::data_model::validator::Result {
             let condition = <#pass_condition as ::core::convert::From<&Self>>::from(&self);
             <
                 #pass_condition

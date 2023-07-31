@@ -4,6 +4,8 @@
 #[cfg(not(feature = "std"))]
 use alloc::format;
 
+use iroha_crypto::PublicKey;
+
 use crate::{evaluate::ExpressionEvaluator, prelude::*, NumericValue};
 
 macro_rules! delegate {
@@ -76,7 +78,7 @@ pub trait Visit: ExpressionEvaluator {
         visit_find_all_domains(&FindAllDomains),
         visit_find_all_parammeters(&FindAllParameters),
         visit_find_all_peers(&FindAllPeers),
-        visit_find_all_permission_token_definitions(&FindAllPermissionTokenDefinitions),
+        visit_find_permission_token_schema(&FindPermissionTokenSchema),
         visit_find_all_role_ids(&FindAllRoleIds),
         visit_find_all_roles(&FindAllRoles),
         visit_find_all_transactions(&FindAllTransactions),
@@ -211,7 +213,7 @@ pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, qu
         visit_find_all_domains(FindAllDomains),
         visit_find_all_parammeters(FindAllParameters),
         visit_find_all_peers(FindAllPeers),
-        visit_find_all_permission_token_definitions(FindAllPermissionTokenDefinitions),
+        visit_find_permission_token_schema(FindPermissionTokenSchema),
         visit_find_all_role_ids(FindAllRoleIds),
         visit_find_all_roles(FindAllRoles),
         visit_find_all_transactions(FindAllTransactions),
@@ -300,7 +302,7 @@ pub fn visit_instruction<V: Visit + ?Sized>(
 
 pub fn visit_expression<V: Visit + ?Sized, X>(
     visitor: &mut V,
-    authority: &<Account as Identifiable>::Id,
+    authority: &AccountId,
     expression: &EvaluatesTo<X>,
 ) {
     macro_rules! visit_binary_math_expression {
@@ -477,11 +479,11 @@ pub fn visit_transfer<V: Visit + ?Sized>(
     let object = evaluate_expr!(visitor, authority, <isi as Transfer>::object());
 
     let (IdBox::AssetId(source_id), IdBox::AccountId(destination_id)) = (
-            evaluate_expr!(visitor, authority, <isi as Transfer>::source_id()),
-            evaluate_expr!(visitor, authority, <isi as Transfer>::destination_id()),
-        ) else {
-            return visitor.visit_unsupported(authority, isi);
-        };
+        evaluate_expr!(visitor, authority, <isi as Transfer>::source_id()),
+        evaluate_expr!(visitor, authority, <isi as Transfer>::destination_id()),
+    ) else {
+        return visitor.visit_unsupported(authority, isi);
+    };
 
     match object {
         Value::Numeric(object) => visitor.visit_transfer_asset(
@@ -719,7 +721,7 @@ leaf_visitors! {
     visit_find_all_domains(&FindAllDomains),
     visit_find_all_parammeters(&FindAllParameters),
     visit_find_all_peers(&FindAllPeers),
-    visit_find_all_permission_token_definitions(&FindAllPermissionTokenDefinitions),
+    visit_find_permission_token_schema(&FindPermissionTokenSchema),
     visit_find_all_role_ids(&FindAllRoleIds),
     visit_find_all_roles(&FindAllRoles),
     visit_find_all_transactions(&FindAllTransactions),

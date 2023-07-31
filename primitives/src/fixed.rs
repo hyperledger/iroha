@@ -140,26 +140,20 @@ impl Fixed {
 }
 
 /// Custom error type for Fixed point operation errors.
-#[derive(Debug, Clone, Display, iroha_macro::FromVariant)]
+#[derive(Debug, Clone, iroha_macro::FromVariant, displaydoc::Display)]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum FixedPointOperationError {
-    /// All [`Fixed`] values should be positive.
-    #[display(fmt = "{_0}: negative value not allowed")]
+    /// `{0}`: negative value not allowed
     NegativeValue(FixNum),
-    /// Conversion failed.
-    #[display(fmt = "Failed to produce fixed point number")]
+    /// Failed to produce fixed point number
     Conversion(#[cfg_attr(feature = "std", source)] fixnum::ConvertError),
     /// Overflow
-    #[display(fmt = "Overflow")]
     Overflow,
     /// Division by zero
-    #[display(fmt = "Division by zero")]
     DivideByZero,
-    /// Domain violation. E.g. computing `sqrt(-1)`
-    #[display(fmt = "Domain violation")]
+    /// Domain violation
     DomainViolation,
-    /// Arithmetic
-    #[display(fmt = "Unknown Arithmetic error")]
+    /// Unknown arithmetic error
     Arithmetic,
 }
 
@@ -292,7 +286,7 @@ mod tests {
         let result: Result<Fixed, _> = serde_json::from_str(&serialized);
         assert_eq!(
             result.unwrap_err().to_string(),
-            "-1.0: negative value not allowed"
+            "`-1.0`: negative value not allowed"
         )
     }
 

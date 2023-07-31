@@ -21,8 +21,14 @@ use http_default::{AsyncWebSocketStream, WebSocketStream};
 use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
-    block::VersionedCommittedBlock, predicate::PredicateBox, prelude::*,
-    transaction::TransactionPayload, ValidationFail,
+    block::VersionedCommittedBlock,
+    http::VersionedBatchedResponse,
+    isi::Instruction,
+    predicate::PredicateBox,
+    prelude::*,
+    query::{ForwardCursor, Pagination, Query, Sorting},
+    transaction::TransactionPayload,
+    ValidationFail,
 };
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
@@ -40,28 +46,25 @@ use crate::{
 
 const APPLICATION_JSON: &str = "application/json";
 
-/// General trait for all response handlers
-pub trait ResponseHandler<T = Vec<u8>> {
-    /// What is the output of the handler
-    type Output;
-
-    /// Handles HTTP response
-    fn handle(self, response: Response<T>) -> Self::Output;
-}
-
 /// Phantom struct that handles responses of Query API.
 /// Depending on input query struct, transforms a response into appropriate output.
-#[derive(Clone, Copy)]
-pub struct QueryResponseHandler<R>(PhantomData<R>);
+#[derive(Debug, Clone)]
+pub struct QueryResponseHandler<R> {
+    query_request: QueryRequest,
+    _output_type: PhantomData<R>,
+}
 
-impl<R> Default for QueryResponseHandler<R> {
-    fn default() -> Self {
-        Self(PhantomData)
+impl<R> QueryResponseHandler<R> {
+    fn new(query_request: QueryRequest) -> Self {
+        Self {
+            query_request,
+            _output_type: PhantomData,
+        }
     }
 }
 
 /// `Result` with [`ClientQueryError`] as an error
-pub type QueryHandlerResult<T> = core::result::Result<T, ClientQueryError>;
+pub type QueryResult<T> = core::result::Result<T, ClientQueryError>;
 
 /// Trait for signing transactions
 pub trait Sign {
@@ -94,21 +97,18 @@ impl Sign for VersionedSignedTransaction {
     }
 }
 
-impl<R> ResponseHandler for QueryResponseHandler<R>
+impl<R: QueryOutput> QueryResponseHandler<R>
 where
-    R: Query + Debug,
-    <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+    <R as TryFrom<Value>>::Error: Into<eyre::Error>,
 {
-    type Output = QueryHandlerResult<ClientQueryRequest<R>>;
-
-    fn handle(self, resp: Response<Vec<u8>>) -> Self::Output {
+    fn handle(&mut self, resp: &Response<Vec<u8>>) -> QueryResult<R> {
         // Separate-compilation friendly response handling
         fn _handle_query_response_base(
             resp: &Response<Vec<u8>>,
-        ) -> QueryHandlerResult<VersionedPaginatedQueryResult> {
+        ) -> QueryResult<VersionedBatchedResponse<Value>> {
             match resp.status() {
                 StatusCode::OK => {
-                    let res = VersionedPaginatedQueryResult::decode_all_versioned(resp.body());
+                    let res = VersionedBatchedResponse::decode_all_versioned(resp.body());
                     res.wrap_err(
                         "Failed to decode response from Iroha. \
                          You are likely using a version of the client library \
@@ -143,20 +143,26 @@ where
             }
         }
 
-        _handle_query_response_base(&resp).and_then(|VersionedPaginatedQueryResult::V1(result)| {
-            ClientQueryRequest::try_from(result).map_err(Into::into)
-        })
+        let response = _handle_query_response_base(resp)
+            .map(|VersionedBatchedResponse::V1(response)| response)?;
+
+        let (batch, cursor) = response.into();
+
+        let value = R::try_from(batch)
+            .map_err(Into::into)
+            .wrap_err("Unexpected type")?;
+
+        self.query_request.query_cursor = cursor;
+        Ok(value)
     }
 }
 
 /// Different errors as a result of query response handling
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ClientQueryError {
     /// Query validation error
-    #[error("Query validation error")]
     Validation(#[from] ValidationFail),
-    /// Some other error
-    #[error("Other error")]
+    /// Other error
     Other(#[from] eyre::Error),
 }
 
@@ -169,17 +175,15 @@ impl From<ResponseReport> for ClientQueryError {
 
 /// Phantom struct that handles Transaction API HTTP response
 #[derive(Clone, Copy)]
-pub struct TransactionResponseHandler;
+struct TransactionResponseHandler;
 
-impl ResponseHandler for TransactionResponseHandler {
-    type Output = Result<()>;
-
-    fn handle(self, resp: Response<Vec<u8>>) -> Self::Output {
+impl TransactionResponseHandler {
+    fn handle(resp: &Response<Vec<u8>>) -> Result<()> {
         if resp.status() == StatusCode::OK {
             Ok(())
         } else {
             Err(
-                ResponseReport::with_msg("Unexpected transaction response", &resp)
+                ResponseReport::with_msg("Unexpected transaction response", resp)
                     .unwrap_or_else(core::convert::identity)
                     .into(),
             )
@@ -191,16 +195,12 @@ impl ResponseHandler for TransactionResponseHandler {
 #[derive(Clone, Copy)]
 pub struct StatusResponseHandler;
 
-impl ResponseHandler for StatusResponseHandler {
-    type Output = Result<Status>;
-
-    fn handle(self, resp: Response<Vec<u8>>) -> Self::Output {
+impl StatusResponseHandler {
+    fn handle(resp: &Response<Vec<u8>>) -> Result<Status> {
         if resp.status() != StatusCode::OK {
-            return Err(
-                ResponseReport::with_msg("Unexpected status response", &resp)
-                    .unwrap_or_else(core::convert::identity)
-                    .into(),
-            );
+            return Err(ResponseReport::with_msg("Unexpected status response", resp)
+                .unwrap_or_else(core::convert::identity)
+                .into());
         }
         serde_json::from_slice(resp.body()).wrap_err("Failed to decode body")
     }
@@ -214,10 +214,7 @@ impl ResponseReport {
     ///
     /// # Errors
     /// If response body isn't a valid utf-8 string
-    fn with_msg<S>(msg: S, response: &Response<Vec<u8>>) -> Result<Self, Self>
-    where
-        S: AsRef<str>,
-    {
+    fn with_msg<S: AsRef<str>>(msg: S, response: &Response<Vec<u8>>) -> Result<Self, Self> {
         let status = response.status();
         let body = std::str::from_utf8(response.body());
         let msg = msg.as_ref();
@@ -238,66 +235,106 @@ impl From<ResponseReport> for eyre::Report {
     }
 }
 
-/// More convenient version of [`iroha_data_model::prelude::PaginatedQueryResult`].
-/// The only difference is that this struct has `output` field extracted from the result
-/// accordingly to the source query.
-#[derive(Clone, Debug)]
-pub struct ClientQueryRequest<R>
-where
-    R: Query + Debug,
-    <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
-{
-    /// Query output
-    pub output: R::Output,
-    /// The filter that was applied to the output.
-    pub filter: PredicateBox,
-    /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
-    pub pagination: Pagination,
-    /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
-    pub sorting: Sorting,
-    /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
-    pub total: u64,
+/// Output of a query
+pub trait QueryOutput: Into<Value> + TryFrom<Value> {
+    /// Type of the query output
+    type Target: Clone;
+
+    /// Construct query output from query response
+    fn new(value: Self, query_request: QueryResponseHandler<Self>) -> Self::Target;
 }
 
-impl<R> ClientQueryRequest<R>
+/// Iterable query output
+#[derive(Debug, Clone)]
+pub struct ResultSet<T> {
+    query_handler: QueryResponseHandler<Vec<T>>,
+
+    iter: Vec<T>,
+    client_cursor: usize,
+}
+
+impl<T: Clone> Iterator for ResultSet<T>
 where
-    R: Query + Debug,
-    <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+    Vec<T>: QueryOutput,
+    <Vec<T> as TryFrom<Value>>::Error: Into<eyre::Error>,
 {
-    /// Extracts output as is
-    pub fn only_output(self) -> R::Output {
-        self.output
+    type Item = QueryResult<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.client_cursor >= self.iter.len() {
+            if self
+                .query_handler
+                .query_request
+                .query_cursor
+                .cursor()
+                .is_none()
+            {
+                return None;
+            }
+
+            let request = match self.query_handler.query_request.clone().assemble().build() {
+                Err(err) => return Some(Err(ClientQueryError::Other(err))),
+                Ok(ok) => ok,
+            };
+
+            let response = match request.send() {
+                Err(err) => return Some(Err(ClientQueryError::Other(err))),
+                Ok(ok) => ok,
+            };
+            let value = match self.query_handler.handle(&response) {
+                Err(err) => return Some(Err(err)),
+                Ok(ok) => ok,
+            };
+            self.iter = value;
+            self.client_cursor = 0;
+        }
+
+        let item = Ok(self.iter.get(self.client_cursor).cloned());
+        self.client_cursor += 1;
+        item.transpose()
     }
 }
 
-impl<R> TryFrom<PaginatedQueryResult> for ClientQueryRequest<R>
+impl<T: Debug + Clone> QueryOutput for Vec<T>
 where
-    R: Query + Debug,
-    <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+    Self: Into<Value> + TryFrom<Value>,
 {
-    type Error = eyre::Report;
+    type Target = ResultSet<T>;
 
-    fn try_from(
-        PaginatedQueryResult {
-            result,
-            pagination,
-            sorting,
-            total,
-            filter,
-        }: PaginatedQueryResult,
-    ) -> Result<Self> {
-        let output = R::Output::try_from(result.into())
-            .map_err(Into::into)
-            .wrap_err("Unexpected type")?;
-
-        Ok(Self {
-            output,
-            pagination,
-            sorting,
-            total,
-            filter,
-        })
+    fn new(value: Self, query_handler: QueryResponseHandler<Self>) -> Self::Target {
+        ResultSet {
+            query_handler,
+            iter: value,
+            client_cursor: 0,
+        }
     }
+}
+
+macro_rules! impl_query_result {
+    ( $($ident:ty),+ $(,)? ) => { $(
+        impl QueryOutput for $ident {
+            type Target = Self;
+
+            fn new(value: Self, _query_handler: QueryResponseHandler<Self>) -> Self::Target {
+                value
+            }
+        } )+
+    };
+}
+impl_query_result! {
+    bool,
+    iroha_data_model::Value,
+    iroha_data_model::numeric::NumericValue,
+    iroha_data_model::role::Role,
+    iroha_data_model::asset::Asset,
+    iroha_data_model::asset::AssetDefinition,
+    iroha_data_model::account::Account,
+    iroha_data_model::domain::Domain,
+    iroha_data_model::block::BlockHeader,
+    iroha_data_model::query::MetadataValue,
+    iroha_data_model::query::TransactionQueryOutput,
+    iroha_data_model::permission::PermissionTokenSchema,
+    iroha_data_model::trigger::Trigger<iroha_data_model::events::FilterBox, iroha_data_model::trigger::OptimizedExecutable>,
 }
 
 /// Iroha client
@@ -325,6 +362,44 @@ pub struct Client {
     /// If `true` add nonce, which makes different hashes for
     /// transactions which occur repeatedly and/or simultaneously
     add_transaction_nonce: bool,
+}
+
+/// Query request
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct QueryRequest {
+    torii_url: Url,
+    headers: HashMap<String, String>,
+    request: Vec<u8>,
+    sorting: Sorting,
+    pagination: Pagination,
+    query_cursor: ForwardCursor,
+}
+
+impl QueryRequest {
+    #[cfg(test)]
+    fn dummy() -> Self {
+        let torii_url = iroha_config::torii::uri::DEFAULT_API_ADDR;
+
+        Self {
+            torii_url: format!("http://{torii_url}").parse().unwrap(),
+            headers: HashMap::new(),
+            request: Vec::new(),
+            sorting: Sorting::default(),
+            pagination: Pagination::default(),
+            query_cursor: ForwardCursor::default(),
+        }
+    }
+    fn assemble(self) -> DefaultRequestBuilder {
+        DefaultRequestBuilder::new(
+            HttpMethod::POST,
+            self.torii_url.join(uri::QUERY).expect("Valid URI"),
+        )
+        .headers(self.headers)
+        .params(Vec::from(self.sorting))
+        .params(Vec::from(self.pagination))
+        .params(Vec::from(self.query_cursor))
+        .body(self.request)
+    }
 }
 
 /// Representation of `Iroha` client.
@@ -421,7 +496,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if signature generation fails
-    pub fn sign_query(&self, query: QueryBuilder) -> Result<SignedQuery> {
+    pub fn sign_query(&self, query: QueryBuilder) -> Result<VersionedSignedQuery> {
         query
             .sign(self.key_pair.clone())
             .wrap_err("Failed to sign query")
@@ -432,10 +507,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit(
-        &self,
-        instruction: impl Instruction + Debug,
-    ) -> Result<HashOf<TransactionPayload>> {
+    pub fn submit(&self, instruction: impl Instruction) -> Result<HashOf<TransactionPayload>> {
         let isi = instruction.into();
         self.submit_all([isi])
     }
@@ -490,13 +562,12 @@ impl Client {
         transaction: &VersionedSignedTransaction,
     ) -> Result<HashOf<TransactionPayload>> {
         iroha_logger::trace!(tx=?transaction, "Submitting");
-        let (req, hash, resp_handler) =
-            self.prepare_transaction_request::<DefaultRequestBuilder>(transaction);
+        let (req, hash) = self.prepare_transaction_request::<DefaultRequestBuilder>(transaction);
         let response = req
             .build()?
             .send()
             .wrap_err_with(|| format!("Failed to send transaction with hash {hash:?}"))?;
-        resp_handler.handle(response)?;
+        TransactionResponseHandler::handle(&response)?;
         Ok(hash)
     }
 
@@ -599,10 +670,10 @@ impl Client {
     /// it is better to use a response handler anyway. It allows to abstract from implementation details.
     ///
     /// For general usage example see [`Client::prepare_query_request`].
-    pub fn prepare_transaction_request<B: RequestBuilder>(
+    fn prepare_transaction_request<B: RequestBuilder>(
         &self,
         transaction: &VersionedSignedTransaction,
-    ) -> (B, HashOf<TransactionPayload>, TransactionResponseHandler) {
+    ) -> (B, HashOf<TransactionPayload>) {
         let transaction_bytes: Vec<u8> = transaction.encode_versioned();
 
         (
@@ -613,7 +684,6 @@ impl Client {
             .headers(self.headers.clone())
             .body(transaction_bytes),
             transaction.payload().hash(),
-            TransactionResponseHandler,
         )
     }
 
@@ -680,7 +750,7 @@ impl Client {
     /// ```ignore
     /// use eyre::Result;
     /// use iroha_client::{
-    ///     client::{Client, ResponseHandler},
+    ///     client::Client,
     ///     http::{RequestBuilder, Response, Method},
     /// };
     /// use iroha_data_model::{predicate::PredicateBox, prelude::{Account, FindAllAccounts, Pagination}};
@@ -727,36 +797,34 @@ impl Client {
     ///     // Handle response with the handler and get typed result
     ///     let accounts = resp_handler.handle(resp)?;
     ///
-    ///     Ok(accounts.only_output())
+    ///     Ok(accounts.output())
     /// }
     /// ```
-    pub fn prepare_query_request<R, B>(
+    fn prepare_query_request<R: Query>(
         &self,
         request: R,
+        filter: PredicateBox,
         pagination: Pagination,
         sorting: Sorting,
-        filter: PredicateBox,
-    ) -> Result<(B, QueryResponseHandler<R>)>
+    ) -> Result<(DefaultRequestBuilder, QueryResponseHandler<R::Output>)>
     where
-        R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
-        B: RequestBuilder,
     {
-        let pagination: Vec<_> = pagination.into();
-        let sorting: Vec<_> = sorting.into();
-        let request = QueryBuilder::new(request, self.account_id.clone()).with_filter(filter);
-        let request: VersionedSignedQuery = self.sign_query(request)?.into();
+        let query_builder = QueryBuilder::new(request, self.account_id.clone()).with_filter(filter);
+        let request = self.sign_query(query_builder)?.encode_versioned();
+
+        let query_request = QueryRequest {
+            torii_url: self.torii_url.clone(),
+            headers: self.headers.clone(),
+            request,
+            sorting,
+            pagination,
+            query_cursor: ForwardCursor::default(),
+        };
 
         Ok((
-            B::new(
-                HttpMethod::POST,
-                self.torii_url.join(uri::QUERY).expect("Valid URI"),
-            )
-            .params(pagination)
-            .params(sorting)
-            .headers(self.headers.clone())
-            .body(request.encode_versioned()),
-            QueryResponseHandler::default(),
+            query_request.clone().assemble(),
+            QueryResponseHandler::new(query_request),
         ))
     }
 
@@ -764,40 +832,43 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request_with_pagination_and_filter_and_sorting<R>(
+    pub fn request_with_filter_and_pagination_and_sorting<R: Query + Debug>(
         &self,
         request: R,
         pagination: Pagination,
         sorting: Sorting,
         filter: PredicateBox,
-    ) -> QueryHandlerResult<ClientQueryRequest<R>>
+    ) -> QueryResult<<R::Output as QueryOutput>::Target>
     where
-        R: Query + Debug,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>, // Seems redundant
+        R::Output: QueryOutput,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         iroha_logger::trace!(?request, %pagination, ?sorting, ?filter);
-        let (req, resp_handler) = self.prepare_query_request::<R, DefaultRequestBuilder>(
-            request, pagination, sorting, filter,
-        )?;
+        let (req, mut resp_handler) =
+            self.prepare_query_request::<R>(request, filter, pagination, sorting)?;
+
         let response = req.build()?.send()?;
-        resp_handler.handle(response)
+        let value = resp_handler.handle(&response)?;
+        let output = QueryOutput::new(value, resp_handler);
+
+        Ok(output)
     }
 
     /// Create a request with pagination and sorting.
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request_with_pagination_and_sorting<R>(
+    pub fn request_with_pagination_and_sorting<R: Query + Debug>(
         &self,
         request: R,
         pagination: Pagination,
         sorting: Sorting,
-    ) -> QueryHandlerResult<ClientQueryRequest<R>>
+    ) -> QueryResult<<R::Output as QueryOutput>::Target>
     where
-        R: Query + Debug,
+        R::Output: QueryOutput,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        self.request_with_pagination_and_filter_and_sorting(
+        self.request_with_filter_and_pagination_and_sorting(
             request,
             pagination,
             sorting,
@@ -809,17 +880,17 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request_with_pagination_and_filter<R>(
+    pub fn request_with_filter_and_pagination<R: Query + Debug>(
         &self,
         request: R,
         pagination: Pagination,
         filter: PredicateBox,
-    ) -> QueryHandlerResult<ClientQueryRequest<R>>
+    ) -> QueryResult<<R::Output as QueryOutput>::Target>
     where
-        R: Query + Debug,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>, // Seems redundant
+        R::Output: QueryOutput,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        self.request_with_pagination_and_filter_and_sorting(
+        self.request_with_filter_and_pagination_and_sorting(
             request,
             pagination,
             Sorting::default(),
@@ -831,17 +902,17 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request_with_sorting_and_filter<R>(
+    pub fn request_with_filter_and_sorting<R: Query + Debug>(
         &self,
         request: R,
         sorting: Sorting,
         filter: PredicateBox,
-    ) -> QueryHandlerResult<ClientQueryRequest<R>>
+    ) -> QueryResult<<R::Output as QueryOutput>::Target>
     where
-        R: Query + Debug,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>, // Seems redundant
+        R::Output: QueryOutput,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        self.request_with_pagination_and_filter_and_sorting(
+        self.request_with_filter_and_pagination_and_sorting(
             request,
             Pagination::default(),
             sorting,
@@ -856,16 +927,16 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request_with_filter<R>(
+    pub fn request_with_filter<R: Query + Debug>(
         &self,
         request: R,
         filter: PredicateBox,
-    ) -> QueryHandlerResult<ClientQueryRequest<R>>
+    ) -> QueryResult<<R::Output as QueryOutput>::Target>
     where
-        R: Query + Debug,
+        R::Output: QueryOutput,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        self.request_with_pagination_and_filter(request, Pagination::default(), filter)
+        self.request_with_filter_and_pagination(request, Pagination::default(), filter)
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers with pagination.
@@ -875,29 +946,29 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request_with_pagination<R>(
+    pub fn request_with_pagination<R: Query + Debug>(
         &self,
         request: R,
         pagination: Pagination,
-    ) -> QueryHandlerResult<ClientQueryRequest<R>>
+    ) -> QueryResult<<R::Output as QueryOutput>::Target>
     where
-        R: Query + Debug,
+        R::Output: QueryOutput,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        self.request_with_pagination_and_filter(request, pagination, PredicateBox::default())
+        self.request_with_filter_and_pagination(request, pagination, PredicateBox::default())
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers with sorting.
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request_with_sorting<R>(
+    pub fn request_with_sorting<R: Query + Debug>(
         &self,
         request: R,
         sorting: Sorting,
-    ) -> QueryHandlerResult<ClientQueryRequest<R>>
+    ) -> QueryResult<<R::Output as QueryOutput>::Target>
     where
-        R: Query + Debug,
+        R::Output: QueryOutput,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination_and_sorting(request, Pagination::default(), sorting)
@@ -907,13 +978,15 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request<R>(&self, request: R) -> QueryHandlerResult<R::Output>
+    pub fn request<R: Query + Debug>(
+        &self,
+        request: R,
+    ) -> QueryResult<<R::Output as QueryOutput>::Target>
     where
-        R: Query + Debug,
+        R::Output: QueryOutput,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination(request, Pagination::default())
-            .map(ClientQueryRequest::only_output)
     }
 
     /// Connect (through `WebSocket`) to listen for `Iroha` `pipeline` and `data` events.
@@ -1141,9 +1214,9 @@ impl Client {
     /// # Errors
     /// Fails if sending request or decoding fails
     pub fn get_status(&self) -> Result<Status> {
-        let (req, resp_handler) = self.prepare_status_request::<DefaultRequestBuilder>();
+        let req = self.prepare_status_request::<DefaultRequestBuilder>();
         let resp = req.build()?.send()?;
-        resp_handler.handle(resp)
+        StatusResponseHandler::handle(&resp)
     }
 
     /// Prepares http-request to implement [`Self::get_status`] on your own.
@@ -1152,18 +1225,12 @@ impl Client {
     ///
     /// # Errors
     /// Fails if request build fails
-    pub fn prepare_status_request<B>(&self) -> (B, StatusResponseHandler)
-    where
-        B: RequestBuilder,
-    {
-        (
-            B::new(
-                HttpMethod::GET,
-                self.telemetry_url.join(uri::STATUS).expect("Valid URI"),
-            )
-            .headers(self.headers.clone()),
-            StatusResponseHandler,
+    pub fn prepare_status_request<B: RequestBuilder>(&self) -> B {
+        B::new(
+            HttpMethod::GET,
+            self.telemetry_url.join(uri::STATUS).expect("Valid URI"),
         )
+        .headers(self.headers.clone())
     }
 }
 
@@ -1266,11 +1333,10 @@ pub mod stream_api {
         /// - Sending failed
         /// - Message not received in stream during connection or subscription
         /// - Message is an error
-        pub async fn new<I>(handler: I) -> Result<AsyncStream<I::Next>>
-        where
-            I: Init<DefaultWebSocketRequestBuilder> + Send,
-            I::Next: Send,
-        {
+        #[allow(clippy::future_not_send)]
+        pub async fn new<I: Init<DefaultWebSocketRequestBuilder>>(
+            handler: I,
+        ) -> Result<AsyncStream<I::Next>> {
             trace!("Creating `AsyncStream`");
             let InitData {
                 first_message,
@@ -1627,8 +1693,8 @@ pub mod permission {
     use super::*;
 
     /// Construct a query to get all registered [`PermissionTokenDefinition`]s
-    pub const fn all_definitions() -> FindAllPermissionTokenDefinitions {
-        FindAllPermissionTokenDefinitions {}
+    pub const fn permission_token_schema() -> FindPermissionTokenSchema {
+        FindPermissionTokenSchema {}
     }
 
     /// Construct a query to get all [`PermissionToken`] granted
@@ -1780,13 +1846,13 @@ mod tests {
     #[cfg(test)]
     mod query_errors_handling {
         use http::Response;
-        use iroha_data_model::{query::error::QueryExecutionFail, ValidationFail};
+        use iroha_data_model::{asset::Asset, query::error::QueryExecutionFail, ValidationFail};
 
         use super::*;
 
         #[test]
         fn certain_errors() -> Result<()> {
-            let sut = QueryResponseHandler::<FindAllAssets>::default();
+            let mut sut = QueryResponseHandler::<Vec<Asset>>::new(QueryRequest::dummy());
             let responses = vec![
                 (
                     StatusCode::UNAUTHORIZED,
@@ -1806,7 +1872,7 @@ mod tests {
             for (status_code, err) in responses {
                 let resp = Response::builder().status(status_code).body(err.encode())?;
 
-                match sut.handle(resp) {
+                match sut.handle(&resp) {
                     Err(ClientQueryError::Validation(actual)) => {
                         // PartialEq isn't implemented, so asserting by encoded repr
                         assert_eq!(actual.encode(), err.encode());
@@ -1820,12 +1886,12 @@ mod tests {
 
         #[test]
         fn indeterminate() -> Result<()> {
-            let sut = QueryResponseHandler::<FindAllAssets>::default();
+            let mut sut = QueryResponseHandler::<Vec<Asset>>::new(QueryRequest::dummy());
             let response = Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Vec::<u8>::new())?;
 
-            match sut.handle(response) {
+            match sut.handle(&response) {
                 Err(ClientQueryError::Other(_)) => Ok(()),
                 x => Err(eyre!("Expected indeterminate, found: {:?}", x)),
             }

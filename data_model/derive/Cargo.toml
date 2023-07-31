@@ -11,7 +11,7 @@ license.workspace = true
 proc-macro = true
 
 [dependencies]
-syn = { workspace = true, features = ["full", "extra-traits"] }
+syn = { workspace = true, features = ["default", "full", "extra-traits"] }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
 proc-macro-error = { workspace = true }
@@ -19,7 +19,7 @@ iroha_macro_utils = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
-iroha_data_model = { workspace = true }
+iroha_data_model = { workspace = true, features = ["http"] }
 
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

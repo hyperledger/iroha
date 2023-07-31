@@ -156,7 +156,7 @@ mod committed {
         }
 
         /// The `CommittedBlock` struct represents a block accepted by consensus
-        #[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
+        #[version_with_scale(version = 1, versioned_alias = "VersionedCommittedBlock")]
         #[derive(
             Debug,
             Display,
@@ -395,14 +395,14 @@ pub mod stream {
         use super::*;
 
         /// Request sent to subscribe to blocks stream starting from the given height.
-        #[version_with_scale(n = 1, versioned = "VersionedBlockSubscriptionRequest")]
+        #[version_with_scale(version = 1, versioned_alias = "VersionedBlockSubscriptionRequest")]
         #[derive(Debug, Clone, Copy, Constructor, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
         pub struct BlockSubscriptionRequest(pub NonZeroU64);
 
         /// Message sent by the stream producer
         /// Block sent by the peer.
-        #[version_with_scale(n = 1, versioned = "VersionedBlockMessage")]
+        #[version_with_scale(version = 1, versioned_alias = "VersionedBlockMessage")]
         #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
         pub struct BlockMessage(pub VersionedCommittedBlock);

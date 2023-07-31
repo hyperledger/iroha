@@ -7,8 +7,10 @@ use std::{
     fmt::{Debug, Write as _},
     net::ToSocketAddrs,
     sync::Arc,
+    time::{Duration, Instant},
 };
 
+use dashmap::DashMap;
 use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_core::{
     kura::Kura,
@@ -17,8 +19,9 @@ use iroha_core::{
     sumeragi::SumeragiHandle,
     EventsSender,
 };
-use thiserror::Error;
-use tokio::sync::Notify;
+use iroha_data_model::Value;
+use parity_scale_codec::Encode;
+use tokio::{sync::Notify, time::sleep};
 use utils::*;
 use warp::{
     http::StatusCode,
@@ -27,10 +30,45 @@ use warp::{
     Filter as _, Reply,
 };
 
+use self::cursor::Batched;
+
 #[macro_use]
 pub(crate) mod utils;
+mod cursor;
 mod pagination;
-pub mod routing;
+mod routing;
+
+type LiveQuery = Batched<Vec<Value>>;
+
+#[derive(Default)]
+struct LiveQueryStore {
+    queries: DashMap<(String, Vec<u8>), (LiveQuery, Instant)>,
+}
+
+impl LiveQueryStore {
+    fn insert<T: Encode>(&self, query_id: String, request: T, live_query: LiveQuery) {
+        self.queries
+            .insert((query_id, request.encode()), (live_query, Instant::now()));
+    }
+
+    fn remove<T: Encode>(&self, query_id: &str, request: &T) -> Option<LiveQuery> {
+        self.queries
+            .remove(&(query_id.to_string(), request.encode()))
+            .map(|(_, (output, _))| output)
+    }
+
+    // TODO: Add notifier channel to enable graceful shutdown
+    fn expired_query_cleanup(self: Arc<Self>, idle_time: Duration) -> tokio::task::JoinHandle<()> {
+        tokio::task::spawn(async move {
+            loop {
+                sleep(idle_time).await;
+
+                self.queries
+                    .retain(|_, (_, last_access_time)| last_access_time.elapsed() <= idle_time);
+            }
+        })
+    }
+}
 
 /// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii {
@@ -39,35 +77,32 @@ pub struct Torii {
     events: EventsSender,
     notify_shutdown: Arc<Notify>,
     sumeragi: SumeragiHandle,
+    query_store: Arc<LiveQueryStore>,
     kura: Arc<Kura>,
 }
 
 /// Torii errors.
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum Error {
     /// Failed to execute or validate query
-    #[error("Failed to execute or validate query")]
     Query(#[from] iroha_data_model::ValidationFail),
     /// Failed to accept transaction
-    #[error("Failed to accept transaction")]
     AcceptTransaction(#[from] iroha_core::tx::AcceptTransactionFail),
     /// Error while getting or setting configuration
-    #[error("Configuration error")]
     Config(#[source] eyre::Report),
     /// Failed to push into queue
-    #[error("Failed to push into queue")]
     PushIntoQueue(#[from] Box<queue::Error>),
-    /// Configuration change error
-    #[error("Attempt to change configuration failed")]
+    /// Attempt to change configuration failed
     ConfigurationReload(#[from] iroha_config::base::runtime_upgrades::ReloadError),
     #[cfg(feature = "telemetry")]
     /// Error while getting Prometheus metrics
-    #[error("Failed to produce Prometheus metrics")]
     Prometheus(#[source] eyre::Report),
+    /// Error while resuming cursor
+    UnknownCursor,
 }
 
 /// Status code for query error response.
-pub(crate) fn query_status_code(validation_error: &iroha_data_model::ValidationFail) -> StatusCode {
+fn query_status_code(validation_error: &iroha_data_model::ValidationFail) -> StatusCode {
     use iroha_data_model::{
         isi::error::InstructionExecutionError, query::error::QueryExecutionFail::*,
         ValidationFail::*,
@@ -110,7 +145,9 @@ impl Error {
         use Error::*;
         match self {
             Query(e) => query_status_code(e),
-            AcceptTransaction(_) | ConfigurationReload(_) => StatusCode::BAD_REQUEST,
+            AcceptTransaction(_) | ConfigurationReload(_) | UnknownCursor => {
+                StatusCode::BAD_REQUEST
+            }
             Config(_) => StatusCode::NOT_FOUND,
             PushIntoQueue(err) => match **err {
                 queue::Error::Full => StatusCode::INTERNAL_SERVER_ERROR,

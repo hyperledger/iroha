@@ -1,6 +1,6 @@
 [workspace.package]
 edition = "2021"
-version = "2.0.0-pre-rc.16"
+version = "2.0.0-pre-rc.18"
 # TODO: teams are being deprecated update the authors URL
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 
@@ -13,6 +13,7 @@ members = [
     "mint_rose",
     "validator_with_admin",
     "validator_with_custom_token",
+    "validator_with_migration_fail",
 ]
 
 [profile.dev]
@@ -26,6 +27,10 @@ opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorizat
 codegen-units = 1   # Further reduces binary size but increases compilation time
 
 [workspace.dependencies]
-iroha_validator = { version = "=2.0.0-pre-rc.16", path = "../../../../wasm/validator", features = ["default-validator"] }
-iroha_wasm = { version = "=2.0.0-pre-rc.16", path = "../../../../wasm", features = ["debug"]}
+iroha_validator = { version = "=2.0.0-pre-rc.18", path = "../../../../wasm/validator", features = ["default-validator"] }
+iroha_wasm = { version = "=2.0.0-pre-rc.18", path = "../../../../wasm", features = ["debug"]}
+iroha_schema = { version = "=2.0.0-pre-rc.18", path = "../../../../schema" }
+
+parity-scale-codec = { version = "3.2.1", default-features = false }
 panic-halt = "0.2.0"
+anyhow = { version = "1.0.71", default-features = false }

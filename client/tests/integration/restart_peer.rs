@@ -3,7 +3,7 @@
 use std::{str::FromStr, sync::Arc};
 
 use eyre::Result;
-use iroha_client::client;
+use iroha_client::client::{self, QueryResult};
 use iroha_data_model::prelude::*;
 use tempfile::TempDir;
 use test_network::*;
@@ -46,8 +46,10 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         );
         iroha_client.submit_blocking(mint_asset)?;
 
-        let asset = iroha_client
+        let assets = iroha_client
             .request(client::asset::by_account_id(account_id.clone()))?
+            .collect::<QueryResult<Vec<_>>>()?;
+        let asset = assets
             .into_iter()
             .find(|asset| asset.id().definition_id == asset_definition_id)
             .expect("Asset not found");
@@ -65,19 +67,17 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         );
         wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
-        let account_asset = iroha_client
-            .poll_request(client::asset::by_account_id(account_id), |assets| {
-                iroha_logger::error!(?assets);
-                assets
-                    .iter()
-                    .any(|asset| asset.id().definition_id == asset_definition_id)
-            })
-            .expect("Valid")
-            .into_iter()
-            .find(|asset| asset.id().definition_id == asset_definition_id)
-            .expect("Asset not found");
+        iroha_client.poll_request(client::asset::by_account_id(account_id), |result| {
+            let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+            iroha_logger::error!(?assets);
 
-        assert_eq!(AssetValue::Quantity(quantity), *account_asset.value());
+            let account_asset = assets
+                .into_iter()
+                .find(|asset| asset.id().definition_id == asset_definition_id)
+                .expect("Asset not found");
+
+            AssetValue::Quantity(quantity) == *account_asset.value()
+        })?
     }
     Ok(())
 }

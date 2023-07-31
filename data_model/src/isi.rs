@@ -19,10 +19,7 @@ use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
 use crate::{seal, Registered};
 
 /// Marker trait designating instruction
-pub trait Instruction: Into<InstructionBox> + seal::Sealed {
-    /// Length of contained instructions and queries.
-    fn len(&self) -> usize;
-}
+pub trait Instruction: Into<InstructionBox> + seal::Sealed {}
 
 macro_rules! isi {
     ($($meta:meta)* $item:item) => {
@@ -135,124 +132,27 @@ pub mod model {
         Fail(FailBox),
     }
 
-    impl Instruction for InstructionBox {
-        fn len(&self) -> usize {
-            use InstructionBox::*;
+    impl Instruction for InstructionBox {}
 
-            match self {
-                Register(register_box) => register_box.len(),
-                Unregister(unregister_box) => unregister_box.len(),
-                Mint(mint_box) => mint_box.len(),
-                Burn(burn_box) => burn_box.len(),
-                Transfer(transfer_box) => transfer_box.len(),
-                If(if_box) => if_box.len(),
-                Pair(pair_box) => pair_box.len(),
-                Sequence(sequence) => sequence.len(),
-                Fail(fail_box) => fail_box.len(),
-                SetKeyValue(set_key_value) => set_key_value.len(),
-                RemoveKeyValue(remove_key_value) => remove_key_value.len(),
-                Grant(grant_box) => grant_box.len(),
-                Revoke(revoke_box) => revoke_box.len(),
-                ExecuteTrigger(execute_trigger) => execute_trigger.len(),
-                SetParameter(set_parameter) => set_parameter.len(),
-                NewParameter(new_parameter) => new_parameter.len(),
-                Upgrade(upgrade_box) => upgrade_box.len(),
-            }
-        }
-    }
-
-    impl Instruction for SetKeyValueBox {
-        fn len(&self) -> usize {
-            self.object_id.len() + self.key.len() + self.value.len() + 1
-        }
-    }
-    impl Instruction for RemoveKeyValueBox {
-        fn len(&self) -> usize {
-            self.object_id.len() + self.key.len() + 1
-        }
-    }
-    impl Instruction for RegisterBox {
-        fn len(&self) -> usize {
-            self.object.len() + 1
-        }
-    }
-    impl Instruction for UnregisterBox {
-        fn len(&self) -> usize {
-            self.object_id.len() + 1
-        }
-    }
-    impl Instruction for MintBox {
-        fn len(&self) -> usize {
-            self.destination_id.len() + self.object.len() + 1
-        }
-    }
-    impl Instruction for BurnBox {
-        fn len(&self) -> usize {
-            self.destination_id.len() + self.object.len() + 1
-        }
-    }
-    impl Instruction for TransferBox {
-        fn len(&self) -> usize {
-            self.destination_id.len() + self.object.len() + self.source_id.len() + 1
-        }
-    }
-    impl Instruction for GrantBox {
-        fn len(&self) -> usize {
-            self.object.len() + self.destination_id.len() + 1
-        }
-    }
-    impl Instruction for RevokeBox {
-        fn len(&self) -> usize {
-            self.object.len() + self.destination_id.len() + 1
-        }
-    }
-    impl Instruction for SetParameterBox {
-        fn len(&self) -> usize {
-            self.parameter.len() + 1
-        }
-    }
-    impl Instruction for NewParameterBox {
-        fn len(&self) -> usize {
-            self.parameter.len() + 1
-        }
-    }
-    impl Instruction for UpgradeBox {
-        fn len(&self) -> usize {
-            self.object.len() + 1
-        }
-    }
-    impl Instruction for ExecuteTriggerBox {
-        fn len(&self) -> usize {
-            1
-        }
-    }
-    impl Instruction for FailBox {
-        fn len(&self) -> usize {
-            1
-        }
-    }
+    impl Instruction for SetKeyValueBox {}
+    impl Instruction for RemoveKeyValueBox {}
+    impl Instruction for RegisterBox {}
+    impl Instruction for UnregisterBox {}
+    impl Instruction for MintBox {}
+    impl Instruction for BurnBox {}
+    impl Instruction for TransferBox {}
+    impl Instruction for GrantBox {}
+    impl Instruction for RevokeBox {}
+    impl Instruction for SetParameterBox {}
+    impl Instruction for NewParameterBox {}
+    impl Instruction for UpgradeBox {}
+    impl Instruction for ExecuteTriggerBox {}
+    impl Instruction for FailBox {}
 
     // Composite instructions
-    impl Instruction for SequenceBox {
-        fn len(&self) -> usize {
-            self.instructions
-                .iter()
-                .map(InstructionBox::len)
-                .sum::<usize>()
-                + 1
-        }
-    }
-    impl Instruction for Conditional {
-        fn len(&self) -> usize {
-            let otherwise = self.otherwise.as_ref().map_or(0, InstructionBox::len);
-            self.condition.len() + self.then.len() + otherwise + 1
-        }
-    }
-    impl Instruction for Pair {
-        fn len(&self) -> usize {
-            self.left_instruction.len() + self.right_instruction.len() + 1
-        }
-    }
+    impl Instruction for SequenceBox {}
+    impl Instruction for Conditional {}
+    impl Instruction for Pair {}
 }
 
 mod transparent {
@@ -923,7 +823,7 @@ pub mod error {
         /// Instruction execution error type
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -936,50 +836,42 @@ pub mod error {
             Encode,
             IntoSchema,
         )]
+        #[ignore_extra_doc_attributes]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         // TODO: Only temporarily opaque because of InstructionExecutionError::Repetition
         #[ffi_type(opaque)]
         pub enum InstructionExecutionError {
             /// Instruction does not adhere to Iroha DSL specification
-            #[display(fmt = "Evaluation failed")]
             Evaluate(#[cfg_attr(feature = "std", source)] InstructionEvaluationError),
-            /// Query Error
-            #[display(fmt = "Query failed")]
+            /// Query failed
             Query(#[cfg_attr(feature = "std", source)] QueryExecutionFail),
-            /// Conversion Error
-            #[display(fmt = "Conversion Error: {_0}")]
+            /// Conversion Error: {0}
             Conversion(
                 #[skip_from]
                 #[skip_try_from]
                 String,
             ),
-            /// Failed to find some entity
-            #[display(fmt = "Entity missing")]
+            /// Entity missing
             Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
             /// Repeated instruction
-            #[display(fmt = "Repetition")]
             Repetition(#[cfg_attr(feature = "std", source)] RepetitionError),
-            /// Failed to assert mintability
-            #[display(fmt = "Mintability assertion failed")]
+            /// Mintability assertion failed
             Mintability(#[cfg_attr(feature = "std", source)] MintabilityError),
-            /// Failed due to math exception
-            #[display(fmt = "Illegal math operation")]
+            /// Illegal math operation
             Math(#[cfg_attr(feature = "std", source)] MathError),
-            /// Metadata Error.
-            #[display(fmt = "Metadata error")]
+            /// Metadata error
             Metadata(#[cfg_attr(feature = "std", source)] metadata::MetadataError),
-            /// [`Fail`] error
-            #[display(fmt = "Execution failed: {_0}")]
+            /// Execution failed: {0}
             Fail(
                 #[skip_from]
                 #[skip_try_from]
                 String,
             ),
             /// Invalid instruction parameter
-            #[display(fmt = "Invalid parameter")]
             InvalidParameter(#[cfg_attr(feature = "std", source)] InvalidParameterError),
-            /// Instruction tried to violate Iroha invariant (i.e. burn last key)
-            #[display(fmt = "Iroha invariant violation: {_0}")]
+            /// Iroha invariant violation: {0}
+            ///
+            /// i.e. you can't burn last key
             InvariantViolation(
                 #[skip_from]
                 #[skip_try_from]
@@ -990,7 +882,7 @@ pub mod error {
         /// Evaluation error. This error indicates instruction is not a valid Iroha DSL
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -1007,16 +899,13 @@ pub mod error {
         // TODO: Only temporarily opaque because of problems with FFI
         #[ffi_type(opaque)]
         pub enum InstructionEvaluationError {
-            /// Asset type assertion error
-            #[display(fmt = "Failed to evaluate expression")]
+            /// Failed to evaluate expression
             Expression(#[cfg_attr(feature = "std", source)] evaluate::EvaluationError),
-            /// Parameter type assertion error
-            #[display(fmt = "Instruction of type `{_0}` is not supported")]
+            /// Unsupported parameter type for instruction of type `{0}`
             Unsupported(InstructionType),
-            /// Failed to find parameter in a permission
-            #[display(fmt = "Failed to find parameter in a permission: {_0}")]
+            /// Failed to find parameter in a permission: {0}
             PermissionParameter(String),
-            #[display(fmt = "Incorrect value type")]
+            /// Incorrect value type
             Type(#[cfg_attr(feature = "std", source)] TypeError),
         }
 
@@ -1048,7 +937,7 @@ pub mod error {
         /// Type error
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -1064,16 +953,11 @@ pub mod error {
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[ffi_type]
         pub enum TypeError {
-            /// Asset type assertion error
-            #[display(
-                fmt = "Asset Ids correspond to assets with different underlying types, {_0}"
-            )]
+            /// Asset Ids correspond to assets with different underlying types, {0}
             AssetValueType(#[cfg_attr(feature = "std", source)] Mismatch<AssetValueType>),
-            /// Parameter type assertion error
-            #[display(fmt = "Value passed to the parameter doesn't have the right type, {_0}")]
+            /// Value passed to the parameter doesn't have the right type, {0}
             ParameterValueType(#[cfg_attr(feature = "std", source)] Box<Mismatch<Value>>),
-            /// Asset Id mismatch
-            #[display(fmt = "AssetDefinition Ids don't match, {_0}")]
+            /// AssetDefinition Ids don't match, {0}
             AssetDefinitionId(
                 #[cfg_attr(feature = "std", source)] Box<Mismatch<AssetDefinitionId>>,
             ),
@@ -1082,7 +966,7 @@ pub mod error {
         /// Math error, which occurs during instruction execution
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -1096,34 +980,29 @@ pub mod error {
             IntoSchema,
         )]
         // TODO: Only temporarily opaque because of InstructionExecutionError::BinaryOpIncompatibleNumericValueTypes
+        #[ignore_extra_doc_attributes]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[ffi_type(opaque)]
         pub enum MathError {
-            /// Overflow error inside instruction
-            #[display(fmt = "Overflow occurred")]
+            /// Overflow error occurred inside instruction
             Overflow,
-            /// Not enough quantity
-            #[display(fmt = "Not enough quantity to transfer/burn")]
+            /// Not enough quantity to transfer/burn
             NotEnoughQuantity,
             /// Divide by zero
-            #[display(fmt = "Divide by zero")]
             DivideByZero,
-            /// Negative Value encountered
-            #[display(fmt = "Negative value encountered")]
+            /// Negative value encountered
             NegativeValue,
             /// Domain violation
-            #[display(fmt = "Domain violation")]
             DomainViolation,
-            /// Unknown error. No actual function should ever return this if possible.
-            #[display(fmt = "Unknown error")]
+            /// Unknown error
+            ///
+            /// No actual function should ever return this if possible
             Unknown,
             /// Encountered incompatible type of arguments
-            #[display(fmt = "Encountered incompatible type of arguments")]
             BinaryOpIncompatibleNumericValueTypes(
                 #[cfg_attr(feature = "std", source)] BinaryOpIncompatibleNumericValueTypesError,
             ),
-            /// Conversion failed.
-            #[display(fmt = "{_0}")]
+            /// Conversion failed: {0}
             FixedPointConversion(String),
         }
 
@@ -1154,7 +1033,7 @@ pub mod error {
         /// Mintability logic error
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             Copy,
             PartialEq,
@@ -1171,22 +1050,16 @@ pub mod error {
         #[ffi_type]
         #[repr(u8)]
         pub enum MintabilityError {
-            /// Tried to mint an Un-mintable asset.
-            #[display(
-                fmt = "This asset cannot be minted more than once and it was already minted."
-            )]
+            /// This asset cannot be minted more than once and it was already minted
             MintUnmintable,
-            /// Tried to forbid minting on assets that should be mintable.
-            #[display(
-                fmt = "This asset was set as infinitely mintable. You cannot forbid its minting."
-            )]
+            /// This asset was set as infinitely mintable. You cannot forbid its minting
             ForbidMintOnMintable,
         }
 
         /// Invalid instruction parameter error
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -1198,15 +1071,16 @@ pub mod error {
             Encode,
             IntoSchema,
         )]
+        #[ignore_extra_doc_attributes]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[ffi_type(opaque)]
         #[repr(u8)]
         pub enum InvalidParameterError {
-            /// Invalid WASM binary
-            #[display(fmt = "Invalid WASM binary: {_0}")]
+            /// Invalid WASM binary: {0}
             Wasm(String),
-            /// Invalid name length (i.e. too long [`AccountId`])
-            #[display(fmt = "Name length violation")]
+            /// Name length violation
+            ///
+            /// i.e. too long [`AccountId`]
             NameLength,
         }
 
@@ -1266,81 +1140,9 @@ pub mod error {
 pub mod prelude {
     pub use super::{
         Burn, BurnBox, Conditional, ExecuteTrigger, ExecuteTriggerBox, FailBox, Grant, GrantBox,
-        Instruction, InstructionBox, Mint, MintBox, NewParameter, NewParameterBox, Pair, Register,
-        RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox,
-        SetKeyValue, SetKeyValueBox, SetParameter, SetParameterBox, Transfer, TransferBox,
-        Unregister, UnregisterBox, Upgrade, UpgradeBox,
+        InstructionBox, Mint, MintBox, NewParameter, NewParameterBox, Pair, Register, RegisterBox,
+        RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox, SetKeyValue,
+        SetKeyValueBox, SetParameter, SetParameterBox, Transfer, TransferBox, Unregister,
+        UnregisterBox, Upgrade, UpgradeBox,
     };
-}
-
-#[cfg(test)]
-mod tests {
-    #[cfg(not(feature = "std"))]
-    use alloc::vec;
-    use core::str::FromStr;
-
-    use super::*;
-
-    fn if_instruction(
-        c: impl Into<Expression>,
-        then: InstructionBox,
-        otherwise: Option<InstructionBox>,
-    ) -> InstructionBox {
-        let condition: Expression = c.into();
-        let condition = EvaluatesTo::new_unchecked(condition);
-        Conditional {
-            condition,
-            then,
-            otherwise,
-        }
-        .into()
-    }
-
-    fn fail() -> InstructionBox {
-        FailBox {
-            message: String::default(),
-        }
-        .into()
-    }
-
-    #[test]
-    fn len_empty_sequence() {
-        assert_eq!(InstructionBox::from(SequenceBox::new(vec![])).len(), 1);
-    }
-
-    #[test]
-    fn len_if_one_branch() {
-        let instructions = vec![if_instruction(
-            ContextValue {
-                value_name: Name::from_str("a").expect("Cannot fail."),
-            },
-            fail(),
-            None,
-        )];
-
-        assert_eq!(
-            InstructionBox::from(SequenceBox::new(instructions)).len(),
-            4
-        );
-    }
-
-    #[test]
-    fn len_sequence_if() {
-        let instructions = vec![
-            fail(),
-            if_instruction(
-                ContextValue {
-                    value_name: Name::from_str("b").expect("Cannot fail."),
-                },
-                fail(),
-                Some(fail()),
-            ),
-            fail(),
-        ];
-
-        assert_eq!(
-            InstructionBox::from(SequenceBox::new(instructions)).len(),
-            7
-        );
-    }
 }

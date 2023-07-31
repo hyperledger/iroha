@@ -17,8 +17,6 @@ impl Registrable for NewRole {
 
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
-    use std::collections::HashSet;
-
     use eyre::Result;
     use iroha_data_model::{
         isi::error::{InvalidParameterError, RepetitionError},
@@ -112,23 +110,22 @@ pub mod isi {
         fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let role = self.object.build(authority);
 
-            for permission in &role.permissions {
-                let definition = wsv
-                    .permission_token_definitions()
-                    .get(&permission.definition_id)
-                    .ok_or_else(|| {
-                        FindError::PermissionTokenDefinition(permission.definition_id.clone())
-                    })?;
-
-                permissions::check_permission_token_parameters(permission, definition)?;
-            }
-
             if wsv.roles().contains_key(role.id()) {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
                     id: IdBox::RoleId(role.id),
                 }
                 .into());
+            }
+
+            for permission in &role.permissions {
+                if !wsv
+                    .permission_token_schema()
+                    .token_ids
+                    .contains(&permission.definition_id)
+                {
+                    return Err(FindError::PermissionToken(permission.definition_id.clone()).into());
+                }
             }
 
             let world = wsv.world_mut();
@@ -178,129 +175,6 @@ pub mod isi {
         }
     }
 
-    fn register_permission_token_definition(
-        definition: PermissionTokenDefinition,
-        wsv: &mut WorldStateView,
-    ) -> Result<(), Error> {
-        let definition_id = definition.id().clone();
-
-        let world = wsv.world_mut();
-        if world
-            .permission_token_definitions
-            .contains_key(&definition_id)
-        {
-            return Err(RepetitionError {
-                instruction_type: InstructionType::Register,
-                id: IdBox::PermissionTokenDefinitionId(definition_id),
-            }
-            .into());
-        }
-
-        world
-            .permission_token_definitions
-            .insert(definition_id, definition.clone());
-
-        wsv.emit_events(Some(PermissionTokenEvent::DefinitionCreated(definition)));
-
-        Ok(())
-    }
-
-    fn unregister_permission_token_definition(
-        definition_id: PermissionTokenId,
-        wsv: &mut WorldStateView,
-    ) -> Result<(), Error> {
-        remove_token_from_roles(wsv, &definition_id)?;
-        remove_token_from_accounts(wsv, &definition_id)?;
-
-        let world = wsv.world_mut();
-        let definition = world
-            .permission_token_definitions
-            .remove(&definition_id)
-            .ok_or_else(|| FindError::PermissionTokenDefinition(definition_id))?;
-
-        wsv.emit_events(Some(PermissionTokenEvent::DefinitionDeleted(definition)));
-
-        Ok(())
-    }
-
-    /// Remove all tokens with specified definition id from all registered roles
-    fn remove_token_from_roles(
-        wsv: &mut WorldStateView,
-        target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,
-    ) -> Result<(), Error> {
-        let mut roles_containing_token = Vec::new();
-
-        for (role_id, role) in wsv.roles().iter() {
-            if role
-                .permissions
-                .iter()
-                .any(|token| token.definition_id == *target_definition_id)
-            {
-                roles_containing_token.push(role_id.clone())
-            }
-        }
-
-        let mut events = Vec::with_capacity(roles_containing_token.len());
-        let world = wsv.world_mut();
-        for role_id in roles_containing_token {
-            if let Some(role) = world.roles.get_mut(&role_id) {
-                role.permissions
-                    .retain(|token| token.definition_id != *target_definition_id);
-                events.push(RoleEvent::PermissionRemoved(PermissionRemoved {
-                    role_id: role_id.clone(),
-                    permission_definition_id: target_definition_id.clone(),
-                }));
-            } else {
-                error!(%role_id, "role not found. This is a bug");
-                return Err(FindError::Role(role_id.clone()).into());
-            }
-        }
-
-        wsv.emit_events(events);
-
-        Ok(())
-    }
-
-    /// Remove all tokens with specified definition id from all accounts in all domains
-    fn remove_token_from_accounts(
-        wsv: &mut WorldStateView,
-        target_definition_id: &<PermissionTokenDefinition as Identifiable>::Id,
-    ) -> Result<(), Error> {
-        let mut accounts_with_token = std::collections::HashMap::new();
-
-        for domain in wsv.domains().values() {
-            let account_ids = domain.accounts.values().map(|account| {
-                (
-                    account.id().clone(),
-                    wsv.account_inherent_permission_tokens(account)
-                        .filter(|token| token.definition_id == *target_definition_id)
-                        .collect::<Vec<_>>(),
-                )
-            });
-
-            accounts_with_token.extend(account_ids);
-        }
-
-        let mut events = Vec::new();
-        for (account_id, tokens) in accounts_with_token {
-            for token in tokens {
-                if !wsv.remove_account_permission(&account_id, &token) {
-                    error!(%token, "token not found. This is a bug");
-                    return Err(
-                        FindError::PermissionTokenDefinition(token.definition_id.clone()).into(),
-                    );
-                }
-                events.push(AccountEvent::PermissionRemoved(AccountPermissionChanged {
-                    account_id: account_id.clone(),
-                    permission_id: token.definition_id,
-                }));
-            }
-        }
-        wsv.emit_events(events);
-
-        Ok(())
-    }
-
     impl Execute for SetParameter {
         #[metrics(+"set_parameter")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
@@ -343,7 +217,7 @@ pub mod isi {
 
     impl Execute for Upgrade<Validator> {
         #[metrics(+"upgrade_validator")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             #[cfg(test)]
             use crate::validator::MockValidator as Validator;
             #[cfg(not(test))]
@@ -352,54 +226,26 @@ pub mod isi {
             let raw_validator = self.object;
             let engine = wsv.engine.clone(); // Cloning engine is cheap
 
-            let (new_validator, new_permission_token_definitions) =
-                || -> Result<_, crate::smartcontracts::wasm::error::Error> {
-                    {
-                        let new_validator = Validator::new(raw_validator, &engine)?;
-                        let new_permission_token_definitions =
-                            new_validator.permission_tokens(wsv)?;
-                        Ok((new_validator, new_permission_token_definitions))
-                    }
-                }()
+            let new_validator = Validator::new(raw_validator, &engine)
+                .and_then(|new_validator| {
+                    new_validator
+                        .migrate(wsv, authority)
+                        .map(|migration_result| migration_result.map(|_: ()| new_validator))
+                })
                 .map_err(|error| {
                     InvalidParameterError::Wasm(format!("{:?}", eyre::Report::from(error)))
+                })?
+                .map_err(|migration_error| {
+                    InvalidParameterError::Wasm(format!(
+                        "{:?}",
+                        eyre::eyre!(migration_error).wrap_err("Migration failed"),
+                    ))
                 })?;
 
             let world = wsv.world_mut();
-            let _ = world.upgraded_validator.insert(new_validator);
+            let _ = world.validator.insert(new_validator);
 
-            let old_permission_token_definitions = wsv
-                .permission_token_definitions()
-                .values()
-                .cloned()
-                .collect::<HashSet<_>>();
-            let new_permission_token_definitions = {
-                let mut tokens = HashSet::new();
-                for token in new_permission_token_definitions {
-                    let token_id = token.id().clone();
-                    let newly_inserted = tokens.insert(token);
-                    if !newly_inserted {
-                        return Err(InvalidParameterError::Wasm(format!(
-                            "Retrieved permission tokens definitions contain duplicate: `{token_id}`",
-                        ))
-                        .into());
-                    }
-                }
-                tokens
-            };
-
-            old_permission_token_definitions
-                .difference(&new_permission_token_definitions)
-                .try_for_each(|definition| {
-                    unregister_permission_token_definition(definition.id().clone(), wsv)
-                })?;
-
-            new_permission_token_definitions
-                .difference(&old_permission_token_definitions)
-                .cloned()
-                .try_for_each(|definition| register_permission_token_definition(definition, wsv))?;
-
-            wsv.emit_events(Some(ValidatorEvent::Upgraded));
+            wsv.emit_events(std::iter::once(ValidatorEvent::Upgraded));
 
             Ok(())
         }
@@ -409,46 +255,55 @@ pub mod isi {
 pub mod query {
     use eyre::Result;
     use iroha_data_model::{
+        parameter::Parameter,
+        peer::Peer,
+        permission::PermissionTokenSchema,
         prelude::*,
         query::{
             error::{FindError, QueryExecutionFail as Error},
             permission::DoesAccountHavePermissionToken,
         },
+        role::{Role, RoleId},
     };
 
     use super::*;
 
     impl ValidQuery for FindAllRoles {
         #[metrics(+"find_all_roles")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            Ok(wsv.world.roles.values().cloned().collect())
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<Box<dyn Iterator<Item = Role> + 'wsv>, Error> {
+            Ok(Box::new(wsv.world.roles.values().cloned()))
         }
     }
 
     impl ValidQuery for FindAllRoleIds {
         #[metrics(+"find_all_role_ids")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            Ok(wsv
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<Box<dyn Iterator<Item = RoleId> + 'wsv>, Error> {
+            Ok(Box::new(wsv
                .world
                .roles
                .values()
                // To me, this should probably be a method, not a field.
                .map(Role::id)
-               .cloned()
-               .collect())
+               .cloned()))
         }
     }
 
     impl ValidQuery for FindRoleByRoleId {
         #[metrics(+"find_role_by_role_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Role, Error> {
             let role_id = wsv
                 .evaluate(&self.id)
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             iroha_logger::trace!(%role_id);
 
             wsv.world.roles.get(&role_id).map_or_else(
-                || Err(Error::Find(Box::new(FindError::Role(role_id)))),
+                || Err(Error::Find(FindError::Role(role_id))),
                 |role_ref| Ok(role_ref.clone()),
             )
         }
@@ -456,40 +311,44 @@ pub mod query {
 
     impl ValidQuery for FindAllPeers {
         #[metrics("find_all_peers")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            Ok(wsv.peers())
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<Box<dyn Iterator<Item = Peer> + 'wsv>, Error> {
+            Ok(Box::new(wsv.peers().cloned().map(Peer::new)))
         }
     }
 
-    impl ValidQuery for FindAllPermissionTokenDefinitions {
-        #[metrics("find_all_token_ids")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            Ok(wsv
-                .permission_token_definitions()
-                .values()
-                .cloned()
-                .collect())
+    impl ValidQuery for FindPermissionTokenSchema {
+        #[metrics("find_permission_token_schema")]
+        fn execute(&self, wsv: &WorldStateView) -> Result<PermissionTokenSchema, Error> {
+            Ok(wsv.permission_token_schema().clone())
         }
     }
 
     impl ValidQuery for FindAllParameters {
         #[metrics("find_all_parameters")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            Ok(wsv.parameters())
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<Box<dyn Iterator<Item = Parameter> + 'wsv>, Error> {
+            Ok(Box::new(wsv.parameters().cloned()))
         }
     }
 
     impl ValidQuery for DoesAccountHavePermissionToken {
-        #[metrics("does_account_have_permission")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        #[metrics("does_account_have_permission_token")]
+        fn execute(&self, wsv: &WorldStateView) -> Result<bool, Error> {
             let authority = wsv
                 .evaluate(&self.account_id)
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let given_permission_token = wsv
+                .evaluate(&self.permission_token)
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
 
-            wsv.map_account(&authority, |account| {
-                wsv.account_permission_tokens(account)
-                    .contains(&self.permission_token)
-            })
+            Ok(wsv
+                .account_permission_tokens(&authority)?
+                .any(|permission_token| *permission_token == given_permission_token))
         }
     }
 }

@@ -3,7 +3,7 @@
 use std::thread;
 
 use eyre::Result;
-use iroha_client::client::{self, Client};
+use iroha_client::client::{self, Client, QueryResult};
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
 use test_network::*;
@@ -42,7 +42,9 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
         mint_asset,
         client::asset::by_account_id(account_id),
         |result| {
-            result.iter().any(|asset| {
+            let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+
+            assets.iter().any(|asset| {
                 asset.id().definition_id == asset_definition_id
                     && *asset.value() == AssetValue::Quantity(quantity)
             })

@@ -28,14 +28,14 @@ pub trait RequestBuilder {
     {
         for pair in params {
             let (k, v) = pair.borrow();
-            self = self.param(k, v.to_string());
+            self = self.param(k, v);
         }
         self
     }
 
     /// Add a single query param
     #[must_use]
-    fn param<K, V>(self, key: K, value: V) -> Self
+    fn param<K, V: ?Sized>(self, key: K, value: &V) -> Self
     where
         K: AsRef<str>,
         V: ToString;
@@ -52,14 +52,14 @@ pub trait RequestBuilder {
     {
         for pair in headers {
             let (k, v) = pair.borrow();
-            self = self.header(k, v.to_string());
+            self = self.header(k, v);
         }
         self
     }
 
     /// Add a single header
     #[must_use]
-    fn header<N, V>(self, name: N, value: V) -> Self
+    fn header<N, V: ?Sized>(self, name: N, value: &V) -> Self
     where
         N: AsRef<str>,
         V: ToString;
@@ -166,11 +166,11 @@ pub mod ws {
     ///          todo!()
     ///     }
     ///
-    ///     fn param<K: AsRef<str>, V: ToString>(self, _: K, _: V) -> Self  {
+    ///     fn param<K: AsRef<str>, V: ?Sized + ToString>(self, _: K, _: &V) -> Self  {
     ///          todo!()
     ///     }
     ///
-    ///     fn header<N: AsRef<str>, V: ToString>(self, _: N, _: V) -> Self {
+    ///     fn header<N: AsRef<str>, V: ?Sized + ToString>(self, _: N, _: &V) -> Self {
     ///          todo!()
     ///     }
     ///

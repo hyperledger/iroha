@@ -1,6 +1,6 @@
 #![allow(clippy::restriction, clippy::pedantic)]
 
-use iroha_client::client;
+use iroha_client::client::{self, QueryResult};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{prelude::*, Registered};
 use iroha_primitives::fixed::Fixed;
@@ -90,7 +90,9 @@ fn simulate_transfer<
             transfer_asset,
             client::asset::by_account_id(mouse_id.clone()),
             |result| {
-                result.iter().any(|asset| {
+                let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+
+                assets.iter().any(|asset| {
                     asset.id().definition_id == asset_definition_id
                         && *asset.value() == amount_to_transfer.clone().into()
                         && asset.id().account_id == mouse_id

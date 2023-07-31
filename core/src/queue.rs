@@ -97,30 +97,25 @@ pub struct Queue {
 }
 
 /// Queue push error
-#[derive(Error, Debug)]
+#[derive(Error, Debug, displaydoc::Display)]
 #[allow(variant_size_differences)]
 pub enum Error {
     /// Queue is full
-    #[error("Queue is full")]
     Full,
     /// Transaction is regarded to have been tampered to have a future timestamp
-    #[error("Transaction is regarded to have been tampered to have a future timestamp")]
     InFuture,
     /// Transaction expired
-    #[error("Transaction expired")]
     Expired,
-    /// Transaction is already in blockchain
-    #[error("Transaction is already applied")]
+    /// Transaction is already applied
     InBlockchain,
     /// User reached maximum number of transactions in the queue
-    #[error("User reached maximum number of trnasctions in the queue")]
     MaximumTransactionsPerUser,
-    /// Signature condition check failed
-    #[error("Failure during signature condition execution, tx payload hash: {tx_hash}, reason: {reason}")]
+    /// Failure during signature condition execution, tx payload hash: {tx_hash}
     SignatureCondition {
         /// Transaction hash
         tx_hash: HashOf<TransactionPayload>,
         /// Failure reason
+        #[source]
         reason: Report,
     },
 }
@@ -175,12 +170,17 @@ impl Queue {
     }
 
     /// Returns all pending transactions.
-    pub fn all_transactions(&self, wsv: &WorldStateView) -> Vec<AcceptedTransaction> {
-        self.txs
-            .iter()
-            .filter(|e| self.is_pending(e.value(), wsv))
-            .map(|e| e.value().clone())
-            .collect()
+    pub fn all_transactions<'wsv>(
+        &'wsv self,
+        wsv: &'wsv WorldStateView,
+    ) -> impl Iterator<Item = AcceptedTransaction> + 'wsv {
+        self.txs.iter().filter_map(|tx| {
+            if self.is_pending(tx.value(), wsv) {
+                return Some(tx.value().clone());
+            }
+
+            None
+        })
     }
 
     /// Returns `n` randomly selected transaction from the queue.
@@ -394,8 +394,9 @@ impl Queue {
     }
 
     fn decrease_per_user_tx_count(&self, account_id: &AccountId) {
-        let Entry::Occupied(mut occupied) = self.txs_per_user
-            .entry(account_id.clone()) else { panic!("Call to decrease always should be paired with increase count. This is a bug.") };
+        let Entry::Occupied(mut occupied) = self.txs_per_user.entry(account_id.clone()) else {
+            panic!("Call to decrease always should be paired with increase count. This is a bug.")
+        };
 
         let count = occupied.get_mut();
         if *count > 1 {

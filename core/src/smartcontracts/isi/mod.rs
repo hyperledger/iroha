@@ -10,7 +10,6 @@ pub mod account;
 pub mod asset;
 pub mod block;
 pub mod domain;
-pub mod permissions;
 pub mod query;
 pub mod triggers;
 pub mod tx;
@@ -19,10 +18,7 @@ pub mod world;
 use eyre::Result;
 use iroha_data_model::{
     evaluate::ExpressionEvaluator,
-    isi::{
-        error::{InstructionEvaluationError, InstructionExecutionError as Error},
-        *,
-    },
+    isi::{error::InstructionExecutionError as Error, *},
     prelude::*,
 };
 use iroha_logger::prelude::{Span, *};
@@ -119,7 +115,7 @@ impl Execute for UnregisterBox {
             IdBox::TriggerId(object_id) => {
                 Unregister::<Trigger<FilterBox, Executable>> { object_id }.execute(authority, wsv)
             }
-            IdBox::PermissionTokenDefinitionId(_) | IdBox::ParameterId(_) => {
+            IdBox::PermissionTokenId(_) | IdBox::ParameterId(_) => {
                 Err(Error::Evaluate(InstructionType::Unregister.into()))
             }
         }
@@ -443,7 +439,7 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use core::str::FromStr;
+    use core::str::FromStr as _;
     use std::sync::Arc;
 
     use iroha_crypto::KeyPair;

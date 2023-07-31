@@ -105,8 +105,8 @@
       {
         "Grant": {
           "PermissionToken": {
-            "definition_id": "can_set_parameters",
-            "params": {}
+            "definition_id": "CanSetParameters",
+            "payload": []
           },
           "destination_id": {
             "AccountId": "alice@wonderland"
@@ -178,20 +178,48 @@
             "id": "ALICE_METADATA_ACCESS",
             "permissions": [
               {
-                "definition_id": "can_remove_key_value_in_user_account",
-                "params": {
-                  "account_id": {
-                    "AccountId": "alice@wonderland"
-                  }
-                }
+                "definition_id": "CanRemoveKeyValueInUserAccount",
+                "payload": [
+                  20,
+                  97,
+                  108,
+                  105,
+                  99,
+                  101,
+                  40,
+                  119,
+                  111,
+                  110,
+                  100,
+                  101,
+                  114,
+                  108,
+                  97,
+                  110,
+                  100
+                ]
               },
               {
-                "definition_id": "can_set_key_value_in_user_account",
-                "params": {
-                  "account_id": {
-                    "AccountId": "alice@wonderland"
-                  }
-                }
+                "definition_id": "CanSetKeyValueInUserAccount",
+                "payload": [
+                  20,
+                  97,
+                  108,
+                  105,
+                  99,
+                  101,
+                  40,
+                  119,
+                  111,
+                  110,
+                  100,
+                  101,
+                  114,
+                  108,
+                  97,
+                  110,
+                  100
+                ]
               }
             ]
           }

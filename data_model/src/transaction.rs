@@ -22,8 +22,11 @@ use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
 use crate::{
-    account::AccountId, isi::InstructionBox, metadata::UnlimitedMetadata, name::Name,
-    prelude::Instruction, Value,
+    account::AccountId,
+    isi::{Instruction, InstructionBox},
+    metadata::UnlimitedMetadata,
+    name::Name,
+    Value,
 };
 
 #[model]
@@ -99,20 +102,20 @@ pub mod model {
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct TransactionPayload {
-        /// Account ID of transaction creator.
-        pub authority: AccountId,
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
         pub creation_time_ms: u64,
+        /// Account ID of transaction creator.
+        pub authority: AccountId,
+        /// ISI or a `WebAssembly` smartcontract.
+        pub instructions: Executable,
+        /// If transaction is not committed by this time it will be dropped.
+        #[getset(skip)]
+        pub time_to_live_ms: Option<NonZeroU64>,
         /// Random value to make different hashes for transactions which occur repeatedly and simultaneously.
         // TODO: Only temporary
         #[getset(skip)]
         pub nonce: Option<NonZeroU32>,
-        /// If transaction is not committed by this time it will be dropped.
-        #[getset(skip)]
-        pub time_to_live_ms: Option<NonZeroU64>,
-        /// ISI or a `WebAssembly` smartcontract.
-        pub instructions: Executable,
         /// Store for additional information.
         #[getset(skip)]
         pub metadata: UnlimitedMetadata,
@@ -151,7 +154,7 @@ pub mod model {
     /// After a transaction is signed and before it can be processed any further,
     /// the transaction must be accepted by the `Iroha` peer.
     /// The peer verifies the signatures and checks the limits.
-    #[version(n = 1, versioned = "VersionedSignedTransaction")]
+    #[version(version = 1, versioned_alias = "VersionedSignedTransaction")]
     #[derive(
         Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Serialize, IntoSchema,
     )]
@@ -160,10 +163,10 @@ pub mod model {
     #[ffi_type]
     // TODO: All fields in this struct should be private
     pub struct SignedTransaction {
-        /// [`Transaction`] payload.
-        pub payload: TransactionPayload,
         /// [`iroha_crypto::SignatureOf`]<[`TransactionPayload`]>.
         pub signatures: SignaturesOf<TransactionPayload>,
+        /// [`Transaction`] payload.
+        pub payload: TransactionPayload,
     }
 
     /// Transaction Value used in Instructions and Queries
@@ -171,7 +174,7 @@ pub mod model {
     #[ffi_type]
     pub struct TransactionValue {
         /// Committed transaction
-        pub tx: VersionedSignedTransaction,
+        pub value: VersionedSignedTransaction,
         /// Reason of rejection
         pub error: Option<error::TransactionRejectionReason>,
     }
@@ -344,7 +347,7 @@ impl TransactionValue {
     /// Used to return payload of the transaction
     #[inline]
     pub fn payload(&self) -> &TransactionPayload {
-        self.tx.payload()
+        self.value.payload()
     }
 }
 
@@ -371,8 +374,8 @@ mod candidate {
 
     #[derive(Decode, Deserialize)]
     struct SignedTransactionCandidate {
-        payload: TransactionPayload,
         signatures: SignaturesOf<TransactionPayload>,
+        payload: TransactionPayload,
     }
 
     impl SignedTransactionCandidate {
@@ -552,7 +555,7 @@ pub mod error {
         /// The reason for rejecting transaction which happened because of transaction.
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -565,38 +568,34 @@ pub mod error {
             Serialize,
             IntoSchema,
         )]
+        #[ignore_extra_doc_attributes]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         // TODO: Temporarily opaque
         #[ffi_type(opaque)]
         pub enum TransactionRejectionReason {
             /// Account does not exist
-            #[display(fmt = "Account does not exist")]
             AccountDoesNotExist(
                 #[skip_from] // NOTE: Such implicit conversions would be too unreadable
                 #[skip_try_from]
                 #[cfg_attr(feature = "std", source)]
                 crate::query::error::FindError,
             ),
-            /// Failed to validate transaction limits (e.g. number of instructions)
-            #[display(fmt = "Unsatisfied limit condition")]
+            /// Failed to validate transaction limits
+            ///
+            /// e.g. number of instructions
             LimitCheck(#[cfg_attr(feature = "std", source)] error::TransactionLimitError),
-            /// Validation failed.
-            #[display(fmt = "Validation failed")]
+            /// Validation failed
             Validation(#[cfg_attr(feature = "std", source)] crate::ValidationFail),
-            /// Failed to execute instruction.
+            /// Failure in instruction execution
             ///
             /// In practice should be fully replaced by [`ValidationFail::Execution`]
             /// and will be removed soon.
-            #[display(fmt = "Failure in instruction execution")]
             InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
-            /// Failed to execute WebAssembly binary.
-            #[display(fmt = "Failure in WebAssembly execution")]
+            /// Failure in WebAssembly execution
             WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
-            /// Genesis account can sign only transactions in the genesis block.
-            #[display(fmt = "The genesis account can only sign transactions in the genesis block")]
+            /// The genesis account can only sign transactions in the genesis block
             UnexpectedGenesisAccountSignature,
-            /// Transaction gets expired.
-            #[display(fmt = "Transaction rejected due to being expired")]
+            /// Transaction rejected due to being expired
             Expired,
         }
     }

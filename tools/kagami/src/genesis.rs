@@ -130,25 +130,19 @@ pub fn generate_default(validator_path: Option<PathBuf>) -> color_eyre::Result<R
     );
     let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
     let grant_permission_to_set_parameters = GrantBox::new(
-        PermissionToken::new("can_set_parameters".parse()?),
+        PermissionToken::new("CanSetParameters".parse()?, &()),
         alice_id,
     );
     let register_user_metadata_access = RegisterBox::new(
         Role::new("ALICE_METADATA_ACCESS".parse()?)
-            .add_permission(
-                PermissionToken::new("can_set_key_value_in_user_account".parse()?).with_params([(
-                    "account_id".parse()?,
-                    IdBox::AccountId("alice@wonderland".parse()?).into(),
-                )]),
-            )
-            .add_permission(
-                PermissionToken::new("can_remove_key_value_in_user_account".parse()?).with_params(
-                    [(
-                        "account_id".parse()?,
-                        IdBox::AccountId("alice@wonderland".parse()?).into(),
-                    )],
-                ),
-            ),
+            .add_permission(PermissionToken::new(
+                "CanSetKeyValueInUserAccount".parse()?,
+                &"alice@wonderland".parse::<AccountId>()?,
+            ))
+            .add_permission(PermissionToken::new(
+                "CanRemoveKeyValueInUserAccount".parse()?,
+                &"alice@wonderland".parse::<AccountId>()?,
+            )),
     )
     .into();
 

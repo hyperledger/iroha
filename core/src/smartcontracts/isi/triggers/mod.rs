@@ -195,21 +195,31 @@ pub mod isi {
 
 pub mod query {
     //! Queries associated to triggers.
-    use iroha_data_model::query::error::QueryExecutionFail as Error;
+    use iroha_data_model::{
+        events::FilterBox,
+        query::{error::QueryExecutionFail as Error, MetadataValue},
+        trigger::{OptimizedExecutable, Trigger, TriggerId},
+    };
 
     use super::*;
     use crate::prelude::*;
 
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            Ok(wsv.triggers().ids())
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> Result<Box<dyn Iterator<Item = TriggerId> + 'wsv>, Error> {
+            Ok(Box::new(wsv.triggers().ids().cloned()))
         }
     }
 
     impl ValidQuery for FindTriggerById {
         #[metrics(+"find_trigger_by_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute(
+            &self,
+            wsv: &WorldStateView,
+        ) -> Result<Trigger<FilterBox, OptimizedExecutable>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
@@ -225,7 +235,7 @@ pub mod query {
             } = wsv
                 .triggers()
                 .inspect_by_id(&id, |action| action.clone_and_box())
-                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))?;
+                .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))?;
 
             let action =
                 Action::new(loaded_executable, repeats, authority, filter).with_metadata(metadata);
@@ -237,7 +247,7 @@ pub mod query {
 
     impl ValidQuery for FindTriggerKeyValueByIdAndKey {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
@@ -250,23 +260,30 @@ pub mod query {
                     action
                         .metadata()
                         .get(&key)
-                        .map(Clone::clone)
+                        .cloned()
                         .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
                 })
-                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id))))?
+                .ok_or_else(|| Error::Find(FindError::Trigger(id)))?
+                .map(Into::into)
         }
     }
 
     impl ValidQuery for FindTriggersByDomainId {
         #[metrics(+"find_triggers_by_domain_id")]
-        fn execute(&self, wsv: &WorldStateView) -> eyre::Result<Self::Output, Error> {
+        fn execute<'wsv>(
+            &self,
+            wsv: &'wsv WorldStateView,
+        ) -> eyre::Result<
+            Box<dyn Iterator<Item = Trigger<FilterBox, OptimizedExecutable>> + 'wsv>,
+            Error,
+        > {
             let domain_id = wsv
                 .evaluate(&self.domain_id)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate domain id. {e}")))?;
 
-            let triggers = wsv
-                .triggers()
-                .inspect_by_domain_id(&domain_id, |trigger_id, action| {
+            Ok(Box::new(wsv.triggers().inspect_by_domain_id(
+                &domain_id,
+                |trigger_id, action| {
                     let Action {
                         executable: loaded_executable,
                         repeats,
@@ -274,14 +291,14 @@ pub mod query {
                         filter,
                         metadata,
                     } = action.clone_and_box();
+
                     Trigger::new(
                         trigger_id.clone(),
                         Action::new(loaded_executable, repeats, authority, filter)
                             .with_metadata(metadata),
                     )
-                });
-
-            Ok(triggers)
+                },
+            )))
         }
     }
 }

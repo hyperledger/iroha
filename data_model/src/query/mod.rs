@@ -6,14 +6,20 @@
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::cmp::Ordering;
 
+#[cfg(feature = "http")]
+pub use cursor::ForwardCursor;
 use derive_more::Display;
-use iroha_crypto::SignatureOf;
+use iroha_crypto::{PublicKey, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
+#[cfg(feature = "http")]
+pub use pagination::Pagination;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "http")]
+pub use sorting::Sorting;
 
 pub use self::model::*;
 use self::{
@@ -22,11 +28,18 @@ use self::{
 };
 use crate::{
     account::Account,
-    block::CommittedBlock,
+    block::VersionedCommittedBlock,
     seal,
     transaction::{TransactionPayload, TransactionValue, VersionedSignedTransaction},
     Identifiable, Value,
 };
+
+#[cfg(feature = "http")]
+pub mod cursor;
+#[cfg(feature = "http")]
+pub mod pagination;
+#[cfg(feature = "http")]
+pub mod sorting;
 
 macro_rules! queries {
     ($($($meta:meta)* $item:item)+) => {
@@ -58,6 +71,7 @@ pub mod model {
     use iroha_crypto::HashOf;
 
     use super::*;
+    use crate::permission::PermissionTokenId;
 
     /// Sized container for all possible Queries.
     #[allow(clippy::enum_variant_names)]
@@ -77,104 +91,94 @@ pub mod model {
         IntoSchema,
     )]
     #[ffi_type]
+    #[allow(missing_docs)]
     pub enum QueryBox {
-        /// [`FindAllAccounts`] variant.
         FindAllAccounts(FindAllAccounts),
-        /// [`FindAccountById`] variant.
         FindAccountById(FindAccountById),
-        /// [`FindAccountKeyValueByIdAndKey`] variant.
         FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey),
-        /// [`FindAccountsByName`] variant.
         FindAccountsByName(FindAccountsByName),
-        /// [`FindAccountsByDomainId`] variant.
         FindAccountsByDomainId(FindAccountsByDomainId),
-        /// [`FindAccountsWithAsset`] variant.
         FindAccountsWithAsset(FindAccountsWithAsset),
-        /// [`FindAllAssets`] variant.
         FindAllAssets(FindAllAssets),
-        /// [`FindAllAssetsDefinitions`] variant.
         FindAllAssetsDefinitions(FindAllAssetsDefinitions),
-        /// [`FindAssetById`] variant.
         FindAssetById(FindAssetById),
-        /// [`FindAssetDefinitionById`] variant.
         FindAssetDefinitionById(FindAssetDefinitionById),
-        /// [`FindAssetsByName`] variant.
         FindAssetsByName(FindAssetsByName),
-        /// [`FindAssetsByAccountId`] variant.
         FindAssetsByAccountId(FindAssetsByAccountId),
-        /// [`FindAssetsByAssetDefinitionId`] variant.
         FindAssetsByAssetDefinitionId(FindAssetsByAssetDefinitionId),
-        /// [`FindAssetsByDomainId`] variant.
         FindAssetsByDomainId(FindAssetsByDomainId),
-        /// [`FindAssetsByDomainIdAndAssetDefinitionId`] variant.
         FindAssetsByDomainIdAndAssetDefinitionId(FindAssetsByDomainIdAndAssetDefinitionId),
-        /// [`FindAssetQuantityById`] variant.
         FindAssetQuantityById(FindAssetQuantityById),
-        /// [`FindTotalAssetQuantityByAssetDefinitionId`] variant.
         FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
-        /// [`IsAssetDefinitionOwner`] variant.
         IsAssetDefinitionOwner(IsAssetDefinitionOwner),
-        /// [`FindAssetKeyValueByIdAndKey`] variant.
         FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
-        /// [`FindAssetKeyValueByIdAndKey`] variant.
         FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey),
-        /// [`FindAllDomains`] variant.
         FindAllDomains(FindAllDomains),
-        /// [`FindDomainById`] variant.
         FindDomainById(FindDomainById),
-        /// [`FindDomainKeyValueByIdAndKey`] variant.
         FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey),
-        /// [`FindAllPeers`] variant.
         FindAllPeers(FindAllPeers),
-        /// [`FindAllBlocks`] variant.
         FindAllBlocks(FindAllBlocks),
-        /// [`FindAllBlockHeaders`] variant.
         FindAllBlockHeaders(FindAllBlockHeaders),
-        /// [`FindBlockHeaderByHash`] variant.
         FindBlockHeaderByHash(FindBlockHeaderByHash),
-        /// [`FindAllTransactions`] variant.
         FindAllTransactions(FindAllTransactions),
-        /// [`FindTransactionsByAccountId`] variant.
         FindTransactionsByAccountId(FindTransactionsByAccountId),
-        /// [`FindTransactionByHash`] variant.
         FindTransactionByHash(FindTransactionByHash),
-        /// [`FindPermissionTokensByAccountId`] variant.
         FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
-        /// [`FindAllPermissionTokenDefinitions`] variant.
-        FindAllPermissionTokenDefinitions(FindAllPermissionTokenDefinitions),
-        /// [`DoesAccountHavePermissionToken`] variant.
+        FindPermissionTokenSchema(FindPermissionTokenSchema),
         DoesAccountHavePermissionToken(DoesAccountHavePermissionToken),
-        /// [`FindAllActiveTriggerIds`] variant.
         FindAllActiveTriggerIds(FindAllActiveTriggerIds),
-        /// [`FindTriggerById`] variant.
         FindTriggerById(FindTriggerById),
-        /// [`FindTriggerKeyValueByIdAndKey`] variant.
         FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
-        /// [`FindTriggersByDomainId`] variant.
         FindTriggersByDomainId(FindTriggersByDomainId),
-        /// [`FindAllRoles`] variant.
         FindAllRoles(FindAllRoles),
-        /// [`FindAllRoleIds`] variant.
         FindAllRoleIds(FindAllRoleIds),
-        /// [`FindRoleByRoleId`] variant.
         FindRoleByRoleId(FindRoleByRoleId),
-        /// [`FindRolesByAccountId`] variant.
         FindRolesByAccountId(FindRolesByAccountId),
-        /// [`FindAllParameters`] variant.
         FindAllParameters(FindAllParameters),
     }
 
-    /// `TransactionQueryResult` is used in `FindAllTransactions` query
+    /// Output of [`FindAllTransactions`] query
     #[derive(
         Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct TransactionQueryResult {
+    pub struct TransactionQueryOutput {
         /// Transaction
         pub transaction: TransactionValue,
         /// The hash of the block to which `tx` belongs to
-        pub block_hash: HashOf<CommittedBlock>,
+        pub block_hash: HashOf<VersionedCommittedBlock>,
+    }
+
+    /// Type returned from [`Metadata`] queries
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[ffi_type]
+    pub struct MetadataValue(pub Value);
+}
+
+impl From<MetadataValue> for Value {
+    #[inline]
+    fn from(source: MetadataValue) -> Self {
+        source.0
+    }
+}
+
+impl From<Value> for MetadataValue {
+    #[inline]
+    fn from(source: Value) -> Self {
+        Self(source)
     }
 }
 
@@ -182,7 +186,7 @@ impl Query for QueryBox {
     type Output = Value;
 }
 
-impl TransactionQueryResult {
+impl TransactionQueryOutput {
     #[inline]
     /// Return payload of the transaction
     pub fn payload(&self) -> &TransactionPayload {
@@ -190,14 +194,14 @@ impl TransactionQueryResult {
     }
 }
 
-impl PartialOrd for TransactionQueryResult {
+impl PartialOrd for TransactionQueryOutput {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for TransactionQueryResult {
+impl Ord for TransactionQueryOutput {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.payload()
@@ -214,6 +218,7 @@ pub mod role {
 
     use derive_more::Display;
 
+    use super::Query;
     use crate::prelude::*;
 
     queries! {
@@ -300,14 +305,17 @@ pub mod permission {
 
     use derive_more::Display;
 
-    use crate::{permission, prelude::*};
+    use super::Query;
+    use crate::{
+        permission::{self, PermissionTokenSchema},
+        prelude::*,
+    };
 
     queries! {
-        /// [`FindAllPermissionTokenDefinitions`] Iroha Query finds all registered
-        /// [`PermissionTokenDefinition`][crate::permission::PermissionTokenDefinition]s
+        /// Finds all registered permission tokens
         #[derive(Copy, Display)]
         #[ffi_type]
-        pub struct FindAllPermissionTokenDefinitions;
+        pub struct FindPermissionTokenSchema;
 
         /// [`FindPermissionTokensByAccountId`] Iroha Query finds all [`PermissionToken`]s
         /// for a specified account.
@@ -329,12 +337,12 @@ pub mod permission {
             /// `Id` of an account to check.
             pub account_id: EvaluatesTo<AccountId>,
             /// `PermissionToken` to check for.
-            pub permission_token: permission::PermissionToken,
+            pub permission_token: EvaluatesTo<permission::PermissionToken>,
         }
     }
 
-    impl Query for FindAllPermissionTokenDefinitions {
-        type Output = Vec<PermissionTokenDefinition>;
+    impl Query for FindPermissionTokenSchema {
+        type Output = PermissionTokenSchema;
     }
 
     impl Query for FindPermissionTokensByAccountId {
@@ -349,11 +357,11 @@ pub mod permission {
         /// Construct [`DoesAccountHavePermissionToken`].
         pub fn new(
             account_id: impl Into<EvaluatesTo<AccountId>>,
-            permission_token: permission::PermissionToken,
+            permission_token: impl Into<EvaluatesTo<permission::PermissionToken>>,
         ) -> Self {
             Self {
                 account_id: account_id.into(),
-                permission_token,
+                permission_token: permission_token.into(),
             }
         }
     }
@@ -370,7 +378,7 @@ pub mod permission {
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
         pub use super::{
-            DoesAccountHavePermissionToken, FindAllPermissionTokenDefinitions,
+            DoesAccountHavePermissionToken, FindPermissionTokenSchema,
             FindPermissionTokensByAccountId,
         };
     }
@@ -384,6 +392,7 @@ pub mod account {
 
     use derive_more::Display;
 
+    use super::{MetadataValue, Query};
     use crate::prelude::*;
 
     queries! {
@@ -464,7 +473,7 @@ pub mod account {
     }
 
     impl Query for FindAccountKeyValueByIdAndKey {
-        type Output = Value;
+        type Output = MetadataValue;
     }
 
     impl Query for FindAccountsByName {
@@ -545,6 +554,7 @@ pub mod asset {
     use iroha_data_model_derive::model;
 
     pub use self::model::*;
+    use super::{MetadataValue, Query};
     use crate::prelude::*;
 
     queries! {
@@ -749,11 +759,11 @@ pub mod asset {
     }
 
     impl Query for FindAssetKeyValueByIdAndKey {
-        type Output = Value;
+        type Output = MetadataValue;
     }
 
     impl Query for FindAssetDefinitionKeyValueByIdAndKey {
-        type Output = Value;
+        type Output = MetadataValue;
     }
 
     impl Query for IsAssetDefinitionOwner {
@@ -893,6 +903,7 @@ pub mod domain {
 
     use derive_more::Display;
 
+    use super::{MetadataValue, Query};
     use crate::prelude::*;
 
     queries! {
@@ -936,7 +947,7 @@ pub mod domain {
     }
 
     impl Query for FindDomainKeyValueByIdAndKey {
-        type Output = Value;
+        type Output = MetadataValue;
     }
 
     impl FindDomainById {
@@ -1013,7 +1024,7 @@ pub mod trigger {
 
     use derive_more::Display;
 
-    use super::Query;
+    use super::{MetadataValue, Query};
     use crate::{
         domain::prelude::*,
         events::FilterBox,
@@ -1077,7 +1088,7 @@ pub mod trigger {
     }
 
     impl Query for FindTriggerKeyValueByIdAndKey {
-        type Output = Value;
+        type Output = MetadataValue;
     }
 
     impl Query for FindTriggersByDomainId {
@@ -1133,7 +1144,7 @@ pub mod transaction {
     use derive_more::Display;
     use iroha_crypto::HashOf;
 
-    use super::{Query, TransactionQueryResult};
+    use super::{Query, TransactionQueryOutput};
     use crate::{
         account::AccountId, expression::EvaluatesTo, prelude::Account,
         transaction::VersionedSignedTransaction,
@@ -1172,15 +1183,15 @@ pub mod transaction {
     }
 
     impl Query for FindAllTransactions {
-        type Output = Vec<TransactionQueryResult>;
+        type Output = Vec<TransactionQueryOutput>;
     }
 
     impl Query for FindTransactionsByAccountId {
-        type Output = Vec<TransactionQueryResult>;
+        type Output = Vec<TransactionQueryOutput>;
     }
 
     impl Query for FindTransactionByHash {
-        type Output = TransactionQueryResult;
+        type Output = TransactionQueryOutput;
     }
 
     impl FindTransactionsByAccountId {
@@ -1193,7 +1204,7 @@ pub mod transaction {
     }
 
     impl FindTransactionByHash {
-        ///Construct [`FindTransactionByHash`].
+        /// Construct [`FindTransactionByHash`].
         pub fn new(hash: impl Into<EvaluatesTo<HashOf<VersionedSignedTransaction>>>) -> Self {
             Self { hash: hash.into() }
         }
@@ -1278,20 +1289,23 @@ pub mod block {
 pub mod http {
     //! Structures related to sending queries over HTTP
 
+    use getset::Getters;
     use iroha_data_model_derive::model;
 
     pub use self::model::*;
     use super::*;
-    use crate::{
-        account::AccountId, pagination::prelude::*, predicate::PredicateBox, sorting::prelude::*,
-    };
+    use crate::{account::AccountId, predicate::PredicateBox};
+
+    // TODO: Could we make a variant of `Value` that holds only query results?
+    /// Type representing Result of executing a query
+    pub type QueryOutput = Value;
 
     declare_versioned_with_scale!(VersionedSignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
-    declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
-    declare_versioned_with_scale!(VersionedPaginatedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
     #[model]
     pub mod model {
+        use core::num::NonZeroU64;
+
         use super::*;
 
         /// I/O ready structure to send queries.
@@ -1304,67 +1318,105 @@ pub mod http {
         }
 
         /// Payload of a query.
-        #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+        #[derive(
+            Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        )]
         pub(crate) struct QueryPayload {
-            /// Timestamp of the query creation.
-            #[codec(compact)]
-            pub timestamp_ms: u128,
-            /// Query definition.
-            pub query: QueryBox,
             /// Account id of the user who will sign this query.
             pub authority: AccountId,
+            /// Query definition.
+            pub query: QueryBox,
             /// The filter applied to the result on the server-side.
             pub filter: PredicateBox,
         }
 
         /// I/O ready structure to send queries.
-        #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-        #[version_with_scale(n = 1, versioned = "VersionedSignedQuery")]
+        #[derive(Debug, Clone, Encode, Serialize, IntoSchema)]
+        #[version_with_scale(version = 1, versioned_alias = "VersionedSignedQuery")]
         pub struct SignedQuery {
-            /// Payload
-            pub payload: QueryPayload,
             /// Signature of the client who sends this query.
             pub signature: SignatureOf<QueryPayload>,
+            /// Payload
+            pub payload: QueryPayload,
         }
-
-        /// Sized container for all possible Query results.
-        #[derive(
-            Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
-        )]
-        #[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
-        #[serde(transparent)]
-        #[repr(transparent)]
-        // TODO: This should be a separate type, not just wrap Value because it infects Value
-        // with variants that can only ever be returned, i.e. can't be used in instructions
-        // enum QueryResult { ... }
-        pub struct QueryResult(pub Value);
     }
 
-    /// Paginated Query Result
-    // TODO: This is the only structure whose inner fields are exposed. Wrap it in model macro?
-    #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    #[version_with_scale(n = 1, versioned = "VersionedPaginatedQueryResult")]
-    pub struct PaginatedQueryResult {
-        /// The result of the query execution.
-        pub result: QueryResult,
-        /// The filter that was applied to the Query result. Returned as a sanity check, but also to ease debugging on the front-end.
-        pub filter: PredicateBox,
-        /// pagination
-        pub pagination: Pagination,
-        /// sorting
-        pub sorting: Sorting,
-        /// Total query amount (if applicable) else 0.
-        pub total: u64,
+    mod candidate {
+        use parity_scale_codec::Input;
+
+        use super::*;
+
+        #[derive(Decode, Deserialize)]
+        struct SignedQueryCandidate {
+            signature: SignatureOf<QueryPayload>,
+            payload: QueryPayload,
+        }
+
+        impl SignedQueryCandidate {
+            fn validate(self) -> Result<SignedQuery, &'static str> {
+                #[cfg(feature = "std")]
+                if self.signature.verify(&self.payload).is_err() {
+                    return Err("Query signature not valid");
+                }
+
+                Ok(SignedQuery {
+                    payload: self.payload,
+                    signature: self.signature,
+                })
+            }
+        }
+
+        impl Decode for SignedQuery {
+            fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+                SignedQueryCandidate::decode(input)?
+                    .validate()
+                    .map_err(Into::into)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for SignedQuery {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                use serde::de::Error as _;
+
+                SignedQueryCandidate::deserialize(deserializer)?
+                    .validate()
+                    .map_err(D::Error::custom)
+            }
+        }
+    }
+
+    #[cfg(feature = "transparent_api")]
+    impl VersionedSignedQuery {
+        /// Return query signature
+        pub fn signature(&self) -> &SignatureOf<QueryPayload> {
+            let VersionedSignedQuery::V1(query) = self;
+            &query.signature
+        }
+        /// Return query payload
+        pub fn query(&self) -> &QueryBox {
+            let VersionedSignedQuery::V1(query) = self;
+            &query.payload.query
+        }
+        /// Return query authority
+        pub fn authority(&self) -> &AccountId {
+            let VersionedSignedQuery::V1(query) = self;
+            &query.payload.authority
+        }
+        /// Return query filter
+        pub fn filter(&self) -> &PredicateBox {
+            let VersionedSignedQuery::V1(query) = self;
+            &query.payload.filter
+        }
     }
 
     impl QueryBuilder {
         /// Construct a new request with the `query`.
         pub fn new(query: impl Into<QueryBox>, authority: AccountId) -> Self {
-            let timestamp_ms = crate::current_time().as_millis();
-
             Self {
                 payload: QueryPayload {
-                    timestamp_ms,
                     query: query.into(),
                     authority,
                     filter: PredicateBox::default(),
@@ -1387,27 +1439,20 @@ pub mod http {
         pub fn sign(
             self,
             key_pair: iroha_crypto::KeyPair,
-        ) -> Result<SignedQuery, iroha_crypto::error::Error> {
-            SignatureOf::new(key_pair, &self.payload).map(|signature| SignedQuery {
-                payload: self.payload,
-                signature,
-            })
-        }
-    }
-
-    impl From<QueryResult> for Value {
-        fn from(source: QueryResult) -> Self {
-            source.0
+        ) -> Result<VersionedSignedQuery, iroha_crypto::error::Error> {
+            SignatureOf::new(key_pair, &self.payload)
+                .map(|signature| SignedQuery {
+                    payload: self.payload,
+                    signature,
+                })
+                .map(Into::into)
         }
     }
 
     pub mod prelude {
         //! The prelude re-exports most commonly used traits, structs and macros from this crate.
 
-        pub use super::{
-            PaginatedQueryResult, QueryBuilder, QueryResult, SignedQuery,
-            VersionedPaginatedQueryResult, VersionedQueryResult, VersionedSignedQuery,
-        };
+        pub use super::{QueryBuilder, SignedQuery, VersionedSignedQuery};
     }
 }
 
@@ -1432,7 +1477,7 @@ pub mod error {
         /// Query errors.
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -1447,58 +1492,28 @@ pub mod error {
         )]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         pub enum QueryExecutionFail {
-            /// Query has wrong signature.
-            #[display(fmt = "Query has the wrong signature: {_0}")]
+            /// Query has the wrong signature: {0}
             Signature(
                 #[skip_from]
                 #[skip_try_from]
                 String,
             ),
-            /// Query has wrong expression.
-            #[display(fmt = "Query has a malformed expression: {_0}")]
+            /// Query has a malformed expression: {0}
             Evaluate(
                 #[skip_from]
                 #[skip_try_from]
                 String,
             ),
-            /// Query found nothing.
-            #[display(fmt = "Query found nothing")]
-            Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
-            /// Query found wrong type of asset.
-            #[display(fmt = "Query found wrong type of asset: {_0}")]
+            /// Query found nothing
+            Find(#[cfg_attr(feature = "std", source)] FindError),
+            /// Query found wrong type of asset: {0}
             Conversion(
                 #[skip_from]
                 #[skip_try_from]
                 String,
             ),
-            /// Query without account.
-            #[display(fmt = "Unauthorized query: account not provided")]
+            /// Unauthorized query: account not provided
             Unauthorized,
-        }
-
-        /// Type assertion error
-        #[derive(
-            Debug,
-            Display,
-            Clone,
-            PartialEq,
-            Eq,
-            PartialOrd,
-            Ord,
-            Deserialize,
-            Serialize,
-            Decode,
-            Encode,
-            IntoSchema,
-        )]
-        #[ffi_type]
-        #[display(
-            fmt = "Failed to find permission token `{permission_token_id}` for account `{account_id}`"
-        )]
-        #[cfg_attr(feature = "std", derive(thiserror::Error))]
-        pub struct PermissionTokenFindError {
-            pub account_id: AccountId,
-            pub permission_token_id: PermissionTokenId,
         }
 
         /// Type assertion error
@@ -1520,48 +1535,31 @@ pub mod error {
         // TODO: Only temporary
         #[ffi_type(opaque)]
         pub enum FindError {
-            /// Failed to find asset
-            #[display(fmt = "Failed to find asset: `{_0}`")]
+            /// Failed to find asset: `{0}`
             Asset(AssetId),
-            /// Failed to find asset definition
-            #[display(fmt = "Failed to find asset definition: `{_0}`")]
+            /// Failed to find asset definition: `{0}`
             AssetDefinition(AssetDefinitionId),
-            /// Failed to find account
-            #[display(fmt = "Failed to find account: `{_0}`")]
+            /// Failed to find account: `{0}`
             Account(AccountId),
-            /// Failed to find domain
-            #[display(fmt = "Failed to find domain: `{_0}`")]
+            /// Failed to find domain: `{0}`
             Domain(DomainId),
-            /// Failed to find metadata key
-            #[display(fmt = "Failed to find metadata key")]
+            /// Failed to find metadata key: `{0}`
             MetadataKey(Name),
-            /// Block with supplied parent hash not found. More description in a string.
-            #[display(fmt = "Block with hash {_0} not found")]
+            /// Block with hash `{0}` not found
             Block(HashOf<VersionedCommittedBlock>),
-            /// Transaction with given hash not found.
-            #[display(fmt = "Transaction not found")]
+            /// Transaction with hash `{0}` not found
             Transaction(HashOf<VersionedSignedTransaction>),
-            /// Peer not found.
-            #[display(fmt = "Peer {_0} not found")]
+            /// Peer with id `{0}` not found
             Peer(PeerId),
-            /// Trigger not found.
-            #[display(fmt = "Failed to find trigger: `{_0}`")]
+            /// Trigger with id `{0}` not found
             Trigger(TriggerId),
-            /// Failed to find Role by id.
-            #[display(fmt = "Failed to find role by id: `{_0}`")]
+            /// Role with id `{0}` not found
             Role(RoleId),
-            /// Failed to find [`PermissionTokenDefinition`] by id.
-            #[display(fmt = "Failed to find permission token definition by id: `{_0}`")]
-            PermissionTokenDefinition(PermissionTokenId),
-            /// Failed to find [`PermissionToken`] for [`AccountId`].
-            #[cfg_attr(not(feature = "std"), display(fmt = "Failed to find permission token"))]
-            #[cfg_attr(feature = "std", error(transparent))]
-            PermissionToken(PermissionTokenFindError),
-            /// Failed to find specified [`Parameter`] variant.
-            #[display(fmt = "Failed to find specified parameter variant: `{_0}`")]
+            /// Failed to find [`PermissionToken`] by id.
+            PermissionToken(PermissionTokenId),
+            /// Parameter with id `{0}` not found
             Parameter(ParameterId),
-            /// Failed to find [`PublicKey`] at some account.
-            #[display(fmt = "Failed to find public key: `{_0}`")]
+            /// Failed to find public key: `{0}`
             PublicKey(PublicKey),
         }
     }
@@ -1575,6 +1573,6 @@ pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
         peer::prelude::*, permission::prelude::*, role::prelude::*, transaction::*,
-        trigger::prelude::*, Query, QueryBox, TransactionQueryResult,
+        trigger::prelude::*, QueryBox, TransactionQueryOutput,
     };
 }

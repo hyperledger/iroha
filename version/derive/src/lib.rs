@@ -3,22 +3,17 @@
 
 use std::ops::Range;
 
-use proc_macro::TokenStream;
-use proc_macro2::{Span, TokenStream as TokenStream2};
-use proc_macro_error::{abort, abort_call_site, proc_macro_error, OptionExt, ResultExt};
+use darling::{ast::NestedMeta, FromMeta};
+use manyhow::{bail, manyhow, Result};
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
-use rustc_hash::FxHashMap;
-use syn::{
+use syn2::{
     parse::{Parse, ParseStream},
-    parse_macro_input,
+    parse_quote,
     punctuated::Punctuated,
-    spanned::Spanned,
-    AttributeArgs, Error as SynError, Ident, ItemEnum, ItemStruct, Lit, LitInt, Meta, NestedMeta,
-    Path, Result as SynResult, Token,
+    Data, DeriveInput, Error as SynError, Ident, LitInt, Path, Result as SynResult, Token,
 };
 
-const VERSION_NUMBER_ARG_NAME: &str = "n";
-const VERSIONED_STRUCT_ARG_NAME: &str = "versioned";
 const VERSION_FIELD_NAME: &str = "version";
 const CONTENT_FIELD_NAME: &str = "content";
 
@@ -32,27 +27,24 @@ const CONTENT_FIELD_NAME: &str = "content";
 ///
 /// ### Examples
 /// See [`declare_versioned`](`declare_versioned()`).
-#[proc_macro_error]
+#[manyhow]
 #[proc_macro_attribute]
-pub fn version(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(attr as AttributeArgs);
-    impl_version(args, item).into()
+pub fn version(args: TokenStream, item: TokenStream) -> Result<TokenStream> {
+    impl_version(args, &item)
 }
 
 /// See [`version()`] for more information.
-#[proc_macro_error]
+#[manyhow]
 #[proc_macro_attribute]
-pub fn version_with_scale(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(attr as AttributeArgs);
-    impl_version(args, item).into()
+pub fn version_with_scale(args: TokenStream, item: TokenStream) -> Result<TokenStream> {
+    impl_version(args, &item)
 }
 
 /// See [`version()`] for more information.
-#[proc_macro_error]
+#[manyhow]
 #[proc_macro_attribute]
-pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(attr as AttributeArgs);
-    impl_version(args, item).into()
+pub fn version_with_json(args: TokenStream, item: TokenStream) -> Result<TokenStream> {
+    impl_version(args, &item)
 }
 
 /// Used to generate a versioned container with the given name and given range of supported versions.
@@ -76,7 +68,7 @@ pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// declare_versioned!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant);
 ///
-/// #[version(n = 1, versioned = "VersionedMessage")]
+/// #[version(version = 1, versioned_alias = "VersionedMessage")]
 /// #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
 /// pub struct Message1;
 ///
@@ -91,100 +83,66 @@ pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///    _ => Err("Unsupported version.".to_string()),
 /// }.unwrap();
 /// ```
+#[manyhow]
 #[proc_macro]
-pub fn declare_versioned(input: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(input as DeclareVersionedArgs);
-    impl_declare_versioned(&args, true, true).into()
+pub fn declare_versioned(input: TokenStream) -> Result<TokenStream> {
+    let args = syn2::parse2(input)?;
+    Ok(impl_declare_versioned(&args, true, true))
 }
 
 /// See [`declare_versioned`](`declare_versioned()`) for more information.
+#[manyhow]
 #[proc_macro]
-pub fn declare_versioned_with_scale(input: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(input as DeclareVersionedArgs);
-    impl_declare_versioned(&args, true, false).into()
+pub fn declare_versioned_with_scale(input: TokenStream) -> Result<TokenStream> {
+    let args = syn2::parse2(input)?;
+    Ok(impl_declare_versioned(&args, true, false))
 }
 
 /// See [`declare_versioned`](`declare_versioned()`) for more information.
+#[manyhow]
 #[proc_macro]
-pub fn declare_versioned_with_json(input: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(input as DeclareVersionedArgs);
-    impl_declare_versioned(&args, false, true).into()
+pub fn declare_versioned_with_json(input: TokenStream) -> Result<TokenStream> {
+    let args = syn2::parse2(input)?;
+    Ok(impl_declare_versioned(&args, false, true))
 }
 
-fn impl_version(args: Vec<NestedMeta>, item: TokenStream) -> TokenStream2 {
-    let (item, struct_name) = if let Ok(item_struct) = syn::parse::<ItemStruct>(item.clone()) {
-        (quote!(#item_struct), item_struct.ident)
-    } else if let Ok(item_enum) = syn::parse::<ItemEnum>(item) {
-        (quote!(#item_enum), item_enum.ident)
-    } else {
-        abort_call_site!("The attribute should be attached to either struct or enum.");
-    };
-    let args_map: FxHashMap<_, _> = args
-        .into_iter()
-        .filter_map(|meta| {
-            if let NestedMeta::Meta(Meta::NameValue(name_value)) = meta {
-                Some((
-                    name_value
-                        .path
-                        .get_ident()
-                        .expect_or_abort("Expected single identifier for attribute argument key.")
-                        .to_string(),
-                    name_value.lit,
-                ))
-            } else {
-                None
-            }
-        })
-        .collect();
+#[derive(FromMeta)]
+struct VersionArgs {
+    version: u32,
+    versioned_alias: syn2::Ident,
+}
 
-    for name in args_map.keys() {
-        if ![VERSION_NUMBER_ARG_NAME, VERSIONED_STRUCT_ARG_NAME].contains(&name.as_str()) {
-            abort!(name.span(), "Unknown field");
+fn impl_version(args: TokenStream, item: &TokenStream) -> Result<TokenStream> {
+    let args = NestedMeta::parse_meta_list(args)?;
+    let VersionArgs {
+        version,
+        versioned_alias,
+    } = VersionArgs::from_list(&args)?;
+
+    let (struct_name, generics) = {
+        let item = syn2::parse2::<DeriveInput>(item.clone())?;
+        match &item.data {
+            Data::Struct(_) | Data::Enum(_) => {}
+            _ => bail!("The attribute should be attached to either struct or enum."),
         }
-    }
-    let version_number = args_map
-        .get(VERSION_NUMBER_ARG_NAME)
-        .expect_or_abort(&format!(
-            "No version number argument with name {VERSION_NUMBER_ARG_NAME} found.",
-        ));
-    #[allow(clippy::str_to_string)]
-    let version_number: u32 = if let Lit::Int(number) = version_number {
-        number
-            .base10_parse()
-            .expect_or_abort("Failed to parse version number integer literal.")
-    } else {
-        abort!(
-            version_number.span(),
-            "Version number argument should have an integer value."
-        )
+        (item.ident, item.generics)
     };
-    let versioned_struct_name = args_map
-        .get(VERSIONED_STRUCT_ARG_NAME)
-        .expect_or_abort(&format!(
-            "No versioned struct name argument with name {VERSION_NUMBER_ARG_NAME} found.",
-        ));
-    #[allow(clippy::str_to_string)]
-    let versioned_struct_name = if let Lit::Str(name) = versioned_struct_name {
-        name.value()
-    } else {
-        abort!(
-            version_number.span(),
-            "Versioned struct name argument should have a string value."
-        )
-    };
-    let alias_type_name = format_ident!("_{}V{}", versioned_struct_name, version_number);
-    quote!(
+
+    let alias_type_name = format_ident!("_{}V{}", versioned_alias, version);
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    Ok(quote!(
         /// Autogenerated alias type to link versioned item to its container.
         #[allow(clippy::redundant_pub_crate)]
-        pub(crate) type #alias_type_name = #struct_name;
+        pub(crate) type #alias_type_name #impl_generics = #struct_name #ty_generics #where_clause;
 
         #item
-    )
+    ))
 }
 
 struct DeclareVersionedArgs {
     pub enum_name: Ident,
-    pub generics: syn::Generics,
+    pub generics: syn2::Generics,
     pub range: Range<u8>,
     pub _comma: Option<Token![,]>,
     pub derive: Punctuated<Path, Token![,]>,
@@ -213,7 +171,7 @@ impl DeclareVersionedArgs {
 impl Parse for DeclareVersionedArgs {
     fn parse(input: ParseStream) -> SynResult<Self> {
         let enum_name: Ident = input.parse()?;
-        let generics: syn::Generics = input.parse()?;
+        let generics: syn2::Generics = input.parse()?;
         let start_version: LitInt = input.parse()?;
         let start_version: u8 = start_version.base10_parse()?;
         let _: Token![..] = input.parse::<Token![..]>()?;
@@ -235,11 +193,25 @@ impl Parse for DeclareVersionedArgs {
     }
 }
 
-fn impl_decode_versioned(enum_name: &Ident, generics: &syn::Generics) -> proc_macro2::TokenStream {
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+fn impl_decode_versioned(enum_name: &Ident, generics: &syn2::Generics) -> proc_macro2::TokenStream {
+    let mut decode_where_clause = generics
+        .where_clause
+        .clone()
+        .unwrap_or_else(|| parse_quote!(where));
+    decode_where_clause
+        .predicates
+        .push(parse_quote!(Self: parity_scale_codec::DecodeAll));
+    let mut encode_where_clause = generics
+        .where_clause
+        .clone()
+        .unwrap_or_else(|| parse_quote!(where));
+    encode_where_clause
+        .predicates
+        .push(parse_quote!(Self: parity_scale_codec::Encode));
+    let (impl_generics, ty_generics, _) = generics.split_for_impl();
 
     quote! (
-        impl #impl_generics iroha_version::scale::DecodeVersioned for #enum_name #ty_generics #where_clause {
+        impl #impl_generics iroha_version::scale::DecodeVersioned for #enum_name #ty_generics #decode_where_clause {
             fn decode_all_versioned(input: &[u8]) -> iroha_version::error::Result<Self> {
                 use iroha_version::{error::Error, Version, UnsupportedVersion, RawVersioned};
                 use parity_scale_codec::DecodeAll;
@@ -260,7 +232,7 @@ fn impl_decode_versioned(enum_name: &Ident, generics: &syn::Generics) -> proc_ma
             }
         }
 
-        impl #impl_generics iroha_version::scale::EncodeVersioned for #enum_name #ty_generics #where_clause {
+        impl #impl_generics iroha_version::scale::EncodeVersioned for #enum_name #ty_generics #encode_where_clause {
             fn encode_versioned(&self) -> Vec<u8> {
                 use parity_scale_codec::Encode;
 
@@ -272,7 +244,7 @@ fn impl_decode_versioned(enum_name: &Ident, generics: &syn::Generics) -> proc_ma
 
 fn impl_json(
     enum_name: &Ident,
-    generics: &syn::Generics,
+    generics: &syn2::Generics,
     version_field_name: &str,
 ) -> proc_macro2::TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -315,7 +287,7 @@ fn impl_declare_versioned(
     args: &DeclareVersionedArgs,
     with_scale: bool,
     with_json: bool,
-) -> TokenStream2 {
+) -> TokenStream {
     let version_idents = args.version_idents();
     let version_struct_idents = args.version_struct_idents();
     let version_numbers = args.version_numbers();

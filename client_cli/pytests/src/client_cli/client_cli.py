@@ -2,8 +2,10 @@
 This module contains the ClientCli class, which is responsible for building and executing
 commands for interacting with Iroha blockchain using the Iroha command-line client.
 """
+import json
 import subprocess
-from time import sleep, time
+from time import sleep, monotonic
+from typing import Callable
 
 import allure
 
@@ -16,7 +18,10 @@ class ClientCli:
     A class to represent the Iroha client command line interface.
     """
     BASE_PATH = CLIENT_CLI_PATH
-    BASE_FLAGS = ['--config=' + PATH_CONFIG_CLIENT_CLI]
+    # --skip-mst-check flag is used because
+    # MST isn't used in the tests
+    # and don't using this flag results in tests being broken by interactive prompt
+    BASE_FLAGS = ['--config=' + PATH_CONFIG_CLIENT_CLI, '--skip-mst-check']
 
     def __init__(self, config: Config):
         """
@@ -46,34 +51,21 @@ class ClientCli:
         """
         self.reset()
 
-    def wait_for(self, expected: str, actual: str, timeout=None):
+    def wait_for(self, condition: Callable[[], bool], timeout=None):
         """
         Wait for a certain condition to be met, specified by the expected and actual values.
 
-        :param expected: The expected value.
-        :type expected: str
-        :param actual: The actual value.
-        :type actual: str
+        :param condition: Condition that should be met in given time.
+        :type condition: Callable[[], bool]
         :param timeout: Maximum time to wait for the condition to be met, defaults to None.
         :type timeout: int, optional
         """
         timeout = timeout or self._timeout
-        start_time = time()
-        while expected not in actual:
-            if time() - start_time > timeout:
-                allure.attach(
-                    actual,
-                    name='actual',
-                    attachment_type=allure.attachment_type.TEXT)
-                allure.attach(
-                    expected,
-                    name='expected',
-                    attachment_type=allure.attachment_type.TEXT)
-                raise TimeoutError(f"Expected '{expected}' "
-                                   f"to be in '{actual}' "
-                                   f"after waiting for '{timeout}' seconds.")
-            sleep(0.5)
-        assert expected in actual
+        start_time = monotonic()
+        while not condition():
+            if monotonic() - start_time > timeout:
+                raise TimeoutError(f"Expected condition to be satisfied after waiting for '{timeout}' seconds.")
+            sleep(1)
 
     def reset(self):
         """
@@ -114,6 +106,18 @@ class ClientCli:
         self.command.append('all')
         return self
 
+    def list_filter(self, filter):
+        """
+        Appends the 'list all' command to the command list.
+
+        :return: The current ClientCli object.
+        :rtype: ClientCli
+        """
+        self.command.append('list'),
+        self.command.append('filter')
+        self.command.append(filter)
+        return self
+
     def domain(self, domain: str):
         """
         Executes the 'domain' command for the given domain.
@@ -123,7 +127,7 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.insert(2, 'domain')
+        self.command.insert(3, 'domain')
         self.command.append('--id=' + domain)
         self.execute()
         return self
@@ -141,7 +145,7 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.insert(2, 'account')
+        self.command.insert(3, 'account')
         self.command.append('--id=' + account + '@' + domain)
         self.command.append('--key=ed0120' + key)
         self.execute()
@@ -160,7 +164,7 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.insert(2, 'asset')
+        self.command.insert(3, 'asset')
         if asset_definition and account and value_of_value_type:
             self.command.append('--account=' + account.name + '@' + asset_definition.domain)
             self.command.append('--asset=' + repr(asset_definition))
@@ -259,6 +263,14 @@ class ClientCli:
                         text=True
                 ) as process:
                     self.stdout, self.stderr = process.communicate()
+                    allure.attach(
+                        self.stdout,
+                        name='stdout',
+                        attachment_type=allure.attachment_type.TEXT)
+                    allure.attach(
+                        self.stderr,
+                        name='stderr',
+                        attachment_type=allure.attachment_type.TEXT)
             except Exception as exception:
                 raise RuntimeError(
                     f"Error executing command: {command}. "
