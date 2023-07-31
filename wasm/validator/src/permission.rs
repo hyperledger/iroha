@@ -3,14 +3,14 @@
 use alloc::borrow::ToOwned as _;
 
 use iroha_schema::IntoSchema;
-use parity_scale_codec::{Decode, Encode};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{data_model::prelude::*, prelude::*};
 
 /// [`Token`] trait is used to check if the token is owned by the account.
 pub trait Token:
-    Decode
-    + Encode
+    Serialize
+    + DeserializeOwned
     + IntoSchema
     + TryFrom<PermissionToken, Error = PermissionTokenConversionError>
     + ValidateGrantRevoke
@@ -39,18 +39,12 @@ pub trait PassCondition {
 }
 
 /// Error type for `TryFrom<PermissionToken>` implementations.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum PermissionTokenConversionError {
     /// Unexpected token id.
     Id(PermissionTokenId),
-    /// Missing parameter.
-    Param(&'static str),
-    // TODO: Improve this error
-    /// Unexpected parameter value.
-    Value(alloc::string::String),
-    // TODO: Remove after the merge of #3775
-    /// Failed to decode permission token from SCALE encoded payload
-    Decode(parity_scale_codec::Error),
+    /// Failed to deserialize JSON
+    Deserialize(serde_json::Error),
 }
 
 pub mod derive_conversions {

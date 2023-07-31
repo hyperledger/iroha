@@ -39,7 +39,8 @@ fn impl_token(ident: &syn::Ident, generics: &syn::Generics) -> proc_macro2::Toke
         impl #impl_generics ::iroha_validator::permission::Token for #ident #ty_generics #where_clause {
             fn is_owned_by(&self, account_id: &::iroha_validator::data_model::prelude::AccountId) -> bool {
                 let permission_token = ::iroha_validator::data_model::permission::PermissionToken::new(
-                    #token_definition_id, self
+                    #token_definition_id, &::serde_json::to_value(self)
+                        .expect(concat!("Failed to serialize `", stringify!(#ident), "` permission token into JSON"))
                 );
 
                 let value = ::iroha_validator::iroha_wasm::debug::DebugExpectExt::dbg_expect(
@@ -76,8 +77,8 @@ fn impl_try_from_permission_token(
                         ::alloc::borrow::ToOwned::to_owned(token.definition_id())
                     ));
                 }
-
-                <Self as ::parity_scale_codec::DecodeAll>::decode_all(&mut token.payload()).map_err(Self::Error::Decode)
+                ::serde_json::from_str::<Self>(token.payload())
+                    .map_err(::iroha_validator::permission::PermissionTokenConversionError::Deserialize)
             }
         }
     }

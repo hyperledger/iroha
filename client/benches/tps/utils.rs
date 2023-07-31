@@ -22,6 +22,7 @@ use iroha_data_model::{
     prelude::*,
 };
 use serde::Deserialize;
+use serde_json::json;
 use test_network::*;
 
 pub type Tps = f64;
@@ -181,11 +182,15 @@ impl MeasurerUnit {
         ));
         self.client.submit_blocking(register_me)?;
 
-        let can_burn_my_asset =
-            PermissionToken::new("CanBurnUserAsset".parse().unwrap(), &asset_id);
+        let can_burn_my_asset = PermissionToken::new(
+            "CanBurnUserAsset".parse().unwrap(),
+            &json!({ "asset_id": asset_id }),
+        );
         let allow_alice_to_burn_my_asset = GrantBox::new(can_burn_my_asset, alice_id.clone());
-        let can_transfer_my_asset =
-            PermissionToken::new("CanTransferUserAsset".parse().unwrap(), &asset_id);
+        let can_transfer_my_asset = PermissionToken::new(
+            "CanTransferUserAsset".parse().unwrap(),
+            &json!({ "asset_id": asset_id }),
+        );
         let allow_alice_to_transfer_my_asset = GrantBox::new(can_transfer_my_asset, alice_id);
         let grant_tx = TransactionBuilder::new(account_id)
             .with_instructions([

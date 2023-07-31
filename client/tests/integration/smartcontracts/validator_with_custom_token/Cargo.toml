@@ -17,3 +17,5 @@ iroha_schema.workspace = true
 parity-scale-codec.workspace = true
 panic-halt.workspace = true
 anyhow.workspace = true
+serde_json.workspace = true
+serde.workspace = true

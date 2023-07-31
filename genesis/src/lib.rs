@@ -100,9 +100,41 @@ impl GenesisNetwork {
 #[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
 pub struct RawGenesisBlock {
     /// Transactions
-    pub transactions: Vec<GenesisTransactionBuilder>,
+    transactions: Vec<GenesisTransactionBuilder>,
     /// Runtime Validator
-    pub validator: ValidatorMode,
+    validator: ValidatorMode,
+}
+
+impl RawGenesisBlock {
+    const WARN_ON_GENESIS_GTE: u64 = 1024 * 1024 * 1024; // 1Gb
+
+    /// Construct a genesis block from a `.json` file at the specified
+    /// path-like object.
+    ///
+    /// # Errors
+    /// If file not found or deserialization from file fails.
+    pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Self> {
+        let file = File::open(&path).wrap_err(format!("Failed to open {:?}", &path))?;
+        let size = file
+            .metadata()
+            .wrap_err("Unable to access genesis file metadata")?
+            .len();
+        if size >= Self::WARN_ON_GENESIS_GTE {
+            iroha_logger::warn!(%size, threshold = %Self::WARN_ON_GENESIS_GTE, "Genesis is quite large, it will take some time to apply it");
+        }
+        let reader = BufReader::new(file);
+        let mut raw_genesis_block: Self = serde_json::from_reader(reader).wrap_err(format!(
+            "Failed to deserialize raw genesis block from {:?}",
+            &path
+        ))?;
+        raw_genesis_block.validator.set_genesis_path(path);
+        Ok(raw_genesis_block)
+    }
+
+    /// Get first transaction
+    pub fn first_transaction_mut(&mut self) -> Option<&mut GenesisTransactionBuilder> {
+        self.transactions.first_mut()
+    }
 }
 
 /// Ways to provide validator either directly as base64 encoded string or as path to wasm file
@@ -159,48 +191,21 @@ impl ValidatorPath {
     }
 }
 
-impl RawGenesisBlock {
-    const WARN_ON_GENESIS_GTE: u64 = 1024 * 1024 * 1024; // 1Gb
-
-    /// Construct a genesis block from a `.json` file at the specified
-    /// path-like object.
-    ///
-    /// # Errors
-    /// If file not found or deserialization from file fails.
-    pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Self> {
-        let file = File::open(&path).wrap_err(format!("Failed to open {:?}", &path))?;
-        let size = file
-            .metadata()
-            .wrap_err("Unable to access genesis file metadata")?
-            .len();
-        if size >= Self::WARN_ON_GENESIS_GTE {
-            iroha_logger::warn!(%size, threshold = %Self::WARN_ON_GENESIS_GTE, "Genesis is quite large, it will take some time to apply it");
-        }
-        let reader = BufReader::new(file);
-        let mut raw_genesis_block: Self = serde_json::from_reader(reader).wrap_err(format!(
-            "Failed to deserialize raw genesis block from {:?}",
-            &path
-        ))?;
-        raw_genesis_block.validator.set_genesis_path(path);
-        Ok(raw_genesis_block)
-    }
-}
-
-/// `GenesisTransactionBuilder` is a transaction for initialize settings.
+/// Transaction for initialize settings.
 #[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
 #[serde(transparent)]
 #[schema(transparent)]
 #[repr(transparent)]
 pub struct GenesisTransactionBuilder {
     /// Instructions
-    pub isi: Vec<InstructionBox>,
+    isi: Vec<InstructionBox>,
 }
 
 impl GenesisTransactionBuilder {
-    /// Convert [`GenesisTransactionBuilder`] into [`VersionedSignedTransaction`] with signature
+    /// Convert [`GenesisTransactionBuilder`] into [`VersionedSignedTransaction`] with signature.
     ///
     /// # Errors
-    /// Fails if signing or accepting fails
+    /// Fails if signing or accepting fails.
     pub fn sign(
         self,
         genesis_key_pair: KeyPair,
@@ -208,6 +213,11 @@ impl GenesisTransactionBuilder {
         TransactionBuilder::new(GENESIS_ACCOUNT_ID.clone())
             .with_instructions(self.isi)
             .sign(genesis_key_pair)
+    }
+
+    /// Add new instruction to the transaction.
+    pub fn append_instruction(&mut self, instruction: InstructionBox) {
+        self.isi.push(instruction);
     }
 }
 

@@ -106,7 +106,7 @@
         "Grant": {
           "PermissionToken": {
             "definition_id": "CanSetParameters",
-            "payload": []
+            "payload": null
           },
           "destination_id": {
             "AccountId": "alice@wonderland"
@@ -179,47 +179,15 @@
             "permissions": [
               {
                 "definition_id": "CanRemoveKeyValueInUserAccount",
-                "payload": [
-                  20,
-                  97,
-                  108,
-                  105,
-                  99,
-                  101,
-                  40,
-                  119,
-                  111,
-                  110,
-                  100,
-                  101,
-                  114,
-                  108,
-                  97,
-                  110,
-                  100
-                ]
+                "payload": {
+                  "account_id": "alice@wonderland"
+                }
               },
               {
                 "definition_id": "CanSetKeyValueInUserAccount",
-                "payload": [
-                  20,
-                  97,
-                  108,
-                  105,
-                  99,
-                  101,
-                  40,
-                  119,
-                  111,
-                  110,
-                  100,
-                  101,
-                  114,
-                  108,
-                  97,
-                  110,
-                  100
-                ]
+                "payload": {
+                  "account_id": "alice@wonderland"
+                }
               }
             ]
           }

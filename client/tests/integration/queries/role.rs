@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use eyre::Result;
 use iroha_client::client::{self, QueryResult};
 use iroha_data_model::{prelude::*, query::error::QueryExecutionFail};
+use serde_json::json;
 use test_network::*;
 
 fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {
@@ -131,7 +132,7 @@ fn find_roles_by_account_id() -> Result<()> {
         .map(|role_id| {
             RegisterBox::new(Role::new(role_id).add_permission(PermissionToken::new(
                 "CanSetKeyValueInUserAccount".parse().unwrap(),
-                &alice_id,
+                &json!({ "account_id": alice_id }),
             )))
         })
         .collect::<Vec<_>>();

@@ -5,6 +5,7 @@ use std::str::FromStr as _;
 use eyre::Result;
 use iroha_client::client::{self, QueryResult};
 use iroha_data_model::prelude::*;
+use serde_json::json;
 use test_network::*;
 
 #[test]
@@ -25,7 +26,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");
-    let token = PermissionToken::new("token".parse()?, &());
+    let token = PermissionToken::new("token".parse()?, &json!(null));
     let role = Role::new(role_id).add_permission(token);
 
     test_client.submit(RegisterBox::new(role))?;
@@ -63,11 +64,11 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let role = Role::new(role_id.clone())
         .add_permission(PermissionToken::new(
             "CanSetKeyValueInUserAccount".parse()?,
-            &mouse_id,
+            &json!({ "account_id": mouse_id }),
         ))
         .add_permission(PermissionToken::new(
             "CanRemoveKeyValueInUserAccount".parse()?,
-            &mouse_id,
+            &json!({ "account_id": mouse_id }),
         ));
     let register_role = RegisterBox::new(role);
     test_client.submit_blocking(register_role)?;
@@ -111,7 +112,10 @@ fn unregistered_role_removed_from_account() -> Result<()> {
 
     // Register root role
     let register_role = RegisterBox::new(Role::new(role_id.clone()).add_permission(
-        PermissionToken::new("CanSetKeyValueInUserAccount".parse()?, &alice_id),
+        PermissionToken::new(
+            "CanSetKeyValueInUserAccount".parse()?,
+            &json!({ "account_id": alice_id }),
+        ),
     ));
     test_client.submit_blocking(register_role)?;
 
@@ -147,7 +151,7 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
     let rose_asset_id = AssetId::from_str("rose##alice@wonderland")?;
     let role = Role::new(role_id).add_permission(PermissionToken::new(
         "CanSetKeyValueInUserAccount".parse()?,
-        &rose_asset_id, // There should be an account id, not asset id
+        &json!({ "account_id": rose_asset_id }),
     ));
 
     let err = test_client
