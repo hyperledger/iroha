@@ -1,7 +1,7 @@
 use std::default::Default;
 
+use manyhow::{bail, Result};
 use proc_macro2::TokenStream;
-use proc_macro_error::{abort, OptionExt};
 use quote::quote;
 use rustc_hash::{FxHashMap, FxHashSet};
 use syn::{parse_quote, visit::Visit, Fields, Ident};
@@ -21,27 +21,29 @@ pub fn gen_derived_methods<'a>(
     name: &Ident,
     attrs: &[syn::Attribute],
     fields: &'a syn::Fields,
-) -> impl Iterator<Item = FnDescriptor<'a>> {
-    let struct_derives = parse_derives(attrs).unwrap_or_default();
+) -> Result<impl Iterator<Item = FnDescriptor<'a>>> {
+    let struct_derives = parse_derives(attrs)?.unwrap_or_default();
     let mut ffi_derives = FxHashMap::default();
 
     match fields {
-        Fields::Named(syn::FieldsNamed { named, .. }) => named.iter().for_each(|field| {
-            if let Some(mut field_derives) = parse_derives(&field.attrs) {
-                field_derives.extend(struct_derives.clone());
+        Fields::Named(syn::FieldsNamed { named, .. }) => {
+            for field in named.iter() {
+                if let Some(mut field_derives) = parse_derives(&field.attrs)? {
+                    field_derives.extend(struct_derives.clone());
 
-                for derive in field_derives {
-                    let fn_ = gen_derived_method(name, field, derive);
-                    ffi_derives.insert(fn_.sig.ident.clone(), fn_);
+                    for derive in field_derives {
+                        let fn_ = gen_derived_method(name, field, derive);
+                        ffi_derives.insert(fn_.sig.ident.clone(), fn_);
+                    }
                 }
             }
-        }),
+        }
         Fields::Unnamed(_) | Fields::Unit => {
-            abort!(name, "Only named structs supported")
+            bail!(name, "Only named structs supported")
         }
     }
 
-    ffi_derives.into_values()
+    Ok(ffi_derives.into_values())
 }
 
 pub fn gen_resolve_type(arg: &Arg) -> TokenStream {
@@ -64,8 +66,10 @@ pub fn gen_resolve_type(arg: &Arg) -> TokenStream {
 }
 
 /// Parse `getset` attributes to find out which methods it derives
-fn parse_derives(attrs: &[syn::Attribute]) -> Option<FxHashSet<Derive>> {
-    attrs
+fn parse_derives(attrs: &[syn::Attribute]) -> Result<Option<FxHashSet<Derive>>> {
+    let mut result = FxHashSet::default();
+
+    for nested in attrs
         .iter()
         .filter_map(|attr| {
             if let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() {
@@ -78,31 +82,31 @@ fn parse_derives(attrs: &[syn::Attribute]) -> Option<FxHashSet<Derive>> {
             None
         })
         .flatten()
-        .try_fold(FxHashSet::default(), |mut acc, nested| {
-            if let syn::NestedMeta::Meta(item) = nested {
-                match item {
-                    syn::Meta::NameValue(item) => {
-                        if item.lit == parse_quote! {"pub"} {
-                            if item.path.is_ident("set") {
-                                acc.insert(Derive::Setter);
-                            } else if item.path.is_ident("get") {
-                                acc.insert(Derive::Getter);
-                            } else if item.path.is_ident("get_mut") {
-                                acc.insert(Derive::MutGetter);
-                            }
+    {
+        if let syn::NestedMeta::Meta(item) = nested {
+            match item {
+                syn::Meta::NameValue(item) => {
+                    if item.lit == parse_quote! {"pub"} {
+                        if item.path.is_ident("set") {
+                            result.insert(Derive::Setter);
+                        } else if item.path.is_ident("get") {
+                            result.insert(Derive::Getter);
+                        } else if item.path.is_ident("get_mut") {
+                            result.insert(Derive::MutGetter);
                         }
                     }
-                    syn::Meta::Path(path) => {
-                        if path.is_ident("skip") {
-                            return None;
-                        }
-                    }
-                    _ => abort!(item, "Unsupported getset attribute"),
                 }
+                syn::Meta::Path(path) => {
+                    if path.is_ident("skip") {
+                        return Ok(None);
+                    }
+                }
+                _ => bail!(item, "Unsupported getset attribute"),
             }
+        }
+    }
 
-            Some(acc)
-        })
+    Ok(Some(result))
 }
 
 fn gen_derived_method<'ast>(
@@ -111,7 +115,7 @@ fn gen_derived_method<'ast>(
     derive: Derive,
 ) -> FnDescriptor<'ast> {
     let handle_name = Ident::new("__handle", proc_macro2::Span::call_site());
-    let field_name = field.ident.as_ref().expect_or_abort("Defined").clone();
+    let field_name = field.ident.as_ref().expect("Defined").clone();
     let sig = gen_derived_method_sig(field, derive);
     let self_ty = Some(parse_quote! {#item_name});
 
@@ -191,7 +195,7 @@ pub fn gen_store_name(arg_name: &Ident) -> Ident {
 struct FfiTypeResolver<'itm>(&'itm Ident, TokenStream);
 impl<'itm> Visit<'itm> for FfiTypeResolver<'itm> {
     fn visit_trait_bound(&mut self, i: &'itm syn::TraitBound) {
-        let trait_ = i.path.segments.last().expect_or_abort("Defined");
+        let trait_ = i.path.segments.last().expect("Defined");
 
         let arg_name = self.0;
         if trait_.ident == "IntoIterator" || trait_.ident == "ExactSizeIterator" {

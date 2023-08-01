@@ -1,5 +1,5 @@
+use manyhow::{bail, Result};
 use proc_macro2::{Span, TokenStream};
-use proc_macro_error::abort;
 use quote::quote;
 use syn::{parse_quote, visit_mut::VisitMut, Ident, Type};
 
@@ -128,7 +128,7 @@ fn impl_ord_for_opaque(name: &Ident, generics: &syn::Generics) -> TokenStream {
     }
 }
 
-fn gen_shared_fns(input: &syn::DeriveInput) -> Vec<TokenStream> {
+fn gen_shared_fns(input: &syn::DeriveInput) -> Result<Vec<TokenStream>> {
     let name = &input.ident;
 
     let mut shared_fn_impls = Vec::new();
@@ -138,7 +138,7 @@ fn gen_shared_fns(input: &syn::DeriveInput) -> Vec<TokenStream> {
                 let first_segment = &path.segments.first().expect("Must have one segment").ident;
 
                 if path.is_ident("Copy") {
-                    abort!(path, "Opaque type should not implement `Copy` trait");
+                    bail!(path, "Opaque type should not implement `Copy` trait");
                 } else if path.is_ident("Clone") {
                     shared_fn_impls.push(impl_clone_for_opaque(name, &input.generics));
                 } else if path.is_ident("Default") {
@@ -158,7 +158,7 @@ fn gen_shared_fns(input: &syn::DeriveInput) -> Vec<TokenStream> {
                 {
                     // NOTE: Already expanded
                 } else {
-                    abort!(path, "Unsupported derive for opaque type");
+                    bail!(path, "Unsupported derive for opaque type");
                 }
             }
         } else {
@@ -166,7 +166,7 @@ fn gen_shared_fns(input: &syn::DeriveInput) -> Vec<TokenStream> {
         }
     }
 
-    shared_fn_impls
+    Ok(shared_fn_impls)
 }
 
 fn wrapper_attributes(attrs: Vec<syn::Attribute>) -> Vec<syn::Attribute> {
@@ -194,7 +194,7 @@ fn wrapper_attributes(attrs: Vec<syn::Attribute>) -> Vec<syn::Attribute> {
     pruned
 }
 
-pub fn wrap_as_opaque(mut input: syn::DeriveInput) -> TokenStream {
+pub fn wrap_as_opaque(mut input: syn::DeriveInput) -> Result<TokenStream> {
     let name = &input.ident;
     let vis = &input.vis;
 
@@ -225,10 +225,10 @@ pub fn wrap_as_opaque(mut input: syn::DeriveInput) -> TokenStream {
     let ref_inner = quote!(*const iroha_ffi::Extern);
     let ref_mut_inner = quote!(*mut iroha_ffi::Extern);
 
-    let shared_fns = gen_shared_fns(&input);
+    let shared_fns = gen_shared_fns(&input)?;
     let attrs = wrapper_attributes(input.attrs);
 
-    quote! {
+    Ok(quote! {
         #(#attrs)*
         #[repr(transparent)]
         #vis struct #name #ty_generics(*mut iroha_ffi::Extern #(#phantom_data_type_defs)*) #handle_bounded_where_clause;
@@ -291,7 +291,7 @@ pub fn wrap_as_opaque(mut input: syn::DeriveInput) -> TokenStream {
 
         #(#shared_fns)*
         #impl_ffi
-    }
+    })
 }
 
 #[allow(clippy::too_many_lines)]

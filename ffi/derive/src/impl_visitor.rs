@@ -1,6 +1,6 @@
 use derive_more::Constructor;
+use manyhow::{emit, Emitter, Result};
 use proc_macro2::Span;
-use proc_macro_error::{abort, OptionExt};
 use syn::{
     parse_quote,
     visit::{visit_signature, Visit},
@@ -94,6 +94,7 @@ pub struct FnDescriptor<'ast> {
 }
 
 struct ImplVisitor<'ast> {
+    emitter: Emitter,
     attrs: Vec<&'ast Attribute>,
     trait_name: Option<&'ast Path>,
     /// Resolved type of the `Self` type
@@ -103,6 +104,7 @@ struct ImplVisitor<'ast> {
 }
 
 struct FnVisitor<'ast> {
+    emitter: Emitter,
     attrs: Vec<&'ast Attribute>,
     doc: Vec<&'ast syn::Attribute>,
     trait_name: Option<&'ast Path>,
@@ -124,20 +126,21 @@ struct FnVisitor<'ast> {
 }
 
 impl<'ast> ImplDescriptor<'ast> {
-    pub fn from_impl(node: &'ast syn::ItemImpl) -> Self {
+    pub fn from_impl(node: &'ast syn::ItemImpl) -> Result<Self> {
         let mut visitor = ImplVisitor::new();
         visitor.visit_item_impl(node);
 
         ImplDescriptor::from_visitor(visitor)
     }
 
-    fn from_visitor(visitor: ImplVisitor<'ast>) -> Self {
-        Self {
+    fn from_visitor(mut visitor: ImplVisitor<'ast>) -> Result<Self> {
+        visitor.emitter.into_result()?;
+        Ok(Self {
             attrs: visitor.attrs,
             trait_name: visitor.trait_name,
             associated_types: visitor.associated_types,
             fns: visitor.fns,
-        }
+        })
     }
 
     pub fn trait_name(&self) -> Option<&Ident> {
@@ -150,32 +153,33 @@ impl<'ast> FnDescriptor<'ast> {
         self_ty: &'ast Path,
         trait_name: Option<&'ast Path>,
         node: &'ast syn::ImplItemMethod,
-    ) -> Self {
+    ) -> Result<Self> {
         let mut visitor = FnVisitor::new(Some(self_ty), trait_name);
 
         visitor.visit_impl_item_method(node);
         FnDescriptor::from_visitor(visitor)
     }
 
-    pub fn from_fn(node: &'ast syn::ItemFn) -> Self {
+    pub fn from_fn(node: &'ast syn::ItemFn) -> Result<Self> {
         let mut visitor = FnVisitor::new(None, None);
 
         visitor.visit_item_fn(node);
         Self::from_visitor(visitor)
     }
 
-    fn from_visitor(visitor: FnVisitor<'ast>) -> Self {
-        Self {
+    fn from_visitor(mut visitor: FnVisitor<'ast>) -> Result<Self> {
+        visitor.emitter.into_result()?;
+        Ok(Self {
             attrs: visitor.attrs,
             doc: visitor.doc,
             self_ty: visitor.self_ty.map(Clone::clone),
 
-            sig: visitor.sig.expect_or_abort("Missing signature").clone(),
+            sig: visitor.sig.expect("Missing signature").clone(),
 
             receiver: visitor.receiver,
             input_args: visitor.input_args,
             output_arg: visitor.output_arg,
-        }
+        })
     }
 
     pub fn self_ty_name(&self) -> Option<&Ident> {
@@ -184,8 +188,9 @@ impl<'ast> FnDescriptor<'ast> {
 }
 
 impl<'ast> ImplVisitor<'ast> {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
+            emitter: Emitter::new(),
             attrs: Vec::new(),
             trait_name: None,
             self_ty: None,
@@ -197,19 +202,28 @@ impl<'ast> ImplVisitor<'ast> {
     fn visit_self_type(&mut self, node: &'ast Type) {
         if let Type::Path(self_ty) = node {
             if self_ty.qself.is_some() {
-                abort!(self_ty, "Qualified types are not supported as self type");
+                emit!(
+                    self.emitter,
+                    self_ty,
+                    "Qualified types are not supported as self type"
+                );
             }
 
             self.self_ty = Some(&self_ty.path);
         } else {
-            abort!(node, "Only nominal types are supported as self type");
+            emit!(
+                self.emitter,
+                node,
+                "Only nominal types are supported as self type"
+            );
         }
     }
 }
 
 impl<'ast> FnVisitor<'ast> {
-    pub const fn new(self_ty: Option<&'ast Path>, trait_name: Option<&'ast Path>) -> Self {
+    pub fn new(self_ty: Option<&'ast Path>, trait_name: Option<&'ast Path>) -> Self {
         Self {
+            emitter: Emitter::new(),
             attrs: Vec::new(),
             doc: Vec::new(),
             trait_name,
@@ -226,7 +240,7 @@ impl<'ast> FnVisitor<'ast> {
     }
 
     fn add_input_arg(&mut self, src_type: &'ast Type) {
-        let arg_name = self.curr_arg_name.take().expect_or_abort("Defined").clone();
+        let arg_name = self.curr_arg_name.take().expect("Defined").clone();
         self.input_args.push(Arg::new(
             self.self_ty.map(Clone::clone),
             arg_name,
@@ -253,14 +267,15 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
         self.attrs.push(node);
     }
     fn visit_generic_param(&mut self, node: &'ast syn::GenericParam) {
-        abort!(node, "Generics are not supported");
+        emit!(self.emitter, node, "Generics are not supported");
     }
     fn visit_item_impl(&mut self, node: &'ast syn::ItemImpl) {
         if node.unsafety.is_some() {
-            abort!(node.generics, "Unsafe impl not supported");
+            emit!(self.emitter, node.unsafety, "Unsafe impl not supported");
         }
         if node.defaultness.is_some() {
-            abort!(node.generics, "Default impl not supported");
+            emit!(self.emitter, node.defaultness, "Default impl not supported");
+            // TODO: should we return here, or can the execution continue?
         }
 
         for it in &node.attrs {
@@ -271,7 +286,7 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
         self.trait_name = node.trait_.as_ref().map(|(_, trait_, _)| trait_);
         self.visit_self_type(&node.self_ty);
 
-        let self_ty = self.self_ty.expect_or_abort("Defined");
+        let self_ty = self.self_ty.expect("Defined");
         self.associated_types
             .extend(node.items.iter().filter_map(|item| match item {
                 syn::ImplItem::Type(associated_type) => {
@@ -279,21 +294,19 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
                 }
                 _ => None,
             }));
-        self.fns
-            .extend(node.items.iter().filter_map(|item| match item {
-                syn::ImplItem::Method(method) => {
-                    // NOTE: private methods in inherent impl are skipped
-                    if self.trait_name.is_none() && !matches!(method.vis, Visibility::Public(_)) {
-                        return None;
-                    }
-                    Some(FnDescriptor::from_impl_method(
-                        self_ty,
-                        self.trait_name,
-                        method,
-                    ))
+
+        for item in node.items.iter() {
+            if let syn::ImplItem::Method(method) = item {
+                // NOTE: private methods in inherent impl are skipped
+                if self.trait_name.is_none() && !matches!(method.vis, Visibility::Public(_)) {
+                    continue;
                 }
-                _ => None,
-            }));
+                match FnDescriptor::from_impl_method(self_ty, self.trait_name, method) {
+                    Ok(desc) => self.fns.push(desc),
+                    Err(e) => self.emitter.emit(e),
+                }
+            }
+        }
     }
 }
 
@@ -307,10 +320,10 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
     }
 
     fn visit_abi(&mut self, node: &'ast syn::Abi) {
-        abort!(node, "You shouldn't specify function ABI");
+        emit!(self.emitter, node, "You shouldn't specify function ABI");
     }
     fn visit_generic_param(&mut self, node: &'ast syn::GenericParam) {
-        abort!(node, "Generics are not supported");
+        emit!(self.emitter, node, "Generics are not supported");
     }
     fn visit_impl_item_method(&mut self, node: &'ast syn::ImplItemMethod) {
         for attr in &node.attrs {
@@ -332,24 +345,44 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
     }
     fn visit_visibility(&mut self, node: &'ast syn::Visibility) {
         if self.trait_name.is_none() && !matches!(node, Visibility::Public(_)) {
-            abort!(node, "Private methods should not be exported");
+            emit!(self.emitter, node, "Private methods should not be exported");
         }
     }
     fn visit_signature(&mut self, node: &'ast syn::Signature) {
         if node.constness.is_some() {
-            abort!(node.constness, "Const functions not supported");
+            emit!(
+                self.emitter,
+                node.constness,
+                "Const functions not supported"
+            );
         }
         if node.asyncness.is_some() {
-            abort!(node.asyncness, "Async functions not supported");
+            emit!(
+                self.emitter,
+                node.asyncness,
+                "Async functions not supported"
+            );
         }
         if node.unsafety.is_some() {
-            abort!(node.unsafety, "You shouldn't specify function unsafety");
+            emit!(
+                self.emitter,
+                node.unsafety,
+                "You shouldn't specify function unsafety"
+            );
         }
         if node.abi.is_some() {
-            abort!(node.abi, "Extern fn declarations not supported")
+            emit!(
+                self.emitter,
+                node.abi,
+                "Extern fn declarations not supported"
+            )
         }
         if node.variadic.is_some() {
-            abort!(node.variadic, "Variadic arguments not supported")
+            emit!(
+                self.emitter,
+                node.variadic,
+                "Variadic arguments not supported"
+            )
         }
 
         visit_signature(self, node);
@@ -361,7 +394,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
         }
         if let Some((_, lifetime)) = &node.reference {
             if lifetime.is_some() {
-                abort!(lifetime, "Explicit lifetimes not supported");
+                emit!(self.emitter, lifetime, "Explicit lifetimes not supported");
             }
         }
 
@@ -369,7 +402,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
             || parse_quote! {Self},
             |it| {
                 if it.1.is_some() {
-                    abort!(it.1, "Explicit lifetime not supported");
+                    emit!(self.emitter, it.1, "Explicit lifetime not supported");
                 }
 
                 if node.mutability.is_some() {
@@ -396,7 +429,11 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
         if let syn::Pat::Ident(ident) = &*node.pat {
             self.visit_pat_ident(ident);
         } else {
-            abort!(node.pat, "Unsupported pattern in variable name binding");
+            emit!(
+                self.emitter,
+                node.pat,
+                "Unsupported pattern in variable name binding"
+            );
         }
 
         self.add_input_arg(&node.ty);
@@ -407,13 +444,21 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
             self.visit_attribute(it);
         }
         if node.by_ref.is_some() {
-            abort!(node.by_ref, "ref patterns not supported in argument name");
+            emit!(
+                self.emitter,
+                node.by_ref,
+                "ref patterns not supported in argument name"
+            );
         }
         if node.mutability.is_some() {
             // NOTE: It's irrelevant
         }
         if node.subpat.is_some() {
-            abort!(node, "Subpatterns not supported in argument name");
+            emit!(
+                self.emitter,
+                node,
+                "Subpatterns not supported in argument name"
+            );
         }
 
         self.curr_arg_name = Some(&node.ident);
@@ -479,7 +524,7 @@ impl VisitMut for TypeImplTraitResolver {
         if let Type::ImplTrait(impl_trait) = node {
             for bound in &impl_trait.bounds {
                 if let syn::TypeParamBound::Trait(trait_) = bound {
-                    let trait_ = trait_.path.segments.last().expect_or_abort("Defined");
+                    let trait_ = trait_.path.segments.last().expect("Defined");
 
                     if trait_.ident == "IntoIterator" || trait_.ident == "ExactSizeIterator" {
                         if let syn::PathArguments::AngleBracketed(args) = &trait_.arguments {
@@ -521,12 +566,12 @@ impl VisitMut for TypeImplTraitResolver {
 }
 
 fn last_seg_ident(path: &syn::Path) -> &Ident {
-    &path.segments.last().expect_or_abort("Defined").ident
+    &path.segments.last().expect("Defined").ident
 }
 
 pub fn unwrap_result_type(node: &Type) -> Option<(&Type, &Type)> {
     if let Type::Path(type_) = node {
-        let last_seg = type_.path.segments.last().expect_or_abort("Defined");
+        let last_seg = type_.path.segments.last().expect("Defined");
 
         if last_seg.ident == "Result" {
             if let syn::PathArguments::AngleBracketed(args) = &last_seg.arguments {

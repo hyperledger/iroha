@@ -2,10 +2,10 @@
 #![allow(clippy::arithmetic_side_effects)]
 
 use impl_visitor::{FnDescriptor, ImplDescriptor};
-use proc_macro::TokenStream;
-use proc_macro_error::abort;
+use manyhow::{bail, manyhow, Result};
+use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, parse_quote, Item, NestedMeta};
+use syn::{parse_quote, Item, NestedMeta};
 use wrapper::wrap_method;
 
 use crate::convert::derive_ffi_type;
@@ -31,7 +31,7 @@ impl syn::parse::Parse for FfiItems {
 }
 
 impl quote::ToTokens for FfiItems {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
         let items = &self.0;
         tokens.extend(quote! {#(#items)*})
     }
@@ -39,7 +39,7 @@ impl quote::ToTokens for FfiItems {
 
 fn has_getset_attr(attrs: &[syn::Attribute]) -> bool {
     for derive in find_attr(attrs, "derive") {
-        if let syn::NestedMeta::Meta(syn::Meta::Path(path)) = &derive {
+        if let NestedMeta::Meta(syn::Meta::Path(path)) = &derive {
             if path.segments.first().expect("Must have one segment").ident == "getset" {
                 return true;
             }
@@ -57,55 +57,58 @@ fn has_getset_attr(attrs: &[syn::Attribute]) -> bool {
 /// item wrapped with this macro (e.g. fieldless enums). This is so that most of the time
 /// users can safely wrap all of their structs with this macro and not be concerned with the
 /// cognitive load of figuring out which structs are converted to opaque pointers.
+#[manyhow]
 #[proc_macro]
-#[proc_macro_error::proc_macro_error]
-pub fn ffi(input: TokenStream) -> TokenStream {
-    let items = parse_macro_input!(input as FfiItems).0;
+pub fn ffi(input: TokenStream) -> Result<TokenStream> {
+    let items = syn::parse2::<FfiItems>(input)?.0;
 
-    let items = items.into_iter().map(|item| {
-        if !matches!(item.vis, syn::Visibility::Public(_)) {
-            abort!(item, "Only public types are allowed in FFI");
-        }
-
-        if !is_opaque(&item) {
-            return quote! {
-                #[derive(iroha_ffi::FfiType)]
-                #item
-            };
-        }
-
-        if let syn::Data::Struct(struct_) = &item.data {
-            if has_getset_attr(&item.attrs) {
-                let derived_methods: Vec<_> =
-                    util::gen_derived_methods(&item.ident, &item.attrs, &struct_.fields).collect();
-
-                let ffi_fns: Vec<_> = derived_methods
-                    .iter()
-                    .map(|fn_| ffi_fn::gen_declaration(fn_, None))
-                    .collect();
-
-                let impl_block = wrapper::wrap_impl_items(&ImplDescriptor {
-                    attrs: Vec::new(),
-                    trait_name: None,
-                    associated_types: Vec::new(),
-                    fns: derived_methods,
-                });
-                let opaque = wrapper::wrap_as_opaque(item);
-
-                return quote! {
-                    #opaque
-
-                    #impl_block
-                    #(#ffi_fns)*
-                };
+    let items = items
+        .into_iter()
+        .map(|item| {
+            if !matches!(item.vis, syn::Visibility::Public(_)) {
+                bail!(item, "Only public types are allowed in FFI");
             }
-        }
 
-        let opaque = wrapper::wrap_as_opaque(item);
-        quote! { #opaque }
-    });
+            if !is_opaque(&item) {
+                return Ok(quote! {
+                    #[derive(iroha_ffi::FfiType)]
+                    #item
+                });
+            }
 
-    quote! { #(#items)* }.into()
+            if let syn::Data::Struct(struct_) = &item.data {
+                if has_getset_attr(&item.attrs) {
+                    let derived_methods: Vec<_> =
+                        util::gen_derived_methods(&item.ident, &item.attrs, &struct_.fields)?
+                            .collect();
+
+                    let ffi_fns: Vec<_> = derived_methods
+                        .iter()
+                        .map(|fn_| ffi_fn::gen_declaration(fn_, None))
+                        .collect();
+
+                    let impl_block = wrapper::wrap_impl_items(&ImplDescriptor {
+                        attrs: Vec::new(),
+                        trait_name: None,
+                        associated_types: Vec::new(),
+                        fns: derived_methods,
+                    });
+                    let opaque = wrapper::wrap_as_opaque(item)?;
+
+                    return Ok(quote! {
+                        #opaque
+
+                        #impl_block
+                        #(#ffi_fns)*
+                    });
+                }
+            }
+
+            wrapper::wrap_as_opaque(item)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(quote! { #(#items)* })
 }
 
 // TODO: ffi_type(`local`) is a workaround for https://github.com/rust-lang/rust/issues/48214
@@ -150,17 +153,16 @@ pub fn ffi(input: TokenStream) -> TokenStream {
 ///
 /// * wrapping type must allow for all possible values of the pointer including `null` (it's robust)
 /// * the wrapping types's field of the pointer type must not carry ownership (it's non owning)
+#[manyhow]
 #[proc_macro_derive(FfiType, attributes(ffi_type))]
-#[proc_macro_error::proc_macro_error]
-pub fn ffi_type_derive(input: TokenStream) -> TokenStream {
-    let item = parse_macro_input!(input as syn::DeriveInput);
+pub fn ffi_type_derive(input: TokenStream) -> Result<TokenStream> {
+    let item: syn::DeriveInput = syn::parse2(input)?;
 
     if !matches!(item.vis, syn::Visibility::Public(_)) {
-        abort!(item, "Only public types are allowed in FFI");
+        bail!(item, "Only public types are allowed in FFI");
     }
 
-    let ffi_derive = derive_ffi_type(item);
-    quote! { #ffi_derive }.into()
+    derive_ffi_type(item)
 }
 
 /// Generate FFI functions
@@ -212,16 +214,16 @@ pub fn ffi_type_derive(input: TokenStream) -> TokenStream {
 ///     FfiReturn::Ok
 /// } */
 /// ```
+#[manyhow]
 #[proc_macro_attribute]
-#[proc_macro_error::proc_macro_error]
-pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
-    match parse_macro_input!(item) {
+pub fn ffi_export(attr: TokenStream, item: TokenStream) -> Result<TokenStream> {
+    Ok(match syn::parse2(item)? {
         Item::Impl(item) => {
             if !attr.is_empty() {
-                abort!(item, "Unknown tokens in the attribute");
+                bail!(item, "Unknown tokens in the attribute");
             }
 
-            let impl_descriptor = ImplDescriptor::from_impl(&item);
+            let impl_descriptor = ImplDescriptor::from_impl(&item)?;
             let ffi_fns = impl_descriptor
                 .fns
                 .iter()
@@ -233,7 +235,7 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
         Item::Fn(item) => {
-            let fn_descriptor = FnDescriptor::from_fn(&item);
+            let fn_descriptor = FnDescriptor::from_fn(&item)?;
             let ffi_fn = ffi_fn::gen_definition(&fn_descriptor, None);
 
             quote! {
@@ -243,14 +245,15 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
         Item::Struct(item) => {
             if !is_opaque_struct(&item) || !has_getset_attr(&item.attrs) {
-                return quote! { #item }.into();
+                return Ok(quote! { #item });
             }
 
             if !item.generics.params.is_empty() {
-                abort!(item.generics, "Generics on derived methods not supported");
+                bail!(item.generics, "Generics on derived methods not supported");
             }
-            let derived_ffi_fns = util::gen_derived_methods(&item.ident, &item.attrs, &item.fields)
-                .map(|fn_| ffi_fn::gen_definition(&fn_, None));
+            let derived_ffi_fns =
+                util::gen_derived_methods(&item.ident, &item.attrs, &item.fields)?
+                    .map(|fn_| ffi_fn::gen_definition(&fn_, None));
 
             quote! {
                 #item
@@ -259,9 +262,8 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
         Item::Enum(item) => quote! { #item },
         Item::Union(item) => quote! { #item },
-        item => abort!(item, "Item not supported"),
-    }
-    .into()
+        item => bail!(item, "Item not supported"),
+    })
 }
 
 /// Replace the function's body with a call to FFI function. Counterpart of [`ffi_export`]
@@ -290,17 +292,17 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     fn __return_first_elem_from_arr(arr: *const [u8; 8]) -> u8;
 /// } */
 /// ```
+#[manyhow]
 #[proc_macro_attribute]
-#[proc_macro_error::proc_macro_error]
-pub fn ffi_import(attr: TokenStream, item: TokenStream) -> TokenStream {
-    match parse_macro_input!(item) {
+pub fn ffi_import(attr: TokenStream, item: TokenStream) -> Result<TokenStream> {
+    Ok(match syn::parse2(item)? {
         Item::Impl(item) => {
             if !attr.is_empty() {
-                abort!(item, "Unknown tokens in the attribute");
+                bail!(item, "Unknown tokens in the attribute");
             }
 
             let attrs = &item.attrs;
-            let impl_desc = ImplDescriptor::from_impl(&item);
+            let impl_desc = ImplDescriptor::from_impl(&item)?;
             let wrapped_items = wrapper::wrap_impl_items(&impl_desc);
 
             let is_shared_fn = impl_desc
@@ -331,7 +333,7 @@ pub fn ffi_import(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
         Item::Fn(item) => {
-            let fn_descriptor = FnDescriptor::from_fn(&item);
+            let fn_descriptor = FnDescriptor::from_fn(&item)?;
             let ffi_fn = ffi_fn::gen_declaration(&fn_descriptor, None);
             let wrapped_item = wrap_method(&fn_descriptor, None);
 
@@ -343,9 +345,8 @@ pub fn ffi_import(attr: TokenStream, item: TokenStream) -> TokenStream {
         Item::Struct(item) => quote! { #item },
         Item::Enum(item) => quote! { #item },
         Item::Union(item) => quote! { #item },
-        item => abort!(item, "Item not supported"),
-    }
-    .into()
+        item => bail!(item, "Item not supported"),
+    })
 }
 
 fn is_opaque_struct(input: &syn::ItemStruct) -> bool {
@@ -376,21 +377,21 @@ fn without_repr(repr: &[NestedMeta]) -> bool {
     repr.is_empty()
 }
 
-fn is_repr_attr(repr: &[NestedMeta], name: &str) -> bool {
-    repr.iter().any(|meta| {
+fn is_repr_attr(repr: &[NestedMeta], name: &str) -> Result<bool> {
+    for meta in repr {
         if let NestedMeta::Meta(item) = meta {
             match item {
                 syn::Meta::Path(ref path) => {
                     if path.is_ident(name) {
-                        return true;
+                        return Ok(true);
                     }
                 }
-                _ => abort!(item, "Unknown repr attribute"),
+                _ => bail!(item, "Unknown repr attribute"),
             }
         }
+    }
 
-        false
-    })
+    Ok(false)
 }
 
 fn find_attr(attrs: &[syn::Attribute], name: &str) -> syn::AttributeArgs {
