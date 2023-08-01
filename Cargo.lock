@@ -3223,11 +3223,12 @@ dependencies = [
  "derive_more",
  "getset",
  "iroha_ffi",
- "proc-macro-error",
+ "manyhow",
  "proc-macro2",
  "quote",
  "rustc-hash",
  "syn 1.0.109",
+ "syn 2.0.26",
  "trybuild",
 ]
 
