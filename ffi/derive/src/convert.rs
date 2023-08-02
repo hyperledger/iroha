@@ -1,93 +1,372 @@
 use core::str::FromStr as _;
+use std::fmt::{Display, Formatter};
 
-use manyhow::{bail, emit, error_message, Emitter, Result};
-use proc_macro2::TokenStream;
+use darling::{
+    ast::Style, util::SpannedValue, FromAttributes, FromDeriveInput, FromField, FromVariant,
+};
+use manyhow::{emit, error_message};
+use proc_macro2::{Delimiter, Span, TokenStream};
 use quote::quote;
-use syn::{parse_quote, visit::Visit, Data, DataEnum, DeriveInput, Generics, Ident, Type};
+use syn2::{
+    parse::ParseStream, spanned::Spanned as _, visit::Visit as _, Attribute, Field, Ident, Meta,
+};
 
-use crate::{find_attr, is_opaque, is_repr_attr, without_repr};
+use crate::{
+    attr_parse::{
+        derive::DeriveAttr,
+        doc::DocAttrs,
+        getset::{GetSetFieldAttr, GetSetStructAttr},
+        repr::{Repr, ReprKind, ReprPrimitive},
+    },
+    emitter::Emitter,
+};
 
-pub fn derive_ffi_type(mut input: DeriveInput) -> Result<TokenStream> {
-    let name = &input.ident;
+#[derive(Debug)]
+enum FfiTypeToken {
+    Opaque,
+    UnsafeRobust,
+    UnsafeNonOwning,
+    Local,
+}
 
-    if let Data::Enum(enum_) = &input.data {
-        if enum_.variants.is_empty() {
-            bail!(enum_.variants, "Uninhabited enums are not allowed in FFI");
+impl Display for FfiTypeToken {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            FfiTypeToken::Opaque => "#[ffi_type(opaque)]",
+            FfiTypeToken::UnsafeRobust => "#[ffi_type(unsafe {robust})]",
+            FfiTypeToken::UnsafeNonOwning => "#[ffi_type(unsafe {non_owning})]",
+            FfiTypeToken::Local => "#[ffi_type(local)]",
+        };
+        write!(f, "{}", text)
+    }
+}
+
+#[derive(Debug)]
+struct SpannedFfiTypeToken {
+    span: Span,
+    token: FfiTypeToken,
+}
+
+impl syn2::parse::Parse for SpannedFfiTypeToken {
+    fn parse(input: ParseStream) -> syn2::Result<Self> {
+        let (span, token) = input.step(|cursor| {
+            let Some((token, after_token)) = cursor.ident() else {
+                return Err(cursor.error("expected ffi type kind"))
+            };
+
+            let mut span = token.span();
+            let token = token.to_string();
+            match token.as_str() {
+                "opaque" => Ok(((span, FfiTypeToken::Opaque), after_token)),
+                "local" => Ok(((span, FfiTypeToken::Local), after_token)),
+                "unsafe" => {
+                    let Some((inside_of_group, group_span, after_group)) = after_token.group(Delimiter::Brace) else {
+                        return Err(cursor.error("expected `{ ... }` after `unsafe`"))
+                    };
+                    span = span.join(group_span.span()).expect("Spans must be in the same file");
+
+                    let Some((token, after_token)) = inside_of_group.ident() else {
+                        return Err(cursor.error("expected ffi type kind"))
+                    };
+                    if !after_token.eof() {
+                        return Err(cursor.error("`unsafe { ... }` should only contain one identifier inside"))
+                    }
+
+                    let token = token.to_string();
+                    match token.as_str() {
+                        "robust" => Ok(((span, FfiTypeToken::UnsafeRobust), after_group)),
+                        "non_owning" => Ok(((span, FfiTypeToken::UnsafeNonOwning), after_group)),
+                        other => Err(syn2::Error::new(token.span(), format!("unknown unsafe ffi type kind: {}", other))),
+                    }
+                }
+                other => Err(syn2::Error::new(span, format!("unknown unsafe ffi type kind: {}", other))),
+            }
+        })?;
+
+        Ok(Self { span, token })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum FfiTypeKindAttribute {
+    // NOTE: these are not all the possible ffi type kinds, but only those that can be referred to using an attribute
+    // Enums are treated quite funnily...
+    Opaque,
+    UnsafeRobust,
+    Local,
+}
+
+impl syn2::parse::Parse for FfiTypeKindAttribute {
+    fn parse(input: ParseStream) -> syn2::Result<Self> {
+        input.call(SpannedFfiTypeToken::parse).and_then(|token| {
+            Ok(match token.token {
+                FfiTypeToken::Opaque => FfiTypeKindAttribute::Opaque,
+                FfiTypeToken::UnsafeRobust => FfiTypeKindAttribute::UnsafeRobust,
+                FfiTypeToken::Local => FfiTypeKindAttribute::Local,
+                other => {
+                    return Err(syn2::Error::new(
+                        token.span,
+                        format!("`{}` cannot be used on a type", other),
+                    ))
+                }
+            })
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum FfiTypeKindFieldAttribute {
+    UnsafeNonOwning,
+}
+
+impl syn2::parse::Parse for FfiTypeKindFieldAttribute {
+    fn parse(input: ParseStream) -> syn2::Result<Self> {
+        input.call(SpannedFfiTypeToken::parse).and_then(|token| {
+            Ok(match token.token {
+                FfiTypeToken::UnsafeNonOwning => FfiTypeKindFieldAttribute::UnsafeNonOwning,
+                other => {
+                    return Err(syn2::Error::new(
+                        token.span,
+                        format!("`{}` cannot be used on a field", other),
+                    ))
+                }
+            })
+        })
+    }
+}
+
+fn parse_ffi_type_attr<T: syn2::parse::Parse>(attrs: &[Attribute]) -> darling::Result<Option<T>> {
+    let mut accumulator = darling::error::Accumulator::default();
+
+    // first, ensure there is only one "ffi_type" attribute (we don't support multiple)
+    let ffi_type_attrs = attrs
+        .iter()
+        .filter(|a| a.path().is_ident("ffi_type"))
+        .collect::<Vec<_>>();
+    let attr = match *ffi_type_attrs.as_slice() {
+        [] => {
+            return accumulator.finish_with(None);
+        }
+        [attr] => attr,
+        [attr, ref tail @ ..] => {
+            // allow parsing to proceed further to collect more errors
+            accumulator.push(
+                darling::Error::custom("Only one #[ffi_type] attribute is allowed!").with_span(
+                    &tail
+                        .iter()
+                        .map(syn2::spanned::Spanned::span)
+                        .reduce(|a, b| a.join(b).unwrap())
+                        .unwrap(),
+                ),
+            );
+            attr
+        }
+    };
+
+    let mut kind = None;
+
+    match &attr.meta {
+        Meta::Path(_) | Meta::NameValue(_) => accumulator.push(darling::Error::custom(
+            "Expected #[ffi_type(...)] attribute to be a list",
+        )),
+        Meta::List(list) => {
+            kind = accumulator.handle(syn2::parse2(list.tokens.clone()).map_err(Into::into));
         }
     }
 
-    if is_opaque(&input) {
-        return Ok(derive_ffi_type_for_opaque_item(name, &input.generics));
+    accumulator.finish_with(kind)
+}
+
+pub struct FfiTypeAttr {
+    pub kind: Option<FfiTypeKindAttribute>,
+}
+
+impl FromAttributes for FfiTypeAttr {
+    fn from_attributes(attrs: &[Attribute]) -> darling::Result<Self> {
+        parse_ffi_type_attr(attrs).map(|kind| Self { kind })
     }
-    if is_transparent(&input)? {
-        return derive_ffi_type_for_transparent_item(&mut input);
+}
+
+pub struct FfiTypeFieldAttr {
+    kind: Option<FfiTypeKindFieldAttribute>,
+}
+
+impl FromAttributes for FfiTypeFieldAttr {
+    fn from_attributes(attrs: &[Attribute]) -> darling::Result<Self> {
+        parse_ffi_type_attr(attrs).map(|kind| Self { kind })
+    }
+}
+
+pub type FfiTypeData = darling::ast::Data<SpannedValue<FfiTypeVariant>, FfiTypeField>;
+pub type FfiTypeFields = darling::ast::Fields<FfiTypeField>;
+
+pub struct FfiTypeInput {
+    pub vis: syn2::Visibility,
+    pub ident: syn2::Ident,
+    pub generics: syn2::Generics,
+    pub data: FfiTypeData,
+    pub doc_attrs: DocAttrs,
+    pub derive_attr: DeriveAttr,
+    pub repr_attr: Repr,
+    pub ffi_type_attr: FfiTypeAttr,
+    pub getset_attr: GetSetStructAttr,
+    pub span: Span,
+    pub ast: syn2::DeriveInput,
+}
+
+impl FfiTypeInput {
+    pub fn is_opaque(&self) -> bool {
+        self.ffi_type_attr.kind == Some(FfiTypeKindAttribute::Opaque)
+            || !self.data.is_enum() && self.repr_attr.kind.as_deref().is_none()
+    }
+}
+
+impl darling::FromDeriveInput for FfiTypeInput {
+    fn from_derive_input(input: &syn2::DeriveInput) -> darling::Result<Self> {
+        let vis = input.vis.clone();
+        let ident = input.ident.clone();
+        let generics = input.generics.clone();
+        let data = darling::ast::Data::try_from(&input.data)?;
+        let doc_attrs = DocAttrs::from_attributes(&input.attrs)?;
+        let derive_attr = DeriveAttr::from_attributes(&input.attrs)?;
+        let repr_attr = Repr::from_attributes(&input.attrs)?;
+        let ffi_type_attr = FfiTypeAttr::from_attributes(&input.attrs)?;
+        let getset_attr = GetSetStructAttr::from_attributes(&input.attrs)?;
+        let span = input.span();
+
+        Ok(FfiTypeInput {
+            vis,
+            ident,
+            generics,
+            data,
+            doc_attrs,
+            derive_attr,
+            repr_attr,
+            ffi_type_attr,
+            getset_attr,
+            span,
+            ast: input.clone(),
+        })
+    }
+}
+
+impl quote::ToTokens for FfiTypeInput {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        // TODO: this ignores changes that may be done to Generics
+        // Would this be a problem?
+        self.ast.to_tokens(tokens);
+    }
+}
+
+#[derive(FromVariant)]
+pub struct FfiTypeVariant {
+    pub ident: syn2::Ident,
+    pub discriminant: Option<syn2::Expr>,
+    pub fields: darling::ast::Fields<FfiTypeField>,
+}
+
+pub struct FfiTypeField {
+    pub ident: Option<syn2::Ident>,
+    pub ty: syn2::Type,
+    pub doc_attrs: DocAttrs,
+    pub ffi_type_attr: FfiTypeFieldAttr,
+    pub getset_attr: GetSetFieldAttr,
+}
+
+impl FromField for FfiTypeField {
+    fn from_field(field: &Field) -> darling::Result<Self> {
+        let ident = field.ident.clone();
+        let ty = field.ty.clone();
+        let doc_attrs = DocAttrs::from_attributes(&field.attrs)?;
+        let ffi_type_attr = FfiTypeFieldAttr::from_attributes(&field.attrs)?;
+        let getset_attr = GetSetFieldAttr::from_attributes(&field.attrs)?;
+        Ok(Self {
+            ident,
+            ty,
+            doc_attrs,
+            ffi_type_attr,
+            getset_attr,
+        })
+    }
+}
+
+pub fn derive_ffi_type(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream {
+    let Some(mut input) = emitter.handle(FfiTypeInput::from_derive_input(input)) else {
+        return quote!();
+    };
+
+    let name = &input.ident;
+
+    if let darling::ast::Data::Enum(variants) = &input.data {
+        if variants.is_empty() {
+            emit!(
+                emitter,
+                input.span(),
+                "Uninhabited enums are not allowed in FFI"
+            );
+        }
+    }
+
+    // the logic of `is_opaque` is somewhat convoluted and I am not sure if it is even correct
+    // there is also `is_opaque_struct`...
+    // NOTE: this mirrors the logic in `is_opaque`. The function should be updated to use darling-parsed attrs together with the call sites
+    if input.is_opaque() {
+        return derive_ffi_type_for_opaque_item(name, &input.generics);
+    }
+    if input.repr_attr.kind.as_deref() == Some(&ReprKind::Transparent) {
+        return derive_ffi_type_for_transparent_item(emitter, &input);
     }
 
     match &input.data {
-        Data::Enum(item) => {
-            let repr = find_attr(&input.attrs, "repr");
-
-            if is_fieldless_enum(item) {
-                if item.variants.len() == 1 {
+        darling::ast::Data::Enum(variants) => {
+            if variants.iter().all(|v| v.fields.is_empty()) {
+                if variants.len() == 1 {
                     // NOTE: one-variant fieldless enums have representation of ()
-                    return Ok(derive_ffi_type_for_opaque_item(name, &input.generics));
+                    return derive_ffi_type_for_opaque_item(name, &input.generics);
                 }
-                if without_repr(&repr) {
-                    bail!(name, "Fieldless enum missing #[repr(int)]");
-                }
-                if let Some(variant) = item.variants.iter().find(|v| v.discriminant.is_some()) {
-                    bail!(
-                        variant,
+                if let Some(variant) = variants.iter().find(|v| v.discriminant.is_some()) {
+                    emit!(
+                        emitter,
+                        &variant.span(),
                         "Fieldless enums with explicit discriminants are prohibited",
                     )
                 }
 
-                derive_ffi_type_for_fieldless_enum(&input.ident, item, &repr)
+                derive_ffi_type_for_fieldless_enum(
+                    emitter,
+                    &input.ident,
+                    variants,
+                    &input.repr_attr,
+                )
             } else {
-                verify_is_non_owning(&input.data)?;
-                let local = !is_non_local(&input.attrs);
+                verify_is_non_owning(emitter, &input.data);
+                let local = input.ffi_type_attr.kind == Some(FfiTypeKindAttribute::Local);
 
-                derive_ffi_type_for_data_carrying_enum(&input.ident, input.generics, item, local)
+                derive_ffi_type_for_data_carrying_enum(
+                    emitter,
+                    &input.ident,
+                    input.generics,
+                    variants,
+                    local,
+                )
             }
         }
-        Data::Struct(item) => {
-            let ffi_type_impl = derive_ffi_type_for_repr_c(&input)?;
+        darling::ast::Data::Struct(item) => {
+            let ffi_type_impl = derive_ffi_type_for_repr_c(emitter, &input);
 
             let repr_c_impl = {
                 let predicates = &mut input.generics.make_where_clause().predicates;
-                let add_bound = |ty| predicates.push(parse_quote! {#ty: iroha_ffi::ReprC});
+                let add_bound = |ty| predicates.push(syn2::parse_quote! {#ty: iroha_ffi::ReprC});
 
-                match &item.fields {
-                    syn::Fields::Named(fields) => fields
-                        .named
-                        .iter()
-                        .map(|field| &field.ty)
-                        .for_each(add_bound),
-                    syn::Fields::Unnamed(fields) => fields
-                        .unnamed
-                        .iter()
-                        .map(|field| &field.ty)
-                        .for_each(add_bound),
-                    syn::Fields::Unit => unreachable!("Unit struct cannot implement `ReprC`"),
+                if item.style == Style::Unit {
+                    emit!(
+                        emitter,
+                        &input.span,
+                        "Unit structs cannot implement `ReprC`"
+                    );
                 }
 
-                derive_unsafe_repr_c(&input.ident, &input.generics)
-            };
-
-            Ok(quote! {
-                #repr_c_impl
-                #ffi_type_impl
-            })
-        }
-        Data::Union(item) => {
-            let ffi_type_impl = derive_ffi_type_for_repr_c(&input)?;
-
-            let repr_c_impl = {
-                let predicates = &mut input.generics.make_where_clause().predicates;
-                let add_bound = |ty| predicates.push(parse_quote! {#ty: iroha_ffi::ReprC});
-
                 item.fields
-                    .named
                     .iter()
                     .map(|field| &field.ty)
                     .for_each(add_bound);
@@ -95,27 +374,25 @@ pub fn derive_ffi_type(mut input: DeriveInput) -> Result<TokenStream> {
                 derive_unsafe_repr_c(&input.ident, &input.generics)
             };
 
-            Ok(quote! {
+            quote! {
                 #repr_c_impl
                 #ffi_type_impl
-            })
+            }
         }
     }
 }
 
 /// Before deriving this trait make sure that all invariants are upheld
-fn derive_unsafe_repr_c(name: &Ident, generics: &Generics) -> TokenStream {
+fn derive_unsafe_repr_c(name: &Ident, generics: &syn2::Generics) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
         // SAFETY: Type is robust with #[repr(C)] attribute attached
         unsafe impl #impl_generics iroha_ffi::ReprC for #name #ty_generics #where_clause {}
-
-
     }
 }
 
-fn derive_ffi_type_for_opaque_item(name: &Ident, generics: &Generics) -> TokenStream {
+fn derive_ffi_type_for_opaque_item(name: &Ident, generics: &syn2::Generics) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
@@ -132,102 +409,125 @@ fn derive_ffi_type_for_opaque_item(name: &Ident, generics: &Generics) -> TokenSt
     }
 }
 
-fn derive_ffi_type_for_transparent_item(input: &mut syn::DeriveInput) -> Result<TokenStream> {
+fn derive_ffi_type_for_transparent_item(
+    emitter: &mut Emitter,
+    input: &FfiTypeInput,
+) -> TokenStream {
+    assert_eq!(
+        input.repr_attr.kind.as_deref().copied(),
+        Some(ReprKind::Transparent)
+    );
+
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let name = &input.ident;
 
+    // #[repr(transparent)] can only be used on a struct or
+    //      single-variant enum that has a single non-zero-sized field (there may be additional zero-sized fields).
+    // The effect is that the layout and ABI of the whole struct/enum is guaranteed to be the same as that one field.
+
     // TODO: We don't check to find which field is not a ZST.
     // It is just assumed that it is the first field
     let inner = match &input.data {
-        Data::Enum(item) => {
-            let first_variant =
-                item.variants.iter().next().ok_or_else(|| {
-                    error_message!("transparent enum must have at least one variant")
-                })?;
+        darling::ast::Data::Enum(variants) => {
+            let first_variant = emitter.handle(variants.iter().next().ok_or_else(|| {
+                error_message!("transparent enum must have exactly one variant, but it has none")
+            }));
 
-            if let Some(first_variant) = first_variant.fields.iter().next() {
+            if let Some(first_variant) = first_variant.and_then(|v| v.fields.fields.first()) {
                 &first_variant.ty
             } else {
                 // NOTE: one-variant fieldless enums have representation of ()
-                return Ok(derive_ffi_type_for_opaque_item(name, &input.generics));
+                return derive_ffi_type_for_opaque_item(name, &input.generics);
             }
         }
-        Data::Struct(item) => {
-            if let Some(first_field) = item.fields.iter().next() {
+        darling::ast::Data::Struct(item) => {
+            if let Some(first_field) = item.fields.first() {
                 &first_field.ty
             } else {
                 // NOTE: Fieldless structs have representation of ()
-                return Ok(derive_ffi_type_for_opaque_item(name, &input.generics));
+                return derive_ffi_type_for_opaque_item(name, &input.generics);
             }
         }
-        Data::Union(_) => unreachable!("https://github.com/rust-lang/rust/issues/60405"),
     };
 
-    if is_robust(&input.attrs) {
-        return Ok(quote! {
+    if input.ffi_type_attr.kind == Some(FfiTypeKindAttribute::UnsafeRobust) {
+        return quote! {
             iroha_ffi::ffi_type! {
                 // SAFETY: User must make sure the type is robust
                 unsafe impl #impl_generics Transparent for #name #ty_generics #where_clause {
                     type Target = #inner;
                 }
             }
-        });
+        };
     }
 
-    Ok(quote! {})
+    quote! {}
 }
 
 fn derive_ffi_type_for_fieldless_enum(
+    emitter: &mut Emitter,
     enum_name: &Ident,
-    enum_: &DataEnum,
-    repr: &[syn::NestedMeta],
-) -> Result<TokenStream> {
-    let ffi_type = enum_size(enum_name, repr)?;
-    let (discriminants, discriminant_decls) = gen_discriminants(enum_name, enum_, &ffi_type);
+    variants: &[SpannedValue<FfiTypeVariant>],
+    repr: &Repr,
+) -> TokenStream {
+    let enum_repr_type = get_enum_repr_type(emitter, enum_name, repr, variants.is_empty());
+    // FIXME: I think this doesn't actually require variant names, just using a range would suffice
+    // (not that we don't support custom discriminants)
+    let (discriminants, discriminant_decls) =
+        gen_discriminants(enum_name, variants, &enum_repr_type);
 
-    Ok(quote! {
+    let match_ = if discriminants.is_empty() {
+        quote! {false}
+    } else {
+        quote! {
+            match *target {
+                #( | #discriminants )* => true,
+                _ => false,
+            }
+        }
+    };
+
+    quote! {
         iroha_ffi::ffi_type! {
             unsafe impl Transparent for #enum_name {
-                type Target = #ffi_type;
+                type Target = #enum_repr_type;
 
-                validation_fn=unsafe {|target: &#ffi_type| {
+                validation_fn=unsafe {|target: &#enum_repr_type| {
                     #(#discriminant_decls)*
 
-                    match *target {
-                        #( | #discriminants )* => true,
-                        _ => false,
-                    }
+                    #match_
                 }},
                 niche_value=<Self as iroha_ffi::FfiType>::ReprC::MAX
             }
         }
 
-        impl iroha_ffi::WrapperTypeOf<#enum_name> for #ffi_type {
+        impl iroha_ffi::WrapperTypeOf<#enum_name> for #enum_repr_type {
             type Type = #enum_name;
         }
-    })
+    }
 }
 
 #[allow(clippy::too_many_lines)]
 fn derive_ffi_type_for_data_carrying_enum(
+    emitter: &mut Emitter,
     enum_name: &Ident,
-    mut generics: Generics,
-    enum_: &DataEnum,
+    mut generics: syn2::Generics,
+    variants: &[SpannedValue<FfiTypeVariant>],
     local: bool,
-) -> Result<TokenStream> {
+) -> TokenStream {
     let (repr_c_enum_name, repr_c_enum) =
-        gen_data_carrying_repr_c_enum(enum_name, &mut generics, enum_)?;
+        gen_data_carrying_repr_c_enum(emitter, enum_name, &mut generics, variants);
 
     generics.make_where_clause();
     let lifetime = quote! {'__iroha_ffi_itm};
     let (impl_generics, ty_generics, where_clause) = split_for_impl(&generics);
 
-    let variant_rust_stores = enum_
-        .variants
+    let variant_rust_stores = variants
         .iter()
         .map(|variant| {
             variant_mapper(
+                emitter,
                 variant,
                 || quote! { () },
                 |field| {
@@ -236,13 +536,13 @@ fn derive_ffi_type_for_data_carrying_enum(
                 },
             )
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Vec<_>>();
 
-    let variant_ffi_stores = enum_
-        .variants
+    let variant_ffi_stores = variants
         .iter()
         .map(|variant| {
             variant_mapper(
+                emitter,
                 variant,
                 || quote! { () },
                 |field| {
@@ -251,10 +551,9 @@ fn derive_ffi_type_for_data_carrying_enum(
                 },
             )
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Vec<_>>();
 
-    let variants_into_ffi = enum_
-        .variants
+    let variants_into_ffi = variants
         .iter()
         .enumerate()
         .map(|(i, variant)| {
@@ -263,6 +562,7 @@ fn derive_ffi_type_for_data_carrying_enum(
             let variant_name = &variant.ident;
 
             variant_mapper(
+                emitter,
                 variant,
                 || {
                     quote! { Self::#variant_name => #repr_c_enum_name {
@@ -284,13 +584,14 @@ fn derive_ffi_type_for_data_carrying_enum(
                 },
             )
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Vec<_>>();
 
-    let variants_try_from_ffi = enum_.variants.iter().enumerate().map(|(i, variant)| {
+    let variants_try_from_ffi = variants.iter().enumerate().map(|(i, variant)| {
         let idx = TokenStream::from_str(&format!("{i}")).expect("Valid");
         let variant_name = &variant.ident;
 
         variant_mapper(
+            emitter,
             variant,
             || quote! { #idx => Ok(Self::#variant_name) },
             |_| {
@@ -305,12 +606,12 @@ fn derive_ffi_type_for_data_carrying_enum(
                 }
             },
         )
-    }).collect::<Result<Vec<_>>>()?;
+    }).collect::<Vec<_>>();
 
     // TODO: Tuples don't support impl of `Default` for arity > 12 currently.
     // Once this limitation is lifted `Option<tuple>` will not be necessary
     let (rust_store, ffi_store, rust_store_conversion, ffi_store_conversion) =
-        if enum_.variants.len() > 12 {
+        if variants.len() > 12 {
             (
                 quote! { Option<(#( #variant_rust_stores, )*)> },
                 quote! { Option<(#( #variant_ffi_stores, )*)> },
@@ -329,26 +630,28 @@ fn derive_ffi_type_for_data_carrying_enum(
     let non_locality = if local {
         quote! {}
     } else {
-        let mut non_local_where_clause = where_clause
-            .expect("Expected where_clause to be defined") // TODO: is this user-facing?
-            .clone();
+        let mut non_local_where_clause = where_clause.unwrap().clone();
 
-        for variant in &enum_.variants {
-            let ty = match &variant.fields {
-                syn::Fields::Unnamed(syn::FieldsUnnamed { unnamed, .. }) if unnamed.len() == 1 => {
-                    &unnamed[0].ty
+        for variant in variants {
+            let ty = match variant.fields.style {
+                Style::Tuple if variant.fields.fields.len() == 1 => &variant.fields.fields[0].ty,
+                Style::Tuple => {
+                    emit!(
+                        emitter,
+                        variant.span(),
+                        "Only 1-sized variants are supported"
+                    );
+                    continue;
                 }
-                syn::Fields::Unnamed(syn::FieldsUnnamed { unnamed, .. }) => {
-                    bail!(unnamed, "Only 1-sized variants are supported")
+                Style::Struct => {
+                    emit!(emitter, variant.span(), "Named variants are not supported");
+                    continue;
                 }
-                syn::Fields::Named(syn::FieldsNamed { named, .. }) => {
-                    bail!(named, "Named variants are not supported")
-                }
-                syn::Fields::Unit => continue,
+                Style::Unit => continue,
             };
 
             non_local_where_clause.predicates.push(
-                parse_quote! {#ty: iroha_ffi::repr_c::NonLocal<<#ty as iroha_ffi::ir::Ir>::Type>},
+                syn2::parse_quote! {#ty: iroha_ffi::repr_c::NonLocal<<#ty as iroha_ffi::ir::Ir>::Type>},
             );
         }
 
@@ -375,7 +678,7 @@ fn derive_ffi_type_for_data_carrying_enum(
         }
     };
 
-    Ok(quote! {
+    quote! {
         #repr_c_enum
 
         // NOTE: Data-carrying enum cannot implement `ReprC` unless it is robust `repr(C)`
@@ -412,32 +715,41 @@ fn derive_ffi_type_for_data_carrying_enum(
         impl<#impl_generics> iroha_ffi::repr_c::Cloned for #enum_name #ty_generics #where_clause where Self: Clone {}
 
         #non_locality
-    })
+    }
 }
 
-fn derive_ffi_type_for_repr_c(input: &DeriveInput) -> Result<TokenStream> {
-    verify_is_non_owning(&input.data)?;
-    assert_is_repr_c(&input.attrs)?;
+fn derive_ffi_type_for_repr_c(emitter: &mut Emitter, input: &FfiTypeInput) -> TokenStream {
+    verify_is_non_owning(emitter, &input.data);
+    if input.repr_attr.kind.as_deref().copied() != Some(ReprKind::C) {
+        let span = input
+            .repr_attr
+            .kind
+            .map_or_else(Span::call_site, |kind| kind.span());
+        // TODO: this error message may be unclear. Consider adding a note about the `#[ffi_type]` attribute
+        emit!(emitter, span, "The type should be marked with #[repr(C)]");
+    }
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let name = &input.ident;
 
-    Ok(quote! {
+    quote! {
         iroha_ffi::ffi_type! {
             impl #impl_generics Robust for #name #ty_generics #where_clause {}
         }
-    })
+    }
 }
 
 fn gen_data_carrying_repr_c_enum(
+    emitter: &mut Emitter,
     enum_name: &Ident,
-    generics: &mut Generics,
-    enum_: &DataEnum,
-) -> Result<(Ident, TokenStream)> {
-    let (payload_name, payload) = gen_data_carrying_enum_payload(enum_name, generics, enum_)?;
+    generics: &mut syn2::Generics,
+    variants: &[SpannedValue<FfiTypeVariant>],
+) -> (Ident, TokenStream) {
+    let (payload_name, payload) =
+        gen_data_carrying_enum_payload(emitter, enum_name, generics, variants);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let doc = format!(" [`ReprC`] equivalent of [`{enum_name}`]");
-    let enum_tag_type = gen_enum_tag_type(enum_name, enum_)?;
+    let enum_tag_type = gen_enum_tag_type(emitter, enum_name, variants);
     let repr_c_enum_name = gen_repr_c_enum_name(enum_name);
 
     let repr_c_enum = quote! {
@@ -455,24 +767,25 @@ fn gen_data_carrying_repr_c_enum(
         unsafe impl #impl_generics iroha_ffi::ReprC for #repr_c_enum_name #ty_generics #where_clause {}
     };
 
-    Ok((repr_c_enum_name, repr_c_enum))
+    (repr_c_enum_name, repr_c_enum)
 }
 
 fn gen_data_carrying_enum_payload(
+    emitter: &mut Emitter,
     enum_name: &Ident,
-    generics: &mut Generics,
-    enum_: &DataEnum,
-) -> Result<(Ident, TokenStream)> {
+    generics: &mut syn2::Generics,
+    variants: &[SpannedValue<FfiTypeVariant>],
+) -> (Ident, TokenStream) {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let field_names = enum_.variants.iter().map(|variant| &variant.ident);
+    let field_names = variants.iter().map(|variant| &variant.ident);
     let payload_name = gen_repr_c_enum_payload_name(enum_name);
     let doc = format!(" [`ReprC`] equivalent of [`{enum_name}`]");
 
-    let field_tys = enum_
-        .variants
+    let field_tys = variants
         .iter()
         .map(|variant| {
             variant_mapper(
+                emitter,
                 variant,
                 || quote! {()},
                 |field| {
@@ -481,7 +794,7 @@ fn gen_data_carrying_enum_payload(
                 },
             )
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Vec<_>>();
 
     let payload = quote! {
         #[repr(C)]
@@ -496,23 +809,23 @@ fn gen_data_carrying_enum_payload(
         unsafe impl #impl_generics iroha_ffi::ReprC for #payload_name #ty_generics #where_clause {}
     };
 
-    Ok((payload_name, payload))
+    (payload_name, payload)
 }
 
 fn gen_discriminants(
     enum_name: &Ident,
-    enum_: &DataEnum,
-    tag_type: &Type,
+    variants: &[SpannedValue<FfiTypeVariant>],
+    tag_type: &syn2::Type,
 ) -> (Vec<Ident>, Vec<TokenStream>) {
-    let variant_names: Vec<_> = enum_.variants.iter().map(|v| &v.ident).collect();
-    let discriminant_values = variant_discriminants(enum_);
+    let variant_names: Vec<_> = variants.iter().map(|v| &v.ident).collect();
+    let discriminant_values = variant_discriminants(variants);
 
     variant_names.iter().zip(discriminant_values.iter()).fold(
         <(Vec<_>, Vec<_>)>::default(),
         |mut acc, (variant_name, discriminant_value)| {
             let discriminant_name = Ident::new(
                 &format!("{enum_name}__{variant_name}").to_uppercase(),
-                proc_macro2::Span::call_site(),
+                Span::call_site(),
             );
 
             acc.1.push(quote! {
@@ -525,141 +838,152 @@ fn gen_discriminants(
     )
 }
 
-fn variant_discriminants(enum_: &DataEnum) -> Vec<proc_macro2::Literal> {
-    enum_
-        .variants
+fn variant_discriminants(variants: &[SpannedValue<FfiTypeVariant>]) -> Vec<proc_macro2::Literal> {
+    variants
         .iter()
         .enumerate()
         .map(|(i, _)| proc_macro2::Literal::usize_unsuffixed(i))
         .collect()
 }
 
-fn variant_mapper<F0: FnOnce() -> TokenStream, F1: FnOnce(&syn::Field) -> TokenStream>(
-    variant: &syn::Variant,
+fn variant_mapper<F0: FnOnce() -> TokenStream, F1: FnOnce(&FfiTypeField) -> TokenStream>(
+    emitter: &mut Emitter,
+    variant: &SpannedValue<FfiTypeVariant>,
     unit_mapper: F0,
     field_mapper: F1,
-) -> Result<TokenStream> {
-    match &variant.fields {
-        syn::Fields::Unnamed(syn::FieldsUnnamed { unnamed, .. }) if unnamed.len() == 1 => {
-            Ok(field_mapper(&unnamed[0]))
+) -> TokenStream {
+    match &variant.fields.style {
+        Style::Tuple if variant.fields.fields.len() == 1 => field_mapper(&variant.fields.fields[0]),
+        Style::Tuple => {
+            emit!(
+                emitter,
+                variant.span(),
+                "Only 1-sized variants are supported"
+            );
+            unit_mapper()
         }
-        syn::Fields::Unnamed(syn::FieldsUnnamed { unnamed, .. }) => {
-            bail!(unnamed, "Only 1-sized variants are supported")
+        Style::Struct => {
+            emit!(emitter, variant.span(), "Named variants are not supported");
+            unit_mapper()
         }
-        syn::Fields::Named(syn::FieldsNamed { named, .. }) => {
-            bail!(named, "Named variants are not supported")
-        }
-        syn::Fields::Unit => Ok(unit_mapper()),
+        Style::Unit => unit_mapper(),
     }
 }
 
 fn gen_repr_c_enum_name(enum_name: &Ident) -> Ident {
-    Ident::new(
-        &format!("__iroha_ffi__ReprC{enum_name}"),
-        proc_macro2::Span::call_site(),
-    )
+    Ident::new(&format!("__iroha_ffi__ReprC{enum_name}"), Span::call_site())
 }
 
 fn gen_repr_c_enum_payload_name(enum_name: &Ident) -> Ident {
     Ident::new(
         &format!("__iroha_ffi__{enum_name}Payload"),
-        proc_macro2::Span::call_site(),
+        Span::call_site(),
     )
-}
-
-fn is_transparent(input: &DeriveInput) -> Result<bool> {
-    let repr = &find_attr(&input.attrs, "repr");
-    is_repr_attr(repr, "transparent")
-}
-
-fn is_robust(attrs: &[syn::Attribute]) -> bool {
-    let robust_attr = parse_quote! {#[ffi_type(unsafe {robust})]};
-    attrs.iter().any(|a| *a == robust_attr)
 }
 
 // NOTE: Except for the raw pointers there should be no other type
 // that is at the same time Robust and also transfers ownership
-fn verify_is_non_owning(data: &syn::Data) -> Result<()> {
-    struct PtrVistor {
-        emitter: Emitter,
+/// Verifies for each pointer type found inside the `FfiTypeData` that it is marked as non-owning
+fn verify_is_non_owning(emitter: &mut Emitter, data: &FfiTypeData) {
+    struct PtrVisitor<'a> {
+        emitter: &'a mut Emitter,
     }
-    impl Visit<'_> for PtrVistor {
-        fn visit_field(&mut self, node: &syn::Field) {
-            let non_owning = parse_quote!(#[ffi_type(unsafe {non_owning})]);
-
-            if !node.attrs.iter().any(|attr| *attr == non_owning) {
-                syn::visit::visit_field(self, node);
-            }
-        }
-        fn visit_type_ptr(&mut self, node: &syn::TypePtr) {
+    impl syn2::visit::Visit<'_> for PtrVisitor<'_> {
+        fn visit_type_ptr(&mut self, node: &syn2::TypePtr) {
             emit!(self.emitter, node, "Raw pointer found. If the pointer doesn't own the data, attach `#[ffi_type(unsafe {{non_owning}})` to the field. Otherwise, mark the entire type as opaque with `#[ffi_type(opaque)]`");
         }
     }
 
-    let mut ptr_visitor = PtrVistor {
-        emitter: Emitter::new(),
+    fn visit_field(ptr_visitor: &mut PtrVisitor, field: &FfiTypeField) {
+        if field.ffi_type_attr.kind == Some(FfiTypeKindFieldAttribute::UnsafeNonOwning) {
+            return;
+        }
+        ptr_visitor.visit_type(&field.ty);
+    }
+
+    let mut ptr_visitor = PtrVisitor { emitter };
+    match data {
+        FfiTypeData::Enum(variants) => {
+            for variant in variants {
+                for field in variant.fields.iter() {
+                    visit_field(&mut ptr_visitor, field);
+                }
+            }
+        }
+        FfiTypeData::Struct(fields) => {
+            for field in fields.iter() {
+                visit_field(&mut ptr_visitor, field);
+            }
+        }
+    }
+}
+
+fn get_enum_repr_type(
+    emitter: &mut Emitter,
+    enum_name: &Ident,
+    repr: &Repr,
+    is_empty: bool,
+) -> syn2::Type {
+    let Some(kind) = repr.kind else {
+        // empty enums are not allowed to have a `#[repr]` attribute
+        // it's an error to use an `#[derive(FfiType)]` on them
+        // but we still want to generate a reasonable error message, so we check for it here
+        if !is_empty {
+            emit!(emitter, enum_name, "Enum representation not specified. Try adding `#[repr(u32)]` or similar");
+        }
+        return syn2::parse_quote! {u32}
     };
-    ptr_visitor.visit_data(data);
 
-    ptr_visitor.emitter.into_result()
+    let ReprKind::Primitive(primitive) = &*kind else {
+        emit!(emitter, &kind.span(), "Enum should have a primitive representation (like `#[repr(u32)]`)");
+        return syn2::parse_quote! {u32}
+    };
+
+    match primitive {
+        ReprPrimitive::U8 => syn2::parse_quote! {u8},
+        ReprPrimitive::U16 => syn2::parse_quote! {u16},
+        ReprPrimitive::U32 => syn2::parse_quote! {u32},
+        ReprPrimitive::U64 => syn2::parse_quote! {u64},
+        ReprPrimitive::I8 => syn2::parse_quote! {i8},
+        ReprPrimitive::I16 => syn2::parse_quote! {i16},
+        ReprPrimitive::I32 => syn2::parse_quote! {i32},
+
+        _ => {
+            emit!(emitter, &kind.span(), "Enum representation not supported");
+            syn2::parse_quote! {u32}
+        }
+    }
 }
 
-fn is_non_local(attrs: &[syn::Attribute]) -> bool {
-    let local = parse_quote! {#[ffi_type(local)]};
-    !attrs.iter().any(|attr| *attr == local)
-}
-
-fn is_fieldless_enum(item: &DataEnum) -> bool {
-    item.variants
-        .iter()
-        .all(|variant| matches!(variant.fields, syn::Fields::Unit))
-}
-
-fn assert_is_repr_c(attrs: &[syn::Attribute]) -> Result<()> {
-    let repr = find_attr(attrs, "repr");
-    assert!(is_repr_attr(&repr, "C")?);
-    Ok(())
-}
-
-fn enum_size(enum_name: &Ident, repr: &[syn::NestedMeta]) -> Result<Type> {
-    Ok(if is_repr_attr(repr, "u8")? {
-        parse_quote! {u8}
-    } else if is_repr_attr(repr, "i8")? {
-        parse_quote! {i8}
-    } else if is_repr_attr(repr, "u16")? {
-        parse_quote! {u16}
-    } else if is_repr_attr(repr, "i16")? {
-        parse_quote! {i16}
-    } else if is_repr_attr(repr, "u32")? {
-        parse_quote! {u32}
-    } else if is_repr_attr(repr, "i32")? {
-        parse_quote! {i32}
-    } else {
-        bail!(enum_name, "Enum representation not supported")
-    })
-}
-
-fn gen_enum_tag_type(enum_name: &Ident, enum_: &DataEnum) -> Result<TokenStream> {
+fn gen_enum_tag_type(
+    emitter: &mut Emitter,
+    enum_name: &Ident,
+    variants: &[SpannedValue<FfiTypeVariant>],
+) -> TokenStream {
     const U8_MAX: usize = u8::MAX as usize;
     const U16_MAX: usize = u16::MAX as usize;
     const U32_MAX: usize = u32::MAX as usize;
 
     // NOTE: Arms are matched in the order of declaration
     #[allow(clippy::match_overlapping_arm)]
-    Ok(match enum_.variants.len() {
+    match variants.len() {
         0..=U8_MAX => quote! {u8},
         0..=U16_MAX => quote! {u16},
         0..=U32_MAX => quote! {u32},
-        _ => bail!(enum_name, "Too many variants"),
-    })
+        // I don't think ANYONE will ever see this error lol
+        _ => {
+            emit!(emitter, enum_name, "Too many variants");
+            quote! {u32}
+        }
+    }
 }
 
 fn split_for_impl(
-    generics: &Generics,
+    generics: &syn2::Generics,
 ) -> (
-    syn::punctuated::Punctuated<syn::GenericParam, syn::Token![,]>,
-    syn::TypeGenerics<'_>,
-    Option<&syn::WhereClause>,
+    syn2::punctuated::Punctuated<syn2::GenericParam, syn2::Token![,]>,
+    syn2::TypeGenerics<'_>,
+    Option<&syn2::WhereClause>,
 ) {
     let impl_generics = generics.params.clone();
     let (_, ty_generics, where_clause) = generics.split_for_impl();

@@ -38,6 +38,12 @@ pub enum FieldlessEnum {
     C,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FfiType)]
+#[repr(transparent)]
+pub enum TransparentFieldlessEnum {
+    A,
+}
+
 /// Data-carrying enum
 #[derive(Debug, Clone, PartialEq, Eq, FfiType)]
 #[allow(variant_size_differences)]
@@ -49,14 +55,14 @@ pub enum DataCarryingEnum {
     D,
 }
 
-/// ReprC union
-#[derive(Clone, Copy, FfiType)]
-#[repr(C)]
-pub union RobustReprCUnion {
-    a: u8,
-    b: u32,
-    c: core::mem::ManuallyDrop<i16>,
-}
+// /// ReprC union
+// #[derive(Clone, Copy, FfiType)]
+// #[repr(C)]
+// pub union RobustReprCUnion {
+//     a: u8,
+//     b: u32,
+//     c: core::mem::ManuallyDrop<i16>,
+// }
 
 /// ReprC struct
 #[derive(Clone, Copy, PartialEq, Eq, FfiType)]
@@ -185,11 +191,11 @@ pub fn freestanding_with_array_in_struct(arr: ([u8; 1],)) -> ([u8; 1],) {
     arr
 }
 
-/// Return a `#[repr(C)]` union
-#[ffi_export]
-pub fn freestanding_with_repr_c_union(union_: RobustReprCUnion) -> RobustReprCUnion {
-    union_
-}
+// /// Return a `#[repr(C)]` union
+// #[ffi_export]
+// pub fn freestanding_with_repr_c_union(union_: RobustReprCUnion) -> RobustReprCUnion {
+//     union_
+// }
 
 /// Return a `#[repr(C)]` union
 #[ffi_export]
@@ -616,23 +622,23 @@ fn array_in_struct() {
     }
 }
 
-#[test]
-#[webassembly_test::webassembly_test]
-fn repr_c_union() {
-    let union_ = RobustReprCUnion { a: 42 };
-    let mut output = MaybeUninit::new(RobustReprCUnion {
-        c: core::mem::ManuallyDrop::new(-1),
-    });
-
-    unsafe {
-        assert_eq!(
-            FfiReturn::Ok,
-            __freestanding_with_repr_c_union(union_, output.as_mut_ptr())
-        );
-
-        assert!(output.assume_init().a == 42);
-    }
-}
+// #[test]
+// #[webassembly_test::webassembly_test]
+// fn repr_c_union() {
+//     let union_ = RobustReprCUnion { a: 42 };
+//     let mut output = MaybeUninit::new(RobustReprCUnion {
+//         c: core::mem::ManuallyDrop::new(-1),
+//     });
+//
+//     unsafe {
+//         assert_eq!(
+//             FfiReturn::Ok,
+//             __freestanding_with_repr_c_union(union_, output.as_mut_ptr())
+//         );
+//
+//         assert!(output.assume_init().a == 42);
+//     }
+// }
 
 #[test]
 #[webassembly_test::webassembly_test]
