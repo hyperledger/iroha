@@ -1,17 +1,17 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{visit_mut::VisitMut, Ident};
+use syn2::{visit_mut::VisitMut, Ident};
 
 use crate::{
+    getset_gen::{gen_resolve_type, gen_store_name},
     impl_visitor::{Arg, FnDescriptor},
-    util::{gen_resolve_type, gen_store_name},
 };
 
-fn prune_fn_declaration_attributes<'a>(attrs: &[&'a syn::Attribute]) -> Vec<&'a syn::Attribute> {
+fn prune_fn_declaration_attributes<'a>(attrs: &[&'a syn2::Attribute]) -> Vec<&'a syn2::Attribute> {
     let mut pruned = Vec::new();
 
     for attr in attrs {
-        if **attr == syn::parse_quote! {#[inline]} {
+        if **attr == syn2::parse_quote! {#[inline]} {
             continue;
         }
 
@@ -88,7 +88,7 @@ fn gen_doc(fn_descriptor: &FnDescriptor, trait_name: Option<&Ident>) -> String {
     let self_type = fn_descriptor
         .self_ty
         .as_ref()
-        .and_then(syn::Path::get_ident);
+        .and_then(syn2::Path::get_ident);
 
     let path = self_type.map_or_else(
         || method_name.to_string(),
@@ -213,9 +213,9 @@ pub struct InjectColon;
 impl VisitMut for InjectColon {
     fn visit_angle_bracketed_generic_arguments_mut(
         &mut self,
-        i: &mut syn::AngleBracketedGenericArguments,
+        i: &mut syn2::AngleBracketedGenericArguments,
     ) {
-        i.colon2_token = Some(syn::parse_quote!(::));
+        i.colon2_token = Some(syn2::parse_quote!(::));
     }
 }
 

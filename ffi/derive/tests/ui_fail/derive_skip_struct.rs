@@ -6,7 +6,11 @@ use iroha_ffi::{ffi_export, FfiConvert, FfiType};
 /// FfiStruct
 #[ffi_export]
 #[derive(Clone, Setters, MutGetters, FfiType)]
-#[getset(skip)]
+// TODO: I am not really sure what is the purpose of this test
+// getset allows `#[getset(skip)]` to be placed on a struct, but it doesn't seem to have any effect at all
+// Due to it being potentially error-prone, iroha_ffi_derive disallows such placement
+// hence it's commented out here
+// #[getset(skip)]
 pub struct FfiStruct {
     /// a
     #[getset(set = "pub", get_mut = "pub")]
