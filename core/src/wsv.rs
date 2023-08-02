@@ -34,10 +34,6 @@ use iroha_data_model::{
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallVec;
 
-#[cfg(test)]
-use crate::validator::MockValidator as Validator;
-#[cfg(not(test))]
-use crate::validator::Validator;
 use crate::{
     kura::Kura,
     smartcontracts::{
@@ -48,13 +44,13 @@ use crate::{
         wasm, Execute,
     },
     tx::TransactionValidator,
+    validator::Validator,
     DomainsMap, Parameters, PeersIds,
 };
 
 /// The global entity consisting of `domains`, `triggers` and etc.
 /// For example registration of domain, will have this as an ISI target.
-#[derive(Debug, Clone)]
-#[cfg_attr(not(test), derive(Default))]
+#[derive(Debug, Default, Clone)]
 pub struct World {
     /// Iroha config parameters.
     pub(crate) parameters: Parameters,
@@ -71,27 +67,7 @@ pub struct World {
     /// Triggers
     pub(crate) triggers: TriggerSet,
     /// Runtime Validator
-    pub(crate) validator: Option<Validator>,
-}
-
-/// [`Default`] is implemented manually for `cfg(test)` to create default [`MockValidator`].
-///
-/// This is done because real [`Validator`] should be submitted by user at runtime, but we have
-/// unit-tests to run. So we need a validator that is always present.
-#[cfg(test)]
-impl Default for World {
-    fn default() -> Self {
-        Self {
-            parameters: Parameters::default(),
-            trusted_peers_ids: PeersIds::default(),
-            domains: DomainsMap::default(),
-            roles: crate::RolesMap::default(),
-            account_permission_tokens: crate::PermissionTokensMap::default(),
-            permission_token_schema: PermissionTokenSchema::default(),
-            triggers: TriggerSet::default(),
-            validator: Some(Validator),
-        }
-    }
+    pub(crate) validator: Validator,
 }
 
 impl World {
@@ -970,15 +946,8 @@ impl WorldStateView {
     }
 
     /// Get [`Validator`].
-    ///
-    /// # Panic
-    ///
-    /// Panics if validator is not initialized.
-    /// Possible only before applying genesis.
     pub fn validator(&self) -> &Validator {
-        self.world.validator.as_ref().expect(
-            "`WorldStateView::validator()` called before applying genesis block, this is a bug",
-        )
+        &self.world.validator
     }
 
     /// The function puts events produced by iterator into `events_buffer`.
