@@ -218,23 +218,13 @@ pub mod isi {
     impl Execute for Upgrade<Validator> {
         #[metrics(+"upgrade_validator")]
         fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-            #[cfg(test)]
-            use crate::validator::MockValidator as Validator;
-            #[cfg(not(test))]
-            use crate::validator::Validator;
-
             let raw_validator = self.object;
-            let engine = wsv.engine.clone(); // Cloning engine is cheap
 
-            let new_validator = Validator::new(raw_validator, &engine)
-                .and_then(|new_validator| {
-                    new_validator
-                        .migrate(wsv, authority)
-                        .map(|migration_result| migration_result.map(|_: ()| new_validator))
-                })
-                .map_err(|error| {
-                    InvalidParameterError::Wasm(format!("{:?}", eyre::Report::from(error)))
-                })?
+            // Cloning validator to avoid multiple mutable borrows of `wsv`.
+            // Also it's a cheap operation.
+            let mut upgraded_validator = wsv.validator().clone();
+            upgraded_validator
+                .migrate(raw_validator, wsv, authority)
                 .map_err(|migration_error| {
                     InvalidParameterError::Wasm(format!(
                         "{:?}",
@@ -242,8 +232,7 @@ pub mod isi {
                     ))
                 })?;
 
-            let world = wsv.world_mut();
-            let _ = world.validator.insert(new_validator);
+            wsv.world_mut().validator = upgraded_validator;
 
             wsv.emit_events(std::iter::once(ValidatorEvent::Upgraded));
 
