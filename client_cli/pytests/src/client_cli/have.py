@@ -7,6 +7,7 @@ import allure
 
 from src.client_cli import client_cli, iroha, match
 
+
 def expected_in_actual(expected, actual) -> bool:
     allure.attach(
         json.dumps(actual),
@@ -19,6 +20,7 @@ def expected_in_actual(expected, actual) -> bool:
 
     return expected in actual
 
+
 def domain(expected):
     """
     Check if the expected domain is present in the list of domains.
@@ -26,9 +28,11 @@ def domain(expected):
     :param expected: The expected domain object.
     :return: True if the domain is present, False otherwise.
     """
+
     def domain_in_domains() -> bool:
-        domains = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected}"}}}}').domains() 
+        domains = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected}"}}}}').domains()
         return expected_in_actual(expected, domains)
+
     return client_cli.wait_for(domain_in_domains)
 
 
@@ -39,9 +43,11 @@ def account(expected):
     :param expected: The expected account object.
     :return: True if the account is present, False otherwise.
     """
+
     def account_in_accounts() -> bool:
-        accounts = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected}"}}}}').accounts() 
+        accounts = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected}"}}}}').accounts()
         return expected_in_actual(expected, accounts)
+
     return client_cli.wait_for(account_in_accounts)
 
 
@@ -53,10 +59,13 @@ def asset_definition(expected):
     :return: True if the asset definition is present, False otherwise.
     """
     expected_domain = expected.split('#')[1]
+
     def asset_definition_in_asset_definitions() -> bool:
         asset_definitions = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected_domain}"}}}}').asset_definitions()
         return expected_in_actual(expected, asset_definitions)
+
     return client_cli.wait_for(asset_definition_in_asset_definitions)
+
 
 def asset(expected):
     """
@@ -65,12 +74,15 @@ def asset(expected):
     :param expected: The expected asset object.
     :return: True if the asset is present, False otherwise.
     """
+
     def asset_in_assets() -> bool:
-        assets = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected}"}}}}').assets() 
+        assets = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected}"}}}}').assets()
         return expected_in_actual(expected, assets)
+
     return client_cli.wait_for(asset_in_assets)
 
-def asset_quantity(asset_id, expected_quantity):
+
+def asset_has_quantity(asset_id, expected_quantity):
     """
     Check if the expected asset quantity is present in the list of assets.
 
@@ -78,9 +90,24 @@ def asset_quantity(asset_id, expected_quantity):
     :param expected_quantity: The expected quantity of the asset.
     :return: True if the asset quantity matches the expected quantity, False otherwise.
     """
-    return match.iroha_have_asset(
-        expected_quantity,
-        actual=iroha.list_all().assets().get_quantity(asset_id))
+
+    def check_quantity() -> bool:
+        assets = iroha.list_filter(f'{{"Identifiable": {{"Is": "{asset_id}"}}}}').assets()
+        if asset_id not in assets:
+            raise Exception(f"Asset with ID {asset_id} not found.")
+        actual_quantity = iroha.get_quantity(asset_id)
+        allure.attach(
+            json.dumps(actual_quantity),
+            name='actual_quantity',
+            attachment_type=allure.attachment_type.JSON)
+        allure.attach(
+            json.dumps(expected_quantity),
+            name='expected_quantity',
+            attachment_type=allure.attachment_type.JSON)
+
+        return expected_quantity == actual_quantity
+
+    return client_cli.wait_for(check_quantity)
 
 
 def error(expected):

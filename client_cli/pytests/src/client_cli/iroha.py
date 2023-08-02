@@ -3,7 +3,7 @@ This module contains the Iroha class, which is a subclass of ClientCli.
 """
 
 import json
-from typing import Any, Dict, List, Union
+from typing import Dict, List
 from src.client_cli.client_cli import ClientCli, Config
 
 
@@ -21,11 +21,6 @@ class Iroha(ClientCli):
         :type path: str
         """
         super().__init__(config)
-        self._storage: Union[Dict, List] = {}
-        self._domains: Union[Dict, List] = {}
-        self._accounts: Union[Dict, List] = {}
-        self._assets: Union[Dict, List] = {}
-        self._asset_definitions: Dict[str, Any] = {}
 
     def _execute_command(self, command_name: str):
         """

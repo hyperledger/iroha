@@ -21,7 +21,7 @@ def test_burn_asset_for_account_in_same_domain(
             account=GIVEN_currently_authorized_account,
             quantity="1")
     with allure.step(f'THEN {GIVEN_currently_authorized_account.name} has 1 Quantity of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}'):
-        iroha.should(have.asset_quantity(
+        iroha.should(have.asset_has_quantity(
             f'{GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}##{GIVEN_currently_authorized_account}',
             '1'))
 

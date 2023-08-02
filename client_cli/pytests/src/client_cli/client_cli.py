@@ -32,7 +32,7 @@ class ClientCli:
         self.command = [self.BASE_PATH] + self.BASE_FLAGS
         self.stdout = None
         self.stderr = None
-        self._timeout = 7
+        self._timeout = 5
 
     def __enter__(self):
         """
@@ -65,7 +65,7 @@ class ClientCli:
         while not condition():
             if monotonic() - start_time > timeout:
                 raise TimeoutError(f"Expected condition to be satisfied after waiting for '{timeout}' seconds.")
-            sleep(1)
+            sleep(0.5)
 
     def reset(self):
         """
@@ -201,10 +201,10 @@ class ClientCli:
         """
         Executes the 'burn' command for the given asset
 
-        :param asset: The asset to be transferred.
+        :param asset: The asset to be burned.
         :type asset: str
 
-        :param quantity: The quantity of the asset to be transferred.
+        :param quantity: The quantity of the asset to be burned.
         :type quantity: str
         :return: The current ClientCli object.
         :rtype: ClientCli
