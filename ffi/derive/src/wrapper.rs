@@ -1,12 +1,15 @@
-use manyhow::{bail, Result};
+use manyhow::emit;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{parse_quote, visit_mut::VisitMut, Ident, Type};
+use syn2::{parse_quote, visit_mut::VisitMut, Attribute, Ident, Type};
 
 use crate::{
-    ffi_fn, find_attr,
+    attr_parse::derive::{Derive, RustcDerive},
+    convert::FfiTypeInput,
+    emitter::Emitter,
+    ffi_fn,
+    getset_gen::{gen_resolve_type, gen_store_name},
     impl_visitor::{unwrap_result_type, Arg, FnDescriptor, ImplDescriptor, TypeImplTraitResolver},
-    util::{gen_resolve_type, gen_store_name},
 };
 
 fn gen_lifetime_name_for_opaque() -> TokenStream {
@@ -19,7 +22,7 @@ fn gen_ref_mut_name(name: &Ident) -> Ident {
     Ident::new(&format!("RefMut{name}"), Span::call_site())
 }
 
-fn add_handle_bound(name: &Ident, generics: &mut syn::Generics) {
+fn add_handle_bound(name: &Ident, generics: &mut syn2::Generics) {
     let cloned_generics = generics.clone();
     let (_, ty_generics, _) = cloned_generics.split_for_impl();
 
@@ -29,7 +32,7 @@ fn add_handle_bound(name: &Ident, generics: &mut syn::Generics) {
         .push(parse_quote! {#name #ty_generics: iroha_ffi::Handle});
 }
 
-fn impl_clone_for_opaque(name: &Ident, generics: &syn::Generics) -> TokenStream {
+fn impl_clone_for_opaque(name: &Ident, generics: &syn2::Generics) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
@@ -50,7 +53,7 @@ fn impl_clone_for_opaque(name: &Ident, generics: &syn::Generics) -> TokenStream 
     }
 }
 
-fn impl_default_for_opaque(name: &Ident, generics: &syn::Generics) -> TokenStream {
+fn impl_default_for_opaque(name: &Ident, generics: &syn2::Generics) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
@@ -71,11 +74,11 @@ fn impl_default_for_opaque(name: &Ident, generics: &syn::Generics) -> TokenStrea
     }
 }
 
-fn impl_eq_for_opaque(name: &Ident, generics: &syn::Generics) -> TokenStream {
+fn impl_eq_for_opaque(name: &Ident, generics: &syn2::Generics) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     quote! { impl #impl_generics Eq for #name #ty_generics #where_clause {} }
 }
-fn impl_partial_eq_for_opaque(name: &Ident, generics: &syn::Generics) -> TokenStream {
+fn impl_partial_eq_for_opaque(name: &Ident, generics: &syn2::Generics) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
@@ -96,7 +99,7 @@ fn impl_partial_eq_for_opaque(name: &Ident, generics: &syn::Generics) -> TokenSt
     }
 }
 
-fn impl_partial_ord_for_opaque(name: &Ident, generics: &syn::Generics) -> TokenStream {
+fn impl_partial_ord_for_opaque(name: &Ident, generics: &syn2::Generics) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
@@ -107,7 +110,7 @@ fn impl_partial_ord_for_opaque(name: &Ident, generics: &syn::Generics) -> TokenS
         }
     }
 }
-fn impl_ord_for_opaque(name: &Ident, generics: &syn::Generics) -> TokenStream {
+fn impl_ord_for_opaque(name: &Ident, generics: &syn2::Generics) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
@@ -128,73 +131,65 @@ fn impl_ord_for_opaque(name: &Ident, generics: &syn::Generics) -> TokenStream {
     }
 }
 
-fn gen_shared_fns(input: &syn::DeriveInput) -> Result<Vec<TokenStream>> {
+fn gen_shared_fns(emitter: &mut Emitter, input: &FfiTypeInput) -> Vec<TokenStream> {
     let name = &input.ident;
 
     let mut shared_fn_impls = Vec::new();
-    for derive in find_attr(&input.attrs, "derive") {
-        if let syn::NestedMeta::Meta(meta) = &derive {
-            if let syn::Meta::Path(path) = meta {
-                let first_segment = &path.segments.first().expect("Must have one segment").ident;
-
-                if path.is_ident("Copy") {
-                    bail!(path, "Opaque type should not implement `Copy` trait");
-                } else if path.is_ident("Clone") {
-                    shared_fn_impls.push(impl_clone_for_opaque(name, &input.generics));
-                } else if path.is_ident("Default") {
-                    shared_fn_impls.push(impl_default_for_opaque(name, &input.generics));
-                } else if path.is_ident("PartialEq") {
-                    shared_fn_impls.push(impl_partial_eq_for_opaque(name, &input.generics));
-                } else if path.is_ident("Eq") {
-                    shared_fn_impls.push(impl_eq_for_opaque(name, &input.generics));
-                } else if path.is_ident("PartialOrd") {
-                    shared_fn_impls.push(impl_partial_ord_for_opaque(name, &input.generics));
-                } else if path.is_ident("Ord") {
-                    shared_fn_impls.push(impl_ord_for_opaque(name, &input.generics));
-                } else if first_segment == "getset"
-                    || path.is_ident("Setters")
-                    || path.is_ident("Getters")
-                    || path.is_ident("MutGetters")
-                {
-                    // NOTE: Already expanded
-                } else {
-                    bail!(path, "Unsupported derive for opaque type");
+    for derive in &input.derive_attr.derives {
+        match derive {
+            Derive::Rustc(derive) => match derive {
+                RustcDerive::Copy => {
+                    emit!(
+                        emitter,
+                        name,
+                        "Opaque type should not implement `Copy` trait"
+                    )
                 }
+                RustcDerive::Clone => {
+                    shared_fn_impls.push(impl_clone_for_opaque(name, &input.generics));
+                }
+                RustcDerive::Default => {
+                    shared_fn_impls.push(impl_default_for_opaque(name, &input.generics));
+                }
+                RustcDerive::PartialEq => {
+                    shared_fn_impls.push(impl_partial_eq_for_opaque(name, &input.generics));
+                }
+                RustcDerive::Eq => {
+                    shared_fn_impls.push(impl_eq_for_opaque(name, &input.generics));
+                }
+                RustcDerive::PartialOrd => {
+                    shared_fn_impls.push(impl_partial_ord_for_opaque(name, &input.generics));
+                }
+                RustcDerive::Ord => {
+                    shared_fn_impls.push(impl_ord_for_opaque(name, &input.generics));
+                }
+                RustcDerive::Hash | RustcDerive::Debug => {
+                    emit!(
+                        emitter,
+                        name,
+                        "Opaque type should not implement `{:?}` trait",
+                        derive
+                    )
+                }
+            },
+            Derive::GetSet(_) => {
+                // handled by `getset_gen` module
             }
-        } else {
-            unreachable!()
+            Derive::Other(derive) => {
+                emit!(
+                    emitter,
+                    name,
+                    "Opaque type should not implement `{}` trait",
+                    derive
+                )
+            }
         }
     }
 
-    Ok(shared_fn_impls)
+    shared_fn_impls
 }
 
-fn wrapper_attributes(attrs: Vec<syn::Attribute>) -> Vec<syn::Attribute> {
-    let mut pruned = Vec::new();
-
-    for attr in attrs {
-        if attr.path.is_ident("derive") {
-            continue;
-        }
-        if attr == parse_quote! {#[ffi_type(opaque)]} {
-            continue;
-        }
-        if let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() {
-            let attr_name = &meta_list.path;
-
-            // TODO: consider disallowing getset
-            if attr_name.is_ident("repr") || attr_name.is_ident("getset") {
-                continue;
-            }
-        }
-
-        pruned.push(attr);
-    }
-
-    pruned
-}
-
-pub fn wrap_as_opaque(mut input: syn::DeriveInput) -> Result<TokenStream> {
+pub fn wrap_as_opaque(emitter: &mut Emitter, mut input: FfiTypeInput) -> TokenStream {
     let name = &input.ident;
     let vis = &input.vis;
 
@@ -225,10 +220,14 @@ pub fn wrap_as_opaque(mut input: syn::DeriveInput) -> Result<TokenStream> {
     let ref_inner = quote!(*const iroha_ffi::Extern);
     let ref_mut_inner = quote!(*mut iroha_ffi::Extern);
 
-    let shared_fns = gen_shared_fns(&input)?;
-    let attrs = wrapper_attributes(input.attrs);
+    let shared_fns = gen_shared_fns(emitter, &input);
+    // TODO: which attributes do we need to keep?
+    // in darling there is mechanism to forwards attrs, but it needs to be an whitelist
+    // it seems that as of now no such forwarding needs to take place
+    // so we just drop all attributes
+    let attrs = Vec::<Attribute>::new();
 
-    Ok(quote! {
+    quote! {
         #(#attrs)*
         #[repr(transparent)]
         #vis struct #name #ty_generics(*mut iroha_ffi::Extern #(#phantom_data_type_defs)*) #handle_bounded_where_clause;
@@ -291,11 +290,11 @@ pub fn wrap_as_opaque(mut input: syn::DeriveInput) -> Result<TokenStream> {
 
         #(#shared_fns)*
         #impl_ffi
-    })
+    }
 }
 
 #[allow(clippy::too_many_lines)]
-fn gen_impl_ffi(name: &Ident, generics: &syn::Generics) -> TokenStream {
+fn gen_impl_ffi(name: &Ident, generics: &syn2::Generics) -> TokenStream {
     let mut ref_generics = generics.clone();
 
     let ref_name = gen_ref_name(name);
@@ -309,7 +308,7 @@ fn gen_impl_ffi(name: &Ident, generics: &syn::Generics) -> TokenStream {
     let lifetime_bounded_where_clause = generics
         .type_params()
         .map(|param| parse_quote! {#param: #lifetime})
-        .collect::<Vec<syn::WherePredicate>>();
+        .collect::<Vec<syn2::WherePredicate>>();
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let (ref_impl_generics, ref_ty_generics, _) = ref_generics.split_for_impl();
@@ -518,7 +517,7 @@ pub fn wrap_impl_items(impl_desc: &ImplDescriptor) -> TokenStream {
     quote! { #(#result)* }
 }
 
-fn gen_ref_wrapper_signature(fn_descriptor: &FnDescriptor) -> syn::Signature {
+fn gen_ref_wrapper_signature(fn_descriptor: &FnDescriptor) -> syn2::Signature {
     let mut signature = gen_wrapper_signature(fn_descriptor);
 
     let add_lifetime = fn_descriptor
@@ -535,7 +534,7 @@ fn gen_ref_wrapper_signature(fn_descriptor: &FnDescriptor) -> syn::Signature {
     signature
 }
 
-fn gen_wrapper_signature(fn_descriptor: &FnDescriptor) -> syn::Signature {
+fn gen_wrapper_signature(fn_descriptor: &FnDescriptor) -> syn2::Signature {
     let mut signature = fn_descriptor.sig.clone();
 
     let mut type_impl_trait_resolver = TypeImplTraitResolver;
@@ -585,7 +584,7 @@ fn gen_self_ref_method(
     let fn_name = &fn_descriptor.sig.ident;
 
     let args = fn_descriptor.sig.inputs.iter().filter_map(|input| {
-        if let syn::FnArg::Typed(arg) = input {
+        if let syn2::FnArg::Typed(arg) = input {
             return Some(&arg.pat);
         }
 
@@ -619,7 +618,7 @@ pub fn wrap_method(fn_descriptor: &FnDescriptor, trait_name: Option<&Ident>) -> 
 fn wrap_method_with_signature(
     fn_descriptor: &FnDescriptor,
     trait_name: Option<&Ident>,
-    signature: &syn::Signature,
+    signature: &syn2::Signature,
 ) -> TokenStream {
     let ffi_fn_name = ffi_fn::gen_fn_name(fn_descriptor, trait_name);
     let method_body = gen_wrapper_method_body(fn_descriptor, &ffi_fn_name);
@@ -629,7 +628,7 @@ fn wrap_method_with_signature(
 fn wrap_method_with_signature_and_body(
     fn_descriptor: &FnDescriptor,
     trait_name: Option<&Ident>,
-    signature: &syn::Signature,
+    signature: &syn2::Signature,
     method_body: &TokenStream,
 ) -> TokenStream {
     let ffi_fn_attrs = &fn_descriptor.attrs;
@@ -789,15 +788,18 @@ impl WrapperTypeResolver {
     }
 }
 impl VisitMut for WrapperTypeResolver {
-    fn visit_receiver_mut(&mut self, i: &mut syn::Receiver) {
+    fn visit_receiver_mut(&mut self, i: &mut syn2::Receiver) {
         if i.reference.is_none() {
             i.mutability = None;
         }
 
-        syn::visit_mut::visit_receiver_mut(self, i);
+        // we do NOT want to visit the type in the receiver:
+        // 1. what can actually go in there is severely limited
+        // 2. in syn 2.0 even &self has a reconstructed type &Self, which, when patched, leads to an incorrect rust syntax
+        // syn2::visit_mut::visit_receiver_mut(self, i);
     }
 
-    fn visit_type_mut(&mut self, i: &mut syn::Type) {
+    fn visit_type_mut(&mut self, i: &mut syn2::Type) {
         if self.0 {
             // Patch return type to facilitate returning types referencing local store
             *i = parse_quote! {<#i as iroha_ffi::FfiWrapperType>::ReturnType};
@@ -806,10 +808,10 @@ impl VisitMut for WrapperTypeResolver {
             *i = parse_quote! {<#i as iroha_ffi::FfiWrapperType>::InputType};
         }
     }
-    fn visit_return_type_mut(&mut self, i: &mut syn::ReturnType) {
+    fn visit_return_type_mut(&mut self, i: &mut syn2::ReturnType) {
         self.0 = true;
 
-        if let syn::ReturnType::Type(_, output) = i {
+        if let syn2::ReturnType::Type(_, output) = i {
             if let Some((ok, err)) = unwrap_result_type(output) {
                 let mut ok = ok.clone();
                 self.visit_type_mut(&mut ok);
@@ -830,7 +832,7 @@ impl WrapperLifetimeResolver {
 }
 
 impl VisitMut for WrapperLifetimeResolver {
-    fn visit_type_reference_mut(&mut self, i: &mut syn::TypeReference) {
+    fn visit_type_reference_mut(&mut self, i: &mut syn2::TypeReference) {
         let lifetime = gen_lifetime_name_for_opaque();
 
         if !self.0 || i.lifetime.is_some() {
@@ -839,8 +841,8 @@ impl VisitMut for WrapperLifetimeResolver {
 
         i.lifetime = parse_quote! {#lifetime};
     }
-    fn visit_return_type_mut(&mut self, i: &mut syn::ReturnType) {
+    fn visit_return_type_mut(&mut self, i: &mut syn2::ReturnType) {
         self.0 = true;
-        syn::visit_mut::visit_return_type_mut(self, i);
+        syn2::visit_mut::visit_return_type_mut(self, i);
     }
 }

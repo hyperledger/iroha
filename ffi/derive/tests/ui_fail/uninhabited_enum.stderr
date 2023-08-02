@@ -1,15 +1,16 @@
 error: Uninhabited enums are not allowed in FFI
- --> tests/ui_fail/uninhabited_enum.rs:4:10
+ --> tests/ui_fail/uninhabited_enum.rs:3:1
   |
-4 | #[derive(FfiType)]
-  |          ^^^^^^^
-  |
-  = note: this error originates in the derive macro `FfiType` (in Nightly builds, run with -Z macro-backtrace for more info)
+3 | / /// Uninhabited enum
+4 | | #[derive(FfiType)]
+5 | | #[ffi_type(opaque)]
+6 | | pub enum FfiStruct1 {}
+  | |______________________^
 
 error: Uninhabited enums are not allowed in FFI
- --> tests/ui_fail/uninhabited_enum.rs:9:10
-  |
-9 | #[derive(FfiType)]
-  |          ^^^^^^^
-  |
-  = note: this error originates in the derive macro `FfiType` (in Nightly builds, run with -Z macro-backtrace for more info)
+  --> tests/ui_fail/uninhabited_enum.rs:8:1
+   |
+8  | / /// Uninhabited enum
+9  | | #[derive(FfiType)]
+10 | | pub enum FfiStruct2 {}
+   | |______________________^

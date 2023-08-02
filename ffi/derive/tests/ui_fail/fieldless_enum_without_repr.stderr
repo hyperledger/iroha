@@ -1,4 +1,4 @@
-error: Fieldless enum missing #[repr(int)]
+error: Enum representation not specified. Try adding `#[repr(u32)]` or similar
  --> tests/ui_fail/fieldless_enum_without_repr.rs:5:10
   |
 5 | pub enum FfiStruct {
