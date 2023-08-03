@@ -2,7 +2,7 @@ name: I2::Release::Tests
 
 on:
   pull_request:
-    branches: [iroha2-stable, iroha2-lts]
+    branches: [ iroha2-stable, iroha2-lts ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -34,14 +34,14 @@ jobs:
           chmod +x target/debug/iroha_client_cli
           chmod +x target/debug/kagami
       - name: Setup test environment
-        run: bash -c './scripts/test_env.sh setup'
+        run: python3 './scripts/test_env.py setup'
       - name: Genesis test
         run: bash -c './scripts/tests/genesis.sh || (cat test/peers/iroha0/.log; false )'
       - name: Basic register and mint
         if: always()
         run: bash -c './scripts/tests/register_mint_quantity.sh || (cat test/peers/iroha0/.log; false )'
       - name: Cleanup test environment
-        run: bash -c './scripts/test_env.sh cleanup'
+        run: python3 './scripts/test_env.py cleanup'
       - name: Panic on invalid genesis test
         run: bash -c './scripts/tests/panic_on_invalid_genesis.sh'
 
