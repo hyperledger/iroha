@@ -284,8 +284,8 @@ pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
 ///     }
 /// }
 /// impl crate::prelude::Filter for LayerFilter {
-///     type EventType = crate::prelude::LayerEvent;
-///     fn matches(&self, event: &Self::EventType) -> bool {
+///     type TriggeringEventType = crate::prelude::LayerEvent;
+///     fn matches(&self, event: &Self::TriggeringEventType) -> bool {
 ///         self.origin_filter.matches(event) && self.event_filter.matches(event)
 ///     }
 /// }
@@ -297,7 +297,7 @@ pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
 ///     BySubLayer(crate::prelude::FilterOpt<SubLayerFilter>),
 /// }
 /// impl crate::prelude::Filter for LayerEventFilter {
-///     type EventType = crate::prelude::LayerEvent;
+///     type TriggeringEventType = crate::prelude::LayerEvent;
 ///     fn matches(&self, event: &crate::prelude::LayerEvent) -> bool {
 ///         match (self, event) {
 ///             (Self::ByCreated, crate::prelude::LayerEvent::Created(_)) => true,

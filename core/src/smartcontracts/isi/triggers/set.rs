@@ -48,7 +48,7 @@ pub struct Set {
     /// Triggers using [`ExecuteTriggerEventFilter`]
     by_call_triggers: HashMap<TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
     /// Trigger ids with type of events they process
-    ids: HashMap<TriggerId, EventType>,
+    ids: HashMap<TriggerId, TriggeringEventType>,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     matched_ids: Vec<(Event, TriggerId)>,
@@ -95,7 +95,9 @@ impl Set {
         engine: &wasmtime::Engine,
         trigger: Trigger<DataEventFilter, Executable>,
     ) -> Result<bool> {
-        self.add_to(engine, trigger, EventType::Data, |me| &mut me.data_triggers)
+        self.add_to(engine, trigger, TriggeringEventType::Data, |me| {
+            &mut me.data_triggers
+        })
     }
 
     /// Add trigger with [`PipelineEventFilter`]
@@ -111,7 +113,7 @@ impl Set {
         engine: &wasmtime::Engine,
         trigger: Trigger<PipelineEventFilter, Executable>,
     ) -> Result<bool> {
-        self.add_to(engine, trigger, EventType::Pipeline, |me| {
+        self.add_to(engine, trigger, TriggeringEventType::Pipeline, |me| {
             &mut me.pipeline_triggers
         })
     }
@@ -129,7 +131,9 @@ impl Set {
         engine: &wasmtime::Engine,
         trigger: Trigger<TimeEventFilter, Executable>,
     ) -> Result<bool> {
-        self.add_to(engine, trigger, EventType::Time, |me| &mut me.time_triggers)
+        self.add_to(engine, trigger, TriggeringEventType::Time, |me| {
+            &mut me.time_triggers
+        })
     }
 
     /// Add trigger with [`ExecuteTriggerEventFilter`]
@@ -145,7 +149,7 @@ impl Set {
         engine: &wasmtime::Engine,
         trigger: Trigger<ExecuteTriggerEventFilter, Executable>,
     ) -> Result<bool> {
-        self.add_to(engine, trigger, EventType::ExecuteTrigger, |me| {
+        self.add_to(engine, trigger, TriggeringEventType::ExecuteTrigger, |me| {
             &mut me.by_call_triggers
         })
     }
@@ -161,7 +165,7 @@ impl Set {
         &mut self,
         engine: &wasmtime::Engine,
         trigger: Trigger<F, Executable>,
-        event_type: EventType,
+        event_type: TriggeringEventType,
         map: impl FnOnce(&mut Self) -> &mut HashMap<TriggerId, LoadedAction<F>>,
     ) -> Result<bool> {
         if self.contains(trigger.id()) {
@@ -226,22 +230,22 @@ impl Set {
             }
 
             let result = match event_type {
-                EventType::Data => self
+                TriggeringEventType::Data => self
                     .data_triggers
                     .get(id)
                     .map(|trigger| f(id, trigger))
                     .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
-                EventType::Pipeline => self
+                TriggeringEventType::Pipeline => self
                     .pipeline_triggers
                     .get(id)
                     .map(|trigger| f(id, trigger))
                     .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug"),
-                EventType::Time => self
+                TriggeringEventType::Time => self
                     .time_triggers
                     .get(id)
                     .map(|trigger| f(id, trigger))
                     .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
-                EventType::ExecuteTrigger => self
+                TriggeringEventType::ExecuteTrigger => self
                     .by_call_triggers
                     .get(id)
                     .map(|trigger| f(id, trigger))
@@ -262,22 +266,22 @@ impl Set {
         let event_type = self.ids.get(id).copied()?;
 
         let result = match event_type {
-            EventType::Data => self
+            TriggeringEventType::Data => self
                 .data_triggers
                 .get(id)
                 .map(|entry| f(entry))
                 .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
-            EventType::Pipeline => self
+            TriggeringEventType::Pipeline => self
                 .pipeline_triggers
                 .get(id)
                 .map(|entry| f(entry))
                 .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug"),
-            EventType::Time => self
+            TriggeringEventType::Time => self
                 .time_triggers
                 .get(id)
                 .map(|entry| f(entry))
                 .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
-            EventType::ExecuteTrigger => self
+            TriggeringEventType::ExecuteTrigger => self
                 .by_call_triggers
                 .get(id)
                 .map(|entry| f(entry))
@@ -296,22 +300,22 @@ impl Set {
         let event_type = self.ids.get(id).copied()?;
 
         let result = match event_type {
-            EventType::Data => self
+            TriggeringEventType::Data => self
                 .data_triggers
                 .get_mut(id)
                 .map(|entry| f(entry))
                 .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
-            EventType::Pipeline => self
+            TriggeringEventType::Pipeline => self
                 .pipeline_triggers
                 .get_mut(id)
                 .map(|entry| f(entry))
                 .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug"),
-            EventType::Time => self
+            TriggeringEventType::Time => self
                 .time_triggers
                 .get_mut(id)
                 .map(|entry| f(entry))
                 .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
-            EventType::ExecuteTrigger => self
+            TriggeringEventType::ExecuteTrigger => self
                 .by_call_triggers
                 .get_mut(id)
                 .map(|entry| f(entry))
@@ -327,22 +331,22 @@ impl Set {
         self.ids
             .remove(id)
             .map(|event_type| match event_type {
-                EventType::Data => self
+                TriggeringEventType::Data => self
                     .data_triggers
                     .remove(id)
                     .map(|_| ())
                     .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
-                EventType::Pipeline => {
+                TriggeringEventType::Pipeline => {
                     self.pipeline_triggers.remove(id).map(|_| ()).expect(
                         "`Set::pipeline_triggers` doesn't contain required id. This is a bug",
                     )
                 }
-                EventType::Time => self
+                TriggeringEventType::Time => self
                     .time_triggers
                     .remove(id)
                     .map(|_| ())
                     .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
-                EventType::ExecuteTrigger => {
+                TriggeringEventType::ExecuteTrigger => {
                     self.by_call_triggers.remove(id).map(|_| ()).expect(
                         "`Set::by_call_triggers` doesn't contain required id. This is a bug",
                     )
@@ -489,7 +493,7 @@ impl Set {
 
     /// Remove actions with zero execution count from `triggers`
     fn remove_zeros<F: Filter>(
-        ids: &mut HashMap<TriggerId, EventType>,
+        ids: &mut HashMap<TriggerId, TriggeringEventType>,
         triggers: &mut HashMap<TriggerId, LoadedAction<F>>,
     ) {
         let to_remove: Vec<TriggerId> = triggers
