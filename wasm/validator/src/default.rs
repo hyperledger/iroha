@@ -223,8 +223,8 @@ impl Visit for DefaultValidator {
         visit_revoke_account_role(Revoke<Account, RoleId>),
 
         // Trigger validation
-        visit_unregister_trigger(Unregister<Trigger<FilterBox, Executable>>),
-        visit_mint_trigger_repetitions(Mint<Trigger<FilterBox, Executable>, u32>),
+        visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
+        visit_mint_trigger_repetitions(Mint<Trigger<TriggeringFilterBox, Executable>, u32>),
         visit_execute_trigger(ExecuteTrigger),
 
         // Parameter validation
@@ -1521,7 +1521,7 @@ pub mod trigger {
     pub fn visit_unregister_trigger<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
-        isi: Unregister<Trigger<FilterBox, Executable>>,
+        isi: Unregister<Trigger<TriggeringFilterBox, Executable>>,
     ) {
         let trigger_id = isi.object_id;
 
@@ -1544,7 +1544,7 @@ pub mod trigger {
     pub fn visit_mint_trigger_repetitions<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
-        isi: Mint<Trigger<FilterBox, Executable>, u32>,
+        isi: Mint<Trigger<TriggeringFilterBox, Executable>, u32>,
     ) {
         let trigger_id = isi.destination_id;
 

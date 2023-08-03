@@ -35,7 +35,7 @@ use block::VersionedCommittedBlock;
 use derive_more::Into;
 use derive_more::{AsRef, DebugCustom, Deref, Display, From, FromStr};
 use evaluate::Evaluate;
-use events::FilterBox;
+use events::TriggeringFilterBox;
 use getset::Getters;
 use iroha_crypto::{HashOf, PublicKey};
 use iroha_data_model_derive::{
@@ -638,7 +638,7 @@ pub mod model {
         Asset(<asset::Asset as Registered>::With),
         /// [`Trigger`](`trigger::Trigger`) variant.
         #[display(fmt = "Trigger {_0}")]
-        Trigger(<trigger::Trigger<FilterBox, Executable> as Registered>::With),
+        Trigger(<trigger::Trigger<TriggeringFilterBox, Executable> as Registered>::With),
         /// [`Role`](`role::Role`) variant.
         #[display(fmt = "Role {_0}")]
         Role(<role::Role as Registered>::With),
@@ -708,10 +708,10 @@ pub mod model {
     pub enum TriggerBox {
         /// Un-optimized [`Trigger`](`trigger::Trigger`) submitted from client to Iroha.
         #[display(fmt = "{_0}")]
-        Raw(trigger::Trigger<FilterBox, Executable>),
+        Raw(trigger::Trigger<TriggeringFilterBox, Executable>),
         /// Optimized [`Trigger`](`trigger::Trigger`) returned from Iroha to client.
         #[display(fmt = "{_0} (optimised)")]
-        Optimized(trigger::Trigger<FilterBox, trigger::OptimizedExecutable>),
+        Optimized(trigger::Trigger<TriggeringFilterBox, trigger::OptimizedExecutable>),
     }
 
     /// Sized container for all possible upgradable entities.
@@ -1468,19 +1468,19 @@ impl TryFrom<f64> for Value {
     }
 }
 
-impl From<trigger::Trigger<FilterBox, Executable>> for Value {
-    fn from(trigger: trigger::Trigger<FilterBox, Executable>) -> Self {
+impl From<trigger::Trigger<TriggeringFilterBox, Executable>> for Value {
+    fn from(trigger: trigger::Trigger<TriggeringFilterBox, Executable>) -> Self {
         Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Raw(trigger)))
     }
 }
 
-impl From<trigger::Trigger<FilterBox, trigger::OptimizedExecutable>> for Value {
-    fn from(trigger: trigger::Trigger<FilterBox, trigger::OptimizedExecutable>) -> Self {
+impl From<trigger::Trigger<TriggeringFilterBox, trigger::OptimizedExecutable>> for Value {
+    fn from(trigger: trigger::Trigger<TriggeringFilterBox, trigger::OptimizedExecutable>) -> Self {
         Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Optimized(trigger)))
     }
 }
 
-impl TryFrom<Value> for trigger::Trigger<FilterBox, Executable> {
+impl TryFrom<Value> for trigger::Trigger<TriggeringFilterBox, Executable> {
     type Error = ErrorTryFromEnum<Value, Self>;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -1492,7 +1492,7 @@ impl TryFrom<Value> for trigger::Trigger<FilterBox, Executable> {
     }
 }
 
-impl TryFrom<Value> for trigger::Trigger<FilterBox, trigger::OptimizedExecutable> {
+impl TryFrom<Value> for trigger::Trigger<TriggeringFilterBox, trigger::OptimizedExecutable> {
     type Error = ErrorTryFromEnum<Value, Self>;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {

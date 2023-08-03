@@ -1027,7 +1027,7 @@ pub mod trigger {
     use super::{MetadataValue, Query};
     use crate::{
         domain::prelude::*,
-        events::FilterBox,
+        events::TriggeringFilterBox,
         expression::EvaluatesTo,
         prelude::InstructionBox,
         trigger::{OptimizedExecutable, Trigger, TriggerId},
@@ -1084,7 +1084,7 @@ pub mod trigger {
     }
 
     impl Query for FindTriggerById {
-        type Output = Trigger<FilterBox, OptimizedExecutable>;
+        type Output = Trigger<TriggeringFilterBox, OptimizedExecutable>;
     }
 
     impl Query for FindTriggerKeyValueByIdAndKey {
@@ -1092,7 +1092,7 @@ pub mod trigger {
     }
 
     impl Query for FindTriggersByDomainId {
-        type Output = Vec<Trigger<FilterBox, OptimizedExecutable>>;
+        type Output = Vec<Trigger<TriggeringFilterBox, OptimizedExecutable>>;
     }
 
     impl FindTriggerById {

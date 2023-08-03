@@ -13,6 +13,7 @@ pub use self::model::*;
 
 pub mod data;
 pub mod execute_trigger;
+pub mod notification;
 pub mod pipeline;
 pub mod time;
 
@@ -34,11 +35,13 @@ pub mod model {
         Time(time::TimeEvent),
         /// Trigger execution event.
         ExecuteTrigger(execute_trigger::ExecuteTriggerEvent),
+        /// Notification event.
+        Notification(notification::NotificationEvent),
     }
 
-    /// Event type. Like [`Event`] but without actual event data
+    /// Event type which could invoke trigger execution.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema)]
-    pub enum EventType {
+    pub enum TriggeringEventType {
         /// Pipeline event.
         Pipeline,
         /// Data event.
@@ -57,6 +60,26 @@ pub mod model {
     // TODO: Temporarily made opaque
     #[ffi_type(opaque)]
     pub enum FilterBox {
+        /// Listen to pipeline events with filter.
+        Pipeline(pipeline::PipelineEventFilter),
+        /// Listen to data events with filter.
+        Data(data::DataEventFilter),
+        /// Listen to time events with filter.
+        Time(time::TimeEventFilter),
+        /// Listen to trigger execution event with filter.
+        ExecuteTrigger(execute_trigger::ExecuteTriggerEventFilter),
+        /// Listen to notifications event with filter.
+        Notification(notification::NotificationEventFilter),
+    }
+
+    /// Event filter which could be attached to trigger.
+    #[allow(variant_size_differences)]
+    #[derive(
+        Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
+    // TODO: Temporarily made opaque
+    #[ffi_type(opaque)]
+    pub enum TriggeringFilterBox {
         /// Listen to pipeline events with filter.
         Pipeline(pipeline::PipelineEventFilter),
         /// Listen to data events with filter.
@@ -103,13 +126,48 @@ impl Filter for FilterBox {
     /// Apply filter to event.
     fn matches(&self, event: &Event) -> bool {
         match (event, self) {
-            (Event::Pipeline(event), FilterBox::Pipeline(filter)) => filter.matches(event),
-            (Event::Data(event), FilterBox::Data(filter)) => filter.matches(event),
-            (Event::Time(event), FilterBox::Time(filter)) => filter.matches(event),
-            (Event::ExecuteTrigger(event), FilterBox::ExecuteTrigger(filter)) => {
-                filter.matches(event)
-            }
-            _ => false,
+            (Event::Pipeline(event), Self::Pipeline(filter)) => filter.matches(event),
+            (Event::Data(event), Self::Data(filter)) => filter.matches(event),
+            (Event::Time(event), Self::Time(filter)) => filter.matches(event),
+            (Event::ExecuteTrigger(event), Self::ExecuteTrigger(filter)) => filter.matches(event),
+            (Event::Notification(event), Self::Notification(filter)) => filter.matches(event),
+            // Fail to compile in case when new variant to event or filter is added
+            (
+                Event::Pipeline(_)
+                | Event::Data(_)
+                | Event::Time(_)
+                | Event::ExecuteTrigger(_)
+                | Event::Notification(_),
+                Self::Pipeline(_)
+                | Self::Data(_)
+                | Self::Time(_)
+                | Self::ExecuteTrigger(_)
+                | Self::Notification(_),
+            ) => false,
+        }
+    }
+}
+
+#[cfg(feature = "transparent_api")]
+impl Filter for TriggeringFilterBox {
+    type Event = Event;
+
+    /// Apply filter to event.
+    fn matches(&self, event: &Event) -> bool {
+        match (event, self) {
+            (Event::Pipeline(event), Self::Pipeline(filter)) => filter.matches(event),
+            (Event::Data(event), Self::Data(filter)) => filter.matches(event),
+            (Event::Time(event), Self::Time(filter)) => filter.matches(event),
+            (Event::ExecuteTrigger(event), Self::ExecuteTrigger(filter)) => filter.matches(event),
+            // Fail to compile in case when new variant to event or filter is added
+            (
+                Event::Pipeline(_)
+                | Event::Data(_)
+                | Event::Time(_)
+                | Event::ExecuteTrigger(_)
+                | Event::Notification(_),
+                Self::Pipeline(_) | Self::Data(_) | Self::Time(_) | Self::ExecuteTrigger(_),
+            ) => false,
         }
     }
 }
@@ -211,7 +269,8 @@ pub mod prelude {
     #[cfg(feature = "transparent_api")]
     pub use super::Filter;
     pub use super::{
-        data::prelude::*, execute_trigger::prelude::*, pipeline::prelude::*, time::prelude::*,
-        Event, EventType, FilterBox,
+        data::prelude::*, execute_trigger::prelude::*, notification::prelude::*,
+        pipeline::prelude::*, time::prelude::*, Event, FilterBox, TriggeringEventType,
+        TriggeringFilterBox,
     };
 }
