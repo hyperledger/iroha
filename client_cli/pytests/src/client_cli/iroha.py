@@ -67,29 +67,18 @@ class Iroha(ClientCli):
         accounts = [account["id"] for account in accounts]
         return accounts
 
-    def assets(self) -> List[str]:
+    def assets(self) -> Dict[str, str]:
         """
-        Retrieve assets from the Iroha network and return them as list of ids.
+        Retrieve assets from the Iroha network and return them as a dictionary
+        where the keys are asset ids and the values are the corresponding asset objects.
 
-        :return:  List of assets ids.
-        :rtype: List[str]
+        :return:  Dictionary of assets.
+        :rtype: Dict[str, Any]
         """
         self._execute_command('asset')
         assets = json.loads(self.stdout)
-        assets = [asset["id"] for asset in assets]
-        return assets
-
-    def get_quantity(self, asset_id):
-        """
-        Get the quantity of the asset with the specified ID.
-
-        :param asset_id: The asset ID.
-        :return: The quantity of the asset or None if the asset was not found.
-        """
-        for asset in json.loads(self.stdout):
-            if asset["id"] == asset_id:
-                return str(asset["value"]["Quantity"])
-        return None
+        asset_dict = {asset["id"]: asset for asset in assets}
+        return asset_dict
 
     def asset_definitions(self) -> Dict[str, str]:
         """
