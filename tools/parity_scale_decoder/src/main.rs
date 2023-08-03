@@ -285,7 +285,7 @@ mod tests {
 
         decode_sample(
             "trigger.bin",
-            String::from("Trigger<FilterBox, Executable>"),
+            String::from("Trigger<TriggeringFilterBox, Executable>"),
             &trigger,
         );
     }

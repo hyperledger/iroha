@@ -81,8 +81,8 @@ impl Visit for CustomValidator {
         visit_revoke_account_role(Revoke<Account, RoleId>),
 
         // Trigger validation
-        visit_unregister_trigger(Unregister<Trigger<FilterBox, Executable>>),
-        visit_mint_trigger_repetitions(Mint<Trigger<FilterBox, Executable>, u32>),
+        visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
+        visit_mint_trigger_repetitions(Mint<Trigger<TriggeringFilterBox, Executable>, u32>),
         visit_execute_trigger(ExecuteTrigger),
 
         // Parameter validation

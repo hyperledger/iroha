@@ -116,7 +116,7 @@ pub trait Visit: ExpressionEvaluator {
         visit_register_asset_definition(Register<AssetDefinition>),
         visit_register_asset(Register<Asset>),
         visit_register_role(Register<Role>),
-        visit_register_trigger(Register<Trigger<FilterBox, Executable>>),
+        visit_register_trigger(Register<Trigger<TriggeringFilterBox, Executable>>),
 
         // Visit UnregisterBox
         visit_unregister_peer(Unregister<Peer>),
@@ -126,13 +126,13 @@ pub trait Visit: ExpressionEvaluator {
         visit_unregister_asset(Unregister<Asset>),
         // TODO: Need to allow role creator to unregister it somehow
         visit_unregister_role(Unregister<Role>),
-        visit_unregister_trigger(Unregister<Trigger<FilterBox, Executable>>),
+        visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
 
         // Visit MintBox
         visit_mint_asset(Mint<Asset, NumericValue>),
         visit_mint_account_public_key(Mint<Account, PublicKey>),
         visit_mint_account_signature_check_condition(Mint<Account, SignatureCheckCondition>),
-        visit_mint_trigger_repetitions(Mint<Trigger<FilterBox, Executable>, u32>),
+        visit_mint_trigger_repetitions(Mint<Trigger<TriggeringFilterBox, Executable>, u32>),
 
         // Visit BurnBox
         visit_burn_account_public_key(Burn<Account, PublicKey>),
@@ -704,9 +704,9 @@ leaf_visitors! {
     visit_unregister_role(Unregister<Role>),
     visit_grant_account_role(Grant<Account, RoleId>),
     visit_revoke_account_role(Revoke<Account, RoleId>),
-    visit_register_trigger(Register<Trigger<FilterBox, Executable>>),
-    visit_unregister_trigger(Unregister<Trigger<FilterBox, Executable>>),
-    visit_mint_trigger_repetitions(Mint<Trigger<FilterBox, Executable>, u32>),
+    visit_register_trigger(Register<Trigger<TriggeringFilterBox, Executable>>),
+    visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
+    visit_mint_trigger_repetitions(Mint<Trigger<TriggeringFilterBox, Executable>, u32>),
     visit_upgrade_validator(Upgrade<Validator>),
     visit_new_parameter(NewParameter),
     visit_set_parameter(SetParameter),

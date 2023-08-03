@@ -88,7 +88,8 @@ impl Execute for RegisterBox {
             }
             RegistrableBox::Asset(object) => Register::<Asset> { object }.execute(authority, wsv),
             RegistrableBox::Trigger(object) => {
-                Register::<Trigger<FilterBox, Executable>> { object }.execute(authority, wsv)
+                Register::<Trigger<TriggeringFilterBox, Executable>> { object }
+                    .execute(authority, wsv)
             }
             RegistrableBox::Role(object) => Register::<Role> { object }.execute(authority, wsv),
         }
@@ -114,7 +115,8 @@ impl Execute for UnregisterBox {
             IdBox::PeerId(object_id) => Unregister::<Peer> { object_id }.execute(authority, wsv),
             IdBox::RoleId(object_id) => Unregister::<Role> { object_id }.execute(authority, wsv),
             IdBox::TriggerId(object_id) => {
-                Unregister::<Trigger<FilterBox, Executable>> { object_id }.execute(authority, wsv)
+                Unregister::<Trigger<TriggeringFilterBox, Executable>> { object_id }
+                    .execute(authority, wsv)
             }
             IdBox::PermissionTokenId(_) | IdBox::ParameterId(_) => {
                 Err(Error::Evaluate(InstructionType::Unregister.into()))
@@ -167,7 +169,7 @@ impl Execute for MintBox {
                 .execute(authority, wsv)
             }
             (IdBox::TriggerId(destination_id), Value::Numeric(NumericValue::U32(object))) => {
-                Mint::<Trigger<FilterBox, Executable>, u32> {
+                Mint::<Trigger<TriggeringFilterBox, Executable>, u32> {
                     object,
                     destination_id,
                 }
@@ -626,7 +628,7 @@ mod tests {
                 Vec::<InstructionBox>::new(),
                 Repeats::Indefinitely,
                 account_id.clone(),
-                FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+                TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                     trigger_id.clone(),
                     account_id.clone(),
                 )),

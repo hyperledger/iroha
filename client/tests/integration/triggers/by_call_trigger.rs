@@ -116,7 +116,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
             bad_trigger_instructions,
             Repeats::Indefinitely,
             account_id.clone(),
-            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 bad_trigger_id.clone(),
                 account_id.clone(),
             )),
@@ -134,7 +134,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
             Repeats::Indefinitely,
             account_id,
             // Time-triggers (which are Pre-commit triggers) will be executed last
-            FilterBox::Time(TimeEventFilter::new(ExecutionTime::PreCommit)),
+            TriggeringFilterBox::Time(TimeEventFilter::new(ExecutionTime::PreCommit)),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -168,7 +168,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
             trigger_instructions,
             Repeats::from(1_u32),
             account_id.clone(),
-            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
                 account_id,
             )),
@@ -229,7 +229,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
             trigger_instructions,
             Repeats::from(1_u32),
             account_id.clone(),
-            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
                 account_id,
             )),
@@ -269,7 +269,7 @@ fn unregister_trigger() -> Result<()> {
             Vec::<InstructionBox>::new(),
             Repeats::Indefinitely,
             account_id.clone(),
-            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
                 account_id,
             )),
@@ -343,7 +343,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
                 .wrap_err("Can't deserialize wasm using base64")?,
             Repeats::Indefinitely,
             account_id.clone(),
-            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
                 account_id.clone(),
             )),
@@ -401,7 +401,7 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
             trigger_unregister_instructions,
             Repeats::from(1_u32),
             account_id.clone(),
-            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id_unregister.clone(),
                 account_id.clone(),
             )),
@@ -416,7 +416,7 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
             trigger_should_be_unregistered_instructions,
             Repeats::from(1_u32),
             account_id.clone(),
-            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id_should_be_unregistered.clone(),
                 account_id,
             )),
@@ -461,7 +461,7 @@ fn build_register_trigger_isi(
             trigger_instructions,
             Repeats::Indefinitely,
             asset_id.account_id.clone(),
-            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id,
                 asset_id.account_id,
             )),

@@ -97,30 +97,30 @@ pub mod model {
 }
 
 #[ffi_impl_opaque]
-impl Trigger<FilterBox, OptimizedExecutable> {
+impl Trigger<TriggeringFilterBox, OptimizedExecutable> {
     /// [`Id`] of the [`Trigger`].
     pub fn id(&self) -> &TriggerId {
         &self.id
     }
 
     /// Action to be performed when the trigger matches.
-    pub fn action(&self) -> &action::Action<FilterBox, OptimizedExecutable> {
+    pub fn action(&self) -> &action::Action<TriggeringFilterBox, OptimizedExecutable> {
         &self.action
     }
 }
 
-impl Registered for Trigger<FilterBox, Executable> {
+impl Registered for Trigger<TriggeringFilterBox, Executable> {
     type With = Self;
 }
 
 macro_rules! impl_try_from_box {
     ($($variant:ident => $filter_type:ty),+ $(,)?) => {
         $(
-            impl<E> TryFrom<Trigger<FilterBox, E>> for Trigger<$filter_type, E> {
+            impl<E> TryFrom<Trigger<TriggeringFilterBox, E>> for Trigger<$filter_type, E> {
                 type Error = &'static str;
 
-                fn try_from(boxed: Trigger<FilterBox, E>) -> Result<Self, Self::Error> {
-                    if let FilterBox::$variant(concrete_filter) = boxed.action.filter {
+                fn try_from(boxed: Trigger<TriggeringFilterBox, E>) -> Result<Self, Self::Error> {
+                    if let TriggeringFilterBox::$variant(concrete_filter) = boxed.action.filter {
                         let action = action::Action::new(
                             boxed.action.executable,
                             boxed.action.repeats,
@@ -132,7 +132,7 @@ macro_rules! impl_try_from_box {
                             action,
                         })
                     } else {
-                        Err(concat!("Expected `FilterBox::", stringify!($variant),"`, but another variant found"))
+                        Err(concat!("Expected `TriggeringFilterBox::", stringify!($variant),"`, but another variant found"))
                     }
                 }
             }
@@ -246,7 +246,7 @@ pub mod action {
     }
 
     #[ffi_impl_opaque]
-    impl Action<FilterBox, OptimizedExecutable> {
+    impl Action<TriggeringFilterBox, OptimizedExecutable> {
         /// The executable linked to this action
         pub fn executable(&self) -> &OptimizedExecutable {
             &self.executable
@@ -262,7 +262,7 @@ pub mod action {
             &self.authority
         }
         /// Defines events which trigger the `Action`
-        pub fn filter(&self) -> &FilterBox {
+        pub fn filter(&self) -> &TriggeringFilterBox {
             &self.filter
         }
     }
@@ -339,14 +339,14 @@ pub mod action {
         fn mintable(&self) -> bool;
 
         /// Convert action to a boxed representation
-        fn into_boxed(self) -> Action<FilterBox, Self::Executable>;
+        fn into_boxed(self) -> Action<TriggeringFilterBox, Self::Executable>;
 
         /// Same as [`into_boxed()`](ActionTrait::into_boxed) but clones `self`
-        fn clone_and_box(&self) -> Action<FilterBox, Self::Executable>;
+        fn clone_and_box(&self) -> Action<TriggeringFilterBox, Self::Executable>;
     }
 
     #[cfg(feature = "transparent_api")]
-    impl<F: Filter + Into<FilterBox> + Clone, E: Clone> ActionTrait for Action<F, E> {
+    impl<F: Filter + Into<TriggeringFilterBox> + Clone, E: Clone> ActionTrait for Action<F, E> {
         type Executable = E;
 
         fn executable(&self) -> &Self::Executable {
@@ -373,8 +373,8 @@ pub mod action {
             self.filter.mintable()
         }
 
-        fn into_boxed(self) -> Action<FilterBox, Self::Executable> {
-            Action::<FilterBox, Self::Executable> {
+        fn into_boxed(self) -> Action<TriggeringFilterBox, Self::Executable> {
+            Action::<TriggeringFilterBox, Self::Executable> {
                 executable: self.executable,
                 repeats: self.repeats,
                 authority: self.authority,
@@ -383,8 +383,8 @@ pub mod action {
             }
         }
 
-        fn clone_and_box(&self) -> Action<FilterBox, Self::Executable> {
-            Action::<FilterBox, Self::Executable> {
+        fn clone_and_box(&self) -> Action<TriggeringFilterBox, Self::Executable> {
+            Action::<TriggeringFilterBox, Self::Executable> {
                 executable: self.executable.clone(),
                 repeats: self.repeats.clone(),
                 authority: self.authority.clone(),
@@ -437,22 +437,26 @@ mod tests {
 
     #[test]
     fn trigger_with_filterbox_can_be_unboxed() {
-        /// Should fail to compile if a new variant will be added to `FilterBox`
+        /// Should fail to compile if a new variant will be added to `TriggeringFilterBox`
         #[allow(dead_code, clippy::unwrap_used)]
-        fn compile_time_check(boxed: Trigger<FilterBox, Executable>) {
+        fn compile_time_check(boxed: Trigger<TriggeringFilterBox, Executable>) {
             match &boxed.action.filter {
-                FilterBox::Data(_) => Trigger::<DataEventFilter, Executable>::try_from(boxed)
-                    .map(|_| ())
-                    .unwrap(),
-                FilterBox::Pipeline(_) => {
+                TriggeringFilterBox::Data(_) => {
+                    Trigger::<DataEventFilter, Executable>::try_from(boxed)
+                        .map(|_| ())
+                        .unwrap()
+                }
+                TriggeringFilterBox::Pipeline(_) => {
                     Trigger::<PipelineEventFilter, Executable>::try_from(boxed)
                         .map(|_| ())
                         .unwrap()
                 }
-                FilterBox::Time(_) => Trigger::<TimeEventFilter, Executable>::try_from(boxed)
-                    .map(|_| ())
-                    .unwrap(),
-                FilterBox::ExecuteTrigger(_) => {
+                TriggeringFilterBox::Time(_) => {
+                    Trigger::<TimeEventFilter, Executable>::try_from(boxed)
+                        .map(|_| ())
+                        .unwrap()
+                }
+                TriggeringFilterBox::ExecuteTrigger(_) => {
                     Trigger::<ExecuteTriggerEventFilter, Executable>::try_from(boxed)
                         .map(|_| ())
                         .unwrap()
