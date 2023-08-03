@@ -68,8 +68,18 @@ pub mod model {
 
     /// Builder for [`Role`]
     #[derive(
-        Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        Debug,
+        Display,
+        Clone,
+        Getters,
+        IdEqOrdHash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
     )]
+    #[getset(get = "pub")]
     #[serde(transparent)]
     #[repr(transparent)]
     #[ffi_type(unsafe {robust})]

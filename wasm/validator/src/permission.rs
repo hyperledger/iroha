@@ -48,6 +48,9 @@ pub enum PermissionTokenConversionError {
     // TODO: Improve this error
     /// Unexpected parameter value.
     Value(alloc::string::String),
+    // TODO: Remove after the merge of #3775
+    /// Failed to decode permission token from SCALE encoded payload
+    Decode(parity_scale_codec::Error),
 }
 
 pub mod derive_conversions {
