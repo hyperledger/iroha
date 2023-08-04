@@ -7,7 +7,7 @@ import pytest
 
 from common.consts import ValueTypes
 from common.helpers import *
-from models import Account, AssetDefinition, Domain
+from models import Account, AssetDefinition, Domain, Asset
 from src.client_cli import client_cli, config
 
 # General fixtures
@@ -72,18 +72,20 @@ def GIVEN_currently_account_quantity_with_two_quantity_of_asset(
     asset_def = AssetDefinition(name=GIVEN_fake_asset_name,
                                 domain=GIVEN_currently_authorized_account.domain,
                                 value_type=GIVEN_quantity_value_type)
-    with allure.step(f'GIVEN the asset_definition "{GIVEN_fake_asset_name}" '
+    asset = Asset(definition=asset_def, value='2')
+    name = fake_name()
+    with allure.step(f'GIVEN the asset_definition "{name}" '
                      f'in the "{GIVEN_currently_authorized_account.domain}" domain'):
         client_cli.register().asset().definition(
-            asset=asset_def.name,
-            domain=asset_def.domain,
-            value_type=asset_def.value_type)
+            asset=asset.definition.name,
+            domain=asset.definition.domain,
+            value_type=asset.definition.value_type)
         client_cli.mint().asset(
                 account=GIVEN_currently_authorized_account,
-                asset_definition=asset_def,
-                value_of_value_type="2"
+                asset_definition=asset.definition,
+                value_of_value_type=asset.value
         )
-    return asset_def
+    return asset
 
 
 

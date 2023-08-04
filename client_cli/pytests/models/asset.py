@@ -40,10 +40,10 @@ class Asset:
     :param definition: The asset definition of the asset.
     :type definition: AssetDefinition
     :param value: The value of the asset.
-    :type value: float
+    :type value: str
     """
     definition: AssetDefinition
-    value: float
+    value: str
 
     def __repr__(self):
         return f"{self.definition.get_id()}:{self.value}"

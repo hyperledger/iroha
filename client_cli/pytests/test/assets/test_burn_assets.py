@@ -1,6 +1,8 @@
 import allure
 import pytest
 
+from src.client_cli import client_cli, have, iroha
+
 
 @pytest.fixture(scope="function", autouse=True)
 def story_client_burn_asset():
@@ -8,12 +10,20 @@ def story_client_burn_asset():
 
 
 @allure.label('sdk_test_id', 'burn_asset_for_account_in_same_domain')
-@pytest.mark.xfail(reason="TO DO")
+@allure.label('permission', 'no_permission_required')
 def test_burn_asset_for_account_in_same_domain(
-        GIVEN_existing_asset_definition_with_quantity_value_type,
-        GIVEN_new_one_existing_account,
-        GIVEN_quantity_value):
-    assert 0
+        GIVEN_currently_authorized_account,
+        GIVEN_currently_account_quantity_with_two_quantity_of_asset):
+    with allure.step(f'WHEN {GIVEN_currently_authorized_account.name} burns 1 Quantity'
+                     f'of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}'):
+        client_cli.burn(
+            asset=GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition,
+            account=GIVEN_currently_authorized_account,
+            quantity="1")
+    with allure.step(f'THEN {GIVEN_currently_authorized_account.name} has 1 Quantity of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}'):
+        iroha.should(have.asset_has_quantity(
+            f'{GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}##{GIVEN_currently_authorized_account}',
+            '1'))
 
 
 @allure.label('sdk_test_id', 'burn_other_user_asset')

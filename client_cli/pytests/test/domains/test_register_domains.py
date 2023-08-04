@@ -31,21 +31,21 @@ def test_register_empty_domain(
             f'THEN client_cli should have the domain error: "{Stderr.CANNOT_BE_EMPTY}"'):
         client_cli.should(have.error(Stderr.CANNOT_BE_EMPTY.value))
 
-@allure.label('sdk_test_id', 'register_existence_domain')
-def test_register_existence_domain(
+@allure.label('sdk_test_id', 'register_existing_domain')
+def test_register_existing_domain(
         GIVEN_new_one_existing_domain):
     with allure.step(
-            f'WHEN client_cli registers an existence domain "{GIVEN_new_one_existing_domain.name}"'):
+            f'WHEN client_cli registers an existing domain "{GIVEN_new_one_existing_domain.name}"'):
         client_cli.register().domain(GIVEN_new_one_existing_domain.name)
     with allure.step(
             f'THEN client_cli should have the domain error:  "{GIVEN_new_one_existing_domain.name}"'):
         client_cli.should(have.error(Stderr.REPETITION.value))
 
-@allure.label('sdk_test_id', 'register_existence_domain_with_uppercase_letter')
-def test_register_existence_domain_uppercase_with_uppercase_letter(
+@allure.label('sdk_test_id', 'register_existing_domain_with_uppercase_letter')
+def test_register_existing_domain_uppercase_with_uppercase_letter(
         GIVEN_existing_domain_with_uppercase_letter):
     with allure.step(
-            f'WHEN client_cli registers an existence domain, '
+            f'WHEN client_cli registers an existing domain, '
             f'but with uppercase letter "{GIVEN_existing_domain_with_uppercase_letter.name}"'):
         client_cli.register().domain(GIVEN_existing_domain_with_uppercase_letter.name)
     with allure.step(
