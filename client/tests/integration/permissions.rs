@@ -59,7 +59,7 @@ fn permissions_disallow_asset_transfer() {
         .expect_err("Transaction was not rejected.");
     let rejection_reason = err
         .downcast_ref::<PipelineRejectionReason>()
-        .unwrap_or_else(|| panic!("Error {err} is not PipelineRejectionReasons."));
+        .unwrap_or_else(|| panic!("Error {err} is not PipelineRejectionReason"));
     //Then
     assert!(matches!(
         rejection_reason,
@@ -115,7 +115,7 @@ fn permissions_disallow_asset_burn() {
         .expect_err("Transaction was not rejected.");
     let rejection_reason = err
         .downcast_ref::<PipelineRejectionReason>()
-        .unwrap_or_else(|| panic!("Error {err} is not PipelineRejectionReasons."));
+        .unwrap_or_else(|| panic!("Error {err} is not PipelineRejectionReason"));
     //Then
     assert!(matches!(
         rejection_reason,

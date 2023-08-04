@@ -22,7 +22,9 @@ use domain::{visit_remove_domain_key_value, visit_set_domain_key_value, visit_un
 use parameter::{visit_new_parameter, visit_set_parameter};
 use peer::visit_unregister_peer;
 use permission_token::{visit_grant_account_permission, visit_revoke_account_permission};
-use role::{visit_grant_account_role, visit_revoke_account_role, visit_unregister_role};
+use role::{
+    visit_grant_account_role, visit_register_role, visit_revoke_account_role, visit_unregister_role,
+};
 use trigger::{visit_execute_trigger, visit_mint_trigger_repetitions, visit_unregister_trigger};
 use validator::visit_upgrade_validator;
 
@@ -220,6 +222,7 @@ impl Visit for DefaultValidator {
         visit_revoke_account_permission(Revoke<Account, PermissionToken>),
 
         // Role validation
+        visit_register_role(Register<Role>),
         visit_unregister_role(Unregister<Role>),
         visit_grant_account_role(Grant<Account, RoleId>),
         visit_revoke_account_role(Revoke<Account, RoleId>),
@@ -1386,6 +1389,45 @@ pub mod role {
                 iroha_wasm::debug::dbg_panic("Role contains unknown permission token, this should never happen");
             }
         };
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn visit_register_role<V: Validate + ?Sized>(
+        validator: &mut V,
+        _authority: &AccountId,
+        register_role: Register<Role>,
+    ) {
+        iroha_wasm::debug!("visit_register_role()");
+        let role = register_role.object.inner();
+
+        for token in role.permissions() {
+            iroha_wasm::debug!(&format!("Checking `{token:?}`"));
+            macro_rules! try_from_token {
+                ($token_ty:ty) => {
+                    iroha_wasm::debug!(concat!("Trying `", stringify!($token_ty), "`"));
+                    if <$token_ty as ::core::convert::TryFrom<_>>::try_from(
+                        <
+                            $crate::data_model::permission::PermissionToken as
+                            ::core::clone::Clone
+                        >::clone(token)
+                    ).is_ok() {
+                        iroha_wasm::debug!("Success!");
+                        // Continue because token can correspond to only one concrete token
+                        continue;
+                    }
+                };
+            }
+
+            map_all_crate_tokens!(try_from_token);
+
+            // In normal situation we continued before reaching this line
+            deny!(
+                validator,
+                ValidationFail::NotPermitted(format!("Unrecognised permission token `{token:?}`"))
+            );
+        }
+
+        pass!(validator)
     }
 
     #[allow(clippy::needless_pass_by_value)]
