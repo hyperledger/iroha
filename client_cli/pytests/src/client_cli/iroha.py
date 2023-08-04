@@ -59,25 +59,26 @@ class Iroha(ClientCli):
         """
         Retrieve accounts from the Iroha network and return them as list of ids.
 
-        :return: List of accounts ids. 
-        :rtype: List[str] 
+        :return: List of accounts ids.
+        :rtype: List[str]
         """
         self._execute_command('account')
         accounts = json.loads(self.stdout)
         accounts = [account["id"] for account in accounts]
         return accounts
 
-    def assets(self) -> List[str]:
+    def assets(self) -> Dict[str, str]:
         """
-        Retrieve assets from the Iroha network and return them as list of ids.
+        Retrieve assets from the Iroha network and return them as a dictionary
+        where the keys are asset ids and the values are the corresponding asset objects.
 
-        :return:  List of assets ids.
-        :rtype: List[str] 
+        :return:  Dictionary of assets.
+        :rtype: Dict[str, Any]
         """
         self._execute_command('asset')
         assets = json.loads(self.stdout)
-        assets = [asset["id"] for asset in assets]
-        return assets
+        asset_dict = {asset["id"]: asset for asset in assets}
+        return asset_dict
 
     def asset_definitions(self) -> Dict[str, str]:
         """
