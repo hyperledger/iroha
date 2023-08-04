@@ -6,7 +6,7 @@ from src.client_cli import iroha, client_cli
 # using existing account with asset to have at least one in response
 def test_filter_by_domain(GIVEN_currently_account_quantity_with_two_quantity_of_asset):
     def condition():
-        domain = GIVEN_currently_account_quantity_with_two_quantity_of_asset.domain
+        domain = GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.domain
         with allure.step(
                 f'WHEN client_cli query assets'
                 f'in the "{domain}" domain'):
@@ -25,7 +25,7 @@ def test_filter_by_domain(GIVEN_currently_account_quantity_with_two_quantity_of_
 
 def test_filter_by_asset_name(GIVEN_currently_account_quantity_with_two_quantity_of_asset):
     def condition():
-        name = GIVEN_currently_account_quantity_with_two_quantity_of_asset.name
+        name = GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name
         with allure.step(
                 f'WHEN client_cli query assets with name "{name}"'):
             assets = iroha.list_filter(f'{{"Identifiable": {{"StartsWith": "{name}#"}}}}').assets()
@@ -40,7 +40,7 @@ def test_filter_by_asset_name(GIVEN_currently_account_quantity_with_two_quantity
 
 def test_filter_by_asset_id(GIVEN_currently_authorized_account, GIVEN_currently_account_quantity_with_two_quantity_of_asset):
     def condition():
-        asset_id = GIVEN_currently_account_quantity_with_two_quantity_of_asset.name + "##" + GIVEN_currently_authorized_account.name + "@" + GIVEN_currently_authorized_account.domain
+        asset_id = GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name + "##" + GIVEN_currently_authorized_account.name + "@" + GIVEN_currently_authorized_account.domain
         with allure.step(
                 f'WHEN client_cli query assets with asset id "{asset_id}"'):
             assets = iroha.list_filter(f'{{"Identifiable": {{"Is": "{asset_id}"}}}}').assets()

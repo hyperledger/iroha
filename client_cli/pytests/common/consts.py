@@ -20,7 +20,8 @@ class Stderr(Enum):
     FAILED_TO_FIND_DOMAIN = 'Entity missing'
     INVALID_CHARACTER = 'Invalid character'
     INVALID_VALUE_TYPE = 'Matching variant not found'
-    RESERVED_CHARACTER = 'The `@` character is reserved for `account@domain` constructs, `#` — for `asset#domain` and `$` — for `trigger$domain`'
+    RESERVED_CHARACTER = 'The `@` character is reserved for `account@domain` constructs,' \
+                         ' `#` — for `asset#domain` and `$` — for `trigger$domain`.'
     WHITESPACES = "White space not allowed"
 
 

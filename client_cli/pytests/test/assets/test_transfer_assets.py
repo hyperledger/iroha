@@ -15,19 +15,19 @@ def test_transfer_asset(
         GIVEN_currently_authorized_account,
         GIVEN_currently_account_quantity_with_two_quantity_of_asset):
     with allure.step(f'WHEN {GIVEN_currently_authorized_account.name} transfers 1 Quantity'
-                     f'of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.name}'
+                     f'of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}'
                      f'to {GIVEN_new_one_existing_account.name}'):
         client_cli.transfer(
-            asset=GIVEN_currently_account_quantity_with_two_quantity_of_asset,
+            asset=GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition,
             source_account=GIVEN_currently_authorized_account,
             target_account=GIVEN_new_one_existing_account,
             quantity="1")
 
     with allure.step(f'THEN {GIVEN_currently_authorized_account.name} has 1 Quantity '
-                     f'of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.name}'
+                     f'of {GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}'
                      f'AND {GIVEN_new_one_existing_account} has 1 more Quantity'):
         iroha.should(have.asset(
-            f'{GIVEN_currently_account_quantity_with_two_quantity_of_asset.name}#{GIVEN_currently_authorized_account.domain}#{GIVEN_new_one_existing_account}'))
+            f'{GIVEN_currently_account_quantity_with_two_quantity_of_asset.definition.name}#{GIVEN_currently_authorized_account.domain}#{GIVEN_new_one_existing_account}'))
 
 
 @allure.label('sdk_test_id', 'transfer_user_asset')
