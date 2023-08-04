@@ -137,3 +137,33 @@ fn unregistered_role_removed_from_account() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_025).start_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let role_id = RoleId::from_str("ACCESS_TO_ACCOUNT_METADATA")?;
+    let rose_asset_id = AssetId::from_str("rose##alice@wonderland")?;
+    let role = Role::new(role_id).add_permission(PermissionToken::new(
+        "CanSetKeyValueInUserAccount".parse()?,
+        &rose_asset_id, // There should be an account id, not asset id
+    ));
+
+    let err = test_client
+        .submit_blocking(RegisterBox::new(role))
+        .expect_err("Submitting role with invalid permission token should fail");
+
+    let rejection_reason = err
+        .downcast_ref::<PipelineRejectionReason>()
+        .unwrap_or_else(|| panic!("Error {err} is not PipelineRejectionReason"));
+
+    assert!(matches!(
+        rejection_reason,
+        &PipelineRejectionReason::Transaction(TransactionRejectionReason::Validation(
+            ValidationFail::NotPermitted(_)
+        ))
+    ));
+
+    Ok(())
+}

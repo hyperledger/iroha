@@ -28,9 +28,11 @@ macro_rules! evaluate_expr {
     }};
 }
 
-/// Trait to validate Iroha entities. Default implementation always passes
+/// Trait to validate Iroha entities.
+/// Default implementation of non-leaf visitors runs `visit_` functions for leafs.
+/// Default implementation for leaf visitors is blank.
 ///
-/// This trait is based on the visitor pattern
+/// This trait is based on the visitor pattern.
 pub trait Visit: ExpressionEvaluator {
     delegate! {
         visit_unsupported<T: core::fmt::Debug>(T),
