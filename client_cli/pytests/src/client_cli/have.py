@@ -81,63 +81,6 @@ def asset(expected):
 
     return client_cli.wait_for(asset_in_assets)
 
-
-def asset_has_quantity(asset_id, expected_quantity):
-    """
-    Check if the expected asset quantity is present in the list of assets.
-
-    :param asset_id: The asset ID.
-    :param expected_quantity: The expected quantity of the asset.
-    :return: True if the asset quantity matches the expected quantity, False otherwise.
-    """
-
-    def check_quantity() -> bool:
-        assets = iroha.list_filter(f'{{"Identifiable": {{"Is": "{asset_id}"}}}}').assets()
-        if asset_id not in assets:
-            raise Exception(f"Asset with ID {asset_id} not found.")
-        actual_quantity = iroha.get_quantity(asset_id)
-        allure.attach(
-            json.dumps(actual_quantity),
-            name='actual_quantity',
-            attachment_type=allure.attachment_type.JSON)
-        allure.attach(
-            json.dumps(expected_quantity),
-            name='expected_quantity',
-            attachment_type=allure.attachment_type.JSON)
-
-        return expected_quantity == actual_quantity
-
-    return client_cli.wait_for(check_quantity)
-
-
-def asset_has_quantity(asset_id, expected_quantity):
-    """
-    Check if the expected asset quantity is present in the list of assets.
-
-    :param asset_id: The asset ID.
-    :param expected_quantity: The expected quantity of the asset.
-    :return: True if the asset quantity matches the expected quantity, False otherwise.
-    """
-
-    def check_quantity() -> bool:
-        assets = iroha.list_filter(f'{{"Identifiable": {{"Is": "{asset_id}"}}}}').assets()
-        if asset_id not in assets:
-            raise Exception(f"Asset with ID {asset_id} not found.")
-        actual_quantity = iroha.get_quantity(asset_id)
-        allure.attach(
-            json.dumps(actual_quantity),
-            name='actual_quantity',
-            attachment_type=allure.attachment_type.JSON)
-        allure.attach(
-            json.dumps(expected_quantity),
-            name='expected_quantity',
-            attachment_type=allure.attachment_type.JSON)
-
-        return expected_quantity == actual_quantity
-
-    return client_cli.wait_for(check_quantity)
-
-
 def asset_has_quantity(expected_asset_id, expected_quantity):
     """
     Check if the expected asset quantity is present in the list of assets.
