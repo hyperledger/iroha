@@ -77,7 +77,7 @@ fn impl_try_from_permission_token(
                     ));
                 }
 
-                Ok(<Self as ::parity_scale_codec::DecodeAll>::decode_all(&mut token.payload()).unwrap())
+                <Self as ::parity_scale_codec::DecodeAll>::decode_all(&mut token.payload()).map_err(Self::Error::Decode)
             }
         }
     }
