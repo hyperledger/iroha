@@ -18,7 +18,7 @@ class ClientCli:
     A class to represent the Iroha client command line interface.
     """
     BASE_PATH = CLIENT_CLI_PATH
-    # --skip-mst-check flag is used because 
+    # --skip-mst-check flag is used because
     # MST isn't used in the tests
     # and don't using this flag results in tests being broken by interactive prompt
     BASE_FLAGS = ['--config=' + PATH_CONFIG_CLIENT_CLI, '--skip-mst-check']
@@ -65,7 +65,7 @@ class ClientCli:
         while not condition():
             if monotonic() - start_time > timeout:
                 raise TimeoutError(f"Expected condition to be satisfied after waiting for '{timeout}' seconds.")
-            sleep(1)
+            sleep(0.5)
 
     def reset(self):
         """
@@ -193,6 +193,26 @@ class ClientCli:
         self.command.append('--from=' + repr(source_account))
         self.command.append('--to=' + repr(target_account))
         self.command.append('--asset-id=' + repr(asset))
+        self.command.append('--quantity=' + quantity)
+        self.execute()
+        return self
+
+    def burn(self, account, asset, quantity: str):
+        """
+        Executes the 'burn' command for the given asset
+
+        :param asset: The asset to be burned.
+        :type asset: str
+
+        :param quantity: The quantity of the asset to be burned.
+        :type quantity: str
+        :return: The current ClientCli object.
+        :rtype: ClientCli
+        """
+        self.command.append('asset')
+        self.command.append('burn')
+        self.command.append('--account=' + repr(account))
+        self.command.append('--asset=' + repr(asset))
         self.command.append('--quantity=' + quantity)
         self.execute()
         return self
