@@ -1,0 +1,38 @@
+#!/bin/sh
+
+if [ "$#" -lt 2 ]; then
+	cat <<EOF
+Usage: $0 INSTALLABLE EXECUTABLE
+
+This is an alternative to 'nix bundle' that allow specifying the executable to
+run. This is handy for derivations that haven't specified meta.mainProgram, or
+contain multiple programs.
+
+EXECUTABLE can be either an absolute path (relative to the derivation path), or
+a relative path (relative to the /bin subdirectory).
+
+Example usage:
+
+	$ ./bundle dnsutils /bin/dig # or ./bundle dnsutils dig
+	$ ./dig-x86_64.AppImage -v
+	DiG 9.18.14
+EOF
+	exit 1
+fi
+
+NA_EXE="$2"
+if [ "${NA_EXE#/}" = "$NA_EXE" ]; then
+	# ${NA_EXE#/} = remove / from the start of NA_EXE
+	NA_EXE="/bin/$NA_EXE"
+fi
+
+export NA_EXE
+nix bundle --impure --bundler "$(dirname "$0")" \
+	--expr '
+	let
+		p = with import <nixpkgs> {}; '"$1"';
+	in {
+		type = "app";
+		program = "${p}/${builtins.getEnv "NA_EXE"}";
+	}
+	'
