@@ -37,6 +37,7 @@ include/generated/*
 .scannerwork/
 peers.list
 cmake-build*
+result
 
 .gtm
 /.gtm/
