@@ -11,6 +11,7 @@
     flake-utils.url = "github:numtide/flake-utils";
     naersk.url = "github:nix-community/naersk";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nix-appimage.url = "path:nix-appimage";
   };
 
   outputs = {
@@ -19,6 +20,7 @@
     flake-utils,
     nixpkgs,
     alejandra,
+    nix-appimage,
     ...
   } @ inputs:
     flake-utils.lib.eachDefaultSystem (system: let
@@ -29,8 +31,8 @@
 
       toolchainSpec = {
         channel = "nightly";
-        date = "2022-12-22";
-        sha256 = "sha256-FK01QQuXkFXuy/W7wzAA0G+T2s9dQIDBjMxMC0cUk2M=";
+        date = "2023-08-01";
+        sha256 = "sha256-5y4s05452u5eeCKkgQaBSI/PPcGz6ZavWAdT/7HVtrA=";
       };
 
       supportedTargets = [
@@ -159,6 +161,8 @@
       inherit mkIroha;
 
       packages.default = mkIroha {};
+      
+      packages.appimage = nix-appimage.mkappimage.${system} { drv = mkIroha {}; name="iroha"; };
 
       packages.targets = builtins.listToAttrs (map (target: {
           name = target;
