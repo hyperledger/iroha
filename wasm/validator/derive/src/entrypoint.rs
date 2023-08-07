@@ -90,6 +90,7 @@ fn impl_validate_entrypoint(
     let args = quote! {
         ::iroha_validator::iroha_wasm::get_authority(),
         ::iroha_validator::iroha_wasm::#query_validating_object_fn_ident(),
+        ::iroha_validator::iroha_wasm::get_block_height(),
     };
 
     quote! {
@@ -131,6 +132,10 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
         "Validator `migrate()` entrypoint must have `MigrationResult` return type"
     );
 
+    let args = quote! {
+        ::iroha_validator::iroha_wasm::get_block_height(),
+    };
+
     quote! {
         /// Validator `permission_token_schema` entrypoint
         ///
@@ -140,7 +145,7 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
         #[no_mangle]
         #[doc(hidden)]
         unsafe extern "C" fn _iroha_validator_migrate() -> *const u8 {
-            let res: ::iroha_validator::data_model::validator::MigrationResult = #fn_name();
+            let res: ::iroha_validator::data_model::validator::MigrationResult = #fn_name(#args);
             let bytes = ::core::mem::ManuallyDrop::new(::iroha_validator::iroha_wasm::encode_with_length_prefix(&res));
 
             ::core::mem::ManuallyDrop::new(bytes).as_ptr()

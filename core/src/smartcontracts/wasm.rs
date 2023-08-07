@@ -6,7 +6,7 @@
 use error::*;
 use eyre::eyre;
 use import::{
-    ExecuteOperations as _, GetAuthority as _, GetOperationsToValidate as _,
+    ExecuteOperations as _, GetAuthority as _, GetBlockHeight as _, GetOperationsToValidate as _,
     SetPermissionTokenSchema as _,
 };
 use iroha_config::{
@@ -80,6 +80,8 @@ mod import {
     pub const GET_INSTRUCTION_TO_VALIDATE_FN_NAME: &str = "get_instruction_to_validate";
     /// Name of the imported function to get query that is to be verified
     pub const GET_QUERY_TO_VALIDATE_FN_NAME: &str = "get_query_to_validate";
+    /// Name of the imported function to get current block height
+    pub const GET_BLOCK_HEIGHT_FN_NAME: &str = "get_block_height";
     /// Name of the imported function to debug print objects
     pub const DBG_FN_NAME: &str = "dbg";
     /// Name of the imported function to log objects
@@ -119,6 +121,11 @@ mod import {
     pub trait SetPermissionTokenSchema<S> {
         #[codec::wrap_trait_fn]
         fn set_permission_token_schema(schema: PermissionTokenSchema, state: &mut S);
+    }
+
+    pub trait GetBlockHeight<S> {
+        #[codec::wrap_trait_fn]
+        fn get_block_height(state: &S) -> u64;
     }
 }
 
@@ -829,6 +836,13 @@ impl<S: state::Authority> import::GetAuthority<S> for Runtime<S> {
     }
 }
 
+impl<S: state::Wsv> import::GetBlockHeight<S> for Runtime<S> {
+    #[codec::wrap]
+    fn get_block_height(state: &S) -> u64 {
+        state.wsv().height()
+    }
+}
+
 impl<'wrld> Runtime<state::SmartContract<'wrld>> {
     /// Executes the given wasm smartcontract
     ///
@@ -1397,6 +1411,13 @@ macro_rules! create_imports {
                     import::MODULE_NAME,
                     import::DBG_FN_NAME,
                     Runtime::dbg,
+                )
+            })
+            .and_then(|l| {
+                l.func_wrap(
+                    import::MODULE_NAME,
+                    import::GET_BLOCK_HEIGHT_FN_NAME,
+                    Runtime::get_block_height,
                 )
             })
             $(.and_then(|l| {

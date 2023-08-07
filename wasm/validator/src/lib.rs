@@ -168,10 +168,13 @@ pub trait Validate: Visit {
     ///
     /// If `migrate()` entrypoint fails then the whole `Upgrade` instruction
     /// will be denied and previous validator will stay unchanged.
-    fn migrate() -> MigrationResult;
+    fn migrate(block_height: u64) -> MigrationResult;
 
     /// Validator verdict.
     fn verdict(&self) -> &Result;
+
+    /// Current block height.
+    fn block_height(&self) -> u64;
 
     /// Set validator verdict to deny
     fn deny(&mut self, reason: ValidationFail);

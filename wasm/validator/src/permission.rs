@@ -26,16 +26,16 @@ pub trait Token:
 /// instructions containing implementing token.
 pub trait ValidateGrantRevoke {
     #[allow(missing_docs, clippy::missing_errors_doc)]
-    fn validate_grant(&self, authority: &AccountId) -> Result;
+    fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result;
 
     #[allow(missing_docs, clippy::missing_errors_doc)]
-    fn validate_revoke(&self, authority: &AccountId) -> Result;
+    fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result;
 }
 
 /// Predicate-like trait used for pass conditions to identify if [`Grant`] or [`Revoke`] should be allowed.
 pub trait PassCondition {
     #[allow(missing_docs, clippy::missing_errors_doc)]
-    fn validate(&self, authority: &AccountId) -> Result;
+    fn validate(&self, authority: &AccountId, block_height: u64) -> Result;
 }
 
 /// Error type for `TryFrom<PermissionToken>` implementations.
@@ -88,7 +88,7 @@ pub mod asset {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId) -> Result {
+        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
             if self.asset_id.account_id() != authority {
                 return Err(ValidationFail::NotPermitted(
                     "Can't access asset owned by another account".to_owned(),
@@ -119,7 +119,7 @@ pub mod asset_definition {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId) -> Result {
+        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
             if !is_asset_definition_owner(self.asset_definition_id, authority)? {
                 return Err(ValidationFail::NotPermitted(
                     "Can't access asset definition owned by another account".to_owned(),
@@ -143,7 +143,7 @@ pub mod account {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId) -> Result {
+        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
             if self.account_id != authority {
                 return Err(ValidationFail::NotPermitted(
                     "Can't access another account".to_owned(),
@@ -179,7 +179,7 @@ pub mod trigger {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId) -> Result {
+        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
             if !is_trigger_owner(self.trigger_id.clone(), authority)? {
                 return Err(ValidationFail::NotPermitted(
                     "Can't give permission to access trigger owned by another account".to_owned(),
@@ -196,7 +196,7 @@ pub mod trigger {
 pub struct AlwaysPass;
 
 impl PassCondition for AlwaysPass {
-    fn validate(&self, _: &AccountId) -> Result {
+    fn validate(&self, _authority: &AccountId, _block_height: u64) -> Result {
         Ok(())
     }
 }
@@ -209,16 +209,19 @@ impl<T: Token> From<&T> for AlwaysPass {
 
 /// Pass condition that allows operation only in genesis.
 ///
-/// In other words it always denies the operation, because runtime validator is not used
-/// in genesis validation.
+/// In other words it always operation only if block height is 0.
 #[derive(Debug, Default, Copy, Clone)]
 pub struct OnlyGenesis;
 
 impl PassCondition for OnlyGenesis {
-    fn validate(&self, _: &AccountId) -> Result {
-        Err(ValidationFail::NotPermitted(
-            "This operation is always denied and only allowed inside the genesis block".to_owned(),
-        ))
+    fn validate(&self, _: &AccountId, block_height: u64) -> Result {
+        if block_height == 0 {
+            Ok(())
+        } else {
+            Err(ValidationFail::NotPermitted(
+                "This operation is only allowed inside the genesis block".to_owned(),
+            ))
+        }
     }
 }
 
