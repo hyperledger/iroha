@@ -8,7 +8,6 @@ use account::{
     visit_mint_account_signature_check_condition, visit_remove_account_key_value,
     visit_set_account_key_value, visit_unregister_account,
 };
-use anyhow::anyhow;
 use asset::{
     visit_burn_asset, visit_mint_asset, visit_register_asset, visit_remove_asset_key_value,
     visit_set_asset_key_value, visit_transfer_asset, visit_unregister_asset,
@@ -86,8 +85,8 @@ macro_rules! token {
 pub(crate) use map_all_crate_tokens;
 
 impl Validate for DefaultValidator {
-    fn migrate() -> MigrationResult {
-        Self::ensure_schema_is_empty()?;
+    fn migrate(block_height: u64) -> MigrationResult {
+        Self::ensure_genesis(block_height)?;
 
         let schema = Self::permission_token_schema();
 
@@ -105,6 +104,10 @@ impl Validate for DefaultValidator {
         &self.verdict
     }
 
+    fn block_height(&self) -> u64 {
+        self.block_height
+    }
+
     fn deny(&mut self, reason: ValidationFail) {
         self.verdict = Err(reason);
     }
@@ -118,15 +121,17 @@ impl Validate for DefaultValidator {
 #[derive(Debug, Clone)]
 pub struct DefaultValidator {
     pub verdict: Result,
+    pub block_height: u64,
     host: iroha_wasm::Host,
 }
 
 impl DefaultValidator {
     /// Construct [`Self`]
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub fn new(block_height: u64) -> Self {
         Self {
             verdict: Ok(()),
+            block_height,
             host: iroha_wasm::Host,
         }
     }
@@ -145,21 +150,11 @@ impl DefaultValidator {
         schema
     }
 
-    fn ensure_schema_is_empty() -> MigrationResult {
-        let current_schema = FindPermissionTokenSchema.execute().map_err(|error| {
-            format!(
-                "{:?}",
-                anyhow!(error).context("Failed to find permission token schema")
-            )
-        })?;
-
-        if !current_schema.token_ids().is_empty() {
-            return Err(
-                "Permission token schema is not empty. Default Validator don't \
-                 know how to process previous permission tokens. Write your own \
-                 validator with a proper migration."
-                    .to_owned(),
-            );
+    fn ensure_genesis(block_height: u64) -> MigrationResult {
+        if block_height != 0 {
+            return Err("Default Validator is intended to be used only in genesis. \
+                 Write your own validator if you need to upgrade validator on existing chain."
+                .to_owned());
         }
 
         Ok(())
@@ -1231,26 +1226,28 @@ pub mod parameter {
         }
 
         impl ValidateGrantRevoke for CanCreateParameters {
-            fn validate_grant(&self, authority: &AccountId) -> Result {
-                if !CanGrantPermissionToCreateParameters.is_owned_by(authority) {
-                    return Err(ValidationFail::NotPermitted(
-                        "Can't grant permission to create new configuration parameters without permission from genesis"
-                            .to_owned()
-                    ));
+            fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+                if CanGrantPermissionToCreateParameters.is_owned_by(authority) || block_height == 0
+                {
+                    return Ok(());
                 }
 
-                Ok(())
+                Err(ValidationFail::NotPermitted(
+                        "Can't grant permission to create new configuration parameters outside genesis without permission from genesis"
+                            .to_owned()
+                    ))
             }
 
-            fn validate_revoke(&self, authority: &AccountId) -> Result {
-                if !CanRevokePermissionToCreateParameters.is_owned_by(authority) {
-                    return Err(ValidationFail::NotPermitted(
-                        "Can't revoke permission to create new configuration parameters without permission from genesis"
-                            .to_owned()
-                    ));
+            fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+                if CanGrantPermissionToCreateParameters.is_owned_by(authority) || block_height == 0
+                {
+                    return Ok(());
                 }
 
-                Ok(())
+                Err(ValidationFail::NotPermitted(
+                        "Can't revoke permission to create new configuration parameters outside genesis without permission from genesis"
+                            .to_owned()
+                    ))
             }
         }
 
@@ -1272,26 +1269,26 @@ pub mod parameter {
         }
 
         impl ValidateGrantRevoke for CanSetParameters {
-            fn validate_grant(&self, authority: &AccountId) -> Result {
-                if !CanGrantPermissionToSetParameters.is_owned_by(authority) {
-                    return Err(ValidationFail::NotPermitted(
-                        "Can't grant permission to set configuration parameters without permission from genesis"
-                            .to_owned()
-                    ));
+            fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+                if CanGrantPermissionToSetParameters.is_owned_by(authority) || block_height == 0 {
+                    return Ok(());
                 }
 
-                Ok(())
+                Err(ValidationFail::NotPermitted(
+                        "Can't grant permission to set configuration parameters outside genesis without permission from genesis"
+                            .to_owned()
+                    ))
             }
 
-            fn validate_revoke(&self, authority: &AccountId) -> Result {
-                if !CanRevokePermissionToSetParameters.is_owned_by(authority) {
-                    return Err(ValidationFail::NotPermitted(
-                        "Can't revoke permission to set configuration parameters without permission from genesis"
-                            .to_owned()
-                    ));
+            fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+                if CanRevokePermissionToSetParameters.is_owned_by(authority) || block_height == 0 {
+                    return Ok(());
                 }
 
-                Ok(())
+                Err(ValidationFail::NotPermitted(
+                        "Can't revoke permission to set configuration parameters outside genesis without permission from genesis"
+                            .to_owned()
+                    ))
             }
         }
     }
@@ -1302,13 +1299,13 @@ pub mod parameter {
         authority: &AccountId,
         _isi: NewParameter,
     ) {
-        if tokens::CanCreateParameters.is_owned_by(authority) {
+        if tokens::CanCreateParameters.is_owned_by(authority) || validator.block_height() == 0 {
             pass!(validator);
         }
 
         deny!(
             validator,
-            "Can't create new configuration parameters without permission"
+            "Can't create new configuration parameters outside genesis without permission"
         );
     }
 
@@ -1347,8 +1344,8 @@ pub mod role {
     }
 
     macro_rules! impl_validate {
-        ($validator:ident, $self:ident, $authority:ident, $method:ident) => {
-            let role_id = $self.object;
+        ($validator:ident, $isi:ident, $authority:ident, $method:ident) => {
+            let role_id = $isi.object;
 
             let find_role_query_res = match FindRoleByRoleId::new(role_id).execute() {
                 Ok(res) => res,
@@ -1373,6 +1370,7 @@ pub mod role {
                             if let Err(error) = <$token_ty as permission::ValidateGrantRevoke>::$method(
                                 &concrete_token,
                                 $authority,
+                                $validator.block_height(),
                             ) {
                                 deny!($validator, error);
                             }
@@ -1602,6 +1600,7 @@ pub mod permission_token {
                         if let Err(error) = <$token_ty as permission::ValidateGrantRevoke>::$method(
                             &concrete_token,
                             $authority,
+                            $validator.block_height(),
                         ) {
                             deny!($validator, error);
                         }

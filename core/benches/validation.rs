@@ -129,7 +129,7 @@ fn validate_transaction(criterion: &mut Criterion) {
         let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
         b.iter(|| {
             let mut wsv = wsv.clone();
-            match transaction_validator.validate(transaction.clone(), false, &mut wsv) {
+            match transaction_validator.validate(transaction.clone(), &mut wsv) {
                 Ok(_) => success_count += 1,
                 Err(_) => failure_count += 1,
             }

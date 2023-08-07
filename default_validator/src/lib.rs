@@ -9,16 +9,17 @@ extern crate panic_halt;
 use iroha_validator::prelude::*;
 
 #[entrypoint]
-pub fn migrate() -> MigrationResult {
-    DefaultValidator::migrate()
+pub fn migrate(block_height: u64) -> MigrationResult {
+    DefaultValidator::migrate(block_height)
 }
 
 #[entrypoint]
 pub fn validate_transaction(
     authority: AccountId,
     transaction: VersionedSignedTransaction,
+    block_height: u64,
 ) -> Result {
-    let mut validator = DefaultValidator::new();
+    let mut validator = DefaultValidator::new(block_height);
 
     validator.visit_transaction(&authority, &transaction);
 
@@ -26,8 +27,12 @@ pub fn validate_transaction(
 }
 
 #[entrypoint]
-pub fn validate_instruction(authority: AccountId, instruction: InstructionBox) -> Result {
-    let mut validator = DefaultValidator::new();
+pub fn validate_instruction(
+    authority: AccountId,
+    instruction: InstructionBox,
+    block_height: u64,
+) -> Result {
+    let mut validator = DefaultValidator::new(block_height);
 
     validator.visit_instruction(&authority, &instruction);
 
@@ -35,8 +40,8 @@ pub fn validate_instruction(authority: AccountId, instruction: InstructionBox) -
 }
 
 #[entrypoint]
-pub fn validate_query(authority: AccountId, query: QueryBox) -> Result {
-    let mut validator = DefaultValidator::new();
+pub fn validate_query(authority: AccountId, query: QueryBox, block_height: u64) -> Result {
+    let mut validator = DefaultValidator::new(block_height);
 
     validator.visit_query(&authority, &query);
 

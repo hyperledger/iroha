@@ -219,6 +219,13 @@ pub fn get_query_to_validate() -> QueryBox {
     unsafe { decode_with_length_prefix_from_raw(host::get_query_to_validate()) }
 }
 
+/// Get current block height of the chain.
+#[cfg(not(test))]
+pub fn get_block_height() -> u64 {
+    // Safety: ownership of the returned result is transferred into `_decode_from_raw`
+    unsafe { decode_with_length_prefix_from_raw(host::get_block_height()) }
+}
+
 /// Set new [`PermissionTokenSchema`].
 ///
 /// # Errors
@@ -291,6 +298,13 @@ mod host {
         ///
         /// This function does transfer ownership of the result to the caller
         pub(super) fn get_query_to_validate() -> *const u8;
+
+        /// Get current block height of the chain.
+        ///
+        /// # Warning
+        ///
+        /// This function does transfer ownership of the result to the caller
+        pub(super) fn get_block_height() -> *const u8;
 
         /// Set new [`PermissionTokenSchema`].
         pub(super) fn set_permission_token_schema(ptr: *const u8, len: usize);

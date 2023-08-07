@@ -1,13 +1,55 @@
 #![allow(clippy::restriction)]
 
-use std::{str::FromStr as _, thread};
+use std::{str::FromStr as _, thread, time::Duration};
 
 use eyre::Result;
 use iroha_client::client::{self, Client, QueryResult};
 use iroha_data_model::prelude::*;
+use iroha_genesis::GenesisNetwork;
 use test_network::{PeerBuilder, *};
 
 use super::Configuration;
+
+#[test]
+fn genesis_transactions_are_validated() {
+    const POLL_PERIOD: Duration = Duration::from_millis(1000);
+    const MAX_RETRIES: u32 = 3;
+
+    // Setting up genesis
+
+    let mut genesis = GenesisNetwork::test(true).expect("Expected genesis");
+
+    let grant_invalid_token = GrantBox::new(
+        PermissionToken::new("InvalidToken".parse().unwrap(), &()),
+        AccountId::from_str("alice@wonderland").unwrap(),
+    );
+
+    let VersionedSignedTransaction::V1(tx_ref) = &mut genesis.transactions.last_mut().unwrap().0;
+    match &mut tx_ref.payload.instructions {
+        Executable::Instructions(instructions) => {
+            instructions.push(grant_invalid_token.into());
+        }
+        Executable::Wasm(_) => panic!("Expected instructions"),
+    }
+
+    // Starting peer
+    let (_rt, _peer, test_client) = <PeerBuilder>::new()
+        .with_genesis(genesis)
+        .with_port(11_045)
+        .start_with_runtime();
+
+    // Checking that peer contains no blocks multiple times
+    // See also `wait_for_genesis_committed()`
+    for _ in 0..MAX_RETRIES {
+        let status = test_client
+            .get_status()
+            .expect("Status should be available");
+
+        assert!(status.blocks == 0);
+
+        thread::sleep(POLL_PERIOD);
+    }
+}
 
 fn get_assets(iroha_client: &mut Client, id: &<Account as Identifiable>::Id) -> Vec<Asset> {
     iroha_client
