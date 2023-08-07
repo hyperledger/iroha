@@ -151,7 +151,7 @@ impl BlockBuilder<'_> {
         let mut txs = Vec::new();
 
         for tx in self.transactions {
-            match transaction_validator.validate(tx, height == 1, self.wsv) {
+            match transaction_validator.validate(tx, self.wsv) {
                 Ok(transaction) => txs.push(TransactionValue {
                     value: transaction,
                     error: None,
@@ -542,11 +542,9 @@ fn revalidate_transactions(
                 AcceptedTransaction::accept(tx.value, &transaction_validator.transaction_limits)
             }
             .map_err(TransactionRevalidationError::Accept)
-            .and_then(|tx| {
-                match transaction_validator.validate(tx, is_genesis, wsv) {
-                    Err(rejected_transaction) => Ok(rejected_transaction),
-                    Ok(_) => Err(TransactionRevalidationError::RejectedIsValid),
-                }
+            .and_then(|tx| match transaction_validator.validate(tx, wsv) {
+                Err(rejected_transaction) => Ok(rejected_transaction),
+                Ok(_) => Err(TransactionRevalidationError::RejectedIsValid),
             })?;
         } else {
             let tx = if is_genesis {
@@ -559,7 +557,7 @@ fn revalidate_transactions(
             .map_err(TransactionRevalidationError::Accept)?;
 
             transaction_validator
-                .validate(tx, is_genesis, wsv)
+                .validate(tx, wsv)
                 .map_err(|(_tx, error)| error)
                 .map_err(TransactionRevalidationError::NotValid)?;
         }
