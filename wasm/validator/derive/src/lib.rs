@@ -21,7 +21,7 @@ mod validate;
 /// use iroha_validator::prelude::*;
 ///
 /// #[entrypoint]
-/// pub fn migrate() -> MigrationResult {
+/// pub fn migrate(block_height: u64) -> MigrationResult {
 ///     todo!()
 /// }
 ///
@@ -29,17 +29,18 @@ mod validate;
 /// pub fn validate_transaction(
 ///     authority: AccountId,
 ///     transaction: VersionedSignedTransaction,
+///     block_height: u64,
 /// ) -> Result {
 ///     todo!()
 /// }
 ///
 /// #[entrypoint]
-/// pub fn validate_instruction(authority: AccountId, instruction: InstructionBox) -> Result {
+/// pub fn validate_instruction(authority: AccountId, instruction: InstructionBox, block_height: u64) -> Result {
 ///     todo!()
 /// }
 ///
 /// #[entrypoint]
-/// pub fn validate_query(authority: AccountId, query: QueryBox) -> Result {
+/// pub fn validate_query(authority: AccountId, query: QueryBox, block_height: u64) -> Result {
 ///     todo!()
 /// }
 /// ```
@@ -109,6 +110,9 @@ pub fn derive_token(input: TokenStream) -> TokenStream {
 /// - `asset_definition::Owner` - checks if the authority is the asset definition owner;
 /// - `asset::Owner` - checks if the authority is the asset owner;
 /// - `account::Owner` - checks if the authority is the account owner.
+/// - `AlwaysPass` - checks nothing and always passes.
+/// - `OnlyGenesis` - checks that block height is 0.
+///
 ///
 /// Also check out `iroha_validator::permission::derive_conversion` module
 /// for conversion derive macros from your token to this *Pass Conditions*.

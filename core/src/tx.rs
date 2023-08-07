@@ -26,10 +26,7 @@ use iroha_genesis::GenesisTransaction;
 use iroha_logger::{debug, error};
 use iroha_macro::FromVariant;
 
-use crate::{
-    prelude::*,
-    smartcontracts::{wasm, Execute as _},
-};
+use crate::{prelude::*, smartcontracts::wasm};
 
 /// `AcceptedTransaction` — a transaction accepted by iroha peer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -190,11 +187,10 @@ impl TransactionValidator {
     pub fn validate(
         &self,
         tx: AcceptedTransaction,
-        is_genesis: bool,
         wsv: &mut WorldStateView,
     ) -> Result<VersionedSignedTransaction, (VersionedSignedTransaction, TransactionRejectionReason)>
     {
-        if let Err(rejection_reason) = self.validate_internal(tx.clone(), is_genesis, wsv) {
+        if let Err(rejection_reason) = self.validate_internal(tx.clone(), wsv) {
             return Err((tx.0, rejection_reason));
         }
 
@@ -204,12 +200,11 @@ impl TransactionValidator {
     fn validate_internal(
         &self,
         tx: AcceptedTransaction,
-        is_genesis: bool,
         wsv: &mut WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         let authority = &tx.payload().authority;
 
-        if !is_genesis && *iroha_genesis::GENESIS_ACCOUNT_ID == *authority {
+        if wsv.height() > 0 && *iroha_genesis::GENESIS_ACCOUNT_ID == *authority {
             return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
         }
 
@@ -231,46 +226,17 @@ impl TransactionValidator {
         // Create clone wsv to try execute transaction against it to prevent failed transaction from changing wsv
         let mut wsv_for_validation = wsv.clone();
 
-        if !is_genesis {
-            debug!("Validating transaction: {:?}", tx);
-            Self::validate_with_runtime_validator(tx.clone(), &mut wsv_for_validation)?;
-        }
+        debug!("Validating transaction: {:?}", tx);
+        Self::validate_with_runtime_validator(tx.clone(), &mut wsv_for_validation)?;
 
-        match tx.into() {
-            (authority, Executable::Instructions(instructions)) => {
-                // Non-genesis instructions have been executed in `validate_with_runtime_validators()`.
-                if is_genesis {
-                    Self::execute_instructions(&authority, &mut wsv_for_validation, instructions)?;
-                }
-            }
-            (authority, Executable::Wasm(bytes)) => {
-                self.validate_wasm(authority, &mut wsv_for_validation, bytes)?
-            }
+        if let (authority, Executable::Wasm(bytes)) = tx.into() {
+            self.validate_wasm(authority, &mut wsv_for_validation, bytes)?
         }
 
         // Replace wsv in case of successful execution
         *wsv = wsv_for_validation;
 
-        (!is_genesis).then(|| debug!("Validation successful"));
-        Ok(())
-    }
-
-    fn execute_instructions(
-        authority: &AccountId,
-        wsv: &mut WorldStateView,
-        instructions: Vec<InstructionBox>,
-    ) -> Result<(), TransactionRejectionReason> {
-        for instruction in instructions {
-            instruction
-                .clone()
-                .execute(authority, wsv)
-                .map_err(|error| InstructionExecutionFail {
-                    instruction,
-                    reason: format!("{:?}", eyre::Report::from(error)),
-                })
-                .map_err(TransactionRejectionReason::InstructionExecution)?;
-        }
-
+        debug!("Validation successful");
         Ok(())
     }
 

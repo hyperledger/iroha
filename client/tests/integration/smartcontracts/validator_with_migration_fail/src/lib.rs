@@ -96,7 +96,7 @@ impl Visit for CustomValidator {
 
 impl Validate for CustomValidator {
     /// Migration should be applied on blockchain with [`DefaultValidator`]
-    fn migrate() -> MigrationResult {
+    fn migrate(_block_height: u64) -> MigrationResult {
         // Performing side-effects to check in the test that it won't be applied after failure
 
         // Registering a new domain (using ISI)
@@ -117,6 +117,10 @@ impl Validate for CustomValidator {
         self.0.verdict()
     }
 
+    fn block_height(&self) -> u64 {
+        self.0.block_height()
+    }
+
     fn deny(&mut self, reason: ValidationFail) {
         self.0.deny(reason);
     }
@@ -133,16 +137,17 @@ impl ExpressionEvaluator for CustomValidator {
 
 /// Migration entrypoint.
 #[entrypoint]
-pub fn migrate() -> MigrationResult {
-    CustomValidator::migrate()
+pub fn migrate(block_height: u64) -> MigrationResult {
+    CustomValidator::migrate(block_height)
 }
 
 #[entrypoint]
 pub fn validate_transaction(
     authority: AccountId,
     transaction: VersionedSignedTransaction,
+    block_height: u64,
 ) -> Result {
-    let mut validator = CustomValidator(DefaultValidator::new());
+    let mut validator = CustomValidator(DefaultValidator::new(block_height));
 
     validator.visit_transaction(&authority, &transaction);
 
@@ -150,8 +155,12 @@ pub fn validate_transaction(
 }
 
 #[entrypoint]
-pub fn validate_instruction(authority: AccountId, instruction: InstructionBox) -> Result {
-    let mut validator = CustomValidator(DefaultValidator::new());
+pub fn validate_instruction(
+    authority: AccountId,
+    instruction: InstructionBox,
+    block_height: u64,
+) -> Result {
+    let mut validator = CustomValidator(DefaultValidator::new(block_height));
 
     validator.visit_instruction(&authority, &instruction);
 
@@ -159,8 +168,8 @@ pub fn validate_instruction(authority: AccountId, instruction: InstructionBox) -
 }
 
 #[entrypoint]
-pub fn validate_query(authority: AccountId, query: QueryBox) -> Result {
-    let mut validator = CustomValidator(DefaultValidator::new());
+pub fn validate_query(authority: AccountId, query: QueryBox, block_height: u64) -> Result {
+    let mut validator = CustomValidator(DefaultValidator::new(block_height));
 
     validator.visit_query(&authority, &query);
 
