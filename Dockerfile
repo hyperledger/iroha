@@ -41,16 +41,27 @@ ENV  CONFIG_DIR=/config
 ENV  IROHA2_CONFIG_PATH=$CONFIG_DIR/config.json
 ENV  IROHA2_GENESIS_PATH=$CONFIG_DIR/genesis.json
 ENV  KURA_BLOCK_STORE_PATH=$STORAGE
+ENV  USER=iroha
+ENV  UID=1001
+ENV  GID=1001
 
 RUN  set -ex && \
-     apk --update add curl ca-certificates && \
-     adduser --disabled-password iroha --shell /bin/bash --home /app && \
+     apk add --no-cache curl ca-certificates && \
+     addgroup -g $GID $USER && \
+     adduser \
+     --disabled-password \
+     --gecos "" \
+     --home /app \
+     --ingroup "$USER" \
+     --no-create-home \
+     --uid "$UID" \
+     "$USER" && \
      mkdir -p $CONFIG_DIR && \
      mkdir $STORAGE && \
-     chown iroha:iroha $STORAGE
+     chown $USER:$USER $STORAGE
 
 COPY --from=builder $TARGET_DIR/iroha $BIN_PATH
 COPY --from=builder $TARGET_DIR/iroha_client_cli $BIN_PATH
 COPY --from=builder $TARGET_DIR/kagami $BIN_PATH
-USER iroha
-CMD  iroha
+USER $USER
+CMD ["${BIN_PATH}/iroha"]

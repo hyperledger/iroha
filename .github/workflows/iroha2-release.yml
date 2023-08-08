@@ -25,6 +25,10 @@ jobs:
           PREFIX='iroha2-'
           TAG=${BRANCH#$PREFIX}
           echo "TAG=$TAG" >>$GITHUB_ENV
+      - name: Get the release from a branch name
+        run: |
+          RELEASE=$(curl -s https://raw.githubusercontent.com/hyperledger/iroha/${{ github.ref_name }}/Cargo.toml | sed -n '3p' | sed -e 's/version = "//g' -e 's/"$//' | tr -d '\n')
+          echo "RELEASE=$RELEASE" >>$GITHUB_ENV
       - name: Login to DockerHub
         uses: docker/login-action@v2
         with:
@@ -41,9 +45,8 @@ jobs:
         with:
           push: true
           tags: |
-            hyperledger/iroha2:${{ env.TAG }}
-            docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}-${{ github.sha }}
-            docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}
+            hyperledger/iroha2:${{ env.TAG }}-${{ env.RELEASE }}
+            docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}-${{ env.RELEASE }}
           labels: commit=${{ github.sha }}
           build-args: TAG=${{ env.TAG }}
           file: Dockerfile
@@ -62,36 +65,16 @@ jobs:
           ref: iroha2-dev
       - name: Setup git config
         run: |
-          git config user.name "GitHub Actions Bot"
-          git config user.email "<>"
+          cd .git
+          git config --local user.name "sorabot"
+          git config --local user.email "<>"
       - name: Update configs
         run: |
           ./scripts/update_configs.sh lts
           ./scripts/update_configs.sh stable
       - name: Commit config changes
         run: |
-          git commit -am "[documentation]: Update lts/stable configs following a release" --signoff
+          git config --global --add safe.directory /__w/iroha/iroha
+          git add -A
+          git diff-index --quiet HEAD || git commit -m "[documentation]: Update lts/stable configs following a release" --signoff
           git push origin iroha2-dev
-
-  load-rs:
-    # TODO: Temporary workaround for failing CI job
-    continue-on-error: true
-    runs-on: ubuntu-latest
-    steps:
-      - name: Get tag from branch name
-        run: |
-          BRANCH=${{ github.ref_name }}
-          PREFIX='iroha2-'
-          TAG=${BRANCH#$PREFIX}
-          echo "TAG=$TAG" >>$GITHUB_ENV
-      - name: Build and push docker image (load-rs:release/stable)
-        run: |
-          sleep 10s
-          echo "wait to finish other workflow"
-      - uses: convictional/trigger-workflow-and-wait@v1.6.5
-        with:
-          owner: soramitsu
-          repo: iroha2-longevity-load-rs
-          github_token: ${{ secrets.G_ACCESS_TOKEN }}
-          workflow_file_name: load-rs-push-from-${{ env.TAG }}.yaml
-          ref: iroha2-${{ env.TAG }}
