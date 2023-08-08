@@ -49,8 +49,12 @@ RUN  set -ex && \
      mkdir $STORAGE && \
      chown iroha:iroha $STORAGE
 
+RUN apk add --no-cache tini
+# Tini is now available at /sbin/tini
+ENTRYPOINT ["/sbin/tini", "--"]
+
 COPY --from=builder $TARGET_DIR/iroha $BIN_PATH
 COPY --from=builder $TARGET_DIR/iroha_client_cli $BIN_PATH
 COPY --from=builder $TARGET_DIR/kagami $BIN_PATH
 USER iroha
-CMD  iroha
+CMD ["iroha"]
