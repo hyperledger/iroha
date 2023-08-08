@@ -306,6 +306,8 @@ mod events {
         Pipeline,
         /// Gets data events
         Data,
+        /// Get notification events
+        Notification,
     }
 
     impl RunArgs for Args {
@@ -313,6 +315,7 @@ mod events {
             let filter = match self {
                 Args::Pipeline => FilterBox::Pipeline(PipelineEventFilter::new()),
                 Args::Data => FilterBox::Data(DataEventFilter::AcceptAll),
+                Args::Notification => FilterBox::Notification(NotificationEventFilter::AcceptAll),
             };
             listen(filter, context)
         }

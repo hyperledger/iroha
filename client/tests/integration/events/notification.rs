@@ -8,7 +8,7 @@ use test_network::*;
 
 #[test]
 fn trigger_completion_success_should_produce_event() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_045).start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_050).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -23,7 +23,7 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
             vec![InstructionBox::from(instruction)],
             Repeats::Indefinitely,
             asset_id.account_id.clone(),
-            TriggerableFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
                 asset_id.account_id,
             )),
@@ -59,7 +59,7 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
 
 #[test]
 fn trigger_completion_failure_should_produce_event() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_050).start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_055).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let account_id: AccountId = "alice@wonderland".parse()?;
@@ -72,7 +72,7 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
             vec![InstructionBox::from(instruction)],
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggerableFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
                 account_id,
             )),
