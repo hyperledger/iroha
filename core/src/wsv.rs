@@ -24,6 +24,7 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{
     account::AccountId,
     block::{CommittedBlock, VersionedCommittedBlock},
+    events::notification::{TriggerCompletedEvent, TriggerCompletedOutcome},
     isi::error::{InstructionExecutionError as Error, MathError},
     parameter::Parameter,
     permission::PermissionTokenSchema,
@@ -287,10 +288,22 @@ impl WorldStateView {
                         continue;
                     }
                 }
-                match self.process_trigger(&id, &action, event) {
-                    Ok(_) => succeed.push(id),
-                    Err(error) => errors.push(error),
-                }
+                let event = match self.process_trigger(&id, &action, event) {
+                    Ok(_) => {
+                        succeed.push(id.clone());
+                        TriggerCompletedEvent::new(id, TriggerCompletedOutcome::Success)
+                    }
+                    Err(error) => {
+                        let event = TriggerCompletedEvent::new(
+                            id,
+                            TriggerCompletedOutcome::Failure(error.to_string()),
+                        );
+                        errors.push(error);
+                        event
+                    }
+                };
+                self.events_buffer
+                    .push(NotificationEvent::from(event).into());
             }
         }
 
