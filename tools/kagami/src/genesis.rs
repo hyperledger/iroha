@@ -12,6 +12,7 @@ use iroha_data_model::{
     IdBox,
 };
 use iroha_genesis::{RawGenesisBlock, RawGenesisBlockBuilder, ValidatorMode, ValidatorPath};
+use serde_json::json;
 
 use super::*;
 
@@ -114,34 +115,31 @@ pub fn generate_default(validator_path: Option<PathBuf>) -> color_eyre::Result<R
             .validator(validator)
             .build();
 
+    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
     let mint = MintBox::new(
         13_u32.to_value(),
-        IdBox::AssetId(AssetId::new(
-            "rose#wonderland".parse()?,
-            "alice@wonderland".parse()?,
-        )),
+        IdBox::AssetId(AssetId::new("rose#wonderland".parse()?, alice_id.clone())),
     );
     let mint_cabbage = MintBox::new(
         44_u32.to_value(),
         IdBox::AssetId(AssetId::new(
             "cabbage#garden_of_live_flowers".parse()?,
-            "alice@wonderland".parse()?,
+            alice_id.clone(),
         )),
     );
-    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
     let grant_permission_to_set_parameters = GrantBox::new(
-        PermissionToken::new("CanSetParameters".parse()?, &()),
-        alice_id,
+        PermissionToken::new("CanSetParameters".parse()?, &json!(null)),
+        alice_id.clone(),
     );
     let register_user_metadata_access = RegisterBox::new(
         Role::new("ALICE_METADATA_ACCESS".parse()?)
             .add_permission(PermissionToken::new(
                 "CanSetKeyValueInUserAccount".parse()?,
-                &"alice@wonderland".parse::<AccountId>()?,
+                &json!({ "account_id": alice_id }),
             ))
             .add_permission(PermissionToken::new(
                 "CanRemoveKeyValueInUserAccount".parse()?,
-                &"alice@wonderland".parse::<AccountId>()?,
+                &json!({ "account_id": alice_id }),
             )),
     )
     .into();
@@ -163,15 +161,18 @@ pub fn generate_default(validator_path: Option<PathBuf>) -> color_eyre::Result<R
         .add_parameter(WASM_MAX_MEMORY, DEFAULT_MAX_MEMORY)?
         .into_create_parameters();
 
-    genesis.transactions[0].isi.push(mint.into());
-    genesis.transactions[0].isi.push(mint_cabbage.into());
-    genesis.transactions[0]
-        .isi
-        .push(grant_permission_to_set_parameters.into());
-    genesis.transactions[0].isi.push(parameter_defaults.into());
-    genesis.transactions[0]
-        .isi
-        .push(register_user_metadata_access);
+    let first_tx = genesis
+        .first_transaction_mut()
+        .expect("At least one transaction is expected");
+    for isi in [
+        mint.into(),
+        mint_cabbage.into(),
+        grant_permission_to_set_parameters.into(),
+        parameter_defaults.into(),
+        register_user_metadata_access,
+    ] {
+        first_tx.append_instruction(isi);
+    }
 
     Ok(genesis)
 }
@@ -217,30 +218,26 @@ fn generate_synthetic(
     }
     let mut genesis = builder.validator(validator).build();
 
-    let mints = {
-        let mut acc = Vec::new();
-        for domain in 0..domains {
-            for account in 0..accounts_per_domain {
-                // FIXME: it actually generates (assets_per_domain * accounts_per_domain) assets per domain
-                //        https://github.com/hyperledger/iroha/issues/3508
-                for asset in 0..assets_per_domain {
-                    let mint = MintBox::new(
-                        13_u32.to_value(),
-                        IdBox::AssetId(AssetId::new(
-                            format!("asset_{asset}#domain_{domain}").parse()?,
-                            format!("account_{account}@domain_{domain}").parse()?,
-                        )),
-                    );
-                    acc.push(mint);
-                }
+    let first_transaction = genesis
+        .first_transaction_mut()
+        .expect("At least one transaction is expected");
+    for domain in 0..domains {
+        for account in 0..accounts_per_domain {
+            // FIXME: it actually generates (assets_per_domain * accounts_per_domain) assets per domain
+            //        https://github.com/hyperledger/iroha/issues/3508
+            for asset in 0..assets_per_domain {
+                let mint = MintBox::new(
+                    13_u32.to_value(),
+                    IdBox::AssetId(AssetId::new(
+                        format!("asset_{asset}#domain_{domain}").parse()?,
+                        format!("account_{account}@domain_{domain}").parse()?,
+                    )),
+                )
+                .into();
+                first_transaction.append_instruction(mint);
             }
         }
-        acc
     }
-    .into_iter()
-    .map(Into::into);
-
-    genesis.transactions[0].isi.extend(mints);
 
     Ok(genesis)
 }

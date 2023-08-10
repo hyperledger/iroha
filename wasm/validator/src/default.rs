@@ -74,7 +74,7 @@ macro_rules! map_all_crate_tokens {
 
 macro_rules! token {
     ($($meta:meta)* $item:item) => {
-        #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
+        #[derive(serde::Serialize, serde::Deserialize)]
         #[derive(iroha_schema::IntoSchema)]
         #[derive(Clone, Token)]
         $($meta)*

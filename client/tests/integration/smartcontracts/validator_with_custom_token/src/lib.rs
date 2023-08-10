@@ -25,6 +25,8 @@ use iroha_validator::{
     prelude::*,
 };
 use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 #[cfg(not(test))]
 extern crate panic_halt;
@@ -37,7 +39,7 @@ mod token {
     use super::*;
 
     /// Token to identify if user can (un-)register domains.
-    #[derive(Token, ValidateGrantRevoke, Decode, Encode, IntoSchema)]
+    #[derive(Token, ValidateGrantRevoke, Decode, Encode, IntoSchema, Serialize, Deserialize)]
     #[validate(iroha_validator::permission::OnlyGenesis)]
     pub struct CanControlDomainLives;
 }
@@ -57,11 +59,6 @@ impl CustomValidator {
 
     fn get_all_accounts_with_can_unregister_domain_permission(
     ) -> Result<Vec<(Account, DomainId)>, MigrationError> {
-        let can_unregister_domain_definition_id = PermissionTokenId::try_from(
-            iroha_validator::default::domain::tokens::CanUnregisterDomain::type_name(),
-        )
-        .unwrap();
-
         let accounts = FindAllAccounts.execute().map_err(|error| {
             format!("{:?}", anyhow!(error).context("Failed to get all accounts"))
         })?;
@@ -82,15 +79,10 @@ impl CustomValidator {
                 })?;
 
             for token in permission_tokens {
-                if token.definition_id() == &can_unregister_domain_definition_id {
-                    let domain_id = DomainId::decode(&mut token.payload()).map_err(|error| {
-                        format!(
-                            "{:?}",
-                            anyhow!(error)
-                                .context("Failed to decode `DomainId` from token payload")
-                        )
-                    })?;
-                    found_accounts.push((account, domain_id));
+                if let Ok(can_unregister_domain_token) =
+                    iroha_validator::default::domain::tokens::CanUnregisterDomain::try_from(token)
+                {
+                    found_accounts.push((account, can_unregister_domain_token.domain_id));
                     break;
                 }
             }
@@ -99,7 +91,6 @@ impl CustomValidator {
         Ok(found_accounts)
     }
 
-    #[allow(single_use_lifetimes)] // Other suggested syntax is incorrect
     fn replace_token(accounts: &[(Account, DomainId)]) -> MigrationResult {
         let can_unregister_domain_definition_id = PermissionTokenId::try_from(
             iroha_validator::default::domain::tokens::CanUnregisterDomain::type_name(),
@@ -113,7 +104,10 @@ impl CustomValidator {
             .iter()
             .try_for_each(|(account, domain_id)| {
                 RevokeBox::new(
-                    PermissionToken::new(can_unregister_domain_definition_id.clone(), domain_id),
+                    PermissionToken::new(
+                        can_unregister_domain_definition_id.clone(),
+                        &json!({ "domain_id": domain_id }),
+                    ),
                     account.id().clone(),
                 )
                 .execute()
@@ -129,7 +123,10 @@ impl CustomValidator {
                 })?;
 
                 GrantBox::new(
-                    PermissionToken::new(can_control_domain_lives_definition_id.clone(), &()),
+                    PermissionToken::new(
+                        can_control_domain_lives_definition_id.clone(),
+                        &json!(null),
+                    ),
                     account.id().clone(),
                 )
                 .execute()

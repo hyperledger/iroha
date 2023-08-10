@@ -5502,6 +5502,7 @@ dependencies = [
  "iroha_primitives",
  "parity-scale-codec",
  "rand 0.8.5",
+ "serde_json",
  "tempfile",
  "tokio",
  "unique_port",

@@ -34,3 +34,5 @@ iroha_schema = { version = "=2.0.0-pre-rc.18", path = "../../../../schema" }
 parity-scale-codec = { version = "3.2.1", default-features = false }
 panic-halt = "0.2.0"
 anyhow = { version = "1.0.71", default-features = false }
+serde = { version = "1.0.151", default-features = false }
+serde_json = { version = "1.0.91", default-features = false }

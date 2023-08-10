@@ -6,6 +6,7 @@ use eyre::Result;
 use iroha_client::client::{self, Client, QueryResult};
 use iroha_data_model::prelude::*;
 use iroha_genesis::GenesisNetwork;
+use serde_json::json;
 use test_network::{PeerBuilder, *};
 
 use super::Configuration;
@@ -20,7 +21,7 @@ fn genesis_transactions_are_validated() {
     let mut genesis = GenesisNetwork::test(true).expect("Expected genesis");
 
     let grant_invalid_token = GrantBox::new(
-        PermissionToken::new("InvalidToken".parse().unwrap(), &()),
+        PermissionToken::new("InvalidToken".parse().unwrap(), &json!(null)),
         AccountId::from_str("alice@wonderland").unwrap(),
     );
 
@@ -35,7 +36,7 @@ fn genesis_transactions_are_validated() {
     // Starting peer
     let (_rt, _peer, test_client) = <PeerBuilder>::new()
         .with_genesis(genesis)
-        .with_port(11_045)
+        .with_port(11_100)
         .start_with_runtime();
 
     // Checking that peer contains no blocks multiple times
@@ -225,7 +226,10 @@ fn permissions_differ_not_only_by_names() {
     // Granting permission to Alice to modify metadata in Mouse's hats
     let mouse_hat_id = <Asset as Identifiable>::Id::new(hat_definition_id, mouse_id.clone());
     let allow_alice_to_set_key_value_in_hats = GrantBox::new(
-        PermissionToken::new("CanSetKeyValueInUserAsset".parse().unwrap(), &mouse_hat_id),
+        PermissionToken::new(
+            "CanSetKeyValueInUserAsset".parse().unwrap(),
+            &json!({ "asset_id": mouse_hat_id }),
+        ),
         alice_id.clone(),
     );
 
@@ -261,7 +265,7 @@ fn permissions_differ_not_only_by_names() {
     let allow_alice_to_set_key_value_in_shoes = GrantBox::new(
         PermissionToken::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
-            &mouse_shoes_id,
+            &json!({ "asset_id": mouse_shoes_id }),
         ),
         alice_id,
     );
@@ -279,100 +283,4 @@ fn permissions_differ_not_only_by_names() {
     client
         .submit_blocking(set_shoes_color)
         .expect("Failed to modify Mouse's shoes");
-}
-
-mod token_parameters {
-    use super::*;
-
-    static TEST_TOKEN_DEFINITION_ID: once_cell::sync::Lazy<PermissionTokenId> =
-        once_cell::sync::Lazy::new(|| "TestPermissionTokenDefinition".parse().expect("Valid"));
-
-    #[ignore = "ignore, more in #2851"]
-    #[test]
-    fn token_with_missing_parameters_is_not_accepted() {
-        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone(), &());
-        let expect = "Expected to fail to grant permission token without parameters";
-
-        run_grant_token_error_test(token.clone(), expect);
-        run_register_role_error_test(token, expect);
-    }
-
-    #[ignore = "ignore, more in #2851"]
-    #[test]
-    fn token_with_one_missing_parameter_is_not_accepted() {
-        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone(), &1_u32);
-        let expect = "Expected to fail to grant permission token with one missing parameter";
-
-        run_grant_token_error_test(token.clone(), expect);
-        run_register_role_error_test(token, expect);
-    }
-
-    #[ignore = "ignore, more in #2851"]
-    #[test]
-    fn token_with_changed_parameter_name_is_not_accepted() {
-        let token = PermissionToken::new(TEST_TOKEN_DEFINITION_ID.clone(), &(1_u32, "test"));
-        let expect = "Expected to fail to grant permission token with one changed parameter";
-
-        run_grant_token_error_test(token.clone(), expect);
-        run_register_role_error_test(token, expect);
-    }
-
-    #[ignore = "ignore, more in #2851"]
-    #[test]
-    fn token_with_extra_parameter_is_not_accepted() {
-        let token = PermissionToken::new(
-            TEST_TOKEN_DEFINITION_ID.clone(),
-            &(1_u32, "test", "extra_test"),
-        );
-        let expect = "Expected to fail to grant permission token with extra parameter";
-
-        run_grant_token_error_test(token.clone(), expect);
-        run_register_role_error_test(token, expect);
-    }
-
-    #[ignore = "ignore, more in #2851"]
-    #[test]
-    fn token_with_wrong_parameter_type_is_not_accepted() {
-        let token = PermissionToken::new(
-            TEST_TOKEN_DEFINITION_ID.clone(),
-            &(91_u32, Value::Name("test".parse().expect("Valid"))),
-        );
-        let expect = "Expected to fail to grant permission token with wrong parameter type";
-
-        run_grant_token_error_test(token.clone(), expect);
-        run_register_role_error_test(token, expect);
-    }
-
-    /// Run granting permission `token` test and expect it to fail.
-    ///
-    /// Will panic with `expect` if permission granting succeeds
-    fn run_grant_token_error_test(token: PermissionToken, expect: &'static str) {
-        let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_750).start_with_runtime();
-        wait_for_genesis_committed(&[client.clone()], 0);
-
-        // register_test_token_definition(&client);
-
-        let account_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
-
-        let _err = client
-            .submit_blocking(GrantBox::new(token, account_id))
-            .expect_err(expect);
-    }
-
-    /// Run role registration with provided permission `token` test and expect it to fail.
-    ///
-    /// Will panic with `expect` if role registration succeeds
-    fn run_register_role_error_test(token: PermissionToken, expect: &'static str) {
-        let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_750).start_with_runtime();
-        wait_for_genesis_committed(&[client.clone()], 0);
-
-        // register_test_token_definition(&client);
-
-        let role_id: <Role as Identifiable>::Id = "test_role".parse().expect("Valid");
-        let role = Role::new(role_id).add_permission(token);
-
-        let _err = client
-            .submit_blocking(RegisterBox::new(role))
-            .expect_err(expect);
-    }
 }

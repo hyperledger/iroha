@@ -3240,7 +3240,7 @@
       },
       {
         "name": "payload",
-        "type": "Vec<u8>"
+        "type": "StringWithJson"
       }
     ]
   },
@@ -4114,6 +4114,7 @@
       }
     ]
   },
+  "StringWithJson": "String",
   "Subtract": {
     "Struct": [
       {
