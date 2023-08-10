@@ -21,6 +21,7 @@ members = [
 ]
 
 [workspace.dependencies]
+iroha_data_model = { version = "=2.0.0-pre-rc.19", path = "../data_model", default-features = false }
 iroha_derive_primitives = { version = "2.0.0-pre-rc.19", path = "../derive_primitives" }
 syn = { version = "1", default-features = false, features = ["full", "extra-traits", "derive"] }
 quote = "1.0"
@@ -42,7 +43,7 @@ license.workspace = true
 debug = []
 
 [dependencies]
-iroha_data_model = { version = "=2.0.0-pre-rc.19", path = "../data_model", default-features = false }
+iroha_data_model.workspace = true
 iroha_wasm_derive = { version = "=2.0.0-pre-rc.19", path = "derive" }
 
 parity-scale-codec = { version = "3.1.5", default-features = false }

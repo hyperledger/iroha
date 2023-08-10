@@ -25,8 +25,8 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
                     impl_validate_entrypoint(
                         fn_item,
                         stringify!($user_entrypoint_name),
-                        stringify!($generated_entrypoint_name),
-                        stringify!($query_validating_object_fn_name),
+                        iroha_data_model::wasm::export::fn_names::$generated_entrypoint_name,
+                        iroha_data_model::wasm::import::fn_names::$query_validating_object_fn_name,
                     )
                 })*
                 $(fn_name if fn_name == stringify!($other_user_entrypoint_name) => $branch),*
@@ -43,9 +43,9 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     match_entrypoints! {
         validate: {
-            validate_transaction => _iroha_validator_validate_transaction(get_transaction_to_validate),
-            validate_instruction => _iroha_validator_validate_instruction(get_instruction_to_validate),
-            validate_query => _iroha_validator_validate_query(get_query_to_validate),
+            validate_transaction => VALIDATOR_VALIDATE_TRANSACTION(GET_TRANSACTION_TO_VALIDATE),
+            validate_instruction => VALIDATOR_VALIDATE_INSTRUCTION(GET_INSTRUCTION_TO_VALIDATE),
+            validate_query => VALIDATOR_VALIDATE_QUERY(GET_QUERY_TO_VALIDATE),
         }
         other: {
             migrate => { impl_migrate_entrypoint(fn_item) }
@@ -136,6 +136,11 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
         ::iroha_validator::iroha_wasm::get_block_height(),
     };
 
+    let migrate_fn_name = syn::Ident::new(
+        iroha_data_model::wasm::export::fn_names::VALIDATOR_MIGRATE,
+        proc_macro2::Span::call_site(),
+    );
+
     quote! {
         /// Validator `permission_token_schema` entrypoint
         ///
@@ -144,7 +149,7 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
         /// This function transfers the ownership of allocated [`Vec`](alloc::vec::Vec).
         #[no_mangle]
         #[doc(hidden)]
-        unsafe extern "C" fn _iroha_validator_migrate() -> *const u8 {
+        unsafe extern "C" fn #migrate_fn_name() -> *const u8 {
             let res: ::iroha_validator::data_model::validator::MigrationResult = #fn_name(#args);
             let bytes = ::core::mem::ManuallyDrop::new(::iroha_validator::iroha_wasm::encode_with_length_prefix(&res));
 

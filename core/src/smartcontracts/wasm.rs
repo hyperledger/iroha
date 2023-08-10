@@ -4,7 +4,7 @@
 #![allow(clippy::doc_link_with_quotes, clippy::arithmetic_side_effects)]
 
 use error::*;
-use import::{
+use import_traits::{
     ExecuteOperations as _, GetAuthority as _, GetBlockHeight as _, GetOperationsToValidate as _,
     SetPermissionTokenSchema as _,
 };
@@ -18,6 +18,7 @@ use iroha_data_model::{
     permission::PermissionTokenSchema,
     prelude::*,
     validator::{self, MigrationResult},
+    wasm::{export, import},
     Level as LogLevel, ValidationFail,
 };
 use iroha_logger::debug;
@@ -35,58 +36,10 @@ use crate::{
     wsv::WorldStateView,
 };
 
-mod export {
-    //! Module functions names exported from wasm to iroha
-
-    /// Exported function to allocate memory
-    pub const WASM_ALLOC_FN: &str = "_iroha_wasm_alloc";
-    /// Exported function to deallocate memory
-    pub const WASM_DEALLOC_FN: &str = "_iroha_wasm_dealloc";
-    /// Name of the exported memory
-    pub const WASM_MEMORY_NAME: &str = "memory";
-    /// Name of the exported entry for smart contract or trigger execution
-    pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
-    /// Name of the exported entry for validator to validate transaction
-    pub const VALIDATOR_VALIDATE_TRANSACTION_FN_NAME: &str =
-        "_iroha_validator_validate_transaction";
-    /// Name of the exported entry for validator to validate instruction
-    pub const VALIDATOR_VALIDATE_INSTRUCTION_FN_NAME: &str =
-        "_iroha_validator_validate_instruction";
-    /// Name of the exported entry for validator to validate query
-    pub const VALIDATOR_VALIDATE_QUERY_FN_NAME: &str = "_iroha_validator_validate_query";
-    /// Name of the exported entry for validator to perform migration
-    pub const VALIDATOR_MIGRATE_FN_NAME: &str = "_iroha_validator_migrate";
-}
-
-mod import {
-    //! Module functions names imported from iroha to wasm and related traits
+mod import_traits {
+    //! Traits which some [Runtime]s should implement to import functions from Iroha to WASM
 
     use super::*;
-
-    /// Name of the linked wasm module
-    pub const MODULE_NAME: &str = "iroha";
-    /// Name of the imported function to execute instructions
-    pub const EXECUTE_ISI_FN_NAME: &str = "execute_instruction";
-    /// Name of the imported function to execute queries
-    pub const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
-    /// Name of the imported function to query trigger authority
-    pub const GET_AUTHORITY_FN_NAME: &str = "get_authority";
-    /// Name of the imported function to query event that triggered the smart contract execution
-    pub const GET_TRIGGERING_EVENT_FN_NAME: &str = "get_triggering_event";
-    /// Name of the imported function to get transaction that is to be verified
-    pub const GET_TRANSACTION_TO_VALIDATE_FN_NAME: &str = "get_transaction_to_validate";
-    /// Name of the imported function to get instruction that is to be verified
-    pub const GET_INSTRUCTION_TO_VALIDATE_FN_NAME: &str = "get_instruction_to_validate";
-    /// Name of the imported function to get query that is to be verified
-    pub const GET_QUERY_TO_VALIDATE_FN_NAME: &str = "get_query_to_validate";
-    /// Name of the imported function to get current block height
-    pub const GET_BLOCK_HEIGHT_FN_NAME: &str = "get_block_height";
-    /// Name of the imported function to debug print objects
-    pub const DBG_FN_NAME: &str = "dbg";
-    /// Name of the imported function to log objects
-    pub const LOG_FN_NAME: &str = "log";
-    /// Name of the imported function to set new [`PermissionTokenSchema`]
-    pub const SET_PERMISSION_TOKEN_SCHEMA_FN_NAME: &str = "set_permission_token_schema";
 
     pub trait ExecuteOperations<S> {
         /// Execute `query` on host
@@ -608,23 +561,23 @@ pub struct Runtime<S> {
 impl<S> Runtime<S> {
     fn get_memory(caller: &mut impl GetExport) -> Result<wasmtime::Memory, ExportError> {
         caller
-            .get_export(export::WASM_MEMORY_NAME)
-            .ok_or_else(|| ExportError::not_found(export::WASM_MEMORY_NAME))?
+            .get_export(export::WASM_MEMORY)
+            .ok_or_else(|| ExportError::not_found(export::WASM_MEMORY))?
             .into_memory()
-            .ok_or_else(|| ExportError::not_a_memory(export::WASM_MEMORY_NAME))
+            .ok_or_else(|| ExportError::not_a_memory(export::WASM_MEMORY))
     }
 
     fn get_alloc_fn(
         caller: &mut Caller<S>,
     ) -> Result<TypedFunc<WasmUsize, WasmUsize>, ExportError> {
         caller
-            .get_export(export::WASM_ALLOC_FN)
-            .ok_or_else(|| ExportError::not_found(export::WASM_ALLOC_FN))?
+            .get_export(export::fn_names::WASM_ALLOC)
+            .ok_or_else(|| ExportError::not_found(export::fn_names::WASM_ALLOC))?
             .into_func()
-            .ok_or_else(|| ExportError::not_a_function(export::WASM_ALLOC_FN))?
+            .ok_or_else(|| ExportError::not_a_function(export::fn_names::WASM_ALLOC))?
             .typed::<WasmUsize, WasmUsize>(caller)
             .map_err(|_error| {
-                ExportError::wrong_signature::<WasmUsize, WasmUsize>(export::WASM_ALLOC_FN)
+                ExportError::wrong_signature::<WasmUsize, WasmUsize>(export::fn_names::WASM_ALLOC)
             })
     }
 
@@ -632,7 +585,7 @@ impl<S> Runtime<S> {
         instance: &wasmtime::Instance,
         store: &mut wasmtime::Store<S>,
     ) -> Result<()> {
-        let main_fn = Self::get_typed_func(instance, store, export::WASM_MAIN_FN_NAME)?;
+        let main_fn = Self::get_typed_func(instance, store, export::fn_names::WASM_MAIN)?;
 
         // NOTE: This function takes ownership of the pointer
         main_fn
@@ -682,12 +635,15 @@ impl<S> Runtime<S> {
         mut store: &mut wasmtime::Store<S>,
     ) -> Result<(), InstantiationError> {
         let _ = Self::get_memory(&mut (instance, &mut store))?;
-        let _ =
-            Self::get_typed_func::<WasmUsize, WasmUsize>(instance, store, export::WASM_ALLOC_FN)?;
+        let _ = Self::get_typed_func::<WasmUsize, WasmUsize>(
+            instance,
+            store,
+            export::fn_names::WASM_ALLOC,
+        )?;
         let _ = Self::get_typed_func::<(WasmUsize, WasmUsize), ()>(
             instance,
             store,
-            export::WASM_DEALLOC_FN,
+            export::fn_names::WASM_DEALLOC,
         )?;
 
         Ok(())
@@ -784,8 +740,9 @@ impl<S: state::LimitsMut> Runtime<S> {
 
         let memory =
             Self::get_memory(&mut (&instance, &mut store)).expect("Checked at instantiation step");
-        let dealloc_fn = Self::get_typed_func(&instance, &mut store, export::WASM_DEALLOC_FN)
-            .expect("Checked at instantiation step");
+        let dealloc_fn =
+            Self::get_typed_func(&instance, &mut store, export::fn_names::WASM_DEALLOC)
+                .expect("Checked at instantiation step");
         codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
             .map_err(Error::Decode)
     }
@@ -833,14 +790,14 @@ impl<S: state::Authority + state::Wsv + state::WsvMut> Runtime<S> {
     }
 }
 
-impl<S: state::Authority> import::GetAuthority<S> for Runtime<S> {
+impl<S: state::Authority> import_traits::GetAuthority<S> for Runtime<S> {
     #[codec::wrap]
     fn get_authority(state: &S) -> AccountId {
         state.authority().clone()
     }
 }
 
-impl<S: state::Wsv> import::GetBlockHeight<S> for Runtime<S> {
+impl<S: state::Wsv> import_traits::GetBlockHeight<S> for Runtime<S> {
     #[codec::wrap]
     fn get_block_height(state: &S) -> u64 {
         state.wsv().height()
@@ -905,7 +862,7 @@ impl<'wrld> Runtime<state::SmartContract<'wrld>> {
     }
 }
 
-impl<'wrld> import::ExecuteOperations<state::SmartContract<'wrld>>
+impl<'wrld> import_traits::ExecuteOperations<state::SmartContract<'wrld>>
     for Runtime<state::SmartContract<'wrld>>
 {
     #[codec::wrap]
@@ -962,7 +919,9 @@ impl<'wrld> Runtime<state::Trigger<'wrld>> {
     }
 }
 
-impl<'wrld> import::ExecuteOperations<state::Trigger<'wrld>> for Runtime<state::Trigger<'wrld>> {
+impl<'wrld> import_traits::ExecuteOperations<state::Trigger<'wrld>>
+    for Runtime<state::Trigger<'wrld>>
+{
     #[codec::wrap]
     fn execute_query(
         query: QueryBox,
@@ -980,13 +939,13 @@ impl<'wrld> import::ExecuteOperations<state::Trigger<'wrld>> for Runtime<state::
     }
 }
 
-/// Marker trait to auto-implement [`import::ExecuteOperations`] for a concrete
+/// Marker trait to auto-implement [`import_traits::ExecuteOperations`] for a concrete
 /// *Validator* [`Runtime`].
 ///
 /// *Mut* means that [`WorldStateView`] will be mutated.
 trait ExecuteOperationsAsValidatorMut<S> {}
 
-impl<R, S> import::ExecuteOperations<S> for R
+impl<R, S> import_traits::ExecuteOperations<S> for R
 where
     R: ExecuteOperationsAsValidatorMut<S>,
     S: state::Wsv + state::WsvMut + state::Authority,
@@ -1017,7 +976,7 @@ where
     }
 }
 
-/// Marker trait to auto-implement [`import::SetPermissionTokenSchema`] for a concrete [`Runtime`].
+/// Marker trait to auto-implement [`import_traits::SetPermissionTokenSchema`] for a concrete [`Runtime`].
 ///
 /// Useful because in *Validator* exist more entrypoints than just `migrate()` which is the
 /// only entrypoint allowed to execute operations on permission tokens.
@@ -1026,7 +985,7 @@ trait FakeSetPermissionTokenSchema<S> {
     const ENTRYPOINT_FN_NAME: &'static str;
 }
 
-impl<R, S> import::SetPermissionTokenSchema<S> for R
+impl<R, S> import_traits::SetPermissionTokenSchema<S> for R
 where
     R: FakeSetPermissionTokenSchema<S>,
 {
@@ -1063,7 +1022,7 @@ impl<'wrld> Runtime<state::validator::ValidateTransaction<'wrld>> {
                 common: state::Common::new(wsv, authority.clone(), self.config, span),
                 to_validate: transaction,
             },
-            export::VALIDATOR_VALIDATE_TRANSACTION_FN_NAME,
+            export::fn_names::VALIDATOR_VALIDATE_TRANSACTION,
         )
     }
 }
@@ -1073,7 +1032,7 @@ impl<'wrld> ExecuteOperationsAsValidatorMut<state::validator::ValidateTransactio
 {
 }
 
-impl<'wrld> import::GetOperationsToValidate<state::validator::ValidateTransaction<'wrld>>
+impl<'wrld> import_traits::GetOperationsToValidate<state::validator::ValidateTransaction<'wrld>>
     for Runtime<state::validator::ValidateTransaction<'wrld>>
 {
     #[codec::wrap]
@@ -1126,7 +1085,7 @@ impl<'wrld> Runtime<state::validator::ValidateInstruction<'wrld>> {
                 common: state::Common::new(wsv, authority.clone(), self.config, span),
                 to_validate: instruction,
             },
-            export::VALIDATOR_VALIDATE_INSTRUCTION_FN_NAME,
+            export::fn_names::VALIDATOR_VALIDATE_INSTRUCTION,
         )
     }
 }
@@ -1136,7 +1095,7 @@ impl<'wrld> ExecuteOperationsAsValidatorMut<state::validator::ValidateInstructio
 {
 }
 
-impl<'wrld> import::GetOperationsToValidate<state::validator::ValidateInstruction<'wrld>>
+impl<'wrld> import_traits::GetOperationsToValidate<state::validator::ValidateInstruction<'wrld>>
     for Runtime<state::validator::ValidateInstruction<'wrld>>
 {
     #[codec::wrap]
@@ -1192,12 +1151,12 @@ impl<'wrld> Runtime<state::validator::ValidateQuery<'wrld>> {
                 log_span: span,
                 query,
             },
-            export::VALIDATOR_VALIDATE_QUERY_FN_NAME,
+            export::fn_names::VALIDATOR_VALIDATE_QUERY,
         )
     }
 }
 
-impl<'wrld> import::ExecuteOperations<state::validator::ValidateQuery<'wrld>>
+impl<'wrld> import_traits::ExecuteOperations<state::validator::ValidateQuery<'wrld>>
     for Runtime<state::validator::ValidateQuery<'wrld>>
 {
     #[codec::wrap]
@@ -1225,7 +1184,7 @@ impl<'wrld> import::ExecuteOperations<state::validator::ValidateQuery<'wrld>>
     }
 }
 
-impl<'wrld> import::GetOperationsToValidate<state::validator::ValidateQuery<'wrld>>
+impl<'wrld> import_traits::GetOperationsToValidate<state::validator::ValidateQuery<'wrld>>
     for Runtime<state::validator::ValidateQuery<'wrld>>
 {
     #[codec::wrap]
@@ -1281,7 +1240,7 @@ impl<'wrld> Runtime<state::validator::Migrate<'wrld>> {
         let instance = self.instantiate_module(module, &mut store)?;
 
         let migrate_fn =
-            Self::get_typed_func(&instance, &mut store, export::VALIDATOR_MIGRATE_FN_NAME)?;
+            Self::get_typed_func(&instance, &mut store, export::fn_names::VALIDATOR_MIGRATE)?;
 
         let offset = migrate_fn
             .call(&mut store, ())
@@ -1289,8 +1248,9 @@ impl<'wrld> Runtime<state::validator::Migrate<'wrld>> {
 
         let memory =
             Self::get_memory(&mut (&instance, &mut store)).expect("Checked at instantiation step");
-        let dealloc_fn = Self::get_typed_func(&instance, &mut store, export::WASM_DEALLOC_FN)
-            .expect("Checked at instantiation step");
+        let dealloc_fn =
+            Self::get_typed_func(&instance, &mut store, export::fn_names::WASM_DEALLOC)
+                .expect("Checked at instantiation step");
         codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
             .map_err(Error::Decode)
     }
@@ -1301,7 +1261,7 @@ impl<'wrld> ExecuteOperationsAsValidatorMut<state::validator::Migrate<'wrld>>
 {
 }
 
-/// Fake implementation of [`import::GetOperationsToValidate`].
+/// Fake implementation of [`import_traits::GetOperationsToValidate`].
 ///
 /// This is needed because `migrate()` entrypoint exists in the same binary as
 /// `validate_*()` entrypoints.
@@ -1310,7 +1270,7 @@ impl<'wrld> ExecuteOperationsAsValidatorMut<state::validator::Migrate<'wrld>>
 ///
 /// Panics with error message if called, because it should never be called from
 /// `migrate()` entrypoint.
-impl<'wrld> import::GetOperationsToValidate<state::validator::Migrate<'wrld>>
+impl<'wrld> import_traits::GetOperationsToValidate<state::validator::Migrate<'wrld>>
     for Runtime<state::validator::Migrate<'wrld>>
 {
     #[codec::wrap]
@@ -1331,7 +1291,7 @@ impl<'wrld> import::GetOperationsToValidate<state::validator::Migrate<'wrld>>
     }
 }
 
-impl<'wrld> import::SetPermissionTokenSchema<state::validator::Migrate<'wrld>>
+impl<'wrld> import_traits::SetPermissionTokenSchema<state::validator::Migrate<'wrld>>
     for Runtime<state::validator::Migrate<'wrld>>
 {
     #[codec::wrap]
@@ -1403,31 +1363,31 @@ impl<S> RuntimeBuilder<S> {
 macro_rules! create_imports {
     (
         $linker:ident,
-        $(import:: $name:ident => $fn_path:path),* $(,)?
+        $(import::fn_names:: $name:ident => $fn_path:path),* $(,)?
     ) => {
         $linker.func_wrap(
-                import::MODULE_NAME,
-                import::LOG_FN_NAME,
+                import::MODULE,
+                import::fn_names::LOG,
                 Runtime::log,
             )
             .and_then(|l| {
                 l.func_wrap(
-                    import::MODULE_NAME,
-                    import::DBG_FN_NAME,
+                    import::MODULE,
+                    import::fn_names::DBG,
                     Runtime::dbg,
                 )
             })
             .and_then(|l| {
                 l.func_wrap(
-                    import::MODULE_NAME,
-                    import::GET_BLOCK_HEIGHT_FN_NAME,
+                    import::MODULE,
+                    import::fn_names::GET_BLOCK_HEIGHT,
                     Runtime::get_block_height,
                 )
             })
             $(.and_then(|l| {
                 l.func_wrap(
-                    import::MODULE_NAME,
-                    import::$name,
+                    import::MODULE,
+                    import::fn_names::$name,
                     $fn_path,
                 )
             }))*
@@ -1446,9 +1406,9 @@ impl<'wrld> RuntimeBuilder<state::SmartContract<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::EXECUTE_ISI_FN_NAME => Runtime::<state::SmartContract<'_>>::execute_instruction,
-                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::SmartContract<'_>>::execute_query,
-                import::GET_AUTHORITY_FN_NAME => Runtime::<state::SmartContract<'_>>::get_authority,
+                import::fn_names::EXECUTE_ISI => Runtime::<state::SmartContract<'_>>::execute_instruction,
+                import::fn_names::EXECUTE_QUERY => Runtime::<state::SmartContract<'_>>::execute_query,
+                import::fn_names::GET_AUTHORITY => Runtime::<state::SmartContract<'_>>::get_authority,
             )?;
             Ok(linker)
         })
@@ -1466,10 +1426,10 @@ impl<'wrld> RuntimeBuilder<state::Trigger<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::EXECUTE_ISI_FN_NAME => Runtime::<state::Trigger<'_>>::execute_instruction,
-                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::Trigger<'_>>::execute_query,
-                import::GET_AUTHORITY_FN_NAME => Runtime::<state::Trigger<'_>>::get_authority,
-                import::GET_TRIGGERING_EVENT_FN_NAME => Runtime::get_triggering_event,
+                import::fn_names::EXECUTE_ISI => Runtime::<state::Trigger<'_>>::execute_instruction,
+                import::fn_names::EXECUTE_QUERY => Runtime::<state::Trigger<'_>>::execute_query,
+                import::fn_names::GET_AUTHORITY => Runtime::<state::Trigger<'_>>::get_authority,
+                import::fn_names::GET_TRIGGERING_EVENT => Runtime::get_triggering_event,
             )?;
             Ok(linker)
         })
@@ -1487,13 +1447,13 @@ impl<'wrld> RuntimeBuilder<state::validator::ValidateTransaction<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::EXECUTE_ISI_FN_NAME => Runtime::<state::validator::ValidateTransaction<'_>>::execute_instruction,
-                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::validator::ValidateTransaction<'_>>::execute_query,
-                import::GET_AUTHORITY_FN_NAME => Runtime::<state::validator::ValidateTransaction<'_>>::get_authority,
-                import::GET_TRANSACTION_TO_VALIDATE_FN_NAME => Runtime::get_transaction_to_validate,
-                import::GET_INSTRUCTION_TO_VALIDATE_FN_NAME => Runtime::get_instruction_to_validate,
-                import::GET_QUERY_TO_VALIDATE_FN_NAME => Runtime::get_query_to_validate,
-                import::SET_PERMISSION_TOKEN_SCHEMA_FN_NAME => Runtime::set_permission_token_schema,
+                import::fn_names::EXECUTE_ISI => Runtime::<state::validator::ValidateTransaction<'_>>::execute_instruction,
+                import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::ValidateTransaction<'_>>::execute_query,
+                import::fn_names::GET_AUTHORITY => Runtime::<state::validator::ValidateTransaction<'_>>::get_authority,
+                import::fn_names::GET_TRANSACTION_TO_VALIDATE => Runtime::get_transaction_to_validate,
+                import::fn_names::GET_INSTRUCTION_TO_VALIDATE => Runtime::get_instruction_to_validate,
+                import::fn_names::GET_QUERY_TO_VALIDATE => Runtime::get_query_to_validate,
+                import::fn_names::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
         })
@@ -1511,13 +1471,13 @@ impl<'wrld> RuntimeBuilder<state::validator::ValidateInstruction<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::EXECUTE_ISI_FN_NAME => Runtime::<state::validator::ValidateInstruction<'_>>::execute_instruction,
-                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::validator::ValidateInstruction<'_>>::execute_query,
-                import::GET_AUTHORITY_FN_NAME => Runtime::<state::validator::ValidateInstruction<'_>>::get_authority,
-                import::GET_TRANSACTION_TO_VALIDATE_FN_NAME => Runtime::get_transaction_to_validate,
-                import::GET_INSTRUCTION_TO_VALIDATE_FN_NAME => Runtime::get_instruction_to_validate,
-                import::GET_QUERY_TO_VALIDATE_FN_NAME => Runtime::get_query_to_validate,
-                import::SET_PERMISSION_TOKEN_SCHEMA_FN_NAME => Runtime::set_permission_token_schema,
+                import::fn_names::EXECUTE_ISI => Runtime::<state::validator::ValidateInstruction<'_>>::execute_instruction,
+                import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::ValidateInstruction<'_>>::execute_query,
+                import::fn_names::GET_AUTHORITY => Runtime::<state::validator::ValidateInstruction<'_>>::get_authority,
+                import::fn_names::GET_TRANSACTION_TO_VALIDATE => Runtime::get_transaction_to_validate,
+                import::fn_names::GET_INSTRUCTION_TO_VALIDATE => Runtime::get_instruction_to_validate,
+                import::fn_names::GET_QUERY_TO_VALIDATE => Runtime::get_query_to_validate,
+                import::fn_names::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
         })
@@ -1535,13 +1495,13 @@ impl<'wrld> RuntimeBuilder<state::validator::ValidateQuery<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::EXECUTE_ISI_FN_NAME => Runtime::<state::validator::ValidateQuery<'_>>::execute_instruction,
-                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::validator::ValidateQuery<'_>>::execute_query,
-                import::GET_AUTHORITY_FN_NAME => Runtime::<state::validator::ValidateQuery<'_>>::get_authority,
-                import::GET_TRANSACTION_TO_VALIDATE_FN_NAME => Runtime::get_transaction_to_validate,
-                import::GET_INSTRUCTION_TO_VALIDATE_FN_NAME => Runtime::get_instruction_to_validate,
-                import::GET_QUERY_TO_VALIDATE_FN_NAME => Runtime::get_query_to_validate,
-                import::SET_PERMISSION_TOKEN_SCHEMA_FN_NAME => Runtime::set_permission_token_schema,
+                import::fn_names::EXECUTE_ISI => Runtime::<state::validator::ValidateQuery<'_>>::execute_instruction,
+                import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::ValidateQuery<'_>>::execute_query,
+                import::fn_names::GET_AUTHORITY => Runtime::<state::validator::ValidateQuery<'_>>::get_authority,
+                import::fn_names::GET_TRANSACTION_TO_VALIDATE => Runtime::get_transaction_to_validate,
+                import::fn_names::GET_INSTRUCTION_TO_VALIDATE => Runtime::get_instruction_to_validate,
+                import::fn_names::GET_QUERY_TO_VALIDATE => Runtime::get_query_to_validate,
+                import::fn_names::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
         })
@@ -1559,13 +1519,13 @@ impl<'wrld> RuntimeBuilder<state::validator::Migrate<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::EXECUTE_ISI_FN_NAME => Runtime::<state::validator::Migrate<'_>>::execute_instruction,
-                import::EXECUTE_QUERY_FN_NAME => Runtime::<state::validator::Migrate<'_>>::execute_query,
-                import::GET_AUTHORITY_FN_NAME => Runtime::get_authority,
-                import::GET_TRANSACTION_TO_VALIDATE_FN_NAME => Runtime::get_transaction_to_validate,
-                import::GET_INSTRUCTION_TO_VALIDATE_FN_NAME => Runtime::get_instruction_to_validate,
-                import::GET_QUERY_TO_VALIDATE_FN_NAME => Runtime::get_query_to_validate,
-                import::SET_PERMISSION_TOKEN_SCHEMA_FN_NAME => Runtime::set_permission_token_schema,
+                import::fn_names::EXECUTE_ISI => Runtime::<state::validator::Migrate<'_>>::execute_instruction,
+                import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::Migrate<'_>>::execute_query,
+                import::fn_names::GET_AUTHORITY => Runtime::get_authority,
+                import::fn_names::GET_TRANSACTION_TO_VALIDATE => Runtime::get_transaction_to_validate,
+                import::fn_names::GET_INSTRUCTION_TO_VALIDATE => Runtime::get_instruction_to_validate,
+                import::fn_names::GET_QUERY_TO_VALIDATE => Runtime::get_query_to_validate,
+                import::fn_names::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
         })
@@ -1632,9 +1592,9 @@ mod tests {
             (func (export "{dealloc_fn_name}") (param $size i32) (param $len i32)
                 nop)
             "#,
-            memory_name = export::WASM_MEMORY_NAME,
-            alloc_fn_name = export::WASM_ALLOC_FN,
-            dealloc_fn_name = export::WASM_DEALLOC_FN,
+            memory_name = export::WASM_MEMORY,
+            alloc_fn_name = export::fn_names::WASM_ALLOC,
+            dealloc_fn_name = export::fn_names::WASM_DEALLOC,
             isi_len = isi_hex.len() / 3,
             isi_hex = isi_hex,
         )
@@ -1683,8 +1643,8 @@ mod tests {
                     ;; No use of return values
                     drop))
             "#,
-            main_fn_name = export::WASM_MAIN_FN_NAME,
-            execute_fn_name = import::EXECUTE_ISI_FN_NAME,
+            main_fn_name = export::fn_names::WASM_MAIN,
+            execute_fn_name = import::fn_names::EXECUTE_ISI,
             memory_and_alloc = memory_and_alloc(&isi_hex),
             isi_len = isi_hex.len() / 3,
         );
@@ -1719,8 +1679,8 @@ mod tests {
                     ;; No use of return values
                     drop))
             "#,
-            main_fn_name = export::WASM_MAIN_FN_NAME,
-            execute_fn_name = import::EXECUTE_QUERY_FN_NAME,
+            main_fn_name = export::fn_names::WASM_MAIN,
+            execute_fn_name = import::fn_names::EXECUTE_QUERY,
             memory_and_alloc = memory_and_alloc(&query_hex),
             isi_len = query_hex.len() / 3,
         );
@@ -1760,8 +1720,8 @@ mod tests {
                     (call $exec_fn (i32.const 0) (i32.const {isi1_end}))
                     (call $exec_fn (i32.const {isi1_end}) (i32.const {isi2_end}))))
             "#,
-            main_fn_name = export::WASM_MAIN_FN_NAME,
-            execute_fn_name = import::EXECUTE_ISI_FN_NAME,
+            main_fn_name = export::fn_names::WASM_MAIN,
+            execute_fn_name = import::fn_names::EXECUTE_ISI,
             // Store two instructions into adjacent memory and execute them
             memory_and_alloc = memory_and_alloc(&isi_hex.repeat(2)),
             isi1_end = isi_hex.len() / 3,
@@ -1810,8 +1770,8 @@ mod tests {
                 )
             )
             "#,
-            main_fn_name = export::WASM_MAIN_FN_NAME,
-            execute_fn_name = import::EXECUTE_ISI_FN_NAME,
+            main_fn_name = export::fn_names::WASM_MAIN,
+            execute_fn_name = import::fn_names::EXECUTE_ISI,
             memory_and_alloc = memory_and_alloc(&isi_hex),
             isi_len = isi_hex.len() / 3,
         );
@@ -1853,8 +1813,8 @@ mod tests {
                     ;; No use of return value
                     drop))
             "#,
-            main_fn_name = export::WASM_MAIN_FN_NAME,
-            execute_fn_name = import::EXECUTE_QUERY_FN_NAME,
+            main_fn_name = export::fn_names::WASM_MAIN,
+            execute_fn_name = import::fn_names::EXECUTE_QUERY,
             memory_and_alloc = memory_and_alloc(&query_hex),
             isi_len = query_hex.len() / 3,
         );
@@ -1894,8 +1854,8 @@ mod tests {
                     ;; No use of return values
                     drop))
             "#,
-            main_fn_name = export::WASM_MAIN_FN_NAME,
-            get_triggering_event_fn_name = import::GET_TRIGGERING_EVENT_FN_NAME,
+            main_fn_name = export::fn_names::WASM_MAIN,
+            get_triggering_event_fn_name = import::fn_names::GET_TRIGGERING_EVENT,
             memory_and_alloc = memory_and_alloc(&query_hex),
         );
 
