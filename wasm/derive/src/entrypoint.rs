@@ -100,11 +100,16 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         ),
     );
 
+    let main_fn_name = syn::Ident::new(
+        iroha_data_model::wasm::export::fn_names::WASM_MAIN,
+        proc_macro2::Span::call_site(),
+    );
+
     quote! {
         /// Smart contract entrypoint
         #[no_mangle]
         #[doc(hidden)]
-        unsafe extern "C" fn _iroha_wasm_main() {
+        unsafe extern "C" fn #main_fn_name() {
             #fn_name(#args)
         }
 
