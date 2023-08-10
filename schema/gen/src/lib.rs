@@ -12,17 +12,14 @@ use iroha_schema::prelude::*;
 
 macro_rules! types {
     ($($t:ty),+ $(,)?) => {
-        /// Generate map holding all schema types
+        /// Apply `callback` to all types in the schema.
         #[macro_export]
-        macro_rules! generate_map {
-            ($insert_entry:ident) => {{
-                let mut map = BTreeMap::new();
-                $( $insert_entry!(map, $t); )+
+        macro_rules! map_all_schema_types {
+            ($callback:ident) => {{
+                $( $callback!($t); )+
 
                 #[cfg(target_arch = "aarch64")]
-                $insert_entry!(map, Box<VersionedCommittedBlock>);
-
-                map
+                $callback!(Box<VersionedCommittedBlock>);
             }}
         }
     }
@@ -452,21 +449,23 @@ mod tests {
         generic.parse::<usize>().is_ok()
     }
 
-    macro_rules! insert_into_test_map {
-        ( $map:ident, $t:ty) => {{
-            let type_id = <$t as iroha_schema::TypeId>::id();
-
-            if let Some(type_id) = $map.insert(core::any::TypeId::of::<$t>(), type_id) {
-                panic!(
-                    "{}: Duplicate type id. Make sure that type ids are unique",
-                    type_id
-                );
-            }
-        }};
-    }
-
     fn generate_test_map() -> BTreeMap<core::any::TypeId, String> {
-        generate_map! {insert_into_test_map}
+        let mut map = BTreeMap::new();
+
+        macro_rules! insert_into_test_map {
+            ($t:ty) => {{
+                let type_id = <$t as iroha_schema::TypeId>::id();
+
+                if let Some(type_id) = map.insert(core::any::TypeId::of::<$t>(), type_id) {
+                    panic!(
+                        "{}: Duplicate type id. Make sure that type ids are unique",
+                        type_id
+                    );
+                }
+            }};
+        }
+        map_all_schema_types!(insert_into_test_map);
+        map
     }
 
     // For `PhantomData` wrapped types schemas aren't expanded recursively.

@@ -56,17 +56,19 @@ use iroha_primitives::{
 };
 use parity_scale_codec::DecodeAll;
 
-macro_rules! insert_into_map {
-    ( $map:ident, $t:ty) => {{
-        let type_id = <$t as iroha_schema::TypeId>::id();
-        #[allow(trivial_casts)]
-        $map.insert(type_id, <$t as DumpDecoded>::dump_decoded as DumpDecodedPtr)
-    }};
-}
-
 /// Generate map with types and `dump_decoded()` ptr
 pub fn generate_map() -> DumpDecodedMap {
-    let mut map = iroha_schema_gen::generate_map!(insert_into_map);
+    let mut map = DumpDecodedMap::new();
+
+    macro_rules! insert_into_map {
+        ($t:ty) => {{
+            let type_id = <$t as iroha_schema::TypeId>::id();
+            #[allow(trivial_casts)]
+            map.insert(type_id, <$t as DumpDecoded>::dump_decoded as DumpDecodedPtr)
+        }};
+    }
+
+    iroha_schema_gen::map_all_schema_types!(insert_into_map);
 
     #[allow(trivial_casts)]
     map.insert(

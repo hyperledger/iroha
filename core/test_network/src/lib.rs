@@ -28,6 +28,7 @@ use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
 use iroha_primitives::addr::{socket_addr, SocketAddr};
 use rand::seq::IteratorRandom;
+use serde_json::json;
 use tempfile::TempDir;
 use tokio::{
     runtime::{self, Runtime},
@@ -88,23 +89,26 @@ impl TestGenesis for GenesisNetwork {
 
         let mint_rose_permission = PermissionToken::new(
             "CanMintAssetsWithDefinition".parse().unwrap(),
-            &rose_definition_id,
+            &json!({ "asset_definition_id": rose_definition_id }),
         );
         let burn_rose_permission = PermissionToken::new(
             "CanBurnAssetsWithDefinition".parse().unwrap(),
-            &rose_definition_id,
+            &json!({ "asset_definition_id": rose_definition_id }),
         );
         let unregister_any_peer_permission =
-            PermissionToken::new("CanUnregisterAnyPeer".parse().unwrap(), &());
+            PermissionToken::new("CanUnregisterAnyPeer".parse().unwrap(), &json!(null));
         let unregister_any_role_permission =
-            PermissionToken::new("CanUnregisterAnyRole".parse().unwrap(), &());
+            PermissionToken::new("CanUnregisterAnyRole".parse().unwrap(), &json!(null));
         let unregister_wonderland_domain = PermissionToken::new(
             "CanUnregisterDomain".parse().unwrap(),
-            &DomainId::from_str("wonderland").unwrap(),
+            &json!({ "domain_id": DomainId::from_str("wonderland").unwrap() } ),
         );
         let upgrade_validator_permission =
-            PermissionToken::new("CanUpgradeValidator".parse().unwrap(), &());
+            PermissionToken::new("CanUpgradeValidator".parse().unwrap(), &json!(null));
 
+        let first_transaction = genesis
+            .first_transaction_mut()
+            .expect("At least one transaction is expected");
         for permission in [
             mint_rose_permission,
             burn_rose_permission,
@@ -113,9 +117,8 @@ impl TestGenesis for GenesisNetwork {
             unregister_wonderland_domain,
             upgrade_validator_permission,
         ] {
-            genesis.transactions[0]
-                .isi
-                .push(GrantBox::new(permission, alice_id.clone()).into());
+            first_transaction
+                .append_instruction(GrantBox::new(permission, alice_id.clone()).into());
         }
 
         if submit_genesis {
