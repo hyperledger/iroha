@@ -78,58 +78,42 @@ pub mod model {
         repr(u8)
     )]
     #[ffi_type(opaque)]
+    #[allow(missing_docs)]
     pub enum InstructionBox {
-        /// `Register` variant.
         #[debug(fmt = "{_0:?}")]
         Register(RegisterBox),
-        /// `Unregister` variant.
         #[debug(fmt = "{_0:?}")]
         Unregister(UnregisterBox),
-        /// `Mint` variant.
         #[debug(fmt = "{_0:?}")]
         Mint(MintBox),
-        /// `Burn` variant.
         #[debug(fmt = "{_0:?}")]
         Burn(BurnBox),
-        /// `Transfer` variant.
         #[debug(fmt = "{_0:?}")]
         Transfer(TransferBox),
-        /// `If` variant.
         #[debug(fmt = "{_0:?}")]
         If(Box<Conditional>),
-        /// `Pair` variant.
         #[debug(fmt = "{_0:?}")]
         Pair(Box<Pair>),
-        /// `Sequence` variant.
         #[debug(fmt = "{_0:?}")]
         Sequence(SequenceBox),
-        /// `SetKeyValue` variant.
         #[debug(fmt = "{_0:?}")]
         SetKeyValue(SetKeyValueBox),
-        /// `RemoveKeyValue` variant.
         #[debug(fmt = "{_0:?}")]
         RemoveKeyValue(RemoveKeyValueBox),
-        /// `Grant` variant.
         #[debug(fmt = "{_0:?}")]
         Grant(GrantBox),
-        /// `Revoke` variant.
         #[debug(fmt = "{_0:?}")]
         Revoke(RevokeBox),
-        /// `ExecuteTrigger` variant.
         #[debug(fmt = "{_0:?}")]
         ExecuteTrigger(ExecuteTriggerBox),
-        /// `SetParameter` variant.
         #[debug(fmt = "{_0:?}")]
         SetParameter(SetParameterBox),
-        /// `NewParameter` variant.
         #[debug(fmt = "{_0:?}")]
         NewParameter(NewParameterBox),
-        /// `Upgrade` variant.
         Upgrade(UpgradeBox),
         /// `Log` variant.
         Log(LogBox),
 
-        /// `Fail` variant.
         #[debug(fmt = "{_0:?}")]
         Fail(FailBox),
     }

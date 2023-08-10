@@ -7,6 +7,7 @@ use iroha_client::client::{self, Client};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{prelude::*, query::permission::DoesAccountHavePermissionToken};
 use iroha_logger::info;
+use serde_json::json;
 use test_network::*;
 
 #[test]
@@ -68,12 +69,12 @@ fn validator_upgrade_should_run_migration() -> Result<()> {
         .any(|id| id == &can_unregister_domain_token_id));
 
     // Check that Alice has permission to unregister Wonderland
-    let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let alice_id: AccountId = "alice@wonderland".parse().unwrap();
     assert!(client.request(DoesAccountHavePermissionToken::new(
         alice_id.clone(),
         PermissionToken::new(
             can_unregister_domain_token_id.clone(),
-            &DomainId::from_str("wonderland").unwrap()
+            &json!({ "domain_id": DomainId::from_str("wonderland").unwrap() })
         ),
     ))?);
 
@@ -99,7 +100,7 @@ fn validator_upgrade_should_run_migration() -> Result<()> {
     // Check that Alice has `can_control_domain_lives` permission
     assert!(client.request(DoesAccountHavePermissionToken::new(
         alice_id,
-        PermissionToken::new(can_control_domain_lives_token_id, &(),),
+        PermissionToken::new(can_control_domain_lives_token_id, &json!(null)),
     ))?);
 
     Ok(())
