@@ -79,6 +79,7 @@ pub mod transaction;
 pub mod trigger;
 pub mod validator;
 pub mod visit;
+pub mod wasm;
 
 mod seal {
     use crate::{isi::prelude::*, query::prelude::*};

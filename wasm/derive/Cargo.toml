@@ -11,6 +11,7 @@ license.workspace = true
 proc-macro = true
 
 [dependencies]
+iroha_data_model.workspace = true
 iroha_derive_primitives.workspace = true
 syn.workspace = true
 quote.workspace = true
