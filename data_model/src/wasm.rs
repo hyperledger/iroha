@@ -40,22 +40,65 @@ pub mod import {
         /// Name of the imported function to execute queries
         pub const EXECUTE_QUERY: &str = "execute_query";
         /// Name of the imported function to query trigger authority
+        // TODO: Remove after Trigger Payload (#3794)
         pub const GET_AUTHORITY: &str = "get_authority";
         /// Name of the imported function to query event that triggered the smart contract execution
+        // TODO: Remove after Trigger Payload (#3794)
         pub const GET_TRIGGERING_EVENT: &str = "get_triggering_event";
-        /// Name of the imported function to get transaction that is to be verified
-        pub const GET_TRANSACTION_TO_VALIDATE: &str = "get_transaction_to_validate";
-        /// Name of the imported function to get instruction that is to be verified
-        pub const GET_INSTRUCTION_TO_VALIDATE: &str = "get_instruction_to_validate";
-        /// Name of the imported function to get query that is to be verified
-        pub const GET_QUERY_TO_VALIDATE: &str = "get_query_to_validate";
-        /// Name of the imported function to get current block height
-        pub const GET_BLOCK_HEIGHT: &str = "get_block_height";
+        /// Name of the imported function to get payload for
+        /// [`migrate()`](super::super::export::fn_names::VALIDATOR_MIGRATE) entrypoint
+        pub const GET_MIGRATE_PAYLOAD: &str = "get_migrate_payload";
+        /// Name of the imported function to get payload for
+        /// [`validate_transaction()`](super::super::export::fn_names::VALIDATOR_VALIDATE_TRANSACTION) entrypoint
+        pub const GET_VALIDATE_TRANSACTION_PAYLOAD: &str = "get_validate_transaction_payload";
+        /// Name of the imported function to get payload for
+        /// [`validate_instruction()`](super::super::export::fn_names::VALIDATOR_VALIDATE_INSTRUCTION) entrypoint
+        pub const GET_VALIDATE_INSTRUCTION_PAYLOAD: &str = "get_validate_instruction_payload";
+        /// Name of the imported function to get payload for
+        /// [`validate_query()`](super::super::export::fn_names::VALIDATOR_VALIDATE_QUERY) entrypoint
+        pub const GET_VALIDATE_QUERY_PAYLOAD: &str = "get_validate_query_payload";
         /// Name of the imported function to debug print objects
         pub const DBG: &str = "dbg";
         /// Name of the imported function to log objects
         pub const LOG: &str = "log";
         /// Name of the imported function to set new [`PermissionTokenSchema`](crate::permission::PermissionTokenSchema)
         pub const SET_PERMISSION_TOKEN_SCHEMA: &str = "set_permission_token_schema";
+    }
+}
+
+pub mod payloads {
+    //! Payloads with function arguments for different entrypoints
+
+    use parity_scale_codec::{Decode, Encode};
+
+    use crate::prelude::*;
+
+    // TODO: Add Trigger Payload (#3794)
+
+    /// Payload for [`migrate()`](super::export::fn_names::VALIDATOR_MIGRATE) entrypoint
+    #[derive(Debug, Clone, Copy, Encode, Decode)]
+    pub struct Migrate {
+        /// Height of the latest block in the blockchain
+        pub block_height: u64,
+    }
+
+    /// Payload for [`validate_transaction()`](super::export::fn_names::VALIDATOR_VALIDATE_TRANSACTION) entrypoint
+    pub type ValidateTransaction = Validate<VersionedSignedTransaction>;
+
+    /// Payload for [`validate_instruction()`](super::export::fn_names::VALIDATOR_VALIDATE_INSTRUCTION) entrypoint
+    pub type ValidateInstruction = Validate<InstructionBox>;
+
+    /// Payload for [`validate_query()`](super::export::fn_names::VALIDATOR_VALIDATE_QUERY) entrypoint
+    pub type ValidateQuery = Validate<QueryBox>;
+
+    /// Generic payload for `validate_*()` entrypoints of validator.
+    #[derive(Debug, Clone, Encode, Decode)]
+    pub struct Validate<T> {
+        /// Authority which executed the operation to be validated
+        pub authority: AccountId,
+        /// Height of the latest block in the blockchain
+        pub block_height: u64,
+        /// Operation to be validated
+        pub to_validate: T,
     }
 }
