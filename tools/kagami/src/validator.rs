@@ -42,7 +42,7 @@ pub fn compute_validator_path(out_dir: impl AsRef<Path>) -> Result<PathBuf> {
             swarm::shallow_git_clone(GIT_ORIGIN, GIT_REVISION, &out_dir)?;
             Ok(out_dir.to_path_buf().join("default_validator"))
         },
-        |manifest_dir| Ok(Path::new(&manifest_dir).join("default_validator")),
+        |manifest_dir| Ok(Path::new(&manifest_dir).join("../../default_validator")),
     )
 }
 
