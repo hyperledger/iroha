@@ -321,9 +321,9 @@ This proposal aims to standardise the naming conventions within Iroha's configur
 
 #### See Also
 
-- [todo](#proposal-1---use-toml) [[80ad14 Proposal 1 - Use TOML]]
-- [todo](#proposal-4---better-aliases-for-env) [[80ad8 Proposal 4 - Better Aliases for ENV]]
-- [todo](#proposal-5---define-deprecation-and-migration-policy) [[80ad13 Proposal 5 - Define Deprecation and Migration Policy]]
+- [Proposal 1 - Use TOML](#proposal-1---use-toml)
+- [Proposal 4 - Better Aliases for ENV](#proposal-4---better-aliases-for-env)
+- [Proposal 5 - Define Deprecation and Migration Policy](#proposal-5---define-deprecation-and-migration-policy)
 - [Representation of key pair in configuration files · Issue #2135 · hyperledger/iroha](https://github.com/hyperledger/iroha/issues/2135)
 
 ### Proposal 4 - Better Aliases for ENV
@@ -353,9 +353,9 @@ By transitioning to more user-friendly ENV variable names and reducing reliance 
 
 #### See Also
 
-- [[80ad10 Proposal 2 - Reference Before Implementation]](#proposal-2---reference-before-implementation)
-- [[80ad9 Proposal 3 - Consistent Naming of Configuration Parameters]](#proposal-3---consistent-naming-of-configuration-parameters)
-- [[80ad12 Proposal 7 - Trace Configuration Resolution]](#proposal-7---trace-configuration-resolution)
+- [Proposal 2 - Reference Before Implementation](#proposal-2---reference-before-implementation)
+- [Proposal 3 - Consistent Naming of Configuration Parameters](#proposal-3---consistent-naming-of-configuration-parameters)
+- [Proposal 7 - Trace Configuration Resolution](#proposal-7---trace-configuration-resolution)
 
 ### Proposal 5 - Define Deprecation and Migration Policy
 
@@ -465,7 +465,7 @@ While the trace provides detailed information, caution should be taken to avoid 
 
 #### Further Integration
 
-Incorporating these traces into configuration-related error messages can further streamline troubleshooting, enhancing user experience. (Refer to: [[80ad11 Proposal 6 - Exhaustive Error Messages]](#proposal-6---exhaustive-error-messages))
+Incorporating these traces into configuration-related error messages can further streamline troubleshooting, enhancing user experience. (Refer to: [Proposal 6 - Exhaustive Error Messages](#proposal-6---exhaustive-error-messages))
 
 #### Summary
 
