@@ -15,7 +15,7 @@ pub struct Args {
     /// The `private_key` to generate the key-pair from
     #[clap(long, short, group = "generate_from")]
     private_key: Option<String>,
-    /// The `seed` to generate the key-pair from
+    /// The Unicode `seed` string to generate the key-pair from
     #[clap(long, short, group = "generate_from")]
     seed: Option<String>,
     /// Output the key-pair in JSON format
