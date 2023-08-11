@@ -15,6 +15,7 @@ categories = ["cryptography::cryptocurrencies"]
 
 [workspace.dependencies]
 iroha = { path = "cli" }
+iroha_dsl = { version = "=2.0.0-pre-rc.18", path = "dsl" }
 iroha_cli_derive = { version = "=2.0.0-pre-rc.18", path = "cli/derive" }
 iroha_macro_utils = { version = "=2.0.0-pre-rc.18", path = "macro/utils" }
 iroha_wasm_builder = { version = "=2.0.0-pre-rc.18", path = "wasm_builder" }
@@ -146,6 +147,7 @@ members = [
   "genesis",
   "primitives",
   "primitives/derive",
+  "dsl",
   "ffi",
   "ffi/derive",
   "futures",
