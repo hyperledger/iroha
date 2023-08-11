@@ -1,4 +1,4 @@
-# Iroha 2 Configuration Overhaul
+# Iroha 2 Configuration Overhaul RFC
 
 ## Introduction
 
@@ -393,23 +393,16 @@ To enhance user troubleshooting by offering comprehensive and descriptive error 
 Diagnosing and resolving configuration errors can be challenging without detailed insights. A more descriptive error messaging system offers the following benefits:
 
 1. **Parsing with Precision:**
-
    - **Highlight Invalid Data's Location:** Pinpoint the exact location of errors, making it easier for users to address.
    - **Identify Missing Fields:** Rapidly flag any necessary but absent data, speeding up the configuration process.
    - **Spot Unknown Fields:** Alert users to any unrecognized fields, helping them to quickly catch and fix typographical mistakes or redundant information.
-
 2. **Clear Directions for Domain-Specific Errors:**
    - **Highlighting Semantic Issues:** Inform users about errors or warnings tied to the higher-level domain details specific to Iroha. This ensures that users are aware of any nuances or complexities related to Iroha itself, allowing for a more refined and accurate configuration.
 3. **Eliminate Guesswork:**
-
    - **Full Transparency in Reporting:** Ensure users are immediately and fully informed of any issues, preventing oversights and minimizing confusion.
-
 4. **Consistency in Communication:**
-
    - **Uniform, Informative Messaging:** Maintain a consistent style across error messages, bolstering clarity and user understanding.
-
 5. **Streamline Multi-Error Solutions:**
-
    - **Bulk Reporting of Missing Fields:** If several fields are missing, display them all simultaneously for more efficient troubleshooting.
 
 #### Potential Solutions & Samples
