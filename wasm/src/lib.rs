@@ -14,6 +14,8 @@ extern crate alloc;
 use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use core::ops::RangeFrom;
 
+#[cfg(not(test))]
+use data_model::wasm::payloads;
 use data_model::{
     isi::Instruction,
     prelude::*,
@@ -183,47 +185,52 @@ pub fn get_triggering_event() -> Event {
     unsafe { decode_with_length_prefix_from_raw(host_get_triggering_event()) }
 }
 
-/// Query [`VersionedSignedTransaction`] to validate.
+/// Get payload for `validate_transaction()` entrypoint.
 ///
 /// # Traps
 ///
 /// Host side will generate a trap if this function was called not from a
 /// validator `validate_transaction()` entrypoint.
 #[cfg(not(test))]
-pub fn get_transaction_to_validate() -> VersionedSignedTransaction {
+pub fn get_validate_transaction_payload() -> payloads::ValidateTransaction {
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host::get_transaction_to_validate()) }
+    unsafe { decode_with_length_prefix_from_raw(host::get_validate_transaction_payload()) }
 }
 
-/// Query [`InstructionBox`] to validate.
+/// Get payload for `validate_instruction()` entrypoint.
 ///
 /// # Traps
 ///
 /// Host side will generate a trap if this function was called not from a
 /// validator `validate_instruction()` entrypoint.
 #[cfg(not(test))]
-pub fn get_instruction_to_validate() -> InstructionBox {
+pub fn get_validate_instruction_payload() -> payloads::ValidateInstruction {
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host::get_instruction_to_validate()) }
+    unsafe { decode_with_length_prefix_from_raw(host::get_validate_instruction_payload()) }
 }
 
-/// Query [`QueryBox`] to validate.
+/// Get payload for `validate_query()` entrypoint.
 ///
 /// # Traps
 ///
 /// Host side will generate a trap if this function was called not from a
 /// validator `validate_query()` entrypoint.
 #[cfg(not(test))]
-pub fn get_query_to_validate() -> QueryBox {
+pub fn get_validate_query_payload() -> payloads::ValidateQuery {
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host::get_query_to_validate()) }
+    unsafe { decode_with_length_prefix_from_raw(host::get_validate_query_payload()) }
 }
 
-/// Get current block height of the chain.
+/// Get payload for `migrate()` entrypoint.
+///
+/// # Traps
+///
+/// Host side will generate a trap if this function was called not from a
+/// validator `migrate()` entrypoint.
 #[cfg(not(test))]
-pub fn get_block_height() -> u64 {
+pub fn get_migrate_payload() -> payloads::Migrate {
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host::get_block_height()) }
+    unsafe { decode_with_length_prefix_from_raw(host::get_migrate_payload()) }
 }
 
 /// Set new [`PermissionTokenSchema`].
@@ -278,33 +285,33 @@ mod host {
         /// This function does transfer ownership of the result to the caller
         pub(super) fn get_triggering_event() -> *const u8;
 
-        /// Get [`VersionedSignedTransaction`] to validate
+        /// Get payload for `validate_transaction()` entrypoint.
         ///
         /// # Warning
         ///
         /// This function does transfer ownership of the result to the caller
-        pub(super) fn get_transaction_to_validate() -> *const u8;
+        pub(super) fn get_validate_transaction_payload() -> *const u8;
 
-        /// Get [`InstructionBox`] to validate
+        /// Get payload for `validate_instruction()` entrypoint.
         ///
         /// # Warning
         ///
         /// This function does transfer ownership of the result to the caller
-        pub(super) fn get_instruction_to_validate() -> *const u8;
+        pub(super) fn get_validate_instruction_payload() -> *const u8;
 
-        /// Get [`QueryBox`] to validate
+        /// Get payload for `validate_query()` entrypoint.
         ///
         /// # Warning
         ///
         /// This function does transfer ownership of the result to the caller
-        pub(super) fn get_query_to_validate() -> *const u8;
+        pub(super) fn get_validate_query_payload() -> *const u8;
 
-        /// Get current block height of the chain.
+        /// Get payload for `migrate()` entrypoint.
         ///
         /// # Warning
         ///
         /// This function does transfer ownership of the result to the caller
-        pub(super) fn get_block_height() -> *const u8;
+        pub(super) fn get_migrate_payload() -> *const u8;
 
         /// Set new [`PermissionTokenSchema`].
         pub(super) fn set_permission_token_schema(ptr: *const u8, len: usize);

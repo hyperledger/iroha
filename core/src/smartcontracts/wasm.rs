@@ -5,7 +5,7 @@
 
 use error::*;
 use import_traits::{
-    ExecuteOperations as _, GetAuthority as _, GetBlockHeight as _, GetOperationsToValidate as _,
+    ExecuteOperations as _, GetAuthority as _, GetValidatorPayloads as _,
     SetPermissionTokenSchema as _,
 };
 use iroha_config::{
@@ -18,7 +18,7 @@ use iroha_data_model::{
     permission::PermissionTokenSchema,
     prelude::*,
     validator::{self, MigrationResult},
-    wasm::{export, import},
+    wasm::{export, import, payloads},
     Level as LogLevel, ValidationFail,
 };
 use iroha_logger::debug;
@@ -30,6 +30,7 @@ use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, TypedFunc,
 };
 
+use self::state::Authority;
 use super::query::LazyValue;
 use crate::{
     smartcontracts::{Execute, ValidQuery as _},
@@ -59,25 +60,23 @@ mod import_traits {
         fn get_authority(state: &S) -> AccountId;
     }
 
-    pub trait GetOperationsToValidate<S> {
+    pub trait GetValidatorPayloads<S> {
         #[codec::wrap_trait_fn]
-        fn get_transaction_to_validate(state: &S) -> VersionedSignedTransaction;
+        fn get_migrate_payload(state: &S) -> payloads::Migrate;
 
         #[codec::wrap_trait_fn]
-        fn get_instruction_to_validate(state: &S) -> InstructionBox;
+        fn get_validate_transaction_payload(state: &S) -> payloads::ValidateTransaction;
 
         #[codec::wrap_trait_fn]
-        fn get_query_to_validate(state: &S) -> QueryBox;
+        fn get_validate_instruction_payload(state: &S) -> payloads::ValidateInstruction;
+
+        #[codec::wrap_trait_fn]
+        fn get_validate_query_payload(state: &S) -> payloads::ValidateQuery;
     }
 
     pub trait SetPermissionTokenSchema<S> {
         #[codec::wrap_trait_fn]
         fn set_permission_token_schema(schema: PermissionTokenSchema, state: &mut S);
-    }
-
-    pub trait GetBlockHeight<S> {
-        #[codec::wrap_trait_fn]
-        fn get_block_height(state: &S) -> u64;
     }
 }
 
@@ -797,13 +796,6 @@ impl<S: state::Authority> import_traits::GetAuthority<S> for Runtime<S> {
     }
 }
 
-impl<S: state::Wsv> import_traits::GetBlockHeight<S> for Runtime<S> {
-    #[codec::wrap]
-    fn get_block_height(state: &S) -> u64 {
-        state.wsv().height()
-    }
-}
-
 impl<'wrld> Runtime<state::SmartContract<'wrld>> {
     /// Executes the given wasm smartcontract
     ///
@@ -1032,26 +1024,39 @@ impl<'wrld> ExecuteOperationsAsValidatorMut<state::validator::ValidateTransactio
 {
 }
 
-impl<'wrld> import_traits::GetOperationsToValidate<state::validator::ValidateTransaction<'wrld>>
+impl<'wrld> import_traits::GetValidatorPayloads<state::validator::ValidateTransaction<'wrld>>
     for Runtime<state::validator::ValidateTransaction<'wrld>>
 {
     #[codec::wrap]
-    fn get_transaction_to_validate(
-        state: &state::validator::ValidateTransaction<'wrld>,
-    ) -> VersionedSignedTransaction {
-        state.to_validate.clone()
-    }
-
-    #[codec::wrap]
-    fn get_instruction_to_validate(
+    fn get_migrate_payload(
         _state: &state::validator::ValidateTransaction<'wrld>,
-    ) -> InstructionBox {
-        panic!("Validator `validate_transaction()` entrypoint should not query instruction to validate")
+    ) -> payloads::Migrate {
+        panic!("Validator `validate_transaction()` entrypoint should not query payload for `migrate()` entrypoint")
     }
 
     #[codec::wrap]
-    fn get_query_to_validate(_state: &state::validator::ValidateTransaction<'wrld>) -> QueryBox {
-        panic!("Validator `validate_transaction()` entrypoint should not query query to validate")
+    fn get_validate_transaction_payload(
+        state: &state::validator::ValidateTransaction<'wrld>,
+    ) -> payloads::ValidateTransaction {
+        payloads::ValidateTransaction {
+            authority: state.authority().clone(),
+            block_height: state.wsv().height(),
+            to_validate: state.to_validate.clone(),
+        }
+    }
+
+    #[codec::wrap]
+    fn get_validate_instruction_payload(
+        _state: &state::validator::ValidateTransaction<'wrld>,
+    ) -> payloads::ValidateInstruction {
+        panic!("Validator `validate_transaction()` entrypoint should not query payload for `validate_instruction()` entrypoint")
+    }
+
+    #[codec::wrap]
+    fn get_validate_query_payload(
+        _state: &state::validator::ValidateTransaction<'wrld>,
+    ) -> payloads::ValidateQuery {
+        panic!("Validator `validate_transaction()` entrypoint should not query payload for `validate_query()` entrypoint")
     }
 }
 
@@ -1095,26 +1100,39 @@ impl<'wrld> ExecuteOperationsAsValidatorMut<state::validator::ValidateInstructio
 {
 }
 
-impl<'wrld> import_traits::GetOperationsToValidate<state::validator::ValidateInstruction<'wrld>>
+impl<'wrld> import_traits::GetValidatorPayloads<state::validator::ValidateInstruction<'wrld>>
     for Runtime<state::validator::ValidateInstruction<'wrld>>
 {
     #[codec::wrap]
-    fn get_transaction_to_validate(
+    fn get_migrate_payload(
         _state: &state::validator::ValidateInstruction<'wrld>,
-    ) -> VersionedSignedTransaction {
-        panic!("Validator `validate_instruction()` entrypoint should not query transaction to validate")
+    ) -> payloads::Migrate {
+        panic!("Validator `validate_instruction()` entrypoint should not query payload for `migrate()` entrypoint")
     }
 
     #[codec::wrap]
-    fn get_instruction_to_validate(
+    fn get_validate_transaction_payload(
+        _state: &state::validator::ValidateInstruction<'wrld>,
+    ) -> payloads::ValidateTransaction {
+        panic!("Validator `validate_instruction()` entrypoint should not query payload for `validate_transaction()` entrypoint")
+    }
+
+    #[codec::wrap]
+    fn get_validate_instruction_payload(
         state: &state::validator::ValidateInstruction<'wrld>,
-    ) -> InstructionBox {
-        state.to_validate.clone()
+    ) -> payloads::ValidateInstruction {
+        payloads::ValidateInstruction {
+            authority: state.authority().clone(),
+            block_height: state.wsv().height(),
+            to_validate: state.to_validate.clone(),
+        }
     }
 
     #[codec::wrap]
-    fn get_query_to_validate(_state: &state::validator::ValidateInstruction<'wrld>) -> QueryBox {
-        panic!("Validator `validate_instruction()` entrypoint should not query query to validate")
+    fn get_validate_query_payload(
+        _state: &state::validator::ValidateInstruction<'wrld>,
+    ) -> payloads::ValidateQuery {
+        panic!("Validator `validate_instruction()` entrypoint should not query payload for `validate_query()` entrypoint")
     }
 }
 
@@ -1184,26 +1202,37 @@ impl<'wrld> import_traits::ExecuteOperations<state::validator::ValidateQuery<'wr
     }
 }
 
-impl<'wrld> import_traits::GetOperationsToValidate<state::validator::ValidateQuery<'wrld>>
+impl<'wrld> import_traits::GetValidatorPayloads<state::validator::ValidateQuery<'wrld>>
     for Runtime<state::validator::ValidateQuery<'wrld>>
 {
     #[codec::wrap]
-    fn get_transaction_to_validate(
-        _state: &state::validator::ValidateQuery<'wrld>,
-    ) -> VersionedSignedTransaction {
-        panic!("Validator `validate_query()` entrypoint should not query transaction to validate")
+    fn get_migrate_payload(_state: &state::validator::ValidateQuery<'wrld>) -> payloads::Migrate {
+        panic!("Validator `validate_query()` entrypoint should not query payload for `migrate()` entrypoint")
     }
 
     #[codec::wrap]
-    fn get_instruction_to_validate(
+    fn get_validate_transaction_payload(
         _state: &state::validator::ValidateQuery<'wrld>,
-    ) -> InstructionBox {
-        panic!("Validator `validate_query()` entrypoint should not query instruction to validate")
+    ) -> payloads::ValidateTransaction {
+        panic!("Validator `validate_query()` entrypoint should not query payload for `validate_transaction()` entrypoint")
     }
 
     #[codec::wrap]
-    fn get_query_to_validate(state: &state::validator::ValidateQuery<'wrld>) -> QueryBox {
-        state.query.clone()
+    fn get_validate_instruction_payload(
+        _state: &state::validator::ValidateQuery<'wrld>,
+    ) -> payloads::ValidateInstruction {
+        panic!("Validator `validate_query()` entrypoint should not query payload for `validate_instruction()` entrypoint")
+    }
+
+    #[codec::wrap]
+    fn get_validate_query_payload(
+        state: &state::validator::ValidateQuery<'wrld>,
+    ) -> payloads::ValidateQuery {
+        payloads::ValidateQuery {
+            authority: state.authority().clone(),
+            block_height: state.wsv().height(),
+            to_validate: state.query.clone(),
+        }
     }
 }
 
@@ -1261,7 +1290,7 @@ impl<'wrld> ExecuteOperationsAsValidatorMut<state::validator::Migrate<'wrld>>
 {
 }
 
-/// Fake implementation of [`import_traits::GetOperationsToValidate`].
+/// Fake implementation of [`import_traits::GetValidationPayloads`].
 ///
 /// This is needed because `migrate()` entrypoint exists in the same binary as
 /// `validate_*()` entrypoints.
@@ -1270,24 +1299,35 @@ impl<'wrld> ExecuteOperationsAsValidatorMut<state::validator::Migrate<'wrld>>
 ///
 /// Panics with error message if called, because it should never be called from
 /// `migrate()` entrypoint.
-impl<'wrld> import_traits::GetOperationsToValidate<state::validator::Migrate<'wrld>>
+impl<'wrld> import_traits::GetValidatorPayloads<state::validator::Migrate<'wrld>>
     for Runtime<state::validator::Migrate<'wrld>>
 {
     #[codec::wrap]
-    fn get_transaction_to_validate(
+    fn get_migrate_payload(state: &state::validator::Migrate<'wrld>) -> payloads::Migrate {
+        payloads::Migrate {
+            block_height: state.wsv().height(),
+        }
+    }
+
+    #[codec::wrap]
+    fn get_validate_transaction_payload(
         _state: &state::validator::Migrate<'wrld>,
-    ) -> VersionedSignedTransaction {
-        panic!("Validator `migrate()` entrypoint should not query transaction to validate")
+    ) -> payloads::ValidateTransaction {
+        panic!("Validator `migrate()` entrypoint should not query payload for `validate_transaction()` entrypoint")
     }
 
     #[codec::wrap]
-    fn get_instruction_to_validate(_state: &state::validator::Migrate<'wrld>) -> InstructionBox {
-        panic!("Validator `migrate()` entrypoint should not query instruction to validate")
+    fn get_validate_instruction_payload(
+        _state: &state::validator::Migrate<'wrld>,
+    ) -> payloads::ValidateInstruction {
+        panic!("Validator `migrate()` entrypoint should not query payload for `validate_instruction()` entrypoint")
     }
 
     #[codec::wrap]
-    fn get_query_to_validate(_state: &state::validator::Migrate<'wrld>) -> QueryBox {
-        panic!("Validator `migrate()` entrypoint should not query query to validate")
+    fn get_validate_query_payload(
+        _state: &state::validator::Migrate<'wrld>,
+    ) -> payloads::ValidateQuery {
+        panic!("Validator `migrate()` entrypoint should not query payload for `validate_query()` entrypoint")
     }
 }
 
@@ -1377,13 +1417,6 @@ macro_rules! create_imports {
                     Runtime::dbg,
                 )
             })
-            .and_then(|l| {
-                l.func_wrap(
-                    import::MODULE,
-                    import::fn_names::GET_BLOCK_HEIGHT,
-                    Runtime::get_block_height,
-                )
-            })
             $(.and_then(|l| {
                 l.func_wrap(
                     import::MODULE,
@@ -1450,9 +1483,10 @@ impl<'wrld> RuntimeBuilder<state::validator::ValidateTransaction<'wrld>> {
                 import::fn_names::EXECUTE_ISI => Runtime::<state::validator::ValidateTransaction<'_>>::execute_instruction,
                 import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::ValidateTransaction<'_>>::execute_query,
                 import::fn_names::GET_AUTHORITY => Runtime::<state::validator::ValidateTransaction<'_>>::get_authority,
-                import::fn_names::GET_TRANSACTION_TO_VALIDATE => Runtime::get_transaction_to_validate,
-                import::fn_names::GET_INSTRUCTION_TO_VALIDATE => Runtime::get_instruction_to_validate,
-                import::fn_names::GET_QUERY_TO_VALIDATE => Runtime::get_query_to_validate,
+                import::fn_names::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
+                import::fn_names::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
+                import::fn_names::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
+                import::fn_names::GET_VALIDATE_QUERY_PAYLOAD => Runtime::get_validate_query_payload,
                 import::fn_names::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
@@ -1474,9 +1508,10 @@ impl<'wrld> RuntimeBuilder<state::validator::ValidateInstruction<'wrld>> {
                 import::fn_names::EXECUTE_ISI => Runtime::<state::validator::ValidateInstruction<'_>>::execute_instruction,
                 import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::ValidateInstruction<'_>>::execute_query,
                 import::fn_names::GET_AUTHORITY => Runtime::<state::validator::ValidateInstruction<'_>>::get_authority,
-                import::fn_names::GET_TRANSACTION_TO_VALIDATE => Runtime::get_transaction_to_validate,
-                import::fn_names::GET_INSTRUCTION_TO_VALIDATE => Runtime::get_instruction_to_validate,
-                import::fn_names::GET_QUERY_TO_VALIDATE => Runtime::get_query_to_validate,
+                import::fn_names::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
+                import::fn_names::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
+                import::fn_names::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
+                import::fn_names::GET_VALIDATE_QUERY_PAYLOAD => Runtime::get_validate_query_payload,
                 import::fn_names::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
@@ -1498,9 +1533,10 @@ impl<'wrld> RuntimeBuilder<state::validator::ValidateQuery<'wrld>> {
                 import::fn_names::EXECUTE_ISI => Runtime::<state::validator::ValidateQuery<'_>>::execute_instruction,
                 import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::ValidateQuery<'_>>::execute_query,
                 import::fn_names::GET_AUTHORITY => Runtime::<state::validator::ValidateQuery<'_>>::get_authority,
-                import::fn_names::GET_TRANSACTION_TO_VALIDATE => Runtime::get_transaction_to_validate,
-                import::fn_names::GET_INSTRUCTION_TO_VALIDATE => Runtime::get_instruction_to_validate,
-                import::fn_names::GET_QUERY_TO_VALIDATE => Runtime::get_query_to_validate,
+                import::fn_names::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
+                import::fn_names::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
+                import::fn_names::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
+                import::fn_names::GET_VALIDATE_QUERY_PAYLOAD => Runtime::get_validate_query_payload,
                 import::fn_names::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
@@ -1522,9 +1558,10 @@ impl<'wrld> RuntimeBuilder<state::validator::Migrate<'wrld>> {
                 import::fn_names::EXECUTE_ISI => Runtime::<state::validator::Migrate<'_>>::execute_instruction,
                 import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::Migrate<'_>>::execute_query,
                 import::fn_names::GET_AUTHORITY => Runtime::get_authority,
-                import::fn_names::GET_TRANSACTION_TO_VALIDATE => Runtime::get_transaction_to_validate,
-                import::fn_names::GET_INSTRUCTION_TO_VALIDATE => Runtime::get_instruction_to_validate,
-                import::fn_names::GET_QUERY_TO_VALIDATE => Runtime::get_query_to_validate,
+                import::fn_names::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
+                import::fn_names::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
+                import::fn_names::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
+                import::fn_names::GET_VALIDATE_QUERY_PAYLOAD => Runtime::get_validate_query_payload,
                 import::fn_names::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)

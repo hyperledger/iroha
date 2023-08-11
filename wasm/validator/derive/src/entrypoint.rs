@@ -43,9 +43,9 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     match_entrypoints! {
         validate: {
-            validate_transaction => VALIDATOR_VALIDATE_TRANSACTION(GET_TRANSACTION_TO_VALIDATE),
-            validate_instruction => VALIDATOR_VALIDATE_INSTRUCTION(GET_INSTRUCTION_TO_VALIDATE),
-            validate_query => VALIDATOR_VALIDATE_QUERY(GET_QUERY_TO_VALIDATE),
+            validate_transaction => VALIDATOR_VALIDATE_TRANSACTION(GET_VALIDATE_TRANSACTION_PAYLOAD),
+            validate_instruction => VALIDATOR_VALIDATE_INSTRUCTION(GET_VALIDATE_INSTRUCTION_PAYLOAD),
+            validate_query => VALIDATOR_VALIDATE_QUERY(GET_VALIDATE_QUERY_PAYLOAD),
         }
         other: {
             migrate => { impl_migrate_entrypoint(fn_item) }
@@ -57,7 +57,7 @@ fn impl_validate_entrypoint(
     fn_item: syn::ItemFn,
     user_entrypoint_name: &'static str,
     generated_entrypoint_name: &'static str,
-    query_validating_object_fn_name: &'static str,
+    get_validation_payload_fn_name: &'static str,
 ) -> TokenStream {
     let syn::ItemFn {
         attrs,
@@ -82,16 +82,10 @@ fn impl_validate_entrypoint(
     let generated_entrypoint_ident: syn::Ident = syn::parse_str(generated_entrypoint_name)
         .expect("Provided entrypoint name to generate is not a valid Ident, this is a bug");
 
-    let query_validating_object_fn_ident: syn::Ident =
-        syn::parse_str(query_validating_object_fn_name).expect(
+    let get_validation_payload_fn_ident: syn::Ident =
+        syn::parse_str(get_validation_payload_fn_name).expect(
             "Provided function name to query validating object is not a valid Ident, this is a bug",
         );
-
-    let args = quote! {
-        ::iroha_validator::iroha_wasm::get_authority(),
-        ::iroha_validator::iroha_wasm::#query_validating_object_fn_ident(),
-        ::iroha_validator::iroha_wasm::get_block_height(),
-    };
 
     quote! {
         /// Validator `validate` entrypoint
@@ -103,7 +97,9 @@ fn impl_validate_entrypoint(
         #[no_mangle]
         #[doc(hidden)]
         unsafe extern "C" fn #generated_entrypoint_ident() -> *const u8 {
-            let verdict: ::iroha_validator::iroha_wasm::data_model::validator::Result = #fn_name(#args);
+            let payload = ::iroha_validator::iroha_wasm::#get_validation_payload_fn_ident();
+            let verdict: ::iroha_validator::iroha_wasm::data_model::validator::Result =
+                #fn_name(payload.authority, payload.to_validate, payload.block_height);
             let bytes_box = ::core::mem::ManuallyDrop::new(::iroha_validator::iroha_wasm::encode_with_length_prefix(&verdict));
 
             bytes_box.as_ptr()
@@ -132,10 +128,6 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
         "Validator `migrate()` entrypoint must have `MigrationResult` return type"
     );
 
-    let args = quote! {
-        ::iroha_validator::iroha_wasm::get_block_height(),
-    };
-
     let migrate_fn_name = syn::Ident::new(
         iroha_data_model::wasm::export::fn_names::VALIDATOR_MIGRATE,
         proc_macro2::Span::call_site(),
@@ -150,7 +142,8 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
         #[no_mangle]
         #[doc(hidden)]
         unsafe extern "C" fn #migrate_fn_name() -> *const u8 {
-            let res: ::iroha_validator::data_model::validator::MigrationResult = #fn_name(#args);
+            let payload = ::iroha_validator::iroha_wasm::get_migrate_payload();
+            let res: ::iroha_validator::data_model::validator::MigrationResult = #fn_name(payload.block_height);
             let bytes = ::core::mem::ManuallyDrop::new(::iroha_validator::iroha_wasm::encode_with_length_prefix(&res));
 
             ::core::mem::ManuallyDrop::new(bytes).as_ptr()
