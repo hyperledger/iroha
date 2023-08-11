@@ -511,11 +511,27 @@ struct Telemetry {
 }
 ```
 
-The telemetry functionality in Iroha relies heavily on the `name` field. Without it:
+While this flat structure is convenient to represent the user configuration of telemetry (i.e. the content of `telemetry` section in the configuration file), there are some possible concerns:
 
-- If other fields are set but `name` is omitted, the system could issue a warning indicating the ignored fields.
+- If `name` is omitted, but some of the other fields are set, the system could warn that telemetry will not start unless `name` is provided.
 - If the `name` is given, but neither `url` nor `file` are specified, the system should either issue a warning or terminate, signaling that the telemetry configuration is incomplete.
 - If both the `url` and `file` fields are filled (indicating a potential conflict), a warning about the conflict should be raised, followed by a system termination.
+
+These points might be taken into account during the *resolution* stage. A _resolved type_ for telemetry configuration might avoid these conflicts by design:
+
+```rust
+struct TelemetryResolved {
+    name: String,
+    target: TelemetryResolvedTarget,
+    min_retry_period: u64,
+    max_retry_delay_exponent: u8,
+}
+
+enum TelemetryResolvedTarget {
+    Url(Url),
+    File(std::path::PathBuf),
+}
+```
 
 #### Summary
 
