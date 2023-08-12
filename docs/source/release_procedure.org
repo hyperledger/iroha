@@ -1,0 +1,206 @@
+#+TITLE: Iroha v2 Release procedures
+#+AUTHOR: Aleksandr Petrosyan
+#+DATE: 2023-08-13
+* About
+
+This document outlines the procedures recommended for a smooth
+operation during the release of Iroha v2 pre-release candidates and
+recommendations for how to adjust these procedures when the v2.0.0 is
+made public, announced, and subsequent semantically versions packages
+are released.
+
+
+* Timed release cadence
+
+Because Iroha does not have a limited scope or road-map of features
+that could serve as punctuation for the project, and oftentimes ideas
+are proposed during the development process, it was decided to release
+Iroha as is in a timed- rather than feature-gated- cadence. As a
+benefit, but not goal of this approach, the change synchronisation
+with SDKs happens in a bite-sized manner, leading to a more smooth
+overall transition and gradual synchronisation of ideas. It allows the
+core development team to remain agile and adaptable.
+
+The timed cadence has a few disadvantages that could become relevant
+if the development pace slows down and features/fixes/optimisations
+become less prevalent than refactors and continuous integration
+improvements.  It is recommended to preserve continuity and produce
+timed releases for as long as possible. 
+
+* Release window
+
+The release window is the time period between the announcement of the
+particular release and the conclusion of the release procedure,
+excluding any postponed tasks such as testing.
+
+The release window averages between one and two weeks, (for
+particularly difficult releases).
+
+* Internal releases
+
+If a particular build does not have any requisite support from the
+major SDKs, and/or contains a severe dysfunction that cannot be
+amended in a timely fashion, the technical lead has discretion to
+declare the release internal during the [[*Release process][pre-release synchronisation
+meeting]].  Major stakeholders may request a snapshot be released
+internally in order to reduce the workload in cases where features not
+directly needed for a project would be difficult to implement. 
+
+* Release schedule
+
+The schedule is left up to the technical lead's discretion. However,
+the rule-of-thumb as to schedule is the week containing the 28-th of
+each month, and releasing every month.
+
+The release can be postponed if within reasonable time a highly
+requested feature can be implemented. If the initial estimate to the
+feature's completion proves insufficient, rather than extending the
+release further, the release is to exclude said feature. This can be
+referred to as a /stike one/ policy.
+
+The release can be pushed earlier, to compensate for an earlier
+push-back, and/or to accelerate the availability of a crucial feature
+within reason.
+
+Pushing the release forwards or backwards to fit around deadlines of
+other projects is discouraged, but is left up to the technical lead's
+discretion.
+
+* Development
+
+The Iroha ledger is to accumulate committed changes into the
+=iroha2-dev= branch (until the announcement of the deprecation of
+Iroha v1, and renaming of the branches to fit the new pecking
+order). All commits must be signed-off (for reasons of legal
+liability), and all merged commits must be merged with an "all green"
+continuous integration test report. Merging with unsatisfied
+requirements is left up to the technical lead's discretion, with them
+being responsible for any breakage that might ensue.
+
+The development is to be conducted in accordance with the
+[[../../CONTRIBUTING.md]] document. Employees of Soramitsu are given the
+option to work on a separate branch upstream in lieu of working from a
+personal fork (which is Hyperledger's main recommended method). The
+commit message format should not be overly verbose: commits that
+address several issues must be broken up into several (unless the
+opposite is more practical because of time pressure). The technical
+lead is given sufficient discretion to determine and change the commit
+messages to suit the contents of the commit, and all employees are to
+provide their verbal or written consent to this. In the event that the
+author of a commit has used an alternate email that is verifiably
+theirs (or is provided with a GitHub-sponsored email), the technical
+lead may manually override the DCO check.
+
+* Release process
+
+A week before the release window is to open, the project manager is to
+conduct a pre-release sync meeting. The technical lead's
+responsibility is to then appraise all present of the main
+API-breaking changes that might require attention. In preparation, the
+technical lead is encouraged to walk through the differential of the
+current =iroha2-stable= branch and =iroha2-dev= to find any changes in
+=schema.json= as well as other tell-tale signs of API breakage.
+
+Any major API breaking changes beyond this point are discouraged,
+unless a Pull Request already exists for it, any such change is to be
+postponed to the next release and marked as such. After both the core
+team and the SDKs have signed off on a release, the opening of the
+release window is announced in the =i2::lib= channel in telegram.
+
+Additionally, any such changes should be propagated to the Iroha v2
+Open Source development community, via the telegram channel, the
+Hyperledger Discord channel and finally, for large changes, the [[*RFC process][RFC
+process]] must be invoked. 
+
+The release window opening announcement is followed by the release of
+a =nightly= docker container through the continuous delivery
+system. Following that, a Pull Request from the =iroha2-dev= to the
+=iroha2-stable= (and =iroha2-lts= according to [[lts_selection.org]]) is
+created, with the release checklist as the description. Points on the
+checklist are ticked off as soon as they are met.
+
+Any major breakages must be reported into that chat and responded to
+by the core team. For this purpose, the core team must have a rotation
+of engineers that must respond to any inquiries as regards to the
+changes in the current release. If more than one engineer is
+available, the one that implemented the change has precedence.
+
+After the release window is closed (upon completing the release
+checklist), all standard packages are produced: e.g. Nix, =AppImage=,
+=.deb=, =.rpm= and uploaded to the relevant locations. Finally a
+proper GitHub release is formed, and the links to it are provided in
+the relevant chat.
+
+* Release checklist
+The following is a suggested version of the description of the pull
+request for the relevant branches.
+
+- [ ] The current =iroha2-dev= passes all Continuous integration
+  checks
+- [ ] The current =nightly= build was published and links provided to
+  major SDK developers
+- [ ] SDK codegen (if any) was successful
+- [ ] SDK tests pass
+- [ ] SDK engineers have signed-off on the release
+- [ ] Test flakiness was recorded (can be done post-release)
+- [ ] Workspace benchmark results have been recorded
+- [ ] All crates can compile individually
+- [ ] All feature-combinations of crates compile
+- [ ] The versions of crates in the workspace have been bumped
+- [ ] The change-log was written (by the community manager)
+
+* Back-porting policy
+
+Stable releases must not be backported into. It is advised to push
+forwards the next release, by moving the date to earlier than the
+anticipated release window. If the issue is time-sensitive and this
+approach would lead to significant loss, a special emergency release
+must be released with the appropriate semantic version increments.
+
+* RFC process
+
+All major changes/extensions to the Iroha v2 capabilities must go
+through an architectural changes process called "request for comments"
+(RFC).  This entails:
+
+1. The proposer of the changes must open a pull request into the
+   =iroha2-dev= branch containing a file submitted to
+   =docs/source/rfc/= in a format of their choosing (markdown, org,
+   ReST), containing a detailed explanation of the changes.
+
+   This document does not need to contain alternative implementation
+   discussions, but presence of such is encouraged.  The document
+   should be researched with up-to-date information.
+
+   The document can be released as a draft, so that comments could be
+   addressed during the review process as well as the extension of the
+   document. 
+
+2. The document is subjected to no less than two weeks of review,
+   during which the document is thoroughly examined by the major
+   stakeholders and the technical team and the community to
+   suggest/discussion and ask questions.
+
+   The duration can be extended, but never shortened to less than one
+   week, as this does not provide adequate time for the stakeholders
+   to process the information or to suggest changes.  If the document
+   was released as a draft, the time frame starts when the document is
+   considered complete by the author.
+
+3. An optional presentation meeting for the community and the major
+   stakeholders' benefit is to be held after all of the comments had
+   been addressed.
+
+   If the document contains changes that can negatively impact major
+   stakeholders and/or contains alternative plans or execution
+   strategies, the *meeting is mandatory*.
+
+   During this meeting a separate round of questions can be asked.
+   The author of the RFC may request adding the comment as a long-term
+   comment to be addressed in-document, if the comment is relevant to
+   the decision-making process (e.g. one of the stakeholders
+   identified a major flaw with the plan of execution).
+
+4. After the RFC meeting any changes to the execution (e.g. an
+   implementation-defined change), the changes must be propagated to
+   the RFC document. 
