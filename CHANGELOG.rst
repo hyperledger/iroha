@@ -2,16 +2,54 @@ Changelog
 =========
 
 
-2.0.0-pre-rc.16
+
+
+2.0.0-pre-rc.17
 ---------------
 
 Features
 ~~~~~~~~
+* hyperledger#3330 Extend `NumericValue` deserialisation
+* hyperledger#2622 `u128`/`i128` support in FFI
+* hyperledger#3088 Introduce queue throttling, to prevent DoS
+* hyperledger#2373 `kagami swarm file` and `kagami swarm dir` command variants for generating `docker-compose` files
+* hyperledger#3587 Allow different states in `wasm::Runtime`  and during link-time
+* hyperledger#3597 Permission Token Analysis (Iroha side)
+* hyperledger#3598 Permission token analysis (WASM side)
+* hyperledger#3353 Remove `eyre` from `block.rs` by enumerating error conditions and using strongly-typed errors
+* hyperledger#3318 Interleave rejected and accepted transactions in blocks to preserve transaction processing order
 
-* hyperledger#2373 `kagami swarm` subcommand for generating `docker-compose.yml`
+Bugfixes
+~~~~~~~~
+* hyperledger#3075 Panic on invalid transaction in the `genesis.json` to prevent invalid transactions from being processed
+* hyperledger#3461 Proper handling of default values in default config
+* hyperledger#3548 Fix `IntoSchema` transparent attribute
+* hyperledger#3552 Fix validator path schema representation
+* hyperledger#3546 Fix for time triggers getting stuck
+* hyperledger#3162 Forbid 0 height in block streaming requests
+* Configuration macro initial test
+* hyperledger#3592 Fix for  config files being updated on `release`
+* hyperledger#3246 Don't involve `observing peer <https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md#2-system-architecture>`_ without `fault <https://en.wikipedia.org/wiki/Byzantine_fault>`_
+* hyperledger#3570 Correctly display client-side string query errors 
+* hyperledger#3596 `iroha_client_cli` shows blocks/events
+* hyperledger#3473 Make `kagami validator` work from outside the  iroha repository root directory 
+
+
+Other
+~~~~~
+* hyperledger#3063 Map transaction `hash` to block height in `wsv`
+* strongly-typed `HashOf<T>` in `Value`
+
+2.0.0-pre-rc.16
+---------------
+
+Features
+~~~~~~~~ 
+
+* hyperledger#2373 `kagami swarm` sub-command for generating `docker-compose.yml`
 * hyperledger#3525 Standardize transaction API
 * hyperledger#3376 Add Iroha Client CLI `pytest <https://docs.pytest.org/en/7.4.x/>`_ automation framework
-* hyperledger#3516 Retain original blob hash in LoadedExecutable
+* hyperledger#3516 Retain original blob hash in `LoadedExecutable`
 
 
 Bugfixes
