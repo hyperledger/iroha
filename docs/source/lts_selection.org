@@ -1,0 +1,189 @@
+#+TITLE: On selecting versions as LTS candidates
+#+AUTHOR: Aleksandr Petrosyan
+#+DATE: 12-08-2023
+* About
+
+In the interest of preserving the engineering resources, it is in our
+interests to limit the scope of post-release support. If one has
+several versions of Iroha running in parallel, they might need to
+replicate the support work as many times as there are parallel
+versions.
+
+Instead of attempting to support multiple versions badly, we try to
+cater to 80% of use cases with 20% of the effort and reach a
+compromise between supporting every released version equally and only
+supporting the latest stable version.
+
+Specifically, we support the latest =stable= release. Often this
+release is either not as well-tested, well-documented, or
+well-supported by the SDKs, in addition to often changing in terms of
+its API and ABI, resulting in a moving target for compatibility.  We
+thus have a monthly release cadence and one release per year is chosen
+to be the target of long-term support and development.
+
+* LTS selection criteria
+
+The following is a non-exhaustive list of recommended considerations
+for selecting a particular version as an LTS candidate
+
+1. The release should be /unlikely/ to contain major /known/ issues which
+   would preclude it from being useful.
+
+   More specifically, the release should have a good coverage of a
+   basic use-case, for example, (Pre-)RC-6[fn:1] was the last release which
+   contained the old consensus engine. Given that the actor-based
+   consensus had a maximum stable throughput of 10 TPS, (Pre-)RC-6 was
+   not labelled as an LTS, despite being used as one.
+
+   RC-9 contained all the necessary features for running an Iroha node
+   on the new consensus, some changes to the structure of the
+   configuration and a few fixes to the =p2p= subsystem. It could have
+   filled all the possible niches of any projects based on Iroha, and
+   as such it was labelled as an LTS release despite being less-well
+   tested.
+
+   Releases RC8, RC12, RC13 and RC17 were disqualified based on this
+   criterion.
+
+2. If there is a large feature that entails an API breakage, the
+   release that has the most stable version of the "old way of doing
+   things" should be prioritised as an LTS candidate.
+
+   For example, RC12 and RC13, were the last versions of Iroha that
+   still used a hard-coded permission validator. Them being labelled
+   as an LTS candidate was precluded by the major known issues,
+   particularly with stability, poor coverage, and because releasing
+   an LTS after RC9 would have split the development resources off
+   from fixing the issue of rigid un-modifiable permission validators.
+
+   RC14 and RC15 on the other hand, were in the process of a slow
+   migration of features. As such, the latter versions would be
+   considered direct upgrades over the previous one, having more
+   optimisations and better feature coverage.
+
+3. The release must be feature complete for a use-case.
+
+   This is different to point 1, because while RC10 and RC13 were free
+   from major problems, they did not offer sufficiently full coverage
+   of the features required for the major project stakeholders. 
+
+4. The release must be compatible with all SDKs.
+
+   While the support in Iroha Python is largely confined to LTS
+   candidates, creating a catch 22 situation, it is an exception. The
+   two other major SDKs, namely Kotlin, and TypeScript must be
+   compatible with LTS candidate. If the SDK cannot be made compatible
+   with the candidate, the candidate release is disqualified. 
+
+5. The release must be well-tested.
+
+   This point supplements point 1, in that lack of known features
+   coupled with bad test coverage does not, in fact, mean freedom from
+   major problems.
+
+   This generally applies to all releases after RC6 and until RC17, as
+   the development team was told of a way of restructuring the
+   integration tests, but the process only ended with RC17 and the
+   introduction of the =pytest= framework. 
+
+   While passing integration tests is necessary it is not sufficient,
+   the following minimal testing is required to qualify a release as
+   an LTS candidate
+
+   1. Unit and Integration testing. One must take care to run all
+      integration tests, including the long and flaky ones. If tests
+      are unusually flaky that is indicative of a problem, and the
+      release should be disqualified (see [[../../flakyness.org]]).
+
+   2. =pytest= tests, which technically qualify as integration
+      tests.
+
+   3. Longevity testing. The candidate must be tested for at least two
+      weeks to qualify. If the candidate is accepted as an LTS, the
+      longevity testing should be conducted for at least four weeks.
+
+   4. Load testing. The LTS candidate must satisfy all of the criteria
+      set out by the QA team as operational and developmental
+      requirements under load (also known as extra-functional, and
+      mistakenly as non-functional). Failure to produce blocks in a
+      timely fashion is an automatic disqualification. Other
+      disqualifying criteria are left up to the discretion of the QA
+      team.
+
+   5. It must be deployed as a =development= container in at least one
+      project for at least two weeks, with no major problems. RC9 did
+      not pass this test and would have been disqualified with the
+      updated criteria listed in the present document.
+
+6. The release must be well-documented.
+
+   It should not contain multiple new features that lack
+   documentation. Any shortfall in terms of documentation coverage
+   must be fixable within the time-frame of at most the release window
+   for the candidate. Failure to do so is an automatic disqualification.
+
+In addition to the regular release procedure outlined in
+[[release_procedure.org]], the LTS must adhere to the following additional
+steps.
+
+In /addition/ to performing a regular release, a separate PR with the
+title =[release]: <semver> LTS= where =<semver>= is the semantic
+version of the code from the development branch must be created. The
+regular checklist must be eschewed, and instead the Pull Request must
+be reviewed by the same personnel that reviewed and approved the
+=stable= release. At most two reviews are needed, to ensure that all
+the changes will take place in the correct order and that no
+undocumented issues slipped through.
+
+Once the LTS release is made, the CI will produce a docker container
+with the LTS release on the Alpine Linux platform and on Ubuntu Linux,
+using the platform-native version of =glibc=. The CI must also produce
+all of the supported packages, and publish them to their respective
+repositories. This means, for example, that the AUR package is updated
+after the pull request is merged and produces the correct package. The
+GitHub release page must be populated with a separate release entitled
+LTS and containing the single-file =AppImage=. These releases must
+come as separate packages that are marked as incompatible with the
+stable version.
+
+* Back-porting policy
+
+Generally, back-porting into the LTS is discouraged. The following
+back-porting reasons are considered acceptable:
+1. Addition that is not tied to the Iroha API, like e.g. a general
+   helper tool and/or documentation.
+2. Fixing a major security vulnerability.
+3. Fixing a major bug.
+4. Fixing a major design oversight that precludes usage, provided that
+   the key stakeholders/users of the current LTS have verbally
+   certified that a backport is a preferable solution.
+
+Back-ports must be announced through the same channels, as the release
+itself. Required changes must be labelled as backported in both the
+upstream release in which they were fixed and the version into which
+they have been back-ported.
+
+The announcement must explain
+1. Why the backport was chosen (see above reasons)
+2. What the impact of the backport must be
+3. What is the current status of functional, integration and
+   load/longevity testing.
+
+* Applicability
+
+The LTS/stable release policy should be revised as soon as the first
+feature-complete version of Iroha is announced (v2.0.0). Given no more
+active development, the core development team can (and should) be able
+to focus more on the support of the diverging versions.
+
+* Footnotes
+
+[fn:1] The naming convention was stabilised long before any plan to
+release a version of Iroha was made.  As such calling any version of
+Iroha a release candidate has some implications.  Calling them pre
+release candidates is a similar type of misnomer, but less egregious,
+because rather than a misapplication of an existing term, this is an
+invention of a term that /could/ have subtle differences from a
+release candidate.  In reality these should have been called
+*development snapshots*.  But in order not to break continuity too
+much with the existing SDKs a compromise was chosen. 
