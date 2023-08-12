@@ -1,6 +1,53 @@
 Changelog
 =========
 
+2.0.0-pre-rc.19
+---------------
+
+Features
+~~~~~~~~
+* hyperledger#3309 Bump `wasmtime` virtual machine for improved
+* hyperledger#3665 remove `max_log` query from WASM
+* hyperledger#3383 Implement macro to parse a socket addresses at compile time
+* hyperledger#2398 Add integration tests for query filters
+* Include the actual error message in `InternalError`
+* Usage of `nightly-2023-06-25` as the default tool-chain
+* hyperledger#3692 Validator migration
+* [DSL internship] hyperledger#3688: Implement basic arithmetic as proc macro
+* hyperledger#3371 Split validator `entrypoint` to ensure that validators are no longer viewed as smart-contracts
+* hyperledger#3651 WSV snapshots, which allow to bring up an Iroha node quickly after a crash
+* hyperledger#3752 Replace `MockValidator` with an `Initial` validator that accepts all transactions
+* hyperledger#3276 Add temporary instruction called `Log` that logs a specified string to the main log of the Iroha node
+* hyperledger#3641 Make the permission token payload human-readable
+* hyperledger#3324 Add `iroha_client_cli` related `burn` checks and refactoring
+* hyperledger#3781 Validate genesis transactions
+* hyperledger#2885 Differentiate between events that can and cannot be used for triggers
+* hyperledger#2245 `Nix`-based build of iroha node binary as `AppImage`
+
+Bugfixes
+~~~~~~~~
+* hyperledger#3690 Fix C++ musl docker build which caused `wasmopt` to not compile on some platforms (Alpine Linux)
+* hyperledger#3613 Regression which could allow incorrectly signed transactions to be accepted
+* Reject incorrect Configuration topology early
+* hyperledger#3445 Fix regression and make `POST` on the `/configuration` endpoint work again
+* hyperledger#3654 Fix `iroha2` `glibc`-based `Dockerfiles` to be deployed
+* hyperledger#3451 Fix `docker` build on Apple silicon macs
+* hyperledger#3741 Fix `tempfile` error in `kagami validator`
+* hyperledger#3758 Fix regression where individual crates could not be built, but could be built as part of the workspace
+* hyperledger#3777 Patch loophole in role registration not being validated
+* hyperledger#3805 Fix Iroha not shutting down after receiving `SIGTERM`
+
+Other
+~~~~~
+
+* hyperledger#3648 Include `docker-compose.*.yml` check in the CI processes
+* Move instruction `len()` from `iroha_data_model` into `iroha_core`
+* hyperledger#3672 Replace `HashMap` with `FxHashMap` in derive macros
+* hyperledger#3374 Unify error's doc-comments and `fmt::Display` implementation
+* hyperledger#3289 Use Rust 1.70 workspace inheritance throughout project
+* hyperledger#3654 Add `Dockerfiles` to build iroha2 on `GNU libc <https://www.gnu.org/software/libc/>`_
+* Introduce `syn` 2.0, `manyhow` and `darling` for proc-macros
+* hyperledger#3802 Unicode `kagami crypto` seed
 
 2.0.0-pre-rc.18
 ---------------
@@ -23,8 +70,8 @@ Bugfixes
 * hyperledger#3195 Extend panic behaviour for when receiving a rejected genesis transaction
 * hyperledger#3042 Fix bad request message
 * hyperledger#3352 Split up control flow and data message into separate channels
-* hyperledger#3543 Improve precision of metrics  
-  
+* hyperledger#3543 Improve precision of metrics
+
 2.0.0-pre-rc.17
 ---------------
 
