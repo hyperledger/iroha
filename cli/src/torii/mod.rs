@@ -57,14 +57,24 @@ impl LiveQueryStore {
             .map(|(_, (output, _))| output)
     }
 
-    // TODO: Add notifier channel to enable graceful shutdown
-    fn expired_query_cleanup(self: Arc<Self>, idle_time: Duration) -> tokio::task::JoinHandle<()> {
+    fn expired_query_cleanup(
+        self: Arc<Self>,
+        idle_time: Duration,
+        notify_shutdown: Arc<Notify>,
+    ) -> tokio::task::JoinHandle<()> {
         tokio::task::spawn(async move {
             loop {
-                sleep(idle_time).await;
-
-                self.queries
-                    .retain(|_, (_, last_access_time)| last_access_time.elapsed() <= idle_time);
+                tokio::select! {
+                    _ = sleep(idle_time) => {
+                        self.queries
+                            .retain(|_, (_, last_access_time)| last_access_time.elapsed() <= idle_time);
+                    },
+                    _ = notify_shutdown.notified() => {
+                        iroha_logger::info!("Query cleanup service is being shut down.");
+                        break;
+                    }
+                    else => break,
+                }
             }
         })
     }
