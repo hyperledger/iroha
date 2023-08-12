@@ -2,8 +2,29 @@ Changelog
 =========
 
 
+2.0.0-pre-rc.18
+---------------
 
+Features
+~~~~~~~~
+* hyperledger#3468: Server-side cursor, which allows for lazily evaluated re-entrant pagination which should have major positive performance implications for query latency
+* hyperledger#3624: General purpose permission tokens; specifically
+  * Permissions tokens can have any structure
+  * Token structure is self-described in the `iroha_schema` and serialised as a JSON string
+  * Token value is `SCALE <https://github.com/paritytech/parity-scale-codec>`_-encoded
+  * as a consequence of this change permission token naming convention was moved from `snake_case` to `UpeerCamelCase`
+* hyperledger#3615 Preserve wsv after validation
+* hyperledger#3628 Implement `iroha_wasm_builder` optimisations
+* hyperledger#3236 Enhance `iroha_wasm_builder` with cache, and better error messages
 
+Bugfixes
+~~~~~~~~
+* hyperledger#3627 Transaction atomicity now enforced via cloning of the `WorlStateView`
+* hyperledger#3195 Extend panic behaviour for when receiving a rejected genesis transaction
+* hyperledger#3042 Fix bad request message
+* hyperledger#3352 Split up control flow and data message into separate channels
+* hyperledger#3543 Improve precision of metrics  
+  
 2.0.0-pre-rc.17
 ---------------
 
@@ -30,9 +51,9 @@ Bugfixes
 * Configuration macro initial test
 * hyperledger#3592 Fix for  config files being updated on `release`
 * hyperledger#3246 Don't involve `observing peer <https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md#2-system-architecture>`_ without `fault <https://en.wikipedia.org/wiki/Byzantine_fault>`_
-* hyperledger#3570 Correctly display client-side string query errors 
+* hyperledger#3570 Correctly display client-side string query errors
 * hyperledger#3596 `iroha_client_cli` shows blocks/events
-* hyperledger#3473 Make `kagami validator` work from outside the  iroha repository root directory 
+* hyperledger#3473 Make `kagami validator` work from outside the  iroha repository root directory
 
 
 Other
@@ -44,7 +65,7 @@ Other
 ---------------
 
 Features
-~~~~~~~~ 
+~~~~~~~~
 
 * hyperledger#2373 `kagami swarm` sub-command for generating `docker-compose.yml`
 * hyperledger#3525 Standardize transaction API
