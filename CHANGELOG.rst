@@ -2,6 +2,37 @@ Changelog
 =========
 
 
+2.0.0-pre-rc.16
+---------------
+
+Features
+~~~~~~~~
+
+- hyperledger#2373 `kagami swarm` subcommand for generating `docker-compose.yml`
+- hyperledger#3525 Standardize transaction API
+- hyperledger#3376 Add Iroha Client CLI `pytest <https://docs.pytest.org/en/7.4.x/>`_ automation framework
+- hyperledger#3516 Retain original blob hash in LoadedExecutable
+
+
+Bugfixes
+~~~~~~~~
+- hyperledger#3462 Add `burn` asset command to `client_cli`
+- hyperledger#3233 Refactor error types
+- hyperledger#3330 Fix regression, by manually implementing `serde::de::Deserialize` for `partially-tagged <https://serde.rs/enum-representations.html>`_ `enums`
+- hyperledger#3487 Return missing types into the schema
+- hyperledger#3444 Return discriminant into schema  
+- hyperledger#3496 Fix `SocketAddr` field parsing
+- hyperledger#3498 Fix soft-fork detection
+- hyperledger#3396 Store block in `kura` before emitting a block committed event
+  
+Other
+~~~~~
+- hyperledger#2817 Remove interior mutability from `WorldStateView`
+- hyperledger#3363 Genesis API refactor
+- Refactor existing and supplement with new tests for topology
+- Switch from `Codecov <https://about.codecov.io/>`_ to `Coveralls <https://coveralls.io/>`_  for test coverage
+- hyperledger#3533 Rename `Bool` to `bool` in schema  
+  
 2.0.0-pre-rc.15
 ---------------
 
