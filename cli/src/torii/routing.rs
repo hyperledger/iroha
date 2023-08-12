@@ -698,7 +698,10 @@ impl Torii {
         #[cfg(feature = "telemetry")]
         handles.extend(Arc::clone(&torii).start_telemetry()?);
         handles.extend(Arc::clone(&torii).start_api()?);
-        handles.push(Arc::clone(&torii.query_store).expired_query_cleanup(query_idle_time));
+        handles.push(
+            Arc::clone(&torii.query_store)
+                .expired_query_cleanup(query_idle_time, Arc::clone(&torii.notify_shutdown)),
+        );
 
         handles
             .into_iter()
