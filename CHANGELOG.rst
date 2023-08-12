@@ -2,6 +2,47 @@ Changelog
 =========
 
 
+
+2.0.0-pre-rc.14
+---------------
+
+Features
+~~~~~~~~
+- hyperledger#3127 data model `structs` opaque by default
+- hyperledger#3122 use `Algorithm` for storing digest function (community contributor)
+- hyperledger#3153 `iroha_client_cli` output is machine readable
+- hyperledger#3105 Implement `Transfer` for  `AssetDefinition`
+- hyperledger#3010 `Transaction` expire pipeline event added
+- hyperledger#3144 WASM logging
+
+Bugfixes
+~~~~~~~~
+- hyperledger#3113 revision of unstable network tests
+- hyperledger#3129 Fix `Parameter` de/serialisation
+- hyperledger#3141 Manually implement `IntoSchema` for `Hash`
+- hyperledger#3155 Fix panic hook in tests, preventing deadlock
+- hyperledger#3166 Don't view change on idle, improving performance
+- hyperledger#2123 Return to PublicKey de/serialization from multihash
+- hyperledger#3132 Add NewParameter validator
+- hyperledger#3249 Split block hashes into partial and complete versions
+- hyperledger#3031 Fix the UI/UX of missing configuration parameters
+- hyperledger#3247 Removed fault injection from `sumeragi`.  
+
+Other
+~~~~~
+- Add missing `#[cfg(debug_assertions)]` to fix spurious failures
+- hyperledger#2133 Rewrite topology to be closer the whitepaper
+- Remove `iroha_client` dependency on `iroha_core`
+- hyperledger#2943 Derive `HasOrigin`
+- hyperledger#3226 Extract `iroha_wasm_validator` crate from iroha_wasm
+- hyperledger#3232 Share workspace metadata
+- hyperledger#3254 Refactor `commit_block()` and `replace_top_block()`
+- Use stable default allocator handler
+- hyperledger#3183 Rename the `docker-compose.yml` files   
+- Improved the `Multihash` display format
+- hyperledger#3268 Globally unique item identifiers
+- New PR template  
+
 2.0.0-pre-rc.13
 ---------------
 
@@ -12,12 +53,11 @@ Features
 - hyperledger#3094 Generate network with `n` peers.
 - hyperledger#3082 Provide full data in `Created` event.
 - hyperledger#3021 Opaque pointer import.
-- hyperledger#2794 Reject Fieldless enums with explicit discriminants in
-  FFI.
+- hyperledger#2794 Reject Fieldless enums with explicit discriminants in FFI.
 - hyperledger#2922 Add `Grant<Role>` to default genesis.
 - hyperledger#2922 Omit `inner` field in `NewRole` json deserialization.
 - hyperledger#2922 Omit `object(_id)` in json deserialization.
-- hyperledger#2922 Omit `Id` in json deserialization.
+- hyperledger#2922 Omit `Id` in json deserialisation.
 - hyperledger#2922 Omit `Identifiable` in json deserialization.
 - hyperledger#2963 Add `queue_size` to the metrics.
 - hyperledger#3027 implement lockfile for Kura.
@@ -49,8 +89,7 @@ Features
 - hyperledger#2677 WASM base64 (de-)serialization.
 - hyperledger#2626 Implement `Combine` derive, split `config` macros.
 - hyperledger#2586 `Builder` and `LoadFromEnv` for proxy structs.
-- hyperledger#2611 Derive `TryFromReprC` and `IntoFfi` for generic
-  opaque structs.
+- hyperledger#2611 Derive `TryFromReprC` and `IntoFfi` for generic opaque structs.
 - hyperledger#2587 Split `Configurable` into two traits. #2587: Split `Configurable` into two traits
 - hyperledger#2488 Add support for trait impls in `ffi_export`
 - hyperledger#2553 Add sorting to asset queries.
@@ -84,7 +123,7 @@ Features
 - hyperledger#2276 Include current Block hash into BlockHeaderValue.
 - hyperledger#2161 Handle id and shared FFI fns.
   * add handle id and implement FFI equivalents of shared traits (Clone, Eq, Ord)
-- hyperledger#1638 `configuration` return doc subtree.
+- hyperledger#1638 `configuration` return doc sub-tree.
 - hyperledger#2132 Add `endpointN` proc macro.
 - hyperledger#2257 Revoke<Role> emits RoleRevoked event.
 - hyperledger#2125 Add FindAssetDefinitionById query.
@@ -94,13 +133,13 @@ Features
 - hyperledger#1413 Add API version endpoint.
 - hyperledger#2103 support querying for blocks and transactions. Add `FindAllTransactions`` query
 - hyperledger#2186 Add transfer ISI for `BigQuantity` and `Fixed`.
-- hyperledger#2056 Add a derive proc macro crate for AssetValueType enum.
+- hyperledger#2056 Add a derive proc macro crate for `AssetValueType` `enum`.
 - hyperledger#2100 Add query to find all accounts with asset.
 - hyperledger#2179 Optimise trigger execution.
 - hyperledger#1883 Remove embedded configuration files.
 - hyperledger#2105 handle query errors in client.
 - hyperledger#2050 Add role-related queries.
-- hyperledger#1572: Specialized permission tokens.
+- hyperledger#1572 Specialized permission tokens.
 - hyperledger#2121 Check keypair is valid when constructed.
 - hyperledger#2099 Add WASM integration test based on Orillion use-case.
 - hyperledger#2003 Introduce Parity Scale Decoder tool.
@@ -114,7 +153,7 @@ Features
 - hyperledger#2004 Forbid `isize` and `usize` from becoming `IntoSchema`.
 - hyperledger#2105 handle query errors in client.
 - hyperledger#2050 Add role-related queries.
-- hyperledger#1572: Specialized permission tokens.
+- hyperledger#1572 Specialized permission tokens.
 - hyperledger#2121 Check keypair is valid when constructed.
 - hyperledger#2099 Add WASM integration test based on Orillion use-case.
 - hyperledger#2003 Introduce Parity Scale Decoder tool.
