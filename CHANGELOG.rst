@@ -2,6 +2,52 @@ Changelog
 =========
 
 
+2.0.0-pre-rc.15
+---------------
+
+Features
+~~~~~~~~
+- hyperledger#3231 Monolithic validator
+- hyperledger#3238 Optimise WASM triggers with pre-loading
+- hyperledger#3015 Support for niche optimization in FFI
+- hyperledger#2547 Add logo to `AssetDefinition`
+- hyperledger#3274 Add to `kagami` a sub-command that generates examples (backported into LTS)
+- hyperledger#3415 `Nix <https://nixos.wiki/wiki/Flakes>`_ flake
+- hyperledger#3412 Move transaction gossiping to a separate actor
+- hyperledger#3435 Introduce `Expression` visitor
+- hyperledger#3168 Provide genesis validator as a separate file
+- hyperledger#3454 Make LTS the default for most Docker operations and documentation
+- hyperledger#3090 Propagate on-chain parameters from blockchain to `sumeragi`
+
+
+Bugfixes
+~~~~~~~~
+- hyperledger#3330 Fix untagged enum de-serialization with `u128` leaves (backported into RC14)
+- hyperledger#2581 reduced noise in logs
+- hyperledger#3360 Fix `tx/s` benchmark
+- hyperledger#3393 Break communication deadlock loop in `actors`
+- hyperledger#3402 Fix `nightly` build
+- hyperledger#3411 Properly handle peers simultaneous connection
+- hyperledger#3440 Deprecate asset conversions during transfer, instead handled by smart-contracts
+- hyperledger#3408: Fix `public_keys_cannot_be_burned_to_nothing` test  
+
+Other
+~~~~~
+- hyperledger#3362 Migrate to `tokio` actors
+- hyperledger#3349 Remove `EvaluateOnHost` from smart contracts
+- hyperledger#1786 Add `iroha`-native types for socket addresses
+- Disable `wasmtime` cache
+- Revert disable cache
+- Rename permission validator into validator
+- hyperledger#3388 Make `model!` a module-level attribute macro
+- hyperledger#3370 Serialize `hash` as hexadecimal string
+- Move `maximum_transactions_in_block` from `queue` to `sumeragi` configuration
+- Deprecate and remove `AssetDefinitionEntry` type
+- Rename `configs/client_cli` into `configs/client`
+- Update `MAINTAINERS.md`   
+  
+  
+
 
 2.0.0-pre-rc.14
 ---------------
@@ -26,7 +72,7 @@ Bugfixes
 - hyperledger#3132 Add NewParameter validator
 - hyperledger#3249 Split block hashes into partial and complete versions
 - hyperledger#3031 Fix the UI/UX of missing configuration parameters
-- hyperledger#3247 Removed fault injection from `sumeragi`.  
+- hyperledger#3247 Removed fault injection from `sumeragi`.
 
 Other
 ~~~~~
@@ -38,10 +84,10 @@ Other
 - hyperledger#3232 Share workspace metadata
 - hyperledger#3254 Refactor `commit_block()` and `replace_top_block()`
 - Use stable default allocator handler
-- hyperledger#3183 Rename the `docker-compose.yml` files   
+- hyperledger#3183 Rename the `docker-compose.yml` files
 - Improved the `Multihash` display format
 - hyperledger#3268 Globally unique item identifiers
-- New PR template  
+- New PR template
 
 2.0.0-pre-rc.13
 ---------------
