@@ -24,12 +24,22 @@ use iroha_logger::trace;
 /// G             |   f   |                        |<-|
 ///
 /// Above is an illustration of how the various operations work for a f = 2 topology.
-// FIXME: https://github.com/hyperledger/iroha/issues/3529 (topology for 3 or less peers)
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
     pub(crate) sorted_peers: Vec<PeerId>,
+}
+
+/// Topology with at least one peer
+#[derive(Debug, Clone, PartialEq, Eq, derive_more::Deref)]
+pub struct NonEmptyTopology<'topology> {
+    topology: &'topology Topology,
+}
+
+/// Topology which require consensus (more than one peer)
+#[derive(Debug, Clone, PartialEq, Eq, derive_more::Deref)]
+pub struct ConsensusTopology<'topology> {
+    topology: &'topology Topology,
 }
 
 impl Topology {
@@ -39,9 +49,15 @@ impl Topology {
             sorted_peers: peers.into_iter().collect(),
         }
     }
+
+    /// Is topology contains at least one peer
+    pub fn is_non_empty(&self) -> Option<NonEmptyTopology> {
+        (!self.sorted_peers.is_empty()).then_some(NonEmptyTopology { topology: self })
+    }
+
     /// Is consensus required, aka are there more than 1 peer.
-    pub fn is_consensus_required(&self) -> bool {
-        self.min_votes_for_commit() > 1
+    pub fn is_consensus_required(&self) -> Option<ConsensusTopology> {
+        (self.sorted_peers.len() > 1).then_some(ConsensusTopology { topology: self })
     }
 
     /// How many faulty peers can this topology tolerate.
@@ -51,7 +67,12 @@ impl Topology {
 
     /// The required amount of votes to commit a block with this topology.
     pub fn min_votes_for_commit(&self) -> usize {
-        self.max_faults() * 2 + 1
+        let len = self.sorted_peers.len();
+        if len > 3 {
+            self.max_faults() * 2 + 1
+        } else {
+            len
+        }
     }
 
     /// Index of leader among `sorted_peers`
@@ -73,45 +94,27 @@ impl Topology {
         roles: &[Role],
         signatures: I,
     ) -> Vec<SignatureOf<T>> {
-        let mut public_keys = Vec::new();
+        let mut public_keys: HashSet<&PublicKey> = HashSet::with_capacity(self.sorted_peers.len());
         for role in roles {
-            let role_public_keys = match (role, self.max_faults()) {
-                (Role::Leader, _) => {
-                    vec![self.sorted_peers[self.leader_index()].public_key.clone()]
+            match (role, self.is_non_empty(), self.is_consensus_required()) {
+                (Role::Leader, Some(topology), _) => {
+                    public_keys.insert(&topology.leader().public_key);
                 }
-                (Role::ValidatingPeer, 0) => {
-                    if self.sorted_peers.len() > 2 {
-                        vec![self.sorted_peers[1].public_key.clone()]
-                    } else {
-                        vec![]
+                (Role::ProxyTail, _, Some(topology)) => {
+                    public_keys.insert(&topology.proxy_tail().public_key);
+                }
+                (Role::ValidatingPeer, _, Some(topology)) => {
+                    for peer in topology.validating_peers() {
+                        public_keys.insert(&peer.public_key);
                     }
                 }
-                (Role::ProxyTail, 0) => {
-                    if self.sorted_peers.len() == 2 {
-                        vec![self.sorted_peers[1].public_key.clone()]
-                    } else if self.sorted_peers.len() > 2 {
-                        vec![self.sorted_peers[2].public_key.clone()]
-                    } else {
-                        vec![]
+                (Role::ObservingPeer, _, Some(topology)) => {
+                    for peer in topology.observing_peers() {
+                        public_keys.insert(&peer.public_key);
                     }
                 }
-                (Role::ObservingPeer, 0) => {
-                    vec![]
-                }
-                (Role::ValidatingPeer, _) => self.sorted_peers
-                    [self.leader_index() + 1..self.proxy_tail_index()]
-                    .iter()
-                    .map(|peer_id| peer_id.public_key.clone())
-                    .collect(),
-                (Role::ProxyTail, _) => vec![self.sorted_peers[self.proxy_tail_index()]
-                    .public_key
-                    .clone()],
-                (Role::ObservingPeer, _) => self.sorted_peers[self.proxy_tail_index() + 1..]
-                    .iter()
-                    .map(|peer_id| peer_id.public_key.clone())
-                    .collect(),
+                _ => {}
             };
-            public_keys.extend(role_public_keys);
         }
         signatures
             .into_iter()
@@ -120,8 +123,7 @@ impl Topology {
             .collect()
     }
 
-    /// What role does this peer have in the topology. If it is not in the toplogy
-    /// the function will return `Role::ObservingPeer`.
+    /// What role does this peer have in the topology.
     pub fn role(&self, peer_id: &PeerId) -> Role {
         match self.sorted_peers.iter().position(|p| p == peer_id) {
             Some(index) if index == self.leader_index() => Role::Leader,
@@ -130,24 +132,9 @@ impl Topology {
             Some(_) => Role::ObservingPeer,
             None => {
                 trace!(%peer_id, "Peer is not in topology.");
-                Role::ObservingPeer
+                Role::Undefined
             }
         }
-    }
-    /// Get leader's peer id.
-    ///
-    /// # Panics
-    /// This method will panic when called on empty topology
-    pub fn leader(&self) -> &PeerId {
-        &self.sorted_peers[self.leader_index()]
-    }
-
-    /// Get proxy tail's peer id.
-    ///
-    /// # Panics
-    /// This method will panic when called on empty topology
-    pub fn proxy_tail(&self) -> &PeerId {
-        &self.sorted_peers[self.proxy_tail_index()]
     }
 
     /// Add or remove peers from the topology.
@@ -171,7 +158,7 @@ impl Topology {
 
     /// Re-arrange the set of peers after each successful block commit.
     pub fn rotate_set_a(&mut self) {
-        let rotate_at = self.min_votes_for_commit().min(self.sorted_peers.len());
+        let rotate_at = self.min_votes_for_commit();
         if rotate_at > 0 {
             self.sorted_peers[..rotate_at].rotate_left(1);
         }
@@ -225,7 +212,7 @@ impl Topology {
         signatures: &mut SignaturesOf<T>,
         hash: HashOf<T>,
     ) -> Result<(), SignatureVerificationError> {
-        if !self.is_consensus_required() {
+        if self.is_consensus_required().is_none() {
             return Ok(());
         }
 
@@ -268,6 +255,40 @@ impl Topology {
     }
 }
 
+impl<'topology> NonEmptyTopology<'topology> {
+    /// Get leader's peer id.
+    pub fn leader(&self) -> &'topology PeerId {
+        &self.topology.sorted_peers[self.topology.leader_index()]
+    }
+}
+
+impl<'topology> ConsensusTopology<'topology> {
+    /// Get proxy tail's peer id.
+    pub fn proxy_tail(&self) -> &'topology PeerId {
+        &self.topology.sorted_peers[self.topology.proxy_tail_index()]
+    }
+
+    /// Get leader's peer id.
+    pub fn leader(&self) -> &'topology PeerId {
+        &self.topology.sorted_peers[self.topology.leader_index()]
+    }
+
+    /// Get validating peers ids.
+    pub fn validating_peers(&self) -> &'topology [PeerId] {
+        &self.sorted_peers[self.leader_index() + 1..self.proxy_tail_index()]
+    }
+
+    /// Get observing peers ids.
+    pub fn observing_peers(&self) -> &'topology [PeerId] {
+        &self.sorted_peers[self.proxy_tail_index() + 1..]
+    }
+
+    /// Get voting peers ids.
+    pub fn voting_peers(&self) -> &'topology [PeerId] {
+        &self.sorted_peers[self.leader_index()..=self.proxy_tail_index()]
+    }
+}
+
 /// Possible Peer's roles in consensus.
 #[derive(Debug, Display, Clone, Copy, PartialOrd, Ord, Eq, PartialEq, Hash)]
 pub enum Role {
@@ -279,6 +300,8 @@ pub enum Role {
     ObservingPeer,
     /// Proxy Tail.
     ProxyTail,
+    /// Undefined. Not part of the topology
+    Undefined,
 }
 
 /// Error during signature verification
@@ -417,8 +440,149 @@ mod tests {
     }
 
     #[test]
+    fn filter_by_role_empty() {
+        let key_pairs =
+            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
+                .take(7)
+                .collect::<Vec<_>>();
+        let peers = Vec::new();
+        let topology = Topology::new(peers);
+
+        let dummy = "value to sign";
+        let signatures = key_pairs
+            .iter()
+            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .collect::<Vec<SignatureOf<_>>>();
+
+        let leader_signatures =
+            topology.filter_signatures_by_roles(&[Role::Leader], signatures.iter());
+        assert!(leader_signatures.is_empty());
+
+        let proxy_tail_signatures =
+            topology.filter_signatures_by_roles(&[Role::ProxyTail], signatures.iter());
+        assert!(proxy_tail_signatures.is_empty());
+
+        let validating_peers_signatures =
+            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], signatures.iter());
+        assert!(validating_peers_signatures.is_empty());
+
+        let observing_peers_signatures =
+            topology.filter_signatures_by_roles(&[Role::ObservingPeer], signatures.iter());
+        assert!(observing_peers_signatures.is_empty());
+    }
+
+    #[test]
+    fn filter_by_role_1() {
+        let key_pairs =
+            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
+                .take(7)
+                .collect::<Vec<_>>();
+        let mut key_pairs_iter = key_pairs.iter();
+        let peers = peers![0: key_pairs_iter];
+        let topology = Topology::new(peers.clone());
+
+        let dummy = "value to sign";
+        let signatures = key_pairs
+            .iter()
+            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .collect::<Vec<SignatureOf<_>>>();
+
+        let leader_signatures =
+            topology.filter_signatures_by_roles(&[Role::Leader], signatures.iter());
+        assert_eq!(leader_signatures.len(), 1);
+        assert_eq!(leader_signatures[0].public_key(), peers[0].public_key());
+
+        let proxy_tail_signatures =
+            topology.filter_signatures_by_roles(&[Role::ProxyTail], signatures.iter());
+        assert!(proxy_tail_signatures.is_empty());
+
+        let validating_peers_signatures =
+            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], signatures.iter());
+        assert!(validating_peers_signatures.is_empty());
+
+        let observing_peers_signatures =
+            topology.filter_signatures_by_roles(&[Role::ObservingPeer], signatures.iter());
+        assert!(observing_peers_signatures.is_empty());
+    }
+
+    #[test]
+    fn filter_by_role_2() {
+        let key_pairs =
+            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
+                .take(7)
+                .collect::<Vec<_>>();
+        let mut key_pairs_iter = key_pairs.iter();
+        let peers = peers![0, 1: key_pairs_iter];
+        let topology = Topology::new(peers.clone());
+
+        let dummy = "value to sign";
+        let signatures = key_pairs
+            .iter()
+            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .collect::<Vec<SignatureOf<_>>>();
+
+        let leader_signatures =
+            topology.filter_signatures_by_roles(&[Role::Leader], signatures.iter());
+        assert_eq!(leader_signatures.len(), 1);
+        assert_eq!(leader_signatures[0].public_key(), peers[0].public_key());
+
+        let proxy_tail_signatures =
+            topology.filter_signatures_by_roles(&[Role::ProxyTail], signatures.iter());
+        assert_eq!(proxy_tail_signatures.len(), 1);
+        assert_eq!(proxy_tail_signatures[0].public_key(), peers[1].public_key());
+
+        let validating_peers_signatures =
+            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], signatures.iter());
+        assert!(validating_peers_signatures.is_empty());
+
+        let observing_peers_signatures =
+            topology.filter_signatures_by_roles(&[Role::ObservingPeer], signatures.iter());
+        assert!(observing_peers_signatures.is_empty());
+    }
+
+    #[test]
+    fn filter_by_role_3() {
+        let key_pairs =
+            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
+                .take(7)
+                .collect::<Vec<_>>();
+        let mut key_pairs_iter = key_pairs.iter();
+        let peers = peers![0, 1, 2: key_pairs_iter];
+        let topology = Topology::new(peers.clone());
+
+        let dummy = "value to sign";
+        let signatures = key_pairs
+            .iter()
+            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .collect::<Vec<SignatureOf<_>>>();
+
+        let leader_signatures =
+            topology.filter_signatures_by_roles(&[Role::Leader], signatures.iter());
+        assert_eq!(leader_signatures.len(), 1);
+        assert_eq!(leader_signatures[0].public_key(), peers[0].public_key());
+
+        let proxy_tail_signatures =
+            topology.filter_signatures_by_roles(&[Role::ProxyTail], signatures.iter());
+        assert_eq!(proxy_tail_signatures.len(), 1);
+        assert_eq!(proxy_tail_signatures[0].public_key(), peers[2].public_key());
+
+        let validating_peers_signatures =
+            topology.filter_signatures_by_roles(&[Role::ValidatingPeer], signatures.iter());
+        assert_eq!(validating_peers_signatures.len(), 1);
+        assert_eq!(
+            validating_peers_signatures[0].public_key(),
+            peers[1].public_key()
+        );
+
+        let observing_peers_signatures =
+            topology.filter_signatures_by_roles(&[Role::ObservingPeer], signatures.iter());
+        assert!(observing_peers_signatures.is_empty());
+    }
+
+    #[test]
     fn roles() {
         let peers = peers![0, 1, 2, 3, 4, 5, 6];
+        let not_in_topology_peers = peers![7, 8, 9];
         let topology = Topology::new(peers.clone());
         let expected_roles = [
             Role::Leader,
@@ -428,9 +592,15 @@ mod tests {
             Role::ProxyTail,
             Role::ObservingPeer,
             Role::ObservingPeer,
+            Role::Undefined,
+            Role::Undefined,
+            Role::Undefined,
         ];
 
-        for ((i, peer), expected_role) in (0..).zip(peers).zip(expected_roles) {
+        for ((i, peer), expected_role) in (0..)
+            .zip(peers.into_iter().chain(not_in_topology_peers))
+            .zip(expected_roles)
+        {
             let actual_role = topology.role(&peer);
             assert_eq!(
                 actual_role, expected_role,
@@ -444,7 +614,69 @@ mod tests {
         let peers = peers![0, 1, 2, 3, 4, 5, 6];
         let topology = Topology::new(peers.clone());
 
-        assert_eq!(topology.proxy_tail(), &peers[4]);
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::proxy_tail),
+            Some(&peers[4])
+        );
+    }
+
+    #[test]
+    fn proxy_tail_empty() {
+        let peers = Vec::new();
+        let topology = Topology::new(peers);
+
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::proxy_tail),
+            None,
+        );
+    }
+
+    #[test]
+    fn proxy_tail_1() {
+        let peers = peers![0];
+        let topology = Topology::new(peers);
+
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::proxy_tail),
+            None
+        );
+    }
+
+    #[test]
+    fn proxy_tail_2() {
+        let peers = peers![0, 1];
+        let topology = Topology::new(peers.clone());
+
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::proxy_tail),
+            Some(&peers[1])
+        );
+    }
+
+    #[test]
+    fn proxy_tail_3() {
+        let peers = peers![0, 1, 2];
+        let topology = Topology::new(peers.clone());
+
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::proxy_tail),
+            Some(&peers[2])
+        );
     }
 
     #[test]
@@ -452,7 +684,212 @@ mod tests {
         let peers = peers![0, 1, 2, 3, 4, 5, 6];
         let topology = Topology::new(peers.clone());
 
-        assert_eq!(topology.leader(), &peers[0]);
+        assert_eq!(
+            topology
+                .is_non_empty()
+                .as_ref()
+                .map(NonEmptyTopology::leader),
+            Some(&peers[0])
+        );
+    }
+
+    #[test]
+    fn leader_empty() {
+        let peers = Vec::new();
+        let topology = Topology::new(peers);
+
+        assert_eq!(
+            topology
+                .is_non_empty()
+                .as_ref()
+                .map(NonEmptyTopology::leader),
+            None,
+        );
+    }
+
+    #[test]
+    fn leader_1() {
+        let peers = peers![0];
+        let topology = Topology::new(peers.clone());
+
+        assert_eq!(
+            topology
+                .is_non_empty()
+                .as_ref()
+                .map(NonEmptyTopology::leader),
+            Some(&peers[0])
+        );
+    }
+
+    #[test]
+    fn leader_2() {
+        let peers = peers![0, 1];
+        let topology = Topology::new(peers.clone());
+
+        assert_eq!(
+            topology
+                .is_non_empty()
+                .as_ref()
+                .map(NonEmptyTopology::leader),
+            Some(&peers[0])
+        );
+    }
+
+    #[test]
+    fn leader_3() {
+        let peers = peers![0, 1, 3];
+        let topology = Topology::new(peers.clone());
+
+        assert_eq!(
+            topology
+                .is_non_empty()
+                .as_ref()
+                .map(NonEmptyTopology::leader),
+            Some(&peers[0])
+        );
+    }
+
+    #[test]
+    fn validating_peers() {
+        let peers = peers![0, 1, 2, 3, 4, 5, 6];
+        let topology = Topology::new(peers.clone());
+
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::validating_peers),
+            Some(&peers[1..4])
+        );
+    }
+
+    #[test]
+    fn validating_peers_empty() {
+        let peers = Vec::new();
+        let topology = Topology::new(peers);
+
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::validating_peers),
+            None,
+        );
+    }
+
+    #[test]
+    fn validating_peers_1() {
+        let peers = peers![0];
+        let topology = Topology::new(peers);
+
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::validating_peers),
+            None
+        );
+    }
+
+    #[test]
+    fn validating_peers_2() {
+        let peers = peers![0, 1];
+        let topology = Topology::new(peers);
+
+        let empty_peer_slice: &[PeerId] = &[];
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::validating_peers),
+            Some(empty_peer_slice)
+        );
+    }
+
+    #[test]
+    fn validating_peers_3() {
+        let peers = peers![0, 1, 2];
+        let topology = Topology::new(peers.clone());
+
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::validating_peers),
+            Some(&peers[1..2])
+        );
+    }
+
+    #[test]
+    fn observing_peers() {
+        let peers = peers![0, 1, 2, 3, 4, 5, 6];
+        let topology = Topology::new(peers.clone());
+
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::observing_peers),
+            Some(&peers[5..])
+        );
+    }
+
+    #[test]
+    fn observing_peers_empty() {
+        let peers = Vec::new();
+        let topology = Topology::new(peers);
+
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::observing_peers),
+            None,
+        );
+    }
+
+    #[test]
+    fn observing_peers_1() {
+        let peers = peers![0];
+        let topology = Topology::new(peers);
+
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::validating_peers),
+            None
+        );
+    }
+
+    #[test]
+    fn observing_peers_2() {
+        let peers = peers![0, 1];
+        let topology = Topology::new(peers);
+
+        let empty_peer_slice: &[PeerId] = &[];
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::observing_peers),
+            Some(empty_peer_slice)
+        );
+    }
+
+    #[test]
+    fn observing_peers_3() {
+        let peers = peers![0, 1, 2];
+        let topology = Topology::new(peers);
+
+        let empty_peer_slice: &[PeerId] = &[];
+        assert_eq!(
+            topology
+                .is_consensus_required()
+                .as_ref()
+                .map(ConsensusTopology::observing_peers),
+            Some(empty_peer_slice)
+        );
     }
 
     #[test]
@@ -482,18 +919,19 @@ mod tests {
     fn signature_verification_consensus_not_required_ok() {
         let key_pairs =
             core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
-                .take(3)
+                .take(1)
                 .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
-        let peers = peers![0, 1, 2: key_pairs_iter];
+        let peers = peers![0,: key_pairs_iter];
         let topology = Topology::new(peers);
 
         let dummy = "value to sign";
         let mut signatures = key_pairs
             .iter()
             .enumerate()
-            .filter(|(i, _)| *i == 2) // Retain only last signature
-            .map(|(_, key_pair)| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .map(|(_, key_pair)| {
+                SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign")
+            })
             .collect::<Result<SignaturesOf<_>, _>>()
             .expect("Failed to create `SignaturesOf`");
 
