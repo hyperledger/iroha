@@ -1,0 +1,426 @@
+#+TITLE: Recommendations regarding the release roadmap of Iroha v2
+#+AUTHOR: Aleksandr Petrosyan
+#+DATE: 2023-08-13
+
+* State of the project
+
+Iroha v2 is a capable ledger with notable subroutines that allow it to
+be deployed successfully as a private blockchain ledger:
+1. It has relatively good performance characteristics regarding
+   throughput (post RC9).
+2. It has good performance characteristics regarding transaction
+   finality and latency (post RC19 also good query latency).
+3. It has support for Turing complete permission validation, which
+   allows Iroha to enforce arbitrarily complex invariants on-chain. 
+4. It has support for a small interpreted VM[fn:2] called the Iroha Special
+   Instructions which allow small-footprint transactions. 
+5. It has support for Turing complete smart-contracts, with an
+   underlying event driven reactive system, which was successfully
+   deployed to operate a cross-border delivery versus payment
+   implementation for ADB. 
+6. The ledger has three SDKs within the JVM, JavaScript and Python
+   ecosystems, allowing the users to easily adapt the Iroha node to
+   their requirements.
+7. The ledger is accompanied by a suite of tools: =kagami=,
+   =iroha_client_cli=, /etc/., which comprise a small SDK. 
+
+The ledger has been demonstrated to work during the ADB CSD/RTGS
+linkages project, and is slated to be used in two projects internally
+by SORAMITSU which only utilise the private blockchain ledger
+functionality.
+
+The ledger can support un-sharded monolithic blockchains, with limited
+export capability (unlike Iroha v1, v2 uses an internal representation
+and doesn't use a database). Its consensus was designed with Byzantine
+fault tolerance in mind, however, the algorithm -- Sumeragi has some
+intrinsic flaws outlined in [[https://arxiv.org/pdf/1707.01873.pdf][an IBM Research article]][fn:1].  Specifically, 
+
+#+BEGIN_QUOTE
+As becomes apparent from the online documentation
+(https://github.com/hyperledger/iroha/wiki/Sumeragi), though, the
+protocol departs from the “chain” pattern, because the leader
+“broadcasts” to all nodes and so does the node at the tail. Hence, it
+is neither BChain nor chain replication. Assuming that Sumeragi would
+correctly implement BChain, then it relies on the standard as-
+sumptions for BFT consensus in the eventually-synchronous model, just
+like Fabric v0.6, Tendermint, and Symbiont.
+#+END_QUOTE
+
+To address the concerns outlined by Cachin et Vukoli'c the consensus
+must be [[https://github.com/hyperledger/iroha/issues/1713][formally verified]] to indeed produce a Byzantine fault-tolerant
+consensus.  Moreover, its performance characteristics must be weighted
+against the BChain algorithm.  The reader is led to believe that the
+article constitutes a disproof of Sumeragi's Byzantine
+Fault-tolerance, while in reality the article merely points out that
+the implementation cannot rely on the common assumptions of Duan,
+Meling et al, to prove the characteristics of Sumeragi.  A slightly
+more astute reader shall note that the original design of [[https://bchainzhang.github.io/files/OPODIS_final_bchain.pdf][BChain]]
+deliberately reduces the amount of communication from the leader to
+the chain of the peers to improve latency.  While adding a reputation
+system on top of this is not necessarily a problem, the concern is
+there:
+
+#+BEGIN_QUOTE
+Although there is a leader at the head of the chain, like in many
+other protocols, the leader does not become a bottleneck since it
+usually communicates only with the head and the tail of the chain, but
+not with all n nodes. This balances the load among the nodes and lets
+chain-replication protocols achieve the best possible throughput [35,
+5], at the cost of higher normal-case latency and slightly increased
+time for reconfiguration after faults.
+
+In Sumeragi, the order of the nodes is determined based on a
+reputation system, which takes the “age” of a node and its past
+performance into account.
+
+[35] R. Guerraoui, R. R. Levy, B. Pochon, and V. Que ́ma. Throughput
+optimal total order broadcast for cluster environments. ACM
+Transactions on Computer Systems, 28(2):5:1–5:32, 2010.
+
+[5] P. Aublin, R. Guerraoui, N. Knezevic, V. Que ́ma, and
+M. Vukolic. The next 700 BFT protocols. ACM Transactions on Computer
+Systems, 32(4):12:1–12:45, 2015. 
+#+END_QUOTE
+
+The blockchain ledger is designed to support a plug-able (and
+upgrade-able) permission validator modules, allowing the blockchain
+invariants to evolve and change with the operation of the blockchain.
+It is capable of resolving simple soft-forks, and has tooling to
+quickly restart a blockchain by squashing all of the information and
+history into a single genesis block. However, it does not retain
+enough flexibility to be used as a single ledger for both private and
+public blockchains. And the following issues have been identified.
+
+1. The instruction set is unfinished.  In its current state, the
+   instruction/expression language is almost unusable and
+   inefficient by any metric other than storage space. 
+
+   While this can be somewhat mitigated by the introduction of the
+   DSL, the main expressiveness-boosting facilities of ISI are not
+   usable, and thus only add overhead. A thorough exploration of a
+   restructuring of the Iroha Instruction Set Architecture is needed
+   and shall be published as an RFC in August 2023.
+
+2. WASM is a sub-optimal medium for storage of executable logic. It
+   alone is responsible for 80% of the complexity present in the code
+   base and around 95% of technical debt is related to some mitigation
+   of a shortcoming of WASM in the blockchain.
+
+   The advantages and disadvantages for various media storing Turing
+   complete logic on chain must also be discussed and shall be
+   published as an RFC by the end of August 2023.
+
+3. Iroha lacks any facilities to correlate the consensus process with
+   the blockchain data.  Such functionality is needed to implement
+   Proof-of-stake consensus, governance, democracy, voting etc. 
+
+4. Iroha's consensus is largely inadequate for large networks.  The
+   fault-tolerance and consensus speed scale poorly with network size.
+
+5. An Iroha node has extremely high system requirements for
+   consumer-grade hardware. As of today the entire world state is
+   stored in RAM. The execution of transactions requires a
+   multi-threaded machine, but the throughput does not scale well
+   beyond 8 cores. This produces a set of system requirements that
+   are unlikely to occur naturally in a public blockchain.
+
+6. An Iroha network does not have a stable API. As such custom public
+   blockchains are liable to frequently squash their block history or
+   eschew upgrades.
+
+7. Iroha doesn't have a distinct understanding of the blockchain
+   uses. It caters to the private blockchains and as such has
+   validation for IP addresses, and some logic to handle mint-able and
+   non-mint-able assets as well as roles and permission tokens. This
+   information is hard-coded and non-modular, leading to public
+   blockchains missing vital functionality and having to commit their
+   changes upstream, and thus leading to incompatibility between the
+   Iroha APIs for a public and private blockchain.
+
+8. Iroha has no facilities to extend the expression language. This
+   dovetails into point 1, and leads to even less logic being encoded
+   as an ISI or =Expression= and instead relying heavily on WASM.
+
+9. WASM is only well-supported by Rust. While WASM is a
+   general-purpose binary format, only a few languages support it
+   natively: =C++=, =Go=, =nim=, =zig= and =Rust=. =Java=, =Kotlin=
+   and a few other languages have experimental support with little in
+   terms of either interest or effort.
+
+   Note that all of the above languages are ahead-of-time compiled
+   systems programming languages which require low-level understanding
+   of the machine. This raises the barrier of entry for simple
+   smartcontracts. The languages with a less involved development
+   experience: =nim= and =Go= also have a built-in non-optional
+   garbage collector and a non-trivial run-time. As a consequence, the
+   smallest binary that can be built either has to dynamically link
+   against a host-side library, and/or be oversized.
+
+
+As such Iroha is feature-complete as a private blockchain ledger, and
+feature-incomplete as a public ledger.
+
+* v2.0.0 as a feature-complete private ledger only
+
+Given the lack of initial scope limitations and presence of timing
+issues, it is my firm belief that not all features that were planned
+can (or should) be included in the v2.0.0 release. Particularly, given
+that other projects already exist, depending on a moving target that
+is Iroha v2, working more and changing the ledger more, can result in
+more changes needed to be implemented downstream for all engineers. It
+can be somewhat mitigated by separating releases into /stable/ and
+/LTS/, however the brunt of the API changes for making Iroha v2 double
+as both a private and public ledger will have to be carried by the
+downstream users. Those who can choose a different technology will do
+so, those who cannot will be less productive.
+
+As such, it is recommended to all key stakeholders of the Iroha v2
+project, to consider the release of version 2.0.0 before any of the
+public blockchain features have been added. Based on this
+recommendation a further recommendation of a sequence of steps shall
+be considered, based on a few key decisions.
+
+* Scenario 0: Status quo
+
+In this case the following is true:
+- The ISI and Expression language is kept as is,
+- The WASM infrastructure is continued to be built as per the original plan
+- Public blockchain features are added and until the previously agreed
+  upon set of features is implemented (TODO: link Zenhub), no v2.0.0
+  release is carried out.
+- Sumeragi is kept as the only supported consensus protocol and is
+  supplemented with features necessary to support uses in a public
+  blockchain, but no concerns outlined in the IBM research article is
+  addressed at this point. 
+
+
+This is the sub-optimal strategy both near- and long-term.
+
+Near-term it leaves a perfectly functional ledger in a precarious
+position of being pre-release, with the previous version of Iroha v1.6
+not being updated outside the internship projects. As such most
+engineers would prefer to use the older/better-tested technology
+rather than attempt to deal with a new technology. It also keeps
+near-term costs high, because to compensate for Iroha's shortcomings
+would require active testing and much in-house development.
+
+Long term, the commitment to these technologies and development of
+further infrastructure makes pivoting to e.g. =lua= as a smartcontract
+language and the ISA restructuring RFC less cost-effective. Most work
+done so far to Iroha can be transferred to both a different ISA and a
+different set of smart-contracts. Almost all of the work done to make
+WASM suitable for public blockchain use case can be invalidated by
+mainline support of WASM modules. Further while WASM-based solutions
+are uncommon in private blockchains, public blockchains use them
+frequently. As such, there will be competition, and while Iroha can
+prove more ergonomic than e.g. Parity Substrate, it will not be
+competitive with Solana. Given lack of interest in interoperability
+with SoLang, Iroha is likely to alienate users.
+
+Having gone through a few iterations and actually being deployed in a
+public blockchain the necessity to accumulate backwards-incompatible
+versions of the WASM virtual machine will necessitate a further
+reduction in throughput, and require further mitigation strategies to
+cope with the large memory requirements. Further, at present the
+virtual machine is statically linked. Adding an extra layer of dynamic
+linkage will result in a further overall reduction in efficiency given
+that permission validation (and the Executor RFC), are to be
+implemented and thus all ISI execution will go through the WASM
+sub-process.
+
+Furthermore, any change in the API will be accompanied by an extra
+copy of the =iroha_data_model= crate embedded into the Iroha runtime
+in addition to the copies that will occupy space in the Executor. 
+
+As such a monthly release cadence is the preferred solution as it
+allowed for a stable communication channel with the SDKs and the
+community, further boosting the profile of the project.
+
+* Scenario 1: Status quo with early release of private blockchain features
+
+This is by far the easiest to implement of the scenarios and
+constitutes the first viable scenario. 
+
+* Scenario 2: ISA refactor only
+
+Scenario 2 is the situation in which the Instruction set architecture
+is to be modified, but the smartcontract language is kept as WASM.
+
+In this case, it is possible to mitigate the issue of the growing
+number of binary versions of =iroha_data_model= and freeze the API
+across different blockchains.
+
+In this scenario the Iroha Special Instructions become a frozen
+semantically versioned guarantee that a certain operation has a
+certain effect. As such, smartcontracts which link against the same
+_resident_ library dynamically (or statically linked at compile time)
+become portable across blockchains, provided they can be executed with
+the provided virtual machine. Further, the data model becomes an
+implementation detail for both the clients which were used at the
+submission time of the instructions and the Executor. The parts of the
+data model which affect the communication of the Executor to the host
+node remain frozen and thus don't need to be updated. Because
+instructions no longer enforce any of the blockchain invariants, this
+is not restrictive and a natural method of extension is provided by
+extending the Executor with custom expressions.
+
+No further benefits.
+
+* Scenario 3: ISA refactor and change of smartcontract language
+
+Depending on which smartcontract language is realised, the technical
+limitations incurred by usage of WASM can either be eliminated or
+substantially reduced. The precise character of the reductions shall
+be outlined in the RFC. But the short version follows: standards with
+guaranteed backwards compatibility, such as Java, native C-ABI
+libraries, and an embedded scripting language all eliminate the need
+for hosting multiple versions of multiple machines for validation.
+This greatly simplifies deployment of new nodes, attracting more users
+in the public blockchain space, as well as reducing the operational
+costs to private blockchains.
+
+Removal of WASM, will definitely eliminate the need to implement
+shared-memory dynamic linkage, and instead use the standard-native
+protocol. C-ABI dynamic linkage is implemented by the operating
+system, resulting in the best outcome. For Java some bridging code may
+be needed. For =lua= and Python, the dynamic linkage is an
+implementation-specific detail of the interpreter, and only minor
+adjustments may be needed to use the exported functions via a
+Foreign-function interface. For the record the same work must be done
+for WASM to reduce the size of smartcontracts, which is not a
+consideration on a private blockchain, but might become a problem in a
+public use-case.
+
+Depending on the specific choice, the popularity might either be
+improved substantially or be at least as good as with WASM. C-ABI
+dynamic linkage offers the widest compatibility, as it is a ubiquitous
+operating-system-guaranteed interface. One could, in principle write
+smartcontracts in regular =x86= assembly to offer the best size
+optimisations. This can be combined with a scripting language also
+being native supported on-chain, because languages like =lua= and
+Python offer support for native linkage as part of the standard
+interpreter. The JVM would offer a wider range of compatible programs,
+and though the full runtime library might be in excess of a few
+hundred megabytes, this cost must be paid once up-front and provide
+compatibility with a [[https://en.wikipedia.org/wiki/List_of_JVM_languages][wide range of languages]].
+
+No further benefits. 
+
+* Scenario 3: All recommendations implemented
+
+In this scenario the version 2.0.0 is released without adding any
+major breaking changes to v2.0.0-pre-rc.20. Iroha v1 is officially
+retired, instead a C++ SDK for Iroha v2 is created. The public
+blockchain features are implemented as a steady stream of updates, and
+eventually Iroha v2 is released as both a private and public
+blockchain ledger.
+
+This scenario mitigates all of the shortcomings of Scenario 0 and
+entails the least amount of long-term engineering required to produce
+a fully functional private and public blockchain ledger.
+
+* Timeline
+
+It is recommended to release v2.0.0 as a private ledger as soon as
+possible. Given the holiday season, it is recommended to produce the
+v2.0.0 release in February of 2024. By this stage, all of the
+following should be completed.
+
+1. The Executor RFC must be complete. All current work must be brought
+   to a feature complete state. Optimisations that don't entail
+   adding or removing API elements can be executed later. Large scale
+   refactors should be postponed to the releases following v2.0.0.
+2. The block squashing must retain the signatures. To that end, the
+   genesis block must allow users to submit transactions on their own
+   behalf, provided that the genesis account is a co-signatory. 
+3. The ISA restructuring must be attempted in parallel to the Executor
+   work. If the ISA restructuring isn't carried out to the minimum
+   viable product level (feature parity with RC20) by December 2023,
+   it should not be included in the v2.0.0 release. But the release is
+   to be carried out
+   1. In the event that the ISA restructuring is not complete, the
+      aforementioned restructuring must be prioritised as the first
+      post-release major change and included in v2.1.0
+   2. In the event that the ISA restructuring is not complete, there
+      must be either a versioning mechanism that can upgrade
+      blockchains using the old ISA to the newer ISA, without
+      introducing a versioning mechanism to bridge the gap.
+4. There must be a mechanism of extending Iroha's queries at runtime.
+5. There must be a mechanism of extending Iroha's consensus to react
+   to events produced in the =WorldStateView=, such that staking and
+   slashing can be implemented later.
+6. The configuration RFC must be implemented in a fashion in which
+   further work will not break existing configurations. No
+   configurations parameters are to be removed without an adequate
+   deprecation notice in the next minor version and only permitted to
+   be removed in the next after the next minor version (if config
+   parameter was in 2.0, it can be deprecated 2.1, and removed in
+   2.2).
+7. A thorough longevity and load testing must be carried out to
+   satisfactory results.
+8. Further, a manual resilience test is to be done to confirm Iroha's
+   crash-fault tolerance (but not Byzantine fault-tolerance) and the
+   operational characteristics.
+9. The documentation must not contain outdated information of any kind
+   (for any reason) at the point of the release.
+10. A public test network must be available by January 2024.
+11. All major and high severity issues must be addressed by
+    February 2024.
+
+
+* Post-release versioning scheme
+
+After the release of v2.0.0, all crates must be independently
+semantically versioned. However, the peer binary version is to be
+considered the main version of the entire project, so an
+=iroha_data_model= of version 2.15.42 can still be part of the Iroha
+version 2.0.157. The minor versions are reserved for major changes in
+the API, which cannot be handled by the existing plugin systems and
+which may require squashing of the block-store and creation of a new
+blockchain on the new node. Any minor version change to any of the
+libraries is to be propagated as a patch version if an existing
+blockchain can update to the newer version of Iroha without
+recompiling any of the on-chain smartcontracts. 
+
+* Post-release timeline
+
+The following is the preferred timeline for feature inclusion in the
+minor version changes in the v2.0.0 post-release roadmap.
+
+It must be noted that these are projections of the minor versions, it
+is possible that further API-breaking changes are incorporated between
+versions. 
+
+- v2.1 Should focus on supporting the new smartcontract
+  representation. Ideally it should only add support for the new
+  standard, and not deprecate the old representation until further data is
+  collected.
+- v2.2 Should focus on incorporating the changes necessary for the
+  consensus to be modular. Ideally, Sumeragi should be in its own
+  translation unit, statically linked against all other Iroha
+  libraries.  It should include the reputation system, the events
+  processing needed for staking and slashing. If at this point the ISA
+  restructuring is incomplete, any missing features are to be
+  added. The old smartcontract representation is officially
+  deprecated.
+- v2.3 The WASM smartcontracts are removed. The consensus is fully
+  capable of supporting a public blockchain with run-time upgrades.
+- v2.4 includes a finished version of all the planned epics as of
+  RC20.
+
+
+The timeline for these releases is flexible, and it is recommended to
+produce a scope-based rather than time-based release cadence. 
+
+* Footnotes
+[fn:2] As opposed to a compiled virtual machine.  For instance, the
+.Net and Java virtual machines are used to Just-in-time compile the
+bytecode (which targets the virtual machine) into a native executable
+for the platform for the runtime environment.  The same is true of
+WASM.  An interpreted VM, by contrast, interprets the instructions one
+by one and applies them in the same way as e.g. Python applies its
+instructions before a compiled cache was introduced in version 2.7
+
+[fn:1] We should note that IBM research sponsored Sisi Duan and
+implemented the BChain consensus algorithm in Fabric 0.6, as is stated
+in the article.  
