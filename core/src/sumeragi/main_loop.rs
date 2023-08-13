@@ -522,9 +522,13 @@ fn handle_message(
                 }
             }
         }
-        (Message::BlockCommitted(BlockCommitted { hash, signatures }), _) => {
-            if role == Role::ProxyTail && current_topology.is_consensus_required()
-                || role == Role::Leader && !current_topology.is_consensus_required()
+        (
+            Message::BlockCommitted(BlockCommitted { hash, signatures }),
+            Role::Leader | Role::ValidatingPeer | Role::ProxyTail | Role::ObservingPeer,
+        ) => {
+            let is_consensus_required = current_topology.is_consensus_required().is_some();
+            if role == Role::ProxyTail && is_consensus_required
+                || role == Role::Leader && !is_consensus_required
             {
                 error!(%addr, %role, "Received BlockCommitted message, but shouldn't");
             } else if let Some(mut voted_block) = voting_block.take() {
@@ -557,6 +561,10 @@ fn handle_message(
             }
         }
         (Message::BlockCreated(block_created), Role::ValidatingPeer) => {
+            let current_topology = current_topology
+                .is_consensus_required()
+                .expect("Peer has `ValidatingPeer` role, which mean that current topology require consensus");
+
             if let Some(v_block) = vote_for_block(sumeragi, block_created) {
                 let block_hash = v_block.block.partial_hash();
 
@@ -572,6 +580,10 @@ fn handle_message(
             }
         }
         (Message::BlockCreated(block_created), Role::ObservingPeer) => {
+            let current_topology = current_topology.is_consensus_required().expect(
+                "Peer has `ObservingPeer` role, which mean that current topology require consensus",
+            );
+
             if let Some(v_block) = vote_for_block(sumeragi, block_created) {
                 if current_view_change_index >= 1 {
                     let block_hash = v_block.block.partial_hash();
@@ -667,7 +679,7 @@ fn process_message_independent(
                     .build();
 
                     sumeragi.send_events(&new_block);
-                    if current_topology.is_consensus_required() {
+                    if let Some(current_topology) = current_topology.is_consensus_required() {
                         info!(%addr, partial_hash=%new_block.partial_hash(), "Block created");
                         *voting_block = Some(VotingBlock::new(new_block.clone(), new_wsv));
 
@@ -678,13 +690,7 @@ fn process_message_independent(
                         if current_view_change_index >= 1 {
                             sumeragi.broadcast_packet(msg);
                         } else {
-                            sumeragi.broadcast_packet_to(
-                                msg,
-                                current_topology
-                                    .sorted_peers
-                                    .iter()
-                                    .take(current_topology.min_votes_for_commit()),
-                            );
+                            sumeragi.broadcast_packet_to(msg, current_topology.voting_peers());
                         }
                     } else {
                         match new_block.commit(current_topology) {
@@ -729,19 +735,17 @@ fn process_message_independent(
                             ),
                         );
 
+                        let current_topology = current_topology
+                            .is_consensus_required()
+                            .expect("Peer has `ProxyTail` role, which mean that current topology require consensus");
+
                         #[cfg(debug_assertions)]
                         if is_genesis_peer && sumeragi.debug_force_soft_fork {
                             std::thread::sleep(sumeragi.pipeline_time() * 2);
                         } else if current_view_change_index >= 1 {
                             sumeragi.broadcast_packet(msg);
                         } else {
-                            sumeragi.broadcast_packet_to(
-                                msg,
-                                current_topology
-                                    .sorted_peers
-                                    .iter()
-                                    .take(current_topology.min_votes_for_commit()),
-                            );
+                            sumeragi.broadcast_packet_to(msg, current_topology.voting_peers());
                         }
 
                         #[cfg(not(debug_assertions))]
@@ -1053,7 +1057,7 @@ fn vote_for_block(
         .is_empty()
     {
         error!(
-            %addr, %role, leader=%sumeragi.current_topology.leader().address, hash=%block.partial_hash(),
+            %addr, %role, leader=?sumeragi.current_topology.is_non_empty().map(|topology| &topology.leader().address), hash=%block.partial_hash(),
             "The block is rejected as it is not signed by the leader."
         );
 
