@@ -9,6 +9,7 @@
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
+#[cfg(debug_assertions)]
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -286,6 +287,7 @@ impl Iroha {
         )
         .start();
 
+        #[cfg(debug_assertions)]
         let freeze_status = Arc::new(AtomicBool::new(false));
 
         NetworkRelay {
