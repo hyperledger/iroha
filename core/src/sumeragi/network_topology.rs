@@ -50,7 +50,7 @@ impl Topology {
         }
     }
 
-   /// True, if the topology contains at least one peer and thus requires consensus
+    /// True, if the topology contains at least one peer and thus requires consensus
     pub fn is_non_empty(&self) -> Option<NonEmptyTopology> {
         (!self.sorted_peers.is_empty()).then_some(NonEmptyTopology { topology: self })
     }

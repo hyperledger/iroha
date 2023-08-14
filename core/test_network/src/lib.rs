@@ -1,7 +1,9 @@
 //! Module for starting peers and networks. Used only for tests
 #![allow(clippy::restriction, clippy::future_not_send)]
 
-use core::{fmt::Debug, str::FromStr as _, sync::atomic::AtomicBool, time::Duration};
+use core::{fmt::Debug, str::FromStr as _, time::Duration};
+#[cfg(debug_assertions)]
+use std::sync::atomic::AtomicBool;
 use std::{
     collections::{HashMap, HashSet},
     path::Path,

@@ -648,7 +648,7 @@ fn process_message_independent(
     current_view_change_index: u64,
     view_change_proof_chain: &mut ProofChain,
     round_start_time: &Instant,
-    is_genesis_peer: bool,
+    #[cfg_attr(not(debug_assertions), allow(unused_variables))] is_genesis_peer: bool,
 ) {
     let current_topology = &sumeragi.current_topology;
     let role = current_topology.role(&sumeragi.peer_id);
