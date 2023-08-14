@@ -1,6 +1,6 @@
 [package]
 name = "iroha_derive_primitives"
-version = "2.0.0-pre-rc.18"
+version = "2.0.0-pre-rc.19"
 edition = "2021"
 
 [dependencies]
