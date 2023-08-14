@@ -9,7 +9,6 @@
 use alloc::{
     borrow::ToOwned as _,
     boxed::Box,
-    format,
     string::{String, ToString as _},
 };
 use core::{

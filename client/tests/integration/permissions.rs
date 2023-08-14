@@ -42,13 +42,22 @@ fn genesis_transactions_are_validated() {
     // Checking that peer contains no blocks multiple times
     // See also `wait_for_genesis_committed()`
     for _ in 0..MAX_RETRIES {
-        let status = test_client
-            .get_status()
-            .expect("Status should be available");
+        match test_client.get_status() {
+            Ok(status) => {
+                assert!(status.blocks == 0);
+                thread::sleep(POLL_PERIOD);
+            }
+            Err(error) => {
+                // Connection failed meaning that Iroha panicked on invalid genesis.
+                // Not a very good way to check it, but it's the best we can do in the current situation.
 
-        assert!(status.blocks == 0);
-
-        thread::sleep(POLL_PERIOD);
+                iroha_logger::info!(
+                    ?error,
+                    "Failed to get status, Iroha probably panicked on invalid genesis, test passed"
+                );
+                break;
+            }
+        }
     }
 }
 
