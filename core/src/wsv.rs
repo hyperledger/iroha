@@ -611,7 +611,10 @@ impl WorldStateView {
     /// you likely have data corruption.
     /// - If trigger execution fails
     /// - If timestamp conversion to `u64` fails
-    #[cfg(debug_assertions)]
+    #[cfg_attr(
+        not(debug_assertions),
+        deprecated(note = "This function is to be used in testing only. ")
+    )]
     #[iroha_logger::log(skip_all, fields(block_height))]
     pub fn apply(&mut self, block: &VersionedCommittedBlock) -> Result<()> {
         self.execute_transactions(block.as_v1())?;
