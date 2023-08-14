@@ -36,7 +36,7 @@ pub struct NonEmptyTopology<'topology> {
     topology: &'topology Topology,
 }
 
-/// Topology which require consensus (more than one peer)
+/// Topology which requires consensus (more than one peer)
 #[derive(Debug, Clone, PartialEq, Eq, derive_more::Deref)]
 pub struct ConsensusTopology<'topology> {
     topology: &'topology Topology,
@@ -50,7 +50,7 @@ impl Topology {
         }
     }
 
-    /// Is topology contains at least one peer
+   /// True, if the topology contains at least one peer and thus requires consensus
     pub fn is_non_empty(&self) -> Option<NonEmptyTopology> {
         (!self.sorted_peers.is_empty()).then_some(NonEmptyTopology { topology: self })
     }
@@ -256,7 +256,7 @@ impl Topology {
 }
 
 impl<'topology> NonEmptyTopology<'topology> {
-    /// Get leader's peer id.
+    /// Get leader's [`PeerId`].
     pub fn leader(&self) -> &'topology PeerId {
         &self.topology.sorted_peers[self.topology.leader_index()]
     }
@@ -268,22 +268,22 @@ impl<'topology> ConsensusTopology<'topology> {
         &self.topology.sorted_peers[self.topology.proxy_tail_index()]
     }
 
-    /// Get leader's peer id.
+    /// Get leader's [`PeerId`]
     pub fn leader(&self) -> &'topology PeerId {
         &self.topology.sorted_peers[self.topology.leader_index()]
     }
 
-    /// Get validating peers ids.
+    /// Get validating [`PeerId`]s.
     pub fn validating_peers(&self) -> &'topology [PeerId] {
         &self.sorted_peers[self.leader_index() + 1..self.proxy_tail_index()]
     }
 
-    /// Get observing peers ids.
+    /// Get observing [`PeerId`]s.
     pub fn observing_peers(&self) -> &'topology [PeerId] {
         &self.sorted_peers[self.proxy_tail_index() + 1..]
     }
 
-    /// Get voting peers ids.
+    /// Get voting [`PeerId`]s.
     pub fn voting_peers(&self) -> &'topology [PeerId] {
         &self.sorted_peers[self.leader_index()..=self.proxy_tail_index()]
     }
