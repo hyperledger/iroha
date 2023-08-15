@@ -1,0 +1,787 @@
+#+TITLE: Iroha Instruction Set Architecture restructuring
+#+AUTHOR: Aleksandr Petrosyan
+#+DATE: 2023-06-25
+
+* Introduction
+
+The term ISA is used in regard to virtual machines and or central
+processing units. Iroha can be regarded as a domain-specific virtual
+machine for blockchain operations and as such the term is applicable
+to the Iroha Special Instructions, which alongside the WASM and the
+expression system comprise an instruction set architecture.
+
+The term reduced instruction set computer (architecture) (RISC) shall
+be used in a purely theoretical capacity, with references to work
+omitted as this is an informal report and recommendation.
+
+The purpose of this document is thus to propose some much needed
+change to the current Complex Instruction Set Computer (architecture)
+based on both a theoretical argument for the scalability of RISC, and
+some practical observations that have been made over the span of
+2021-2023 about the existing and projected uses for the Iroha
+Distributed Ledger Technology. As such it should be treated as a mere
+outline rather than a precise specification.
+
+* Relation to the Executor model
+
+The proposed changes to the Instruction set architecture depend on
+prior art, titled Executor RFC. For some background, Iroha is intended
+as both a ledger for private (permissioned) and public (mistakenly
+known as permissionless) blockchains. The intent was that there would
+be a stack-based virtual machine that would operate on a set of Iroha
+Special Instructions, which shall be shared between the two blockchain
+types, but operate under different semantics, which are chosen at
+compilation time. This was later proven to be insufficient, because
+while almost all public blockchains operate under the same set of
+permissions, private blockchains often not only differ between each
+other, but their permission models also frequently require adjustment
+post-deployment.
+
+Under these circumstances it was decided to make the permission
+validator a dynamic module that is loaded at runtime and is subject to
+upgrade provided that the requisite conditions specified inside the
+module itself are met (e.g. governance vote).  This in turn exposed
+several inefficiencies and some tension between what is considered a
+blockchain invariant and what comprises a blockchain-agnostic,
+universal invariant that must be upheld on all Iroha-based
+blockchains.  To address those inefficiencies it was decided that
+instead of a dynamically loadable permission validator, there would be
+a dynamically loadable executor, which is responsible not only for
+checking if the instruction application violates any of the
+invariants, and checks for permissions, but is responsible wholly for
+upholding the blockchain invariants.
+
+While the process of writing a blockchain executor is complicated, it
+is in no way more complicated because of the moved (not added)
+responsibility.  The handling of the host invariants is already
+reflected in the executor as is, via the error variants of instruction
+application.  It is possible to change instructions to be infallible
+and instead make the violations of invariants something that is
+checked for proactively.  Under the executor model this allows one to
+greatly simplify the host architecture, and have the executor be
+closer to the intended logic.  In effect, this allows one to
+concentrate the logic in one place and make the fact that the logic is
+optional more clear to the user.
+
+As such, under the executor model, instructions are exposed as objects
+for which the application is a well-defined fallible operation.  The
+executor operates on a per-transaction basis, meaning that if a set of
+instructions is submitted, in principle, the executor can allow or
+deny the applications of certain instruction combinations.  The host
+no longer checks the instructions for violations of invariants,
+instead delegating that responsibility to the executor.  As a
+consequence the line between host invariants and executor invariants
+becomes blurry.
+
+The permissions are also meaningless and undefined without an
+executor.  Within these constraints, the distinction between
+blockchain and host invariants becomes clearly defined: everything
+that isn't enforced by a failure in applying an instruction is a
+blockchain invariant, including permissions. The executor is
+responsible for enforcing the blockchain invariants, and enforcement
+of host instructions is propagated from the host to the executor as
+well.
+
+* Shortcomings of the current ISA
+
+** The Expression problem
+
+Firstly, while the Iroha blockchain ledger has an expression language
+that is dangerously close to being Turing complete (more precisely by
+being a lambda calculus), the expression language is largely unused.
+Any simple logic typically entails dealing with a plain instruction,
+which due to the limitations of the expression language cannot be
+strongly typed, and instead recovers the type through multiple nested
+tagged unions and a process of evaluation. The number of modes of
+failure for any given instruction is unnecessarily high, eschewing
+many of the advantages of statically and strictly typed languages.
+
+Of course, there is a trade-off for which it was made. An instruction
+can target something which is not known ahead of time, or before the
+transaction reaches the ledger. The expression language has facilities
+to substitute any query into any location. This can also be extended
+to sequences of instructions, and because the aforementioned
+instructions accept expression-valued arguments, this can be
+arbitrarily complex. However, by virtue of being interpreted, the
+expressions are slow. Due to having the user compose expressions and
+dealing with a threadbare model that does not have a front-end in the
+form of a DSL, the model isn't particularly expressive either.
+Further, to add insult to injury, while this model could in principle
+be extensible, given that expressions within /certain tags only/ are
+implemented, it would be possible to add custom, blockchain-specific
+expressions. However, at present this is not possible. As an example
+of where this functionality would have been useful, is CSD/RTGS
+linkages Proof of concept. In which an entire smart-contract had been
+created for what was ostensibly an operation that should be generic.
+
+As a consequence of  underwhelming expressions, to this day, none of
+the official and perhaps none of the community-reported projects make
+use of the expression language.
+
+** Current ISA
+
+The current instruction set is conceptually messy. Firstly, one has
+the concept of =Mint= and =Register= and =SetKeyValue=. All three of
+these instructions are generic in that they accept more than one type
+of parameter. This is useful, because the same instructions can be
+used to =Register<Domain>= and =Register<AssetDefinition>=. However,
+the fact the three instructions are not generic enough and have
+non-overlapping parameters. The few cases in which a thing can be both
+=Mint=-ed and =Register=-ed, do very subtly different things that
+could be unified in principle. Moreover, given the subtle differences,
+it's difficult to think about what to do with e.g. a public key
+signature check condition. One would expect that this means to
+=Register<PublicKey>= to an =Account=, however, the actual idiom used
+here is that of a =Mint=. The problem here is that the word =Mint= has
+a /very/ specific financial connotation. Furthermore, the =Store=
+asset becomes more similar to a piece of =Metadata= than an =Asset=
+making it difficult to differentiate between the two. In other words,
+despite the words being specifically chosen to avoid confusion,
+because of the lack of a general purpose
+=ThisInstructionOperatesOnAssets= and
+=ThisInstructionOperatesOnMetadata=, the API discoverability is hurt
+and the generality is hurt also. Insufficient generality also
+manifests as having too many instructions: the current exhaustive list
+of instructions is the following enumeration:
+
+#+begin_src rust
+  pub enum InstructionBox {
+          Register(RegisterBox),
+          Unregister(UnregisterBox),
+          Mint(MintBox),
+          Burn(BurnBox),
+          Transfer(TransferBox),
+          If(Box<Conditional>),
+          Pair(Box<Pair>),
+          Sequence(SequenceBox),
+          SetKeyValue(SetKeyValueBox),
+          RemoveKeyValue(RemoveKeyValueBox),
+          Grant(GrantBox),
+          Revoke(RevokeBox),
+          ExecuteTrigger(ExecuteTriggerBox),
+          SetParameter(SetParameterBox),
+          NewParameter(NewParameterBox),
+          Upgrade(UpgradeBox),
+          Log(LogBox),
+          Fail(FailBox),
+   }
+#+end_src
+
+Consider the redundancy: the same conceptual notion of =Add=, is
+represented in =Register= as in add something to a collection, but
+also in =Mint= which means add to a collection of something,
+=SetKeyValue=, which is to add a =Value= to a certain associative
+container, =Grant= to add a certain permission or =Role= (which is a
+concept specific to private blockchains), to a user.
+
+The redundancy is exacerbated because the inverse processes for each
+of these operations are also represented. The main reason for such an
+implementation is to allow for certain processes to exist without
+their inverses, and for that to be a compile-time rather than run-time
+error. In addition to leading to terrible discoverability in languages
+other than Rust, this leads the user to believe that if an instruction
+compiles, it will run. There are multiple ways of achieving the same
+result that do not force the user to have separated (sometimes by
+multiple hundreds of lines of code) implementations of the forward and
+inverse operations.
+
+Furthermore, because =Expressions= are used mainly as arguments, and
+not as general purpose-combination devices, the same devices need to
+be replicated in the instruction set as =InstructionBox= variants.
+
+We must now talk about the instruction application procedure. The
+instructions can have multiple side-effects. As such, because the
+instructions represent atomic[fn:1] =WorldStateView= modifications, if a
+particular instruction in a transaction fails to apply, all
+instructions effects must be reversed. But in the given model, such a
+concept might not be possible to define, and as such, the only way to
+enforce atomicity, given that any transaction can affect potentially
+an unconstrained number of objects, the result is that the largest
+object in the blockchain must be cloned before each application. There
+are relatively efficient ways of mitigating this with persistent data
+structures but all of them pale in comparison with the efficiency of
+having a simpler instruction set in which a tiny addition to a number
+is reverted by changing that tiny number back. This is not impossible
+to achieve with the current architecture, but it would result in many
+redundant pieces of code.
+
+There is also the matter of mixing levels of abstraction. =Mint= is a
+financial operation, =If= is logical, =FailBox=, probably represents
+an instruction that fails always, but why does it have the word =Box=
+in it? More importantly by being specific we lose flexibility to allow
+different kinds of blockchains to cohesively specialise. It is poorly
+defined whether a =Transfer= would allow exchange of currencies in the
+blockchain, and with instructions being defined host-side and having
+no other mechanism of expressing the concepts, we are in the
+precarious position of not being able to leave this up to the
+individual blockchains. Further, the entire set of =Grant= and
+=Revoke= instructions is made useless in the public use case, nudging
+developers of public blockchains to use this functionality as it
+happened with =Metadata=.
+
+In addition to conceptual redundancy, there is also redundancy between
+different elements of the ISA. We have both a =SequenceBox=, and
+multiple instructions comprising a single transaction. There's both an
+=If= as an =instruction= and an =If= as an =Expression=. Further
+obfuscating the types, each instruction accepts an expression which
+either wraps a =Value= or a collection of operations that are
+ill-defined for some of the potential variants of =Value=.
+
+Finally, compounding the issue, the Iroha special instructions were
+meant to be accompanied by a domain-specific language that is only now
+being written.
+
+One valid point towards retaining a complex instruction set is the
+question of the number of instructions and on-chain storage.  If the
+CISC instruction set is able to reduce the number of instructions
+stored on-chain significantly, then there are idioms that are
+expressible with less information than the raw number of instructions.
+These idioms are hardly going to be the same across all blockchains
+and likely will be up for revision.  As such, given that expressions
+generate instructions and that only one /or/ the other is stored
+on-chain, then we do not expect a significant increase in the on-chain
+storage from moving to the new instruction set.  Quite the contrary,
+we can expect more domain-specific shortcuts to be present, for
+example a connection chain for cross-border delivery versus payment
+is likely to have recurring transactions which can be characterised
+with a large number of our CISC instructions but in reality require
+very little information and could be expressed with a compact
+expression under the new ISA[fn:4].
+
+* Proposed ISA
+
+There are multiple ways to take advantage of the Executor RFC that
+primarily exploit one property. The API of Iroha is part dynamically
+loadable logic that can be upgraded, and provides natural versioning
+and part strict frozen set of basic operations that are verbose, but
+guarantee forwards and backwards compatibility.
+
+** Variant 0: Executor-defined Expressions and Instructions
+
+The idea is that the Instructions and the Expressions are both
+implementation details of the Executor. This has the following
+advantages:
+- Simple to implement[fn:2]
+- WSV owned by Executor and can be treated like a black box
+- Executor upgrades replace versioning, all transactions are stored
+  with no extra information.
+- If libraries are statically linked, produces the largest throughput.
+- The instruction set can be completely altered and tailored to
+  specific blockchain needs. Expressions can be eliminated or extended
+  to arbitrarily complex operations.
+- All logic is defined in one place and thus easy to audit.
+- All logic can be patched at runtime.
+
+This approach necessarily requires the Executor to be implemented in a
+compiled language. Further, while it can cope with the current choice
+of WASM, it is affected by some of the limitations of said binary
+format. For instance: because WASM is 32-bit-only, only 4GiB of world
+state is directly addressable, thus the world state (view) object must
+defer to some mechanism for address extension[fn:5]. The executor also
+becomes a single point of failure and given that it is exposed in the
+blockchain, the consequences of a faulty executor extend well-beyond
+an unworkable blockchain. Rolling the blockchain back several blocks
+is not always possible and a compromised executor can do much more
+damage than a compromised permission validator.
+
+This approach would have been ideal if the blockchain worked with
+clients in perfect synchrony. But if the client gets out of sync, it
+is not possible to generally define a synchronisation method.
+Furthermore, while some clients may accidentally work, because there
+is no underlying guaranteed stable API, the clients might be
+incompatible in an unsafe way, given that the executor is written
+bespoke for each blockchain, the Iroha Core team is left with the
+reputation of a bad user experience, and no leverage to help with
+that.
+
+Finally, smartcontracts and triggers are rendered almost
+useless. Because there is no stable subset that they may target, the
+choice is either to dynamically link against a host-provided library
+that defines the ISA in its entirety, or statically linking against a
+version of it. Regardless, the executor /is/ statically linked, thus
+leading to a potential inconsistency. However, breaking the ABI is
+much easier than breaking the programming interface, thus leading to
+the need to re-compile the smartcontracts much more frequently.  This
+problem cannot be fixed by using a different smartcontract language,
+and will affect everything including interpreted languages.
+
+While this approach addresses some comments, in my opinion it should
+only be considered as a second-choice temporary solution until one of
+the other two variants described below are chosen and implemented.
+
+
+** Variant 1: Executor-defined Expressions, host-defined instructions
+
+This solution is a middle ground between Variant 0 and Variant 2.  In
+this situation, part of the ISA is defined by the executor, and part
+of the ISA, the set of =Instruction= variants is kept frozen in the
+Iroha host. As such each client, all smartcontract instances and
+Executor must agree on a subset of functionality that is
+executor-defined and is unstable. At the same time, there is a set of
+functionality that is guaranteed to be available and to have the same
+semantics from version to version.
+
+Unlike variant 0, for this separation to work, one needs to decouple
+the instructions from expressions. This is a minor modification to
+instructions, but a major to expressions, because they are meant to
+generate the arguments for an instruction. Under the new architecture,
+this is no longer possible. The expressions would have to be rebuilt
+to fit the role which is more similar to that of a smartcontract, in
+that each expression evaluates to a sequence of instructions. This
+work doesn't necessarily need to be done initially, though. The
+expressions can be tailored to a specific use case, and the initial
+expressions can be built for basic branching control flow, sequencing,
+and generating a single instruction, afterwards it should be extended
+to more functions, but only as necessary.
+
+Within this approach, the executor, like variant 0, it can be the
+single point of responsibility necessarily required to uphold a fix
+API with respect to instructions, and thus responsible not only for
+verifying the permissions, but also for applying them. This can be
+enforced via dynamic linkage, but might not be the best idea, given
+the overhead. One could raise the question of what would happen if an
+executor were compromised, and the answer is largely the same: if the
+executor is compromised, anything can happen, and one has bigger
+issues than instructions not working as intended. The world state can
+still be directly owned by the executor, and the fact that
+instructions are defined host-side is merely a protocol obligation for
+conforming executors.
+
+This inherits yet another benefit from the 0-th approach. No
+versioning is needed for expressions. If the instructions are also
+statically linked into the executor, there are no issues with
+extending the instructions with extras: only removing instructions
+breaks the API, and changing the semantics of instructions is only a
+breaking change for smartcontracts. Thus, again, no versioning system
+is necessary.
+
+This approach, is only slower than version 0, if the instruction
+stability is enforced by physically separating them out of the
+executor. Unlike with variant 0, if one wants to optimise for
+compactness, rather than for throughput, one can use a single dynamic
+backwards compatible library to host the entirety of instructions,
+both for use in smartcontracts and in the Executor. This makes it
+somewhat ambiguous, if a global functionality should be implemented as
+an executor extension, or as a smartcontract. This ambiguity is
+apparent, because in situations in which the executor is statically
+linked, the expression approach has less overhead and can be flagged
+as incompatible. Further the two approaches impose implications for
+upgrade-ability. The smartcontract depends on data that does not
+change, and produces instructions in a consistent manner. If an
+executor expression is changed, everything that relies on it
+automatically has upgraded behaviour.
+
+The minor point against the flexibility of this approach is that the
+ISA can only be altered within certain limits. In principle, the
+behaviour of standard instructions was not altered for more than two
+years since before =2.0.0-pre-rc.1=. If one wants to enforce further
+blockchain invariants, one can do so by extending the expressions. If
+one wants to add a new instruction to the set of existing ones, it can
+also be achieved.
+
+While not all logic is defined in one place, there is a separation of
+concerns, and given that the two libraries are distinct, the user is
+not confused by where to look at how something is implemented.
+
+Now we should perhaps address the problem of synchronising the client
+to the blockchain. This problem is much more likely to occur in a
+public rather than private blockchain, as private blockchains are
+managed and administered. If the client is not on the same protocol
+version as the executor, it can send the subset of the ISA that covers
+the entire range of possible operations: the instruction sequence
+directly. This approach can ensure that all clients can send
+transactions at any point in time, but also adds an extra layer of
+security in some situations. If a user is concerned about a recent
+runtime upgrade, they can choose to send the equivalent of evaluating
+the expression on the old executor into the newer runtime.  One could
+say that this also prevents the user from accidentally bouncing off of
+an executor because it got upgraded in the time it took to reach it,
+but this is extremely unlikely given the current architecture, due to
+timeouts, grace periods etc.
+
+The instruction is modified minimally from what it is now and
+ostensibly CISC.
+#+begin_src rust
+  pub enum InstructionBox {
+          Register(RegisterBox),
+          Unregister(UnregisterBox),
+          Mint(MintBox),
+          Burn(BurnBox),
+          Transfer(TransferBox),
+          SetKeyValue(SetKeyValueBox),
+          RemoveKeyValue(RemoveKeyValueBox),
+          Grant(GrantBox),
+          Revoke(RevokeBox),
+          ExecuteTrigger(ExecuteTriggerBox),
+          SetParameter(SetParameterBox),
+          NewParameter(NewParameterBox),
+          Upgrade(UpgradeBox),
+          Log(LogBox),
+          Fail(FailBox),
+   }
+#+end_src
+
+Notable is the removal of logic from the set. However, the changes to
+the behaviour and structure of =RegisterBox= is much more
+extensive. The system of traits that we have now, should be replaced
+with enumerations: so instead of
+#+begin_src rust
+  /// Generic instruction for a registration of an object to the identifiable destination.
+  #[derive(Debug, Clone)]
+  pub struct Register<O>
+  where
+      O: Registered,
+  {
+      /// The object that should be registered, should be uniquely identifiable by its id.
+      pub object: O::With,
+  }
+#+end_src
+
+we ought to have
+
+#+begin_src rust
+  pub enum Register {
+      Account(NewAccount),
+      Domain(NewDomain),
+      AssetDefinition(NewAssetDefinition),
+      //..
+  }
+#+end_src
+
+which is solely responsible for the behaviour. The non-polymorphism of
+this is intentional. We communicate to anyone that modifying and
+refactoring this behaviour is strictly discouraged. This shall remove
+the =.evaluate(&wsv)= directives throughout the code-base (and
+eliminate the need for the =Box= suffix in most cases).
+
+The expressions can be anything and everything, they can be more than
+one set of enumerations and structures. It is recommended, to
+consider the following expression set:
+#+begin_src rust
+  pub enum Expr {
+      If(Conditional, Box<Expression>),
+      Seq(SmallVec<InstructionBox>),
+      ValueExpr(ValueExpr),
+      Substitute(Substitution),
+      FunCall(Value),
+      ForAll(QueryBox, InstructionBox)
+  }
+
+  pub enum Cond {
+      Id(ValueExpression),
+      And(Box<ValueExpression>, Box<ValueExpression>),
+      // ...
+  }
+
+  pub struct Substitution {
+      target: SmallVec<InstructionBox>,
+      substitute: ValueExpr
+  }
+
+  pub enum ValueExpr {
+      Add(Value, Value),
+      If(Conditional, Box<ValueExpr>),
+      Query(QueryBox),
+      // ...
+  }
+#+end_src
+
+Note the following: the set of expressions is deliberately small and
+separated into objects which operate purely on values, and a sequence
+of instructions. This greatly simplifies the number of corner cases.
+With this design, it is possible to tell at a glance how many
+instructions a given expression can evaluate to. The =ValueExpr= and
+=QueryBox= can themselves be complex, but the expression language is
+in its current form regular, and can be simulated with a finite state
+machine and the results of this reasoning can impose a weight similar
+to the weight of Parity substrate extrinsics without actually having
+to evaluate the expression or having the developer benchmark the
+expression locally.
+
+This system is sufficiently expressive for basic tasks, and also quite
+natural to use even without a DSL:
+#+begin_src rust
+  Expr::if(Cond::query(find::asset_definition("rose#wonderland")))
+      .then(Expr::for_all(find::all_accounts().filter_by_domain("wonderland"),
+                   MintBox::account_hole(1.to_value(), "rose#wonderland".parse().unwrap())))
+#+end_src
+which can of course become something even more easy to read once
+spaces are inserted:
+
+#+begin_src rust
+  expr! {
+      if found rose#wonderland {
+          map Mint::new(1.to_value(), "rose#wonderland", _) // Macro-defined, hence wildcard syntax
+              onto ::find::all_accounts.filter_by_domain("wonderland") // Escaped and uses the built-in Rust function
+      }
+  }
+#+end_src
+This highlights another point of flexibility. The mechanism of
+substitution is entirely executor-defined. In this case, we can
+utilise the simplicity of the expressions to infer which of the
+parameters can be replaced because their types are unambiguous. We
+/could/ place a "hole" an invalid value that must be eliminated at
+evaluation otherwise the instruction is malformed (and in case of
+=MintBox= it's the =account_hole= that we're interested). If one wants
+to be more tidy, one can define a substitution system that is far more
+sophisticated. The fact that the expression language is unrefined and
+can be adjusted /to be refined later/ is to demonstrate that while
+expression systems for specific blockchains should be designed with
+care, they rarely if ever need to affect instructions.
+
+Moreover, the functions =Cond::query=, =Expr::if=, =Expr::then=,
+=Expr::for_all=, the module =find= and =MintBox::account_hole= can be
+implemented as extension traits that are not part of the host system,
+but rather part of a static library that is shared between clients and
+the executor. Similarly, the =dsl= instance can be built from building
+blocks provided in the Iroha core libraries, but tailored specifically
+to the blockchain.
+
+** Variant 2: Executor-defined Expressions, host-defined Differential RISC instructions
+
+To clarify, this is a more polished version of variant 1. While both
+restructurings entail some change to the underlying instructions, the
+variant 1 instructions are largely slightly modified versions of the
+instructions which are available today, the variant two instructions
+are reduced to the bare minimum of power which has the same
+expressive potential.
+
+Thinking logically and abstractly, the instructions constitute a
+change in the state of the blockchain. Each change can be tracked
+atomically, and each transaction is evaluated as a whole. The success
+of each specific sequence is executor defined, so why not abstract
+away any of the notions, and create a domain-specific set of semantic
+type-value mappings.
+
+By that I mean that we reduce the instruction set to two types: assert
+and set. Thus each instruction is three things: a tag, which
+differentiates the two types, a destination and a value.
+
+To illustrate consider the =Mint= operation in the current ISA:
+#+begin_src rust
+  let mint = MintBox::new(
+      2.to_value(),
+      IdBox::AssetId(AssetId::new(
+          "xor#wonderland",
+          "alice@wonderland",
+      )),
+  );
+#+end_src
+it can roughly be represented as
+- a tag for the operation code,
+- a tag for the quantity value,
+- the value itself, and
+- the account identification, which itself comes with
+- a tag to ensure the account identification is decoded as the right variant
+Because the client is, in principle, a black box, one has to do
+dynamic run-time checks to verify that for example
+- the =IdBox= has the right tag,
+- that the string inside the =IdBox= corresponds to an asset
+that has been registered, (thus requiring us to have both the concept
+of an asset definition and registration),
+- and that the identifications parse correctly.
+
+The executor would impose additional restrictions, because the account
+minting the asset should have the right permissions, but that is
+executor-defined, it must also verify that *the minting will not cause
+overflow*. A lot of these checks, are redundant, but have to be
+repeated in a trust-less environment, because while most clients will
+ensure that the checks are done properly, some of them might not and
+we cannot blindly accept data from the internet (I would extend this
+advice to the engineers in the audience).
+
+Under the new ISA, we dispense with the notion that any blockchain
+invariants can be enforced client side and that the executor is the
+sole authority responsible for upholding said invariants. So, the new
+ISA dictates the following equivalent design.
+
+#+begin_src rust
+  [
+      // For this assertion to work, we need to make domains have instrinsic tables, and have a way of identifying them.
+      Op::Assert {
+          target: "registered#wonderland:alice@wonderland".try_into()?, //domain "wonderland" registration table entry "alice",
+          value: "alice@wonderland".try_into()?,
+      },
+      Op::Assert {
+          target: "registered#wonderland:xor#wonderland".try_into()?, //domain "wonderland" registration table entry "xor#wonderland",
+          value: "xor#wonderland".try_into()?
+      },
+      // All assets are set to zero when registered
+      Op::Assert {target: "xor##alice@wonderland".try_into(), value: 0.to_value()}, // This is the initial value
+      Op::Set { target: "xor##alice@wonderland", value: 2}
+  ]
+#+end_src
+which is a touch more verbose. Firstly, notice that we cannot
+overflow. Secondly, all the assertions are both explicit and
+optional. The executor has its own set of assertions that will run for
+each transaction based on its internal logic. But it may fail the
+transaction if certain additional sanity checks have failed. But these
+are no more than sanity checks, the executor should not worry about
+whether or not a client user made a typo in an asset definition, it
+should just execute the transaction as fast as it can.
+
+There can be some redundant checks, but the user is free to exclude
+the assertion about the pre-registration if they know for certain that
+the executor will not check for it. If certain kinds of mistakes are
+common, e.g. typos in domain names, the blockchain vendor is free to
+implement the check either on the front end (by including this
+assertion) or at the back-end.
+
+For the record, the original behaviours can be recovered for the
+original instructions to retain semblance of similar behaviour.  It is
+not a question of how the instructions are represented in code, but
+rather how they are stored and executed. The reason why we are
+concerned with such matters is because smart-contracts are notoriously
+difficult to keep updated in compiled form, mainly due to lack of
+responsiveness from the smart-contract authors.  If =Mint= is a binary
+object that is at the lowest level of abstraction there is no way of
+updating its behaviour without also potentially breaking the logic of
+the original smartcontract.  If the smartcontract converted =Mint=
+into lower level instructions, because they themselves have not
+changed, *neither did the original behaviour*. However, future
+smartcontracts that want to make use of a revised =Mint= are merely
+encouraged to make use of the latest versions of libraries, thus
+automatically giving the developers guidance on the semantic changes.
+
+The astute reader may now have noticed that the instructions included
+in variant 1 are all linear operations with a short-circuit behaviour
+on a failed assertion.  Variant 2 makes use of this, and deliberately
+eschews any form of control flow other than assertions.  The executor
+and the smartcontracts both are capable of fast control flow, being
+either compiled, or highly-optimised interpreted languages (see WASM
+replacement RFC).  To implement fast conditional logic would require a
+huge time investment and would be a major change to the behaviour of
+Iroha.  And such a change would only be useful if and only if Iroha
+were to have its own virtual execution environment.
+
+Then one can ask what to do with =InstructionBox= variants such as
+=Transfer= which entail multiple modifications and which exist
+primarily to allow granular permissions: one cannot mint new assets,
+but one can transfer them.  In case of non-mint-able assets, one can
+also raise the question of whether or not it's possible to guarantee a
+social contract: if a certain asset is meant to be of fixed supply,
+minting more of it is a crime.  The answer to that question is not
+simple: true, the original implementation enforced this social
+contract host-side.  This logic is still present, it is however moved
+into the executor, the compromise of which is still a bigger problem
+than non-mint-able assets being mint-able. [fn:3]
+
+As a closing remark, it would be prudent to motivate the move to a
+RISC instruction set from one more point of view. CISC as a CPU
+architecture emphasises hardware, assuming that changing the hardware
+is easier than it is to change the software that runs on it.  But to
+quote a famous [[https://cs.stanford.edu/people/eroberts/courses/soco/projects/risc/risccisc/][discussion of the two approaches]],
+
+#+BEGIN_QUOTE
+The Overall RISC Advantage Today, is that the Intel x86 is arguably
+the only chip which retains CISC architecture. This is primarily due
+to advancements in other areas of computer technology. The price of
+RAM has decreased dramatically. In 1977, 1MB of DRAM cost about
+$5,000. By 1994, the same amount of memory cost only $6 (when adjusted
+for inflation). Compiler technology has also become more
+sophisticated, so that the RISC use of RAM and emphasis on software
+has become ideal.
+#+END_QUOTE
+
+As is the case and experience with Iroha v1 deployments, emphasis on
+on-chain "software" is a road to a safer and more malleable
+blockchain.  Due to the simplicity of the RISC approach, it falls in
+the realm of programs that have "obviously no bugs", rather than
+programs that "have no obvious bugs". In a reduced instruction set,
+fixing a problem will rarely involve the simple =Set= instructions,
+but rather a change to the infrastructure.
+
+Apple's most successful new lineup of personal machines utilises a
+Reduced instruction set compared to x86, in the [[https://en.wikipedia.org/wiki/Apple_silicon][Apple M1 and M2
+chips]] resulting in a huge [[https://www.gsmarena.com/the_apple_m1_is_the_first_armbased_chipset_for_macs_with_the_fastest_cpu_cores_and_top_igpu-news-46222.php][uptick in performance and popularity]]. The
+virtues of Reduces instruction sets have been extolled for years and
+almost all new [[https://pages.cs.wisc.edu/~markhill/restricted/ieeecomputer85_cisc.pdf][CPU architectures are RISC]].
+
+To summarise, the RISC architecture will entail introducing a
+lower-level representation for existing instructions (as implemented
+in variant 1), and has huge potential to make Iroha-based blockchains
+much ore flexible.  It also entails a large amount of design work.
+
+* Security considerations
+
+Either one of the three proposals concentrates the responsibility for
+enforcing blockchain invariants in the executor module. There are two
+ways of viewing this, which both have security implications and must
+be considered.
+
+One school of thought is that the executor becomes a single point of
+failure in terms of blockchain security.  As such it will be the prime
+target for black-hat hackers and it is preferable to diffuse the
+responsibilities as much as possible.  The architecture as it is now
+is sub-optimal, but the switch to an executor-does-all model should be
+seen as a trade-off of flexibility for security in the long run.
+While these concerns are far from unfounded, allow me to elaborate why
+the switch to RISC is actually going to improve security.
+
+1. Concentration of responsibility reduces attack surface area.  To
+   know that a particular blockchain is bug-free one only needs to
+   audit the executor itself. The code that would have caused the bug
+   would still be there, but it would not be scattered around the host
+   modules, but instead located in one neat place.
+2. The new architecture is far more amenable to patching. If one finds
+   that a certain way of doing =Mint=-ing is insufficiently stringent,
+   the code that generates the RISC instructions is updated, not the
+   actual instruction. While the effect is the same, the roll-out of
+   the former can be done smoothly without breaking all of the
+   smartcontracts, while the latter will cause major problems of its
+   own.
+3. The executor is located in an easily upgradeable module that does
+   not require any input from the participants.  This is the essence
+   of why cryptographic libraries are typically shipped as dynamically
+   linked shared objects.
+4. This approach allows granular security control. In order to support
+   a version of =Mint= with extra sanity checks, all one needs to do
+   is add that code to the client, or just write the instructions
+   manually.
+5. Security by diversity. It *could* be problematic if the security is
+   done inadequately, but the sheer diversity of the operations that
+   can be supported natively will mean that no one way is particularly
+   vulnerable.
+
+The above reasons constitute a recommendation for a switch towards a
+RISC instruction set.
+
+* Footnotes
+[fn:5] As per [[https://doc.rust-lang.org/rustc/platform-support/wasm64-unknown-unknown.html][the official documentation of =rustc=]], the potential
+target =wasm64-unknown-unknown=
+
+#+BEGIN_QUOTE
+This target is not a stable target. The memory64 WebAssembly proposal
+is still in-progress and not standardized. This means that there are
+not many engines which implement the memory64 feature and if they do
+they're likely behind a flag, for example: ...
+#+END_QUOTE
+
+thereby precluding its direct usage for the executor.
+
+[fn:4] Incidentally a similar proposal was invoked by @samhsmith in a
+different context, called the working sets and versions.  This
+proposal's implementation was delayed because of its potential
+conflicts with the proposed data model and interaction with the
+so-called account re-structuring.  This proposal is inspired by the
+idea of working sets and a few other architectural considerations.
+The added changes are the ones that ensure the conflicts with the data
+model are resolved and a large part of the credit is attributable to
+the original proposal.
+
+[fn:3] Consequently for a RISC architecture, the invariants for
+non-mint-able assets is verified post-application of the entire
+transaction.  This is more flexible than having a single rigid
+=Transfer= instruction, because now multi-transfers can be done with
+fewer modifications to the amount in a wallet of a donor. However,
+this approach is also slower. If efficiency is paramount, one can
+consider adding a =Transfer= expression that generates the requisite
+=Set= instructions, and forbid any other method of transferring
+assets. This is in no way different to the way this operation is
+implemented today.
+
+[fn:2] For all intents and purposes this can be considered part of the
+/Executor RFC/.
+
+[fn:1] In the sense that the instructions either fail to apply
+completely, or apply without error.
