@@ -18,11 +18,12 @@ members = [
   "derive",
   "validator",
   "validator/derive",
+  "trigger",
+  "trigger/derive",
 ]
 
 [workspace.dependencies]
 iroha_data_model = { version = "=2.0.0-pre-rc.19", path = "../data_model", default-features = false }
-iroha_derive_primitives = { version = "2.0.0-pre-rc.19", path = "../derive_primitives" }
 syn = { version = "1", default-features = false, features = ["full", "extra-traits", "derive"] }
 quote = "1.0"
 proc-macro2 = "1.0.49"
