@@ -13,8 +13,10 @@ pub mod export {
         pub const WASM_ALLOC: &str = "_iroha_wasm_alloc";
         /// Exported function to deallocate memory
         pub const WASM_DEALLOC: &str = "_iroha_wasm_dealloc";
-        /// Name of the exported entry for smart contract or trigger execution
-        pub const WASM_MAIN: &str = "_iroha_wasm_main";
+        /// Name of the exported entry for smart contract execution
+        pub const SMART_CONTRACT_MAIN: &str = "_iroha_smart_contract_main";
+        /// Name of the exported entry for trigger execution
+        pub const TRIGGER_MAIN: &str = "_iroha_trigger_main";
         /// Name of the exported entry for validator to validate transaction
         pub const VALIDATOR_VALIDATE_TRANSACTION: &str = "_iroha_validator_validate_transaction";
         /// Name of the exported entry for validator to validate instruction
@@ -39,12 +41,12 @@ pub mod import {
         pub const EXECUTE_ISI: &str = "execute_instruction";
         /// Name of the imported function to execute queries
         pub const EXECUTE_QUERY: &str = "execute_query";
-        /// Name of the imported function to query trigger authority
-        // TODO: Remove after Trigger Payload (#3794)
-        pub const GET_AUTHORITY: &str = "get_authority";
-        /// Name of the imported function to query event that triggered the smart contract execution
-        // TODO: Remove after Trigger Payload (#3794)
-        pub const GET_TRIGGERING_EVENT: &str = "get_triggering_event";
+        /// Name of the imported function to get payload for smart contract
+        /// [`main()`](super::super::export::fn_names::SMART_CONTRACT_MAIN) entrypoint
+        pub const GET_SMART_CONTRACT_PAYLOAD: &str = "get_smart_contract_payload";
+        /// Name of the imported function to get payload for trigger
+        /// [`main()`](super::super::export::fn_names::TRIGGER_MAIN) entrypoint
+        pub const GET_TRIGGER_PAYLOAD: &str = "get_trigger_payload";
         /// Name of the imported function to get payload for
         /// [`migrate()`](super::super::export::fn_names::VALIDATOR_MIGRATE) entrypoint
         pub const GET_MIGRATE_PAYLOAD: &str = "get_migrate_payload";
@@ -73,7 +75,21 @@ pub mod payloads {
 
     use crate::prelude::*;
 
-    // TODO: Add Trigger Payload (#3794)
+    /// Payload for smart contract [`main()`](super::export::fn_names::SMART_CONTRACT_MAIN) entrypoint
+    #[derive(Debug, Clone, Encode, Decode)]
+    pub struct SmartContract {
+        /// Smart contract owner who submitted transaction with it
+        pub owner: AccountId,
+    }
+
+    /// Payload for trigger [`main()`](super::export::fn_names::TRIGGER_MAIN) entrypoint
+    #[derive(Debug, Clone, Encode, Decode)]
+    pub struct Trigger {
+        /// Trigger owner who registered the trigger
+        pub owner: AccountId,
+        /// Event which triggered the execution
+        pub event: Event,
+    }
 
     /// Payload for [`migrate()`](super::export::fn_names::VALIDATOR_MIGRATE) entrypoint
     #[derive(Debug, Clone, Copy, Encode, Decode)]

@@ -3205,16 +3205,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha_derive_primitives"
-version = "2.0.0-pre-rc.19"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "iroha_dsl"
 version = "2.0.0-pre-rc.19"
 dependencies = [

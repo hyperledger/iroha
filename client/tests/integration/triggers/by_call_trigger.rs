@@ -325,10 +325,11 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
     // Building wasm trigger
 
     info!("Building trigger");
-    let wasm = iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose")
-        .build()?
-        .optimize()?
-        .into_bytes()?;
+    let wasm =
+        iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose_trigger")
+            .build()?
+            .optimize()?
+            .into_bytes()?;
 
     info!("WASM size is {} bytes", wasm.len());
 

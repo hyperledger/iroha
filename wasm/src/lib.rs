@@ -159,30 +159,18 @@ impl iroha_data_model::evaluate::Context for Context {
     }
 }
 
-/// Query the authority of the smart contract
-pub fn get_authority() -> AccountId {
-    #[cfg(not(test))]
-    use host::get_authority as host_get_authority;
-    #[cfg(test)]
-    use tests::_iroha_wasm_get_authority_mock as host_get_authority;
-
+/// Get payload for smart contract `main()` entrypoint.
+#[cfg(not(test))]
+pub fn get_smart_contract_payload() -> payloads::SmartContract {
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host_get_authority()) }
+    unsafe { decode_with_length_prefix_from_raw(host::get_smart_contract_payload()) }
 }
 
-/// Query the event which have triggered trigger execution.
-///
-/// # Traps
-///
-/// Host side will generate a trap if this function was not called from a trigger.
-pub fn get_triggering_event() -> Event {
-    #[cfg(not(test))]
-    use host::get_triggering_event as host_get_triggering_event;
-    #[cfg(test)]
-    use tests::_iroha_wasm_get_triggering_event_mock as host_get_triggering_event;
-
+/// Get payload for trigger `main()` entrypoint.
+#[cfg(not(test))]
+pub fn get_trigger_payload() -> payloads::Trigger {
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
-    unsafe { decode_with_length_prefix_from_raw(host_get_triggering_event()) }
+    unsafe { decode_with_length_prefix_from_raw(host::get_trigger_payload()) }
 }
 
 /// Get payload for `validate_transaction()` entrypoint.
@@ -271,19 +259,19 @@ mod host {
         /// but it does transfer ownership of the result to the caller
         pub(super) fn execute_instruction(ptr: *const u8, len: usize) -> *const u8;
 
-        /// Get the authority account id
+        /// Get payload for smart contract `main()` entrypoint.
         ///
         /// # Warning
         ///
         /// This function does transfer ownership of the result to the caller
-        pub(super) fn get_authority() -> *const u8;
+        pub(super) fn get_smart_contract_payload() -> *const u8;
 
-        /// Get the triggering event
+        /// Get payload for trigger `main()` entrypoint.
         ///
         /// # Warning
         ///
         /// This function does transfer ownership of the result to the caller
-        pub(super) fn get_triggering_event() -> *const u8;
+        pub(super) fn get_trigger_payload() -> *const u8;
 
         /// Get payload for `validate_transaction()` entrypoint.
         ///
@@ -452,21 +440,14 @@ mod tests {
 
         register_isi.into()
     }
+
     fn get_test_query() -> QueryBox {
         let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
         FindAccountById::new(account_id).into()
     }
-    fn get_test_authority() -> AccountId {
-        "alice@wonderland".parse().expect("Valid")
-    }
+
     fn get_test_expression() -> EvaluatesTo<NumericValue> {
         Add::new(1_u32, 2_u32).into()
-    }
-    fn get_test_event() -> Event {
-        DataEvent::Account(AccountEvent::Deleted(
-            "alice@wonderland".parse().expect("Valid"),
-        ))
-        .into()
     }
 
     #[no_mangle]
@@ -493,16 +474,6 @@ mod tests {
         ManuallyDrop::new(encode_with_length_prefix(&QUERY_RESULT)).as_ptr()
     }
 
-    #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_get_authority_mock() -> *const u8 {
-        ManuallyDrop::new(encode_with_length_prefix(&get_test_authority())).as_ptr()
-    }
-
-    #[no_mangle]
-    pub unsafe extern "C" fn _iroha_wasm_get_triggering_event_mock() -> *const u8 {
-        ManuallyDrop::new(encode_with_length_prefix(&get_test_event())).as_ptr()
-    }
-
     #[webassembly_test]
     fn execute_instruction() {
         get_test_instruction().execute().unwrap();
@@ -519,15 +490,5 @@ mod tests {
             get_test_expression().evaluate(&Context::new()),
             Ok(EXPRESSION_RESULT)
         );
-    }
-
-    #[webassembly_test]
-    fn get_authority_test() {
-        assert_eq!(get_authority(), get_test_authority());
-    }
-
-    #[webassembly_test]
-    fn get_triggering_event_test() {
-        assert_eq!(get_triggering_event(), get_test_event());
     }
 }

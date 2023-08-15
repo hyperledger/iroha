@@ -1,5 +1,5 @@
 [package]
-name = "iroha_validator_derive"
+name = "iroha_trigger_derive"
 
 version.workspace = true
 authors.workspace = true
