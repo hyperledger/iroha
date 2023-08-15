@@ -11,5 +11,5 @@ license.workspace = true
 crate-type = ['cdylib']
 
 [dependencies]
-iroha_wasm.workspace = true
+iroha_trigger.workspace = true
 panic-halt.workspace = true

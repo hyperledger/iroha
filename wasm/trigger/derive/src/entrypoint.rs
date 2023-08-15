@@ -1,11 +1,8 @@
-//! Macro for writing smart contract entrypoint
+//! Module wht [`main`](super::main) macro implementation
 
-#![allow(clippy::str_to_string)]
+use super::*;
 
-use proc_macro::TokenStream;
-use quote::quote;
-use syn::{parse_macro_input, parse_quote};
-
+/// [`main`](super::main()) macro implementation
 #[allow(clippy::needless_pass_by_value)]
 pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let syn::ItemFn {
@@ -17,7 +14,7 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     assert!(
         syn::ReturnType::Default == sig.output,
-        "Smart contract `main()` function must not have a return type"
+        "Trigger `main()` function must not have a return type"
     );
 
     let fn_name = &sig.ident;
@@ -25,12 +22,14 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
     block.stmts.insert(
         0,
         parse_quote!(
-            use ::iroha_wasm::{debug::DebugExpectExt as _, ExecuteOnHost as _, QueryHost as _};
+            use ::iroha_trigger::iroha_wasm::{
+                debug::DebugExpectExt as _, ExecuteOnHost as _, QueryHost as _,
+            };
         ),
     );
 
     let main_fn_name = syn::Ident::new(
-        iroha_data_model::wasm::export::fn_names::SMART_CONTRACT_MAIN,
+        iroha_data_model::wasm::export::fn_names::TRIGGER_MAIN,
         proc_macro2::Span::call_site(),
     );
 
@@ -39,8 +38,8 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #[no_mangle]
         #[doc(hidden)]
         unsafe extern "C" fn #main_fn_name() {
-            let payload = ::iroha_wasm::get_smart_contract_payload();
-            #fn_name(payload.owner)
+            let payload = ::iroha_trigger::iroha_wasm::get_trigger_payload();
+            #fn_name(payload.owner, payload.event)
         }
 
         // NOTE: Host objects are always passed by value to wasm

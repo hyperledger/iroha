@@ -5,8 +5,7 @@
 
 use error::*;
 use import_traits::{
-    ExecuteOperations as _, GetAuthority as _, GetValidatorPayloads as _,
-    SetPermissionTokenSchema as _,
+    ExecuteOperations as _, GetValidatorPayloads as _, SetPermissionTokenSchema as _,
 };
 use iroha_config::{
     base::proxy::Builder,
@@ -53,11 +52,6 @@ mod import_traits {
             instruction: InstructionBox,
             state: &mut S,
         ) -> Result<(), ValidationFail>;
-    }
-
-    pub trait GetAuthority<S> {
-        #[codec::wrap_trait_fn]
-        fn get_authority(state: &S) -> AccountId;
     }
 
     pub trait GetValidatorPayloads<S> {
@@ -580,19 +574,6 @@ impl<S> Runtime<S> {
             })
     }
 
-    fn execute_main_with_store(
-        instance: &wasmtime::Instance,
-        store: &mut wasmtime::Store<S>,
-    ) -> Result<()> {
-        let main_fn = Self::get_typed_func(instance, store, export::fn_names::WASM_MAIN)?;
-
-        // NOTE: This function takes ownership of the pointer
-        main_fn
-            .call(store, ())
-            .map_err(ExportFnCallError::from)
-            .map_err(Into::into)
-    }
-
     fn get_typed_func<P: wasmtime::WasmParams, R: wasmtime::WasmResults>(
         instance: &wasmtime::Instance,
         mut store: &mut wasmtime::Store<S>,
@@ -789,13 +770,6 @@ impl<S: state::Authority + state::Wsv + state::WsvMut> Runtime<S> {
     }
 }
 
-impl<S: state::Authority> import_traits::GetAuthority<S> for Runtime<S> {
-    #[codec::wrap]
-    fn get_authority(state: &S) -> AccountId {
-        state.authority().clone()
-    }
-}
-
 impl<'wrld> Runtime<state::SmartContract<'wrld>> {
     /// Executes the given wasm smartcontract
     ///
@@ -850,7 +824,24 @@ impl<'wrld> Runtime<state::SmartContract<'wrld>> {
         let mut store = self.create_store(state);
         let smart_contract = self.create_smart_contract(&mut store, bytes)?;
 
-        Self::execute_main_with_store(&smart_contract, &mut store)
+        let main_fn = Self::get_typed_func(
+            &smart_contract,
+            &mut store,
+            export::fn_names::SMART_CONTRACT_MAIN,
+        )?;
+
+        // NOTE: This function takes ownership of the pointer
+        main_fn
+            .call(store, ())
+            .map_err(ExportFnCallError::from)
+            .map_err(Into::into)
+    }
+
+    #[codec::wrap]
+    fn get_smart_contract_payload(state: &state::SmartContract) -> payloads::SmartContract {
+        payloads::SmartContract {
+            owner: state.authority().clone(),
+        }
     }
 }
 
@@ -902,12 +893,21 @@ impl<'wrld> Runtime<state::Trigger<'wrld>> {
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
 
-        Self::execute_main_with_store(&instance, &mut store)
+        let main_fn = Self::get_typed_func(&instance, &mut store, export::fn_names::TRIGGER_MAIN)?;
+
+        // NOTE: This function takes ownership of the pointer
+        main_fn
+            .call(store, ())
+            .map_err(ExportFnCallError::from)
+            .map_err(Into::into)
     }
 
     #[codec::wrap]
-    fn get_triggering_event(state: &state::Trigger) -> Event {
-        state.triggering_event.clone()
+    fn get_trigger_payload(state: &state::Trigger) -> payloads::Trigger {
+        payloads::Trigger {
+            owner: state.authority().clone(),
+            event: state.triggering_event.clone(),
+        }
     }
 }
 
@@ -1441,7 +1441,7 @@ impl<'wrld> RuntimeBuilder<state::SmartContract<'wrld>> {
             create_imports!(linker,
                 import::fn_names::EXECUTE_ISI => Runtime::<state::SmartContract<'_>>::execute_instruction,
                 import::fn_names::EXECUTE_QUERY => Runtime::<state::SmartContract<'_>>::execute_query,
-                import::fn_names::GET_AUTHORITY => Runtime::<state::SmartContract<'_>>::get_authority,
+                import::fn_names::GET_SMART_CONTRACT_PAYLOAD => Runtime::get_smart_contract_payload,
             )?;
             Ok(linker)
         })
@@ -1461,8 +1461,7 @@ impl<'wrld> RuntimeBuilder<state::Trigger<'wrld>> {
             create_imports!(linker,
                 import::fn_names::EXECUTE_ISI => Runtime::<state::Trigger<'_>>::execute_instruction,
                 import::fn_names::EXECUTE_QUERY => Runtime::<state::Trigger<'_>>::execute_query,
-                import::fn_names::GET_AUTHORITY => Runtime::<state::Trigger<'_>>::get_authority,
-                import::fn_names::GET_TRIGGERING_EVENT => Runtime::get_triggering_event,
+                import::fn_names::GET_TRIGGER_PAYLOAD => Runtime::get_trigger_payload,
             )?;
             Ok(linker)
         })
@@ -1482,7 +1481,6 @@ impl<'wrld> RuntimeBuilder<state::validator::ValidateTransaction<'wrld>> {
             create_imports!(linker,
                 import::fn_names::EXECUTE_ISI => Runtime::<state::validator::ValidateTransaction<'_>>::execute_instruction,
                 import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::ValidateTransaction<'_>>::execute_query,
-                import::fn_names::GET_AUTHORITY => Runtime::<state::validator::ValidateTransaction<'_>>::get_authority,
                 import::fn_names::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
                 import::fn_names::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
                 import::fn_names::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
@@ -1507,7 +1505,6 @@ impl<'wrld> RuntimeBuilder<state::validator::ValidateInstruction<'wrld>> {
             create_imports!(linker,
                 import::fn_names::EXECUTE_ISI => Runtime::<state::validator::ValidateInstruction<'_>>::execute_instruction,
                 import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::ValidateInstruction<'_>>::execute_query,
-                import::fn_names::GET_AUTHORITY => Runtime::<state::validator::ValidateInstruction<'_>>::get_authority,
                 import::fn_names::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
                 import::fn_names::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
                 import::fn_names::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
@@ -1532,7 +1529,6 @@ impl<'wrld> RuntimeBuilder<state::validator::ValidateQuery<'wrld>> {
             create_imports!(linker,
                 import::fn_names::EXECUTE_ISI => Runtime::<state::validator::ValidateQuery<'_>>::execute_instruction,
                 import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::ValidateQuery<'_>>::execute_query,
-                import::fn_names::GET_AUTHORITY => Runtime::<state::validator::ValidateQuery<'_>>::get_authority,
                 import::fn_names::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
                 import::fn_names::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
                 import::fn_names::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
@@ -1557,7 +1553,6 @@ impl<'wrld> RuntimeBuilder<state::validator::Migrate<'wrld>> {
             create_imports!(linker,
                 import::fn_names::EXECUTE_ISI => Runtime::<state::validator::Migrate<'_>>::execute_instruction,
                 import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::Migrate<'_>>::execute_query,
-                import::fn_names::GET_AUTHORITY => Runtime::get_authority,
                 import::fn_names::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
                 import::fn_names::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
                 import::fn_names::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
@@ -1680,7 +1675,7 @@ mod tests {
                     ;; No use of return values
                     drop))
             "#,
-            main_fn_name = export::fn_names::WASM_MAIN,
+            main_fn_name = export::fn_names::SMART_CONTRACT_MAIN,
             execute_fn_name = import::fn_names::EXECUTE_ISI,
             memory_and_alloc = memory_and_alloc(&isi_hex),
             isi_len = isi_hex.len() / 3,
@@ -1716,7 +1711,7 @@ mod tests {
                     ;; No use of return values
                     drop))
             "#,
-            main_fn_name = export::fn_names::WASM_MAIN,
+            main_fn_name = export::fn_names::SMART_CONTRACT_MAIN,
             execute_fn_name = import::fn_names::EXECUTE_QUERY,
             memory_and_alloc = memory_and_alloc(&query_hex),
             isi_len = query_hex.len() / 3,
@@ -1757,7 +1752,7 @@ mod tests {
                     (call $exec_fn (i32.const 0) (i32.const {isi1_end}))
                     (call $exec_fn (i32.const {isi1_end}) (i32.const {isi2_end}))))
             "#,
-            main_fn_name = export::fn_names::WASM_MAIN,
+            main_fn_name = export::fn_names::SMART_CONTRACT_MAIN,
             execute_fn_name = import::fn_names::EXECUTE_ISI,
             // Store two instructions into adjacent memory and execute them
             memory_and_alloc = memory_and_alloc(&isi_hex.repeat(2)),
@@ -1807,7 +1802,7 @@ mod tests {
                 )
             )
             "#,
-            main_fn_name = export::fn_names::WASM_MAIN,
+            main_fn_name = export::fn_names::SMART_CONTRACT_MAIN,
             execute_fn_name = import::fn_names::EXECUTE_ISI,
             memory_and_alloc = memory_and_alloc(&isi_hex),
             isi_len = isi_hex.len() / 3,
@@ -1850,7 +1845,7 @@ mod tests {
                     ;; No use of return value
                     drop))
             "#,
-            main_fn_name = export::fn_names::WASM_MAIN,
+            main_fn_name = export::fn_names::SMART_CONTRACT_MAIN,
             execute_fn_name = import::fn_names::EXECUTE_QUERY,
             memory_and_alloc = memory_and_alloc(&query_hex),
             isi_len = query_hex.len() / 3,
@@ -1879,7 +1874,7 @@ mod tests {
             r#"
             (module
                 ;; Import host function to execute
-                (import "iroha" "{get_triggering_event_fn_name}"
+                (import "iroha" "{get_trigger_payload_fn_name}"
                     (func $exec_fn (param) (result i32)))
 
                 {memory_and_alloc}
@@ -1891,8 +1886,8 @@ mod tests {
                     ;; No use of return values
                     drop))
             "#,
-            main_fn_name = export::fn_names::WASM_MAIN,
-            get_triggering_event_fn_name = import::fn_names::GET_TRIGGERING_EVENT,
+            main_fn_name = export::fn_names::SMART_CONTRACT_MAIN,
+            get_trigger_payload_fn_name = import::fn_names::GET_TRIGGER_PAYLOAD,
             memory_and_alloc = memory_and_alloc(&query_hex),
         );
 

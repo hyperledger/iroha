@@ -1,7 +1,5 @@
 //! Smartcontract which creates new nft for every user
-//!
-//! This module isn't included in the build-tree,
-//! but instead it is being built by a `client/build.rs`
+
 #![no_std]
 
 extern crate alloc;
@@ -10,11 +8,11 @@ extern crate panic_halt;
 
 use alloc::{format, string::ToString};
 
-use iroha_wasm::{data_model::prelude::*, prelude::*};
+use iroha_trigger::prelude::*;
 
-#[iroha_wasm::main]
-fn main() {
-    iroha_wasm::info!("Executing trigger");
+#[iroha_trigger::main]
+fn main(_owner: AccountId, _event: Event) {
+    iroha_trigger::info!("Executing trigger");
 
     let accounts = FindAllAccounts.execute().dbg_unwrap();
 
@@ -44,7 +42,7 @@ fn main() {
         RegisterBox::new(account_nft).execute().dbg_unwrap();
     }
 
-    iroha_wasm::info!("Smart contract executed successfully");
+    iroha_trigger::info!("Smart contract executed successfully");
 }
 
 fn generate_new_nft_id(account_id: &<Account as Identifiable>::Id) -> AssetDefinitionId {
@@ -58,7 +56,7 @@ fn generate_new_nft_id(account_id: &<Account as Identifiable>::Id) -> AssetDefin
         .count()
         .checked_add(1)
         .dbg_unwrap();
-    iroha_wasm::debug!(&format!("New number: {}", new_number));
+    iroha_trigger::debug!(&format!("New number: {}", new_number));
 
     format!(
         "nft_number_{}_for_{}#{}",
