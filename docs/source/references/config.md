@@ -121,6 +121,11 @@ The following is the default configuration used by Iroha.
     "MIN_RETRY_PERIOD": 1,
     "MAX_RETRY_DELAY_EXPONENT": 4,
     "FILE": null
+  },
+  "SNAPSHOT": {
+    "CREATE_EVERY_MS": 60000,
+    "DIR_PATH": "./storage",
+    "CREATION_ENABLED": true
   }
 }
 ```
@@ -439,6 +444,50 @@ Has type `Option<u64>`[^1]. Can be configured via environment variable `QUEUE_TR
 
 ```json
 86400000
+```
+
+## `snapshot`
+
+SnapshotMaker configuration
+
+Has type `Option<snapshot::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_SNAPSHOT`
+
+```json
+{
+  "CREATE_EVERY_MS": 60000,
+  "CREATION_ENABLED": true,
+  "DIR_PATH": "./storage"
+}
+```
+
+### `snapshot.create_every_ms`
+
+The period of time to wait between attempts to create new snapshot.
+
+Has type `Option<u64>`[^1]. Can be configured via environment variable `SNAPSHOT_CREATE_EVERY_MS`
+
+```json
+60000
+```
+
+### `snapshot.creation_enabled`
+
+Flag to enable or disable snapshot creation
+
+Has type `Option<bool>`[^1]. Can be configured via environment variable `SNAPSHOT_CREATION_ENABLED`
+
+```json
+true
+```
+
+### `snapshot.dir_path`
+
+Path to the directory where snapshots should be stored
+
+Has type `Option<String>`[^1]. Can be configured via environment variable `SNAPSHOT_DIR_PATH`
+
+```json
+"./storage"
 ```
 
 ## `sumeragi`
