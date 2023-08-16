@@ -35,6 +35,7 @@ use iroha_data_model::{
 };
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallVec;
+use parking_lot::Mutex;
 use serde::{
     de::{DeserializeSeed, MapAccess, Visitor},
     Deserializer, Serialize,
@@ -278,12 +279,6 @@ pub struct WorldStateView {
     /// Buffer containing events generated during `WorldStateView::apply`. Renewed on every block commit.
     #[serde(skip)]
     pub events_buffer: Vec<Event>,
-    /// Accumulated amount of any asset that has been transacted.
-    #[serde(skip)]
-    pub metric_tx_amounts: f64,
-    /// Count of how many mints, transfers and burns have happened.
-    #[serde(skip)]
-    pub metric_tx_amounts_counter: u64,
     /// Engine for WASM [`Runtime`](wasm::Runtime) to execute triggers.
     #[serde(skip)]
     pub engine: wasmtime::Engine,
@@ -291,6 +286,9 @@ pub struct WorldStateView {
     /// Reference to Kura subsystem.
     #[serde(skip)]
     kura: Arc<Kura>,
+    /// Temporary metrics buffer of amounts of any asset that has been transacted.
+    #[serde(skip)]
+    pub new_tx_amounts: Arc<Mutex<Vec<f64>>>,
 }
 
 /// Context necessary for deserializing [`WorldStateView`]
@@ -361,8 +359,7 @@ impl<'de> DeserializeSeed<'de> for WsvSeed {
                     kura: self.loader.kura,
                     engine,
                     events_buffer: Vec::new(),
-                    metric_tx_amounts: 0f64,
-                    metric_tx_amounts_counter: 0u64,
+                    new_tx_amounts: Arc::new(Mutex::new(Vec::new())),
                 })
             }
         }
@@ -383,8 +380,7 @@ impl Clone for WorldStateView {
             block_hashes: self.block_hashes.clone(),
             transactions: self.transactions.clone(),
             events_buffer: Vec::new(),
-            metric_tx_amounts: 0.0_f64,
-            metric_tx_amounts_counter: 0,
+            new_tx_amounts: Arc::clone(&self.new_tx_amounts),
             engine: self.engine.clone(),
             kura: Arc::clone(&self.kura),
         }
@@ -910,8 +906,7 @@ impl WorldStateView {
             transactions: HashMap::new(),
             block_hashes: Vec::new(),
             events_buffer: Vec::new(),
-            metric_tx_amounts: 0.0_f64,
-            metric_tx_amounts_counter: 0,
+            new_tx_amounts: Arc::new(Mutex::new(Vec::new())),
             engine: wasm::create_engine(),
             kura,
         }

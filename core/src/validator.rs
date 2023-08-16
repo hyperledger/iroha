@@ -141,7 +141,8 @@ impl Validator {
 
         match self {
             Self::Initial => {
-                let (_authority, Executable::Instructions(instructions)) = transaction.into() else {
+                let (_authority, Executable::Instructions(instructions)) = transaction.into()
+                else {
                     return Ok(());
                 };
                 for isi in instructions {
