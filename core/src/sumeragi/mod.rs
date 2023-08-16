@@ -53,6 +53,7 @@ struct LastUpdateMetricsData {
 #[derive(Clone)]
 pub struct SumeragiHandle {
     public_wsv_receiver: watch::Receiver<WorldStateView>,
+    public_finalized_wsv_receiver: watch::Receiver<WorldStateView>,
     metrics: Metrics,
     last_update_metrics_mutex: Arc<Mutex<LastUpdateMetricsData>>,
     network: IrohaNetwork,
@@ -80,6 +81,26 @@ impl SumeragiHandle {
     /// Notify when [`WorldStateView`] is updated.
     pub async fn wsv_updated(&mut self) {
         self.public_wsv_receiver
+            .changed()
+            .await
+            .expect("Shouldn't return error as long as there is at least one SumeragiHandle");
+    }
+
+    /// Pass closure inside and apply fn to finalized [`WorldStateView`].
+    /// This function must be used with very cheap closures.
+    /// So that it costs no more than cloning wsv.
+    pub fn apply_finalized_wsv<T>(&self, f: impl FnOnce(&WorldStateView) -> T) -> T {
+        f(&self.public_finalized_wsv_receiver.borrow())
+    }
+
+    /// Get public clone of finalized [`WorldStateView`].
+    pub fn finalized_wsv_clone(&self) -> WorldStateView {
+        self.public_finalized_wsv_receiver.borrow().clone()
+    }
+
+    /// Notify when finalized [`WorldStateView`] is updated.
+    pub async fn finalized_wsv_updated(&mut self) {
+        self.public_finalized_wsv_receiver
             .changed()
             .await
             .expect("Shouldn't return error as long as there is at least one SumeragiHandle");
@@ -218,7 +239,7 @@ impl SumeragiHandle {
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
         let skip_block_count = wsv.block_hashes.len();
-        let mut blocks_iter = (skip_block_count.max(1)..=block_count).map(|block_height| {
+        let mut blocks_iter = (skip_block_count + 1..=block_count).map(|block_height| {
             kura.get_block_by_height(block_height as u64)
                 .expect("Sumeragi should be able to load the block that was reported as presented. If not, the block storage was probably disconnected.")
         });
@@ -262,6 +283,8 @@ impl SumeragiHandle {
         };
 
         let (public_wsv_sender, public_wsv_receiver) = watch::channel(wsv.clone());
+        let (public_finalized_wsv_sender, public_finalized_wsv_receiver) =
+            watch::channel(finalized_wsv.clone());
 
         #[cfg(debug_assertions)]
         let debug_force_soft_fork = configuration.debug_force_soft_fork;
@@ -274,6 +297,7 @@ impl SumeragiHandle {
             peer_id: configuration.peer_id.clone(),
             events_sender,
             public_wsv_sender,
+            public_finalized_wsv_sender,
             commit_time: Duration::from_millis(configuration.commit_time_limit_ms),
             block_time: Duration::from_millis(configuration.block_time_ms),
             max_txs_in_block: configuration.max_transactions_in_block as usize,
@@ -312,6 +336,7 @@ impl SumeragiHandle {
             control_message_sender,
             message_sender,
             public_wsv_receiver,
+            public_finalized_wsv_receiver,
             metrics: Metrics::default(),
             last_update_metrics_mutex: Arc::new(Mutex::new(LastUpdateMetricsData {
                 block_height: 0,

@@ -23,7 +23,7 @@ use tokio::sync::mpsc;
 use crate::{
     kura::{BlockCount, Kura},
     sumeragi::SumeragiHandle,
-    wsv::{WorldStateView, WsvSeed},
+    wsv::{KuraSeed, WorldStateView},
 };
 
 /// Name of the [`WorldStateView`] snapshot file.
@@ -80,8 +80,8 @@ impl SnapshotMaker {
                     // Offload snapshot creation into blocking thread
                     self.create_snapshot().await;
                 },
-                _ = self.sumeragi.wsv_updated() => {
-                    self.new_wsv_available = true;
+                _ = self.sumeragi.finalized_wsv_updated() => {
+                    self.sumeragi.apply_finalized_wsv(|finalized_wsv| self.new_wsv_available = finalized_wsv.height() > 0);
                 }
                 _ = message_receiver.recv() => {
                     info!("All handler to SnapshotMaker are dropped. Saving latest snapshot and shutting down...");
@@ -100,7 +100,7 @@ impl SnapshotMaker {
         let sumeragi = self.sumeragi.clone();
         let path_to_snapshot = self.snapshot_dir.clone();
         let handle = tokio::task::spawn_blocking(move || -> Result<u64> {
-            sumeragi.apply_wsv(|wsv| {
+            sumeragi.apply_finalized_wsv(|wsv| {
                 Self::try_write_snapshot(wsv, &path_to_snapshot)?;
                 Ok(wsv.height())
             })
@@ -173,7 +173,7 @@ pub fn try_read_snapshot(
     file.read_to_end(&mut bytes)
         .map_err(|err| Error::IO(err, path.clone()))?;
     let mut deserializer = serde_json::Deserializer::from_slice(&bytes);
-    let seed = WsvSeed {
+    let seed = KuraSeed {
         kura: Arc::clone(kura),
     };
     let wsv = seed.deserialize(&mut deserializer)?;

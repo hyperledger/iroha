@@ -292,12 +292,12 @@ pub struct WorldStateView {
 }
 
 /// Context necessary for deserializing [`WorldStateView`]
-pub struct WsvSeed {
+pub struct KuraSeed {
     /// Kura subsystem reference
     pub kura: Arc<Kura>,
 }
 
-impl<'de> DeserializeSeed<'de> for WsvSeed {
+impl<'de> DeserializeSeed<'de> for KuraSeed {
     type Value = WorldStateView;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
@@ -305,7 +305,7 @@ impl<'de> DeserializeSeed<'de> for WsvSeed {
         D: Deserializer<'de>,
     {
         struct WorldStateViewVisitor {
-            loader: WsvSeed,
+            loader: KuraSeed,
         }
 
         impl<'de> Visitor<'de> for WorldStateViewVisitor {

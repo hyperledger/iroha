@@ -21,6 +21,8 @@ pub struct Sumeragi {
     pub events_sender: EventsSender,
     /// The world state view instance that is used in public contexts
     pub public_wsv_sender: watch::Sender<WorldStateView>,
+    /// The finalized world state view instance that is used in public contexts
+    pub public_finalized_wsv_sender: watch::Sender<WorldStateView>,
     /// Time by which a newly created block should be committed. Prevents malicious nodes
     /// from stalling the network by not participating in consensus
     pub commit_time: Duration,
@@ -389,6 +391,15 @@ impl Sumeragi {
         // Update WSV copy that is public facing
         self.public_wsv_sender
             .send_modify(|public_wsv| *public_wsv = self.wsv.clone());
+        self.public_finalized_wsv_sender
+            .send_if_modified(|public_finalized_wsv| {
+                if public_finalized_wsv.height() < self.finalized_wsv.height() {
+                    *public_finalized_wsv = self.finalized_wsv.clone();
+                    true
+                } else {
+                    false
+                }
+            });
 
         // This sends "Block committed" event, so it should be done
         // AFTER public facing WSV update
