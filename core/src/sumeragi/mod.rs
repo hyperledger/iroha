@@ -47,8 +47,6 @@ the function.
 #[derive(Debug)]
 struct LastUpdateMetricsData {
     block_height: u64,
-    metric_tx_amounts: f64,
-    metric_tx_amounts_counter: u64,
 }
 
 /// Handle to `Sumeragi` actor
@@ -141,14 +139,14 @@ impl SumeragiHandle {
             last_guard.block_height = block_index;
         }
 
-        let diff_count = wsv.metric_tx_amounts_counter - last_guard.metric_tx_amounts_counter;
-        let diff_amount_per_count =
-            (wsv.metric_tx_amounts - last_guard.metric_tx_amounts) / (diff_count as f64);
-        for _ in 0..diff_count {
-            last_guard.metric_tx_amounts_counter += 1;
-            last_guard.metric_tx_amounts += diff_amount_per_count;
+        let new_tx_amounts = {
+            let mut new_buf = Vec::new();
+            core::mem::swap(&mut new_buf, &mut wsv.new_tx_amounts.lock());
+            new_buf
+        };
 
-            self.metrics.tx_amounts.observe(diff_amount_per_count);
+        for amount in &new_tx_amounts {
+            self.metrics.tx_amounts.observe(*amount);
         }
 
         #[allow(clippy::cast_possible_truncation)]
@@ -321,8 +319,6 @@ impl SumeragiHandle {
             metrics: Metrics::default(),
             last_update_metrics_mutex: Arc::new(Mutex::new(LastUpdateMetricsData {
                 block_height: 0,
-                metric_tx_amounts: 0.0_f64,
-                metric_tx_amounts_counter: 0,
             })),
             _thread_handle: Arc::new(thread_handle),
         }

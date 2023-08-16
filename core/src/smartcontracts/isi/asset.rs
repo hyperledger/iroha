@@ -227,8 +227,7 @@ pub mod isi {
 
             #[allow(clippy::float_arithmetic)]
             {
-                wsv.metric_tx_amounts += new_quantity.into_metric();
-                wsv.metric_tx_amounts_counter += 1;
+                wsv.new_tx_amounts.lock().push(new_quantity.into_metric());
                 wsv.increase_asset_total_amount(&asset_id.definition_id, mint.object)?;
             }
 
@@ -284,8 +283,7 @@ pub mod isi {
 
             #[allow(clippy::float_arithmetic)]
             {
-                wsv.metric_tx_amounts += burn_quantity.into_metric();
-                wsv.metric_tx_amounts_counter += 1;
+                wsv.new_tx_amounts.lock().push(burn_quantity.into_metric());
                 wsv.decrease_asset_total_amount(&asset_id.definition_id, burn.object)?;
             }
 
@@ -353,8 +351,9 @@ pub mod isi {
 
             #[allow(clippy::float_arithmetic)]
             {
-                wsv.metric_tx_amounts += transfer_quantity.into_metric();
-                wsv.metric_tx_amounts_counter += 1;
+                wsv.new_tx_amounts
+                    .lock()
+                    .push(transfer_quantity.into_metric());
             }
 
             wsv.emit_events([
