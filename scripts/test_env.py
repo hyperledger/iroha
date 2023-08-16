@@ -112,11 +112,8 @@ class _Peer:
         os.mkdir(peer_dir)
         os.mkdir(peer_dir.joinpath("storage"))
 
-        # Copying the binary to have unique names for each peer
-        iroha_bin = f"{peer_dir}/{self.name}"
-        shutil.copy2(f"{self.out_dir}/peers/iroha", iroha_bin)
-
         os.environ["KURA_BLOCK_STORE_PATH"] = str(peer_dir.joinpath("storage"))
+        os.environ["SNAPSHOT_DIR_PATH"] = str(peer_dir.joinpath("storage"))
         os.environ["LOG_FILE_PATH"] = str(peer_dir.joinpath("log.json"))
         os.environ["MAX_LOG_LEVEL"] = "TRACE"
         os.environ["IROHA_PUBLIC_KEY"] = self.public_key
@@ -131,7 +128,7 @@ class _Peer:
         # FD never gets closed
         log_file = open(peer_dir.joinpath(".log"), "w")
         # These processes are created detached from the parent process already
-        subprocess.Popen([iroha_bin, genesis_arg],
+        subprocess.Popen([self.name, genesis_arg], executable=f"{self.out_dir}/peers/iroha",
                     stdout=log_file, stderr=subprocess.STDOUT)
 
 def pos_int(arg):

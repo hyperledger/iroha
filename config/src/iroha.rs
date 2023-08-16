@@ -56,6 +56,9 @@ view! {
         /// Telemetry configuration
         #[config(inner)]
         pub telemetry: telemetry::Configuration,
+        /// SnapshotMaker configuration
+        #[config(inner)]
+        pub snapshot: snapshot::Configuration,
     }
 }
 
@@ -75,6 +78,7 @@ impl Default for ConfigurationProxy {
             wsv: Some(wsv::ConfigurationProxy::default()),
             network: Some(network::ConfigurationProxy::default()),
             telemetry: Some(telemetry::ConfigurationProxy::default()),
+            snapshot: Some(snapshot::ConfigurationProxy::default()),
         }
     }
 }
@@ -216,9 +220,10 @@ mod tests {
             wsv in prop::option::of(wsv::tests::arb_proxy()),
             network in prop::option::of(network::tests::arb_proxy()),
             telemetry in prop::option::of(telemetry::tests::arb_proxy()),
+            snapshot in prop::option::of(snapshot::tests::arb_proxy()),
             ) -> ConfigurationProxy {
             ConfigurationProxy { public_key, private_key, disable_panic_terminal_colors, kura, sumeragi, torii, block_sync, queue,
-                                 logger, genesis, wsv, network, telemetry }
+                                 logger, genesis, wsv, network, telemetry, snapshot }
         }
     }
 

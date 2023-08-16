@@ -90,5 +90,10 @@
     "MIN_RETRY_PERIOD": 1,
     "MAX_RETRY_DELAY_EXPONENT": 4,
     "FILE": null
+  },
+  "SNAPSHOT": {
+    "CREATE_EVERY_MS": 60000,
+    "DIR_PATH": "./storage",
+    "CREATION_ENABLED": true
   }
 }
