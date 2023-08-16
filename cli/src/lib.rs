@@ -27,6 +27,7 @@ use iroha_core::{
     prelude::{World, WorldStateView},
     queue::Queue,
     smartcontracts::isi::Registrable as _,
+    snapshot::{try_read_snapshot, SnapshotMaker, SnapshotMakerHandle},
     sumeragi::{SumeragiHandle, SumeragiStartArgs},
     tx::PeerId,
     IrohaNetwork,
@@ -96,6 +97,8 @@ pub struct Iroha {
     pub kura: Arc<Kura>,
     /// Torii web server
     pub torii: Option<Torii>,
+    /// Snapshot service,
+    pub snapshot_maker: SnapshotMakerHandle,
     /// Thread handlers
     thread_handlers: Vec<ThreadHandler>,
     /// A boolean value indicating whether or not the peers will recieve data from the network. Used in
@@ -245,10 +248,20 @@ impl Iroha {
         )?;
 
         let notify_shutdown = Arc::new(Notify::new());
-        let (wsv, block_count) = kura.init()?;
-        let wsv = wsv.unwrap_or_else(|| {
-            WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura))
-        });
+        let block_count = kura.init()?;
+        let wsv = try_read_snapshot(&config.snapshot.dir_path, &kura, block_count).map_or_else(
+            |error| {
+                iroha_logger::warn!(%error, "Failed to load wsv from snapshot, creating empty wsv");
+                WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura))
+            },
+            |wsv| {
+                iroha_logger::info!(
+                    at_height = wsv.height(),
+                    "Successfully loaded wsv from snapshot"
+                );
+                wsv
+            },
+        );
 
         let queue = Arc::new(Queue::from_configuration(&config.queue));
         if Self::start_telemetry(telemetry, &config).await? {
@@ -301,6 +314,9 @@ impl Iroha {
         }
         .start();
 
+        let snapshot_maker =
+            SnapshotMaker::from_configuration(&config.snapshot, sumeragi.clone()).start();
+
         let torii = Torii::from_configuration(
             config.clone(),
             Arc::clone(&queue),
@@ -320,6 +336,7 @@ impl Iroha {
             sumeragi,
             kura,
             torii,
+            snapshot_maker,
             thread_handlers: vec![kura_thread_handler],
             #[cfg(debug_assertions)]
             freeze_status,

@@ -7,6 +7,7 @@ pub mod kura;
 pub mod modules;
 pub mod queue;
 pub mod smartcontracts;
+pub mod snapshot;
 pub mod sumeragi;
 pub mod tx;
 pub mod validator;
