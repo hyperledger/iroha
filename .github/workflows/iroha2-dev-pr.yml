@@ -20,7 +20,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
+  consistency:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
       image: hyperledger/iroha2-ci:nightly-2023-06-25
@@ -29,22 +29,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Check config.md
         if: always()
-        run: ./scripts/check.sh docs
+        run: ./scripts/tests/consistency.sh docs
       - name: Check genesis.json
         if: always()
-        run: ./scripts/check.sh genesis
+        run: ./scripts/tests/consistency.sh genesis
       - name: Check client/config.json
         if: always()
-        run: ./scripts/check.sh client
+        run: ./scripts/tests/consistency.sh client
       - name: Check peer/config.json
         if: always()
-        run: ./scripts/check.sh peer
+        run: ./scripts/tests/consistency.sh peer
       - name: Check schema.json
         if: always()
-        run: ./scripts/check.sh schema
+        run: ./scripts/tests/consistency.sh schema
       - name: Check Docker Compose configurations
         if: always()
-        run: ./scripts/check.sh docker-compose
+        run: ./scripts/tests/consistency.sh docker-compose
       - name: Wasm build check
         if: always()
         working-directory: wasm
