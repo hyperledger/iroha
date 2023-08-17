@@ -33,6 +33,10 @@ ENV  CONFIG_DIR=/config
 ENV  IROHA2_CONFIG_PATH=$CONFIG_DIR/config.json
 ENV  IROHA2_GENESIS_PATH=$CONFIG_DIR/genesis.json
 ENV  KURA_BLOCK_STORE_PATH=$STORAGE
+ENV  WASM_DIRECTORY=/app/.cache/wasmtime
+ENV  USER=iroha
+ENV  UID=1001
+ENV  GID=1001
 
 RUN  set -ex && \
      apk --update add libstdc++ curl ca-certificates gcompat && \
@@ -40,14 +44,23 @@ RUN  set -ex && \
          do curl -sSL ${GLIBC_REPO}/releases/download/${GLIBC_VERSION}/${pkg}.apk -o /tmp/${pkg}.apk; done && \
      apk add --force-overwrite --allow-untrusted /tmp/*.apk && \
      rm -v /tmp/*.apk && \
-     /usr/glibc-compat/sbin/ldconfig /lib /usr/glibc-compat/lib && \
-     adduser --disabled-password iroha --shell /bin/bash --home /app && \
+     addgroup -g $GID $USER && \
+     adduser \
+     --disabled-password \
+     --gecos "" \
+     --home /app \
+     --ingroup "$USER" \
+     --no-create-home \
+     --uid "$UID" \
+     "$USER" && \
      mkdir -p $CONFIG_DIR && \
-     mkdir $STORAGE && \
-     chown iroha:iroha $STORAGE
+     mkdir -p $STORAGE && \
+     mkdir -p $WASM_DIRECTORY && \
+     chown $USER:$USER $STORAGE && \
+     chown $USER:$USER $WASM_DIRECTORY
 
 COPY --from=builder $TARGET_DIR/iroha $BIN_PATH
 COPY --from=builder $TARGET_DIR/iroha_client_cli $BIN_PATH
 COPY --from=builder $TARGET_DIR/kagami $BIN_PATH
-USER iroha
-CMD  iroha
+USER $USER
+CMD ["iroha"]

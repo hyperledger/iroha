@@ -41,6 +41,7 @@ ENV  CONFIG_DIR=/config
 ENV  IROHA2_CONFIG_PATH=$CONFIG_DIR/config.json
 ENV  IROHA2_GENESIS_PATH=$CONFIG_DIR/genesis.json
 ENV  KURA_BLOCK_STORE_PATH=$STORAGE
+ENV  WASM_DIRECTORY=/app/.cache/wasmtime
 ENV  USER=iroha
 ENV  UID=1001
 ENV  GID=1001
@@ -57,11 +58,13 @@ RUN  set -ex && \
      --uid "$UID" \
      "$USER" && \
      mkdir -p $CONFIG_DIR && \
-     mkdir $STORAGE && \
-     chown $USER:$USER $STORAGE
+     mkdir -p $STORAGE && \
+     mkdir -p $WASM_DIRECTORY && \
+     chown $USER:$USER $STORAGE && \
+     chown $USER:$USER $WASM_DIRECTORY
 
 COPY --from=builder $TARGET_DIR/iroha $BIN_PATH
 COPY --from=builder $TARGET_DIR/iroha_client_cli $BIN_PATH
 COPY --from=builder $TARGET_DIR/kagami $BIN_PATH
 USER $USER
-CMD ["${BIN_PATH}/iroha"]
+CMD ["iroha"]
