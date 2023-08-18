@@ -136,6 +136,23 @@ function run_n_peers {
     run_peer 0 --submit-genesis
 }
 
+function wait_for_genesis {
+    for i in $(seq 1 $1); do
+        echo "Waiting for genesis block to be created, attempt $i/$1"
+        BLOCK_COUNT=$(curl --fail -X GET http://127.0.0.1:8180/status/blocks) || echo "-1";
+        if [ "$BLOCK_COUNT" = "1" ]; then
+            echo "Genesis block is created"
+            return
+        else
+            echo "Sleeping 1 sec..."
+            sleep 1
+        fi
+    done
+
+    echo "Genesis block was not created after $1 attempts, exiting..."
+    exit 6
+}
+
 function clean_up_n_peers {
     for peer in $(seq 0 $(($1-1))); do
         pkill "iroha$peer";
@@ -152,7 +169,7 @@ fi
 
 if [ "$N_PEERS" -le 0 ]; then
     echo "Expected number of peers as non-zero positive number (> 0)."
-    exit 1
+    exit 2
 fi
 
 case $1 in
@@ -164,19 +181,20 @@ case $1 in
         cp ./target/debug/iroha_client_cli "$TEST" || {
             echo 'Please build `iroha_client_cli` by running'
             echo '`cargo build --bin iroha_client_cli`'
-            exit
+            exit 3
         }
         echo '{"comment":{"String": "Hello Meta!"}}' >"$TEST/metadata.json"
         cp ./configs/client/config.json "$TEST"
         cp ./target/debug/kagami "$TEST" || {
             echo 'Please build `kagami` by running'
             echo '`cargo build --bin kagami`'
-            exit
+            exit 4
         }
 
         set_up_peers_common
         bulk_export
         run_n_peers "$N_PEERS"
+        wait_for_genesis 20
         ;;
     cleanup)
         # NOTE: It's not desirable for cleanup script to exit on the first failed command
@@ -189,5 +207,5 @@ case $1 in
 
     *)
         echo 'Specify either `setup` or `cleanup`'
-        exit 1
+        exit 5
 esac
