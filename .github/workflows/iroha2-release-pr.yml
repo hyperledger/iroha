@@ -25,17 +25,21 @@ jobs:
       - name: Build iroha_client_cli
         working-directory: client_cli
         run: mold --run cargo build
-      - name: Mark both binaries as executable
+      - name: Build kagami
+        working-directory: tools/kagami
+        run: mold --run cargo build
+      - name: Mark binaries as executable
         run: |
           chmod +x target/debug/iroha
           chmod +x target/debug/iroha_client_cli
+          chmod +x target/debug/kagami
       - name: Setup test environment
         run: bash -c './scripts/test_env.sh setup'
       - name: Genesis test
-        run: bash -c './scripts/tests/genesis.sh || (cat test/peers/iroha0.log; false )'
+        run: bash -c './scripts/tests/genesis.sh || (cat test/peers/iroha0/.log; false )'
       - name: Basic register and mint
         if: always()
-        run: bash -c './scripts/tests/register_mint_quantity.sh || (cat test/peers/iroha0.log; false )'
+        run: bash -c './scripts/tests/register_mint_quantity.sh || (cat test/peers/iroha0/.log; false )'
       - name: Cleanup test environment
         run: bash -c './scripts/test_env.sh cleanup'
       - name: Panic on invalid genesis test
@@ -79,10 +83,14 @@ jobs:
       - name: Build iroha_client_cli
         working-directory: client_cli
         run: mold --run cargo build
-      - name: Mark both binaries as executable
+      - name: Build kagami
+        working-directory: tools/kagami
+        run: mold --run cargo build
+      - name: Mark binaries as executable
         run: |
           chmod +x target/debug/iroha
           chmod +x target/debug/iroha_client_cli
+          chmod +x target/debug/kagami
       - name: Setup test environment
         run: ./scripts/test_env.sh setup
       - name: Test iroha2-java API

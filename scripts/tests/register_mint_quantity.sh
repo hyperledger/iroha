@@ -10,4 +10,4 @@ $CMD asset register --id="XOR#Soramitsu" --value-type=Quantity
 sleep 2
 $CMD asset mint --account="Alice@Soramitsu" --asset="XOR#Soramitsu" --quantity="100"
 sleep 2
-$CMD asset get --account="Alice@Soramitsu" --asset="XOR#Soramitsu" | grep -q 'Quantity(100)'
+$CMD asset get --account="Alice@Soramitsu" --asset="XOR#Soramitsu" | grep -q '"Quantity": 100'
