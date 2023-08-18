@@ -12,14 +12,10 @@
   "SUMERAGI": {
     "KEY_PAIR": null,
     "PEER_ID": null,
-    "BLOCK_TIME_MS": 1000,
+    "BLOCK_TIME_MS": 2000,
     "TRUSTED_PEERS": null,
-    "COMMIT_TIME_LIMIT_MS": 2000,
-    "TX_RECEIPT_TIME_LIMIT_MS": 500,
-    "TRANSACTION_LIMITS": {
-      "max_instruction_number": 4096,
-      "max_wasm_size_bytes": 4194304
-    },
+    "COMMIT_TIME_LIMIT_MS": 4000,
+    "MAX_TRANSACTIONS_IN_BLOCK": 512,
     "ACTOR_CHANNEL_CAPACITY": 100,
     "GOSSIP_BATCH_SIZE": 500,
     "GOSSIP_PERIOD_MS": 1000
@@ -29,7 +25,9 @@
     "API_URL": null,
     "TELEMETRY_URL": null,
     "MAX_TRANSACTION_SIZE": 32768,
-    "MAX_CONTENT_LEN": 16384000
+    "MAX_CONTENT_LEN": 16384000,
+    "FETCH_SIZE": 10,
+    "QUERY_IDLE_TIME_MS": 30000
   },
   "BLOCK_SYNC": {
     "GOSSIP_PERIOD_MS": 10000,
@@ -37,8 +35,8 @@
     "ACTOR_CHANNEL_CAPACITY": 100
   },
   "QUEUE": {
-    "MAXIMUM_TRANSACTIONS_IN_BLOCK": 8192,
-    "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
+    "MAX_TRANSACTIONS_IN_QUEUE": 65536,
+    "MAX_TRANSACTIONS_IN_QUEUE_PER_USER": 65536,
     "TRANSACTION_TIME_TO_LIVE_MS": 86400000,
     "FUTURE_THRESHOLD_MS": 1000
   },
@@ -51,10 +49,7 @@
   },
   "GENESIS": {
     "ACCOUNT_PUBLIC_KEY": null,
-    "ACCOUNT_PRIVATE_KEY": null,
-    "WAIT_FOR_PEERS_RETRY_COUNT_LIMIT": 100,
-    "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 500,
-    "GENESIS_SUBMISSION_DELAY_MS": 1000
+    "ACCOUNT_PRIVATE_KEY": null
   },
   "WSV": {
     "ASSET_METADATA_LIMITS": {
@@ -77,8 +72,12 @@
       "min": 1,
       "max": 128
     },
+    "TRANSACTION_LIMITS": {
+      "max_instruction_number": 4096,
+      "max_wasm_size_bytes": 4194304
+    },
     "WASM_RUNTIME_CONFIG": {
-      "FUEL_LIMIT": 1000000,
+      "FUEL_LIMIT": 23000000,
       "MAX_MEMORY": 524288000
     }
   },
