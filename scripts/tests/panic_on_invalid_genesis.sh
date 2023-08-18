@@ -11,7 +11,7 @@ export IROHA_GENESIS_ACCOUNT_PRIVATE_KEY="{ \"digest_function\": \"ed25519\", \"
 export IROHA2_CONFIG_PATH="configs/peer/config.json"
 export SUMERAGI_TRUSTED_PEERS='[{"address":"127.0.0.1:1341", "public_key": "ed01201C61FAF8FE94E253B93114240394F79A607B7FA55F9E5A41EBEC74B88055768B"}]'
 # Create tmp file for genesis
-export IROHA2_GENESIS_PATH="$(mktemp)"
+export IROHA2_GENESIS_PATH="$(mktemp).json"
 # Create tmp folder for block storage
 export KURA_BLOCK_STORE_PATH="$(mktemp -d)"
 # Remove on exit
