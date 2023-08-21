@@ -11,7 +11,6 @@ use std::{
     sync::Arc,
 };
 
-use derive_more::Deref;
 use iroha_config::kura::Mode;
 use iroha_crypto::HashOf;
 use iroha_data_model::block::VersionedCommittedBlock;
@@ -36,7 +35,7 @@ pub struct Kura {
     /// The mode of initialisation of [`Kura`].
     mode: Mode,
     /// The block storage
-    block_store: Mutex<BlockStore<Locked>>,
+    block_store: Mutex<BlockStore>,
     /// The array of block hashes and a slot for an arc of the block. This is normally recovered from the index file.
     #[allow(clippy::type_complexity)]
     block_data: Mutex<
@@ -62,7 +61,7 @@ impl Kura {
         block_store_path: &Path,
         debug_output_new_blocks: bool,
     ) -> Result<Arc<Self>> {
-        let mut block_store = BlockStore::new(block_store_path).lock()?;
+        let mut block_store = BlockStore::new(block_store_path, LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist()?;
 
         let block_plain_text_path = debug_output_new_blocks.then(|| {
@@ -84,10 +83,9 @@ impl Kura {
     /// Create a kura instance that doesn't write to disk. Instead it serves as a handler
     /// for in-memory blocks only.
     pub fn blank_kura_for_testing() -> Arc<Kura> {
-        let block_store = BlockStore::fake_locked_for_tests(PathBuf::new());
         Arc::new(Self {
             mode: Mode::Strict,
-            block_store: Mutex::new(block_store),
+            block_store: Mutex::new(BlockStore::new(&PathBuf::new(), LockStatus::Locked)),
             block_data: Mutex::new(Vec::new()),
             block_plain_text_path: None,
         })
@@ -383,62 +381,6 @@ impl Kura {
     }
 }
 
-// Marker trait for typestate. Not sealed, since while it
-// doesn't need to be implemented by a user, implementing it
-// shouldn't lead to problematic behaviour.
-#[doc(hidden)]
-pub trait Lock: core::ops::Deref<Target = PathBuf> {}
-
-/// Marker struct for typestate. The marker signifies that the store is not protected
-/// by a lockfile the [`BlockStore`] instance owns and thus can be used read-only.
-///
-/// Owns the path to store because [`Unlocked`] needs
-/// to unlock it when dropped, and `Drop` impls
-/// cannot be specialized, so `Drop` has to be implemented
-/// on typestate `struct`.
-#[derive(Debug, Deref)]
-pub struct Unlocked(PathBuf);
-impl Lock for Unlocked {}
-
-impl Unlocked {
-    /// Create new [`Unlocked`] at `path`
-    fn new(path: PathBuf) -> Self {
-        Self(path)
-    }
-
-    /// Try to acquire lockfile and convert self to [`Locked`]
-    fn lock(self) -> Result<Locked> {
-        let path = self.join(LOCK_FILE_NAME);
-        if let Err(e) = fs::File::options()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(path.clone())
-        {
-            match e.kind() {
-                std::io::ErrorKind::AlreadyExists => Err(Error::Locked(self.0)),
-                std::io::ErrorKind::NotFound => {
-                    std::fs::create_dir_all(self.0.clone())
-                        .map_err(|e| Error::MkDir(e, path.clone()))?;
-                    if let Err(e) = fs::File::options()
-                        .read(true)
-                        .write(true)
-                        .create_new(true)
-                        .open(path.clone())
-                    {
-                        Err(Error::IO(e, path))
-                    } else {
-                        Ok(Locked(self.0))
-                    }
-                }
-                _ => Err(Error::IO(e, path)),
-            }
-        } else {
-            Ok(Locked(self.0))
-        }
-    }
-}
-
 /// Loaded block count
 #[derive(Clone, Copy, Debug)]
 pub struct BlockCount {
@@ -449,81 +391,17 @@ pub struct BlockCount {
     pub skip: usize,
 }
 
-/// Marker struct for typestate, signifies that store is protected by
-/// a lockfile owned by this instance of [`BlockStore`] and thus can be written into.
-///
-/// Owns the path to store because [`Unlocked`] needs
-/// to unlock it when dropped, and `Drop` impls
-/// cannot be specialized, so `Drop` has to be implemented
-/// on typestate struct.
-#[derive(Debug, Deref)]
-pub struct Locked(PathBuf);
-impl Lock for Locked {}
-
-impl Locked {
-    // Try to lift lockfile. Only for internal use in `unlock`
-    // and `Drop` implementation.
-    fn try_lift_lock(&mut self) -> Result<()> {
-        let path = self.join(LOCK_FILE_NAME);
-        if let Err(e) = fs::remove_file(path.clone()) {
-            match e.kind() {
-                std::io::ErrorKind::NotFound => Err(Error::Unlocked(self.0.clone())),
-                _ => Err(Error::IO(e, path)),
-            }
-        } else {
-            Ok(())
-        }
-    }
-
-    // Lift lockfile and convert self to [`Unlocked`]
-    fn unlock(mut self) -> Result<Unlocked> {
-        // Lift the lockfile manually
-        self.try_lift_lock()?;
-
-        // Prevent destructor from running (lockfile is already deleted)
-        let mut me = core::mem::ManuallyDrop::new(self);
-
-        let path = core::mem::take(&mut me.0);
-
-        Ok(Unlocked(path))
-    }
-}
-
-impl Drop for Locked {
-    fn drop(&mut self) {
-        if let Err(err) = self.try_lift_lock() {
-            warn!(%err, "Couldn't remove lockfile at {:?}. Either the lockfile was deleted externally while Iroha instance was running, or there was an IO error. Check the block store with kura_inspector and then delete the lockfile manually.", self);
-        }
-    }
-}
-
 /// An implementation of a block store for `Kura`
 /// that uses `std::fs`, the default IO file in Rust.
 #[derive(Debug)]
-pub struct BlockStore<L: Lock> {
-    path_to_blockchain: L,
+pub struct BlockStore {
+    path_to_blockchain: PathBuf,
 }
 
-/// Operations available only on unlocked store,
-/// i.e. creation and locking.
-impl BlockStore<Unlocked> {
-    /// Create a new read-only block store in `path`.
-    pub fn new(path: &Path) -> Self {
-        BlockStore {
-            path_to_blockchain: Unlocked::new(path.to_path_buf()),
-        }
-    }
-
-    /// Try to acquire a lockfile and convert self to
-    /// read-write [`BlockStore<Locked>`]
-    ///
-    /// # Errors
-    /// - IO errors
-    /// - lockfile already exists
-    pub fn lock(self) -> Result<BlockStore<Locked>> {
-        Ok(BlockStore {
-            path_to_blockchain: self.path_to_blockchain.lock()?,
-        })
+impl Drop for BlockStore {
+    fn drop(&mut self) {
+        let path = self.path_to_blockchain.join(LOCK_FILE_NAME);
+        let _ = fs::remove_file(path); // we don't care if this succeeds or not
     }
 }
 
@@ -536,9 +414,60 @@ pub struct BlockIndex {
     pub length: u64,
 }
 
-/// Operations available both on locked and unlocked store,
-/// i.e. only read operations.
-impl<L: Lock> BlockStore<L> {
+/// Locked Status
+#[derive(Clone, Copy)]
+pub enum LockStatus {
+    /// Is locked
+    Locked,
+    /// Is unlocked
+    Unlocked,
+}
+
+impl BlockStore {
+    /// Create a new read-only block store in `path`.
+    ///
+    /// # Panics
+    /// * if you pass in `LockStatus::Unlocked` and it is unable to lock the block store.
+    pub fn new(path: &Path, already_locked: LockStatus) -> Self {
+        if matches!(already_locked, LockStatus::Unlocked) {
+            let path = path.join(LOCK_FILE_NAME);
+            if let Err(e) = fs::File::options()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(path.clone())
+            {
+                match e.kind() {
+                    std::io::ErrorKind::AlreadyExists => Err(Error::Locked(path)),
+                    std::io::ErrorKind::NotFound => {
+                        match std::fs::create_dir_all(&path)
+                            .map_err(|e| Error::MkDir(e, path.clone()))
+                        {
+                            Err(e) => Err(e),
+                            Ok(_) => {
+                                if let Err(e) = fs::File::options()
+                                    .read(true)
+                                    .write(true)
+                                    .create_new(true)
+                                    .open(path.clone())
+                                {
+                                    Err(Error::IO(e, path))
+                                } else {
+                                    Ok(())
+                                }
+                            }
+                        }
+                    }
+                    _ => Err(Error::IO(e, path)),
+                }
+                .expect("Kura must be able to lock the blockstore");
+            }
+        }
+        BlockStore {
+            path_to_blockchain: path.to_path_buf(),
+        }
+    }
+
     /// Read a series of block indices from the block index file and
     /// attempt to fill all of `dest_buffer`.
     ///
@@ -667,32 +596,6 @@ impl<L: Lock> BlockStore<L> {
             .read_exact(dest_buffer)
             .map_err(|e| Error::IO(e, path))?;
         Ok(())
-    }
-}
-
-/// Functions available only for lock-protected block store,
-/// i.e. write operations.
-impl BlockStore<Locked> {
-    // Doesn't actually lock anything, do not use outside of tests.
-    #[cfg_attr(
-        not(debug_assertions),
-        deprecated(note = "Use of fake store in release is probably not what you want")
-    )]
-    fn fake_locked_for_tests(path: PathBuf) -> Self {
-        Self {
-            path_to_blockchain: Locked(path),
-        }
-    }
-    /// Try to release the lockfile and convert self to
-    /// read-only [`BlockStore<Unlocked>`]
-    ///
-    /// # Errors
-    /// - IO errors
-    /// - lockfile doesn't exist
-    pub fn unlock(self) -> Result<BlockStore<Unlocked>> {
-        Ok(BlockStore {
-            path_to_blockchain: self.path_to_blockchain.unlock()?,
-        })
     }
 
     /// Write the index of a single block at the specified `block_height`.
@@ -885,8 +788,6 @@ pub enum Error {
     },
     /// Tried to lock block store by creating a lockfile at {0}, but it already exists
     Locked(PathBuf),
-    /// Tried to unlock block store by deleting lockfile at {0}, but it couldn't be found
-    Unlocked(PathBuf),
     /// Conversion of wide integer into narrow integer failed. This error cannot be caught at compile time at present
     IntConversion(#[from] std::num::TryFromIntError),
 }
@@ -934,7 +835,7 @@ mod tests {
     #[test]
     fn read_and_write_to_blockchain_index() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = BlockStore::new(dir.path()).lock().unwrap();
+        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
         block_store.write_block_index(0, 5, 7).unwrap();
@@ -969,7 +870,7 @@ mod tests {
     #[test]
     fn read_and_write_to_blockchain_data_store() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = BlockStore::new(dir.path()).lock().unwrap();
+        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
         block_store
@@ -985,7 +886,7 @@ mod tests {
     #[test]
     fn fresh_block_store_has_zero_blocks() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = BlockStore::new(dir.path()).lock().unwrap();
+        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
         assert_eq!(0, block_store.read_index_count().unwrap());
@@ -994,7 +895,7 @@ mod tests {
     #[test]
     fn append_block_to_chain_increases_block_count() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = BlockStore::new(dir.path()).lock().unwrap();
+        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
         let append_count = 35;
@@ -1010,7 +911,7 @@ mod tests {
     #[test]
     fn append_block_to_chain_places_blocks_correctly_in_data_file() {
         let dir = tempfile::tempdir().unwrap();
-        let mut block_store = BlockStore::new(dir.path()).lock().unwrap();
+        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
         let block_data = b"some block data";
@@ -1031,9 +932,7 @@ mod tests {
     fn lock_and_unlock() {
         let dir = tempfile::tempdir().unwrap();
         {
-            let _store = BlockStore::new(dir.path())
-                .lock()
-                .expect("Lock acquisition failed");
+            let _store = BlockStore::new(dir.path(), LockStatus::Unlocked);
             assert!(
                 dir.path().join(LOCK_FILE_NAME).try_exists().expect("IO"),
                 "Lockfile should have been created"
@@ -1046,27 +945,19 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
     fn concurrent_lock() {
         let dir = tempfile::tempdir().unwrap();
-        let _store = BlockStore::new(dir.path())
-            .lock()
-            .expect("Lock acquisition failed");
-        let _store_2 = BlockStore::new(dir.path())
-            .lock()
-            .expect_err("Should fail to acquire lock");
+        let _store = BlockStore::new(dir.path(), LockStatus::Unlocked);
+        let _store_2 = BlockStore::new(dir.path(), LockStatus::Unlocked);
     }
 
     #[test]
     fn unexpected_unlock() {
         let dir = tempfile::tempdir().unwrap();
-        let block_store = BlockStore::new(dir.path())
-            .lock()
-            .expect("Lock acquisition failed");
+        let _block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         fs::remove_file(dir.path().join(LOCK_FILE_NAME))
             .expect("Lockfile should have been created");
-        block_store
-            .unlock()
-            .expect_err("Shoud fail to release lock");
     }
 
     #[tokio::test]
