@@ -4,7 +4,12 @@ use std::str::FromStr as _;
 
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
-use iroha_core::{block::*, kura::BlockStore, prelude::*, wsv::World};
+use iroha_core::{
+    block::*,
+    kura::{BlockStore, LockStatus},
+    prelude::*,
+    wsv::World,
+};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{
     block::VersionedCommittedBlock, prelude::*, transaction::TransactionLimits,
@@ -54,9 +59,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
             .unwrap();
     }
     let block: VersionedCommittedBlock = block.commit_unchecked().into();
-    let mut block_store = BlockStore::new(dir.path())
-        .lock()
-        .expect("Failed to lock store");
+    let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
     block_store.create_files_if_they_do_not_exist().unwrap();
 
     let serialized_block: Vec<u8> = block.encode_versioned();
