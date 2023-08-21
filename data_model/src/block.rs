@@ -315,7 +315,7 @@ mod committed {
     #[cfg(feature = "std")]
     impl From<&CommittedBlock> for Vec<Event> {
         fn from(block: &CommittedBlock) -> Self {
-            let tx = block.transactions.iter().cloned().map(|tx| {
+            let tx = block.transactions.iter().map(|tx| {
                 let status = tx.error.as_ref().map_or_else(
                     || PipelineStatus::Committed,
                     |error| PipelineStatus::Rejected(error.clone().into()),
