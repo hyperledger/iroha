@@ -83,7 +83,7 @@ Configuration reference contains Rust-specific expressions that wouldn't make se
 - [Using `Option<..>`](https://github.com/hyperledger/iroha/blob/35ba182e1d1b6b594712cf63bf448a2edefcf2cd/docs/source/references/config.md#option)
 - [Using `std::path::PathBuf`](https://github.com/hyperledger/iroha/blob/35ba182e1d1b6b594712cf63bf448a2edefcf2cd/docs/source/references/config.md#loggerlog_file_path)
 
-The use of rustisms like that overcomplicates the configuration reference and affects the user experience.
+The use of rustisms like that overcomplicates the configuration reference and affects the user experience. Further, it doesn't actually provide any extra information to a user familiar with Rust, as environment variables and JSON values cannot be `None` due to being strictly typed and null-able regardless of whether the type specifies `Option`.
 
 ### Unhelpful Error Messages
 
@@ -233,6 +233,8 @@ As we can see, `network` is not actually a configuration field in itself. Instea
 Internally, not all of the configuration-related logic is contained within a single `iroha_config` crate. Instead, some of the configuration resolution logic is located in other crates, such as `iroha_cli`. This makes the configuration-related code error-prone and harder to maintain.
 
 ## Proposals
+
+The proposals outlined in this section are designed to collectively enhance the configuration system within Iroha. However, they are not mutually required. Each proposal can be considered and implemented independently.
 
 ### Proposal 1 - Use TOML
 
@@ -443,9 +445,8 @@ iroha-config: Sourced ENV variables
   Overridden:
     `sumeragi.block_time_ms` from `BLOCK_TIME_MS` ENV var
     ...
-iroha-config: Defaulted to:
-  Fields:
-    ...
+iroha-config: Final user configuration
+  ... (print full configuration, including applied default values)
 ```
 
 #### Enabling Configuration Tracing
