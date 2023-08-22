@@ -18,15 +18,15 @@ There are configuration fields that shouldn't be initialized by the user, meanin
 
 As we can see, if the user tries to initialize `key_pair` and `peer_id` via the config file or env variables, they'll get an error. We are creating a terrible user experience by presenting the user with an option to configure something they should not be configuring.
 
-We should avoid exposing fields like this to the user.
+We should not expose such fields to the user as they are implementation details. 
 
 ### Naming Issues
 
-The configuration parameters naming presents a few challenges.
+The configuration parameter naming convention poses the following challenges.
 
 #### Overcomplicated ENV Variables
 
-ENV variables for all configuration parameters are named according to the internal module names. These technical designations might resonate with developers but can be confusing or alienating for users not deeply immersed in the project's inner mechanisms. Many FOSS projects gravitate towards generic, descriptive names to ensure broader comprehension and enhanced usability.
+ENV variables for all configuration parameters are named according to the internal module names. These technical designations might resonate with developers but can be confusing or alienating for users not deeply immersed in the project's inner mechanisms. The [POSIX specification](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08) actively encourages environment variables with succinct names. Given that a number of standard environment variable names exist, and their value can be redefined on a per-process basis, it is recommended to use generic environment variables as much as possible, before using specific names prefixed with `IROHA_`. 
 
 #### Inconsistent Naming of ENV Variables
 
@@ -44,7 +44,7 @@ Iroha 2 is configured via environment variables:
 ...
 ```
 
-The inconsistency between the `IROHA2` and `IROHA` prefixes can be confusing.
+The inconsistency between the `IROHA2` and `IROHA` prefixes can be confusing. Of the two, the `IROHA` prefix is preferred, as users are discouraged from using Iroha 1 in any new projects. 
 
 #### Inconsistent Naming of Configuration Parameters
 
@@ -74,7 +74,7 @@ The adoption of SCREAMING_CASE for parameters within the JSON configuration appe
 
 ---
 
-In sum, these issues underscore the need for clearer, more intuitive naming conventions in Iroha 2's configuration.
+In summary, these issues underscore the need for clearer, more intuitive naming conventions in Iroha 2's configuration.
 
 ### Rustisms in the Configuration Reference
 
@@ -297,8 +297,8 @@ Standardise the naming conventions of Iroha's configuration parameters, enhancin
 #### Rationale
 
 - **Clarity:** Consistent naming reduces ambiguity, allowing users to more easily understand and predict parameter names.
-- **Documentation Ease:** A unified naming convention simplifies the documentation process, ensuring coherence and easier updates.
-- **Error Minimisation:** Predictable and clear naming reduces the risk of configuration errors by users.
+- **Ease of Documentation:** A unified naming convention simplifies the documentation process, ensuring coherence and easier updates.
+- **Error Prevention:** Predictable and clear naming reduces the risk of configuration errors by users.
 
 #### Proposed Renamings
 
@@ -315,7 +315,7 @@ Here are the proposed changes for more consistent naming:
 
 For the sake of uniformity, it might be beneficial to nest the root `public_key` and `private_key` under an `iroha` namespace, resulting in `iroha.public_key` and `iroha.private_key`.
 
-Please note that this list is not exhaustive. During the configuration reference design process, we might encounter further areas of improvement and additional renaming suggestions.
+Please note that this list is not exhaustive. During the configuration reference design process, we might encounter further areas of improvement and additional renaming suggestions, which shall be reflected as updates to the RFC. 
 
 #### Summary
 
@@ -442,7 +442,7 @@ iroha-config: Sourced ENV variables
   Configured:
     `torii.addr_p2p` from `API_ENDPOINT_URL` ENV var
     ...
-  Overridden:
+  Overriddes:
     `sumeragi.block_time_ms` from `BLOCK_TIME_MS` ENV var
     ...
 iroha-config: Final user configuration
