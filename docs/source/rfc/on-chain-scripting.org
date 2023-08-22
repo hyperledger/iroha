@@ -1,0 +1,697 @@
+#+TITLE: Standards for on-chain scripting and smart contracts for Iroha v2.0 release
+#+AUTHOR: Aleksandr Petrosyan
+#+DATE: 2023-08-22
+* Introduction
+
+Many blockchains including BitCoin have adopted some on-chain
+scripting capability.  Iroha is built from the ground up to support
+the functionality via both the Iroha Special Instructions and at
+present by supporting custom executable logic in the form of the
+executor and smart contracts via the WASM standard.
+
+Through experience and given the benefit of hindsight, we have come to
+the conclusion that the standard has certain limitations and that so
+far the team has not over committed to WASM specifically but can still
+choose a different standard.
+
+Given Iroha v2.0 release is imminent, we have one last opportunity to
+reconsider the binary standard and this document will detail some
+suggestions. While the purpose of this document is not to denigrate
+anyone's work with harsh criticism, some of it is appropriate and
+shall be levied with as much restraint as is feasible given the
+situation.
+
+Without further ado. 
+
+* Current situation
+
+The Iroha Special Instructions were originally designed to facilitate
+the entirety of operations on the blockchain. As such, the expression
+system for instruction arguments, and the instruction set were
+designed with maximum flexibility.  However, after 2 years of
+development, it was found that even in simple cases the instruction
+set is far too cumbersome to be deployed, prompting the need for the
+Instruction Set Architecture (ISA) to be restructured.  In this
+document we shall assume that the restructuring is conducted with the
+most aggressive setting, and that the instruction set is minimised: to
+a set of RISC operations consisting of families of assertions and a
+unified namespace set instruction.
+
+This ISA, is not particularly expressive, but combined with a
+dynamically loaded executor module, which can then define a language
+of expressions which are shorthands for the instructions, one can
+indeed extend the Iroha language to accept all forms of extensions and
+cope with the most complex requests. Additionally, one of the main
+concerns of the original design: speed is no longer as big of a
+problem. If something is a complex instruction that occurs more than
+once, then it is possible to factor it out into its own blockchain
+specific instruction, which can then execute as fast as any native
+method would in the representation of the executor module.  However,
+the speed of execution and the size of the module become more
+important. Furthermore, the safety guarantees provided by said module
+are an increasing concern and thus the Iroha project faces the
+following dilemma.
+
+It is still possible to execute on the original vision with WASM, but
+this becomes increasingly problematic.  There are certain design
+aspects of this binary standard that preclude its efficient use in the
+capacity and with our architecture. Further, the [[https://wiki.hyperledger.org/display/iroha/Scripting+Languages+and+Runtimes+for+Iroha2+Smart+Contracts][original choice]] of
+this standard was done under incomplete information, and based on
+research with informational gaps and logical fallacies.  While many of
+the high-level architectural decisions are sound under the current
+situation it is worth reconsidering the original choice.
+
+The comparison was largely between the following standards: WASM,
+eBPF, Lua, Rhai and Scilla mentioned only briefly. Aside from these
+standards not really being comparable, there was no clear evaluation
+of fitness based on a set of criteria: case in point, the pros and
+cons for WASM comprised of the following pros:
+
+1. Well known and established in Blockchain space (Polkadot, Kusama,
+   other Substrate based networks)
+2. Well known and developing fast in web programming space
+3. Officially supported by Rust compiler as a target
+4. Rust core team is contributing to =wasmtime=
+5. It might be required for bridging Substrate based networks
+6. We have experience in it within our team and teams closely working to us
+7. Developed by wide community
+8. Execution can be easily limited with `fuel` (approximate of number
+   of assembly instructions that any script is allowed to execute at
+   most)
+
+Point 2 has questionable relevance for blockchain smart contract
+development.  The only relation is half-tangential in that web
+developers (who primarily use other languages), represent a large
+demographic of current programmers.
+
+Point 3 is misleading. 32-bit WASM is a Tier 2 target, which to quote
+the [[https://doc.rust-lang.org/nightly/rustc/platform-support.html][original documentation]],
+
+#+BEGIN_EXAMPLE
+Tier 2 targets can be thought of as "guaranteed to build". The Rust
+project builds official binary releases for each tier 2 target, and
+automated builds ensure that each tier 2 target builds after each
+change. Automated tests are not always run so it's not guaranteed to
+produce a working build, but tier 2 targets often work to quite a good
+degree and patches are always welcome! For the full requirements, see
+Tier 2 target policy in the Target Tier Policy.
+#+END_EXAMPLE
+
+in other words, it is one entry in a list of 50 architectures,
+including ones like =aarch64-apple-tvos=, =bpfeb-unknown-none=, which
+was /not/ mentioned in the eBPF discussion, =loongarch-*= etc.
+
+Point 4, is a logical fallacy. Being good at one thing doesn't
+translate into being good at another unrelated thing. It's like
+arguing that coffee that was brewed by Picasso is somehow better than
+coffee brewed by someone else.
+
+Point 5, neglects to consider the overall architecture of Iroha, and
+that even if Iroha uses WASM, because those smart contracts use a
+completely different API and ABI and are not modular like pallets in
+parity substrate, that then the smart contracts for all intents and
+purposes can be considered binary black boxes, which is also true of
+any other standard.
+
+Point 6 did not last. Most specialists could equally quickly learn to
+work with eBPF and with x86 binaries as well.
+
+Point 7 is a good indicator of health of the project, not of its
+suitability for purpose. The community is largely interested in using
+WASM to execute logic on the browser that might otherwise require
+native support from the architecture.
+
+Point 8 is an extremely minor one, because despite having =fuel= as a
+concept, it is not used to limit execution, but instead the even
+parity substrate decides weights via a benchmarking process.
+
+The cons are equally underdeveloped.
+
+1. Requires nightly* for the smart contracts themselves
+2. Difficult to limit memory further than 3GB in =wasmtime= (needs more
+   research)
+3. No Interface Types Support - so it has to be simulated through
+   passing serialized bytes or mapping memory
+
+The =nightly= build is hardly a drawback.  In practice usage of a
+specific nightly tool chain results in improved flexibility.  It is a
+minor inconvenience.  Limiting RAM usage to less than 3Gib, is a
+non-issue.  It should be possible to monitor the resident RAM taken up
+by a smart contract's execution, and kill the process as soon as a
+certain threshold is reached.
+
+Point 3 is the only high quality counter-argument, and it is held back
+by a verbose technical phrasing, position as last con in a long list,
+and a countermeasure that actively makes the problem worse.  Lack of
+interface types results in the need to use a serialisation standard to
+exchange data.  Given the overall architecture to limit this problem
+it is simply enough to expose structures via opaque pointers.
+
+The original documents pitfalls should be avoided when redesigning the
+smart contract infrastructure. As a consequence, we shall establish the
+set of criteria /before/ discussing and selecting candidates.
+
+* Selection criteria
+
+** Suitability as an executor
+
+*** Fast execution
+
+The executor occupies a much larger role in the execution of regular
+instructions.  As such, the standard must come with as little
+execution overhead as possible.
+
+Because the executor is unlikely to be upgraded frequently and that
+only one executor is active and resident in RAM at any one time, it is
+quite possible that optimisations which produce a larger executable
+but faster binary are important.
+
+*** Support for static linkage
+
+This follows from fast execution. The ability to eliminate the call
+overhead allows one to not deal with an extra boundary and extra
+interfaces. Static linkage also allows the executor to be amenable to
+link-time optimisation which can, counter-intuitively be used to
+reduce the size and execution time of a program simultaneously as
+opposed to dynamic linkage. 
+
+*** Rust interoperability
+
+The behaviour of the executor is defined in relation to how it
+modifies the world state. As such, it makes little sense to write the
+executor in a language that is incompatible and incongruous with Rust.
+
+It does not mean that the executor must be written in Rust exactly,
+but it ought to be a statically nominative typed language. Rust
+itself remains the best option as then the data model entities can be
+directly de-structured. 
+
+*** Support for efficient Parity SCALE codec operations
+
+Because the binary data is exchanged in this format, the executor is
+very likely going to spend most of its time dealing with decoding and
+encoding the incoming and out-going data, it should be able to decode
+parity SCALE well. This means that it must come from a language in
+which SCALE has a native library. 
+
+*** Safety and security
+
+The executor comes with some of the most important responsibilities in
+the blockchain. It is, in effect, the largest concentration of
+potential failure points in the blockchain. As such, it must come with
+as strong guarantees as one can muster in order to ensure that many of
+the invariants are properly enforced as well as that there is minimal
+room for undefined behaviour. 
+
+** Suitability for smart contracts
+
+*** Small binary size
+
+This is perhaps the most important consideration of all. Of course,
+if an operation is used frequently and it takes up far too much space
+in the block store, it might make sense to distribute some of the
+functionality as an executor extension.  But given that is not always
+a good option, the smart contracts should fit into at most several
+kilobytes. 
+
+*** Support for dynamic linkage
+
+Regardless of whether the language is able to operate on data model
+entities directly or not, it might not be capable of instantiating
+objects which behave the same way as other entities of the same type.
+
+As such it is often preferable to manipulate the data model entities
+as opaque objects with no known representation and instead rely on the
+run-time to provide a dynamic library which can both instantiate these
+objects, but also provide a way to interact with them outside the
+context of knowing what they are, and instead operating on them
+assuming only their public representation.
+
+*** Transparency
+
+While in the case of the executor, one can expect the user to simply
+audit the source code of the executor and trust that the process has
+reproducible artifacts resulted in a repeatable set of logically
+equivalent programs, the same cannot be said of smart contracts.
+
+If the auditing process takes longer and is less convenient than just
+looking at the source code, most users are liable not to audit it,
+which is antithetical to the entire point of distributed ledger
+technology. The more readable the language, the better the chances
+that users will be able to spot problematic code on their own, without
+requiring complex auditing processes.
+
+*** Sand boxing
+
+Smart contracts must strictly operate as (pure) functions which accept
+on-chain parameters as their inputs.  This invariant must be strictly
+enforced in order for blocks to be verifiable.  While this is also
+true of executors (in whom the sand boxing can be enforced during the
+auditing process), it must be mechanically enforced for
+smart contracts, because the governance cannot expend resources to
+verify that smart contracts are confined.
+
+*** Reproducibility
+
+If the standard is binary then the binary artifact must be easily
+reproducible from the source.  The word easily here means that instead
+of being a pure Boolean =true/false=, the number of steps needed to
+reproduce a build is measured. While it is in principle possible to
+make WASM reproducible, the solutions that are produced by
+substrate-based blockchains leave much to be desired.
+
+*** Forwards compatibility
+
+A smart contract in a binary format must be made forwards compatible
+assuming no major breaking changes in the ABI of the dynamic
+libraries.  One cannot assume that the binary standard can always be
+recompiled, with very few exceptions: byte-code based platforms, such
+as JVM, .NET and JavaScript with just-in-time compilation, the
+languages for which ahead-of-time compilation is a requirement cannot
+be automatically upgraded to a newer binary standard, unless the
+original source code is embedded (which countervails the point about
+binary size).
+
+*** Popularity
+
+This point can be a bit controversial, unless clarified.  This is one
+of many criteria to be considered, not a prevailing criterion that can
+unfairly bump an otherwise useless standard.  Additionally, the
+popularity must be understood in context of the application. SQL is
+considered the third most popular programming language, but storing
+raw SQL statements will hardly result in the same level of
+expressiveness as smart contracts in Ethereum.
+
+*** Support
+
+The standard must have a community that is unlikely to abandon the
+development of the standard.  This doesn't necessarily mean
+decentralised development, as (for example) the =x86_64-win32=
+standard, while being developed in-house by Microsoft is unlikely to
+be abandoned soon.
+
+*** Compatibility with SDK languages
+
+The Iroha SDK engineers should be able to (if need be), fix their
+upstream problems without requiring any help from the Iroha 2 core
+team. 
+
+*** Ease of maintenance
+
+This is the most important criterion that will determine if having two
+different standards for smart contracts and the executor is an ideal
+solution. Maintaining two different languages that fit each purpose
+well is predicated on the amount of work that could be invested into
+the development effort. 
+
+
+** Criteria applied
+
+It should go without saying that the aforementioned criteria should be
+applicable to both the executor and smart contracts unless otherwise
+specified. We should now establish a baseline and compare a few
+popular choices to demonstrate why the more mature criterion-based
+approach is better.
+
+*** WASM -- Rust
+
+In terms of execution speed, WASM is not ideal, but it is a temporary
+issue.  It cannot be faster to execute than native code, and most of
+the cost of running a WASM module is not from the pure execution
+standpoint but the overhead of loading and JIT-ting the program, which
+can be done in the background, so theoretically WASM satisfies this
+criterion with work. Extra precautions taken can reduce the time spent
+loading the WASM module before execution, instead focusing on the pure
+execution, which is comparable to native programs in =wasmtime=.
+
+WASM is predominantly statically linked. The module system is not yet
+developed, as there is no need for it.
+
+WASM has good Rust interoperability.  Rust can be directly compiled
+into WASM, and loaded as such.
+
+SCALE is supported well, but comes with a sizeable binary size
+overhead. It is worth mentioning that SCALE was designed to be used
+from WASM. 
+
+WASM on its own has an acceptable security model. Most objects are
+confined, but there are no built-in mechanisms for memory
+management. The baseline language for WASM: C++, does not have a good
+security track record, so while WASM is not a walking security
+vulnerability it is not great either. However, WASM with Rust has a
+great security model.
+
+WASM has sub-optimal binary size, owing to the fact that it (and Rust
+by extension) are predominantly statically linked.  There are multiple
+threads written on optimising WASM binary sizes, all of which require
+recurring work on behalf of the smart contract author.
+
+WASM does not at present have any support for dynamic linkage. In
+addition to the work that was already done to expose the Iroha data
+model entities to the C-ABI foreign function interface, additional
+work must be done to enable shared-memory dynamic linkage, to reduce
+the binary size to an acceptable level.
+
+WASM is opaque. Even the human-readable form of WASM: WAT (TODO link)
+is borderline unreadable for users. As such the transparency must be
+achieved through reproducibility and an external mechanism for pairing
+the code to a piece of source code that must be somehow verifiable.
+Unfortunately this is a problematic mechanism as a reproducible build
+is often a significant problem, and the person is better-off storing
+the source code on chain and compiling from that.
+
+Sand boxing is perhaps the only thing that WASM really excels at. If
+the virtual machine for WASM does not enable support for networking,
+or access to the system clock, or some other non-deterministic
+off-chain processes, the WASM program cannot access them, and thus is
+truly sand boxed.
+
+Reproducibility for Rust projects is problematic. It often entails
+many sacrifices, like doing the compilation in a single-threaded
+manner, running the compilation in a repeatable environment etc.
+Getting reproducible builds is still an outstanding task that was not
+finished by a senior engineer working on it full-time for four
+months. Other languages might not have this problem, but other
+languages using Rust would fare much worse on the previous criteria.
+If one counts the benefits of Rust and addresses them to WASM, then
+one must also count the negatives.
+
+Forwards compatibility is a pain point. Without dynamic linkage WASM
+has an unacceptable binary size.  Given this, strict control must be
+exercised over the structures, a task which is largely finished.
+However a smart contract ought to be JIT-ted to achieve forwards
+compatibility of some sort.
+
+Popularity with WASM is difficult to judge. The vast majority of
+programming is web development, but it is difficult to judge how much
+of it is done via WASM.  The major systems programming languages like
+Go, Rust and C++ support WASM very well, but those languages are not
+necessarily the best for smart contracts for one reason or another.
+In absence of evidence, I would hesitate to argue one way or another
+and give WASM the benefit of the doubt.  It is well-represented in
+Substrate-based blockchains, even though those are not the vast
+majority of blockchains.
+
+Support for WASM can be considered good. As was mentioned in the
+original RFC, the Rust core team officially supports =wasmtime=.  How
+much of a glowing endorsement that is had been recently tainted by the
+behaviour of certain Rust core team members, but as in the previous
+case I'd err on the positive side, given that WASM is widely used.
+
+WASM has support that ranges from passable to abysmal. JavaScript by
+definition can inter-operate with WASM, but valid JavaScript cannot be
+interpreted by =wasmtime=. Because of this, it is extremely unlikely
+that JavaScript could be converted into WASM ever[fn:1].  The JVM
+languages are nominally supported, but because their runtimes are
+typically large, LTO can only eliminate so much code before the smart
+contract is untenably large. For the record this problem can be
+mitigated with dynamic linkage, but it must also come with a custom
+compiler from Java to WASM that excludes the code fragments which
+should be linked against externally.  Python is plain too complicated
+to be efficiently compiled to WASM.  Additionally the Python that
+/can/ be compiled to WASM is much harder to write.
+
+Ease of maintenance is almost non-existent, because the cost of
+maintenance had been paid upfront.  This is discounting the fact that
+the =data_model= is split into two views, which must be made
+compatible in order for one to be available to the host and the other
+to be available to the smart contract.
+
+As such WASM is not a terrible standard. it may even be considered an
+all-round good candidate if it were in a league of its own and no
+other competing standard existed.
+
+*** Native Rust libraries
+
+Native Rust always has an advantage.  The overhead of interpreting a
+non-native format is always non-zero, though it can be brought down it
+will never be zero, unless a CPU is designed specifically to run WASM
+instructions[fn:2]. By some estimations WASM is within margin of error
+for benchmarks under some circumstances. I believe that we must assume
+that no vector CPU instructions will ever be used in a smart contract,
+and all execution must always be single-threaded for this never to be
+a problem. 
+
+Due to there being no ABI-stability guarantees from =rustc= the Rust
+program is typically statically linked against other Rust libraries,
+but dynamically linked against the system-wide standard C-library
+unless instructed otherwise.
+
+By definition Rust inter-operates with itself.
+
+The reference implementation of the Parity SCALE codec is in Rust. 
+
+Rust native has comparable security to Rust with WASM. WASM, in
+principle has an advantage, because there are no unsafe operations
+which are done via the =libc= interface, and the process is confined by
+default. Additionally, there's some potential for race conditions
+because while Rust can mitigate the issues associated to
+multi threading, the latter is completely absent from WASM. These
+differences are within margin of error, because all of the
+aforementioned drawbacks can easily be mitigated. [[https://wiki.archlinux.org/title/Firejail][Firejail]]
+particularly comes to mind.
+
+Native Rust can be optimised to the same sizes as WASM, potentially
+smaller. By that I mean that =libursa.dylib= is =17KiB=, while
+=libursa.wasm= is =1.8MiB=.  To be fair neither version of the library
+was optimised for size. On the other hand, the WASM is 32-bit which
+should have given it an advantage.
+
+Native dynamic linkage was the old standard for Rust and the origin of
+the orphan rule.  The dynamic linkage possible between shared objects
+is handled by the operating system and is some of the best-tested
+forms of dynamic linkage as it dominates the infrastructure.  The work
+needed to support =x86_64= dynamic linkage is orders of magnitude less
+than the work needed to implement dynamic linkage from the ground up.
+
+Native programs are opaque by definition. Just like with WASM, the
+ability to audit smart contracts is contingent on being able to build
+smart contracts reproducibly. It does not have WAT, but at the same
+time =x86= assembly is far more familiar to programmers.
+
+Sand boxing does not exist by default. In order to sandbox the smart
+contract execution environment, one must execute the smart contract
+from a confined process, which is easily achievable using
+firejail. This is a sub-optimal solution, compared to having a
+pessimistic confinement as there is an extra package that must be
+fetched which constitutes another dynamic dependency for Iroha which
+would not be the case if we used =wasmtime=. 
+
+Reproducility in Rust is problematic as in the case of WASM.
+
+Forwards compatibility is guaranteed by the ELF executable format,
+provided the dynamic libraries retain their ABI.  In principle,
+because none of the system libraries should be linked against, this is
+perfect forwards compatibility.
+
+Relative popularity of native code versus WASM is difficult to judge.
+However, native code is ubiquitous, as almost all of the web
+infrastructure depends on the presence of well-optimised native code.
+I am willing to concede that despite several decades of head-start,
+the native code might not be orders of magnitude more popular than web
+assembly. I am, however unwilling to concede that native code is less
+popular owing to factors outlined below.
+
+Support for native code is the best of all binary standards. The
+entirety of server and consumer electronics infrastructure must be
+replaced in order for native code to be abandoned. WASM is not
+well-established at this point and its use is largely situational.
+
+Native support for SDKs varies but is usually as good or better than
+with WASM.  JavaScript can not be interpreted without a native
+runtime, with that said, in lieu of embedding a full v8 interpreter,
+one can use a project like [[https://github.com/vercel/pkg][pkg]] to produce self-contained quasi-native
+applications.  This could be done with WASM, but with WASM the
+infrastructure to make use of this binary would not be present. The
+JVM compatibility is fixed by adding a Java runtime environment, which
+can be done once, and used directly.  As an addded benefit there are
+no special tools needed to produce a compatible =.jar= file and this
+process is well-documented. The same goes for any language that
+targets native environments and with a natively executable run-time.
+The only limiting factor in this instance is the portability of the
+run-time and ease of exposing the Iroha native objects to the
+run-time, which itself can be made easy with the introduction of an
+API in the form of a RISC ISA. Exposing native libraries for dynamic
+linkage is a matter of practicality[fn:3], rather than necessity. 
+
+Ease of maintenance is less than that of WASM. No run-time is present,
+so unless the host system is anything but a POSIX-compliant system
+with ELF executables, and the smartcontracts link against non-portable
+functions in the standard c library, there is no maintenance to speak
+of.
+
+To summarise, a native platform library is by almost all criteria
+either a direct upgrade, or a minor improvement. The one instance in
+which there is significantly more work to be done is the question of
+confinement.  What can generously be called a minor inconvenience is
+the fact that running native libraries on heterogeneous networks,
+utilising multiple architectures has to come with a separate emulation
+layer.  Experience with running =x86= containers on Apple silicone
+suggests that this process is not fool-proof. However, it is a price
+that is being paid already with WASM, the difference being that none
+of the platforms can be considered native and one less executable is
+to be shipped.
+
+This approach is also the most general. Agreeing that the
+smart contracts and the executor are written in native code for the
+host architecture of the nodes, is equivalent to requiring that the
+code be a program.  It doesn't even have to be compiled, as exposing
+the foreign function interface in such a way that additional
+interpreters on the host system can interact with Iroha allows direct
+source code storage. The problem of reproducibility can get
+exacerbated by this variety, but at the same time an elegant solution
+of using a host-side interpreter emerges. 
+
+This is merely a proof of concept. Few blockchains utilise a
+pre-existing standard, and almost all move towards a domain-specific
+ledger-specific virtual machine which was the original intent behind
+the Iroha instruction set.  In the interim some standard must serve as
+an intermediate language with fast execution and many of the
+aforementioned benefits.  The native =x86_64= GNU Linux binary is as
+good a temporary standard as WASM. Though, in reality one can do
+better.
+
+*** eBPF (historical)
+
+This is provided for historical reference, as it was included in the
+original discussion.
+
+BPF executes quickly and usually uses statically linked executables.
+It has some Rust interoperability, in the sense that BPF packages can
+be written in Rust, using [[https://github.com/aya-rs/aya][aya]], a project that sees active development,
+but is somewhat backed up with code contributions (40 Pull requests as
+of writing). As BPF stands for Berkeley Packet Filtering, the
+decoding of the network packets can be done somewhat more efficiently
+than normal. In terms of safety and security, BPF actually provides
+guarantees by rejecting programs which can crash. This comes at the
+cost of a subset of normal programs being accepted, but it is the same
+trade-off that is made in the Rust programming language.
+
+BPF would be a good choice for the executor.
+
+The binary size of eBPF was *not measured*. I would expect that eBPF
+would offer the same binary size as WASM. eBPF was not designed to
+dynamically link in the traditional sense.  It has other mechanisms
+such as Attaching and Linking which may not be suitable for reducing
+the binary size.  eBPF is opaque. eBPF offers native sand boxing, but
+does not preclude applications from accessing off-chain system data,
+and thus does not enforce the invariants which are needed.  As such it
+offers less sand boxing capability than native libraries do using
+firejail.  eBPF builds may or may not be reproducible depending on the
+source language and will likely inherit the problems of Rust.  eBPF is
+a new standard and while it is made to be maximally backwards and
+forwards compatible it is less so than e.g. the ELF standard.
+
+eBPF has niche popularity: there are few users but they consider eBPF
+to be indispensable.  Unfortunately, these users also make use of the
+low-level features of eBPF, which is problematic for smart contracts.
+eBPF has very limited compatibility with SDK languages.  Ease of
+maintenance is another problematic aspect. eBPF is not as widely used
+as either WASM or native code.
+
+eBPF would be a nice-to-have for the executor, as it would allow to
+propagate the performance improvements from the privileged in-kernel
+execution to the overall ledger performance, as well as offer
+additional mitigation to the elevated responsibilities of the
+executor.  It is however a bad choice for smartcontracts as it offers
+few if any advantages to using it as a means of sand boxing.  In fact,
+eBPF is used to securely run privileged applications, which is the
+exact opposite of what smartcontracts should be.
+
+Its inclusion in the discussion is questionable, as at the time, there
+were few good reasons to consider eBPF as a standard (because there
+was no executor to speak of). It is not a
+direct upgrade to WASM.
+
+*** [[https://www.zilliqa.com/language][Scilla]] (historical)
+
+This is also mentioned for historical reasons. The execution speed and
+other parameters *have not been bench marked*, Scilla is to be
+disqualified on the following three points.
+- The language is designed for a [[https://www.zilliqa.com/][Ziliqa]] based network. Adapting it to
+  Iroha would require forking the language.
+- Ziliqa's exportability to =coq= can be overshadowed by formal proof
+  methods available to Rust, and will enforce the smart contracts to
+  be constructed with extra work.
+- Insider information that is not to be disclosed in a public
+  document.
+
+As such Scilla can be disqualified as well.
+
+
+*** Java virtual machine
+
+While it was mentioned [[Native Rust libraries][previously in the section Rust native libraries]]
+that the Java virtual machine can be supported as a subset of
+smartcontract languages by exposing a C-ABI foreign function
+interface, there are benefits to supporting only the JVM. 
+
+Firstly, owing to the maturity and the ubiquity of the standard much
+work has gone towards mitigating the performance issues associated to
+garbage collection in Java.  [[https://plummerssoftwarellc.github.io/PrimeView/report?id=3990&hi=False&hf=False&hp=False&fi=&fp=&fa=&ff=&fb=&tp=False&sc=pp&sd=True][The top-end procedural Java programs can
+compete with mid-level C and C++ programs]].  [[https://docs.oracle.com/javase/8/docs/technotes/guides/jni/spec/design.html#compiling_loading_and_linking_native_methods][Since Java 8]], it is
+possible to link dynamically and statically against native methods: 
+while this comes with some additional overhead, it would allow C-ABI
+to work as a /lingua franca/ but idiomatic error handling via
+exceptions would have to be implemented as an extension. This also
+answers the question of Rust interoperability: it is possible to do so
+by exposing the FFI (the added benefit being that the FFI could be
+later used for a different standard, and would have to be implemented
+for WASM anyway).  The =iroha-java= library makes use of the Parity
+SCALE codec.  This is the first instance where the library is not the
+reference implementation so it should be noted that there is
+potential for bugs. Fortunately, the SCALE standard is well-specified
+and the problem is mitigated.
+
+Java offers memory safety via garbage collection.  Java does not have
+special handling for foreign functions and thus it is possible that
+the aforementioned functions can themselves cause undefined behaviour.
+This is a step down from the guarantees of Rust, and it is possible
+that standard and well-tested [[https://www.cisa.gov/news-events/news/apache-log4j-vulnerability-guidance][Java applications can still have
+vulnerabilities]].  Not to say that Java applications are insecure,
+but the percentage is slightly higher than for Rust applications, to
+have a CVE, due to a focus on simplicity of syntax obscuring potential
+points of undefined behaviour.
+
+Java binaries need to be bench marked in a representative form to be
+comparable.  There are some architectural reasons to suspect that Java
+binaries can be smaller than equivalent statically linked Rust
+binaries: mainly because most of the standard library is linked
+dynamically by the Java Runtime Environment, so one gets most of the
+benefit of the dynamic linkage already.  However most objects in the
+Iroha data model are defined as Rust structures, so interactions with
+them must be done via either intermediate representations, or dynamic
+linkage. As such dynamic linkage is a must.  Fortunately, it is easier
+to do that with Java than it is with Rust, even though this is at the
+cost of performance, most dispatch in Java is dynamic by design, thus
+making the question of handling object lifetimes inside libraries much
+easier.  Dynamic linkage of some form, thus becomes a necessity.
+
+Java is opaque. 
+
+
+* Footnotes
+[fn:3] For the sake of completeness, let us mention that a =python=
+interpreter comes pre-installed with most systems and exposing a
+function in a Python-compatible fashion is little more than exposing
+it with the C-ABI. For example, the following loads a C-ABI function
+that was not specially designed to be callable from python:
+
+#+begin_src python
+# ctypes_test.py
+import ctypes
+import pathlib
+
+if __name__ == "__main__":
+    # Load the shared library into ctypes
+    libname = pathlib.Path().absolute() / "libcmult.so"
+    c_lib = ctypes.CDLL(libname)
+#+end_src
+
+
+[fn:2] A different native format can still beat the regular
+native library if e.g. it is run in kernel space and/or in an
+operating system free environment with bare-metal 
+
+[fn:1] Although in principle JavaScript as a language is not suitable
+for financial calculations anyway.
