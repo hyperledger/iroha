@@ -11,6 +11,7 @@ proc-macro = true
 quote = "1.0"
 proc-macro2 = "1.0"
 litrs = "0.4.0"
+enum_dispatch = "0.3.5"
 
 [dev-dependencies]
 iroha_data_model = { workspace = true }
