@@ -73,6 +73,22 @@ jobs:
       #     labels: |
       #       Documentation
 
+      - name: RFC
+        uses: actions-ecosystem/action-regex-match@v2
+        id: ci-match
+        if: steps.feature-match.outputs.match == ''
+        with:
+          text: ${{ github.event.pull_request.title }}
+          regex: '^\[RFC\]: .+$'
+      # - name: Add CI label
+      #   uses: actions-ecosystem/action-add-labels@v1
+      #   if: steps.ci-match.outputs.match != ''
+      #   continue-on-error: true
+      #   with:
+      #     github_token: ${{ secrets.github_token }}
+      #     labels: |
+      #       CI
+
       - name: CI
         uses: actions-ecosystem/action-regex-match@v2
         id: ci-match
