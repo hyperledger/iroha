@@ -21,7 +21,7 @@ anyone's work with harsh criticism, some of it is appropriate and
 shall be levied with as much restraint as is feasible given the
 situation.
 
-Without further ado. 
+Without further ado.
 
 * Current situation
 
@@ -131,7 +131,7 @@ The cons are equally underdeveloped.
 2. Difficult to limit memory further than 3GB in =wasmtime= (needs more
    research)
 3. No Interface Types Support - so it has to be simulated through
-   passing serialized bytes or mapping memory
+   passing serialized bytes or mapping memory[fn:6]
 
 The =nightly= build is hardly a drawback.  In practice usage of a
 specific nightly tool chain results in improved flexibility.  It is a
@@ -173,7 +173,7 @@ overhead allows one to not deal with an extra boundary and extra
 interfaces. Static linkage also allows the executor to be amenable to
 link-time optimisation which can, counter-intuitively be used to
 reduce the size and execution time of a program simultaneously as
-opposed to dynamic linkage. 
+opposed to dynamic linkage.
 
 *** Rust interoperability
 
@@ -184,7 +184,7 @@ executor in a language that is incompatible and incongruous with Rust.
 It does not mean that the executor must be written in Rust exactly,
 but it ought to be a statically nominative typed language. Rust
 itself remains the best option as then the data model entities can be
-directly de-structured. 
+directly de-structured.
 
 *** Support for efficient Parity SCALE codec operations
 
@@ -192,7 +192,7 @@ Because the binary data is exchanged in this format, the executor is
 very likely going to spend most of its time dealing with decoding and
 encoding the incoming and out-going data, it should be able to decode
 parity SCALE well. This means that it must come from a language in
-which SCALE has a native library. 
+which SCALE has a native library.
 
 *** Safety and security
 
@@ -201,7 +201,7 @@ the blockchain. It is, in effect, the largest concentration of
 potential failure points in the blockchain. As such, it must come with
 as strong guarantees as one can muster in order to ensure that many of
 the invariants are properly enforced as well as that there is minimal
-room for undefined behaviour. 
+room for undefined behaviour.
 
 ** Suitability for smart contracts
 
@@ -212,7 +212,7 @@ if an operation is used frequently and it takes up far too much space
 in the block store, it might make sense to distribute some of the
 functionality as an executor extension.  But given that is not always
 a good option, the smart contracts should fit into at most several
-kilobytes. 
+kilobytes.
 
 *** Support for dynamic linkage
 
@@ -294,7 +294,7 @@ be abandoned soon.
 
 The Iroha SDK engineers should be able to (if need be), fix their
 upstream problems without requiring any help from the Iroha 2 core
-team. 
+team.
 
 *** Ease of maintenance
 
@@ -302,7 +302,7 @@ This is the most important criterion that will determine if having two
 different standards for smart contracts and the executor is an ideal
 solution. Maintaining two different languages that fit each purpose
 well is predicated on the amount of work that could be invested into
-the development effort. 
+the development effort.
 
 
 ** Criteria applied
@@ -332,7 +332,7 @@ into WASM, and loaded as such.
 
 SCALE is supported well, but comes with a sizeable binary size
 overhead. It is worth mentioning that SCALE was designed to be used
-from WASM. 
+from WASM.
 
 WASM on its own has an acceptable security model. Most objects are
 confined, but there are no built-in mechanisms for memory
@@ -430,7 +430,7 @@ instructions[fn:2]. By some estimations WASM is within margin of error
 for benchmarks under some circumstances. I believe that we must assume
 that no vector CPU instructions will ever be used in a smart contract,
 and all execution must always be single-threaded for this never to be
-a problem. 
+a problem.
 
 Due to there being no ABI-stability guarantees from =rustc= the Rust
 program is typically statically linked against other Rust libraries,
@@ -439,17 +439,20 @@ unless instructed otherwise.
 
 By definition Rust inter-operates with itself.
 
-The reference implementation of the Parity SCALE codec is in Rust. 
+The reference implementation of the Parity SCALE codec is in Rust.
 
 Rust native has comparable security to Rust with WASM. WASM, in
 principle has an advantage, because there are no unsafe operations
-which are done via the =libc= interface, and the process is confined by
-default. Additionally, there's some potential for race conditions
-because while Rust can mitigate the issues associated to
-multi threading, the latter is completely absent from WASM. These
-differences are within margin of error, because all of the
-aforementioned drawbacks can easily be mitigated. [[https://wiki.archlinux.org/title/Firejail][Firejail]]
-particularly comes to mind.
+which are done via the =libc= interface, and the process is confined
+by default, at the same time, undefined behaviour can have the same
+level of catastrophic side-effects if it is triggered inside WASM.
+Additionally, there's some potential for race conditions because while
+Rust can mitigate the issues associated to multi threading, the latter
+is completely absent from WASM.  These differences are within margin
+of error, because all of the aforementioned drawbacks can easily be
+mitigated.  [[https://wiki.archlinux.org/title/Firejail][Firejail]] particularly comes to mind.  In other words, Rust
+native libraries has only /slightly/ less security as compared to Rust
+compiled to WASM.
 
 Native Rust can be optimised to the same sizes as WASM, potentially
 smaller. By that I mean that =libursa.dylib= is =17KiB=, while
@@ -475,7 +478,7 @@ from a confined process, which is easily achievable using
 firejail. This is a sub-optimal solution, compared to having a
 pessimistic confinement as there is an extra package that must be
 fetched which constitutes another dynamic dependency for Iroha which
-would not be the case if we used =wasmtime=. 
+would not be the case if we used =wasmtime=.
 
 Reproducility in Rust is problematic as in the case of WASM.
 
@@ -512,7 +515,7 @@ The only limiting factor in this instance is the portability of the
 run-time and ease of exposing the Iroha native objects to the
 run-time, which itself can be made easy with the introduction of an
 API in the form of a RISC ISA. Exposing native libraries for dynamic
-linkage is a matter of practicality[fn:3], rather than necessity. 
+linkage is a matter of practicality[fn:3], rather than necessity.
 
 Ease of maintenance is less than that of WASM. No run-time is present,
 so unless the host system is anything but a POSIX-compliant system
@@ -527,7 +530,7 @@ confinement.  What can generously be called a minor inconvenience is
 the fact that running native libraries on heterogeneous networks,
 utilising multiple architectures has to come with a separate emulation
 layer.  Experience with running =x86= containers on Apple silicone
-suggests that this process is not fool-proof. However, it is a price
+suggests that this process is not fool-proof[fn:5].  However, it is a price
 that is being paid already with WASM, the difference being that none
 of the platforms can be considered native and one less executable is
 to be shipped.
@@ -540,7 +543,7 @@ the foreign function interface in such a way that additional
 interpreters on the host system can interact with Iroha allows direct
 source code storage. The problem of reproducibility can get
 exacerbated by this variety, but at the same time an elegant solution
-of using a host-side interpreter emerges. 
+of using a host-side interpreter emerges.
 
 This is merely a proof of concept. Few blockchains utilise a
 pre-existing standard, and almost all move towards a domain-specific
@@ -589,7 +592,7 @@ support, but the investment itself would be monstrous.
 A custom VM would have by far the weakest security of all the listed
 standards.  A near-copy inherits almost none of the security
 guarantees of the original, unless copied in a carefully considered
-way. 
+way.
 
 While it is possible that domain-specific instructions can elide some
 implicit information, the proximity of the domain-specific logical
@@ -631,7 +634,7 @@ tightening security guarantees, and allowing for simple representation
 of domain-specific concepts.  Given that Iroha is instead designed to
 have as little domain specific as possible, designing a custom VM
 would not achieve much beyond creating a sub-optimal development
-experience. 
+experience.
 
 *** eBPF (historical)
 
@@ -705,13 +708,13 @@ As such Scilla can be disqualified as well.
 While it was mentioned [[Native Rust libraries][previously in the section Rust native libraries]]
 that the Java virtual machine can be supported as a subset of
 smartcontract languages by exposing a C-ABI foreign function
-interface, there are benefits to supporting only the JVM. 
+interface, there are benefits to supporting only the JVM.
 
 Firstly, owing to the maturity and the ubiquity of the standard much
 work has gone towards mitigating the performance issues associated to
 garbage collection in Java.  [[https://plummerssoftwarellc.github.io/PrimeView/report?id=3990&hi=False&hf=False&hp=False&fi=&fp=&fa=&ff=&fb=&tp=False&sc=pp&sd=True][The top-end procedural Java programs can
 compete with mid-level C and C++ programs]].  [[https://docs.oracle.com/javase/8/docs/technotes/guides/jni/spec/design.html#compiling_loading_and_linking_native_methods][Since Java 8]], it is
-possible to link dynamically and statically against native methods: 
+possible to link dynamically and statically against native methods:
 while this comes with some additional overhead, it would allow C-ABI
 to work as a /lingua franca/ but idiomatic error handling via
 exceptions would have to be implemented as an extension. This also
@@ -751,7 +754,10 @@ easier.  Dynamic linkage of some form, thus becomes a necessity.
 Java is opaque: it was designed for the open-closed principle, where
 classes are open to extension but closed to modification. The same
 extends to byte code, because Java was originally designed to
-distribute potentially proprietary software. 
+distribute potentially proprietary software.  However, Java byte-code
+retains much more information and the decompilation process is capable
+of decoding much more information from the byte-code binary than it is
+from a native executable.
 
 *** Lua
 
@@ -778,7 +784,7 @@ overlaps with the Iroha data model and some conversion shall be
 necessary.  Lua also allows a concept of =userdata= which usually
 means a pointer to a raw block of memory that is to be manipulated
 opaquely, which lines up perfectly with the intended interaction via
-opaque pointers. 
+opaque pointers.
 
 Parity SCALE codec structures must be mapped onto Lua native
 structures.  However, because Lua supports tables, the conversions can
@@ -821,7 +827,7 @@ Overall Lua is a virtuous candidate; it can resolve many issues by the
 sheer simplicity and ease of use.  The debugging experience is
 somewhat less complete, because of lack of robust static analysis
 features such as with e.g. Rust, but the language more than makes up
-for it, in transparency support and ease of maintenance. 
+for it, in transparency support and ease of maintenance.
 
 *** Haskell
 
@@ -856,8 +862,7 @@ as source code, and compiled in place.  Owing to ease of composition
 and a terse syntax Haskell is used in code golfing.  Haskell does not
 have as many complex invariants to uphold as does Rust, thus it can do
 dynamic linkage much more simply than Rust.  However, linking
-pro-actively, which is to say =dlopen= comes [[Haskell. in
-accomplish to hard is ][with its caveats]]
+pro-actively, which is to say =dlopen= comes [[https://wiki.haskell.org/Foreign_Function_Interface][with its caveats]]
 
 Transparency requires a Haskell program to be stored as source code.
 Haskell binaries are no more intelligible than any other natively
@@ -883,7 +888,7 @@ much easier.
 Sand boxing is one of the key areas where Haskell shines.  All Haskell
 programs are purely functional (unlike e.g. OCaml that is functional
 by default, but retains an imperative subset).  Any deviations must be
-carried through the type system, and unlike =unsafe= in Rust, which
+carried through the type system, and unlike =unsafe=[fn:7] in Rust, which
 can occur silently inside of functions, functions which can cause
 input and output to happen, must carry the information through the
 type system.  It is impossible to have anything other than pure
@@ -925,8 +930,25 @@ optimisations for declarative programming has the benefit of rarely
 having to modify the program.
 
 * Footnotes
+[fn:7] It must be said that [[https://hackage.haskell.org/package/base-4.18.0.0/docs/System-IO-Unsafe.html#v:unsafePerformIO][UnsafePerformIO]] is a backdoor to the
+monadic model.  It is true that it can obfuscate the presence of
+=IO=-associated side-effects.  It is also true that it must be
+provided in the runtime, and can be excluded from it.
 
-[fn:4] Haskell is, like Scilla easily amenable to formal verification.
+[fn:6] The [[https://github.com/WebAssembly/component-model][component model]], is still in flux, and [[https://github.com/AmbientRun/Ambient/tree/main][the one project]] that
+uses it is in very early stages.  If the status quo approach is
+retained, this is definitely an avenue that should be explored instead
+of an in-house implementation of the shared memory dynamic linkage.
+
+[fn:5] There is a practice of shipping multi-architecture binaries,
+called "fat binaries", and is most notably used in Clear Linux (for a
+different purpose, the intend being to ship with native optimisations)
+for all the supported =x86_64= variants.  This is not totally
+unacceptable; binary size is less of a factor for the executor, and
+more of a factor for smart contracts (which can afford slightly worse
+performance).
+
+[fn:4] Haskell is, like Scilla is good for formal verification.
 
 [fn:3] For the sake of completeness, let us mention that a =python=
 interpreter comes pre-installed with most systems and exposing a
@@ -940,15 +962,15 @@ import ctypes
 import pathlib
 
 if __name__ == "__main__":
-    # Load the shared library into ctypes
-    libname = pathlib.Path().absolute() / "libcmult.so"
-    c_lib = ctypes.CDLL(libname)
+	# Load the shared library into ctypes
+	libname = pathlib.Path().absolute() / "libcmult.so"
+	c_lib = ctypes.CDLL(libname)
 #+end_src
 
 
 [fn:2] A different native format can still beat the regular
 native library if e.g. it is run in kernel space and/or in an
-operating system free environment with bare-metal 
+operating system free environment with bare-metal
 
 [fn:1] Although in principle JavaScript as a language is not suitable
 for financial calculations anyway.
