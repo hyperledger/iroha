@@ -551,6 +551,88 @@ aforementioned benefits.  The native =x86_64= GNU Linux binary is as
 good a temporary standard as WASM. Though, in reality one can do
 better.
 
+*** Custom VM
+
+This was the original plan and it is added for the following reason.
+The blockchain ledgers that do not come with their own virtual machine
+are in the minority.  There are foundational reasons why it is
+important and useful to consider this approach for Iroha-based
+blockchains.
+
+The ISA restructuring RFC leaves the door open to RISC instructions
+which allow logic and Turing-complete programming on-chain.  If WASM
+is only a temporary solution there's no need to restrict the Iroha ISA
+to a linear programming model.  And logic, jumps and so on can be
+added in due course.
+
+For the time being, here's how a custom VM would fare in comparison to
+the off-the-shelf implementations.
+
+A custom VM would require considerable amount of work to match the
+performance of native logic, it is possible to do so as is
+demonstrated with Ethereum, but will require a considerable time
+investment.
+
+A custom VM would be difficult to statically link with an
+off-the-shelf-linker.  Link-time-optimisation must be implemented
+manually, which can result in bloated and inefficient executable
+binaries. But this can be done.
+
+A custom VM would have to be modelled after Rust-like concepts  to
+have good interoperability.  This implies support for de-structuring,
+awareness of the binary layouts, control over Rust ABI.  This is an
+intractable task even for Parity Ink.
+
+SCALE is another area where time investment can result in excellent
+support, but the investment itself would be monstrous.
+
+A custom VM would have by far the weakest security of all the listed
+standards.  A near-copy inherits almost none of the security
+guarantees of the original, unless copied in a carefully considered
+way. 
+
+While it is possible that domain-specific instructions can elide some
+implicit information, the proximity of the domain-specific logical
+instructions to their native counterparts, directly correlates with
+execution speed, so the binary size is at best the same as that of a
+natively compiled application for near-native performance.  In
+reality, for anything but the simplest operations the binary size
+would be orders of magnitude larger than that of the comparably
+written native binary, given that every optimisation must be done by
+hand.
+
+Dynamic linkage would have to be implemented manually.  This gives the
+team the opportunity to tailor the ABI to the domain-specific
+concepts, and thus define what is (and crucially isn't) an
+ABI-breaking change.  Additionally while this task is monstrous, it is
+comparable to the work that would be needed to implement WASM modules.
+Unlike the task of WASM modules, there can never be a situation in
+which the task is implemented by someone else.
+
+Human-readability would have to be designed in, and will likely
+interfere with the other optimisation criteria.  Sand boxing would
+similarly need to be designed in.  Reproducible builds from a DSL
+would have to be designed in.  Forwards compatibility would be a
+constraint that shall always be present.
+
+Popularity would be negligible.  In the eyes of a regular engineer, it
+is "just another" instruction set to learn.  Unless it supports
+something that the EVM does not, a fair argument can be levied for not
+learning the Iroha VM.  Support would have to be provided by the
+development team.
+
+SDK support is non-existent. Ease of maintenance is the highest.
+
+The implementation of a custom VM is a monumental task.  It is not
+impossible, but it requires a huge investment, and must be done with
+careful consideration.  Every performance milestone, must be reached
+with internal effort. The reason to do so, usually comes down to
+tightening security guarantees, and allowing for simple representation
+of domain-specific concepts.  Given that Iroha is instead designed to
+have as little domain specific as possible, designing a custom VM
+would not achieve much beyond creating a sub-optimal development
+experience. 
+
 *** eBPF (historical)
 
 This is provided for historical reference, as it was included in the
@@ -617,7 +699,6 @@ disqualified on the following three points.
   document.
 
 As such Scilla can be disqualified as well.
-
 
 *** Java virtual machine
 
@@ -841,8 +922,7 @@ Maintaining Haskell is usually not difficult owing to the fact that
 there are few if any changes for Haskell-internal libraries.  Doing
 things the less efficient way, and relying on the compiler to do the
 optimisations for declarative programming has the benefit of rarely
-having to modify the program. 
-
+having to modify the program.
 
 * Footnotes
 
