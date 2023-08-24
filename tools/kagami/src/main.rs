@@ -20,7 +20,6 @@ mod crypto;
 mod docs;
 mod genesis;
 mod schema;
-mod swarm;
 mod validator;
 
 /// Outcome shorthand used throughout this crate
@@ -79,8 +78,6 @@ pub enum Args {
     Docs(Box<docs::Args>),
     /// Generate the default validator
     Validator(validator::Args),
-    /// Generate Docker Compose configuration
-    Swarm(swarm::Args),
 }
 
 impl<T: Write> RunArgs<T> for Args {
@@ -94,7 +91,6 @@ impl<T: Write> RunArgs<T> for Args {
             Config(args) => args.run(writer),
             Docs(args) => args.run(writer),
             Validator(args) => args.run(writer),
-            Swarm(args) => args.run(),
         }
     }
 }
