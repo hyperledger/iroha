@@ -504,7 +504,7 @@ one can use a project like [[https://github.com/vercel/pkg][pkg]] to produce sel
 applications.  This could be done with WASM, but with WASM the
 infrastructure to make use of this binary would not be present. The
 JVM compatibility is fixed by adding a Java runtime environment, which
-can be done once, and used directly.  As an addded benefit there are
+can be done once, and used directly.  As an added benefit there are
 no special tools needed to produce a compatible =.jar= file and this
 process is well-documented. The same goes for any language that
 targets native environments and with a natively executable run-time.
@@ -667,10 +667,187 @@ cost of performance, most dispatch in Java is dynamic by design, thus
 making the question of handling object lifetimes inside libraries much
 easier.  Dynamic linkage of some form, thus becomes a necessity.
 
-Java is opaque. 
+Java is opaque: it was designed for the open-closed principle, where
+classes are open to extension but closed to modification. The same
+extends to byte code, because Java was originally designed to
+distribute potentially proprietary software. 
+
+*** Lua
+
+I must address one mistake mentioned in the [[https://wiki.hyperledger.org/display/iroha/Scripting+Languages+and+Runtimes+for+Iroha2+Smart+Contracts][original discussion]], Lua
+was considered slower by virtue of being garbage collected.
+[[Well-wtitten][Well-written Lua can]] outperform C++, and is faster than either
+JavaScript or Java. Being an interpreted language, the fact that it is
+possible to match the performance of C++ and in some situations
+outperform it is a testament to the performance of Lua (and
+incidentally more than twice as fast as =AssemblyScript=, which
+ostensibly compiles to raw WASM). Due to being an interpreted (just in
+time compiled) language, Lua has some additional overhead if it is
+deployed as a smart contract, a price which one needs to pay once.
+Incidentally the same is true of WASM.
+
+In case of Lua static linkage is against other libraries written in
+Lua, which is not a great idea. It is possible, but not preferable if
+deployed in the executor to instead link dynamically against native
+methods to avoid having to compile a larger effective script.
+
+Rust interoperability as with everything above goes through an FFI
+layer.  Like with Java, Lua offers a robust standard library which
+overlaps with the Iroha data model and some conversion shall be
+necessary.  Lua also allows a concept of =userdata= which usually
+means a pointer to a raw block of memory that is to be manipulated
+opaquely, which lines up perfectly with the intended interaction via
+opaque pointers. 
+
+Parity SCALE codec structures must be mapped onto Lua native
+structures.  However, because Lua supports tables, the conversions can
+be carried out purely using dynamic linkage.  This is not as efficient
+as static linkage would be if the structures had support for a native
+codec, but it would elide the alternative of costly conversions.
+
+Lua is not designed with safety in mind, but it, like Python gains
+safety from sanity checks during interpretation.  To trigger undefined
+behaviour using Lua, one must cause a problem either with or in the
+dynamically linked C-ABI functions.  It must be noted that few
+languages can match the safety guarantess of Rust.
+
+Lua does not have a binary size. The source code is what is executed,
+because the JIT is relatively quick.  As such, the binary size is
+minimal, as the library code often dominates the sizes of the source
+code that generated it.  Lua supports native C-ABI dynamic linkage.
+Lua is transparent, because the source code is the program.  Lua can
+be sand boxed, if the user simply provides functions which do not read
+or write the kind of data to be avoided.  Reproducibility is a
+non-issue, because the source is the program.  Forwards compatibility
+is also a non-issue, because even some changes to signatures and types
+which technically break the ABI can be compensated for during the JIT
+process.
+
+Lua is well-established as an embedable scripting language.  It is
+the basis of the Neovim text editor, and used in multiple high
+complexity scripting environments.  Case in point, many of Minecraft's
+Turing complete computer demonstrations are actually mainly possible
+thanks to Lua. It is well-supported in all of its circles, mature and
+well-tested.
+
+The only real drawback to Lua is that if it is accepted as a
+blockchain scripting language, then all SDKs must use Lua for their
+work. Fortunately the language is easy to learn and easy to debug.
+Maintaining a Lua interpreter is as easy as bumping a crate version.
+It is only slightly more work than using a native binary executable.
+
+Overall Lua is a virtuous candidate; it can resolve many issues by the
+sheer simplicity and ease of use.  The debugging experience is
+somewhat less complete, because of lack of robust static analysis
+features such as with e.g. Rust, but the language more than makes up
+for it, in transparency support and ease of maintenance. 
+
+*** Haskell
+
+Haskell is the [[https://plummerssoftwarellc.github.io/PrimeView/report?id=3995&hi=False&hf=False&hp=True&fi=&fp=&fa=&ff=&fb=&tp=False&sc=pp&sd=True][fastest functional programming language]], being only
+slower than Rust, Chapel, Zig, C++, C and D, thus being faster than
+either Java, JavaScript and Lua, being comparable to languages like
+Nim in terms of performance and readability.  Haskell is primarily
+statically linked, with a dynamically linked runtime.  What's more
+Haskell can both be interpreted (via JIT), or compiled which gives the
+blockchain developers some flexibility with respect to execution
+methods.
+
+Haskell has certain similarities with Rust, which would make the
+interoperability much easier.  Though not seamless, Haskell would be
+able to represent any object that Rust can represent.
+
+The only issue is that the support for the Parity Scale Codec is not
+built-in and would have to be added by the engineers.
+
+Haskell is the safest choice in this list, because a functional
+programming language can set some guarantees that no other method can.
+Haskell has a better security track record than even Rust, because
+functional programming is fundamentally concerned with side-effects
+which includes undefined behaviour, mutation safety, safety from race
+conditions, and in some situations -- logic errors[fn:4].
+
+Haskell can produce some of the smallest binaries owing to a
+sophisticated runtime that must be present, and provided it uses
+dynamic linkage.  Default static linkage even for small programs
+produces binaries comparable in size to WASM.  It can also be stored
+as source code, and compiled in place.  Owing to ease of composition
+and a terse syntax Haskell is used in code golfing.  Haskell does not
+have as many complex invariants to uphold as does Rust, thus it can do
+dynamic linkage much more simply than Rust.  However, linking
+pro-actively, which is to say =dlopen= comes [[Haskell. in
+accomplish to hard is ][with its caveats]]
+
+Transparency requires a Haskell program to be stored as source code.
+Haskell binaries are no more intelligible than any other natively
+compiled standard.  While interpreted Haskell is nowhere near as
+well-optimised as Lua, it is not necessary.
+
+Even if a source-code submission is used the compilation can be done
+asynchronously falling back onto interpretation in the cases in which
+the compilation was not done sufficiently quickly.  One might think
+that this will add complexity, but in fact this system is already in
+place to compensate for Web Assembly's design oversights: the output
+of =rustc= though unintelligible by humans is still not completely
+compiled ahead of time, and must be optimised further.
+
+One more aspect that is unique to Haskell is the ease of
+interpretability.  Of the programming languages listed so far only
+Haskell (and Scilla) are referential-transparent, meaning that the
+meaning of a statement can be replaced with the value of that
+statement and in all situations the result of the evaluation will be
+completely unchanged.  Identifying bugs in a functional codebase is
+much easier.
+
+Sand boxing is one of the key areas where Haskell shines.  All Haskell
+programs are purely functional (unlike e.g. OCaml that is functional
+by default, but retains an imperative subset).  Any deviations must be
+carried through the type system, and unlike =unsafe= in Rust, which
+can occur silently inside of functions, functions which can cause
+input and output to happen, must carry the information through the
+type system.  It is impossible to have anything other than pure
+functions without affecting the signature of the =main= function of
+the smart contract.
+
+However, unlike WASM it is also impossible to write functions whose
+outputs can change randomly.  Randomness, like access to networking
+or the file system, is a monad.  Functions which use randomness must
+have a =Random= monad attached to their type.  As such Haskell is the
+only language on the list that can offer this type of sand boxing, the
+first to offer better protection than WASM.
+
+Reproducibility is one area in which source code-only smart contracts
+are preferred.  While it is comparatively easy to produce reproducible
+binaries, one does not need to do so given that Haskell source code
+can be submitted instead of the binary and asynchronously compiled.
+Forwards compatibility is also a given for the source code
+distribution model. Unfortunately, the Haskell ABI is unstable in the
+same way as Rust's, so binaries would not be forwards compatible
+unless a particular development practice is employed.
+
+Haskell has a modest but loyal following.  There are not too many
+programmers who practice Haskell in their everyday job, but many Rust
+programmers are keenly aware of Haskell, and have practiced writing
+programs with it.  Haskell is community supported, and
+feature-complete.  It is, like C, a language that does not have
+fundamental pain points, thus it evolves comparatively little. The
+Glasgow Haskell Compiler is the main distribution of Haskell and it is
+maintained by the University of Oxford and Microsoft Research.
+
+Haskell does not have good interoperability with any SDK. It is a
+fundamentally different programming paradigm.
+
+Maintaining Haskell is usually not difficult owing to the fact that
+there are few if any changes for Haskell-internal libraries.  Doing
+things the less efficient way, and relying on the compiler to do the
+optimisations for declarative programming has the benefit of rarely
+having to modify the program. 
 
 
 * Footnotes
+
+[fn:4] Haskell is, like Scilla easily amenable to formal verification.
+
 [fn:3] For the sake of completeness, let us mention that a =python=
 interpreter comes pre-installed with most systems and exposing a
 function in a Python-compatible fashion is little more than exposing
