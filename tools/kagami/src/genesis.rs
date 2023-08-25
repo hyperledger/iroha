@@ -8,7 +8,6 @@ use iroha_data_model::{
     metadata::Limits,
     parameter::{default::*, ParametersBuilder},
     prelude::AssetId,
-    validator::Validator,
     IdBox,
 };
 use iroha_genesis::{RawGenesisBlock, RawGenesisBlockBuilder, ValidatorMode, ValidatorPath};
@@ -19,14 +18,13 @@ use super::*;
 #[derive(Parser, Debug, Clone)]
 #[clap(group = ArgGroup::new("validator").required(true))]
 pub struct Args {
-    /// If this option provided validator will be inlined in the genesis.
-    #[clap(long, group = "validator")]
-    inlined_validator: bool,
-    /// If this option provided validator won't be included in the genesis and only path to the validator will be included.
-    /// Path is either absolute path to validator or relative to genesis location.
-    /// Validator can be generated using `kagami validator` command.
-    #[clap(long, group = "validator")]
-    compiled_validator_path: Option<PathBuf>,
+    /// Reads the validator from the file at <PATH> (relative to CWD)
+    /// and includes the content into the genesis.
+    #[clap(long, group = "validator", value_name = "PATH")]
+    inline_validator_from_file: Option<PathBuf>,
+    /// Specifies the <PATH> that will be directly inserted into the genesis JSON as-is.
+    #[clap(long, group = "validator", value_name = "PATH")]
+    validator_path_in_genesis: Option<PathBuf>,
     #[clap(subcommand)]
     mode: Option<Mode>,
 }
@@ -58,45 +56,70 @@ pub enum Mode {
 
 impl<T: Write> RunArgs<T> for Args {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-        if self.inlined_validator {
-            eprintln!("WARN: You're using genesis with inlined validator.");
-            eprintln!(
-                "Consider providing validator in separate file `--compiled-validator-path PATH`."
-            );
-            eprintln!("Use `--help` to get more information.");
-        }
-        let validator_path = self.compiled_validator_path;
-        let genesis = match self.mode.unwrap_or_default() {
-            Mode::Default => generate_default(validator_path),
+        let Self {
+            inline_validator_from_file,
+            validator_path_in_genesis,
+            mode,
+        } = self;
+
+        let validator: ValidatorMode = match (inline_validator_from_file, validator_path_in_genesis) {
+            (Some(path), None) => {
+                eprintln!("WARN: You're using genesis with inlined validator.");
+                eprintln!(
+                    "Consider providing a validator in separate file with `--validator-path-in-genesis <PATH>`."
+                );
+                eprintln!("Use `--help` to get more information.");
+                ParsedValidatorArgs::Inline(path)
+            }
+            (None, Some(path)) => {
+                ParsedValidatorArgs::Path(path)
+            }
+            _ => unreachable!("clap invariant")
+        }.try_into()?;
+
+        let genesis = match mode.unwrap_or_default() {
+            Mode::Default => generate_default(validator),
             Mode::Synthetic {
                 domains,
                 accounts_per_domain,
                 assets_per_domain,
-            } => generate_synthetic(
-                validator_path,
-                domains,
-                accounts_per_domain,
-                assets_per_domain,
-            ),
+            } => generate_synthetic(validator, domains, accounts_per_domain, assets_per_domain),
         }?;
         writeln!(writer, "{}", serde_json::to_string_pretty(&genesis)?)
             .wrap_err("Failed to write serialized genesis to the buffer.")
     }
 }
 
+enum ParsedValidatorArgs {
+    Inline(PathBuf),
+    Path(PathBuf),
+}
+
+impl TryFrom<ParsedValidatorArgs> for ValidatorMode {
+    type Error = color_eyre::Report;
+
+    fn try_from(value: ParsedValidatorArgs) -> Result<Self, Self::Error> {
+        let mode = match value {
+            ParsedValidatorArgs::Path(path) => ValidatorMode::Path(ValidatorPath(path)),
+            ParsedValidatorArgs::Inline(path) => {
+                let validator = ValidatorMode::Path(ValidatorPath(path))
+                    .try_into()
+                    .wrap_err("Failed to read the validator")?;
+                ValidatorMode::Inline(validator)
+            }
+        };
+        Ok(mode)
+    }
+}
+
 #[allow(clippy::too_many_lines)]
-pub fn generate_default(validator_path: Option<PathBuf>) -> color_eyre::Result<RawGenesisBlock> {
+pub fn generate_default(validator: ValidatorMode) -> color_eyre::Result<RawGenesisBlock> {
     let mut meta = Metadata::new();
     meta.insert_with_limits(
         "key".parse()?,
         "value".to_owned().into(),
         Limits::new(1024, 1024),
     )?;
-
-    let validator = match validator_path {
-        Some(validator_path) => ValidatorMode::Path(ValidatorPath(validator_path)),
-        None => ValidatorMode::Inline(construct_validator()?),
-    };
 
     let mut genesis = RawGenesisBlockBuilder::new()
             .domain_with_metadata("wonderland".parse()?, meta.clone())
@@ -177,26 +200,12 @@ pub fn generate_default(validator_path: Option<PathBuf>) -> color_eyre::Result<R
     Ok(genesis)
 }
 
-fn construct_validator() -> color_eyre::Result<Validator> {
-    let temp_dir = tempfile::tempdir()
-        .wrap_err("Failed to generate a tempdir for validator sources")?
-        .into_path();
-    let path = super::validator::compute_validator_path(temp_dir)?;
-    let wasm_blob = super::validator::construct_validator(path)?;
-    Ok(Validator::new(WasmSmartContract::from_compiled(wasm_blob)))
-}
-
 fn generate_synthetic(
-    validator_path: Option<PathBuf>,
+    validator: ValidatorMode,
     domains: u64,
     accounts_per_domain: u64,
     assets_per_domain: u64,
 ) -> color_eyre::Result<RawGenesisBlock> {
-    let validator = match validator_path {
-        Some(validator_path) => ValidatorMode::Path(ValidatorPath(validator_path)),
-        None => ValidatorMode::Inline(construct_validator()?),
-    };
-
     // Add default `Domain` and `Account` to still be able to query
     let mut builder = RawGenesisBlockBuilder::new()
         .domain("wonderland".parse()?)

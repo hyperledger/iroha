@@ -23,18 +23,4 @@ clap = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 derive_more = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-serde_yaml = { workspace = true }
-expect-test = { workspace = true }
-pathdiff = { workspace = true }
-path-absolutize = { workspace = true }
-spinoff = { workspace = true, features = ["aesthetic"] }
-owo-colors = { workspace = true, features = ["supports-colors"] }
-supports-color = { workspace = true }
-inquire = { workspace = true }
-duct = { workspace = true }
-tempfile = { workspace = true }
 parity-scale-codec = { workspace = true }
-
-[build-dependencies]
-eyre = { workspace = true }
-vergen = { workspace = true, features = ["git", "gitoxide"] }

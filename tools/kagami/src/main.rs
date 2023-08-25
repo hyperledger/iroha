@@ -20,7 +20,6 @@ mod crypto;
 mod docs;
 mod genesis;
 mod schema;
-mod validator;
 
 /// Outcome shorthand used throughout this crate
 pub(crate) type Outcome = color_eyre::Result<()>;
@@ -30,20 +29,6 @@ pub(crate) type Outcome = color_eyre::Result<()>;
 // you need to change either, you should definitely change both.
 pub const DEFAULT_PUBLIC_KEY: &str =
     "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0";
-pub const GIT_REVISION: &str = env!("VERGEN_GIT_SHA");
-pub const GIT_ORIGIN: &str = "https://github.com/hyperledger/iroha.git";
-/// Config directory that is generated in the output directory
-pub const DIR_CONFIG: &str = "config";
-/// Config directory inside of the docker image
-pub const DIR_CONFIG_IN_DOCKER: &str = "/config";
-pub const DIR_CLONE: &str = "iroha-cloned";
-pub const FILE_VALIDATOR: &str = "validator.wasm";
-pub const FILE_CONFIG: &str = "config.json";
-pub const FILE_GENESIS: &str = "genesis.json";
-pub const FILE_COMPOSE: &str = "docker-compose.yml";
-pub const FORCE_ARG_SUGGESTION: &str =
-    "You can pass `--outdir-force` flag to remove the directory without prompting";
-pub const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
 
 fn main() -> Outcome {
     color_eyre::install()?;
@@ -76,8 +61,6 @@ pub enum Args {
     Config(config::Args),
     /// Generate a Markdown reference of configuration parameters
     Docs(Box<docs::Args>),
-    /// Generate the default validator
-    Validator(validator::Args),
 }
 
 impl<T: Write> RunArgs<T> for Args {
@@ -90,7 +73,6 @@ impl<T: Write> RunArgs<T> for Args {
             Genesis(args) => args.run(writer),
             Config(args) => args.run(writer),
             Docs(args) => args.run(writer),
-            Validator(args) => args.run(writer),
         }
     }
 }
