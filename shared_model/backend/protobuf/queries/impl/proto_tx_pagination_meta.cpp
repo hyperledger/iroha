@@ -75,26 +75,26 @@ std::optional<types::HeightType> TxPaginationMeta::lastTxHeight() const {
   return types::HeightType(meta_.last_tx_height());
 }
 //trans_text
-std::optional<types::HeightType> TxPaginationMeta::transText() const {
-  if (meta_.opt_trans_text_case()
-      == iroha::protocol::TxPaginationMeta::OptTransTextCase::OPT_TRANS_TEXT_NOT_SET) {
+std::optional<types::HeightType> TxPaginationMeta::txText() const {
+  if (meta_.opt_tx_text_case()
+      == iroha::protocol::TxPaginationMeta::OptTxTextCase::OPT_TX_TEXT_NOT_SET) {
     return std::nullopt;
   }
-  return types::HeightType(meta_.trans_text());
+  return types::HeightType(meta_.tx_text());
 }
 //trans_account
-std::optional<types::HeightType> TxPaginationMeta::transAccount() const {
-  if (meta_.opt_trans_account_case()
-      == iroha::protocol::TxPaginationMeta::OptTransAccountCase::OPT_TRANS_ACCOUNT_NOT_SET) {
+std::optional<types::HeightType> TxPaginationMeta::txAccount() const {
+  if (meta_.opt_tx_account_case()
+      == iroha::protocol::TxPaginationMeta::OptTxAccountCase::OPT_TX_ACCOUNT_NOT_SET) {
     return std::nullopt;
   }
-  return types::HeightType(meta_.trans_account());
+  return types::HeightType(meta_.tx_account());
 }
 //trans_sent_from_account
-std::optional<types::HeightType> TxPaginationMeta::transSentFromAccount() const {
-  if (meta_.opt_trans_sent_from_account_case()
-      == iroha::protocol::TxPaginationMeta::OptTransSentFromAccountCase::OPT_TRANS_SENT_FROM_ACCOUNT_NOT_SET) {
+std::optional<types::HeightType> TxPaginationMeta::txSentFromAccount() const {
+  if (meta_.opt_tx_sent_from_account_case()
+      == iroha::protocol::TxPaginationMeta::OptTxSentFromAccountCase::OPT_TX_SENT_FROM_ACCOUNT_NOT_SET) {
     return std::nullopt;
   }
-  return types::HeightType(meta_.trans_sent_from_account());
+  return types::HeightType(meta_.tx_sent_from_account());
 }
