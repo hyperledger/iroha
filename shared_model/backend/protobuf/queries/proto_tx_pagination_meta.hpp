@@ -31,9 +31,9 @@ namespace shared_model {
           const override;
       std::optional<interface::types::HeightType> lastTxHeight()
           const override;
-      std::optional<interface::types::HeightType> transText() const override;
-      std::optional<interface::types::HeightType> transAccount() const override;
-      std::optional<interface::types::HeightType> transSentFromAccount()
+      std::optional<interface::types::HeightType> txText() const override;
+      std::optional<interface::types::HeightType> txAccount() const override;
+      std::optional<interface::types::HeightType> txSentFromAccount()
           const override;
      private:
       const iroha::protocol::TxPaginationMeta &meta_;
