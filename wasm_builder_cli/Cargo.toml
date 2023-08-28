@@ -1,7 +1,14 @@
 [package]
-name = "iroha_wasm_buidler_cli"
+name = "iroha_wasm_builder_cli"
 
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
 license.workspace = true
+
+
+[dependencies]
+iroha_wasm_builder.workspace = true
+
+clap = { workspace = true, features = ["derive"] }
+color-eyre.workspace = true
