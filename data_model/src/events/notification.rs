@@ -1,5 +1,4 @@
 //! Notification events and their filter
-#![allow(irrefutable_let_patterns)]
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
