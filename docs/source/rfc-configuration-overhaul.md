@@ -112,7 +112,7 @@ Iroha and might not be familiar with Rust. Here are some examples:
 
 The use of rustisms like that overcomplicates the configuration reference and affects the user experience. Further, it
 doesn't actually provide any extra information to a user familiar with Rust, as environment variables and JSON values
-cannot be `None` due to being strictly typed and null-able regardless of whether the type specifies `Option`.
+cannot be `None` due to being stringly typed and null-able regardless of whether the type specifies `Option`.
 
 ### Unhelpful Error Messages
 
