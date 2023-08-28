@@ -8,8 +8,8 @@ case $1 in
             exit 1
         };;
     "genesis")
-        cargo run --release --bin kagami -- genesis --compiled-validator-path ./validator.wasm | diff - configs/peer/genesis.json || {
-            echo 'Please re-generate the genesis with `cargo run --release --bin kagami -- genesis > configs/peer/genesis.json`'
+        cargo run --release --bin kagami -- genesis --validator-path-in-genesis ./validator.wasm | diff - configs/peer/genesis.json || {
+            echo 'Please re-generate the genesis with `cargo run --release --bin kagami -- genesis --validator-path-in-genesis ./validator.wasm > configs/peer/genesis.json`'
             exit 1
         };;
     "client")
@@ -35,24 +35,25 @@ case $1 in
             #        it is not a default behaviour because Kagami resolves `build` path relative
             #        to the output file location
             temp_file="docker-compose.TMP.yml"
+            full_cmd="$cmd_base --outfile $temp_file"
 
-            eval "$cmd_base $temp_file"
+            eval "$full_cmd"
             diff "$temp_file" "$target" || {
-                echo "Please re-generate \`$target\` with \`$cmd_base $target\`"
+                echo "Please re-generate \`$target\` with \`$full_cmd\`"
                 exit 1
             }
         }
 
         command_base_for_single() {
-            echo "cargo run --release --bin kagami -- swarm -p 1 -s Iroha --force file --config-dir ./configs/peer --build ."
+            echo "cargo run --release --bin iroha_swarm -- -p 1 -s Iroha --force --config-dir ./configs/peer --build ."
         }
 
         command_base_for_multiple_local() {
-            echo "cargo run --release --bin kagami -- swarm -p 4 -s Iroha --force file --config-dir ./configs/peer --build ."
+            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/peer --build ."
         }
 
         command_base_for_default() {
-            echo "cargo run --release --bin kagami -- swarm -p 4 -s Iroha --force file --config-dir ./configs/peer --image hyperledger/iroha2:dev"
+            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/peer --image hyperledger/iroha2:dev"
         }
 
 
