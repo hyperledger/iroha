@@ -12,15 +12,10 @@ use core::{num::ParseIntError, str::FromStr};
 
 use derive_more::From;
 use iroha_primitives::fixed::{Fixed, FixedPointOperationError};
-use serde::{
-    de::{Error, VariantAccess},
-    Deserializer,
-};
+use serde::{de::Error, Deserializer, Serializer};
 
 pub use self::model::*;
-use super::{
-    DebugCustom, Decode, Deserialize, Display, Encode, FromVariant, IntoSchema, Serialize,
-};
+use super::{DebugCustom, Decode, Deserialize, Display, Encode, FromVariant, IntoSchema};
 
 #[iroha_data_model_derive::model]
 pub mod model {
@@ -39,7 +34,6 @@ pub mod model {
         FromVariant,
         Decode,
         Encode,
-        Serialize,
         IntoSchema,
     )]
     #[ffi_type]
@@ -52,7 +46,6 @@ pub mod model {
         U64(u64),
         /// `u128` value
         #[debug(fmt = "{_0}_u128")]
-        #[serde(serialize_with = "quoted")]
         U128(u128),
         /// `Fixed` value
         #[debug(fmt = "{_0}_fx")]
@@ -71,10 +64,6 @@ impl NumericValue {
             Fixed(value) => value.is_zero(),
         }
     }
-}
-
-fn quoted<S: serde::Serializer>(num: &u128, ser: S) -> Result<S::Ok, S::Error> {
-    ser.serialize_str(&format!("{num}"))
 }
 
 struct NumericValueVisitor;
@@ -136,90 +125,38 @@ impl FromStr for NumericValue {
     }
 }
 
-impl<'de> serde::de::Visitor<'de> for NumericValueVisitor {
+// serialize and deserialize numbers as string literals with tagged numbers inside
+// U32(42) <-> "42_u32"
+// U64(42) <-> "42_u64"
+// U128(42) <-> "42_u128"
+// Fixed(42.0) <-> "42.0_fx"
+
+impl serde::Serialize for NumericValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{:?}", self))
+    }
+}
+
+impl serde::de::Visitor<'_> for NumericValueVisitor {
     type Value = NumericValue;
 
     #[inline]
     fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
-        formatter.write_str("Either a tagged `NumericalValue` enum or an untagged double-quoted floating point number")
+        formatter.write_str("A quoted string containing a tagged number")
     }
 
-    // This entire function is necessary to avoid stepping on the same
-    // issue that caused #3330. I could shorten the amount of
-    // boilerplate, but I'd rather it remained a sore sight until we
-    // actually replace it with a single `#[derive(Deserialize)]` for
-    // an `untagged` `StringOrNumber` enum.
-    fn visit_enum<E>(self, value: E) -> Result<NumericValue, E::Error>
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
     where
-        E: serde::de::EnumAccess<'de>,
+        E: Error,
     {
-        use serde_json::Value;
+        let parsed = v
+            .parse::<NumericValue>()
+            .map_err(|e| E::custom(e.to_string()))?;
 
-        match value.variant::<Discriminants>()? {
-            (Discriminants::U32, data) => {
-                let val = data.newtype_variant::<Value>()?;
-                if let Ok(number) = u32::deserialize(&val) {
-                    Ok(NumericValue::U32(number))
-                } else if let Ok(string) = String::deserialize(&val) {
-                    Ok(NumericValue::U32(string.parse().map_err(
-                        |e: ParseIntError| E::Error::custom(e.to_string()),
-                    )?))
-                } else {
-                    Err(E::Error::custom(
-                        "Found neither `u32` integer nor a string containing one",
-                    ))
-                }
-            }
-            (Discriminants::U64, data) => {
-                let val = data.newtype_variant::<Value>()?;
-                if let Ok(number) = u64::deserialize(&val) {
-                    Ok(NumericValue::U64(number))
-                } else if let Ok(string) = String::deserialize(&val) {
-                    Ok(NumericValue::U64(string.parse().map_err(
-                        |e: ParseIntError| E::Error::custom(e.to_string()),
-                    )?))
-                } else {
-                    Err(E::Error::custom(
-                        "Found neither a `u64` integer nor string containing one ",
-                    ))
-                }
-            }
-            (Discriminants::U128, data) => {
-                let val = data.newtype_variant::<Value>()?;
-                // NOTE: This is slower than deserializing from a
-                // string, because this uses an arbitrary precision
-                // conversion instead of parsing directly.
-                if let Ok(num) = u128::deserialize(&val) {
-                    // `u128` literals are slow.
-                    // TODO: Log warning?
-                    Ok(NumericValue::U128(num))
-                } else if let Ok(string) = String::deserialize(&val) {
-                    Ok(NumericValue::U128(string.parse().map_err(
-                        |e: ParseIntError| E::Error::custom(e.to_string()),
-                    )?))
-                } else {
-                    Err(E::Error::custom("Found neither `u128` literal nor quoted string representing the same number"))
-                }
-            }
-            (Discriminants::Fixed, data) => {
-                let val = data.newtype_variant::<Value>()?;
-                if let Ok(number) = Fixed::deserialize(&val) {
-                    Ok(NumericValue::Fixed(number))
-                // TODO: can change the behaviour of `Deserialize`
-                // for `Fixed`, but break symmetry, with `u128`
-                } else if let Ok(string) = String::deserialize(&val) {
-                    Ok(NumericValue::Fixed(string.parse().map_err(
-                        |e: iroha_primitives::fixed::FixedPointOperationError| {
-                            E::Error::custom(e.to_string())
-                        },
-                    )?))
-                } else {
-                    Err(E::Error::custom(
-                        "Found neither a `Fixed` number nor string containing one",
-                    ))
-                }
-            }
-        }
+        Ok(parsed)
     }
 }
 
@@ -228,8 +165,7 @@ impl<'de> Deserialize<'de> for NumericValue {
     where
         D: Deserializer<'de>,
     {
-        const VARIANTS: &[&str] = &["U32", "U64", "U128", "Fixed"];
-        deserializer.deserialize_enum("NumericValue", VARIANTS, NumericValueVisitor)
+        deserializer.deserialize_str(NumericValueVisitor)
     }
 }
 
@@ -281,7 +217,7 @@ mod tests {
             u128::MAX,
         ];
         for value in values {
-            let json = format!("{{\"U128\":  \"{value}\" }}",);
+            let json = format!("\"{value}_u128\"",);
             let val: NumericValue = serde_json::from_str(&json).expect("Invalid JSON");
             assert_eq!(val, NumericValue::U128(value));
         }
@@ -298,7 +234,7 @@ mod tests {
             u64::MAX,
         ];
         for value in values {
-            let json = format!("{{\"U64\":  \"{value}\" }}",);
+            let json = format!("\"{value}_u64\"",);
             let val: NumericValue = serde_json::from_str(&json).expect("Invalid JSON");
             assert_eq!(NumericValue::U64(value), val)
         }
@@ -308,64 +244,25 @@ mod tests {
     fn tagged_quoted_inclusion_u32() {
         let values = [0_u32, 1_u32, (u32::MAX - 1_u32), u32::MAX];
         for value in values {
-            let json = format!("{{\"U32\":  \"{value}\" }}",);
+            let json = format!("\"{value}_u32\"",);
             let val: NumericValue = serde_json::from_str(&json).expect("Invalid JSON");
             assert_eq!(val, NumericValue::U32(value));
         }
     }
 
     #[test]
-    fn tagged_direct_inclusion_u128() {
-        let values = [
-            0_u128,
-            1_u128,
-            (u32::MAX - 1_u32) as u128,
-            u32::MAX as u128,
-            (u64::MAX - 1_u64) as u128,
-            u64::MAX as u128,
-            u128::MAX - 1_u128,
-            u128::MAX,
-        ];
-        for value in values {
-            let json = format!("{{\"U128\":  {value} }}",);
-            let val: NumericValue = serde_json::from_str(&json).expect("Invalid JSON");
-            assert_eq!(val, NumericValue::U128(value));
-        }
-    }
-
-    #[test]
-    fn tagged_direct_inclusion_u64() {
-        let values = [
-            0_u64,
-            1_u64,
-            (u32::MAX - 1_u32) as u64,
-            u32::MAX as u64,
-            u64::MAX - 1_u64,
-            u64::MAX,
-        ];
-        for value in values {
-            let json = format!("{{\"U64\":  {value} }}",);
-            let val: NumericValue = serde_json::from_str(&json).expect("Invalid JSON");
-            assert_eq!(val, NumericValue::U64(value));
-        }
-    }
-
-    #[test]
-    fn tagged_direct_inclusion_u32() {
-        let values = [0_u32, 1_u32, (u32::MAX - 1_u32), u32::MAX];
-        for value in values {
-            let json = format!("{{\"U32\": {value} }}",);
-            let val: NumericValue = serde_json::from_str(&json).expect("Invalid JSON");
-            assert_eq!(val, NumericValue::U32(value));
-        }
-    }
-
-    #[test]
-    /// Establish that we're preferring the faster-to-deserialize format
     fn serialize_is_quoted_u128() {
         let value = NumericValue::U128(u128::MAX);
         let string = serde_json::to_string(&value).unwrap();
-        let expectation = format!("{{\"U128\":\"{}\"}}", u128::MAX);
+        let expectation = format!("\"{}_u128\"", u128::MAX);
+        assert_eq!(string, expectation);
+    }
+
+    #[test]
+    fn serialize_fixed() {
+        let value = NumericValue::Fixed(42.0.try_into().expect("trivial conversion"));
+        let string = serde_json::to_string(&value).unwrap();
+        let expectation = "\"42.0_fx\"";
         assert_eq!(string, expectation);
     }
 
@@ -396,6 +293,13 @@ mod tests {
             NumericValue::from_str(&as_u32(0_u32)).unwrap(),
             NumericValue::U128(0_u128)
         );
+    }
+
+    #[test]
+    #[should_panic]
+    /// We deny ambiguous deserialisation from int literals
+    fn deserialize_int_literal_unsupported() {
+        serde_json::from_str::<NumericValue>("0").unwrap();
     }
 
     #[test]

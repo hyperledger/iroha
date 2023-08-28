@@ -451,7 +451,6 @@ isi! {
     #[ffi_type]
     pub struct MintBox {
         /// Object to mint.
-        #[serde(flatten)]
         pub object: EvaluatesTo<Value>,
         /// Entity to mint to.
         pub destination_id: EvaluatesTo<IdBox>,
@@ -465,7 +464,6 @@ isi! {
     #[ffi_type]
     pub struct BurnBox {
         /// Object to burn.
-        #[serde(flatten)]
         pub object: EvaluatesTo<Value>,
         /// Entity to burn from.
         pub destination_id: EvaluatesTo<IdBox>,
@@ -481,7 +479,6 @@ isi! {
         /// Entity to transfer from.
         pub source_id: EvaluatesTo<IdBox>,
         /// Object to transfer.
-        #[serde(flatten)]
         pub object: EvaluatesTo<Value>,
         /// Entity to transfer to.
         pub destination_id: EvaluatesTo<IdBox>,
@@ -574,7 +571,6 @@ isi! {
     #[ffi_type]
     pub struct GrantBox {
         /// Object to grant.
-        #[serde(flatten)]
         pub object: EvaluatesTo<Value>,
         /// Entity to which to grant this token.
         pub destination_id: EvaluatesTo<IdBox>,
@@ -588,7 +584,6 @@ isi! {
     #[ffi_type]
     pub struct RevokeBox {
         /// Object to grant.
-        #[serde(flatten)]
         pub object: EvaluatesTo<Value>,
         /// Entity to which to grant this token.
         pub destination_id: EvaluatesTo<IdBox>,

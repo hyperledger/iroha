@@ -44,7 +44,7 @@ parity-scale-codec = { workspace = true, features = ["derive"] }
 derive_more = { workspace = true, features = ["as_ref", "display", "constructor", "from_str", "from", "into"] }
 serde = { workspace = true, features = ["derive"] }
 serde_with = { workspace = true, features = ["macros"] }
-serde_json = { workspace = true, features = ["arbitrary_precision"] }
+serde_json = { workspace = true }
 warp = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 displaydoc = { workspace = true }
