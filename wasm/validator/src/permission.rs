@@ -82,8 +82,8 @@ pub mod asset {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if self.asset_id.account_id() != authority {
+        fn validate(&self, authority: &AccountId, block_height: u64) -> Result {
+            if block_height == 0 && self.asset_id.account_id() != authority {
                 return Err(ValidationFail::NotPermitted(
                     "Can't access asset owned by another account".to_owned(),
                 ));
@@ -113,14 +113,17 @@ pub mod asset_definition {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if !is_asset_definition_owner(self.asset_definition_id, authority)? {
-                return Err(ValidationFail::NotPermitted(
-                    "Can't access asset definition owned by another account".to_owned(),
-                ));
+        fn validate(&self, authority: &AccountId, block_height: u64) -> Result {
+            if block_height == 0 {
+                return Ok(());
+            }
+            if is_asset_definition_owner(self.asset_definition_id, authority)? {
+                return Ok(());
             }
 
-            Ok(())
+            Err(ValidationFail::NotPermitted(
+                "Can't access asset definition owned by another account".to_owned(),
+            ))
         }
     }
 }
@@ -137,14 +140,17 @@ pub mod account {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if self.account_id != authority {
-                return Err(ValidationFail::NotPermitted(
-                    "Can't access another account".to_owned(),
-                ));
+        fn validate(&self, authority: &AccountId, block_height: u64) -> Result {
+            if block_height == 0 {
+                return Ok(());
+            }
+            if self.account_id == authority {
+                return Ok(());
             }
 
-            Ok(())
+            Err(ValidationFail::NotPermitted(
+                "Can't access another account".to_owned(),
+            ))
         }
     }
 }
@@ -173,14 +179,17 @@ pub mod trigger {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if !is_trigger_owner(self.trigger_id.clone(), authority)? {
-                return Err(ValidationFail::NotPermitted(
-                    "Can't give permission to access trigger owned by another account".to_owned(),
-                ));
+        fn validate(&self, authority: &AccountId, block_height: u64) -> Result {
+            if block_height == 0 {
+                return Ok(());
+            }
+            if is_trigger_owner(self.trigger_id.clone(), authority)? {
+                return Ok(());
             }
 
-            Ok(())
+            Err(ValidationFail::NotPermitted(
+                "Can't give permission to access trigger owned by another account".to_owned(),
+            ))
         }
     }
 }
