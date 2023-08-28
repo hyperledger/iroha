@@ -5,7 +5,7 @@
             "Instructions": [
                 {
                     "Mint": {
-                        "U32": 1,
+                        "object": "1_u32",
                         "destination_id": {
                             "AssetId": "rose##alice@wonderland"
                         }
