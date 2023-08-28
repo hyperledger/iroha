@@ -192,7 +192,7 @@ fn from_container_variant_internal(
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
-        impl #impl_generics From<#from_ty> for #into_ty #ty_generics #where_clause {
+        impl #impl_generics core::convert::From<#from_ty> for #into_ty #ty_generics #where_clause {
             fn from(origin: #from_ty) -> Self {
                 #into_ty :: #into_variant (#container_ty :: new(origin))
             }
@@ -210,7 +210,7 @@ fn from_variant_internal(
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote_spanned! { span =>
-        impl #impl_generics From<#from_ty> for #into_ty #ty_generics #where_clause {
+        impl #impl_generics core::convert::From<#from_ty> for #into_ty #ty_generics #where_clause {
             fn from(origin: #from_ty) -> Self {
                 #into_ty :: #into_variant (origin)
             }
@@ -268,6 +268,27 @@ fn from_variant(
     from_orig
 }
 
+fn try_into_variant_single(
+    span: Span,
+    enum_ty: &syn2::Ident,
+    variant: &syn2::Ident,
+    variant_ty: &syn2::Type,
+    generics: &syn2::Generics,
+) -> TokenStream {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    quote_spanned! { span =>
+        impl #impl_generics core::convert::TryFrom<#enum_ty #ty_generics> for #variant_ty #where_clause {
+            type Error = ::iroha_macro::error::ErrorTryFromEnum<#enum_ty #ty_generics, Self>;
+
+            fn try_from(origin: #enum_ty #ty_generics) -> core::result::Result<Self, Self::Error> {
+                let #enum_ty :: #variant(variant) = origin;
+                Ok(variant)
+            }
+        }
+    }
+}
+
 fn try_into_variant(
     span: Span,
     enum_ty: &syn2::Ident,
@@ -278,8 +299,8 @@ fn try_into_variant(
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote_spanned! { span =>
-        impl #impl_generics TryFrom<#enum_ty #ty_generics> for #variant_ty #where_clause {
-            type Error = iroha_macro::error::ErrorTryFromEnum<#enum_ty #ty_generics, Self>;
+        impl #impl_generics core::convert::TryFrom<#enum_ty #ty_generics> for #variant_ty #where_clause {
+            type Error = ::iroha_macro::error::ErrorTryFromEnum<#enum_ty #ty_generics, Self>;
 
             fn try_from(origin: #enum_ty #ty_generics) -> core::result::Result<Self, Self::Error> {
                 if let #enum_ty :: #variant(variant) = origin {
@@ -297,42 +318,43 @@ fn impl_from_variant(ast: &FromVariantInput) -> TokenStream {
 
     let generics = &ast.generics;
 
-    let froms = ast
+    let enum_data = ast
         .data
         .as_ref()
         .take_enum()
-        .expect("BUG: this should've been checked when parsing FromVariantInput")
-        .into_iter()
-        .filter_map(|variant| {
-            if !variant.fields.is_newtype() {
-                return None;
-            }
-            let span = variant.span();
-            let field = variant
-                .fields
-                .iter()
-                .next()
-                .expect("BUG: this should've been checked when parsing FromVariantInput");
-            let variant_type = &field.ty;
+        .expect("BUG: FromVariantInput is allowed to contain enum data only");
+    let variant_count = enum_data.len();
+    let froms = enum_data.into_iter().filter_map(|variant| {
+        if !variant.fields.is_newtype() {
+            return None;
+        }
+        let span = variant.span();
+        let field =
+            variant.fields.iter().next().expect(
+                "BUG: FromVariantVariant should be newtype and thus contain exactly one field",
+            );
+        let variant_type = &field.ty;
 
-            let try_into = if field.skip_try_from {
-                quote!()
-            } else {
-                try_into_variant(span, name, &variant.ident, variant_type, generics)
-            };
-            let from = if field.skip_from {
-                quote!()
-            } else if field.skip_container {
-                from_variant(span, name, &variant.ident, variant_type, generics, true)
-            } else {
-                from_variant(span, name, &variant.ident, variant_type, generics, false)
-            };
+        let try_into = if field.skip_try_from {
+            quote!()
+        } else if variant_count == 1 {
+            try_into_variant_single(span, name, &variant.ident, variant_type, generics)
+        } else {
+            try_into_variant(span, name, &variant.ident, variant_type, generics)
+        };
+        let from = if field.skip_from {
+            quote!()
+        } else if field.skip_container {
+            from_variant(span, name, &variant.ident, variant_type, generics, true)
+        } else {
+            from_variant(span, name, &variant.ident, variant_type, generics, false)
+        };
 
-            Some(quote!(
-                #try_into
-                #from
-            ))
-        });
+        Some(quote!(
+            #try_into
+            #from
+        ))
+    });
 
     quote! { #(#froms)* }
 }
