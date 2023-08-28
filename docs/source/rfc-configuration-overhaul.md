@@ -48,17 +48,14 @@ The inconsistency between the `IROHA2` and `IROHA` prefixes can be confusing. Of
 
 #### Inconsistent Naming of Configuration Parameters
 
-Current configuration demonstrates some inconsistencies in parameter naming, leading to potential user confusion. Specifically:
+Current configuration demonstrates some inconsistencies in parameter naming, leading to potential user confusion. To address this, some refinements are proposed:
 
-- In the `torii` section:
-  - We have terms like `p2p_addr`, `api_url`, and `telemetry_url`. While "addr" and "url" may convey similar intents, the interchangeability of these terms is non-intuitive.
-  - Using prefixes instead of suffixes, like transitioning from `p2p_addr` to `addr_p2p`, progresses from a general term to a specific one, simplifying interpretation.
-- In the `logger` section:
-  - The term `max_log_level` could be simplified to `log_level` or just `level` to make it more concise without losing meaning.
-- In the `wsv` section:
-  - The field `wasm_runtime_config` has a redundant `_config` suffix. Given the nature of these parameters as configurations, such suffixes are extraneous and can be dropped for clarity.
+- The `torii` section uses terms like `p2p_addr`, `api_url`, and `telemetry_url`. These are actually addresses in the form of `localhost:8080` and not full URLs, which would include components like protocol and path. To standardize, these should all be changed to use `addr` (e.g., `addr_p2p`, `addr_api`, `addr_telemetry`).
+- Consider moving addresses to their respective domain scopes. For example, instead of `torii.telemetry_url`, we could have `telemetry.addr`.
+- In the `logger` section, the term `max_log_level` could be simplified to `log_level` or just `level` to make it more concise without losing meaning. Although users are more likely to set this parameter using an environment variable.
+- In the `wsv` section, the field `wasm_runtime_config` has a redundant `_config` suffix. Given these are all configuration parameters, such suffixes can be eliminated for clarity.
 
-Implementing a consistent naming convention will further streamline the configuration process for users.
+Implementing a consistent naming convention like this will simplify the user's configuration process and reduce ambiguity.
 
 #### Redundant SCREAMING_CASE in JSON Configuration
 
