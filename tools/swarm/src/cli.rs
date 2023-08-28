@@ -99,43 +99,18 @@ mod tests {
     }
 
     #[test]
-    fn works_in_file_mode() {
-        let _ = match_args("-p 20 file --build . --config-dir ./config sample.yml").unwrap();
+    fn work_with_build_source() {
+        let _ = match_args("-p 20 --build . --config-dir ./config --outfile sample.yml").unwrap();
     }
 
     #[test]
-    fn works_in_dir_mode_with_github_source() {
-        let _ = match_args("-p 20 dir --build-from-github swarm").unwrap();
-    }
-
-    #[test]
-    fn doesnt_allow_config_dir_for_dir_mode() {
-        let _ = match_args("-p 1 dir --build-from-github  --config-dir ./ swarm").unwrap_err();
-    }
-
-    #[test]
-    fn doesnt_allow_multiple_sources_in_dir_mode() {
-        let _ = match_args("-p 1 dir --build-from-github --build . swarm").unwrap_err();
-    }
-
-    #[test]
-    fn doesnt_allow_multiple_sources_in_file_mode() {
-        let _ = match_args("-p 1 file --build . --image hp/iroha --config-dir ./ test.yml")
+    fn doesnt_allow_multiple_sources() {
+        let _ = match_args("-p 1 --build . --image hp/iroha --config-dir ./ --outfile test.yml")
             .unwrap_err();
     }
 
     #[test]
-    fn doesnt_allow_github_source_in_file_mode() {
-        let _ = match_args("-p 1 file --build-from-github --config-dir ./ test.yml").unwrap_err();
-    }
-
-    #[test]
-    fn doesnt_allow_omitting_source_in_dir_mode() {
-        let _ = match_args("-p 1 dir ./test").unwrap_err();
-    }
-
-    #[test]
-    fn doesnt_allow_omitting_source_in_file_mode() {
-        let _ = match_args("-p 1 file test.yml --config-dir ./").unwrap_err();
+    fn doesnt_allow_omitting_source() {
+        let _ = match_args("-p 1 --outfile test.yml --config-dir ./").unwrap_err();
     }
 }
