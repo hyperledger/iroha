@@ -51,9 +51,44 @@ fn main() -> color_eyre::Result<()> {
             let builder = Builder::new(&path);
             let builder = if format { builder.format() } else { builder };
 
-            let output = builder.build().wrap_err("Failed to build")?;
+            let output = {
+                let sp = spinoff::Spinner::new_with_stream(
+                    spinoff::spinners::Dots12,
+                    "Building the smartcontract",
+                    None,
+                    spinoff::Streams::Stderr,
+                );
+
+                match builder.build() {
+                    Ok(output) => {
+                        sp.success("Smartcontract is built");
+                        output
+                    }
+                    err => {
+                        sp.fail("Building failed");
+                        err?
+                    }
+                }
+            };
+
             let output = if optimize {
-                output.optimize().wrap_err("Failed to apply --optimize")?
+                let sp = spinoff::Spinner::new_with_stream(
+                    spinoff::spinners::Binary,
+                    "Optimizing the output",
+                    None,
+                    spinoff::Streams::Stderr,
+                );
+
+                match output.optimize() {
+                    Ok(optimized) => {
+                        sp.success("Output is optimized");
+                        optimized
+                    }
+                    err => {
+                        sp.fail("Optimization failed");
+                        err?
+                    }
+                }
             } else {
                 output
             };
