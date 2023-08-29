@@ -6,14 +6,12 @@ mod util;
 use clap::Parser;
 use cli::Cli;
 use color_eyre::{eyre::Context, Result};
-use ui::UserInterface;
 use util::AbsolutePath;
 
 use crate::{cli::SourceParsed, compose::ResolvedImageSource};
 
 fn main() -> Result<()> {
     color_eyre::install()?;
-    let ui = UserInterface::new();
 
     let Cli {
         peers,
@@ -38,7 +36,7 @@ fn main() -> Result<()> {
     let config_dir = AbsolutePath::absolutize(&config_dir_raw)?;
 
     if target_file.exists() && !force {
-        if let ui::PromptAnswer::No = ui.prompt_remove_target_file(&target_file)? {
+        if let ui::PromptAnswer::No = ui::prompt_remove_target_file(&target_file)? {
             return Ok(());
         }
     }
@@ -52,7 +50,7 @@ fn main() -> Result<()> {
     }
     .build_and_write()?;
 
-    ui.log_file_mode_complete(&target_file, &target_file_raw);
+    ui::log_file_mode_complete(&target_file, &target_file_raw);
 
     Ok(())
 }
