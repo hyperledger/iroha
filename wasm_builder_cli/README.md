@@ -13,11 +13,11 @@ iroha_wasm_builder_cli check path/to/project
 **Build the smartcontract:**
 
 ```bash
-iroha_wasm_builder_cli build path/to/project
+iroha_wasm_builder_cli build path/to/project --outfile ./smartcontract.wasm
 ```
 
 **Build with options:**
 
 ```bash
-iroha_wasm_builder_cli build path/to/project --optimize --format
+iroha_wasm_builder_cli build path/to/project --optimize --format --outfile ./smartcontract.wasm
 ```

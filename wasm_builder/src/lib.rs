@@ -384,6 +384,11 @@ impl Output {
 
         Ok(wasm_data)
     }
+
+    /// Get the file path of the underlying WASM
+    pub fn wasm_file_path(&self) -> &PathBuf {
+        &self.wasm_file
+    }
 }
 
 // TODO: Remove cargo invocation (#2152)

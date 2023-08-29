@@ -4,8 +4,9 @@ use std::{
 };
 
 use clap::{Args, Parser};
-use color_eyre::eyre::Context;
+use color_eyre::eyre::{eyre, Context};
 use iroha_wasm_builder::Builder;
+use owo_colors::OwoColorize;
 
 #[derive(Parser, Debug)]
 #[command(name = "iroha_wasm_builder_cli", version, author)]
@@ -26,6 +27,9 @@ enum Cli {
         /// Optimize WASM output.
         #[arg(long)]
         optimize: bool,
+        /// Where to store the output WASM. If the file exists, it will be overwritten.
+        #[arg(long)]
+        outfile: PathBuf,
     },
 }
 
@@ -47,6 +51,7 @@ fn main() -> color_eyre::Result<()> {
             common: CommonArgs { path },
             format,
             optimize,
+            outfile,
         } => {
             let builder = Builder::new(&path);
             let builder = if format { builder.format() } else { builder };
@@ -93,14 +98,17 @@ fn main() -> color_eyre::Result<()> {
                 output
             };
 
-            let bytes = output
-                .into_bytes()
-                .wrap_err("Failed to fetch the bytes of the output smartcontract")?;
+            std::fs::copy(output.wasm_file_path(), &outfile).wrap_err_with(|| {
+                eyre!(
+                    "Failed to write the resulting file into {}",
+                    outfile.display()
+                )
+            })?;
 
-            let mut writer = BufWriter::new(stdout());
-            writer
-                .write_all(&bytes)
-                .wrap_err("Failed to output the bytes")?;
+            eprintln!(
+                "✓ File is written into {}",
+                outfile.display().green().bold()
+            );
         }
     }
 

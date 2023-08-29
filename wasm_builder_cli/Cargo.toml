@@ -13,3 +13,4 @@ iroha_wasm_builder.workspace = true
 clap = { workspace = true, features = ["derive"] }
 color-eyre.workspace = true
 spinoff = { workspace = true, features = ["binary", "dots12"] }
+owo-colors = { workspace = true, features = ["supports-colors"] }

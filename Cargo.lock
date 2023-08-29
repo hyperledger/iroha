@@ -3512,6 +3512,7 @@ dependencies = [
  "clap 4.3.15",
  "color-eyre",
  "iroha_wasm_builder",
+ "owo-colors",
  "spinoff",
 ]
 
