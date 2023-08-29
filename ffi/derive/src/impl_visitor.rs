@@ -547,34 +547,39 @@ impl VisitMut for TypeImplTraitResolver {
                 if let syn2::TypeParamBound::Trait(trait_) = bound {
                     let trait_ = trait_.path.segments.last().expect("Defined");
 
-                    if trait_.ident == "IntoIterator" || trait_.ident == "ExactSizeIterator" {
-                        if let syn2::PathArguments::AngleBracketed(args) = &trait_.arguments {
-                            for arg in &args.args {
-                                if let syn2::GenericArgument::AssocType(binding) = arg {
-                                    if binding.ident == "Item" {
-                                        let mut ty = binding.ty.clone();
-                                        TypeImplTraitResolver.visit_type_mut(&mut ty);
-                                        new_node = Some(parse_quote! { Vec<#ty> });
+                    match trait_.ident.to_string().as_str() {
+                        "IntoIterator" | "ExactSizeIterator" => {
+                            if let syn2::PathArguments::AngleBracketed(args) = &trait_.arguments {
+                                for arg in &args.args {
+                                    if let syn2::GenericArgument::AssocType(binding) = arg {
+                                        if binding.ident == "Item" {
+                                            let mut ty = binding.ty.clone();
+                                            TypeImplTraitResolver.visit_type_mut(&mut ty);
+                                            new_node = Some(parse_quote! { Vec<#ty> });
+                                        }
                                     }
                                 }
                             }
                         }
-                    } else if trait_.ident == "Into" {
-                        if let syn2::PathArguments::AngleBracketed(args) = &trait_.arguments {
-                            for arg in &args.args {
-                                if let syn2::GenericArgument::Type(type_) = arg {
-                                    new_node = Some(type_.clone());
+                        "Into" => {
+                            if let syn2::PathArguments::AngleBracketed(args) = &trait_.arguments {
+                                for arg in &args.args {
+                                    if let syn2::GenericArgument::Type(type_) = arg {
+                                        new_node = Some(type_.clone());
+                                    }
                                 }
                             }
                         }
-                    } else if trait_.ident == "AsRef" {
-                        if let syn2::PathArguments::AngleBracketed(args) = &trait_.arguments {
-                            for arg in &args.args {
-                                if let syn2::GenericArgument::Type(type_) = arg {
-                                    new_node = Some(syn2::parse_quote!(&#type_));
+                        "AsRef" => {
+                            if let syn2::PathArguments::AngleBracketed(args) = &trait_.arguments {
+                                for arg in &args.args {
+                                    if let syn2::GenericArgument::Type(type_) = arg {
+                                        new_node = Some(syn2::parse_quote!(&#type_));
+                                    }
                                 }
                             }
                         }
+                        _ => {}
                     }
                 }
             }
