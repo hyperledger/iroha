@@ -486,10 +486,10 @@ pub mod peer {
         authority: &AccountId,
         _isi: Unregister<Peer>,
     ) {
-        const CAN_UNREGISTER_PEER_TOKEN: tokens::CanUnregisterAnyPeer =
-            tokens::CanUnregisterAnyPeer;
-
-        if CAN_UNREGISTER_PEER_TOKEN.is_owned_by(authority) {
+        if is_genesis(validator) {
+            pass!(validator);
+        }
+        if tokens::CanUnregisterAnyPeer.is_owned_by(authority) {
             pass!(validator);
         }
 
@@ -542,6 +542,9 @@ pub mod domain {
     ) {
         let domain_id = isi.object_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         let can_unregister_domain_token = tokens::CanUnregisterDomain { domain_id };
         if can_unregister_domain_token.is_owned_by(authority) {
             pass!(validator);
@@ -557,6 +560,9 @@ pub mod domain {
     ) {
         let domain_id = isi.object_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         let can_set_key_value_in_domain_token = tokens::CanSetKeyValueInDomain { domain_id };
         if can_set_key_value_in_domain_token.is_owned_by(authority) {
             pass!(validator);
@@ -572,6 +578,9 @@ pub mod domain {
     ) {
         let domain_id = isi.object_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         let can_remove_key_value_in_domain_token = tokens::CanRemoveKeyValueInDomain { domain_id };
         if can_remove_key_value_in_domain_token.is_owned_by(authority) {
             pass!(validator);
@@ -647,9 +656,13 @@ pub mod account {
     ) {
         let account_id = isi.object_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         if account_id == *authority {
             pass!(validator);
         }
+
         let can_unregister_user_account = tokens::CanUnregisterAccount { account_id };
         if can_unregister_user_account.is_owned_by(authority) {
             pass!(validator);
@@ -665,6 +678,9 @@ pub mod account {
     ) {
         let account_id = isi.destination_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         if account_id == *authority {
             pass!(validator);
         }
@@ -683,6 +699,9 @@ pub mod account {
     ) {
         let account_id = isi.destination_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         if account_id == *authority {
             pass!(validator);
         }
@@ -701,6 +720,9 @@ pub mod account {
     ) {
         let account_id = isi.destination_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         if account_id == *authority {
             pass!(validator);
         }
@@ -723,6 +745,9 @@ pub mod account {
     ) {
         let account_id = isi.object_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         if account_id == *authority {
             pass!(validator);
         }
@@ -745,6 +770,9 @@ pub mod account {
     ) {
         let account_id = isi.object_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         if account_id == *authority {
             pass!(validator);
         }
@@ -812,10 +840,13 @@ pub mod asset_definition {
     ) {
         let asset_definition_id = isi.object_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         match is_asset_definition_owner(&asset_definition_id, authority) {
+            Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
-            Err(err) => deny!(validator, err),
         }
         let can_unregister_asset_definition_token = tokens::CanUnregisterAssetDefinition {
             asset_definition_id,
@@ -838,13 +869,16 @@ pub mod asset_definition {
         let source_id = isi.source_id;
         let destination_id = isi.object;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         if &source_id == authority {
             pass!(validator);
         }
         match is_asset_definition_owner(destination_id.id(), authority) {
+            Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
-            Err(err) => deny!(validator, err),
         }
 
         deny!(
@@ -860,10 +894,13 @@ pub mod asset_definition {
     ) {
         let asset_definition_id = isi.object_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         match is_asset_definition_owner(&asset_definition_id, authority) {
+            Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
-            Err(err) => deny!(validator, err),
         }
         let can_set_key_value_in_asset_definition_token = tokens::CanSetKeyValueInAssetDefinition {
             asset_definition_id,
@@ -885,10 +922,13 @@ pub mod asset_definition {
     ) {
         let asset_definition_id = isi.object_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         match is_asset_definition_owner(&asset_definition_id, authority) {
+            Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
-            Err(err) => deny!(validator, err),
         }
         let can_remove_key_value_in_asset_definition_token =
             tokens::CanRemoveKeyValueInAssetDefinition {
@@ -1016,6 +1056,9 @@ pub mod asset {
     ) {
         let asset = isi.object;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         match asset_definition::is_asset_definition_owner(asset.id().definition_id(), authority) {
             Ok(true) => pass!(validator),
             Ok(false) => {}
@@ -1041,13 +1084,16 @@ pub mod asset {
     ) {
         let asset_id = isi.object_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         if is_asset_owner(&asset_id, authority) {
             pass!(validator);
         }
         match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
+            Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
-            Err(err) => deny!(validator, err),
         }
         let can_unregister_assets_with_definition_token =
             tokens::CanUnregisterAssetsWithDefinition {
@@ -1071,10 +1117,13 @@ pub mod asset {
     ) {
         let asset_id = isi.destination_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
+            Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
-            Err(err) => deny!(validator, err),
         }
         let can_mint_assets_with_definition_token = tokens::CanMintAssetsWithDefinition {
             asset_definition_id: asset_id.definition_id().clone(),
@@ -1096,6 +1145,9 @@ pub mod asset {
     ) {
         let asset_id = isi.destination_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         if is_asset_owner(&asset_id, authority) {
             pass!(validator);
         }
@@ -1125,6 +1177,9 @@ pub mod asset {
     ) {
         let asset_id = isi.source_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         if is_asset_owner(&asset_id, authority) {
             pass!(validator);
         }
@@ -1154,9 +1209,13 @@ pub mod asset {
     ) {
         let asset_id = isi.object_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         if is_asset_owner(&asset_id, authority) {
             pass!(validator);
         }
+
         let can_set_key_value_in_user_asset_token = tokens::CanSetKeyValueInUserAsset { asset_id };
         if can_set_key_value_in_user_asset_token.is_owned_by(authority) {
             pass!(validator);
@@ -1175,6 +1234,9 @@ pub mod asset {
     ) {
         let asset_id = isi.object_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         if is_asset_owner(&asset_id, authority) {
             pass!(validator);
         }
@@ -1226,9 +1288,8 @@ pub mod parameter {
         }
 
         impl ValidateGrantRevoke for CanCreateParameters {
-            fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-                if CanGrantPermissionToCreateParameters.is_owned_by(authority) || block_height == 0
-                {
+            fn validate_grant(&self, authority: &AccountId, _block_height: u64) -> Result {
+                if CanGrantPermissionToCreateParameters.is_owned_by(authority) {
                     return Ok(());
                 }
 
@@ -1238,9 +1299,8 @@ pub mod parameter {
                     ))
             }
 
-            fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-                if CanGrantPermissionToCreateParameters.is_owned_by(authority) || block_height == 0
-                {
+            fn validate_revoke(&self, authority: &AccountId, _block_height: u64) -> Result {
+                if CanGrantPermissionToCreateParameters.is_owned_by(authority) {
                     return Ok(());
                 }
 
@@ -1269,8 +1329,8 @@ pub mod parameter {
         }
 
         impl ValidateGrantRevoke for CanSetParameters {
-            fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-                if CanGrantPermissionToSetParameters.is_owned_by(authority) || block_height == 0 {
+            fn validate_grant(&self, authority: &AccountId, _block_height: u64) -> Result {
+                if CanGrantPermissionToSetParameters.is_owned_by(authority) {
                     return Ok(());
                 }
 
@@ -1280,8 +1340,8 @@ pub mod parameter {
                     ))
             }
 
-            fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-                if CanRevokePermissionToSetParameters.is_owned_by(authority) || block_height == 0 {
+            fn validate_revoke(&self, authority: &AccountId, _block_height: u64) -> Result {
+                if CanRevokePermissionToSetParameters.is_owned_by(authority) {
                     return Ok(());
                 }
 
@@ -1299,7 +1359,10 @@ pub mod parameter {
         authority: &AccountId,
         _isi: NewParameter,
     ) {
-        if tokens::CanCreateParameters.is_owned_by(authority) || validator.block_height() == 0 {
+        if is_genesis(validator) {
+            pass!(validator);
+        }
+        if tokens::CanCreateParameters.is_owned_by(authority) {
             pass!(validator);
         }
 
@@ -1315,6 +1378,9 @@ pub mod parameter {
         authority: &AccountId,
         _isi: SetParameter,
     ) {
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         if tokens::CanSetParameters.is_owned_by(authority) {
             pass!(validator);
         }
@@ -1367,6 +1433,9 @@ pub mod role {
                                 >::clone(token)
                             )
                         {
+                            if is_genesis($validator) {
+                                continue;
+                            }
                             if let Err(error) = <$token_ty as permission::ValidateGrantRevoke>::$method(
                                 &concrete_token,
                                 $authority,
@@ -1434,10 +1503,10 @@ pub mod role {
         authority: &AccountId,
         _isi: Unregister<Role>,
     ) {
-        const CAN_UNREGISTER_ROLE_TOKEN: tokens::CanUnregisterAnyRole =
-            tokens::CanUnregisterAnyRole;
-
-        if CAN_UNREGISTER_ROLE_TOKEN.is_owned_by(authority) {
+        if is_genesis(validator) {
+            pass!(validator);
+        }
+        if tokens::CanUnregisterAnyRole.is_owned_by(authority) {
             pass!(validator);
         }
 
@@ -1525,10 +1594,13 @@ pub mod trigger {
     ) {
         let trigger_id = isi.object_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         match is_trigger_owner(trigger_id.clone(), authority) {
+            Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
-            Err(err) => deny!(validator, err),
         }
         let can_unregister_user_trigger_token = tokens::CanUnregisterUserTrigger { trigger_id };
         if can_unregister_user_trigger_token.is_owned_by(authority) {
@@ -1548,10 +1620,13 @@ pub mod trigger {
     ) {
         let trigger_id = isi.destination_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         match is_trigger_owner(trigger_id.clone(), authority) {
+            Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
-            Err(err) => deny!(validator, err),
         }
         let can_mint_user_trigger_token = tokens::CanMintUserTrigger { trigger_id };
         if can_mint_user_trigger_token.is_owned_by(authority) {
@@ -1571,10 +1646,13 @@ pub mod trigger {
     ) {
         let trigger_id = isi.trigger_id;
 
+        if is_genesis(validator) {
+            pass!(validator);
+        }
         match is_trigger_owner(trigger_id.clone(), authority) {
+            Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
-            Err(err) => deny!(validator, err),
         }
         let can_execute_trigger_token = tokens::CanExecuteUserTrigger { trigger_id };
         if can_execute_trigger_token.is_owned_by(authority) {
@@ -1597,6 +1675,9 @@ pub mod permission_token {
                     if let Ok(concrete_token) =
                         <$token_ty as ::core::convert::TryFrom<_>>::try_from(token.clone())
                     {
+                        if is_genesis($validator) {
+                            pass!($validator);
+                        }
                         if let Err(error) = <$token_ty as permission::ValidateGrantRevoke>::$method(
                             &concrete_token,
                             $authority,
@@ -1655,12 +1736,17 @@ pub mod validator {
         authority: &AccountId,
         _isi: Upgrade<data_model::validator::Validator>,
     ) {
-        const CAN_UPGRADE_VALIDATOR_TOKEN: tokens::CanUpgradeValidator =
-            tokens::CanUpgradeValidator;
-        if CAN_UPGRADE_VALIDATOR_TOKEN.is_owned_by(authority) {
+        if is_genesis(validator) {
+            pass!(validator);
+        }
+        if tokens::CanUpgradeValidator.is_owned_by(authority) {
             pass!(validator);
         }
 
         deny!(validator, "Can't upgrade validator");
     }
+}
+
+fn is_genesis<V: Validate + ?Sized>(validator: &V) -> bool {
+    validator.block_height() == 0
 }
