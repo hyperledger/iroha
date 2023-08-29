@@ -1,7 +1,4 @@
-use std::{
-    io::{stdout, BufWriter, Write},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 use clap::{Args, Parser};
 use color_eyre::eyre::{eyre, Context};
