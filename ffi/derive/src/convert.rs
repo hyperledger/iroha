@@ -473,7 +473,7 @@ fn derive_ffi_type_for_fieldless_enum(
 ) -> TokenStream {
     let enum_repr_type = get_enum_repr_type(emitter, enum_name, repr, variants.is_empty());
     // FIXME: I think this doesn't actually require variant names, just using a range would suffice
-    // (not that we don't support custom discriminants)
+    // (note that we don't support custom discriminants)
     let (discriminants, discriminant_decls) =
         gen_discriminants(enum_name, variants, &enum_repr_type);
 
@@ -639,12 +639,16 @@ fn derive_ffi_type_for_data_carrying_enum(
                     emit!(
                         emitter,
                         variant.span(),
-                        "Only 1-sized variants are supported"
+                        "Only unit or single unnamed field variants supported"
                     );
                     continue;
                 }
                 Style::Struct => {
-                    emit!(emitter, variant.span(), "Named variants are not supported");
+                    emit!(
+                        emitter,
+                        variant.span(),
+                        "Only unit or single unnamed field variants supported"
+                    );
                     continue;
                 }
                 Style::Unit => continue,
@@ -749,7 +753,7 @@ fn gen_data_carrying_repr_c_enum(
         gen_data_carrying_enum_payload(emitter, enum_name, generics, variants);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let doc = format!(" [`ReprC`] equivalent of [`{enum_name}`]");
-    let enum_tag_type = gen_enum_tag_type(emitter, enum_name, variants);
+    let enum_tag_type = gen_enum_tag_type(variants);
     let repr_c_enum_name = gen_repr_c_enum_name(enum_name);
 
     let repr_c_enum = quote! {
@@ -858,12 +862,16 @@ fn variant_mapper<F0: FnOnce() -> TokenStream, F1: FnOnce(&FfiTypeField) -> Toke
             emit!(
                 emitter,
                 variant.span(),
-                "Only 1-sized variants are supported"
+                "Only unit or single unnamed field variants supported"
             );
             unit_mapper()
         }
         Style::Struct => {
-            emit!(emitter, variant.span(), "Named variants are not supported");
+            emit!(
+                emitter,
+                variant.span(),
+                "Only unit or single unnamed field variants supported"
+            );
             unit_mapper()
         }
         Style::Unit => unit_mapper(),
@@ -929,7 +937,7 @@ fn get_enum_repr_type(
         // it's an error to use an `#[derive(FfiType)]` on them
         // but we still want to generate a reasonable error message, so we check for it here
         if !is_empty {
-            emit!(emitter, enum_name, "Enum representation not specified. Try adding `#[repr(u32)]` or similar");
+            emit!(emitter, enum_name, "Enum representation is not specified. Try adding `#[repr(u32)]` or similar");
         }
         return syn2::parse_quote! {u32}
     };
@@ -949,17 +957,17 @@ fn get_enum_repr_type(
         ReprPrimitive::I32 => syn2::parse_quote! {i32},
 
         _ => {
-            emit!(emitter, &kind.span(), "Enum representation not supported");
+            emit!(
+                emitter,
+                &kind.span(),
+                "Enum representation is not supported"
+            );
             syn2::parse_quote! {u32}
         }
     }
 }
 
-fn gen_enum_tag_type(
-    emitter: &mut Emitter,
-    enum_name: &Ident,
-    variants: &[SpannedValue<FfiTypeVariant>],
-) -> TokenStream {
+fn gen_enum_tag_type(variants: &[SpannedValue<FfiTypeVariant>]) -> TokenStream {
     const U8_MAX: usize = u8::MAX as usize;
     const U16_MAX: usize = u16::MAX as usize;
     const U32_MAX: usize = u32::MAX as usize;
@@ -970,10 +978,9 @@ fn gen_enum_tag_type(
         0..=U8_MAX => quote! {u8},
         0..=U16_MAX => quote! {u16},
         0..=U32_MAX => quote! {u32},
-        // I don't think ANYONE will ever see this error lol
         _ => {
-            emit!(emitter, enum_name, "Too many variants");
-            quote! {u32}
+            // I don't think ANYONE will ever see this error lol
+            unreachable!("Come get your easter egg!");
         }
     }
 }
