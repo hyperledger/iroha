@@ -95,14 +95,14 @@ impl Parse for SpannedReprToken {
                 "packed" => Ok(((span,ReprToken::Alignment(ReprAlignment::Packed)), after_token)),
                 "aligned" => {
                     let Some((inside_of_group, group_span, after_group)) = after_token.group(Delimiter::Parenthesis) else {
-                        return Err(cursor.error("Expected a number inside of a `repr(aligned)`"));
+                        return Err(cursor.error("Expected a number inside of a `repr(aligned(<number>)), found `repr(aligned)`"));
                     };
                     span = span.join(group_span.span()).expect("Spans must be in the same file");
                     let alignment = syn2::parse2::<syn2::LitInt>(inside_of_group.token_stream())?;
                     let alignment = alignment.base10_parse::<u32>()?;
 
                     Ok((
-                           (span, ReprToken::Alignment(ReprAlignment::Aligned(alignment))),
+                        (span, ReprToken::Alignment(ReprAlignment::Aligned(alignment))),
                         after_group,
                     ))
                 }
@@ -333,7 +333,7 @@ mod test {
     fn err_incomplete_alignment() {
         assert_repr_err!(
             #[repr(aligned)],
-            "Expected a number inside of a `repr(aligned)`"
+            "Expected a number inside of a `repr(aligned(<number>)), found `repr(aligned)`"
         );
         assert_repr_err!(
             #[repr(aligned())],

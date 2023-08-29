@@ -188,7 +188,7 @@ impl syn2::parse::Parse for SpannedGetSetAttrToken {
             }
             _ => Err(syn2::Error::new(
                 ident.span(),
-                "expected one of `skip`, `get`, `get_copy`, `set`, `get_mut`",
+                "expected one of `get`, `get_copy`, `get_mut`, `set`, `skip`",
             )),
         }
     }
@@ -664,7 +664,7 @@ mod test {
             assert_getset_err!(
                 #[getset(unknown_token)],
                 GetSetStructAttr,
-                "expected one of `skip`, `get`, `get_copy`, `set`, `get_mut`"
+                "expected one of `get`, `get_copy`, `get_mut`, `set`, `skip`"
             );
         }
 
@@ -695,7 +695,7 @@ mod test {
             );
         }
     }
-    mod inherit {
+    mod inheritance {
         use darling::FromAttributes;
         use proc_macro2::TokenStream;
         use quote::quote;
