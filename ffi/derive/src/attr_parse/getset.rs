@@ -1,7 +1,8 @@
 //! This module provides parsing of custom attributes from the [`getset`](https://docs.rs/getset/latest/getset/) crate
 
-use std::{collections::hash_map::Entry, fmt::Display, str::FromStr};
+use std::{collections::hash_map::Entry, str::FromStr};
 
+use parse_display::{Display, FromStr};
 use proc_macro2::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
 use syn2::{parse::ParseStream, punctuated::Punctuated, Attribute, Token};
@@ -9,7 +10,7 @@ use syn2::{parse::ParseStream, punctuated::Punctuated, Attribute, Token};
 use crate::attr_parse::derive::{Derive, DeriveAttr};
 
 /// Type of accessor method derived for a structure
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, FromStr)]
 pub enum GetSetDerive {
     Setters,
     Getters,
@@ -35,13 +36,7 @@ impl GetSetDerive {
             }
         };
 
-        match ident.to_string().as_str() {
-            "Setters" => Some(Self::Setters),
-            "Getters" => Some(Self::Getters),
-            "MutGetters" => Some(Self::MutGetters),
-            "CopyGetters" => Some(Self::CopyGetters),
-            _ => None,
-        }
+        ident.to_string().parse().ok()
     }
 
     pub fn get_mode(self) -> GetSetGenMode {
@@ -112,37 +107,13 @@ impl syn2::parse::Parse for SpannedGetSetOptions {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone, Display, FromStr)]
+#[display(style = "snake_case")]
 pub enum GetSetGenMode {
     Get,
     GetCopy,
     Set,
     GetMut,
-}
-
-impl Display for GetSetGenMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GetSetGenMode::Get => write!(f, "get"),
-            GetSetGenMode::GetCopy => write!(f, "get_copy"),
-            GetSetGenMode::Set => write!(f, "set"),
-            GetSetGenMode::GetMut => write!(f, "get_mut"),
-        }
-    }
-}
-
-impl FromStr for GetSetGenMode {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "get" => Ok(GetSetGenMode::Get),
-            "get_copy" => Ok(GetSetGenMode::GetCopy),
-            "set" => Ok(GetSetGenMode::Set),
-            "get_mut" => Ok(GetSetGenMode::GetMut),
-            _ => Err(()),
-        }
-    }
 }
 
 enum GetSetAttrToken {
