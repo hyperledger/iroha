@@ -20,6 +20,7 @@ darling = { workspace = true }
 rustc-hash = { workspace = true }
 
 drop_bomb = "0.1.5"
+parse-display = "0.8.2"
 
 [dev-dependencies]
 iroha_ffi = { workspace = true }
