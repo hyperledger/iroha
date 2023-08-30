@@ -82,10 +82,7 @@ pub mod asset {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, block_height: u64) -> Result {
-            if block_height == 0 {
-                return Ok(());
-            }
+        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
             if self.asset_id.account_id() == authority {
                 return Ok(());
             }
@@ -116,10 +113,7 @@ pub mod asset_definition {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, block_height: u64) -> Result {
-            if block_height == 0 {
-                return Ok(());
-            }
+        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
             if is_asset_definition_owner(self.asset_definition_id, authority)? {
                 return Ok(());
             }
@@ -143,10 +137,7 @@ pub mod account {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, block_height: u64) -> Result {
-            if block_height == 0 {
-                return Ok(());
-            }
+        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
             if self.account_id == authority {
                 return Ok(());
             }
@@ -182,10 +173,7 @@ pub mod trigger {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, block_height: u64) -> Result {
-            if block_height == 0 {
-                return Ok(());
-            }
+        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
             if is_trigger_owner(self.trigger_id.clone(), authority)? {
                 return Ok(());
             }
