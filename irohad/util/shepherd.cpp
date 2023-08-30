@@ -4,7 +4,8 @@
  */
 
 #include <iostream>
-#include <type_traits>
+
+#include "util/proto_status_tools.hpp"
 
 #include <gflags/gflags.h>
 #include "common/irohad_version.hpp"
@@ -48,8 +49,7 @@ DEFINE_bool(status, false, "Watch daemon statuses.");
 DEFINE_validator(status, &validateSingleAction);
 
 bool printStatus(const iroha::utility_service::Status &status) {
-  using underlying_statys_type = typename std::underlying_type_t<std::decay_t<decltype(status)>>;
-  ::fmt::print("{}", static_cast<underlying_statys_type>(status));
+  ::fmt::print("{}", status);
   return true;
 }
 

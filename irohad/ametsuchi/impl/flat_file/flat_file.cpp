@@ -14,7 +14,6 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
-#include <fstream>
 
 #include "common/files.hpp"
 #include "common/result.hpp"
