@@ -633,25 +633,12 @@ fn derive_ffi_type_for_data_carrying_enum(
         let mut non_local_where_clause = where_clause.unwrap().clone();
 
         for variant in variants {
-            let ty = match variant.fields.style {
-                Style::Tuple if variant.fields.fields.len() == 1 => &variant.fields.fields[0].ty,
-                Style::Tuple => {
-                    emit!(
-                        emitter,
-                        variant.span(),
-                        "Only unit or single unnamed field variants supported"
-                    );
-                    continue;
-                }
-                Style::Struct => {
-                    emit!(
-                        emitter,
-                        variant.span(),
-                        "Only unit or single unnamed field variants supported"
-                    );
-                    continue;
-                }
-                Style::Unit => continue,
+            let Some(ty) = variant_mapper(
+                emitter, variant,
+                || None,
+                |field| Some(field.ty.clone())
+            ) else {
+                continue
             };
 
             non_local_where_clause.predicates.push(
@@ -850,12 +837,12 @@ fn variant_discriminants(variants: &[SpannedValue<FfiTypeVariant>]) -> Vec<proc_
         .collect()
 }
 
-fn variant_mapper<F0: FnOnce() -> TokenStream, F1: FnOnce(&FfiTypeField) -> TokenStream>(
+fn variant_mapper<T: Sized, F0: FnOnce() -> T, F1: FnOnce(&FfiTypeField) -> T>(
     emitter: &mut Emitter,
     variant: &SpannedValue<FfiTypeVariant>,
     unit_mapper: F0,
     field_mapper: F1,
-) -> TokenStream {
+) -> T {
     match &variant.fields.style {
         Style::Tuple if variant.fields.fields.len() == 1 => field_mapper(&variant.fields.fields[0]),
         Style::Tuple => {

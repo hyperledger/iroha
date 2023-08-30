@@ -192,17 +192,16 @@ fn insert_gen_request(
     }
 }
 
-#[derive(Default, Debug, Eq, PartialEq, Clone)]
-pub struct GetSetFieldAttr {
+struct GetSetRawFieldAttr {
     pub skip: bool,
     pub gen: RequestedAccessors,
 }
 
-impl darling::FromAttributes for GetSetFieldAttr {
-    fn from_attributes(attrs: &[Attribute]) -> darling::Result<Self> {
+impl GetSetRawFieldAttr {
+    fn from_attributes(attrs: &[Attribute], allow_skip: bool) -> darling::Result<Self> {
         let mut accumulator = darling::error::Accumulator::default();
         let mut skip_span = None;
-        let mut result = GetSetFieldAttr {
+        let mut result = GetSetRawFieldAttr {
             skip: false,
             gen: FxHashMap::default(),
         };
@@ -219,68 +218,10 @@ impl darling::FromAttributes for GetSetFieldAttr {
 
                 for token in tokens {
                     match token.token {
-                        GetSetAttrToken::Skip => {
+                        GetSetAttrToken::Skip if allow_skip => {
                             result.skip = true;
                             skip_span = Some(token.span);
                         }
-                        GetSetAttrToken::Gen(mode, options) => insert_gen_request(
-                            &mut accumulator,
-                            &mut result.gen,
-                            token.span,
-                            mode,
-                            options,
-                        ),
-                    }
-                }
-            } else if attr
-                .path()
-                .get_ident()
-                .and_then(|ident| GetSetGenMode::from_str(&ident.to_string()).ok())
-                .is_some()
-            {
-                accumulator.push(
-                    darling::Error::custom(
-                        "getset attributes without `getset` prefix are not supported by iroha_ffi_derive",
-                    )
-                    .with_span(attr),
-                )
-            }
-        }
-
-        if result.skip && !result.gen.is_empty() {
-            accumulator.push(
-                darling::Error::custom(
-                    "`skip` is used, but attributes requesting a getter or setter are also present",
-                )
-                .with_span(&skip_span.unwrap()),
-            );
-        }
-
-        accumulator.finish_with(result)
-    }
-}
-
-#[derive(Default, Debug, Eq, PartialEq, Clone)]
-pub struct GetSetStructAttr {
-    pub gen: FxHashMap<GetSetGenMode, GetSetOptions>,
-}
-
-impl darling::FromAttributes for GetSetStructAttr {
-    fn from_attributes(attrs: &[Attribute]) -> darling::Result<Self> {
-        let mut accumulator = darling::error::Accumulator::default();
-        let mut result = GetSetStructAttr {
-            gen: FxHashMap::default(),
-        };
-        for attr in attrs {
-            if attr.path().is_ident("getset") {
-                let Some(list) = accumulator.handle(attr.meta.require_list().map_err(Into::into))
-                    else { continue };
-                let Some(tokens): Option<Punctuated<SpannedGetSetAttrToken, Token![,]>>
-                    = accumulator.handle(list.parse_args_with(Punctuated::parse_terminated).map_err(Into::into))
-                    else { continue };
-
-                for token in tokens {
-                    match token.token {
                         GetSetAttrToken::Skip => {
                             accumulator.push(
                                 darling::Error::custom("`skip` is not valid on a struct")
@@ -311,7 +252,43 @@ impl darling::FromAttributes for GetSetStructAttr {
             }
         }
 
+        if result.skip && !result.gen.is_empty() {
+            accumulator.push(
+                darling::Error::custom(
+                    "`skip` is used, but attributes requesting a getter or setter are also present",
+                )
+                .with_span(&skip_span.unwrap()),
+            );
+        }
+
         accumulator.finish_with(result)
+    }
+}
+
+#[derive(Default, Debug, Eq, PartialEq, Clone)]
+pub struct GetSetFieldAttr {
+    pub skip: bool,
+    pub gen: RequestedAccessors,
+}
+
+impl darling::FromAttributes for GetSetFieldAttr {
+    fn from_attributes(attrs: &[Attribute]) -> darling::Result<Self> {
+        GetSetRawFieldAttr::from_attributes(attrs, true).map(|raw| GetSetFieldAttr {
+            skip: raw.skip,
+            gen: raw.gen,
+        })
+    }
+}
+
+#[derive(Default, Debug, Eq, PartialEq, Clone)]
+pub struct GetSetStructAttr {
+    pub gen: FxHashMap<GetSetGenMode, GetSetOptions>,
+}
+
+impl darling::FromAttributes for GetSetStructAttr {
+    fn from_attributes(attrs: &[Attribute]) -> darling::Result<Self> {
+        GetSetRawFieldAttr::from_attributes(attrs, false)
+            .map(|raw| GetSetStructAttr { gen: raw.gen })
     }
 }
 
