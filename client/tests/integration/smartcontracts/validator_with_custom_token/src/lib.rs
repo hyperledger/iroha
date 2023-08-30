@@ -55,8 +55,6 @@ macro_rules! delegate {
 }
 
 impl CustomValidator {
-    const CAN_CONTROL_DOMAIN_LIVES: token::CanControlDomainLives = token::CanControlDomainLives;
-
     fn get_all_accounts_with_can_unregister_domain_permission(
     ) -> Result<Vec<(Account, DomainId)>, MigrationError> {
         let accounts = FindAllAccounts.execute().map_err(|error| {
@@ -156,7 +154,10 @@ impl CustomValidator {
 
 impl Visit for CustomValidator {
     fn visit_register_domain(&mut self, authority: &AccountId, _register_domain: Register<Domain>) {
-        if Self::CAN_CONTROL_DOMAIN_LIVES.is_owned_by(authority) {
+        if self.block_height() == 0 {
+            pass!(self);
+        }
+        if token::CanControlDomainLives.is_owned_by(authority) {
             pass!(self);
         }
 
@@ -168,7 +169,10 @@ impl Visit for CustomValidator {
         authority: &AccountId,
         _unregister_domain: Unregister<Domain>,
     ) {
-        if Self::CAN_CONTROL_DOMAIN_LIVES.is_owned_by(authority) {
+        if self.block_height() == 0 {
+            pass!(self);
+        }
+        if token::CanControlDomainLives.is_owned_by(authority) {
             pass!(self);
         }
 
