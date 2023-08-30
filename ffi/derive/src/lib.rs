@@ -111,7 +111,7 @@ pub fn ffi(input: TokenStream) -> TokenStream {
         })
         .collect::<Vec<_>>();
 
-    emitter.finish_token_stream(quote! { #(#items)* })
+    emitter.finish_token_stream_with(quote! { #(#items)* })
 }
 
 // TODO: ffi_type(`local`) is a workaround for https://github.com/rust-lang/rust/issues/48214
@@ -159,18 +159,18 @@ pub fn ffi(input: TokenStream) -> TokenStream {
 #[manyhow]
 #[proc_macro_derive(FfiType, attributes(ffi_type))]
 pub fn ffi_type_derive(input: TokenStream) -> TokenStream {
-    let mut emitter = emitter::Emitter::new();
+    let mut emitter = Emitter::new();
 
     let Some(item) = emitter.handle(syn2::parse2::<syn2::DeriveInput>(input)) else {
-        return emitter.into_token_stream();
+        return emitter.finish_token_stream();
     };
 
     if !matches!(item.vis, syn2::Visibility::Public(_)) {
-        manyhow::emit!(emitter, item, "Only public types are allowed in FFI");
+        emit!(emitter, item, "Only public types are allowed in FFI");
     }
 
     let result = derive_ffi_type(&mut emitter, &item);
-    emitter.finish_token_stream(result)
+    emitter.finish_token_stream_with(result)
 }
 
 /// Generate FFI functions
@@ -242,7 +242,7 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
         Item::Impl(item) => {
             let Some(impl_descriptor) = ImplDescriptor::from_impl(&mut emitter, &item) else {
                 // continuing here creates a lot of dubious errors
-                return emitter.finish_token_stream(quote!());
+                return emitter.finish_token_stream();
             };
             let ffi_fns = impl_descriptor
                 .fns
@@ -257,7 +257,7 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
         Item::Fn(item) => {
             let Some(fn_descriptor) = FnDescriptor::from_fn(&mut emitter, &item) else {
                 // continuing here creates a lot of dubious errors
-                return emitter.finish_token_stream(quote!());
+                return emitter.finish_token_stream();
             };
             let ffi_fn = ffi_fn::gen_definition(&fn_descriptor, None);
 
@@ -270,7 +270,7 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
             // re-parse as a DeriveInput to utilize darling
             let input = syn2::parse2(quote!(#item)).unwrap();
             let Some(input) = emitter.handle(FfiTypeInput::from_derive_input(&input)) else {
-                return emitter.finish_token_stream(quote!());
+                return emitter.finish_token_stream();
             };
 
             // we don't need ffi fns for getset accessors if the type is not opaque or there are no accessors
@@ -282,7 +282,7 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
                     .any(|d| matches!(d, Derive::GetSet(_)))
             {
                 let input = input.ast;
-                return emitter.finish_token_stream(quote! { #input });
+                return emitter.finish_token_stream_with(quote! { #input });
             }
 
             let darling::ast::Data::Struct(fields) = &input.data else {
@@ -296,7 +296,7 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
                     "Generics on derived methods not supported"
                 );
                 // continuing codegen results in a lot of spurious errors
-                return emitter.finish_token_stream(quote!());
+                return emitter.finish_token_stream();
             }
             let derived_ffi_fns = getset_gen::gen_derived_methods(
                 &mut emitter,
@@ -320,7 +320,7 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    emitter.finish_token_stream(result)
+    emitter.finish_token_stream_with(result)
 }
 
 /// Replace the function's body with a call to FFI function. Counterpart of [`ffi_export`]
@@ -367,7 +367,7 @@ pub fn ffi_import(attr: TokenStream, item: TokenStream) -> TokenStream {
             let attrs = &item.attrs;
             let Some(impl_desc) = ImplDescriptor::from_impl(&mut emitter, &item) else {
                 // continuing codegen results in a lot of spurious errors
-                return emitter.finish_token_stream(quote!());
+                return emitter.finish_token_stream();
             };
             let wrapped_items = wrapper::wrap_impl_items(&impl_desc);
 
@@ -401,7 +401,7 @@ pub fn ffi_import(attr: TokenStream, item: TokenStream) -> TokenStream {
         Item::Fn(item) => {
             let Some(fn_descriptor) = FnDescriptor::from_fn(&mut emitter, &item) else {
                 // continuing here creates a lot of dubious errors
-                return emitter.finish_token_stream(quote!());
+                return emitter.finish_token_stream();
             };
             let ffi_fn = ffi_fn::gen_declaration(&fn_descriptor, None);
             let wrapped_item = wrap_method(&fn_descriptor, None);
@@ -420,5 +420,5 @@ pub fn ffi_import(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    emitter.finish_token_stream(result)
+    emitter.finish_token_stream_with(result)
 }
