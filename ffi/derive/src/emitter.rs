@@ -88,7 +88,7 @@ impl Emitter {
     }
 
     /// Consume the emitter, convert all errors into a token stream.
-    pub fn into_token_stream(self) -> TokenStream {
+    pub fn finish_token_stream(self) -> TokenStream {
         let mut tokens_stream = TokenStream::new();
         self.into_tokens(&mut tokens_stream);
         tokens_stream
@@ -97,7 +97,7 @@ impl Emitter {
     /// Consume the emitter, convert all errors into a token stream and append it to the given token stream.
     ///
     /// This function is useful when you want to handle errors in a macro, but want to emit some tokens even in case of an error.
-    pub fn finish_token_stream(self, mut tokens_stream: TokenStream) -> TokenStream {
+    pub fn finish_token_stream_with(self, mut tokens_stream: TokenStream) -> TokenStream {
         self.into_tokens(&mut tokens_stream);
         tokens_stream
     }
