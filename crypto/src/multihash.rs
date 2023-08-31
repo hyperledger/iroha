@@ -9,6 +9,7 @@ use alloc::{
 };
 
 use derive_more::Display;
+use iroha_primitives::const_bytes::ConstBytes;
 
 use crate::{varint, Algorithm, NoSuchAlgorithm, PublicKey};
 
@@ -90,7 +91,7 @@ pub struct Multihash {
     /// digest
     pub digest_function: DigestFunction,
     /// hash payload
-    pub payload: Vec<u8>,
+    pub payload: ConstBytes,
 }
 
 impl TryFrom<Vec<u8>> for Multihash {
@@ -127,6 +128,7 @@ impl TryFrom<Vec<u8>> for Multihash {
                 "Digest size not equal to actual length",
             )));
         }
+        let payload = ConstBytes::new(payload);
 
         Ok(Self {
             digest_function,
@@ -148,7 +150,7 @@ impl TryFrom<&Multihash> for Vec<u8> {
         bytes.push(multihash.payload.len().try_into().map_err(|_e| {
             MultihashConvertError::new(String::from("Digest size can't fit into u8"))
         })?);
-        bytes.extend_from_slice(&multihash.payload);
+        bytes.extend_from_slice(multihash.payload.as_ref());
 
         Ok(bytes)
     }
@@ -222,8 +224,10 @@ mod tests {
     fn multihash_to_bytes() {
         let multihash = &Multihash {
             digest_function: DigestFunction::Ed25519Pub,
-            payload: hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
-                .expect("Failed to decode hex."),
+            payload: ConstBytes::new(
+                hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
+                    .expect("Failed to decode hex."),
+            ),
         };
         let bytes: Vec<u8> = multihash.try_into().expect("Failed to serialize multihash");
         assert_eq!(
@@ -237,8 +241,10 @@ mod tests {
     fn multihash_from_bytes() {
         let multihash = Multihash {
             digest_function: DigestFunction::Ed25519Pub,
-            payload: hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
-                .expect("Failed to decode hex."),
+            payload: ConstBytes::new(
+                hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
+                    .expect("Failed to decode hex."),
+            ),
         };
         let bytes =
             hex_decode("ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
