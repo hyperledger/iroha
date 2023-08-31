@@ -8,6 +8,7 @@ use std::collections::btree_set;
 
 use derive_more::{Deref, DerefMut};
 use iroha_macro::ffi_impl_opaque;
+use iroha_primitives::const_bytes::ConstBytes;
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode, Input};
 #[cfg(not(feature = "ffi_import"))]
@@ -34,7 +35,7 @@ ffi::ffi_item! {
     #[cfg_attr(not(feature="ffi_import"), derive(derive_more::DebugCustom, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema))]
     #[cfg_attr(not(feature="ffi_import"), debug(
         fmt = "{{ pub_key: {public_key}, payload: {} }}",
-        "hex::encode_upper(payload.as_slice())"
+        "hex::encode_upper(payload)"
     ))]
     pub struct Signature {
         /// Public key that is used for verification. Payload is verified by algorithm
@@ -42,7 +43,7 @@ ffi::ffi_item! {
         #[getset(get = "pub")]
         public_key: PublicKey,
         /// Signature payload
-        payload: Vec<u8>,
+        payload: ConstBytes,
     }
 }
 
@@ -50,7 +51,7 @@ ffi::ffi_item! {
 impl Signature {
     /// Key payload
     pub fn payload(&self) -> &[u8] {
-        &self.payload
+        self.payload.as_ref()
     }
 
     /// Creates new [`Signature`] by signing payload via [`KeyPair::private_key`].
@@ -62,7 +63,7 @@ impl Signature {
         let (public_key, private_key) = key_pair.into();
 
         let algorithm: crate::Algorithm = private_key.digest_function();
-        let private_key = UrsaPrivateKey(private_key.payload);
+        let private_key = UrsaPrivateKey(private_key.payload.into_vec());
 
         let signature = match algorithm {
             crate::Algorithm::Ed25519 => Ed25519Sha512::new().sign(payload, &private_key),
@@ -70,10 +71,9 @@ impl Signature {
             crate::Algorithm::BlsSmall => BlsSmall::new().sign(payload, &private_key),
             crate::Algorithm::BlsNormal => BlsNormal::new().sign(payload, &private_key),
         }?;
-
         Ok(Self {
             public_key,
-            payload: signature,
+            payload: ConstBytes::new(signature),
         })
     }
 
@@ -111,7 +111,7 @@ impl Signature {
 
     /// Get the encrypted payload of this signature.
     pub fn signature_payload(&self) -> &[u8] {
-        &self.payload
+        self.payload.as_ref()
     }
 }
 
@@ -124,7 +124,7 @@ impl From<Signature> for (PublicKey, Vec<u8>) {
             payload: signature,
         }: Signature,
     ) -> Self {
-        (public_key, signature)
+        (public_key, signature.into_vec())
     }
 }
 
