@@ -9,8 +9,6 @@ use iroha_genesis::GenesisNetwork;
 use serde_json::json;
 use test_network::{PeerBuilder, *};
 
-use super::Configuration;
-
 #[test]
 fn genesis_transactions_are_validated() {
     const POLL_PERIOD: Duration = Duration::from_millis(1000);
@@ -61,7 +59,7 @@ fn genesis_transactions_are_validated() {
     }
 }
 
-fn get_assets(iroha_client: &mut Client, id: &<Account as Identifiable>::Id) -> Vec<Asset> {
+fn get_assets(iroha_client: &Client, id: &AccountId) -> Vec<Asset> {
     iroha_client
         .request(client::asset::by_account_id(id.clone()))
         .expect("Failed to execute request.")
@@ -69,26 +67,24 @@ fn get_assets(iroha_client: &mut Client, id: &<Account as Identifiable>::Id) -> 
         .expect("Failed to execute request.")
 }
 
-#[ignore = "ignore, more in #2851"]
 #[test]
+#[ignore = "ignore, more in #2851"]
 fn permissions_disallow_asset_transfer() {
-    let (_rt, _peer, mut iroha_client) =
-        <PeerBuilder>::new().with_port(10_730).start_with_runtime();
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
     wait_for_genesis_committed(&[iroha_client.clone()], 0);
-    let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland").expect("Valid");
-    let bob_id = <Account as Identifiable>::Id::from_str("bob@wonderland").expect("Valid");
+    let alice_id = "alice@wonderland".parse().expect("Valid");
+    let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
+    let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
     let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
-    let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
+    let mouse_keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
 
-    let alice_start_assets = get_assets(&mut iroha_client, &alice_id);
+    let alice_start_assets = get_assets(&iroha_client, &alice_id);
     iroha_client
-        .submit_all([create_asset, register_bob])
+        .submit_blocking(create_asset)
         .expect("Failed to prepare state.");
-    thread::sleep(pipeline_time * 2);
 
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
@@ -96,9 +92,8 @@ fn permissions_disallow_asset_transfer() {
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id.clone())),
     );
     iroha_client
-        .submit(mint_asset)
+        .submit_blocking(mint_asset)
         .expect("Failed to create asset.");
-    thread::sleep(pipeline_time * 2);
 
     //When
     let transfer_asset = TransferBox::new(
@@ -106,12 +101,16 @@ fn permissions_disallow_asset_transfer() {
         quantity.to_value(),
         IdBox::AccountId(alice_id.clone()),
     );
+    let transfer_tx = TransactionBuilder::new(mouse_id)
+        .with_instructions([transfer_asset])
+        .sign(mouse_keypair)
+        .expect("Failed to sign mouse transaction");
     let err = iroha_client
-        .submit_blocking(transfer_asset)
+        .submit_transaction_blocking(&transfer_tx)
         .expect_err("Transaction was not rejected.");
     let rejection_reason = err
         .downcast_ref::<PipelineRejectionReason>()
-        .unwrap_or_else(|| panic!("Error {err} is not PipelineRejectionReason"));
+        .expect("Error {err} is not PipelineRejectionReason");
     //Then
     assert!(matches!(
         rejection_reason,
@@ -119,56 +118,52 @@ fn permissions_disallow_asset_transfer() {
             ValidationFail::NotPermitted(_)
         ))
     ));
-    let alice_assets = get_assets(&mut iroha_client, &alice_id);
+    let alice_assets = get_assets(&iroha_client, &alice_id);
     assert_eq!(alice_assets, alice_start_assets);
 }
 
-#[ignore = "ignore, more in #2851"]
 #[test]
+#[ignore = "ignore, more in #2851"]
 fn permissions_disallow_asset_burn() {
-    let (_rt, _not_drop, mut iroha_client) =
-        <PeerBuilder>::new().with_port(10_735).start_with_runtime();
-    let pipeline_time = Configuration::pipeline_time();
-
-    // Given
-    thread::sleep(pipeline_time * 5);
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_735).start_with_runtime();
 
     let alice_id = "alice@wonderland".parse().expect("Valid");
-    let bob_id: <Account as Identifiable>::Id = "bob@wonderland".parse().expect("Valid");
+    let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
+    let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
-    let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
+    let mouse_keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
 
-    let alice_start_assets = get_assets(&mut iroha_client, &alice_id);
+    let alice_start_assets = get_assets(&iroha_client, &alice_id);
 
     iroha_client
-        .submit_all([create_asset, register_bob])
+        .submit_blocking(create_asset)
         .expect("Failed to prepare state.");
-
-    thread::sleep(pipeline_time * 2);
 
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
         quantity.to_value(),
-        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id.clone())),
+        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id)),
     );
     iroha_client
-        .submit_all([mint_asset])
+        .submit_blocking(mint_asset)
         .expect("Failed to create asset.");
-    thread::sleep(pipeline_time * 2);
-    //When
     let burn_asset = BurnBox::new(
         quantity.to_value(),
-        IdBox::AssetId(AssetId::new(asset_definition_id, bob_id)),
+        IdBox::AssetId(AssetId::new(asset_definition_id, mouse_id.clone())),
     );
+    let burn_tx = TransactionBuilder::new(mouse_id)
+        .with_instructions([burn_asset])
+        .sign(mouse_keypair)
+        .expect("Failed to sign mouse transaction");
 
     let err = iroha_client
-        .submit_blocking(burn_asset)
+        .submit_transaction_blocking(&burn_tx)
         .expect_err("Transaction was not rejected.");
     let rejection_reason = err
         .downcast_ref::<PipelineRejectionReason>()
-        .unwrap_or_else(|| panic!("Error {err} is not PipelineRejectionReason"));
-    //Then
+        .expect("Error {err} is not PipelineRejectionReason");
+
     assert!(matches!(
         rejection_reason,
         &PipelineRejectionReason::Transaction(TransactionRejectionReason::Validation(
@@ -176,12 +171,12 @@ fn permissions_disallow_asset_burn() {
         ))
     ));
 
-    let alice_assets = get_assets(&mut iroha_client, &alice_id);
+    let alice_assets = get_assets(&iroha_client, &alice_id);
     assert_eq!(alice_assets, alice_start_assets);
 }
 
-#[ignore = "ignore, more in #2851"]
 #[test]
+#[ignore = "ignore, more in #2851"]
 fn account_can_query_only_its_own_domain() -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_740).start_with_runtime();
     wait_for_genesis_committed(&[client.clone()], 0);
@@ -203,21 +198,18 @@ fn account_can_query_only_its_own_domain() -> Result<()> {
     Ok(())
 }
 
-#[ignore = "ignore, more in #2851"]
 #[test]
 fn permissions_differ_not_only_by_names() {
     let (_rt, _not_drop, client) = <PeerBuilder>::new().with_port(10_745).start_with_runtime();
 
-    let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
-    let mouse_id: <Account as Identifiable>::Id = "mouse@wonderland".parse().expect("Valid");
+    let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
     let mouse_keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
 
     // Registering `Store` asset definitions
-    let hat_definition_id: <AssetDefinition as Identifiable>::Id =
-        "hat#wonderland".parse().expect("Valid");
+    let hat_definition_id: AssetDefinitionId = "hat#wonderland".parse().expect("Valid");
     let new_hat_definition = AssetDefinition::store(hat_definition_id.clone());
-    let shoes_definition_id: <AssetDefinition as Identifiable>::Id =
-        "shoes#wonderland".parse().expect("Valid");
+    let shoes_definition_id: AssetDefinitionId = "shoes#wonderland".parse().expect("Valid");
     let new_shoes_definition = AssetDefinition::store(shoes_definition_id.clone());
     client
         .submit_all_blocking([
@@ -233,7 +225,7 @@ fn permissions_differ_not_only_by_names() {
         .expect("Failed to register mouse");
 
     // Granting permission to Alice to modify metadata in Mouse's hats
-    let mouse_hat_id = <Asset as Identifiable>::Id::new(hat_definition_id, mouse_id.clone());
+    let mouse_hat_id = AssetId::new(hat_definition_id, mouse_id.clone());
     let allow_alice_to_set_key_value_in_hats = GrantBox::new(
         PermissionToken::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
@@ -260,7 +252,7 @@ fn permissions_differ_not_only_by_names() {
         .expect("Failed to modify Mouse's hats");
 
     // ... but not shoes
-    let mouse_shoes_id = <Asset as Identifiable>::Id::new(shoes_definition_id, mouse_id.clone());
+    let mouse_shoes_id = AssetId::new(shoes_definition_id, mouse_id.clone());
     let set_shoes_color = SetKeyValueBox::new(
         mouse_shoes_id.clone(),
         Name::from_str("color").expect("Valid"),
@@ -292,4 +284,55 @@ fn permissions_differ_not_only_by_names() {
     client
         .submit_blocking(set_shoes_color)
         .expect("Failed to modify Mouse's shoes");
+}
+
+#[test]
+fn stored_vs_granted_token_payload() -> Result<()> {
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
+    wait_for_genesis_committed(&[iroha_client.clone()], 0);
+
+    // Given
+    let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+
+    // Registering mouse and asset definition
+    let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
+    let create_asset = RegisterBox::new(AssetDefinition::store(asset_definition_id.clone()));
+    let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
+    let mouse_keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
+    let new_mouse_account = Account::new(mouse_id.clone(), [mouse_keypair.public_key().clone()]);
+    let instructions: [InstructionBox; 2] = [
+        RegisterBox::new(new_mouse_account).into(),
+        create_asset.into(),
+    ];
+    iroha_client
+        .submit_all_blocking(instructions)
+        .expect("Failed to register mouse");
+
+    // Allow alice to mint mouse asset and mint initial value
+    let mouse_asset = AssetId::new(asset_definition_id, mouse_id.clone());
+    let allow_alice_to_set_key_value_in_mouse_asset = GrantBox::new(
+        PermissionToken::from_str_unchecked(
+            "CanSetKeyValueInUserAsset".parse().unwrap(),
+            // NOTE: Introduced additional whitespaces in the serialized form
+            "{ \"asset_id\" : \"xor#wonderland#mouse@wonderland\" }",
+        ),
+        alice_id,
+    );
+
+    let transaction = TransactionBuilder::new(mouse_id)
+        .with_instructions([allow_alice_to_set_key_value_in_mouse_asset])
+        .sign(mouse_keypair)
+        .expect("Failed to sign mouse transaction");
+    iroha_client
+        .submit_transaction_blocking(&transaction)
+        .expect("Failed to grant permission to alice.");
+
+    // Check that alice can indeed mint mouse asset
+    let set_key_value =
+        SetKeyValueBox::new(mouse_asset, Name::from_str("color")?, "red".to_owned());
+    iroha_client
+        .submit_blocking(set_key_value)
+        .expect("Failed to mint asset for mouse.");
+
+    Ok(())
 }

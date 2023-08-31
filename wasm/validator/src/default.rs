@@ -3,29 +3,32 @@
 
 use alloc::{borrow::ToOwned as _, format, string::String};
 
-use account::{
+pub use account::{
     visit_burn_account_public_key, visit_mint_account_public_key,
     visit_mint_account_signature_check_condition, visit_remove_account_key_value,
     visit_set_account_key_value, visit_unregister_account,
 };
-use asset::{
+pub use asset::{
     visit_burn_asset, visit_mint_asset, visit_register_asset, visit_remove_asset_key_value,
     visit_set_asset_key_value, visit_transfer_asset, visit_unregister_asset,
 };
-use asset_definition::{
+pub use asset_definition::{
     visit_remove_asset_definition_key_value, visit_set_asset_definition_key_value,
     visit_transfer_asset_definition, visit_unregister_asset_definition,
 };
-use data_model::{evaluate::ExpressionEvaluator, visit::Visit};
-use domain::{visit_remove_domain_key_value, visit_set_domain_key_value, visit_unregister_domain};
-use parameter::{visit_new_parameter, visit_set_parameter};
-use peer::visit_unregister_peer;
-use permission_token::{visit_grant_account_permission, visit_revoke_account_permission};
-use role::{
+pub use domain::{
+    visit_remove_domain_key_value, visit_set_domain_key_value, visit_unregister_domain,
+};
+pub use parameter::{visit_new_parameter, visit_set_parameter};
+pub use peer::visit_unregister_peer;
+pub use permission_token::{visit_grant_account_permission, visit_revoke_account_permission};
+pub use role::{
     visit_grant_account_role, visit_register_role, visit_revoke_account_role, visit_unregister_role,
 };
-use trigger::{visit_execute_trigger, visit_mint_trigger_repetitions, visit_unregister_trigger};
-use validator::visit_upgrade_validator;
+pub use trigger::{
+    visit_execute_trigger, visit_mint_trigger_repetitions, visit_unregister_trigger,
+};
+pub use validator::visit_upgrade_validator;
 
 use super::*;
 use crate::{permission, permission::Token as _, prelude::*};
@@ -40,14 +43,6 @@ macro_rules! evaluate_expr {
             stringify!($field),
         ))
     }};
-}
-
-macro_rules! custom_impls {
-    ( $($validator:ident $(<$param:ident $(: $bound:path)?>)?($operation:ty)),+ $(,)? ) => { $(
-        fn $validator $(<$param $(: $bound)?>)?(&mut self, authority: &AccountId, operation: $operation) {
-            $validator(self, authority, operation)
-        } )+
-    }
 }
 
 /// Apply `callback` macro for all token types from this crate.
@@ -74,7 +69,7 @@ macro_rules! map_all_crate_tokens {
 
 macro_rules! token {
     ($($meta:meta)* $item:item) => {
-        #[derive(serde::Serialize, serde::Deserialize)]
+        #[derive(PartialEq, Eq, serde::Serialize, serde::Deserialize)]
         #[derive(iroha_schema::IntoSchema)]
         #[derive(Clone, Token)]
         $($meta)*
@@ -84,156 +79,18 @@ macro_rules! token {
 
 pub(crate) use map_all_crate_tokens;
 
-impl Validate for DefaultValidator {
-    fn migrate(block_height: u64) -> MigrationResult {
-        Self::ensure_genesis(block_height)?;
+pub fn default_permission_token_schema() -> PermissionTokenSchema {
+    let mut schema = iroha_validator::PermissionTokenSchema::default();
 
-        let schema = Self::permission_token_schema();
-
-        let (token_ids, schema_str) = schema.serialize();
-        iroha_validator::iroha_wasm::set_permission_token_schema(
-            &iroha_validator::data_model::permission::PermissionTokenSchema::new(
-                token_ids, schema_str,
-            ),
-        );
-
-        Ok(())
+    macro_rules! add_to_schema {
+        ($token_ty:ty) => {
+            schema.insert::<$token_ty>();
+        };
     }
 
-    fn verdict(&self) -> &Result {
-        &self.verdict
-    }
+    iroha_validator::default::map_all_crate_tokens!(add_to_schema);
 
-    fn block_height(&self) -> u64 {
-        self.block_height
-    }
-
-    fn deny(&mut self, reason: ValidationFail) {
-        self.verdict = Err(reason);
-    }
-}
-
-/// Validator that replaces some of [`Validate`]'s methods with sensible defaults
-///
-/// # Warning
-///
-/// The defaults are not guaranteed to be stable.
-#[derive(Debug, Clone)]
-pub struct DefaultValidator {
-    pub verdict: Result,
-    pub block_height: u64,
-    host: iroha_wasm::Host,
-}
-
-impl DefaultValidator {
-    /// Construct [`Self`]
-    #[allow(clippy::new_without_default)]
-    pub fn new(block_height: u64) -> Self {
-        Self {
-            verdict: Ok(()),
-            block_height,
-            host: iroha_wasm::Host,
-        }
-    }
-
-    pub fn permission_token_schema() -> PermissionTokenSchema {
-        let mut schema = iroha_validator::PermissionTokenSchema::default();
-
-        macro_rules! add_to_schema {
-            ($token_ty:ty) => {
-                schema.insert::<$token_ty>();
-            };
-        }
-
-        map_all_crate_tokens!(add_to_schema);
-
-        schema
-    }
-
-    fn ensure_genesis(block_height: u64) -> MigrationResult {
-        if block_height != 0 {
-            return Err("Default Validator is intended to be used only in genesis. \
-                 Write your own validator if you need to upgrade validator on existing chain."
-                .to_owned());
-        }
-
-        Ok(())
-    }
-}
-
-impl ExpressionEvaluator for DefaultValidator {
-    fn evaluate<E: Evaluate>(
-        &self,
-        expression: &E,
-    ) -> core::result::Result<E::Value, iroha_wasm::data_model::evaluate::EvaluationError> {
-        self.host.evaluate(expression)
-    }
-}
-
-impl Visit for DefaultValidator {
-    custom_impls! {
-        visit_unsupported<T: core::fmt::Debug>(T),
-
-        visit_transaction(&VersionedSignedTransaction),
-        visit_instruction(&InstructionBox),
-        visit_expression<V>(&EvaluatesTo<V>),
-        visit_sequence(&SequenceBox),
-        visit_if(&Conditional),
-        visit_pair(&Pair),
-
-        // Peer validation
-        visit_unregister_peer(Unregister<Peer>),
-
-        // Domain validation
-        visit_unregister_domain(Unregister<Domain>),
-        visit_set_domain_key_value(SetKeyValue<Domain>),
-        visit_remove_domain_key_value(RemoveKeyValue<Domain>),
-
-        // Account validation
-        visit_unregister_account(Unregister<Account>),
-        visit_mint_account_public_key(Mint<Account, PublicKey>),
-        visit_burn_account_public_key(Burn<Account, PublicKey>),
-        visit_mint_account_signature_check_condition(Mint<Account, SignatureCheckCondition>),
-        visit_set_account_key_value(SetKeyValue<Account>),
-        visit_remove_account_key_value(RemoveKeyValue<Account>),
-
-        // Asset validation
-        visit_register_asset(Register<Asset>),
-        visit_unregister_asset(Unregister<Asset>),
-        visit_mint_asset(Mint<Asset, NumericValue>),
-        visit_burn_asset(Burn<Asset, NumericValue>),
-        visit_transfer_asset(Transfer<Asset, NumericValue, Account>),
-        visit_set_asset_key_value(SetKeyValue<Asset>),
-        visit_remove_asset_key_value(RemoveKeyValue<Asset>),
-
-        // AssetDefinition validation
-        visit_unregister_asset_definition(Unregister<AssetDefinition>),
-        visit_transfer_asset_definition(Transfer<Account, AssetDefinition, Account>),
-        visit_set_asset_definition_key_value(SetKeyValue<AssetDefinition>),
-        visit_remove_asset_definition_key_value(RemoveKeyValue<AssetDefinition>),
-
-        // Permission validation
-        visit_grant_account_permission(Grant<Account, PermissionToken>),
-        visit_revoke_account_permission(Revoke<Account, PermissionToken>),
-
-        // Role validation
-        visit_register_role(Register<Role>),
-        visit_unregister_role(Unregister<Role>),
-        visit_grant_account_role(Grant<Account, RoleId>),
-        visit_revoke_account_role(Revoke<Account, RoleId>),
-
-        // Trigger validation
-        visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
-        visit_mint_trigger_repetitions(Mint<Trigger<TriggeringFilterBox, Executable>, u32>),
-        visit_execute_trigger(ExecuteTrigger),
-
-        // Parameter validation
-        visit_set_parameter(SetParameter),
-        visit_new_parameter(NewParameter),
-
-        // Upgrade validation
-        visit_upgrade_validator(Upgrade<crate::data_model::validator::Validator>),
-    }
+    schema
 }
 
 /// Default validation for [`VersionedSignedTransaction`].
@@ -284,8 +141,7 @@ pub fn visit_instruction<V: Validate + ?Sized>(
                     validator.visit_new_parameter(authority, NewParameter{parameter});
 
                     if validator.verdict().is_ok() {
-                        let res = isi.execute();
-                        isi_validators!(@handle_isi_result res);
+                        isi_validators!(@execute isi);
                     }
                 }
                 InstructionBox::SetParameter(isi) => {
@@ -293,8 +149,7 @@ pub fn visit_instruction<V: Validate + ?Sized>(
                     validator.visit_set_parameter(authority, SetParameter{parameter});
 
                     if validator.verdict().is_ok() {
-                        let res = isi.execute();
-                        isi_validators!(@handle_isi_result res);
+                        isi_validators!(@execute isi);
                     }
                 }
                 InstructionBox::ExecuteTrigger(isi) => {
@@ -302,8 +157,7 @@ pub fn visit_instruction<V: Validate + ?Sized>(
                     validator.visit_execute_trigger(authority, ExecuteTrigger{trigger_id});
 
                     if validator.verdict().is_ok() {
-                        let res = isi.execute();
-                        isi_validators!(@handle_isi_result res);
+                        isi_validators!(@execute isi);
                     }
                 }
                 InstructionBox::Log(isi) => {
@@ -312,24 +166,23 @@ pub fn visit_instruction<V: Validate + ?Sized>(
                     validator.visit_log(authority, Log{level, msg});
 
                     if validator.verdict().is_ok() {
-                        let res = isi.execute();
-                        isi_validators!(@handle_isi_result res);
+                        isi_validators!(@execute isi);
                     }
                 } $(
                 InstructionBox::$isi(isi) => {
                     validator.$validator(authority, isi);
 
                     if validator.verdict().is_ok() {
-                        let res = isi.execute();
-                        isi_validators!(@handle_isi_result res);
+                        isi_validators!(@execute isi);
                     }
                 } )+ $(
                 // NOTE: `visit_and_execute_instructions` is reentrant, so don't execute composite instructions
                 InstructionBox::$composite_isi(isi) => validator.$composite_validator(authority, isi), )+
             }
         };
-        (@handle_isi_result $res:ident) => {
-            if let Err(err) = $res {
+        (@execute $isi:ident) => {
+            // TODO: Execution should be infallible after successful validation
+            if let Err(err) = isi.execute() {
                 validator.deny(err);
             }
         }
@@ -358,12 +211,12 @@ pub fn visit_instruction<V: Validate + ?Sized>(
     }
 }
 
-fn visit_unsupported<V: Validate + ?Sized, T: core::fmt::Debug>(
+pub fn visit_unsupported<V: Validate + ?Sized, T: core::fmt::Debug>(
     validator: &mut V,
     _authority: &AccountId,
-    item: T,
+    isi: T,
 ) {
-    deny!(validator, "{item:?}: Unsupported operation");
+    deny!(validator, "{isi:?}: Unsupported operation");
 }
 
 pub fn visit_expression<V: Validate + ?Sized, X>(
@@ -1060,9 +913,9 @@ pub mod asset {
             pass!(validator);
         }
         match asset_definition::is_asset_definition_owner(asset.id().definition_id(), authority) {
+            Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
-            Err(err) => deny!(validator, err),
         }
         let can_register_assets_with_definition_token = tokens::CanRegisterAssetsWithDefinition {
             asset_definition_id: asset.id().definition_id().clone(),
@@ -1152,9 +1005,9 @@ pub mod asset {
             pass!(validator);
         }
         match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
+            Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
-            Err(err) => deny!(validator, err),
         }
         let can_burn_assets_with_definition_token = tokens::CanBurnAssetsWithDefinition {
             asset_definition_id: asset_id.definition_id().clone(),
@@ -1184,9 +1037,9 @@ pub mod asset {
             pass!(validator);
         }
         match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
+            Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
-            Err(err) => deny!(validator, err),
         }
         let can_transfer_assets_with_definition_token = tokens::CanTransferAssetsWithDefinition {
             asset_definition_id: asset_id.definition_id().clone(),
@@ -1426,21 +1279,18 @@ pub mod role {
                 macro_rules! visit_internal {
                     ($token_ty:ty) => {
                         if let Ok(concrete_token) =
-                            <$token_ty as ::core::convert::TryFrom<_>>::try_from(
-                                <
-                                    $crate::data_model::permission::PermissionToken as
-                                    ::core::clone::Clone
-                                >::clone(token)
-                            )
+                            <$token_ty as TryFrom<_>>::try_from(token.clone())
                         {
                             if is_genesis($validator) {
                                 continue;
                             }
-                            if let Err(error) = <$token_ty as permission::ValidateGrantRevoke>::$method(
-                                &concrete_token,
-                                $authority,
-                                $validator.block_height(),
-                            ) {
+                            if let Err(error) =
+                                <$token_ty as permission::ValidateGrantRevoke>::$method(
+                                    &concrete_token,
+                                    $authority,
+                                    $validator.block_height(),
+                                )
+                            {
                                 deny!($validator, error);
                             }
 
@@ -1451,10 +1301,13 @@ pub mod role {
                 }
 
                 map_all_crate_tokens!(visit_internal);
-
-                // In normal situation we either did early return or continue before reaching this line
-                iroha_wasm::debug::dbg_panic("Role contains unknown permission token, this should never happen");
+                deny!(
+                    $validator,
+                    "Incorrect validator implementation: Role contains unknown permission tokens"
+                )
             }
+
+            pass!($validator);
         };
     }
 
@@ -1462,22 +1315,17 @@ pub mod role {
     pub fn visit_register_role<V: Validate + ?Sized>(
         validator: &mut V,
         _authority: &AccountId,
-        register_role: Register<Role>,
+        isi: Register<Role>,
     ) {
-        iroha_wasm::debug!("visit_register_role()");
-        let role = register_role.object.inner();
+        let mut unknown_tokens = Vec::new();
 
+        let role = isi.object.inner();
         for token in role.permissions() {
             iroha_wasm::debug!(&format!("Checking `{token:?}`"));
             macro_rules! try_from_token {
                 ($token_ty:ty) => {
                     iroha_wasm::debug!(concat!("Trying `", stringify!($token_ty), "`"));
-                    if <$token_ty as ::core::convert::TryFrom<_>>::try_from(
-                        <
-                            $crate::data_model::permission::PermissionToken as
-                            ::core::clone::Clone
-                        >::clone(token)
-                    ).is_ok() {
+                    if <$token_ty as TryFrom<_>>::try_from(token.clone()).is_ok() {
                         iroha_wasm::debug!("Success!");
                         // Continue because token can correspond to only one concrete token
                         continue;
@@ -1486,15 +1334,19 @@ pub mod role {
             }
 
             map_all_crate_tokens!(try_from_token);
+            unknown_tokens.push(token);
+        }
 
-            // In normal situation we continued before reaching this line
+        if !unknown_tokens.is_empty() {
             deny!(
                 validator,
-                ValidationFail::NotPermitted(format!("Unrecognised permission token `{token:?}`"))
+                ValidationFail::NotPermitted(format!(
+                    "{unknown_tokens:?}: Unrecognised permission tokens"
+                ))
             );
         }
 
-        pass!(validator)
+        pass!(validator);
     }
 
     #[allow(clippy::needless_pass_by_value)]
@@ -1672,14 +1524,12 @@ pub mod permission_token {
 
             macro_rules! visit_internal {
                 ($token_ty:ty) => {
-                    if let Ok(concrete_token) =
-                        <$token_ty as ::core::convert::TryFrom<_>>::try_from(token.clone())
-                    {
+                    if let Ok(token) = <$token_ty as TryFrom<_>>::try_from(token.clone()) {
                         if is_genesis($validator) {
                             pass!($validator);
                         }
                         if let Err(error) = <$token_ty as permission::ValidateGrantRevoke>::$method(
-                            &concrete_token,
+                            &token,
                             $authority,
                             $validator.block_height(),
                         ) {
@@ -1692,7 +1542,11 @@ pub mod permission_token {
             }
 
             map_all_crate_tokens!(visit_internal);
-            deny!($validator, "Unknown permission token");
+
+            deny!(
+                $validator,
+                ValidationFail::NotPermitted(format!("{token:?}: Unknown permission token"))
+            );
         };
     }
 

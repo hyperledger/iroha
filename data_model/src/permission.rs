@@ -75,8 +75,9 @@ pub mod model {
         pub schema: String,
     }
 
-    /// String containing serialized json
-    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+    /// String containing serialized valid JSON.
+    /// This string is guaranteed to parse as JSON
+    #[derive(Debug, Clone, Eq, Encode, Decode)]
     pub struct StringWithJson(pub(super) String);
 }
 
@@ -94,6 +95,20 @@ impl PermissionTokenSchema {
 }
 
 impl PermissionToken {
+    /// Construct [`Self`] from a raw string slice. The caller of the function
+    /// must make sure that the given string slice can be parsed as valid JSON.
+    ///
+    /// Only used in tests
+    #[cfg(debug_assertions)]
+    // TODO: Remove after integration tests have been moved to python tests
+    #[deprecated(note = "Will be removed after integration tests are removed from iroha_client")]
+    pub fn from_str_unchecked(definition_id: PermissionTokenId, payload: &str) -> Self {
+        Self {
+            definition_id,
+            payload: StringWithJson(payload.to_owned()),
+        }
+    }
+
     /// Construct [`Self`]
     pub fn new(definition_id: PermissionTokenId, payload: &serde_json::Value) -> Self {
         Self {
@@ -125,6 +140,12 @@ impl StringWithJson {
     /// Construct [`StringWithJson`]
     pub fn new(payload: &serde_json::Value) -> Self {
         Self(payload.to_string())
+    }
+}
+impl PartialEq for StringWithJson {
+    fn eq(&self, other: &Self) -> bool {
+        serde_json::from_str::<serde_json::Value>(&self.0).unwrap()
+            == serde_json::from_str::<serde_json::Value>(&other.0).unwrap()
     }
 }
 

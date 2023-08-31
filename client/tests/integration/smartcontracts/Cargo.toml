@@ -29,7 +29,7 @@ codegen-units = 1   # Further reduces binary size but increases compilation time
 [workspace.dependencies]
 iroha_wasm = { version = "=2.0.0-pre-rc.19", path = "../../../../wasm", features = ["debug"]}
 iroha_trigger = { version = "=2.0.0-pre-rc.19", path = "../../../../wasm/trigger", features = ["debug"]}
-iroha_validator = { version = "=2.0.0-pre-rc.19", path = "../../../../wasm/validator", features = ["default-validator"] }
+iroha_validator = { version = "=2.0.0-pre-rc.19", path = "../../../../wasm/validator" }
 iroha_schema = { version = "=2.0.0-pre-rc.19", path = "../../../../schema" }
 
 parity-scale-codec = { version = "3.2.1", default-features = false }
