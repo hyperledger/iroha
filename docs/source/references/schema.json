@@ -945,18 +945,6 @@
       }
     ]
   },
-  "DoesAccountHavePermissionToken": {
-    "Struct": [
-      {
-        "name": "account_id",
-        "type": "EvaluatesTo<AccountId>"
-      },
-      {
-        "name": "permission_token",
-        "type": "EvaluatesTo<PermissionToken>"
-      }
-    ]
-  },
   "Domain": {
     "Struct": [
       {
@@ -1168,14 +1156,6 @@
     ]
   },
   "EvaluatesTo<Parameter>": {
-    "Struct": [
-      {
-        "name": "expression",
-        "type": "Expression"
-      }
-    ]
-  },
-  "EvaluatesTo<PermissionToken>": {
     "Struct": [
       {
         "name": "expression",
@@ -3572,53 +3552,48 @@
         "type": "FindPermissionTokenSchema"
       },
       {
-        "tag": "DoesAccountHavePermissionToken",
-        "discriminant": 32,
-        "type": "DoesAccountHavePermissionToken"
-      },
-      {
         "tag": "FindAllActiveTriggerIds",
-        "discriminant": 33,
+        "discriminant": 32,
         "type": "FindAllActiveTriggerIds"
       },
       {
         "tag": "FindTriggerById",
-        "discriminant": 34,
+        "discriminant": 33,
         "type": "FindTriggerById"
       },
       {
         "tag": "FindTriggerKeyValueByIdAndKey",
-        "discriminant": 35,
+        "discriminant": 34,
         "type": "FindTriggerKeyValueByIdAndKey"
       },
       {
         "tag": "FindTriggersByDomainId",
-        "discriminant": 36,
+        "discriminant": 35,
         "type": "FindTriggersByDomainId"
       },
       {
         "tag": "FindAllRoles",
-        "discriminant": 37,
+        "discriminant": 36,
         "type": "FindAllRoles"
       },
       {
         "tag": "FindAllRoleIds",
-        "discriminant": 38,
+        "discriminant": 37,
         "type": "FindAllRoleIds"
       },
       {
         "tag": "FindRoleByRoleId",
-        "discriminant": 39,
+        "discriminant": 38,
         "type": "FindRoleByRoleId"
       },
       {
         "tag": "FindRolesByAccountId",
-        "discriminant": 40,
+        "discriminant": 39,
         "type": "FindRolesByAccountId"
       },
       {
         "tag": "FindAllParameters",
-        "discriminant": 41,
+        "discriminant": 40,
         "type": "FindAllParameters"
       }
     ]

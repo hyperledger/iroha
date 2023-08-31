@@ -95,7 +95,7 @@ pub fn model_single(input: TokenStream) -> TokenStream {
 ///
 /// ```rust
 /// use iroha_data_model_derive::IdEqOrdHash;
-/// use iroha_data_model::Identifiable;
+/// use iroha_data_model::{Identifiable, IdBox};
 ///
 /// #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// struct Id {
@@ -106,6 +106,12 @@ pub fn model_single(input: TokenStream) -> TokenStream {
 /// struct Struct {
 ///     id: Id,
 /// }
+///
+/// # impl From<Id> for IdBox {
+/// #     fn from(_source: Id) -> Self {
+/// #         unimplemented!("Only present to make the example work")
+/// #     }
+/// # }
 ///
 /// /* which will expand into:
 /// impl Identifiable for Struct {
@@ -149,7 +155,7 @@ pub fn model_single(input: TokenStream) -> TokenStream {
 ///
 /// ```rust
 /// use iroha_data_model_derive::IdEqOrdHash;
-/// use iroha_data_model::Identifiable;
+/// use iroha_data_model::{Identifiable, IdBox};
 ///
 /// #[derive(Debug, IdEqOrdHash)]
 /// struct InnerStruct {
@@ -157,11 +163,29 @@ pub fn model_single(input: TokenStream) -> TokenStream {
 ///     field: Id,
 /// }
 ///
+/// # impl From<Id> for IdBox {
+/// #     fn from(_source: Id) -> Self {
+/// #         unimplemented!("Only present to make the example work")
+/// #     }
+/// # }
+///
 /// #[derive(Debug, IdEqOrdHash)]
 /// struct Struct {
 ///     #[id(transparent)]
 ///     inner: InnerStruct,
 /// }
+///
+/// # impl From<InnerStruct> for IdBox {
+/// #     fn from(_source: InnerStruct) -> Self {
+/// #         unimplemented!("Only present to make the example work")
+/// #     }
+/// # }
+///
+/// # impl From<Struct> for IdBox {
+/// #     fn from(_source: Struct) -> Self {
+/// #         unimplemented!("Only present to make the example work")
+/// #     }
+/// # }
 ///
 /// #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// struct Id {
@@ -190,7 +214,7 @@ pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
 ///
 /// ```ignore
 /// use iroha_data_model_derive::{Filter, IdEqOrdHash};
-/// use iroha_data_model::prelude::{HasOrigin, Identifiable};
+/// use iroha_data_model::prelude::{HasOrigin, Identifiable, IdBox};
 /// use serde::{Deserialize, Serialize};
 ///
 ///
@@ -223,6 +247,18 @@ pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
 /// pub struct SubLayer {
 ///     id: <Self as Identifiable>::Id,
 /// }
+///
+/// # impl From<Layer> for IdBox {
+/// #     fn from(_source: Layer) -> Self {
+/// #         unimplemented!("Only present to make the example work")
+/// #     }
+/// # }
+///
+/// # impl From<SubLayer> for IdBox {
+/// #     fn from(_source: SubLayer) -> Self {
+/// #         unimplemented!("Only present to make the example work")
+/// #     }
+/// # }
 ///
 /// impl HasOrigin for LayerEvent {
 ///     type Origin = Layer;
@@ -431,7 +467,7 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> TokenStream {
 ///
 /// ```
 /// use iroha_data_model_derive::{IdEqOrdHash, HasOrigin};
-/// use iroha_data_model::prelude::{Identifiable, HasOrigin};
+/// use iroha_data_model::prelude::{HasOrigin, Identifiable, IdBox};
 ///
 ///
 /// #[derive(Debug, Clone, HasOrigin)]
@@ -468,6 +504,18 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> TokenStream {
 /// pub struct SubLayer {
 ///     id: SubLayerId,
 /// }
+///
+/// # impl From<LayerId> for IdBox {
+/// #     fn from(_source: LayerId) -> Self {
+/// #         unimplemented!("Only present to make the example work")
+/// #     }
+/// # }
+///
+/// # impl From<SubLayerId> for IdBox {
+/// #     fn from(_source: SubLayerId) -> Self {
+/// #         unimplemented!("Only present to make the example work")
+/// #     }
+/// # }
 ///
 /// let layer_id = LayerId { name: 42 };
 /// let sub_layer_id = SubLayerId { name: 24, parent_id: layer_id.clone() };

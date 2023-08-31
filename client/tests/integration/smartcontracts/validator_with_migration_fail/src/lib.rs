@@ -1,41 +1,62 @@
-//! Runtime Validator which copies [`DefaultValidator`] logic but forbids any queries and fails to migrate.
+//! Runtime Validator which copies default validation logic but forbids any queries and fails to migrate.
 
 #![no_std]
 #![allow(missing_docs, clippy::missing_errors_doc)]
 
+extern crate alloc;
 #[cfg(not(test))]
 extern crate panic_halt;
-
-extern crate alloc;
 
 use alloc::{borrow::ToOwned as _, format};
 
 use anyhow::anyhow;
 use iroha_validator::{
-    data_model::evaluate::{EvaluationError, ExpressionEvaluator},
-    parse,
+    data_model::{
+        evaluate::{EvaluationError, ExpressionEvaluator},
+        ValidationFail,
+    },
+    iroha_wasm, parse,
     prelude::*,
 };
 
-struct CustomValidator(DefaultValidator);
+struct Validator {
+    verdict: Result,
+    block_height: u64,
+    host: iroha_wasm::Host,
+}
 
-macro_rules! delegate {
-    ( $($visitor:ident$(<$bound:ident>)?($operation:ty)),+ $(,)? ) => { $(
-        fn $visitor $(<$bound>)?(&mut self, authority: &AccountId, operation: $operation) {
-            self.0.$visitor(authority, operation);
-        } )+
+impl Validator {
+    /// Construct [`Self`]
+    pub fn new(block_height: u64) -> Self {
+        Self {
+            verdict: Ok(()),
+            block_height,
+            host: iroha_wasm::Host,
+        }
     }
 }
 
-impl Visit for CustomValidator {
+macro_rules! defaults {
+    ( $($validator:ident $(<$param:ident $(: $bound:path)?>)?($operation:ty)),+ $(,)? ) => { $(
+        fn $validator $(<$param $(: $bound)?>)?(&mut self, authority: &AccountId, operation: $operation) {
+            iroha_validator::default::$validator(self, authority, operation)
+        } )+
+    };
+}
+
+impl Visit for Validator {
     fn visit_query(&mut self, _authority: &AccountId, _query: &QueryBox) {
-        deny!(self, "All queries are forbidden")
+        self.deny(ValidationFail::NotPermitted(
+            "All queries are forbidden".to_owned(),
+        ));
     }
 
-    delegate! {
-        visit_expression<V>(&EvaluatesTo<V>),
+    defaults! {
+        visit_unsupported<T: core::fmt::Debug>(T),
 
+        visit_transaction(&VersionedSignedTransaction),
         visit_instruction(&InstructionBox),
+        visit_expression<V>(&EvaluatesTo<V>),
         visit_sequence(&SequenceBox),
         visit_if(&Conditional),
         visit_pair(&Pair),
@@ -76,6 +97,7 @@ impl Visit for CustomValidator {
         visit_revoke_account_permission(Revoke<Account, PermissionToken>),
 
         // Role validation
+        visit_register_role(Register<Role>),
         visit_unregister_role(Unregister<Role>),
         visit_grant_account_role(Grant<Account, RoleId>),
         visit_revoke_account_role(Revoke<Account, RoleId>),
@@ -94,51 +116,42 @@ impl Visit for CustomValidator {
     }
 }
 
-impl Validate for CustomValidator {
-    /// Migration should be applied on blockchain with [`DefaultValidator`]
-    fn migrate(_block_height: u64) -> MigrationResult {
-        // Performing side-effects to check in the test that it won't be applied after failure
-
-        // Registering a new domain (using ISI)
-        let domain_id = parse!("failed_migration_test_domain" as DomainId);
-        RegisterBox::new(Domain::new(domain_id))
-            .execute()
-            .map_err(|error| {
-                format!(
-                    "{:?}",
-                    anyhow!(error).context("Failed to register test domain")
-                )
-            })?;
-
-        Err("This validator always fails to migrate".to_owned())
-    }
-
+impl Validate for Validator {
     fn verdict(&self) -> &Result {
-        self.0.verdict()
+        &self.verdict
     }
 
     fn block_height(&self) -> u64 {
-        self.0.block_height()
+        self.block_height
     }
 
     fn deny(&mut self, reason: ValidationFail) {
-        self.0.deny(reason);
+        self.verdict = Err(reason);
     }
 }
 
-impl ExpressionEvaluator for CustomValidator {
-    fn evaluate<E: Evaluate>(
-        &self,
-        expression: &E,
-    ) -> core::result::Result<E::Value, EvaluationError> {
-        self.0.evaluate(expression)
+impl ExpressionEvaluator for Validator {
+    fn evaluate<E: Evaluate>(&self, expression: &E) -> Result<E::Value, EvaluationError> {
+        self.host.evaluate(expression)
     }
 }
 
-/// Migration entrypoint.
 #[entrypoint]
-pub fn migrate(block_height: u64) -> MigrationResult {
-    CustomValidator::migrate(block_height)
+pub fn migrate(_block_height: u64) -> MigrationResult {
+    // Performing side-effects to check in the test that it won't be applied after failure
+
+    // Registering a new domain (using ISI)
+    let domain_id = parse!("failed_migration_test_domain" as DomainId);
+    RegisterBox::new(Domain::new(domain_id))
+        .execute()
+        .map_err(|error| {
+            format!(
+                "{:?}",
+                anyhow!(error).context("Failed to register test domain")
+            )
+        })?;
+
+    Err("This validator always fails to migrate".to_owned())
 }
 
 #[entrypoint]
@@ -147,11 +160,9 @@ pub fn validate_transaction(
     transaction: VersionedSignedTransaction,
     block_height: u64,
 ) -> Result {
-    let mut validator = CustomValidator(DefaultValidator::new(block_height));
-
+    let mut validator = Validator::new(block_height);
     validator.visit_transaction(&authority, &transaction);
-
-    validator.0.verdict
+    validator.verdict
 }
 
 #[entrypoint]
@@ -160,18 +171,14 @@ pub fn validate_instruction(
     instruction: InstructionBox,
     block_height: u64,
 ) -> Result {
-    let mut validator = CustomValidator(DefaultValidator::new(block_height));
-
+    let mut validator = Validator::new(block_height);
     validator.visit_instruction(&authority, &instruction);
-
-    validator.0.verdict
+    validator.verdict
 }
 
 #[entrypoint]
 pub fn validate_query(authority: AccountId, query: QueryBox, block_height: u64) -> Result {
-    let mut validator = CustomValidator(DefaultValidator::new(block_height));
-
+    let mut validator = Validator::new(block_height);
     validator.visit_query(&authority, &query);
-
-    validator.0.verdict
+    validator.verdict
 }

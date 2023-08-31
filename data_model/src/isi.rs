@@ -147,13 +147,11 @@ mod transparent {
     // because they are never shared between client and server(http)/host(wasm)
 
     use super::*;
+    use crate::validator::Validator;
 
     /// Generic instruction to set key value at the object.
     #[derive(Debug, Clone)]
-    pub struct SetKeyValue<O>
-    where
-        O: Identifiable,
-    {
+    pub struct SetKeyValue<O: Identifiable> {
         /// Where to set key value.
         pub object_id: O::Id,
         /// Key.
@@ -164,10 +162,7 @@ mod transparent {
 
     /// Generic instruction to remove key value at the object.
     #[derive(Debug, Clone)]
-    pub struct RemoveKeyValue<O>
-    where
-        O: Identifiable,
-    {
+    pub struct RemoveKeyValue<O: Identifiable> {
         /// From where to remove key value.
         pub object_id: O::Id,
         /// Key of the pair to remove.
@@ -176,31 +171,21 @@ mod transparent {
 
     /// Generic instruction for a registration of an object to the identifiable destination.
     #[derive(Debug, Clone)]
-    pub struct Register<O>
-    where
-        O: Registered,
-    {
+    pub struct Register<O: Registered> {
         /// The object that should be registered, should be uniquely identifiable by its id.
         pub object: O::With,
     }
 
     /// Generic instruction for an unregistration of an object from the identifiable destination.
     #[derive(Debug, Clone)]
-    pub struct Unregister<O>
-    where
-        O: Registered,
-    {
+    pub struct Unregister<O: Registered> {
         /// [`Identifiable::Id`] of the object which should be unregistered.
         pub object_id: O::Id,
     }
 
     /// Generic instruction for a mint of an object to the identifiable destination.
     #[derive(Debug, Clone)]
-    pub struct Mint<D, O>
-    where
-        D: Identifiable,
-        O: Into<Value>,
-    {
+    pub struct Mint<D: Identifiable, O: Into<Value>> {
         /// Object which should be minted.
         pub object: O,
         /// Destination object [`Identifiable::Id`].
@@ -209,11 +194,7 @@ mod transparent {
 
     /// Generic instruction for a burn of an object to the identifiable destination.
     #[derive(Debug, Clone)]
-    pub struct Burn<D, O>
-    where
-        D: Identifiable,
-        O: Into<Value>,
-    {
+    pub struct Burn<D: Identifiable, O: Into<Value>> {
         /// Object which should be burned.
         pub object: O,
         /// Destination object [`Identifiable::Id`].
@@ -222,10 +203,7 @@ mod transparent {
 
     /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
     #[derive(Debug, Clone)]
-    pub struct Transfer<S: Identifiable, O, D: Identifiable>
-    where
-        O: Into<Value>,
-    {
+    pub struct Transfer<S: Identifiable, O: Into<Value>, D: Identifiable> {
         /// Source object `Id`.
         pub source_id: S::Id,
         /// Object which should be transferred.
@@ -236,11 +214,7 @@ mod transparent {
 
     /// Generic instruction for granting permission to an entity.
     #[derive(Debug, Clone)]
-    pub struct Grant<D, O>
-    where
-        D: Registered,
-        O: Into<Value>,
-    {
+    pub struct Grant<D: Registered, O: Into<Value>> {
         /// Object to grant.
         pub object: O,
         /// Entity to which to grant this token.
@@ -249,11 +223,7 @@ mod transparent {
 
     /// Generic instruction for revoking permission from an entity.
     #[derive(Debug, Clone)]
-    pub struct Revoke<D, O>
-    where
-        D: Registered,
-        O: Into<Value>,
-    {
+    pub struct Revoke<D: Registered, O: Into<Value>> {
         /// Object to revoke.
         pub object: O,
         /// Entity which is being revoked this token from.
@@ -276,10 +246,7 @@ mod transparent {
 
     /// Generic instruction for upgrading runtime objects.
     #[derive(Debug, Clone)]
-    pub struct Upgrade<O>
-    where
-        O: Into<UpgradableBox>,
-    {
+    pub struct Upgrade<O: Into<UpgradableBox>> {
         /// Object to upgrade.
         pub object: O,
     }
@@ -298,6 +265,94 @@ mod transparent {
         pub msg: String,
         /// Log level of the message
         pub level: Level,
+    }
+
+    impl<O: Identifiable> From<SetKeyValue<O>> for SetKeyValueBox {
+        fn from(source: SetKeyValue<O>) -> Self {
+            Self::new(source.object_id.into(), source.key, source.value)
+        }
+    }
+
+    impl<O: Identifiable> From<RemoveKeyValue<O>> for RemoveKeyValueBox {
+        fn from(source: RemoveKeyValue<O>) -> Self {
+            Self::new(source.object_id.into(), source.key)
+        }
+    }
+
+    impl<O: Registered> From<Register<O>> for RegisterBox {
+        fn from(source: Register<O>) -> Self {
+            Self::new(source.object.into())
+        }
+    }
+
+    impl<O: Registered> From<Unregister<O>> for UnregisterBox {
+        fn from(source: Unregister<O>) -> Self {
+            Self::new(source.object_id.into())
+        }
+    }
+
+    impl<D: Identifiable, O: Into<Value>> From<Mint<D, O>> for MintBox {
+        fn from(source: Mint<D, O>) -> Self {
+            Self::new(source.object, source.destination_id.into())
+        }
+    }
+
+    impl<D: Identifiable, O: Into<Value>> From<Burn<D, O>> for BurnBox {
+        fn from(source: Burn<D, O>) -> Self {
+            Self::new(source.object, source.destination_id.into())
+        }
+    }
+
+    impl<S: Identifiable, O: Into<Value>, D: Identifiable> From<Transfer<S, O, D>> for TransferBox {
+        fn from(source: Transfer<S, O, D>) -> Self {
+            Self::new(
+                source.source_id.into(),
+                source.object,
+                source.destination_id.into(),
+            )
+        }
+    }
+
+    impl<D: Registered, O: Into<Value>> From<Grant<D, O>> for GrantBox {
+        fn from(source: Grant<D, O>) -> Self {
+            Self::new(source.object, source.destination_id.into())
+        }
+    }
+
+    impl<D: Registered, O: Into<Value>> From<Revoke<D, O>> for RevokeBox {
+        fn from(source: Revoke<D, O>) -> Self {
+            Self::new(source.object, source.destination_id.into())
+        }
+    }
+
+    impl From<SetParameter> for SetParameterBox {
+        fn from(source: SetParameter) -> Self {
+            Self::new(source.parameter)
+        }
+    }
+
+    impl From<NewParameter> for NewParameterBox {
+        fn from(source: NewParameter) -> Self {
+            Self::new(source.parameter)
+        }
+    }
+
+    impl From<Upgrade<Validator>> for UpgradeBox {
+        fn from(source: Upgrade<Validator>) -> Self {
+            Self::new(source.object)
+        }
+    }
+
+    impl From<ExecuteTrigger> for ExecuteTriggerBox {
+        fn from(source: ExecuteTrigger) -> Self {
+            Self::new(source.trigger_id)
+        }
+    }
+
+    impl From<Log> for LogBox {
+        fn from(source: Log) -> Self {
+            Self::new(source.level, source.msg)
+        }
     }
 }
 

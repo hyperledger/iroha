@@ -150,7 +150,6 @@ mod seal {
         FindTransactionByHash,
         FindPermissionTokensByAccountId,
         FindPermissionTokenSchema,
-        DoesAccountHavePermissionToken,
         FindAllActiveTriggerIds,
         FindTriggerById,
         FindTriggerKeyValueByIdAndKey,
@@ -1555,7 +1554,7 @@ impl<T: TryInto<Value>> TryToValue for T {
 /// This trait should always be derived with [`IdEqOrdHash`]
 pub trait Identifiable: Ord + Eq {
     /// Type of the entity identifier
-    type Id: Ord + Eq + core::hash::Hash;
+    type Id: Into<IdBox> + Ord + Eq + core::hash::Hash;
 
     /// Get reference to the type identifier
     fn id(&self) -> &Self::Id;

@@ -123,7 +123,6 @@ types!(
     DataEvent,
     DataEventFilter,
     Divide,
-    DoesAccountHavePermissionToken,
     Domain,
     DomainEvent,
     DomainEventFilter,
