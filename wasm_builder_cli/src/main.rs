@@ -102,7 +102,7 @@ fn main() -> color_eyre::Result<()> {
                 )
             })?;
 
-            eprintln!(
+            println!(
                 "✓ File is written into {}",
                 outfile.display().green().bold()
             );
