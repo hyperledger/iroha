@@ -15,11 +15,21 @@ use serde_json::json;
 
 use super::*;
 
+const INLINED_VALIDATOR_WARNING: &str = r#"WARN: You're using genesis with inlined validator.
+Consider specifying a separate validator file using `--validator-path-in-genesis` instead.
+Use `--help` for more information."#;
+
 #[derive(Parser, Debug, Clone)]
 #[clap(group = ArgGroup::new("validator").required(true))]
 pub struct Args {
     /// Reads the validator from the file at <PATH> (relative to CWD)
     /// and includes the content into the genesis.
+    ///
+    /// WARN: This approach can lead to reproducibility issues, as WASM builds are currently not
+    /// guaranteed to be reproducible. Additionally, inlining the validator bloats the genesis JSON
+    /// and makes it less readable. Consider specifying a separate validator file
+    /// using `--validator-path-in-genesis` instead. For more details, refer to
+    /// the related PR: https://github.com/hyperledger/iroha/pull/3434
     #[clap(long, group = "validator", value_name = "PATH")]
     inline_validator_from_file: Option<PathBuf>,
     /// Specifies the <PATH> that will be directly inserted into the genesis JSON as-is.
@@ -62,20 +72,16 @@ impl<T: Write> RunArgs<T> for Args {
             mode,
         } = self;
 
-        let validator: ValidatorMode = match (inline_validator_from_file, validator_path_in_genesis) {
-            (Some(path), None) => {
-                eprintln!("WARN: You're using genesis with inlined validator.");
-                eprintln!(
-                    "Consider providing a validator in separate file with `--validator-path-in-genesis <PATH>`."
-                );
-                eprintln!("Use `--help` to get more information.");
-                ParsedValidatorArgs::Inline(path)
+        let validator: ValidatorMode =
+            match (inline_validator_from_file, validator_path_in_genesis) {
+                (Some(path), None) => {
+                    eprintln!("{INLINED_VALIDATOR_WARNING}");
+                    ParsedValidatorArgs::Inline(path)
+                }
+                (None, Some(path)) => ParsedValidatorArgs::Path(path),
+                _ => unreachable!("clap invariant"),
             }
-            (None, Some(path)) => {
-                ParsedValidatorArgs::Path(path)
-            }
-            _ => unreachable!("clap invariant")
-        }.try_into()?;
+            .try_into()?;
 
         let genesis = match mode.unwrap_or_default() {
             Mode::Default => generate_default(validator),
@@ -102,9 +108,11 @@ impl TryFrom<ParsedValidatorArgs> for ValidatorMode {
         let mode = match value {
             ParsedValidatorArgs::Path(path) => ValidatorMode::Path(ValidatorPath(path)),
             ParsedValidatorArgs::Inline(path) => {
-                let validator = ValidatorMode::Path(ValidatorPath(path))
+                let validator = ValidatorMode::Path(ValidatorPath(path.clone()))
                     .try_into()
-                    .wrap_err("Failed to read the validator")?;
+                    .wrap_err_with(|| {
+                        format!("Failed to read the validator located at {}", path.display())
+                    })?;
                 ValidatorMode::Inline(validator)
             }
         };
