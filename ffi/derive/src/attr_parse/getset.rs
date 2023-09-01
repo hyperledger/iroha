@@ -340,26 +340,12 @@ mod test {
 
     mod parse {
         use darling::FromAttributes;
-        use proc_macro2::TokenStream;
         use quote::quote;
         use rustc_hash::FxHashMap;
-        use syn2::{parse::ParseStream, parse_quote, Attribute};
+        use syn2::parse_quote;
 
         use super::{GetSetFieldAttrs, GetSetGenMode, GetSetOptions, GetSetStructAttrs};
-
-        // TODO: this can go into a common module
-        fn parse_attributes(ts: TokenStream) -> Vec<Attribute> {
-            struct Attributes(Vec<Attribute>);
-            impl syn2::parse::Parse for Attributes {
-                fn parse(input: ParseStream) -> syn2::Result<Self> {
-                    Attribute::parse_outer(input).map(Attributes)
-                }
-            }
-
-            syn2::parse2::<Attributes>(ts)
-                .expect("Failed to parse attributes")
-                .0
-        }
+        use crate::parse_attributes;
 
         macro_rules! assert_getset_ok {
         ($( #[$meta:meta] )*,
@@ -647,7 +633,7 @@ mod test {
         use darling::FromAttributes;
         use proc_macro2::TokenStream;
         use quote::quote;
-        use syn2::{parse::ParseStream, parse_quote, Attribute};
+        use syn2::parse_quote;
 
         use super::{
             GetSetFieldAttrs, GetSetGenMode, GetSetOptions, GetSetStructAttrs, RequestedAccessors,
@@ -660,16 +646,7 @@ mod test {
             field_attr: TokenStream,
         ) -> RequestedAccessors {
             fn parse_attributes<T: FromAttributes>(ts: TokenStream) -> T {
-                struct Attributes(Vec<Attribute>);
-                impl syn2::parse::Parse for Attributes {
-                    fn parse(input: ParseStream) -> syn2::Result<Self> {
-                        Attribute::parse_outer(input).map(Attributes)
-                    }
-                }
-
-                let attrs = syn2::parse2::<Attributes>(ts)
-                    .expect("Failed to parse attributes")
-                    .0;
+                let attrs = crate::parse_attributes(ts);
                 T::from_attributes(&attrs).expect("Failed to parse attributes")
             }
 

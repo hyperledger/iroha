@@ -106,22 +106,11 @@ mod test {
     use darling::FromAttributes;
     use proc_macro2::TokenStream;
     use quote::quote;
-    use syn2::parse::ParseStream;
 
     use super::{Derive, DeriveAttrs, GetSetDerive, RustcDerive};
 
     fn parse_derives(attrs: TokenStream) -> darling::Result<DeriveAttrs> {
-        struct Attributes(Vec<syn2::Attribute>);
-
-        impl syn2::parse::Parse for Attributes {
-            fn parse(input: ParseStream) -> syn2::Result<Self> {
-                Ok(Self(input.call(syn2::Attribute::parse_outer)?))
-            }
-        }
-
-        let attrs = syn2::parse2::<Attributes>(attrs)
-            .expect("Failed to parse tokens as outer attributes")
-            .0;
+        let attrs = crate::parse_attributes(attrs);
         DeriveAttrs::from_attributes(&attrs)
     }
 
