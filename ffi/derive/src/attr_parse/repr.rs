@@ -5,6 +5,7 @@
 use std::str::FromStr;
 
 use darling::{error::Accumulator, util::SpannedValue, FromAttributes};
+use parse_display::{Display, FromStr};
 use proc_macro2::{Delimiter, Span};
 use syn2::{
     parse::{Parse, ParseStream},
@@ -13,7 +14,8 @@ use syn2::{
     Attribute, Meta, Token,
 };
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Display, FromStr)]
+#[display(style = "lowercase")]
 pub enum ReprPrimitive {
     U8,
     U16,
@@ -27,27 +29,6 @@ pub enum ReprPrimitive {
     I64,
     I128,
     Isize,
-}
-
-impl FromStr for ReprPrimitive {
-    type Err = ();
-    fn from_str(s: &str) -> Result<ReprPrimitive, ()> {
-        Ok(match s {
-            "u8" => ReprPrimitive::U8,
-            "u16" => ReprPrimitive::U16,
-            "u32" => ReprPrimitive::U32,
-            "u64" => ReprPrimitive::U64,
-            "u128" => ReprPrimitive::U128,
-            "usize" => ReprPrimitive::Usize,
-            "i8" => ReprPrimitive::I8,
-            "i16" => ReprPrimitive::I16,
-            "i32" => ReprPrimitive::I32,
-            "i64" => ReprPrimitive::I64,
-            "i128" => ReprPrimitive::I128,
-            "isize" => ReprPrimitive::Isize,
-            _ => return Err(()),
-        })
-    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

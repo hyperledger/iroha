@@ -13,9 +13,9 @@ use syn2::{
 
 use crate::{
     attr_parse::{
-        derive::DeriveAttr,
+        derive::DeriveAttrs,
         doc::DocAttrs,
-        getset::{GetSetFieldAttr, GetSetStructAttr},
+        getset::{GetSetFieldAttrs, GetSetStructAttrs},
         repr::{Repr, ReprKind, ReprPrimitive},
     },
     emitter::Emitter,
@@ -206,10 +206,10 @@ pub struct FfiTypeInput {
     pub generics: syn2::Generics,
     pub data: FfiTypeData,
     pub doc_attrs: DocAttrs,
-    pub derive_attr: DeriveAttr,
+    pub derive_attr: DeriveAttrs,
     pub repr_attr: Repr,
     pub ffi_type_attr: FfiTypeAttr,
-    pub getset_attr: GetSetStructAttr,
+    pub getset_attr: GetSetStructAttrs,
     pub span: Span,
     pub ast: syn2::DeriveInput,
 }
@@ -228,10 +228,10 @@ impl darling::FromDeriveInput for FfiTypeInput {
         let generics = input.generics.clone();
         let data = darling::ast::Data::try_from(&input.data)?;
         let doc_attrs = DocAttrs::from_attributes(&input.attrs)?;
-        let derive_attr = DeriveAttr::from_attributes(&input.attrs)?;
+        let derive_attr = DeriveAttrs::from_attributes(&input.attrs)?;
         let repr_attr = Repr::from_attributes(&input.attrs)?;
         let ffi_type_attr = FfiTypeAttr::from_attributes(&input.attrs)?;
-        let getset_attr = GetSetStructAttr::from_attributes(&input.attrs)?;
+        let getset_attr = GetSetStructAttrs::from_attributes(&input.attrs)?;
         let span = input.span();
 
         Ok(FfiTypeInput {
@@ -270,7 +270,7 @@ pub struct FfiTypeField {
     pub ty: syn2::Type,
     pub doc_attrs: DocAttrs,
     pub ffi_type_attr: FfiTypeFieldAttr,
-    pub getset_attr: GetSetFieldAttr,
+    pub getset_attr: GetSetFieldAttrs,
 }
 
 impl FromField for FfiTypeField {
@@ -279,7 +279,7 @@ impl FromField for FfiTypeField {
         let ty = field.ty.clone();
         let doc_attrs = DocAttrs::from_attributes(&field.attrs)?;
         let ffi_type_attr = FfiTypeFieldAttr::from_attributes(&field.attrs)?;
-        let getset_attr = GetSetFieldAttr::from_attributes(&field.attrs)?;
+        let getset_attr = GetSetFieldAttrs::from_attributes(&field.attrs)?;
         Ok(Self {
             ident,
             ty,

@@ -59,11 +59,11 @@ pub enum Derive {
 ///
 /// Care should be taken, and it should be documented in the macro APIs that use this.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DeriveAttr {
+pub struct DeriveAttrs {
     pub derives: Vec<Derive>,
 }
 
-impl FromAttributes for DeriveAttr {
+impl FromAttributes for DeriveAttrs {
     fn from_attributes(attrs: &[Attribute]) -> darling::Result<Self> {
         let mut derives = Vec::new();
         let mut accumulator = darling::error::Accumulator::default();
@@ -108,9 +108,9 @@ mod test {
     use quote::quote;
     use syn2::parse::ParseStream;
 
-    use super::{Derive, DeriveAttr, GetSetDerive, RustcDerive};
+    use super::{Derive, DeriveAttrs, GetSetDerive, RustcDerive};
 
-    fn parse_derives(attrs: TokenStream) -> darling::Result<DeriveAttr> {
+    fn parse_derives(attrs: TokenStream) -> darling::Result<DeriveAttrs> {
         struct Attributes(Vec<syn2::Attribute>);
 
         impl syn2::parse::Parse for Attributes {
@@ -122,7 +122,7 @@ mod test {
         let attrs = syn2::parse2::<Attributes>(attrs)
             .expect("Failed to parse tokens as outer attributes")
             .0;
-        DeriveAttr::from_attributes(&attrs)
+        DeriveAttrs::from_attributes(&attrs)
     }
 
     macro_rules! assert_derive_ok {
@@ -141,7 +141,7 @@ mod test {
     fn derive_rustc() {
         assert_derive_ok!(
             #[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Hash, Default, Debug)],
-            DeriveAttr {
+            DeriveAttrs {
                 derives: vec![
                     RustcDerive::Eq,
                     RustcDerive::PartialEq,
@@ -161,7 +161,7 @@ mod test {
     fn derive_getset() {
         assert_derive_ok!(
             #[derive(Getters, Setters, MutGetters, CopyGetters)],
-            DeriveAttr {
+            DeriveAttrs {
                 derives: vec![
                     GetSetDerive::Getters,
                     GetSetDerive::Setters,
@@ -176,7 +176,7 @@ mod test {
     fn derive_unknown() {
         assert_derive_ok!(
             #[derive(Aboba, Kek)],
-            DeriveAttr {
+            DeriveAttrs {
                 derives: vec![
                     "Aboba".to_string(),
                     "Kek".to_string(),
