@@ -64,6 +64,22 @@ use syn::parse_macro_input;
 /// }
 /// */
 /// ```
+///
+/// ## A note on `#[derive(...)]` limitations
+///
+/// This proc-macro crate parses the `#[derive(...)]` attributes.
+/// Due to technical limitations of proc macros, it does not have access to the resolved path of the macro, only to what is written in the derive.
+/// As such, it cannot support derives that are used through aliases, such as
+///
+/// ```ignore
+/// use getset::Getters as GettersAlias;
+/// #[derive(GettersAlias)]
+/// pub struct Hello {
+///     // ...
+/// }
+/// ```
+///
+/// It assumes that the derive is imported and referred to by its original name.
 #[proc_macro_attribute]
 #[proc_macro_error::proc_macro_error]
 pub fn model(_attr: TokenStream, input: TokenStream) -> TokenStream {
@@ -345,6 +361,22 @@ pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
 ///     }
 /// } */
 /// ```
+///
+/// ## A note on `#[derive(...)]` limitations
+///
+/// This proc-macro crate parses the `#[derive(...)]` attributes.
+/// Due to technical limitations of proc macros, it does not have access to the resolved path of the macro, only to what is written in the derive.
+/// As such, it cannot support derives that are used through aliases, such as
+///
+/// ```ignore
+/// use getset::Getters as GettersAlias;
+/// #[derive(GettersAlias)]
+/// pub struct Hello {
+///     // ...
+/// }
+/// ```
+///
+/// It assumes that the derive is imported and referred to by its original name.
 #[proc_macro_derive(Filter)]
 pub fn filter_derive(input: TokenStream) -> TokenStream {
     let event = parse_macro_input!(input as filter::EventEnum);

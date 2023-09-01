@@ -60,6 +60,22 @@ fn parse_attributes(ts: TokenStream) -> Vec<syn2::Attribute> {
 /// item wrapped with this macro (e.g. fieldless enums). This is so that most of the time
 /// users can safely wrap all of their structs with this macro and not be concerned with the
 /// cognitive load of figuring out which structs are converted to opaque pointers.
+///
+/// ## A note on `#[derive(...)]` limitations
+///
+/// This proc-macro crate parses the `#[derive(...)]` attributes.
+/// Due to technical limitations of proc macros, it does not have access to the resolved path of the macro, only to what is written in the derive.
+/// As such, it cannot support derives that are used through aliases, such as
+///
+/// ```ignore
+/// use getset::Getters as GettersAlias;
+/// #[derive(GettersAlias)]
+/// pub struct Hello {
+///     // ...
+/// }
+/// ```
+///
+/// It assumes that the derive is imported and referred to by its original name.
 #[manyhow]
 #[proc_macro]
 pub fn ffi(input: TokenStream) -> TokenStream {
@@ -172,6 +188,22 @@ pub fn ffi(input: TokenStream) -> TokenStream {
 ///
 /// * wrapping type must allow for all possible values of the pointer including `null` (it's robust)
 /// * the wrapping types's field of the pointer type must not carry ownership (it's non owning)
+///
+/// ## A note on `#[derive(...)]` limitations
+///
+/// This proc-macro crate parses the `#[derive(...)]` attributes.
+/// Due to technical limitations of proc macros, it does not have access to the resolved path of the macro, only to what is written in the derive.
+/// As such, it cannot support derives that are used through aliases, such as
+///
+/// ```ignore
+/// use getset::Getters as GettersAlias;
+/// #[derive(GettersAlias)]
+/// pub struct Hello {
+///     // ...
+/// }
+/// ```
+///
+/// It assumes that the derive is imported and referred to by its original name.
 #[manyhow]
 #[proc_macro_derive(FfiType, attributes(ffi_type))]
 pub fn ffi_type_derive(input: TokenStream) -> TokenStream {
@@ -240,6 +272,22 @@ pub fn ffi_type_derive(input: TokenStream) -> TokenStream {
 ///     FfiReturn::Ok
 /// } */
 /// ```
+///
+/// ## A note on `#[derive(...)]` limitations
+///
+/// This proc-macro crate parses the `#[derive(...)]` attributes.
+/// Due to technical limitations of proc macros, it does not have access to the resolved path of the macro, only to what is written in the derive.
+/// As such, it cannot support derives that are used through aliases, such as
+///
+/// ```ignore
+/// use getset::Getters as GettersAlias;
+/// #[derive(GettersAlias)]
+/// pub struct Hello {
+///     // ...
+/// }
+/// ```
+///
+/// It assumes that the derive is imported and referred to by its original name.
 #[manyhow]
 #[proc_macro_attribute]
 pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -365,6 +413,22 @@ pub fn ffi_export(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     fn __return_first_elem_from_arr(arr: *const [u8; 8]) -> u8;
 /// } */
 /// ```
+///
+/// ## A note on `#[derive(...)]` limitations
+///
+/// This proc-macro crate parses the `#[derive(...)]` attributes.
+/// Due to technical limitations of proc macros, it does not have access to the resolved path of the macro, only to what is written in the derive.
+/// As such, it cannot support derives that are used through aliases, such as
+///
+/// ```ignore
+/// use getset::Getters as GettersAlias;
+/// #[derive(GettersAlias)]
+/// pub struct Hello {
+///     // ...
+/// }
+/// ```
+///
+/// It assumes that the derive is imported and referred to by its original name.
 #[manyhow]
 #[proc_macro_attribute]
 pub fn ffi_import(attr: TokenStream, item: TokenStream) -> TokenStream {
