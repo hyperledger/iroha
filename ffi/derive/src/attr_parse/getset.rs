@@ -7,7 +7,7 @@ use proc_macro2::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
 use syn2::{parse::ParseStream, punctuated::Punctuated, Attribute, Token};
 
-use crate::attr_parse::derive::{Derive, DeriveAttr};
+use crate::attr_parse::derive::{Derive, DeriveAttrs};
 
 /// Type of accessor method derived for a structure
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, FromStr)]
@@ -266,14 +266,14 @@ impl GetSetRawFieldAttr {
 }
 
 #[derive(Default, Debug, Eq, PartialEq, Clone)]
-pub struct GetSetFieldAttr {
+pub struct GetSetFieldAttrs {
     pub skip: bool,
     pub gen: RequestedAccessors,
 }
 
-impl darling::FromAttributes for GetSetFieldAttr {
+impl darling::FromAttributes for GetSetFieldAttrs {
     fn from_attributes(attrs: &[Attribute]) -> darling::Result<Self> {
-        GetSetRawFieldAttr::from_attributes(attrs, true).map(|raw| GetSetFieldAttr {
+        GetSetRawFieldAttr::from_attributes(attrs, true).map(|raw| GetSetFieldAttrs {
             skip: raw.skip,
             gen: raw.gen,
         })
@@ -281,22 +281,22 @@ impl darling::FromAttributes for GetSetFieldAttr {
 }
 
 #[derive(Default, Debug, Eq, PartialEq, Clone)]
-pub struct GetSetStructAttr {
+pub struct GetSetStructAttrs {
     pub gen: FxHashMap<GetSetGenMode, GetSetOptions>,
 }
 
-impl darling::FromAttributes for GetSetStructAttr {
+impl darling::FromAttributes for GetSetStructAttrs {
     fn from_attributes(attrs: &[Attribute]) -> darling::Result<Self> {
         GetSetRawFieldAttr::from_attributes(attrs, false)
-            .map(|raw| GetSetStructAttr { gen: raw.gen })
+            .map(|raw| GetSetStructAttrs { gen: raw.gen })
     }
 }
 
-impl GetSetFieldAttr {
+impl GetSetFieldAttrs {
     pub fn get_field_accessors(
         &self,
-        derives: &DeriveAttr,
-        struct_attr: &GetSetStructAttr,
+        derives: &DeriveAttrs,
+        struct_attr: &GetSetStructAttrs,
     ) -> RequestedAccessors {
         if self.skip {
             return FxHashMap::default();
@@ -335,7 +335,7 @@ impl GetSetFieldAttr {
 #[cfg(test)]
 mod test {
     use super::{
-        GetSetFieldAttr, GetSetGenMode, GetSetOptions, GetSetStructAttr, RequestedAccessors,
+        GetSetFieldAttrs, GetSetGenMode, GetSetOptions, GetSetStructAttrs, RequestedAccessors,
     };
 
     mod parse {
@@ -345,7 +345,7 @@ mod test {
         use rustc_hash::FxHashMap;
         use syn2::{parse::ParseStream, parse_quote, Attribute};
 
-        use super::{GetSetFieldAttr, GetSetGenMode, GetSetOptions, GetSetStructAttr};
+        use super::{GetSetFieldAttrs, GetSetGenMode, GetSetOptions, GetSetStructAttrs};
 
         // TODO: this can go into a common module
         fn parse_attributes(ts: TokenStream) -> Vec<Attribute> {
@@ -381,7 +381,7 @@ mod test {
         fn field_empty() {
             assert_getset_ok!(
                 #[abra_cadabra], // unrelated attr
-                GetSetFieldAttr {
+                GetSetFieldAttrs {
                     ..Default::default()
                 }
             );
@@ -391,7 +391,7 @@ mod test {
         fn struct_empty() {
             assert_getset_ok!(
                 #[abra_cadabra], // unrelated attr
-                GetSetStructAttr {
+                GetSetStructAttrs {
                     ..Default::default()
                 }
             );
@@ -401,7 +401,7 @@ mod test {
         fn field_skip() {
             assert_getset_ok!(
                 #[getset(skip)],
-                GetSetFieldAttr {
+                GetSetFieldAttrs {
                     skip: true,
                     ..Default::default()
                 }
@@ -412,7 +412,7 @@ mod test {
         fn field_get() {
             assert_getset_ok!(
                 #[getset(get)],
-                GetSetFieldAttr {
+                GetSetFieldAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::Get, GetSetOptions::default()),
                     ]),
@@ -425,7 +425,7 @@ mod test {
         fn field_get_pub() {
             assert_getset_ok!(
                 #[getset(get = "pub")],
-                GetSetFieldAttr {
+                GetSetFieldAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::Get, GetSetOptions {
                             visibility: Some(parse_quote! { pub }),
@@ -441,7 +441,7 @@ mod test {
         fn field_get_pub_with_prefix() {
             assert_getset_ok!(
                 #[getset(get = "pub with_prefix")],
-                GetSetFieldAttr {
+                GetSetFieldAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::Get, GetSetOptions {
                             visibility: Some(parse_quote! { pub }),
@@ -453,7 +453,7 @@ mod test {
             );
             assert_getset_ok!(
                 #[getset(get = "with_prefix pub")],
-                GetSetFieldAttr {
+                GetSetFieldAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::Get, GetSetOptions {
                             visibility: Some(parse_quote! { pub }),
@@ -469,7 +469,7 @@ mod test {
         fn struct_get() {
             assert_getset_ok!(
                 #[getset(get)],
-                GetSetStructAttr {
+                GetSetStructAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::Get, GetSetOptions::default()),
                     ])
@@ -481,7 +481,7 @@ mod test {
         fn struct_get_pub() {
             assert_getset_ok!(
                 #[getset(get = "pub")],
-                GetSetStructAttr {
+                GetSetStructAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::Get, GetSetOptions {
                             visibility: Some(parse_quote! { pub }),
@@ -496,7 +496,7 @@ mod test {
         fn struct_get_pub_with_prefix() {
             assert_getset_ok!(
                 #[getset(get = "pub with_prefix")],
-                GetSetStructAttr {
+                GetSetStructAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::Get, GetSetOptions {
                             visibility: Some(parse_quote! { pub }),
@@ -507,7 +507,7 @@ mod test {
             );
             assert_getset_ok!(
                 #[getset(get = "with_prefix pub")],
-                GetSetStructAttr {
+                GetSetStructAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::Get, GetSetOptions {
                             visibility: Some(parse_quote! { pub }),
@@ -522,7 +522,7 @@ mod test {
         fn field_get_copy() {
             assert_getset_ok!(
                 #[getset(get_copy)],
-                GetSetFieldAttr {
+                GetSetFieldAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::GetCopy, GetSetOptions::default()),
                     ]),
@@ -535,7 +535,7 @@ mod test {
         fn field_set() {
             assert_getset_ok!(
                 #[getset(set)],
-                GetSetFieldAttr {
+                GetSetFieldAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::Set, GetSetOptions::default()),
                     ]),
@@ -548,7 +548,7 @@ mod test {
         fn field_get_mut() {
             assert_getset_ok!(
                 #[getset(get_mut)],
-                GetSetFieldAttr {
+                GetSetFieldAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::GetMut, GetSetOptions::default()),
                     ]),
@@ -561,7 +561,7 @@ mod test {
         fn struct_get_copy() {
             assert_getset_ok!(
                 #[getset(get_copy)],
-                GetSetStructAttr {
+                GetSetStructAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::GetCopy, GetSetOptions::default()),
                     ])
@@ -573,7 +573,7 @@ mod test {
         fn struct_set() {
             assert_getset_ok!(
                 #[getset(set)],
-                GetSetStructAttr {
+                GetSetStructAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::Set, GetSetOptions::default()),
                     ])
@@ -585,7 +585,7 @@ mod test {
         fn struct_get_mut() {
             assert_getset_ok!(
                 #[getset(get_mut)],
-                GetSetStructAttr {
+                GetSetStructAttrs {
                     gen: FxHashMap::from_iter([
                         (GetSetGenMode::GetMut, GetSetOptions::default()),
                     ])
@@ -611,7 +611,7 @@ mod test {
         fn err_unknown_token() {
             assert_getset_err!(
                 #[getset(unknown_token)],
-                GetSetStructAttr,
+                GetSetStructAttrs,
                 "expected one of `get`, `get_copy`, `get_mut`, `set`, `skip`"
             );
         }
@@ -620,7 +620,7 @@ mod test {
         fn err_skip_struct() {
             assert_getset_err!(
                 #[getset(skip)],
-                GetSetStructAttr,
+                GetSetStructAttrs,
                 "`skip` is not valid on a struct"
             );
         }
@@ -629,7 +629,7 @@ mod test {
         fn err_duplicate_accessor() {
             assert_getset_err!(
                 #[getset(get = "pub", get)],
-                GetSetStructAttr,
+                GetSetStructAttrs,
                 "duplicate `getset(get)` attribute"
             );
         }
@@ -638,7 +638,7 @@ mod test {
         fn err_unknown_option() {
             assert_getset_err!(
                 #[getset(get = "aboba")],
-                GetSetStructAttr,
+                GetSetStructAttrs,
                 "Failed to parse getset options at `aboba`: expected visibility or `with_prefix`"
             );
         }
@@ -650,9 +650,9 @@ mod test {
         use syn2::{parse::ParseStream, parse_quote, Attribute};
 
         use super::{
-            GetSetFieldAttr, GetSetGenMode, GetSetOptions, GetSetStructAttr, RequestedAccessors,
+            GetSetFieldAttrs, GetSetGenMode, GetSetOptions, GetSetStructAttrs, RequestedAccessors,
         };
-        use crate::attr_parse::derive::DeriveAttr;
+        use crate::attr_parse::derive::DeriveAttrs;
 
         fn get_field_derives(
             derive: TokenStream,
@@ -673,9 +673,9 @@ mod test {
                 T::from_attributes(&attrs).expect("Failed to parse attributes")
             }
 
-            let derive = parse_attributes::<DeriveAttr>(derive);
-            let struct_attr = parse_attributes::<GetSetStructAttr>(struct_attr);
-            let field_attr = parse_attributes::<GetSetFieldAttr>(field_attr);
+            let derive = parse_attributes::<DeriveAttrs>(derive);
+            let struct_attr = parse_attributes::<GetSetStructAttrs>(struct_attr);
+            let field_attr = parse_attributes::<GetSetFieldAttrs>(field_attr);
 
             field_attr.get_field_accessors(&derive, &struct_attr)
         }
