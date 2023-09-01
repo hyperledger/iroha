@@ -264,7 +264,13 @@ impl<'ast, 'emitter> FnVisitor<'ast, 'emitter> {
     }
 
     fn add_input_arg(&mut self, src_type: &'ast Type) {
-        let arg_name = self.curr_arg_name.take().expect("Defined").clone();
+        let arg_name = self.curr_arg_name.take().cloned().unwrap_or_else(|| {
+            // provide a dummy argument name so that codegen can work
+            Ident::new(
+                &format!("__arg_{}", self.input_args.len()),
+                Span::call_site(),
+            )
+        });
         self.input_args.push(Arg::new(
             self.self_ty.map(Clone::clone),
             arg_name,
@@ -456,11 +462,8 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast, '_> {
         if let syn2::Pat::Ident(ident) = &*node.pat {
             self.visit_pat_ident(ident);
         } else {
-            emit!(
-                self.emitter,
-                node.pat,
-                "Unsupported pattern in variable name binding"
-            );
+            // if we don't have an identifier (when pattern matching is used), we generate a synthetic argument name
+            // it's not an error (anymore)
         }
 
         self.add_input_arg(&node.ty);
