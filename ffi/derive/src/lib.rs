@@ -40,6 +40,21 @@ impl syn2::parse::Parse for FfiItems {
     }
 }
 
+/// A test utility function that parses multiple attributes
+#[cfg(test)]
+fn parse_attributes(ts: TokenStream) -> Vec<syn2::Attribute> {
+    struct Attributes(Vec<syn2::Attribute>);
+    impl syn2::parse::Parse for Attributes {
+        fn parse(input: syn2::parse::ParseStream) -> syn2::Result<Self> {
+            syn2::Attribute::parse_outer(input).map(Attributes)
+        }
+    }
+
+    syn2::parse2::<Attributes>(ts)
+        .expect("Failed to parse attributes")
+        .0
+}
+
 /// Replace struct/enum/union definition with opaque pointer. This applies to types that
 /// are converted to an opaque pointer when sent across FFI but does not affect any other
 /// item wrapped with this macro (e.g. fieldless enums). This is so that most of the time
