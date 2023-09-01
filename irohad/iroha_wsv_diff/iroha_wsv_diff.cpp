@@ -101,6 +101,7 @@ DEFINE_validator(pg_opt, &ValidateNonEmpty);
 // NOLINTNEXTLINE
 DEFINE_string(rocksdb_path, "", "Specify path to RocksDB");
 DEFINE_validator(rocksdb_path, &ValidateNonEmpty);
+DEFINE_bool(ignore_checking_with_schema_version, false, "Should schema version be checked");
 
 logger::LoggerManagerTreePtr getDefaultLogManager() {
   return std::make_shared<logger::LoggerManagerTree>(logger::LoggerConfig{
@@ -651,8 +652,11 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
         if (key_starts_with_and_drop(RDB_F_VERSION)) {
           assert(key.empty());
           schema_version = std::string{val};
-          assert(schema_version == "1#4#0" &&
-                  "This version of iroha_wsv_diff can check WSV in RocksDB of version 1.2.0 only");
+          if (! FLAGS_ignore_checking_with_schema_version)
+          {
+            assert(schema_version == "1#4#0" &&
+                   "This version of iroha_wsv_diff can check WSV in RocksDB of version 1.4.0 only");
+          }
         } else if (key_starts_with_and_drop(RDB_NETWORK)) {
           if (key_starts_with_and_drop(RDB_PEERS)) {
             if (key_starts_with_and_drop(RDB_ADDRESS)) {
