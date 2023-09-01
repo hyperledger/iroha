@@ -9,8 +9,8 @@ use syn2::{parse_quote, visit::Visit, Ident};
 
 use crate::{
     attr_parse::{
-        derive::DeriveAttr,
-        getset::{GetSetGenMode, GetSetStructAttr},
+        derive::DeriveAttrs,
+        getset::{GetSetGenMode, GetSetStructAttrs},
     },
     convert::{FfiTypeField, FfiTypeFields},
     emitter::Emitter,
@@ -21,8 +21,8 @@ use crate::{
 pub fn gen_derived_methods<'a>(
     emitter: &mut Emitter,
     name: &Ident,
-    derives: &DeriveAttr,
-    getset_struct_attrs: &GetSetStructAttr,
+    derives: &DeriveAttrs,
+    getset_struct_attrs: &GetSetStructAttrs,
     fields: &'a FfiTypeFields,
 ) -> impl Iterator<Item = FnDescriptor<'a>> {
     let mut ffi_derives = FxHashMap::default();
