@@ -24,6 +24,6 @@ opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorizat
 codegen-units = 1   # Further reduces binary size but increases compilation time
 
 [dependencies]
-iroha_validator = { version = "2.0.0-pre-rc.19", path = "../wasm/validator", features = ["debug", "default-validator"]}
+iroha_validator = { version = "2.0.0-pre-rc.19", path = "../wasm/validator", features = ["debug"]}
 
 panic-halt = "0.2.0"

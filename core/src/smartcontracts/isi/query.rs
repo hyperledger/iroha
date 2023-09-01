@@ -134,7 +134,6 @@ impl ValidQuery for QueryBox {
                 FindDomainById,
                 FindBlockHeaderByHash,
                 FindTransactionByHash,
-                DoesAccountHavePermissionToken,
                 FindTriggerById,
                 FindRoleByRoleId,
                 FindDomainKeyValueByIdAndKey,

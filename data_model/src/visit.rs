@@ -13,7 +13,7 @@ macro_rules! delegate {
         fn $visitor$(<$param $(: $bound)?>)?(&mut self, authority: &AccountId, operation: $operation) {
             $visitor(self, authority, operation);
         } )+
-    }
+    };
 }
 
 macro_rules! evaluate_expr {
@@ -66,7 +66,6 @@ pub trait Visit: ExpressionEvaluator {
         visit_log(Log),
 
         // Visit QueryBox
-        visit_does_account_have_permission_token(&DoesAccountHavePermissionToken),
         visit_find_account_by_id(&FindAccountById),
         visit_find_account_key_value_by_id_and_key(&FindAccountKeyValueByIdAndKey),
         visit_find_accounts_by_domain_id(&FindAccountsByDomainId),
@@ -171,7 +170,7 @@ pub trait Visit: ExpressionEvaluator {
 fn visit_unsupported<V: Visit + ?Sized, T: core::fmt::Debug>(
     _visitor: &mut V,
     _authority: &AccountId,
-    _item: T,
+    _isi: T,
 ) {
 }
 
@@ -201,7 +200,6 @@ pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, qu
     }
 
     query_visitors! {
-        visit_does_account_have_permission_token(DoesAccountHavePermissionToken),
         visit_find_account_by_id(FindAccountById),
         visit_find_account_key_value_by_id_and_key(FindAccountKeyValueByIdAndKey),
         visit_find_accounts_by_domain_id(FindAccountsByDomainId),
@@ -281,7 +279,7 @@ pub fn visit_instruction<V: Visit + ?Sized>(
                 InstructionBox::Log(isi) => {
                     let msg = evaluate_expr!(visitor, authority, <isi as LogBox>::msg());
                     let level = evaluate_expr!(visitor, authority, <isi as LogBox>::level());
-                    visitor.visit_log(authority, Log { msg, level })
+                    visitor.visit_log(authority, Log { msg, level });
                 } $(
                 InstructionBox::$isi(isi) => {
                     visitor.$visitor(authority, isi);
@@ -605,8 +603,8 @@ pub fn visit_revoke<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, i
     let destination_id = evaluate_expr!(visitor, authority, <isi as Revoke>::destination_id());
     let object = evaluate_expr!(visitor, authority, <isi as Revoke>::object());
 
-    match (destination_id, object) {
-        (IdBox::AccountId(destination_id), Value::PermissionToken(object)) => visitor
+    match (object, destination_id) {
+        (Value::PermissionToken(object), IdBox::AccountId(destination_id)) => visitor
             .visit_revoke_account_permission(
                 authority,
                 Revoke {
@@ -614,7 +612,7 @@ pub fn visit_revoke<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, i
                     destination_id,
                 },
             ),
-        (IdBox::AccountId(destination_id), Value::Id(IdBox::RoleId(object))) => visitor
+        (Value::Id(IdBox::RoleId(object)), IdBox::AccountId(destination_id)) => visitor
             .visit_revoke_account_role(
                 authority,
                 Revoke {
@@ -715,7 +713,6 @@ leaf_visitors! {
     visit_log(Log),
 
     // Query visitors
-    visit_does_account_have_permission_token(&DoesAccountHavePermissionToken),
     visit_find_account_by_id(&FindAccountById),
     visit_find_account_key_value_by_id_and_key(&FindAccountKeyValueByIdAndKey),
     visit_find_accounts_by_domain_id(&FindAccountsByDomainId),

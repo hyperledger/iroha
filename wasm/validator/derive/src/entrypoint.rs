@@ -149,8 +149,8 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
             ::core::mem::ManuallyDrop::new(bytes).as_ptr()
         }
 
-        // NOTE: Host objects are always passed by value to wasm
-        #[allow(clippy::needless_pass_by_value)]
+        // NOTE: False positive
+        #[allow(clippy::unnecessary_wraps)]
         #(#attrs)*
         #vis #sig
         #block

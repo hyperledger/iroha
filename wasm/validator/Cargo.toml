@@ -7,11 +7,8 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["default-validator"]
 # Enables debugging tools such as `dbg()` and `DebugUnwrapExt`
 debug = ["iroha_wasm/debug"]
-# Enables predefined default validator
-default-validator = []
 
 [dependencies]
 iroha_wasm = { version = "2.0.0-pre-rc.19", path = ".." }
