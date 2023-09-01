@@ -306,7 +306,6 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast, '_> {
         }
         if node.defaultness.is_some() {
             emit!(self.emitter, node.defaultness, "Default impl not supported");
-            // TODO: should we return here, or can the execution continue?
         }
 
         for it in &node.attrs {

@@ -87,10 +87,9 @@ impl syn2::parse::Parse for SpannedFfiTypeToken {
     }
 }
 
+/// This represents an `#[ffi_type(...)]` attribute on a type
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum FfiTypeKindAttribute {
-    // NOTE: these are not all the possible ffi type kinds, but only those that can be referred to using an attribute
-    // Enums are treated quite funnily...
     Opaque,
     UnsafeRobust,
     Local,
@@ -114,6 +113,7 @@ impl syn2::parse::Parse for FfiTypeKindAttribute {
     }
 }
 
+/// This represents an `#[ffi_type(...)]` attribute on a field
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum FfiTypeKindFieldAttribute {
     UnsafeNonOwning,
@@ -211,6 +211,7 @@ pub struct FfiTypeInput {
     pub ffi_type_attr: FfiTypeAttr,
     pub getset_attr: GetSetStructAttrs,
     pub span: Span,
+    /// The original DeriveInput this structure was parsed from
     pub ast: syn2::DeriveInput,
 }
 
@@ -247,14 +248,6 @@ impl darling::FromDeriveInput for FfiTypeInput {
             span,
             ast: input.clone(),
         })
-    }
-}
-
-impl quote::ToTokens for FfiTypeInput {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        // TODO: this ignores changes that may be done to Generics
-        // Would this be a problem?
-        self.ast.to_tokens(tokens);
     }
 }
 
@@ -301,7 +294,7 @@ pub fn derive_ffi_type(emitter: &mut Emitter, input: &syn2::DeriveInput) -> Toke
         if variants.is_empty() {
             emit!(
                 emitter,
-                input.span(),
+                input.span,
                 "Uninhabited enums are not allowed in FFI"
             );
         }
@@ -309,7 +302,6 @@ pub fn derive_ffi_type(emitter: &mut Emitter, input: &syn2::DeriveInput) -> Toke
 
     // the logic of `is_opaque` is somewhat convoluted and I am not sure if it is even correct
     // there is also `is_opaque_struct`...
-    // NOTE: this mirrors the logic in `is_opaque`. The function should be updated to use darling-parsed attrs together with the call sites
     if input.is_opaque() {
         return derive_ffi_type_for_opaque_item(name, &input.generics);
     }
@@ -717,7 +709,7 @@ fn derive_ffi_type_for_repr_c(emitter: &mut Emitter, input: &FfiTypeInput) -> To
             .kind
             .map_or_else(Span::call_site, |kind| kind.span());
         // TODO: this error message may be unclear. Consider adding a note about the `#[ffi_type]` attribute
-        emit!(emitter, span, "The type should be marked with #[repr(C)]");
+        emit!(emitter, span, "To make an FFI type robust you must mark it with `#[repr(C)]`. Alternatively, try using `#[ffi_type(opaque)]` to make it opaque");
     }
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();

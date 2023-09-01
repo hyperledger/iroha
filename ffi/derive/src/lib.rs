@@ -74,10 +74,11 @@ pub fn ffi(input: TokenStream) -> TokenStream {
         .into_iter()
         .map(|item| {
             if !matches!(item.vis, syn2::Visibility::Public(_)) {
-                emit!(emitter, item, "Only public types are allowed in FFI");
+                emit!(emitter, item.span, "Only public types are allowed in FFI");
             }
 
             if !item.is_opaque() {
+                let item = item.ast;
                 return quote! {
                     #[derive(iroha_ffi::FfiType)]
                     #item

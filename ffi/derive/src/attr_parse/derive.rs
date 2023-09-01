@@ -90,8 +90,10 @@ impl FromAttributes for DeriveAttrs {
                         Derive::Other(path.to_token_stream().to_string())
                     };
 
-                    // I __think__ it's an error to use the same derive twice
-                    // I don't think we care in this case though
+                    // Funnily, rust allows the usage of the same derive multiple times
+                    // In most cases this will lead to a "Conflicting implementations of trait" errors,
+                    //      but technically it's not an error by itself
+                    // We do handle the duplicate derives just fine
                     derives.push(derive);
                 }
             }
