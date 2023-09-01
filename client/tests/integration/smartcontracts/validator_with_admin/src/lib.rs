@@ -1,40 +1,57 @@
 //! Runtime Validator which allows any instruction executed by `admin@admin` account.
-//! If authority is not `admin@admin` then [`DefaultValidator`] is used as a backup.
+//! If authority is not `admin@admin` then default validation is used as a backup.
 
 #![no_std]
 #![allow(missing_docs, clippy::missing_errors_doc)]
 
 use iroha_validator::{
     data_model::evaluate::{EvaluationError, ExpressionEvaluator},
-    parse,
+    iroha_wasm, parse,
     prelude::*,
 };
 
 #[cfg(not(test))]
 extern crate panic_halt;
 
-struct CustomValidator(DefaultValidator);
+struct Validator {
+    verdict: Result,
+    block_height: u64,
+    host: iroha_wasm::Host,
+}
 
-macro_rules! delegate {
-    ( $($visitor:ident$(<$bound:ident>)?($operation:ty)),+ $(,)? ) => { $(
-        fn $visitor $(<$bound>)?(&mut self, authority: &AccountId, operation: $operation) {
-            self.0.$visitor(authority, operation);
-        } )+
+impl Validator {
+    /// Construct [`Self`]
+    pub fn new(block_height: u64) -> Self {
+        Self {
+            verdict: Ok(()),
+            block_height,
+            host: iroha_wasm::Host,
+        }
     }
 }
 
-impl Visit for CustomValidator {
+macro_rules! defaults {
+    ( $($validator:ident $(<$param:ident $(: $bound:path)?>)?($operation:ty)),+ $(,)? ) => { $(
+        fn $validator $(<$param $(: $bound)?>)?(&mut self, authority: &AccountId, operation: $operation) {
+            iroha_validator::default::$validator(self, authority, operation)
+        } )+
+    };
+}
+
+impl Visit for Validator {
     fn visit_instruction(&mut self, authority: &AccountId, isi: &InstructionBox) {
         if parse!("admin@admin" as AccountId) == *authority {
             pass!(self);
         }
 
-        self.0.visit_instruction(authority, isi);
+        iroha_validator::default::visit_instruction(self, authority, isi);
     }
 
-    delegate! {
-        visit_expression<V>(&EvaluatesTo<V>),
+    defaults! {
+        visit_unsupported<T: core::fmt::Debug>(T),
 
+        visit_transaction(&VersionedSignedTransaction),
+        visit_expression<V>(&EvaluatesTo<V>),
         visit_sequence(&SequenceBox),
         visit_if(&Conditional),
         visit_pair(&Pair),
@@ -75,6 +92,7 @@ impl Visit for CustomValidator {
         visit_revoke_account_permission(Revoke<Account, PermissionToken>),
 
         // Role validation
+        visit_register_role(Register<Role>),
         visit_unregister_role(Unregister<Role>),
         visit_grant_account_role(Grant<Account, RoleId>),
         visit_revoke_account_role(Revoke<Account, RoleId>),
@@ -93,37 +111,29 @@ impl Visit for CustomValidator {
     }
 }
 
-impl Validate for CustomValidator {
-    /// Migration should be applied on blockchain with [`DefaultValidator`]
-    fn migrate(_block_height: u64) -> MigrationResult {
-        Ok(())
-    }
-
+impl Validate for Validator {
     fn verdict(&self) -> &Result {
-        self.0.verdict()
+        &self.verdict
     }
 
     fn block_height(&self) -> u64 {
-        self.0.block_height()
+        self.block_height
     }
 
     fn deny(&mut self, reason: ValidationFail) {
-        self.0.deny(reason);
+        self.verdict = Err(reason);
     }
 }
 
-impl ExpressionEvaluator for CustomValidator {
-    fn evaluate<E: Evaluate>(
-        &self,
-        expression: &E,
-    ) -> core::result::Result<E::Value, EvaluationError> {
-        self.0.evaluate(expression)
+impl ExpressionEvaluator for Validator {
+    fn evaluate<E: Evaluate>(&self, expression: &E) -> Result<E::Value, EvaluationError> {
+        self.host.evaluate(expression)
     }
 }
 
 #[entrypoint]
-pub fn migrate(block_height: u64) -> MigrationResult {
-    CustomValidator::migrate(block_height)
+pub fn migrate(_block_height: u64) -> MigrationResult {
+    Ok(())
 }
 
 #[entrypoint]
@@ -132,11 +142,9 @@ pub fn validate_transaction(
     transaction: VersionedSignedTransaction,
     block_height: u64,
 ) -> Result {
-    let mut validator = CustomValidator(DefaultValidator::new(block_height));
-
+    let mut validator = Validator::new(block_height);
     validator.visit_transaction(&authority, &transaction);
-
-    validator.0.verdict
+    validator.verdict
 }
 
 #[entrypoint]
@@ -145,18 +153,14 @@ pub fn validate_instruction(
     instruction: InstructionBox,
     block_height: u64,
 ) -> Result {
-    let mut validator = CustomValidator(DefaultValidator::new(block_height));
-
+    let mut validator = Validator::new(block_height);
     validator.visit_instruction(&authority, &instruction);
-
-    validator.0.verdict
+    validator.verdict
 }
 
 #[entrypoint]
 pub fn validate_query(authority: AccountId, query: QueryBox, block_height: u64) -> Result {
-    let mut validator = CustomValidator(DefaultValidator::new(block_height));
-
+    let mut validator = Validator::new(block_height);
     validator.visit_query(&authority, &query);
-
-    validator.0.verdict
+    validator.verdict
 }

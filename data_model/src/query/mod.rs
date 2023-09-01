@@ -125,7 +125,6 @@ pub mod model {
         FindTransactionByHash(FindTransactionByHash),
         FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
         FindPermissionTokenSchema(FindPermissionTokenSchema),
-        DoesAccountHavePermissionToken(DoesAccountHavePermissionToken),
         FindAllActiveTriggerIds(FindAllActiveTriggerIds),
         FindTriggerById(FindTriggerById),
         FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
@@ -328,17 +327,6 @@ pub mod permission {
             /// `Id` of an account to find.
             pub id: EvaluatesTo<AccountId>,
         }
-
-        /// [`DoesAccountHavePermission`] Iroha Query checks if the account has the specified permission.
-        #[derive(Display)]
-        #[display(fmt = "Check if `{account_id}` account has `{permission_token}` permission token")]
-        #[ffi_type]
-        pub struct DoesAccountHavePermissionToken {
-            /// `Id` of an account to check.
-            pub account_id: EvaluatesTo<AccountId>,
-            /// `PermissionToken` to check for.
-            pub permission_token: EvaluatesTo<permission::PermissionToken>,
-        }
     }
 
     impl Query for FindPermissionTokenSchema {
@@ -349,25 +337,8 @@ pub mod permission {
         type Output = Vec<permission::PermissionToken>;
     }
 
-    impl Query for DoesAccountHavePermissionToken {
-        type Output = bool;
-    }
-
-    impl DoesAccountHavePermissionToken {
-        /// Construct [`DoesAccountHavePermissionToken`].
-        pub fn new(
-            account_id: impl Into<EvaluatesTo<AccountId>>,
-            permission_token: impl Into<EvaluatesTo<permission::PermissionToken>>,
-        ) -> Self {
-            Self {
-                account_id: account_id.into(),
-                permission_token: permission_token.into(),
-            }
-        }
-    }
-
     impl FindPermissionTokensByAccountId {
-        /// Construct [`DoesAccountHavePermissionToken`].
+        /// Construct [`FindPermissionTokensByAccountId`].
         pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
             Self {
                 id: account_id.into(),
@@ -377,10 +348,7 @@ pub mod permission {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
-        pub use super::{
-            DoesAccountHavePermissionToken, FindPermissionTokenSchema,
-            FindPermissionTokensByAccountId,
-        };
+        pub use super::{FindPermissionTokenSchema, FindPermissionTokensByAccountId};
     }
 }
 

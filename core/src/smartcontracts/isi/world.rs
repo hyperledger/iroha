@@ -270,10 +270,7 @@ pub mod query {
         peer::Peer,
         permission::PermissionTokenSchema,
         prelude::*,
-        query::{
-            error::{FindError, QueryExecutionFail as Error},
-            permission::DoesAccountHavePermissionToken,
-        },
+        query::error::{FindError, QueryExecutionFail as Error},
         role::{Role, RoleId},
     };
 
@@ -344,22 +341,6 @@ pub mod query {
             wsv: &'wsv WorldStateView,
         ) -> Result<Box<dyn Iterator<Item = Parameter> + 'wsv>, Error> {
             Ok(Box::new(wsv.parameters().cloned()))
-        }
-    }
-
-    impl ValidQuery for DoesAccountHavePermissionToken {
-        #[metrics("does_account_have_permission_token")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<bool, Error> {
-            let authority = wsv
-                .evaluate(&self.account_id)
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let given_permission_token = wsv
-                .evaluate(&self.permission_token)
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
-
-            Ok(wsv
-                .account_permission_tokens(&authority)?
-                .any(|permission_token| *permission_token == given_permission_token))
         }
     }
 }

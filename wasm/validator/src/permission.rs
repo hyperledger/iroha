@@ -13,11 +13,17 @@ pub trait Token:
     + DeserializeOwned
     + IntoSchema
     + TryFrom<PermissionToken, Error = PermissionTokenConversionError>
+    + PartialEq<Self>
     + ValidateGrantRevoke
 {
-    /// Check if token is owned by the account using evaluation on host.
-    ///
-    /// Basically it's a wrapper around [`DoesAccountHavePermissionToken`] query.
+    /// Return name of this permission token
+    fn name() -> Name {
+        <Self as iroha_schema::IntoSchema>::type_name()
+            .parse()
+            .dbg_expect("Failed to parse permission token as `Name`")
+    }
+
+    /// Check if token is owned by the account
     fn is_owned_by(&self, account_id: &AccountId) -> bool;
 }
 

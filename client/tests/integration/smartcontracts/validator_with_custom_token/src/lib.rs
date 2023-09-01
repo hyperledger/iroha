@@ -1,7 +1,7 @@
 //! Runtime Validator which allows domain (un-)registration only for users who own
 //! [`token::CanControlDomainLives`] permission token.
 //!
-//! This validator should be applied on top of the blockchain with [`DefaultValidator`].
+//! This validator should be applied on top of the blockchain with default validation.
 //!
 //! It also doesn't have [`iroha_validator::default::domain::tokens::CanUnregisterDomain`].
 //!
@@ -21,6 +21,8 @@ use anyhow::anyhow;
 use iroha_schema::IntoSchema;
 use iroha_validator::{
     data_model::evaluate::{EvaluationError, ExpressionEvaluator},
+    default::default_permission_token_schema,
+    iroha_wasm,
     permission::Token as _,
     prelude::*,
 };
@@ -39,22 +41,37 @@ mod token {
     use super::*;
 
     /// Token to identify if user can (un-)register domains.
-    #[derive(Token, ValidateGrantRevoke, Decode, Encode, IntoSchema, Serialize, Deserialize)]
+    #[derive(
+        PartialEq,
+        Eq,
+        Token,
+        ValidateGrantRevoke,
+        Decode,
+        Encode,
+        IntoSchema,
+        Serialize,
+        Deserialize,
+    )]
     #[validate(iroha_validator::permission::OnlyGenesis)]
     pub struct CanControlDomainLives;
 }
 
-struct CustomValidator(DefaultValidator);
-
-macro_rules! delegate {
-    ( $($visitor:ident$(<$bound:ident>)?($operation:ty)),+ $(,)? ) => { $(
-        fn $visitor $(<$bound>)?(&mut self, authority: &AccountId, operation: $operation) {
-            self.0.$visitor(authority, operation);
-        } )+
-    }
+struct Validator {
+    verdict: Result,
+    block_height: u64,
+    host: iroha_wasm::Host,
 }
 
-impl CustomValidator {
+impl Validator {
+    /// Construct [`Self`]
+    pub fn new(block_height: u64) -> Self {
+        Self {
+            verdict: Ok(()),
+            block_height,
+            host: iroha_wasm::Host,
+        }
+    }
+
     fn get_all_accounts_with_can_unregister_domain_permission(
     ) -> Result<Vec<(Account, DomainId)>, MigrationError> {
         let accounts = FindAllAccounts.execute().map_err(|error| {
@@ -152,8 +169,16 @@ impl CustomValidator {
     }
 }
 
-impl Visit for CustomValidator {
-    fn visit_register_domain(&mut self, authority: &AccountId, _register_domain: Register<Domain>) {
+macro_rules! defaults {
+    ( $($validator:ident $(<$param:ident $(: $bound:path)?>)?($operation:ty)),+ $(,)? ) => { $(
+        fn $validator $(<$param $(: $bound)?>)?(&mut self, authority: &AccountId, operation: $operation) {
+            iroha_validator::default::$validator(self, authority, operation)
+        } )+
+    };
+}
+
+impl Visit for Validator {
+    fn visit_register_domain(&mut self, authority: &AccountId, _isi: Register<Domain>) {
         if self.block_height() == 0 {
             pass!(self);
         }
@@ -164,11 +189,7 @@ impl Visit for CustomValidator {
         deny!(self, "You don't have permission to register a new domain");
     }
 
-    fn visit_unregister_domain(
-        &mut self,
-        authority: &AccountId,
-        _unregister_domain: Unregister<Domain>,
-    ) {
+    fn visit_unregister_domain(&mut self, authority: &AccountId, _isi: Unregister<Domain>) {
         if self.block_height() == 0 {
             pass!(self);
         }
@@ -179,14 +200,15 @@ impl Visit for CustomValidator {
         deny!(self, "You don't have permission to unregister domain");
     }
 
-    delegate! {
-        visit_expression<V>(&EvaluatesTo<V>),
+    defaults! {
+        visit_unsupported<T: core::fmt::Debug>(T),
 
+        visit_transaction(&VersionedSignedTransaction),
+        visit_instruction(&InstructionBox),
+        visit_expression<V>(&EvaluatesTo<V>),
         visit_sequence(&SequenceBox),
         visit_if(&Conditional),
         visit_pair(&Pair),
-
-        visit_instruction(&InstructionBox),
 
         // Peer validation
         visit_unregister_peer(Unregister<Peer>),
@@ -223,6 +245,7 @@ impl Visit for CustomValidator {
         visit_revoke_account_permission(Revoke<Account, PermissionToken>),
 
         // Role validation
+        visit_register_role(Register<Role>),
         visit_unregister_role(Unregister<Role>),
         visit_grant_account_role(Grant<Account, RoleId>),
         visit_revoke_account_role(Revoke<Account, RoleId>),
@@ -241,50 +264,40 @@ impl Visit for CustomValidator {
     }
 }
 
-impl Validate for CustomValidator {
-    /// Migration should be applied on blockchain with [`DefaultValidator`]
-    fn migrate(_block_height: u64) -> MigrationResult {
-        let accounts = Self::get_all_accounts_with_can_unregister_domain_permission()?;
-
-        let mut schema = DefaultValidator::permission_token_schema();
-        schema.remove::<iroha_validator::default::domain::tokens::CanUnregisterDomain>();
-        schema.insert::<token::CanControlDomainLives>();
-
-        let (token_ids, schema_str) = schema.serialize();
-        iroha_validator::iroha_wasm::set_permission_token_schema(
-            &iroha_validator::data_model::permission::PermissionTokenSchema::new(
-                token_ids, schema_str,
-            ),
-        );
-
-        Self::replace_token(&accounts)
-    }
-
+impl Validate for Validator {
     fn verdict(&self) -> &Result {
-        self.0.verdict()
+        &self.verdict
     }
 
     fn block_height(&self) -> u64 {
-        self.0.block_height()
+        self.block_height
     }
 
     fn deny(&mut self, reason: ValidationFail) {
-        self.0.deny(reason);
+        self.verdict = Err(reason);
     }
 }
 
-impl ExpressionEvaluator for CustomValidator {
-    fn evaluate<E: Evaluate>(
-        &self,
-        expression: &E,
-    ) -> core::result::Result<E::Value, EvaluationError> {
-        self.0.evaluate(expression)
+impl ExpressionEvaluator for Validator {
+    fn evaluate<E: Evaluate>(&self, expression: &E) -> Result<E::Value, EvaluationError> {
+        self.host.evaluate(expression)
     }
 }
 
 #[entrypoint]
-pub fn migrate(block_height: u64) -> MigrationResult {
-    CustomValidator::migrate(block_height)
+pub fn migrate(_block_height: u64) -> MigrationResult {
+    let accounts = Validator::get_all_accounts_with_can_unregister_domain_permission()?;
+
+    let mut schema = default_permission_token_schema();
+    schema.remove::<iroha_validator::default::domain::tokens::CanUnregisterDomain>();
+    schema.insert::<token::CanControlDomainLives>();
+
+    let (token_ids, schema_str) = schema.serialize();
+    iroha_validator::iroha_wasm::set_permission_token_schema(
+        &iroha_validator::data_model::permission::PermissionTokenSchema::new(token_ids, schema_str),
+    );
+
+    Validator::replace_token(&accounts)
 }
 
 #[entrypoint]
@@ -293,11 +306,9 @@ pub fn validate_transaction(
     transaction: VersionedSignedTransaction,
     block_height: u64,
 ) -> Result {
-    let mut validator = CustomValidator(DefaultValidator::new(block_height));
-
+    let mut validator = Validator::new(block_height);
     validator.visit_transaction(&authority, &transaction);
-
-    validator.0.verdict
+    validator.verdict
 }
 
 #[entrypoint]
@@ -306,18 +317,14 @@ pub fn validate_instruction(
     instruction: InstructionBox,
     block_height: u64,
 ) -> Result {
-    let mut validator = CustomValidator(DefaultValidator::new(block_height));
-
+    let mut validator = Validator::new(block_height);
     validator.visit_instruction(&authority, &instruction);
-
-    validator.0.verdict
+    validator.verdict
 }
 
 #[entrypoint]
 pub fn validate_query(authority: AccountId, query: QueryBox, block_height: u64) -> Result {
-    let mut validator = CustomValidator(DefaultValidator::new(block_height));
-
+    let mut validator = Validator::new(block_height);
     validator.visit_query(&authority, &query);
-
-    validator.0.verdict
+    validator.verdict
 }
