@@ -3,9 +3,9 @@
 use std::{path::Path, str::FromStr as _};
 
 use eyre::Result;
-use iroha_client::client::{self, Client};
+use iroha_client::client::{self, Client, QueryResult};
 use iroha_crypto::KeyPair;
-use iroha_data_model::{prelude::*, query::permission::DoesAccountHavePermissionToken};
+use iroha_data_model::prelude::*;
 use iroha_logger::info;
 use serde_json::json;
 use test_network::*;
@@ -70,13 +70,14 @@ fn validator_upgrade_should_run_migration() -> Result<()> {
 
     // Check that Alice has permission to unregister Wonderland
     let alice_id: AccountId = "alice@wonderland".parse().unwrap();
-    assert!(client.request(DoesAccountHavePermissionToken::new(
-        alice_id.clone(),
-        PermissionToken::new(
-            can_unregister_domain_token_id.clone(),
-            &json!({ "domain_id": DomainId::from_str("wonderland").unwrap() })
-        ),
-    ))?);
+    let alice_tokens = client
+        .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
+        .collect::<QueryResult<Vec<_>>>()
+        .expect("Valid");
+    assert!(alice_tokens.contains(&PermissionToken::new(
+        can_unregister_domain_token_id.clone(),
+        &json!({ "domain_id": DomainId::from_str("wonderland").unwrap() }),
+    )));
 
     upgrade_validator(
         &client,
@@ -98,10 +99,14 @@ fn validator_upgrade_should_run_migration() -> Result<()> {
         .any(|id| id == &can_control_domain_lives_token_id));
 
     // Check that Alice has `can_control_domain_lives` permission
-    assert!(client.request(DoesAccountHavePermissionToken::new(
-        alice_id,
-        PermissionToken::new(can_control_domain_lives_token_id, &json!(null)),
-    ))?);
+    let alice_tokens = client
+        .request(FindPermissionTokensByAccountId::new(alice_id))?
+        .collect::<QueryResult<Vec<_>>>()
+        .expect("Valid");
+    assert!(alice_tokens.contains(&PermissionToken::new(
+        can_control_domain_lives_token_id,
+        &json!(null),
+    )));
 
     Ok(())
 }
