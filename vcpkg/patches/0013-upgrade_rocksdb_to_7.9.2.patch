@@ -1,0 +1,269 @@
+diff --git a/ports/rocksdb/0002-only-build-one-flavor.patch b/ports/rocksdb/0002-only-build-one-flavor.patch
+index 4ee4d2393..125149b70 100644
+--- a/ports/rocksdb/0002-only-build-one-flavor.patch
++++ b/ports/rocksdb/0002-only-build-one-flavor.patch
+@@ -1,8 +1,8 @@
+ diff --git a/CMakeLists.txt b/CMakeLists.txt
+-index 6761929..4d2b0a1 100644
++index 1a6411653..526dfcf60 100644
+ --- a/CMakeLists.txt
+ +++ b/CMakeLists.txt
+-@@ -987,13 +987,17 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
++@@ -1077,13 +1077,17 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
+  
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/modules" COMPONENT devel DESTINATION ${package_config_destination})
+  
+diff --git a/ports/rocksdb/0003-use-find-package.patch b/ports/rocksdb/0003-use-find-package.patch
+index e05de2a4b..821a48b28 100644
+--- a/ports/rocksdb/0003-use-find-package.patch
++++ b/ports/rocksdb/0003-use-find-package.patch
+@@ -1,17 +1,17 @@
+ diff --git a/CMakeLists.txt b/CMakeLists.txt
+-index 6761929..6f74d31 100644
++index 7b4f47a..3d90152 100644
+ --- a/CMakeLists.txt
+ +++ b/CMakeLists.txt
+-@@ -91,7 +91,7 @@ include(CMakeDependentOption)
+- CMAKE_DEPENDENT_OPTION(WITH_GFLAGS "build with GFlags" ON
+-   "NOT MSVC;NOT MINGW" OFF)
++@@ -87,7 +87,7 @@ endif()
++ 
++ include(CMakeDependentOption)
+  
+ -if(MSVC)
+ +if(MSVC AND NOT VCPKG_TOOLCHAIN)
++   option(WITH_GFLAGS "build with GFlags" OFF)
+    option(WITH_XPRESS "build with windows built in compression" OFF)
+-   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
+- else()
+-@@ -130,10 +130,7 @@ else()
++   option(ROCKSDB_SKIP_THIRDPARTY "skip thirdparty.inc" OFF)
++@@ -136,10 +136,7 @@ else()
+    endif()
+  
+    if(WITH_SNAPPY)
+@@ -23,7 +23,7 @@ index 6761929..6f74d31 100644
+      add_definitions(-DSNAPPY)
+      list(APPEND THIRDPARTY_LIBS Snappy::snappy)
+    endif()
+-@@ -157,16 +154,19 @@ else()
++@@ -163,16 +160,19 @@ else()
+    endif()
+  
+    if(WITH_LZ4)
+@@ -40,14 +40,14 @@ index 6761929..6f74d31 100644
+ -    include_directories(${ZSTD_INCLUDE_DIR})
+ -    list(APPEND THIRDPARTY_LIBS zstd::zstd)
+ +    if(TARGET zstd::libzstd_shared)
+-+    list(APPEND THIRDPARTY_LIBS zstd::libzstd_shared)
+++      list(APPEND THIRDPARTY_LIBS zstd::libzstd_shared)
+ +    elseif(TARGET zstd::libzstd_static)
+-+    list(APPEND THIRDPARTY_LIBS zstd::libzstd_static)   
+++      list(APPEND THIRDPARTY_LIBS zstd::libzstd_static)
+ +    endif()
+    endif()
+  endif()
+  
+-@@ -375,9 +375,9 @@ endif()
++@@ -402,9 +402,9 @@ endif()
+  
+  option(WITH_TBB "build with Threading Building Blocks (TBB)" OFF)
+  if(WITH_TBB)
+diff --git a/ports/rocksdb/0004-fix-dependency-in-config.patch b/ports/rocksdb/0004-fix-dependency-in-config.patch
+index a2cde0d7b..7688b7763 100644
+--- a/ports/rocksdb/0004-fix-dependency-in-config.patch
++++ b/ports/rocksdb/0004-fix-dependency-in-config.patch
+@@ -1,5 +1,5 @@
+ diff --git a/cmake/RocksDBConfig.cmake.in b/cmake/RocksDBConfig.cmake.in
+-index 0bd14be..f9f6aa8 100644
++index 0bd14be11..f9f6aa878 100644
+ --- a/cmake/RocksDBConfig.cmake.in
+ +++ b/cmake/RocksDBConfig.cmake.in
+ @@ -37,7 +37,7 @@ if(@WITH_LZ4@)
+diff --git a/ports/rocksdb/0005-do-not-install-cmake-modules.patch b/ports/rocksdb/0005-do-not-install-cmake-modules.patch
+index 6517537c0..dc86cb419 100644
+--- a/ports/rocksdb/0005-do-not-install-cmake-modules.patch
++++ b/ports/rocksdb/0005-do-not-install-cmake-modules.patch
+@@ -1,10 +1,10 @@
+ diff --git a/CMakeLists.txt b/CMakeLists.txt
+-index ad4b711..b2061ae 100644
++index 3d90152..b0c5d31 100644
+ --- a/CMakeLists.txt
+ +++ b/CMakeLists.txt
+-@@ -981,7 +981,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
+- 
+-   install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
++@@ -1206,7 +1206,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
++     endforeach()
++   endforeach()
+  
+ -  install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/modules" COMPONENT devel DESTINATION ${package_config_destination})
+ +  #install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/modules" COMPONENT devel DESTINATION ${package_config_destination})
+diff --git a/ports/rocksdb/CONTROL b/ports/rocksdb/CONTROL
+deleted file mode 100644
+index b63c6774e..000000000
+--- a/ports/rocksdb/CONTROL
++++ /dev/null
+@@ -1,29 +0,0 @@
+-Source: rocksdb
+-Version: 6.14.6
+-Homepage: https://github.com/facebook/rocksdb
+-Description: A library that provides an embeddable, persistent key-value store for fast storage
+-Default-Features: zlib
+-
+-Feature: lz4
+-Build-Depends: lz4
+-Description: lz4 support in rocksdb
+-
+-Feature: snappy
+-Build-Depends: snappy
+-Description: snappy support in rocksdb
+-
+-Feature: zlib
+-Build-Depends: zlib
+-Description: zlib support in rocksdb
+-
+-Feature: tbb
+-Build-Depends: tbb
+-Description: tbb support in rocksdb
+-
+-Feature: zstd
+-Build-Depends: zstd
+-Description: zstd support in rocksdb
+-
+-Feature: bzip2
+-Build-Depends: bzip2
+-Description: bzip2 support in rocksdb
+diff --git a/ports/rocksdb/portfile.cmake b/ports/rocksdb/portfile.cmake
+index 80a47d317..e53109929 100644
+--- a/ports/rocksdb/portfile.cmake
++++ b/ports/rocksdb/portfile.cmake
+@@ -3,9 +3,9 @@ vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
+ vcpkg_from_github(
+   OUT_SOURCE_PATH SOURCE_PATH
+   REPO facebook/rocksdb
+-  REF ed4316166f67ec892603014634840d29f460f611 # v6.14.6
+-  SHA512 a880a760f6f5a0a591c14fe942914a3ea85c387a901a922955bb2373ae903f96c6035cac8732d3000a3cbe6313016bfb21168bd3d8a7debf5a28c6e5c0aefb3f
+-  HEAD_REF master
++  REF 444b3f4845dd01b0d127c4b420fdd3b50ad56682 # v7.9.2
++  SHA512 a987abbedcc74d0633977ef3953c50824e1f1afdb2deb52db078a63ce9f0c39d5980fbc5127bbd9d7b6aebdc5268ab0f52b5b476d6cff47fb469a8c567ae70a1
++  HEAD_REF main
+   PATCHES
+     0002-only-build-one-flavor.patch
+     0003-use-find-package.patch
+@@ -18,19 +18,18 @@ string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "dynamic" ROCKSDB_BUILD_SHARED)
+ 
+ vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+   FEATURES
+-    "lz4"     WITH_LZ4
+-    "snappy"  WITH_SNAPPY
+-    "zlib"    WITH_ZLIB
+-    "zstd"    WITH_ZSTD
+-    "bzip2"   WITH_BZ2
+-    "tbb"     WITH_TBB
++      "lz4"     WITH_LZ4
++      "snappy"  WITH_SNAPPY
++      "zlib"    WITH_ZLIB
++      "zstd"    WITH_ZSTD
++      "bzip2"   WITH_BZ2
++      "tbb"     WITH_TBB
+   INVERTED_FEATURES
+-    "tbb"     CMAKE_DISABLE_FIND_PACKAGE_TBB
++      "tbb"     CMAKE_DISABLE_FIND_PACKAGE_TBB
+ )
+ 
+-vcpkg_configure_cmake(
+-  SOURCE_PATH ${SOURCE_PATH}
+-  PREFER_NINJA
++vcpkg_cmake_configure(
++  SOURCE_PATH "${SOURCE_PATH}"
+   OPTIONS
+     -DWITH_GFLAGS=OFF
+     -DWITH_TESTS=OFF
+@@ -50,13 +49,16 @@ vcpkg_configure_cmake(
+     ${FEATURE_OPTIONS}
+ )
+ 
+-vcpkg_install_cmake()
++vcpkg_cmake_install()
+ 
+-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/rocksdb)
++vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/rocksdb)
+ 
+-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
++vcpkg_copy_pdbs()
+ 
+-file(INSTALL ${SOURCE_PATH}/LICENSE.Apache DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+-file(INSTALL ${SOURCE_PATH}/LICENSE.leveldb DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT})
++file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+ file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
+-vcpkg_copy_pdbs()
++
++vcpkg_fixup_pkgconfig()
++
++file(INSTALL "${SOURCE_PATH}/LICENSE.Apache" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)
++file(INSTALL "${SOURCE_PATH}/LICENSE.leveldb" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
+diff --git a/ports/rocksdb/vcpkg.json b/ports/rocksdb/vcpkg.json
+new file mode 100644
+index 000000000..bc0ffb808
+--- /dev/null
++++ b/ports/rocksdb/vcpkg.json
+@@ -0,0 +1,58 @@
++{
++  "name": "rocksdb",
++  "version": "7.9.2",
++  "description": "A library that provides an embeddable, persistent key-value store for fast storage",
++  "homepage": "https://github.com/facebook/rocksdb",
++  "license": "GPL-2.0-only OR Apache-2.0",
++  "dependencies": [
++    {
++      "name": "vcpkg-cmake",
++      "host": true
++    },
++    {
++      "name": "vcpkg-cmake-config",
++      "host": true
++    }
++  ],
++  "default-features": [
++    "zlib"
++  ],
++  "features": {
++    "bzip2": {
++      "description": "bzip2 support in rocksdb",
++      "dependencies": [
++        "bzip2"
++      ]
++    },
++    "lz4": {
++      "description": "lz4 support in rocksdb",
++      "dependencies": [
++        "lz4"
++      ]
++    },
++    "snappy": {
++      "description": "snappy support in rocksdb",
++      "dependencies": [
++        "snappy"
++      ]
++    },
++    "tbb": {
++      "description": "tbb support in rocksdb",
++      "dependencies": [
++        "tbb"
++      ]
++    },
++    "zlib": {
++      "description": "zlib support in rocksdb",
++      "dependencies": [
++        "zlib"
++      ]
++    },
++    "zstd": {
++      "description": "zstd support in rocksdb",
++      "dependencies": [
++        "zstd"
++      ]
++    }
++  }
++}
