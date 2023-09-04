@@ -165,6 +165,8 @@ members = [
   "tools/kagami",
   "tools/kura_inspector",
   "tools/parity_scale_decoder",
+  "tools/swarm",
+  "tools/wasm_builder_cli",
   "version",
   "version/derive",
   "wasm_codec",

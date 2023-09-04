@@ -1,0 +1,16 @@
+[package]
+name = "iroha_wasm_builder_cli"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+
+[dependencies]
+iroha_wasm_builder.workspace = true
+
+clap = { workspace = true, features = ["derive"] }
+color-eyre.workspace = true
+spinoff = { workspace = true, features = ["binary", "dots12"] }
+owo-colors = { workspace = true, features = ["supports-colors"] }
