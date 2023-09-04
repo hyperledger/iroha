@@ -92,7 +92,8 @@ impl DockerComposeService {
         source: ServiceSource,
         volumes: Vec<(String, String)>,
         trusted_peers: BTreeSet<PeerId>,
-        genesis_key_pair: Option<KeyPair>,
+        genesis_public_key: Option<PublicKey>,
+        genesis_private_key: Option<PrivateKey>,
     ) -> Self {
         let ports = vec![
             PairColon(peer.port_p2p, peer.port_p2p),
@@ -100,7 +101,7 @@ impl DockerComposeService {
             PairColon(peer.port_telemetry, peer.port_telemetry),
         ];
 
-        let command = if genesis_key_pair.is_some() {
+        let command = if genesis_private_key.is_some() {
             ServiceCommand::SubmitGenesis
         } else {
             ServiceCommand::None
@@ -108,8 +109,9 @@ impl DockerComposeService {
 
         let compact_env = CompactPeerEnv {
             trusted_peers,
+            genesis_public_key,
+            genesis_private_key,
             key_pair: peer.key_pair.clone(),
-            genesis_key_pair,
             p2p_addr: peer.addr(peer.port_p2p),
             api_addr: peer.addr(peer.port_api),
             telemetry_addr: peer.addr(peer.port_telemetry),
@@ -208,8 +210,9 @@ struct FullPeerEnv {
 
 struct CompactPeerEnv {
     key_pair: KeyPair,
-    /// Genesis key pair is only needed for a peer that is submitting the genesis block
-    genesis_key_pair: Option<KeyPair>,
+    genesis_public_key: Option<PublicKey>,
+    /// Genesis private key is only needed for a peer that is submitting the genesis block
+    genesis_private_key: Option<PrivateKey>,
     p2p_addr: SocketAddr,
     api_addr: SocketAddr,
     telemetry_addr: SocketAddr,
@@ -218,19 +221,11 @@ struct CompactPeerEnv {
 
 impl From<CompactPeerEnv> for FullPeerEnv {
     fn from(value: CompactPeerEnv) -> Self {
-        let (genesis_public_key, genesis_private_key) =
-            value.genesis_key_pair.map_or((None, None), |key_pair| {
-                (
-                    Some(key_pair.public_key().clone()),
-                    Some(SerializeAsJsonStr(key_pair.private_key().clone())),
-                )
-            });
-
         Self {
             iroha_public_key: value.key_pair.public_key().clone(),
             iroha_private_key: SerializeAsJsonStr(value.key_pair.private_key().clone()),
-            iroha_genesis_account_public_key: genesis_public_key,
-            iroha_genesis_account_private_key: genesis_private_key,
+            iroha_genesis_account_public_key: value.genesis_public_key,
+            iroha_genesis_account_private_key: value.genesis_private_key.map(SerializeAsJsonStr),
             torii_p2p_addr: value.p2p_addr,
             torii_api_url: value.api_addr,
             torii_telemetry_url: value.telemetry_addr,
@@ -309,7 +304,8 @@ impl DockerComposeBuilder<'_> {
                 service_source.clone(),
                 volumes.clone(),
                 trusted_peers.clone(),
-                Some(genesis_key_pair),
+                Some(genesis_key_pair.public_key().clone()),
+                Some(genesis_key_pair.private_key().clone()),
             );
 
             (name.clone(), service)
@@ -322,6 +318,7 @@ impl DockerComposeBuilder<'_> {
                     service_source.clone(),
                     volumes.clone(),
                     trusted_peers.clone(),
+                    Some(genesis_key_pair.public_key().clone()),
                     None,
                 );
 
@@ -529,7 +526,8 @@ mod tests {
         let keypair = KeyPair::generate().unwrap();
         let env: TestEnv = CompactPeerEnv {
             key_pair: keypair.clone(),
-            genesis_key_pair: Some(keypair),
+            genesis_public_key: Some(keypair.public_key().clone()),
+            genesis_private_key: Some(keypair.private_key().clone()),
             p2p_addr: SocketAddr::from_str("127.0.0.1:1337").unwrap(),
             api_addr: SocketAddr::from_str("127.0.0.1:1338").unwrap(),
             telemetry_addr: SocketAddr::from_str("127.0.0.1:1339").unwrap(),
@@ -574,7 +572,8 @@ mod tests {
                         source: ServiceSource::Build(PathBuf::from(".")),
                         environment: CompactPeerEnv {
                             key_pair: key_pair.clone(),
-                            genesis_key_pair: Some(key_pair),
+                            genesis_public_key: Some(key_pair.public_key().clone()),
+                            genesis_private_key: Some(key_pair.private_key().clone()),
                             p2p_addr: SocketAddr::from_str("iroha1:1339").unwrap(),
                             api_addr: SocketAddr::from_str("iroha1:1338").unwrap(),
                             telemetry_addr: SocketAddr::from_str("iroha1:1337").unwrap(),
@@ -628,13 +627,15 @@ mod tests {
     }
 
     #[test]
-    fn empty_genesis_key_pair_is_skipped_in_env() {
+    fn empty_genesis_public_key_is_skipped_in_env() {
+        let key_pair = KeyPair::generate_with_configuration(
+            KeyGenConfiguration::default().use_seed(vec![0, 1, 2]),
+        )
+        .unwrap();
         let env: FullPeerEnv = CompactPeerEnv {
-            key_pair: KeyPair::generate_with_configuration(
-                KeyGenConfiguration::default().use_seed(vec![0, 1, 2]),
-            )
-            .unwrap(),
-            genesis_key_pair: None,
+            key_pair: key_pair.clone(),
+            genesis_public_key: Some(key_pair.public_key().clone()),
+            genesis_private_key: None,
             p2p_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
             api_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
             telemetry_addr: SocketAddr::from_str("iroha0:1337").unwrap(),
@@ -649,6 +650,7 @@ mod tests {
                 TORII_P2P_ADDR: iroha0:1337
                 TORII_API_URL: iroha0:1337
                 TORII_TELEMETRY_URL: iroha0:1337
+                IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
                 SUMERAGI_TRUSTED_PEERS: '[]'
             "#]];
         expected.assert_eq(&actual);
@@ -708,6 +710,7 @@ mod tests {
                   TORII_P2P_ADDR: iroha1:1338
                   TORII_API_URL: iroha1:8081
                   TORII_TELEMETRY_URL: iroha1:8181
+                  IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
                 - 1338:1338
@@ -725,6 +728,7 @@ mod tests {
                   TORII_P2P_ADDR: iroha2:1339
                   TORII_API_URL: iroha2:8082
                   TORII_TELEMETRY_URL: iroha2:8182
+                  IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
                 - 1339:1339
@@ -742,6 +746,7 @@ mod tests {
                   TORII_P2P_ADDR: iroha3:1340
                   TORII_API_URL: iroha3:8083
                   TORII_TELEMETRY_URL: iroha3:8183
+                  IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
                 - 1340:1340
