@@ -1472,8 +1472,9 @@ pub mod error {
                 #[skip_try_from]
                 String,
             ),
-            /// Query found nothing
-            Find(#[cfg_attr(feature = "std", source)] FindError),
+            /// {0}
+            #[cfg_attr(feature = "std", error(transparent))]
+            Find(FindError),
             /// Query found wrong type of asset: {0}
             Conversion(
                 #[skip_from]
@@ -1487,7 +1488,7 @@ pub mod error {
         /// Type assertion error
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,

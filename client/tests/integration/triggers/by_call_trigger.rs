@@ -4,7 +4,11 @@ use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_client::client::{self, Client};
-use iroha_data_model::{prelude::*, query::error::FindError, trigger::OptimizedExecutable};
+use iroha_data_model::{
+    prelude::*,
+    query::error::{FindError, QueryExecutionFail},
+    trigger::OptimizedExecutable,
+};
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::info;
 use test_network::*;
@@ -198,8 +202,8 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
             .chain()
             .last()
             .expect("At least two error causes expected")
-            .downcast_ref::<FindError>(),
-        Some(FindError::Trigger(id)) if *id == trigger_id
+            .downcast_ref::<QueryExecutionFail>(),
+        Some(QueryExecutionFail::Find(FindError::Trigger(id))) if *id == trigger_id
     ));
 
     // Checking results
