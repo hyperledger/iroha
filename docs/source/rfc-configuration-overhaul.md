@@ -79,7 +79,7 @@ address this, some refinements are proposed:
 - In the `logger` section, the term `max_log_level` could be simplified to `log_level` or just `level` to make it more
   concise without losing meaning. Although users are more likely to set this parameter using an environment variable.
 - In the `wsv` section, the field `wasm_runtime_config` has a redundant `_config` suffix. Given these are all
-  configuration parameters, such suffixes can be eliminated for clarity.
+  _configuration_ parameters, such suffixes can be eliminated for clarity.
 
 Implementing a consistent naming convention like this will simplify the user's configuration process and reduce
 ambiguity.
