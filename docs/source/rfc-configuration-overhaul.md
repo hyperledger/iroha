@@ -140,7 +140,7 @@ Several things are wrong with this error message:
 
 - The information about using environment variables as fallback comes after the messages about them not being found.
 - Hinting to add `PUBLIC_KEY` and `PRIVATE_KEY` to the configuration does not explain what happened (the absence of the
-  config file and no environment variables to fallback to). This hint is also not helpful as there is no information on
+  config file and no environment variables to fall back to). This hint is also not helpful as there is no information on
   whether public and private keys should be added to the config file or to ENV variables, and no information about the
   ENV variables these fields are mapped to.
 
@@ -149,9 +149,9 @@ Several things are wrong with this error message:
 Providing a path to a configuration file that doesn't exist results in the exact same error as if there was no
 configuration file specified at all.
 
-While it makes sense to silently fallback to ENV variables if the user doesn't provide a path to a config file, in case
-when the user **does** specify the path to a config file, it would be better for the program to fail with an appropriate
-error message.
+When a user specifies a path to a configuration file, it is generally with the expectation that the file will be read
+and its settings applied. If the file doesn't exist, an immediate and clear error message should be thrown to alert the
+user of this issue.
 
 #### 3. Empty config file
 
@@ -163,7 +163,7 @@ Error:
    0: Please add `PUBLIC_KEY and PRIVATE_KEY` to the configuration.
 ```
 
-#### 4. Config file with only `PUBLIC_KEY` and `PRIVATE_KEY` specificed
+#### 4. Config file with only `PUBLIC_KEY` and `PRIVATE_KEY` specified
 
 Running Iroha with a config file that only contains `PUBLIC_KEY` and `PRIVATE_KEY` results in the following error:
 
@@ -224,7 +224,7 @@ Error:
    2: JSON5: Key could not be parsed. Key could not be parsed. Invalid character 's' at position 4
 ```
 
-While this message is more helful than the ones we discussed above, there are still issues:
+While this message is more helpful than the ones we discussed above, there are still issues:
 
 - The message contains repetition.
 - Without an input snippet, the `Invalid character 's' at position 4` part of the message is not as helpful as it could
@@ -277,16 +277,20 @@ To understand the issue with ambiguity at the root-level fields, let's once agai
 > }
 > ```
 
-As we can see, `network` is not actually a configuration field in itself. Instead, there are various `network.*` fields
-that can be configured. This bring a question of what will happen when we set the `IROHA_NETWORK` environment variable
-as mentioned in the excerpt above? Will it override the nested `IROHA_NETWORK_CAPACITY` fields? Is there a use case for
-providing an ability to set `IROHA_NETWORK` all-in-one through an environment variable?
+The current configuration treats namespaces like `network` as both a grouping mechanism for specific fields (e.g.,
+`network.*`) and as independent parameters. This creates ambiguity: for instance, what would happen if an environment
+variable like `IROHA_NETWORK` is set? Would it affect nested fields such as `IROHA_NETWORK_CAPACITY`?
+
+This dual role for namespaces is not just limited to `network`, but applies to all other namespaces in the
+configuration. This approach is somewhat exotic and not well-documented, leading to potential confusion and
+unpredictability. Given these challenges, it might be beneficial to simplify the configuration by treating namespaces
+strictly as prefixes for other parameters, rather than as standalone configuration values.
 
 ### Chaotic Code Organisation
 
-Internally, not all of the configuration-related logic is contained within a single `iroha_config` crate. Instead, some
-of the configuration resolution logic is located in other crates, such as `iroha_cli`. This makes the
-configuration-related code error-prone and harder to maintain.
+Internally, not all the configuration-related logic is contained within a single `iroha_config` crate. Instead, some of
+the configuration resolution logic is located in other crates, such as `iroha_cli`. This makes the configuration-related
+code error-prone and harder to maintain.
 
 ## Proposals
 
@@ -378,7 +382,7 @@ for improved user interaction.
   easier updates.
 - **Error Prevention:** Predictable and clear naming reduces the risk of configuration errors by users.
 
-#### Proposed Renamings
+#### Proposed Name Changes
 
 Here are the proposed changes for more consistent naming:
 
@@ -392,7 +396,7 @@ Here are the proposed changes for more consistent naming:
   - Rename from `wasm_runtime_config` to `wasm_runtime`.
 
 For the sake of uniformity, it might be beneficial to nest the root `public_key` and `private_key` under an `iroha`
-namespace, resulting in `iroha.public_key` and `iroha.private_key`.
+namespace, resulting in `iroha.public_key` and `iroha.private_key`[^1].
 
 Please note that this list is not exhaustive. During the configuration reference design process, we might encounter
 further areas of improvement and additional renaming suggestions, which shall be reflected as updates to the RFC.
@@ -618,7 +622,7 @@ In the background about [redundant fields](#redundant-fields), it's mentioned th
 end users primarily because the user config wasn't separated from the resolved config. However, in a two-stage
 configuration resolution, these redundant fields can be managed more efficiently.
 
-##### Root-Level `public_key` and `private_key`
+##### Root-Level `public_key` and `private_key`[^1]
 
 When users provide their configuration input, it should be possible for them to specify only the private key. From this,
 the public key can be derived. If both keys are provided, the system should derive the public key from the given private
@@ -649,9 +653,13 @@ While this flat structure is convenient to represent the user configuration of t
 - If `name` is omitted, but some of the other fields are set, the system could warn that telemetry will not start unless
   `name` is provided.
 - If the `name` is given, but neither `url` nor `file` are specified, the system should either issue a warning or
-  terminate, signaling that the telemetry configuration is incomplete.
+  terminate, signalling that the telemetry configuration is incomplete.
 - If both the `url` and `file` fields are filled (indicating a potential conflict), a warning about the conflict should
   be raised, followed by a system termination.
+
+> **Note**: Although telemetry might potentially have multiple emit targets, and the `file` and `url` fields might not
+> need to be mutually exclusive in a real-world application, for the purposes of this example, let's assume that they
+> are mutually exclusive.
 
 These points might be taken into account during the _resolution_ stage. A _resolved type_ for telemetry configuration
 might avoid these conflicts by design:
@@ -788,7 +796,7 @@ performance and gather feedback.
 
 - Completed and tested configuration from [Step 3](#step-3---iterative-implementation--testing).
 - Access to Iroha 2 codebase and integration tools.
-- A pool of testers or users for field testing.
+- A pool of testers or users for field-testing.
 
 **Deliverables**:
 
@@ -808,7 +816,7 @@ performance and gather feedback.
 ### Step 5 - Iterative Refinement & Optimization
 
 **Description**: After integrating the new configuration into Iroha 2, there might be some elements that need refining
-based on user feedback and field testing.
+based on user feedback and field-testing.
 
 **Resources & Prerequisites**:
 
@@ -891,3 +899,14 @@ to TOML and refining naming conventions, to creating an early configuration refe
 proposed change aims to elevate the user experience. Adopting these suggestions can transform Iroha 2's configuration
 from a potential stumbling block to a robust foundation. We eagerly anticipate community feedback to refine these ideas
 further.
+
+[^1]:
+    Please note that the configuration of keys (`public_key` and `private_key`) is a subject with its own set of
+    challenges and ongoing discussions. We are evaluating options to simplify and improve this area of configuration.
+    For further context, please refer to the following issues:
+
+    - [Representation of key pair in configuration files · Issue #2135 · hyperledger/iroha](https://github.com/hyperledger/iroha/issues/2135)
+    - [Move keys out of configuration · Issue #2824 · hyperledger/iroha](https://github.com/hyperledger/iroha/issues/2824)
+    - [Guard against secrets leakage · Issue #3240 · hyperledger/iroha](https://github.com/hyperledger/iroha/issues/3240)
+
+    Input on this topic is valuable.
