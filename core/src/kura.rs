@@ -6,13 +6,13 @@
 use std::{
     fmt::Debug,
     fs,
-    io::{Read, Seek, SeekFrom, Write},
+    io::{BufWriter, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use iroha_config::kura::Mode;
-use iroha_crypto::HashOf;
+use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::block::VersionedCommittedBlock;
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
@@ -22,7 +22,10 @@ use crate::handler::ThreadHandler;
 
 const INDEX_FILE_NAME: &str = "blocks.index";
 const DATA_FILE_NAME: &str = "blocks.data";
+const HASHES_FILE_NAME: &str = "blocks.hashes";
 const LOCK_FILE_NAME: &str = "kura.lock";
+
+const SIZE_OF_BLOCK_HASH: u64 = std::mem::size_of::<HashOf<VersionedCommittedBlock>>() as u64;
 
 /// The interface of Kura subsystem
 #[derive(Debug)]
@@ -113,16 +116,55 @@ impl Kura {
     /// - data in file storage is invalid or corrupted
     #[iroha_logger::log(skip_all, name = "kura_init")]
     pub fn init(self: &Arc<Self>) -> Result<BlockCount> {
-        let block_store = self.block_store.lock();
+        let mut block_store = self.block_store.lock();
 
         let block_index_count: usize = block_store
             .read_index_count()?
             .try_into()
             .expect("We don't have 4 billion blocks.");
+
+        let block_hashes = match self.mode {
+            Mode::Fast => Kura::init_fast_mode(&block_store, block_index_count).or_else(|error| {
+                warn!(%error, "Hashes file is broken. Falling back to strict init mode.");
+                Kura::init_strict_mode(&mut block_store, block_index_count)
+            }),
+            Mode::Strict => Kura::init_strict_mode(&mut block_store, block_index_count),
+        }?;
+
+        let block_count = block_hashes.len();
+        info!(mode=?self.mode, block_count, "Kura init complete");
+
+        // The none value is set in order to indicate that the blocks exist on disk but
+        // are not yet loaded.
+        *self.block_data.lock() = block_hashes.into_iter().map(|hash| (hash, None)).collect();
+        Ok(BlockCount(block_count))
+    }
+
+    fn init_fast_mode(
+        block_store: &BlockStore,
+        block_index_count: usize,
+    ) -> Result<Vec<HashOf<VersionedCommittedBlock>>, Error> {
+        let block_hashes_count = block_store
+            .read_hashes_count()?
+            .try_into()
+            .expect("We don't have 4 billion blocks.");
+        if block_hashes_count == block_index_count {
+            block_store.read_block_hashes(0, block_hashes_count)
+        } else {
+            Err(Error::HashesFileHeightMismatch)
+        }
+    }
+
+    fn init_strict_mode(
+        block_store: &mut BlockStore,
+        block_index_count: usize,
+    ) -> Result<Vec<HashOf<VersionedCommittedBlock>>, Error> {
+        let mut block_hashes = Vec::with_capacity(block_index_count);
+
         let mut block_indices = vec![BlockIndex::default(); block_index_count];
         block_store.read_block_indices(0, &mut block_indices)?;
 
-        let mut block_hashes: Vec<HashOf<VersionedCommittedBlock>> = Vec::new();
+        let mut previous_block_hash = None;
         for block in block_indices {
             // This is re-allocated every iteration. This could cause a problem.
             let mut block_data_buffer = vec![0_u8; block.length.try_into()?];
@@ -130,7 +172,13 @@ impl Kura {
             match block_store.read_block_data(block.start, &mut block_data_buffer) {
                 Ok(_) => match VersionedCommittedBlock::decode_all_versioned(&block_data_buffer) {
                     Ok(decoded_block) => {
-                        block_hashes.push(decoded_block.hash());
+                        if previous_block_hash != decoded_block.as_v1().header.previous_block_hash {
+                            error!("Block has wrong previous block hash. Not reading any blocks beyond this height.");
+                            break;
+                        }
+                        let decoded_block_hash = decoded_block.hash();
+                        block_hashes.push(decoded_block_hash);
+                        previous_block_hash = Some(decoded_block_hash);
                     }
                     Err(error) => {
                         error!(?error, "Encountered malformed block. Not reading any blocks beyond this height.");
@@ -143,13 +191,10 @@ impl Kura {
                 }
             }
         }
-        let block_count = block_hashes.len();
-        info!(block_count, "Kura init complete");
 
-        // The none value is set in order to indicate that the blocks exist on disk but
-        // are not yet loaded.
-        *self.block_data.lock() = block_hashes.into_iter().map(|hash| (hash, None)).collect();
-        Ok(BlockCount(block_count))
+        block_store.overwrite_block_hashes(&block_hashes)?;
+
+        Ok(block_hashes)
     }
 
     #[allow(clippy::expect_used, clippy::cognitive_complexity, clippy::panic)]
@@ -227,9 +272,7 @@ impl Kura {
             }
 
             for block in blocks_to_be_written {
-                let serialized_block: Vec<u8> = block.encode_versioned();
-
-                if let Err(error) = block_store_guard.append_block_to_chain(&serialized_block) {
+                if let Err(error) = block_store_guard.append_block_to_chain(&block) {
                     error!(?error, "Failed to store block");
                     panic!("Kura has encountered a fatal IO error.");
                 }
@@ -422,15 +465,12 @@ impl BlockStore {
         let mut index_file = std::fs::OpenOptions::new()
             .read(true)
             .open(path.clone())
-            .map_err(|e| Error::IO(e, path.clone()))?;
+            .add_err_context(path.clone())?;
         let start_location = start_block_height * (2 * std::mem::size_of::<u64>() as u64);
         let block_count = dest_buffer.len();
 
         if start_location + (2 * std::mem::size_of::<u64>() as u64) * block_count as u64
-            > index_file
-                .metadata()
-                .map_err(|e| Error::IO(e, path.clone()))?
-                .len()
+            > index_file.metadata().add_err_context(path.clone())?.len()
         {
             return Err(Error::OutOfBoundsBlockRead {
                 start_block_height,
@@ -439,7 +479,7 @@ impl BlockStore {
         }
         index_file
             .seek(SeekFrom::Start(start_location))
-            .map_err(|e| Error::IO(e, path.clone()))?;
+            .add_err_context(path.clone())?;
         let mut buffer = [0; core::mem::size_of::<u64>()];
         // (start, length), (start,length) ...
         for current_buffer in dest_buffer.iter_mut() {
@@ -447,13 +487,13 @@ impl BlockStore {
                 start: {
                     index_file
                         .read_exact(&mut buffer)
-                        .map_err(|e| Error::IO(e, path.clone()))?;
+                        .add_err_context(path.clone())?;
                     u64::from_le_bytes(buffer)
                 },
                 length: {
                     index_file
                         .read_exact(&mut buffer)
-                        .map_err(|e| Error::IO(e, path.clone()))?;
+                        .add_err_context(path.clone())?;
                     u64::from_le_bytes(buffer)
                 },
             };
@@ -492,10 +532,68 @@ impl BlockStore {
         let index_file = std::fs::OpenOptions::new()
             .read(true)
             .open(path.clone())
-            .map_err(|e| Error::IO(e, path.clone()))?;
-        Ok(index_file.metadata().map_err(|e| Error::IO(e, path))?.len()
+            .add_err_context(path.clone())?;
+        Ok(index_file.metadata().add_err_context(path)?.len()
             / (2 * std::mem::size_of::<u64>() as u64))
         // Each entry is 16 bytes.
+    }
+
+    /// Read a series of block hashes from the block hashes file
+    ///
+    /// # Errors
+    /// IO Error.
+    pub fn read_block_hashes(
+        &self,
+        start_block_height: u64,
+        block_count: usize,
+    ) -> Result<Vec<HashOf<VersionedCommittedBlock>>> {
+        let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
+        let mut hashes_file = std::fs::OpenOptions::new()
+            .read(true)
+            .open(path.clone())
+            .add_err_context(path.clone())?;
+        let start_location = start_block_height * SIZE_OF_BLOCK_HASH;
+
+        if start_location + (SIZE_OF_BLOCK_HASH) * block_count as u64
+            > hashes_file.metadata().add_err_context(path.clone())?.len()
+        {
+            return Err(Error::OutOfBoundsBlockRead {
+                start_block_height,
+                block_count,
+            });
+        }
+        hashes_file
+            .seek(SeekFrom::Start(start_location))
+            .add_err_context(path.clone())?;
+
+        let mut buffer = [0; Hash::LENGTH];
+        (0..block_count)
+            .map(|_| {
+                hashes_file
+                    .read_exact(&mut buffer)
+                    .add_err_context(path.clone())
+                    .map(|_| HashOf::from_untyped_unchecked(Hash::prehashed(buffer)))
+            })
+            .collect()
+    }
+
+    /// Get the number of hashes in the hashes file, which is
+    /// calculated as the size of the hashes file in bytes divided by
+    /// `size_of(HashOf<VersionedCommittedBlock>)`.
+    ///
+    /// # Errors
+    /// IO Error.
+    ///
+    /// The most common reason this function fails is
+    /// that you did not call `create_files_if_they_do_not_exist`.
+    #[allow(clippy::integer_division)]
+    pub fn read_hashes_count(&self) -> Result<u64> {
+        let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
+        let hashes_file = std::fs::OpenOptions::new()
+            .read(true)
+            .open(path.clone())
+            .add_err_context(path.clone())?;
+        Ok(hashes_file.metadata().add_err_context(path)?.len() / SIZE_OF_BLOCK_HASH)
     }
 
     /// Read block data starting from the
@@ -513,13 +611,11 @@ impl BlockStore {
         let mut data_file = std::fs::OpenOptions::new()
             .read(true)
             .open(path.clone())
-            .map_err(|e| Error::IO(e, path.clone()))?;
+            .add_err_context(path.clone())?;
         data_file
             .seek(SeekFrom::Start(start_location_in_data_file))
-            .map_err(|e| Error::IO(e, path.clone()))?;
-        data_file
-            .read_exact(dest_buffer)
-            .map_err(|e| Error::IO(e, path))?;
+            .add_err_context(path.clone())?;
+        data_file.read_exact(dest_buffer).add_err_context(path)?;
         Ok(())
     }
 
@@ -535,29 +631,26 @@ impl BlockStore {
             .write(true)
             .create(true)
             .open(path.clone())
-            .map_err(|e| Error::IO(e, path.clone()))?;
+            .add_err_context(path.clone())?;
         let start_location = block_height * (2 * std::mem::size_of::<u64>() as u64);
         if start_location + (2 * std::mem::size_of::<u64>() as u64)
-            > index_file
-                .metadata()
-                .map_err(|e| Error::IO(e, path.clone()))?
-                .len()
+            > index_file.metadata().add_err_context(path.clone())?.len()
         {
             index_file
                 .set_len(start_location + (2 * std::mem::size_of::<u64>() as u64))
-                .map_err(|e| Error::IO(e, path.clone()))?;
+                .add_err_context(path.clone())?;
         }
         index_file
             .seek(SeekFrom::Start(start_location))
-            .map_err(|e| Error::IO(e, path.clone()))?;
+            .add_err_context(path.clone())?;
         // block0       | block1
         // start, length| start, length  ... et cetera.
         index_file
             .write_all(&start.to_le_bytes())
-            .map_err(|e| Error::IO(e, path.clone()))?;
+            .add_err_context(path.clone())?;
         index_file
             .write_all(&length.to_le_bytes())
-            .map_err(|e| Error::IO(e, path))?;
+            .add_err_context(path)?;
         Ok(())
     }
 
@@ -577,11 +670,9 @@ impl BlockStore {
         let index_file = std::fs::OpenOptions::new()
             .write(true)
             .open(path.clone())
-            .map_err(|e| Error::IO(e, path.clone()))?;
+            .add_err_context(path.clone())?;
         let new_byte_size = new_count * (2 * std::mem::size_of::<u64>() as u64);
-        index_file
-            .set_len(new_byte_size)
-            .map_err(|e| Error::IO(e, path))?;
+        index_file.set_len(new_byte_size).add_err_context(path)?;
         Ok(())
     }
 
@@ -600,23 +691,74 @@ impl BlockStore {
         let mut data_file = std::fs::OpenOptions::new()
             .write(true)
             .open(path.clone())
-            .map_err(|e| Error::IO(e, path.clone()))?;
+            .add_err_context(path.clone())?;
         if start_location_in_data_file + block_data.len() as u64
-            > data_file
-                .metadata()
-                .map_err(|e| Error::IO(e, path.clone()))?
-                .len()
+            > data_file.metadata().add_err_context(path.clone())?.len()
         {
             data_file
                 .set_len(start_location_in_data_file + block_data.len() as u64)
-                .map_err(|e| Error::IO(e, path.clone()))?;
+                .add_err_context(path.clone())?;
         }
         data_file
             .seek(SeekFrom::Start(start_location_in_data_file))
-            .map_err(|e| Error::IO(e, path.clone()))?;
-        data_file
-            .write_all(block_data)
-            .map_err(|e| Error::IO(e, path.clone()))?;
+            .add_err_context(path.clone())?;
+        data_file.write_all(block_data).add_err_context(path)?;
+        Ok(())
+    }
+
+    /// Write the hash of a single block at the specified `block_height`.
+    /// If `block_height` is beyond the end of the index file, attempt to
+    /// extend the index file.
+    ///
+    /// # Errors
+    /// IO Error.
+    pub fn write_block_hash(
+        &mut self,
+        block_height: u64,
+        hash: HashOf<VersionedCommittedBlock>,
+    ) -> Result<()> {
+        let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
+        let mut hashes_file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(path.clone())
+            .add_err_context(path.clone())?;
+        let start_location = block_height * SIZE_OF_BLOCK_HASH;
+        if start_location + SIZE_OF_BLOCK_HASH
+            > hashes_file.metadata().add_err_context(path.clone())?.len()
+        {
+            hashes_file
+                .set_len(start_location + SIZE_OF_BLOCK_HASH)
+                .add_err_context(path.clone())?;
+        }
+        hashes_file
+            .seek(SeekFrom::Start(start_location))
+            .add_err_context(path.clone())?;
+        hashes_file.write_all(hash.as_ref()).add_err_context(path)?;
+        Ok(())
+    }
+
+    /// Write the hashes to the hashes file overwriting any previous hashes.  
+    ///
+    /// # Errors
+    /// IO Error.
+    pub fn overwrite_block_hashes(
+        &mut self,
+        hashes: &[HashOf<VersionedCommittedBlock>],
+    ) -> Result<()> {
+        let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
+        let hashes_file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path.clone())
+            .add_err_context(path.clone())?;
+        let mut hashes_file = BufWriter::new(hashes_file);
+        for hash in hashes {
+            hashes_file
+                .write_all(hash.as_ref())
+                .add_err_context(path.clone())?;
+        }
         Ok(())
     }
 
@@ -634,13 +776,19 @@ impl BlockStore {
             .write(true)
             .create(true)
             .open(path.clone())
-            .map_err(|e| Error::IO(e, path))?;
+            .add_err_context(path)?;
         let path = self.path_to_blockchain.join(DATA_FILE_NAME);
         std::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .open(path.clone())
-            .map_err(|e| Error::IO(e, path))?;
+            .add_err_context(path)?;
+        let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(path.clone())
+            .add_err_context(path)?;
         Ok(())
     }
 
@@ -651,7 +799,8 @@ impl BlockStore {
     /// # Errors
     /// Fails if any of the required platform-specific functions
     /// fail.
-    pub fn append_block_to_chain(&mut self, block_data: &[u8]) -> Result<()> {
+    pub fn append_block_to_chain(&mut self, block: &VersionedCommittedBlock) -> Result<()> {
+        let bytes = block.encode_versioned();
         let new_block_height = self.read_index_count()?;
         let start_location_in_data_file = if new_block_height == 0 {
             0
@@ -660,12 +809,13 @@ impl BlockStore {
             ultimate_block.start + ultimate_block.length
         };
 
-        self.write_block_data(start_location_in_data_file, block_data)?;
+        self.write_block_data(start_location_in_data_file, &bytes)?;
         self.write_block_index(
             new_block_height,
             start_location_in_data_file,
-            block_data.len() as u64,
+            bytes.len() as u64,
         )?;
+        self.write_block_hash(new_block_height, block.hash())?;
 
         Ok(())
     }
@@ -694,6 +844,22 @@ pub enum Error {
     Locked(PathBuf),
     /// Conversion of wide integer into narrow integer failed. This error cannot be caught at compile time at present
     IntConversion(#[from] std::num::TryFromIntError),
+    /// Blocks count differs hashes file and index file
+    HashesFileHeightMismatch,
+}
+
+trait AddErrContextExt<T> {
+    type Context;
+
+    fn add_err_context(self, context: Self::Context) -> Result<T, Error>;
+}
+
+impl<T> AddErrContextExt<T> for Result<T, std::io::Error> {
+    type Context = PathBuf;
+
+    fn add_err_context(self, path: Self::Context) -> Result<T, Error> {
+        self.map_err(|e| Error::IO(e, path))
+    }
 }
 
 #[allow(clippy::unwrap_used)]
@@ -703,6 +869,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::block::PendingBlock;
 
     fn indices<const N: usize>(value: [(u64, u64); N]) -> [BlockIndex; N] {
         let mut ret = [BlockIndex {
@@ -802,14 +969,50 @@ mod tests {
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
+        let dummy_block = PendingBlock::new_dummy().commit_unchecked().into();
+
         let append_count = 35;
         for _ in 0..append_count {
-            block_store
-                .append_block_to_chain(b"A hypothetical block")
-                .unwrap();
+            block_store.append_block_to_chain(&dummy_block).unwrap();
         }
 
         assert_eq!(append_count, block_store.read_index_count().unwrap());
+    }
+
+    #[test]
+    fn append_block_to_chain_increases_hashes_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
+        block_store.create_files_if_they_do_not_exist().unwrap();
+
+        let dummy_block = PendingBlock::new_dummy().commit_unchecked().into();
+
+        let append_count = 35;
+        for _ in 0..append_count {
+            block_store.append_block_to_chain(&dummy_block).unwrap();
+        }
+
+        assert_eq!(append_count, block_store.read_hashes_count().unwrap());
+    }
+
+    #[test]
+    fn append_block_to_chain_write_correct_hashes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
+        block_store.create_files_if_they_do_not_exist().unwrap();
+
+        let dummy_block = PendingBlock::new_dummy().commit_unchecked().into();
+
+        let append_count = 35;
+        for _ in 0..append_count {
+            block_store.append_block_to_chain(&dummy_block).unwrap();
+        }
+
+        let block_hashes = block_store.read_block_hashes(0, append_count).unwrap();
+
+        for hash in block_hashes {
+            assert_eq!(hash, dummy_block.hash())
+        }
     }
 
     #[test]
@@ -818,11 +1021,13 @@ mod tests {
         let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist().unwrap();
 
-        let block_data = b"some block data";
+        let dummy_block: VersionedCommittedBlock =
+            PendingBlock::new_dummy().commit_unchecked().into();
+        let block_data = dummy_block.encode_versioned();
 
         let append_count = 35;
         for _ in 0..append_count {
-            block_store.append_block_to_chain(block_data).unwrap();
+            block_store.append_block_to_chain(&dummy_block).unwrap();
         }
 
         for i in 0..append_count {
