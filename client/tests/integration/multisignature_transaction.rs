@@ -7,10 +7,8 @@ use iroha_client::client::{self, Client, QueryResult};
 use iroha_config::client::Configuration as ClientConfiguration;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{
-    account::TRANSACTION_SIGNATORIES_VALUE,
     parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
     prelude::*,
-    val_vec,
 };
 use test_network::*;
 
@@ -35,15 +33,9 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     let asset_definition_id = AssetDefinitionId::from_str("camomile#wonderland")?;
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let set_signature_condition = MintBox::new(
-        SignatureCheckCondition::new(EvaluatesTo::new_unchecked(ContainsAll::new(
-            EvaluatesTo::new_unchecked(ContextValue::new(Name::from_str(
-                TRANSACTION_SIGNATORIES_VALUE,
-            )?)),
-            val_vec![
-                alice_key_pair.public_key().clone(),
-                key_pair_2.public_key().clone(),
-            ],
-        ))),
+        SignatureCheckCondition::AllAccountSignaturesAnd(
+            vec![key_pair_2.public_key().clone()].into(),
+        ),
         IdBox::AccountId(alice_id.clone()),
     );
 
@@ -84,7 +76,8 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
         .collect::<QueryResult<Vec<_>>>()?;
     assert_eq!(
         assets.len(),
-        2 // Alice has roses and cabbage from Genesis
+        2, // Alice has roses and cabbage from Genesis, but doesn't yet have camomile
+        "Multisignature transaction was committed before all required signatures were added"
     );
     let (public_key2, private_key2) = key_pair_2.into();
     client_configuration.public_key = public_key2;

@@ -21,11 +21,19 @@ impl<T> ConstVec<T> {
     /// Create a new `ConstVec` from something convertible into a `Box<[T]>`.
     ///
     /// Using `Vec<T>` here would take ownership of the data without needing to copy it (if length is the same as capacity).
+    #[inline]
     pub fn new(content: impl Into<Box<[T]>>) -> Self {
         Self(content.into())
     }
 
+    /// Creates an empty `ConstVec`. This operation does not allocate any memory.
+    #[inline]
+    pub fn new_empty() -> Self {
+        Self(Vec::new().into())
+    }
+
     /// Converts the `ConstVec` into a `Vec<T>`, reusing the heap allocation.
+    #[inline]
     pub fn into_vec(self) -> Vec<T> {
         self.0.into_vec()
     }
