@@ -26,7 +26,7 @@ class Network:
     def __init__(self, args: argparse.Namespace):
         logging.info("Setting up test environment...")
         peers_dir = args.out_dir.joinpath("peers")
-        os.mkdir(peers_dir)
+        os.makedirs(peers_dir, exist_ok=True)
         try:
             shutil.copy2(f"{args.root_dir}/configs/peer/config.json", peers_dir)
             shutil.copy2(f"{args.root_dir}/configs/peer/genesis.json", peers_dir)
@@ -57,7 +57,7 @@ class Network:
             try:
                 with urllib.request.urlopen(f"http://{self.peers[0].host_ip}:{self.peers[0].telemetry_port}/status/blocks") as response:
                     block_count = int(response.read())
-                    if block_count == 1:
+                    if block_count > 1:
                         logging.info(f"Genesis block created. Block count: {block_count}")
                         return
                     else:
@@ -93,8 +93,10 @@ class _Peer:
 
         logging.info(f"Peer {self.name} generating key pair...")
 
-        kagami = subprocess.run([f"{self.out_dir}/kagami","crypto", "-j"],
-                                capture_output=True)
+        command = [f"{self.out_dir}/kagami", "crypto", "-j"]
+        if args.peer_name_as_seed:
+            command.extend(["-s", self.name])
+        kagami = subprocess.run(command, capture_output=True)
         if kagami.returncode:
             logging.error("Kagami failed to generate a key pair.")
             sys.exit(3)
@@ -109,8 +111,8 @@ class _Peer:
     def run(self, is_genesis: bool = False):
         logging.info(f"Running peer {self.name}...")
         peer_dir = self.out_dir.joinpath(f"peers/{self.name}")
-        os.mkdir(peer_dir)
-        os.mkdir(peer_dir.joinpath("storage"))
+        os.makedirs(peer_dir, exist_ok=True)
+        os.makedirs(peer_dir.joinpath("storage"), exist_ok=True)
 
         os.environ["KURA_BLOCK_STORE_PATH"] = str(peer_dir.joinpath("storage"))
         os.environ["SNAPSHOT_DIR_PATH"] = str(peer_dir.joinpath("storage"))
@@ -177,11 +179,7 @@ def main(args):
 
 def setup(args):
     logging.info(f"Starting iroha network with {args.n_peers} peers...")
-    try:
-        os.mkdir(args.out_dir)
-    except FileExistsError:
-        logging.error(f"Test directory `{args.out_dir}` already exists")
-        sys.exit(5)
+    os.makedirs(args.out_dir, exist_ok=True)
     copy_or_prompt_build_bin("iroha_client_cli", args.root_dir, args.out_dir)
     with open(os.path.join(args.out_dir, "metadata.json"), "w") as f:
         f.write('{"comment":{"String": "Hello Meta!"}}')
@@ -227,6 +225,9 @@ if __name__ == "__main__":
                         help="Directory containing Iroha project root. \
                         Defaults to `.`, i.e. the directory script is being run from. \
                         This is used to locate the `iroha` binary and config files")
+    parser.add_argument("--peer-name-as-seed", action="store_true",
+                        help="Use peer name as seed for key generation. \
+                        This option could be useful to preserve the same peer keys between script invocations")
 
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Enable verbose output")
