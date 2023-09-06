@@ -14,12 +14,7 @@ use dashmap::{mapref::entry::Entry, DashMap};
 use eyre::{Report, Result};
 use iroha_config::queue::Configuration;
 use iroha_crypto::HashOf;
-use iroha_data_model::{
-    account::{Account, AccountId},
-    evaluate::ExpressionEvaluator as _,
-    expression::{EvaluatesTo, Where},
-    transaction::prelude::*,
-};
+use iroha_data_model::{account::AccountId, transaction::prelude::*};
 use iroha_logger::{debug, info, trace, warn};
 use iroha_primitives::must_use::MustUse;
 use rand::seq::IteratorRandom;
@@ -32,16 +27,17 @@ impl AcceptedTransaction {
     fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
         let authority = &self.payload().authority;
 
-        let signatories = self
+        let transaction_signatories = self
             .signatures()
             .iter()
             .map(|signature| signature.public_key())
-            .cloned();
+            .cloned()
+            .collect();
 
         wsv.map_account(authority, |account| {
-            wsv.evaluate(&check_signature_condition(account, signatories))
-                .map(MustUse::new)
-                .map_err(Into::into)
+            Ok(account
+                .signature_check_condition
+                .check(&account.signatories, &transaction_signatories))
         })?
     }
 
@@ -49,29 +45,6 @@ impl AcceptedTransaction {
     fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
         wsv.has_transaction(self.hash())
     }
-}
-
-fn check_signature_condition(
-    account: &Account,
-    signatories: impl IntoIterator<Item = PublicKey>,
-) -> EvaluatesTo<bool> {
-    let where_expr = Where::new(EvaluatesTo::new_evaluates_to_value(
-        *account.signature_check_condition.0.expression.clone(),
-    ))
-    .with_value(
-        iroha_data_model::account::ACCOUNT_SIGNATORIES_VALUE
-            .parse()
-            .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
-        account.signatories.iter().cloned().collect::<Vec<_>>(),
-    )
-    .with_value(
-        iroha_data_model::account::TRANSACTION_SIGNATORIES_VALUE
-            .parse()
-            .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
-        signatories.into_iter().collect::<Vec<_>>(),
-    );
-
-    EvaluatesTo::new_unchecked(where_expr)
 }
 
 /// Lockfree queue for transactions
@@ -414,11 +387,7 @@ mod tests {
     use std::{str::FromStr, sync::Arc, thread, time::Duration};
 
     use iroha_config::{base::proxy::Builder, queue::ConfigurationProxy};
-    use iroha_data_model::{
-        account::{ACCOUNT_SIGNATORIES_VALUE, TRANSACTION_SIGNATORIES_VALUE},
-        prelude::*,
-        transaction::TransactionLimits,
-    };
+    use iroha_data_model::{prelude::*, transaction::TransactionLimits};
     use iroha_primitives::must_use::MustUse;
     use rand::Rng as _;
 
@@ -510,46 +479,6 @@ mod tests {
     }
 
     #[test]
-    fn push_tx_signature_condition_failure() {
-        let max_txs_in_queue = 10;
-        let key_pair = KeyPair::generate().unwrap();
-
-        let wsv = {
-            let domain_id = DomainId::from_str("wonderland").expect("Valid");
-            let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
-            let mut domain = Domain::new(domain_id.clone()).build(&account_id);
-            let mut account = Account::new(account_id.clone(), [key_pair.public_key().clone()])
-                .build(&account_id);
-            // Cause `check_siganture_condition` failure by trying to convert `u32` to `bool`
-            account.signature_check_condition =
-                SignatureCheckCondition(EvaluatesTo::new_unchecked(0u32));
-            assert!(domain.add_account(account).is_none());
-
-            let kura = Kura::blank_kura_for_testing();
-            Arc::new(WorldStateView::new(
-                World::with([domain], PeersIds::new()),
-                kura.clone(),
-            ))
-        };
-
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: max_txs_in_queue,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
-
-        assert!(matches!(
-            queue.push(accepted_tx("alice@wonderland", key_pair), &wsv),
-            Err(Failure {
-                err: Error::SignatureCondition { .. },
-                ..
-            })
-        ));
-    }
-
-    #[test]
     fn push_multisignature_tx() {
         let max_txs_in_block = 2;
         let key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
@@ -563,19 +492,7 @@ mod tests {
                 key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
             .build(&account_id);
-            account.signature_check_condition = SignatureCheckCondition(
-                ContainsAll::new(
-                    EvaluatesTo::new_unchecked(ContextValue::new(
-                        Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
-                            .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
-                    )),
-                    EvaluatesTo::new_unchecked(ContextValue::new(
-                        Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
-                            .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
-                    )),
-                )
-                .into(),
-            );
+            account.signature_check_condition = SignatureCheckCondition::all_account_signatures();
             assert!(domain.add_account(account).is_none());
             Arc::new(WorldStateView::new(
                 World::with([domain], PeersIds::new()),

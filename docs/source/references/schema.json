@@ -3940,7 +3940,20 @@
       }
     ]
   },
-  "SignatureCheckCondition": "EvaluatesTo<bool>",
+  "SignatureCheckCondition": {
+    "Enum": [
+      {
+        "tag": "AnyAccountSignatureOr",
+        "discriminant": 0,
+        "type": "Vec<PublicKey>"
+      },
+      {
+        "tag": "AllAccountSignaturesAnd",
+        "discriminant": 1,
+        "type": "Vec<PublicKey>"
+      }
+    ]
+  },
   "SignatureOf<CommittedBlock>": "Signature",
   "SignatureOf<QueryPayload>": "Signature",
   "SignatureOf<TransactionPayload>": "Signature",
@@ -4770,6 +4783,9 @@
   },
   "Vec<PeerId>": {
     "Vec": "PeerId"
+  },
+  "Vec<PublicKey>": {
+    "Vec": "PublicKey"
   },
   "Vec<TransactionValue>": {
     "Vec": "TransactionValue"
