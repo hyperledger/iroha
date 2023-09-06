@@ -28,7 +28,7 @@ use error::{Error, NoSuchAlgorithm};
 use getset::{CopyGetters, Getters};
 pub use hash::*;
 use iroha_macro::ffi_impl_opaque;
-use iroha_primitives::const_bytes::ConstBytes;
+use iroha_primitives::const_vec::ConstVec;
 use iroha_schema::IntoSchema;
 pub use merkle::MerkleTree;
 #[cfg(not(feature = "ffi_import"))]
@@ -266,11 +266,11 @@ impl KeyPair {
         Ok(Self {
             public_key: PublicKey {
                 digest_function: configuration.algorithm,
-                payload: ConstBytes::new(core::mem::take(&mut public_key.0)),
+                payload: ConstVec::new(core::mem::take(&mut public_key.0)),
             },
             private_key: PrivateKey {
                 digest_function: configuration.algorithm,
-                payload: ConstBytes::new(core::mem::take(&mut private_key.0)),
+                payload: ConstVec::new(core::mem::take(&mut private_key.0)),
             },
         })
     }
@@ -315,7 +315,7 @@ ffi::ffi_item! {
         #[getset(get_copy = "pub")]
         digest_function: Algorithm,
         /// Key payload
-        payload: ConstBytes,
+        payload: ConstVec<u8>,
     }
 }
 
@@ -343,7 +343,7 @@ impl PublicKey {
 
         Ok(PublicKey {
             digest_function: private_key.digest_function,
-            payload: ConstBytes::new(core::mem::take(&mut public_key.0)),
+            payload: ConstVec::new(core::mem::take(&mut public_key.0)),
         })
     }
 }
@@ -399,7 +399,7 @@ ffi::ffi_item! {
         digest_function: Algorithm,
         /// Key payload
         #[serde(with = "hex::serde")]
-        payload: ConstBytes,
+        payload: ConstVec<u8>,
     }
 }
 
@@ -430,7 +430,7 @@ impl PrivateKey {
     ) -> Result<Self, Error> {
         Ok(Self {
             digest_function,
-            payload: ConstBytes::from_hex(payload).map_err(|err| Error::Parse(err.to_string()))?,
+            payload: crate::hex_decode(payload).map(ConstVec::new)?,
         })
     }
 
@@ -443,7 +443,7 @@ impl PrivateKey {
     #[cfg(feature = "std")]
     pub fn from_hex(digest_function: Algorithm, payload: &[u8]) -> Result<Self, Error> {
         let payload = hex_decode(payload)?;
-        let payload = ConstBytes::new(payload);
+        let payload = ConstVec::new(payload);
 
         let private_key_candidate = Self {
             digest_function,
@@ -623,6 +623,10 @@ mod tests {
 
     use super::*;
 
+    fn parse_const_bytes(hex: &str) -> ConstVec<u8> {
+        ConstVec::new(hex_decode(hex).expect("Failed to decode hex bytes"))
+    }
+
     #[test]
     fn algorithm_serialize_deserialize_consistent() {
         for algorithm in [
@@ -772,11 +776,8 @@ mod tests {
                 "{}",
                 PublicKey {
                     digest_function: Algorithm::Ed25519,
-                    payload: ConstBytes::new(
-                        hex_decode(
-                            "1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
-                        )
-                        .expect("Failed to decode public key.")
+                    payload: parse_const_bytes(
+                        "1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
                     )
                 }
             ),
@@ -787,11 +788,8 @@ mod tests {
                 "{}",
                 PublicKey {
                     digest_function: Algorithm::Secp256k1,
-                    payload: ConstBytes::new(
-                        hex_decode(
-                            "0312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC"
-                        )
-                        .expect("Failed to decode public key.")
+                    payload: parse_const_bytes(
+                        "0312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC"
                     )
                 }
             ),
@@ -802,9 +800,9 @@ mod tests {
                 "{}",
                 PublicKey {
                     digest_function: Algorithm::BlsNormal,
-                    payload: ConstBytes::from_hex(
+                    payload: parse_const_bytes(
                         "04175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7"
-                    ).expect("Failed to decode public key.")
+                    )
                 }
             ),
             "ea016104175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7"
@@ -814,10 +812,9 @@ mod tests {
                 "{}",
                 PublicKey {
                     digest_function: Algorithm::BlsSmall,
-                    payload: ConstBytes::from_hex(
+                    payload: parse_const_bytes(
                         "040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
                     )
-                    .expect("Failed to decode public key.")
                 }
             ),
             "eb01c1040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
@@ -844,15 +841,13 @@ mod tests {
             TestJson {
                 public_key: PublicKey {
                     digest_function: Algorithm::Ed25519,
-                    payload: ConstBytes::from_hex(
+                    payload: parse_const_bytes(
                         "1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
                     )
-                    .expect("Failed to decode public key.")
                 },
                 private_key: PrivateKey {
                     digest_function: Algorithm::Ed25519,
-                    payload: ConstBytes::from_hex("3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
-                    .expect("Failed to decode private key"),
+                    payload: parse_const_bytes("3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"),
                 }
             }
         );
@@ -872,15 +867,13 @@ mod tests {
             TestJson {
                 public_key: PublicKey {
                     digest_function: Algorithm::Secp256k1,
-                    payload: ConstBytes::from_hex(
+                    payload: parse_const_bytes(
                         "0312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC"
                     )
-                    .expect("Failed to decode public key.")
                 },
                 private_key: PrivateKey {
                     digest_function: Algorithm::Secp256k1,
-                    payload: ConstBytes::from_hex("4DF4FCA10762D4B529FE40A2188A60CA4469D2C50A825B5F33ADC2CB78C69445")
-                    .expect("Failed to decode private key"),
+                    payload: parse_const_bytes("4DF4FCA10762D4B529FE40A2188A60CA4469D2C50A825B5F33ADC2CB78C69445"),
                 }
             }
         );
@@ -900,15 +893,13 @@ mod tests {
             TestJson {
                 public_key: PublicKey {
                     digest_function: Algorithm::BlsNormal,
-                    payload: ConstBytes::from_hex(
+                    payload: parse_const_bytes(
                         "04175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7"
                     )
-                    .expect("Failed to decode public key.")
                 },
                 private_key: PrivateKey {
                     digest_function: Algorithm::BlsNormal,
-                    payload: ConstBytes::from_hex("000000000000000000000000000000002F57460183837EFBAC6AA6AB3B8DBB7CFFCFC59E9448B7860A206D37D470CBA3")
-                    .expect("Failed to decode private key"),
+                    payload: parse_const_bytes("000000000000000000000000000000002F57460183837EFBAC6AA6AB3B8DBB7CFFCFC59E9448B7860A206D37D470CBA3"),
                 }
             }
         );
@@ -923,16 +914,14 @@ mod tests {
             TestJson {
                 public_key: PublicKey {
                     digest_function: Algorithm::BlsSmall,
-                    payload: ConstBytes::from_hex(
+                    payload: parse_const_bytes(
                             "040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
                         )
-                        .expect("Failed to decode public key.")
                 },
                 private_key: PrivateKey {
                     digest_function: Algorithm::BlsSmall,
-                    payload: ConstBytes::from_hex(
-                        "0000000000000000000000000000000060F3C1AC9ADDBBED8DB83BC1B2EF22139FB049EECB723A557A41CA1A4B1FED63")
-                        .expect("Failed to decode private key"),
+                    payload: parse_const_bytes(
+                        "0000000000000000000000000000000060F3C1AC9ADDBBED8DB83BC1B2EF22139FB049EECB723A557A41CA1A4B1FED63"),
                 }
             }
         )

@@ -8,7 +8,7 @@ use std::collections::btree_set;
 
 use derive_more::{Deref, DerefMut};
 use iroha_macro::ffi_impl_opaque;
-use iroha_primitives::const_bytes::ConstBytes;
+use iroha_primitives::const_vec::ConstVec;
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode, Input};
 #[cfg(not(feature = "ffi_import"))]
@@ -43,7 +43,7 @@ ffi::ffi_item! {
         #[getset(get = "pub")]
         public_key: PublicKey,
         /// Signature payload
-        payload: ConstBytes,
+        payload: ConstVec<u8>,
     }
 }
 
@@ -73,7 +73,7 @@ impl Signature {
         }?;
         Ok(Self {
             public_key,
-            payload: ConstBytes::new(signature),
+            payload: ConstVec::new(signature),
         })
     }
 

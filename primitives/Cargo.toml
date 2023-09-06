@@ -38,7 +38,6 @@ smallvec = { version = "1.10.0", default-features = false, features = ["serde", 
 smallstr = { version = "0.3.0", default-features = false, features = ["serde", "union"] }
 thiserror = { workspace = true, optional = true }
 displaydoc = { workspace = true }
-hex = { workspace = true, features = ["alloc"] }
 
 
 [dev-dependencies]
