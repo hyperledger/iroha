@@ -12,7 +12,7 @@
 extern crate alloc;
 
 pub mod addr;
-pub mod const_bytes;
+pub mod const_vec;
 #[cfg(not(feature = "ffi_import"))]
 pub mod conststr;
 pub mod fixed;
