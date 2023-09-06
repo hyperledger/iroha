@@ -20,6 +20,11 @@ pub struct Cli {
     /// overwrite the file anyway, pass `--force` flag.
     #[arg(long, short)]
     pub outfile: PathBuf,
+    /// Disable banner in the file saying that the file is generated.
+    ///
+    /// It includes all passed arguments in order to help with reproducibility.
+    #[arg(long)]
+    pub no_banner: bool,
     /// Path to a directory with Iroha configuration. It will be mapped as volume for containers.
     ///
     /// The directory should contain `config.json` and `genesis.json`.

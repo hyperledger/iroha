@@ -39,7 +39,7 @@ case $1 in
 
             eval "$full_cmd"
             diff "$temp_file" "$target" || {
-                echo "Please re-generate \`$target\` with \`$full_cmd\`"
+                echo "Please re-generate \`$target\` with \`$cmd_base --outfile $target\`"
                 exit 1
             }
         }
