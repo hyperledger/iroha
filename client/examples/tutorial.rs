@@ -301,12 +301,12 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
         .wrap_err("Failed to submit transaction")?;
     // #endregion burn_asset_submit_tx
 
-    // #region burn_asset_burn_alt
     // Burn the Asset instance (alternate syntax).
     // The syntax is `asset_name#asset_domain#account_name@account_domain`,
     // or `roses.to_string() + "#" + alice.to_string()`.
-    // The `##` is a short-hand for the rose `which belongs to the same domain as the account
+    // The `##` is a short-hand for the rose which belongs to the same domain as the account
     // to which it belongs to.
+    // #region burn_asset_burn_alt
     let burn_roses_alt = BurnBox::new(
         10_u32.to_value(),
         IdBox::AssetId("rose##alice@wonderland".parse()?),
