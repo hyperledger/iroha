@@ -17,6 +17,7 @@ fn main() -> Result<()> {
         peers,
         seed,
         force,
+        no_banner,
         source: image_source,
         outfile: target_file_raw,
         config_dir: config_dir_raw,
@@ -41,6 +42,8 @@ fn main() -> Result<()> {
         }
     }
 
+    let banner_enabled = !no_banner;
+
     compose::DockerComposeBuilder {
         target_file: &target_file,
         config_dir: &config_dir,
@@ -48,7 +51,7 @@ fn main() -> Result<()> {
         peers,
         seed,
     }
-    .build_and_write()?;
+    .build_and_write(banner_enabled)?;
 
     ui::log_file_mode_complete(&target_file, &target_file_raw);
 

@@ -3341,7 +3341,6 @@ dependencies = [
  "derive_more",
  "displaydoc",
  "fixnum",
- "hex",
  "iroha_ffi",
  "iroha_macro",
  "iroha_primitives_derive",
