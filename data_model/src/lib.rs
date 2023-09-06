@@ -34,7 +34,6 @@ use block::VersionedCommittedBlock;
 #[cfg(not(target_arch = "aarch64"))]
 use derive_more::Into;
 use derive_more::{AsRef, DebugCustom, Deref, Display, From, FromStr};
-use evaluate::Evaluate;
 use events::TriggeringFilterBox;
 use getset::Getters;
 use iroha_crypto::{HashOf, PublicKey};
@@ -1126,10 +1125,10 @@ impl Value {
             | LengthLimits(_)
             | Numeric(_)
             | Validator(_)
-            | LogLevel(_) => 1_usize,
+            | LogLevel(_)
+            | SignatureCheckCondition(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
-            SignatureCheckCondition(s) => Evaluate::len(&s.0),
         }
     }
 }

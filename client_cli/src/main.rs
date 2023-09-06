@@ -519,8 +519,9 @@ mod account {
             let deser_err_msg =
                 format!("Failed to deserialize signature condition from file {}", &s);
             let content = fs::read_to_string(s).wrap_err(err_msg)?;
-            let condition: EvaluatesTo<bool> = json5::from_str(&content).wrap_err(deser_err_msg)?;
-            Ok(Self(SignatureCheckCondition::new(condition)))
+            let condition: SignatureCheckCondition =
+                json5::from_str(&content).wrap_err(deser_err_msg)?;
+            Ok(Self(condition))
         }
     }
 
