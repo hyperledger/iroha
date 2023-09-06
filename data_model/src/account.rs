@@ -15,6 +15,7 @@ use std::collections::{btree_map, btree_set};
 use derive_more::{Constructor, DebugCustom, Display};
 use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
+use iroha_primitives::{const_vec::ConstVec, must_use::MustUse};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -27,7 +28,6 @@ use crate::{
         AssetsMap,
     },
     domain::prelude::*,
-    expression::{ContainsAny, ContextValue, EvaluatesTo},
     metadata::Metadata,
     role::{prelude::RoleId, RoleIds},
     HasMetadata, Identifiable, Name, ParseError, PublicKey, Registered,
@@ -43,18 +43,6 @@ pub type AccountsMap = btree_map::BTreeMap<AccountId, Account>;
 // heap. Thanks to the union feature, we're not wasting `8Bytes`
 // of space, over `Vec`.
 type Signatories = btree_set::BTreeSet<PublicKey>;
-
-/// The context value name for transaction signatories.
-#[cfg(feature = "transparent_api")]
-pub const TRANSACTION_SIGNATORIES_VALUE: &str = "transaction_signatories";
-#[cfg(not(feature = "transparent_api"))]
-const TRANSACTION_SIGNATORIES_VALUE: &str = "transaction_signatories";
-
-/// The context value name for account signatories.
-#[cfg(feature = "transparent_api")]
-pub const ACCOUNT_SIGNATORIES_VALUE: &str = "account_signatories";
-#[cfg(not(feature = "transparent_api"))]
-const ACCOUNT_SIGNATORIES_VALUE: &str = "account_signatories";
 
 #[model]
 pub mod model {
@@ -154,18 +142,20 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Constructor,
         Decode,
         Encode,
         Deserialize,
         Serialize,
         IntoSchema,
     )]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    // SAFETY: `SignatureCheckCondition` has no trap representation in `EvalueatesTo<bool>`
-    #[ffi_type(unsafe {robust})]
-    pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
+    #[ffi_type(opaque)]
+    #[allow(clippy::enum_variant_names)]
+    pub enum SignatureCheckCondition {
+        #[display(fmt = "AnyAccountSignatureOr({_0:?})")]
+        AnyAccountSignatureOr(ConstVec<PublicKey>),
+        #[display(fmt = "AllAccountSignaturesAnd({_0:?})")]
+        AllAccountSignaturesAnd(ConstVec<PublicKey>),
+    }
 }
 
 impl Account {
@@ -278,27 +268,6 @@ impl NewAccount {
     }
 }
 
-/// Default signature condition check for accounts.
-/// Returns true if any of the signatories have signed the transaction.
-impl Default for SignatureCheckCondition {
-    #[inline]
-    fn default() -> Self {
-        Self(
-            ContainsAny::new(
-                EvaluatesTo::new_unchecked(ContextValue::new(
-                    Name::from_str(TRANSACTION_SIGNATORIES_VALUE)
-                        .expect("TRANSACTION_SIGNATORIES_VALUE should be valid."),
-                )),
-                EvaluatesTo::new_unchecked(ContextValue::new(
-                    Name::from_str(ACCOUNT_SIGNATORIES_VALUE)
-                        .expect("ACCOUNT_SIGNATORIES_VALUE should be valid."),
-                )),
-            )
-            .into(),
-        )
-    }
-}
-
 impl HasMetadata for NewAccount {
     fn metadata(&self) -> &Metadata {
         &self.metadata
@@ -342,6 +311,50 @@ impl FromStr for AccountId {
                 reason: "`AccountId` should have format `name@domain_name`",
             }),
         }
+    }
+}
+
+impl Default for SignatureCheckCondition {
+    fn default() -> Self {
+        Self::AnyAccountSignatureOr(ConstVec::new_empty())
+    }
+}
+
+impl SignatureCheckCondition {
+    /// Shorthand to create a [`SignatureCheckCondition::AnyAccountSignatureOr`] variant without additional allowed signatures.
+    #[inline]
+    pub fn any_account_signature() -> Self {
+        Self::AnyAccountSignatureOr(ConstVec::new_empty())
+    }
+
+    /// Shorthand to create a [`SignatureCheckCondition::AllAccountSignaturesAnd`] variant without additional required signatures.
+    #[inline]
+    pub fn all_account_signatures() -> Self {
+        Self::AllAccountSignaturesAnd(ConstVec::new_empty())
+    }
+
+    /// Checks whether the transaction contains all the signatures required by the `SignatureCheckCondition`.
+    pub fn check(
+        &self,
+        account_signatories: &btree_set::BTreeSet<PublicKey>,
+        transaction_signatories: &btree_set::BTreeSet<PublicKey>,
+    ) -> MustUse<bool> {
+        let result = match &self {
+            SignatureCheckCondition::AnyAccountSignatureOr(additional_allowed_signatures) => {
+                account_signatories
+                    .iter()
+                    .chain(additional_allowed_signatures.as_ref())
+                    .any(|allowed| transaction_signatories.contains(allowed))
+            }
+            SignatureCheckCondition::AllAccountSignaturesAnd(additional_required_signatures) => {
+                account_signatories
+                    .iter()
+                    .chain(additional_required_signatures.as_ref())
+                    .all(|required_signature| transaction_signatories.contains(required_signature))
+            }
+        };
+
+        MustUse::new(result)
     }
 }
 
