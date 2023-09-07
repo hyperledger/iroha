@@ -415,7 +415,7 @@ impl Client {
 
     /// Constructor for client from configuration and headers
     ///
-    /// *Authentication* header will be added, if `login` and `password` fields are presented
+    /// *Authorization* header will be added, if `login` and `password` fields are presented
     ///
     /// # Errors
     /// If configuration isn't valid (e.g public/private keys don't match)
