@@ -1,0 +1,5 @@
+[dependencies]
+iroha_client = { version = "=2.0.0-pre-rc.19", path = "~/Git/iroha/client" }
+iroha_data_model = { version = "=2.0.0-pre-rc.19", path = "~/Git/iroha/data_model" }
+iroha_crypto = { version = "=2.0.0-pre-rc.19", path = "~/Git/iroha/crypto" }
+iroha_config = { version = "=2.0.0-pre-rc.19", path = "~/Git/iroha/config" }
