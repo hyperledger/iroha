@@ -362,3 +362,100 @@ impl SignatureCheckCondition {
 pub mod prelude {
     pub use super::{Account, AccountId, SignatureCheckCondition};
 }
+
+#[cfg(test)]
+mod tests {
+    use iroha_crypto::{KeyPair, PublicKey};
+
+    use super::SignatureCheckCondition;
+
+    fn make_key() -> PublicKey {
+        KeyPair::generate().unwrap().public_key().clone()
+    }
+
+    fn check_signature_check_condition(
+        condition: &SignatureCheckCondition,
+        account_signatories: &[&PublicKey],
+        tx_signatories: &[&PublicKey],
+        result: bool,
+    ) {
+        let account_signatories = account_signatories.iter().copied().cloned().collect();
+        let tx_signatories = tx_signatories.iter().copied().cloned().collect();
+
+        assert_eq!(
+            condition.check(&account_signatories, &tx_signatories,).0,
+            result
+        );
+    }
+
+    #[test]
+    fn signature_check_condition_default() {
+        let key1 = make_key();
+        let key2 = make_key();
+        let key3 = make_key();
+        let condition = SignatureCheckCondition::default();
+
+        check_signature_check_condition(&condition, &[], &[], false);
+        check_signature_check_condition(&condition, &[&key1], &[], false);
+        check_signature_check_condition(&condition, &[], &[&key1], false);
+        check_signature_check_condition(&condition, &[&key1], &[&key1], true);
+        check_signature_check_condition(&condition, &[&key1], &[&key2], false);
+        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key1], true);
+        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key2], true);
+        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key3], true);
+    }
+
+    #[test]
+    fn signature_check_condition_all() {
+        let key1 = make_key();
+        let key2 = make_key();
+        let key3 = make_key();
+        let condition = SignatureCheckCondition::all_account_signatures();
+
+        // technically, `\forall x \in \emptyset, check(x)` is true for any `check`, so this evaluate to true
+        // maybe not the logic we want?
+        check_signature_check_condition(&condition, &[], &[], true);
+        check_signature_check_condition(&condition, &[], &[&key1], true);
+
+        check_signature_check_condition(&condition, &[&key1], &[], false);
+        check_signature_check_condition(&condition, &[&key1], &[&key1], true);
+        check_signature_check_condition(&condition, &[&key1], &[&key2], false);
+        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key1], false);
+        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key2], false);
+        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key3], false);
+        check_signature_check_condition(&condition, &[&key1, &key2], &[&key1, &key2, &key3], true);
+        check_signature_check_condition(&condition, &[&key1, &key2], &[&key1, &key2], true);
+        check_signature_check_condition(&condition, &[&key1, &key2], &[&key2, &key3], false);
+    }
+
+    #[test]
+    fn signature_check_condition_any_or() {
+        let key1 = make_key();
+        let key2 = make_key();
+        let key3 = make_key();
+        let condition = SignatureCheckCondition::AnyAccountSignatureOr(vec![key3.clone()].into());
+
+        check_signature_check_condition(&condition, &[], &[], false);
+        check_signature_check_condition(&condition, &[], &[&key3], true);
+        check_signature_check_condition(&condition, &[], &[&key2], false);
+        check_signature_check_condition(&condition, &[], &[&key1, &key2], false);
+        check_signature_check_condition(&condition, &[&key2], &[&key2], true);
+        check_signature_check_condition(&condition, &[&key2, &key3], &[&key2], true);
+        check_signature_check_condition(&condition, &[&key1, &key2], &[&key2], true);
+    }
+
+    #[test]
+    fn signature_check_condition_all_and() {
+        let key1 = make_key();
+        let key2 = make_key();
+        let key3 = make_key();
+        let condition = SignatureCheckCondition::AllAccountSignaturesAnd(vec![key3.clone()].into());
+
+        check_signature_check_condition(&condition, &[], &[], false);
+        check_signature_check_condition(&condition, &[], &[&key3], true);
+        check_signature_check_condition(&condition, &[&key1], &[&key3], false);
+        check_signature_check_condition(&condition, &[&key1], &[&key1, &key3], true);
+        check_signature_check_condition(&condition, &[&key2], &[&key1, &key3], false);
+        check_signature_check_condition(&condition, &[&key2], &[&key1, &key2, &key3], true);
+    }
+}
