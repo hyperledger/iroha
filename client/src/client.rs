@@ -800,7 +800,7 @@ impl Client {
     ///     Ok(accounts.output())
     /// }
     /// ```
-    fn prepare_query_request<R: Query>(
+    pub fn prepare_query_request<R: Query>(
         &self,
         request: R,
         filter: PredicateBox,
