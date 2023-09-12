@@ -98,7 +98,7 @@ pub mod error {
         /// Call to the function exported from module failed
         ExportFnCall(#[from] ExportFnCallError),
         /// Failed to decode object from bytes with length prefix
-        Decode(#[source] WasmtimeError),
+        Decode(#[source] iroha_wasm_codec::Error),
     }
 
     /// Instantiation error

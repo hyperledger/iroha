@@ -4,21 +4,33 @@
 
 pub use iroha_core_wasm_codec_derive::{wrap, wrap_trait_fn};
 use parity_scale_codec::{DecodeAll, Encode, Error as ParityError};
-use wasmtime::Result;
+pub use wasmtime::Error as WasmtimeError;
 
 /// [`usize`] of wasm
 pub type WasmUsize = u32;
 
 /// The [`Error`] represents Iroha's wasm codec side errors.
-#[derive(Debug, thiserror::Error)]
+#[derive(displaydoc::Display, Debug, thiserror::Error)]
 pub enum Error {
-    /// Represents a failure to decode from all input bytes.
-    #[error("failed to decode all bytes: {0}")]
+    /// Failed to decode all bytes
     DecodeAll(#[from] ParityError),
-    /// Represents an out of bounds memory access.
-    #[error("failed to access memory: {0}")]
-    MemoryAccess(#[from] wasmtime::MemoryAccessError),
+    /// Memory error
+    Memory(#[from] MemoryError),
 }
+
+/// Memory error.
+#[derive(displaydoc::Display, Debug, thiserror::Error)]
+pub enum MemoryError {
+    /// Failed to allocate memory
+    Allocation(#[source] WasmtimeError),
+    /// Failed to deallocate memory
+    Deallocation(#[source] WasmtimeError),
+    /// Out of bounds memory access
+    Access(#[source] wasmtime::MemoryAccessError),
+}
+
+/// Result type of [`iroha_wasm_codec`] crate.
+pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 /// Decode object from the given `memory` at the given `offset` with the given `len`
 ///
@@ -80,7 +92,9 @@ pub fn decode_with_length_prefix_from_memory<
     let obj =
         T::decode_all(&mut &bytes[len_size_bytes.try_into().expect(U32_TO_USIZE_ERROR_MES)..])?;
 
-    dealloc_fn.call(&mut context, (offset, len))?;
+    dealloc_fn
+        .call(&mut context, (offset, len))
+        .map_err(MemoryError::Deallocation)?;
     Ok(obj)
 }
 
@@ -105,12 +119,16 @@ pub fn encode_into_memory<T: Encode>(
         .try_into()
         .expect("Checked in `encode_with_length_prefix`");
 
-    let offset = alloc_fn.call(&mut context, len)?;
+    let offset = alloc_fn
+        .call(&mut context, len)
+        .map_err(MemoryError::Allocation)?;
     let offset_usize = offset
         .try_into()
         .expect("`u32` should always fit in `usize`");
 
-    memory.write(&mut context, offset_usize, &bytes)?;
+    memory
+        .write(&mut context, offset_usize, &bytes)
+        .map_err(MemoryError::Access)?;
 
     Ok(offset)
 }

@@ -218,9 +218,13 @@ fn gen_body(
 ) -> TokenStream2 {
     let decode_param = param.as_ref().map_or_else(
         || quote! {},
-        |param_ty| quote! {
-            let param: #param_ty = ::iroha_wasm_codec::decode_from_memory(&memory, &caller, offset, len)?;
-        }
+        |param_ty| {
+            quote! {
+                let param: #param_ty =
+                    ::iroha_wasm_codec::decode_from_memory(&memory, &caller, offset, len)
+                    .map_err(::iroha_wasm_codec::WasmtimeError::from)?;
+            }
+        },
     );
 
     let pass_state = if state_ty_from_fn_sig.is_some() {
@@ -261,6 +265,7 @@ fn gen_body(
             #get_memory
             #get_alloc
             ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
+                .map_err(::iroha_wasm_codec::WasmtimeError::from)
         },
         // foo() -> Result<OkType, wasmtime::Error> =>
         // foo() -> Result<WasmUsize, wasmtime::Error>
@@ -269,6 +274,7 @@ fn gen_body(
             #get_memory
             #get_alloc
             ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
+                .map_err(::iroha_wasm_codec::WasmtimeError::from)
         },
         // foo(Param) =>
         // foo(WasmUsize, WasmUsize) -> Result<(), wasmtime::Error>
@@ -301,6 +307,7 @@ fn gen_body(
 
             let value = Self::#inner_fn_ident(param, #pass_state);
             ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
+                .map_err(::iroha_wasm_codec::WasmtimeError::from)
         },
         // foo(Param) -> Result<OkType, wasmtime::Error> =>
         // foo(WasmUsize, WasmUsize) -> Result<WasmUsize, wasmtime::Error>
@@ -312,6 +319,7 @@ fn gen_body(
 
                 let value: #ok_type = Self::#inner_fn_ident(param, #pass_state)?;
                 ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
+                    .map_err(::iroha_wasm_codec::WasmtimeError::from)
             }
         }
     }

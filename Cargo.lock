@@ -3527,6 +3527,7 @@ dependencies = [
 name = "iroha_wasm_codec"
 version = "2.0.0-pre-rc.19"
 dependencies = [
+ "displaydoc",
  "iroha_core_wasm_codec_derive",
  "parity-scale-codec",
  "thiserror",
