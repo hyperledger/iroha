@@ -11,7 +11,10 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
-use crate::transaction::WasmSmartContract;
+use crate::{
+    isi::{Instruction, InstructionBox},
+    transaction::WasmSmartContract,
+};
 
 #[model]
 pub mod model {
@@ -52,7 +55,21 @@ pub mod model {
 }
 
 /// Result type that every validator should return.
-pub type Result<T = (), E = crate::ValidationFail> = core::result::Result<T, E>;
+pub type Result<T, E = crate::ValidationFail> = core::result::Result<T, E>;
+
+/// Result type for [`VersionedSignedTransaction`] validation.
+///
+/// - `Ok(None)` means that transaction contains [`Executable::Wasm`] which by definition has no output.
+/// - `Ok(Some(None))` means that transaction contains [`Executable::Instructions`] but they have no output.
+pub type TransactionValidationResult = Result<Option<<InstructionBox as Instruction>::Output>>;
+
+/// Result type for [`InstructionBox`] validation.
+pub type InstructionValidationResult = Result<<InstructionBox as Instruction>::Output>;
+
+/// Result type for [`QueryBox`] validation.
+///
+/// Queries are not being executed during validation, that's why [`Ok`] variant contains [`()`].
+pub type QueryValidationResult = Result<()>;
 
 /// Migration error type.
 pub type MigrationError = String;

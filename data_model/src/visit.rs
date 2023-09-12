@@ -64,6 +64,7 @@ pub trait Visit: ExpressionEvaluator {
         visit_new_parameter(NewParameter),
         visit_set_parameter(SetParameter),
         visit_log(Log),
+        visit_retrieve(&Retrieve),
 
         // Visit QueryBox
         visit_find_account_by_id(&FindAccountById),
@@ -300,6 +301,7 @@ pub fn visit_instruction<V: Visit + ?Sized>(
         visit_transfer(Transfer),
         visit_unregister(Unregister),
         visit_upgrade(Upgrade),
+        visit_retrieve(Retrieve),
         visit_sequence(Sequence),
         visit_pair(Pair),
         visit_if(If),
@@ -632,6 +634,10 @@ pub fn visit_upgrade<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, 
             visitor.visit_upgrade_validator(authority, Upgrade { object })
         }
     }
+}
+
+pub fn visit_retrieve<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &Retrieve) {
+    visitor.visit_query(authority, &isi.query)
 }
 
 pub fn visit_if<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &Conditional) {

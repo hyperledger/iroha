@@ -10,7 +10,9 @@ pub mod wasm;
 use std::collections::BTreeMap;
 
 use iroha_data_model::{
-    evaluate::ExpressionEvaluator, isi::error::InstructionExecutionError as Error, prelude::*,
+    evaluate::ExpressionEvaluator,
+    isi::{error::InstructionExecutionError as Error, Instruction},
+    prelude::*,
     query::error::QueryExecutionFail,
 };
 pub use isi::*;
@@ -19,12 +21,16 @@ use self::query::{Lazy, LazyValue};
 use crate::wsv::WorldStateView;
 
 /// Trait implementations should provide actions to apply changes on [`WorldStateView`].
-pub trait Execute {
+pub trait Execute: Instruction {
     /// Apply actions to `wsv` on behalf of `authority`.
     ///
     /// # Errors
     /// Concrete to each implementer.
-    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error>;
+    fn execute(
+        self,
+        authority: &AccountId,
+        wsv: &mut WorldStateView,
+    ) -> Result<Self::Output, Error>;
 }
 
 /// This trait should be implemented for all Iroha Queries.

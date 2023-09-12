@@ -26,6 +26,7 @@ pub mod isi {
     };
 
     use super::*;
+    use crate::smartcontracts::query::LazyValue;
 
     impl Execute for Register<Peer> {
         #[metrics(+"register_peer")]
@@ -259,6 +260,19 @@ pub mod isi {
             }
 
             Ok(())
+        }
+    }
+
+    impl Execute for Retrieve {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            wsv: &mut WorldStateView,
+        ) -> std::result::Result<Value, Error> {
+            self.query
+                .execute(wsv)
+                .map(LazyValue::collect)
+                .map_err(Into::into)
         }
     }
 }

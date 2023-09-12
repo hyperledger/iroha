@@ -19,7 +19,74 @@ use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
 use crate::{seal, Level, Registered};
 
 /// Marker trait designating instruction
-pub trait Instruction: Into<InstructionBox> + seal::Sealed {}
+pub trait Instruction: Into<InstructionBox> + seal::Sealed {
+    /// Output value of instruction execution.
+    type Output: IntoValueOpt + TryFromValueOpt;
+}
+
+/// Trait for converting from `Option<Value>`. Used for instruction output types.
+///
+/// [`TryFrom<Option<Value>>`](std::convert::TryFrom) is not applicable because it is not possible
+/// to `impl TryFrom<Option<Value>> for ()` while `()` is used a lot in instruction output types.
+pub trait TryFromValueOpt
+where
+    Self: Sized,
+{
+    /// Try to create `Self` from `Option<Value>`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if `value_opt` contains unexpected variant.
+    fn try_from_value_opt(value_opt: Option<Value>) -> Result<Self, &'static str>;
+}
+
+impl TryFromValueOpt for () {
+    fn try_from_value_opt(value_opt: Option<Value>) -> Result<Self, &'static str> {
+        match value_opt {
+            None => Ok(()),
+            Some(_) => Err("Expected `None`"),
+        }
+    }
+}
+
+impl TryFromValueOpt for Value {
+    fn try_from_value_opt(value_opt: Option<Value>) -> Result<Self, &'static str> {
+        value_opt.ok_or("Expected `Some`")
+    }
+}
+
+impl TryFromValueOpt for Option<Value> {
+    fn try_from_value_opt(value_opt: Option<Value>) -> Result<Self, &'static str> {
+        Ok(value_opt)
+    }
+}
+
+/// Trait for converting to `Option<Value>`. Used for instruction output types.
+///
+/// [`Into<Option<Value>>`](std::convert::Into) is not applicable because it is not possible
+/// to `impl Into<Option<Value>> for ()` while `()` is used a lot in instruction output types.
+pub trait IntoValueOpt {
+    /// Convert `Self` to `Option<Value>`.
+    fn into_value_opt(self) -> Option<Value>;
+}
+
+impl IntoValueOpt for () {
+    fn into_value_opt(self) -> Option<Value> {
+        None
+    }
+}
+
+impl IntoValueOpt for Value {
+    fn into_value_opt(self) -> Option<Value> {
+        Some(self)
+    }
+}
+
+impl IntoValueOpt for Option<Value> {
+    fn into_value_opt(self) -> Option<Value> {
+        self
+    }
+}
 
 macro_rules! isi {
     ($($meta:meta)* $item:item) => {
@@ -113,33 +180,147 @@ pub mod model {
         Upgrade(UpgradeBox),
         /// `Log` variant.
         Log(LogBox),
+        #[debug(fmt = "{_0:?}")]
+        Retrieve(Retrieve),
 
         #[debug(fmt = "{_0:?}")]
         Fail(FailBox),
     }
 
-    impl Instruction for InstructionBox {}
+    macro_rules! impl_instruction_trait {
+        (
+            $(
+                $isi:ty $(=> $o:ty)? $({
+                    $($sub_isi:ty $(=> $sub_o:ty)?),+ $(,)?
+                })?
+            ),+ $(,)?
+        ) =>
+        {
+            $(
+                impl_instruction_trait!(@single $isi $(=> $o)?);
+                $($(
+                    impl_instruction_trait!(@single $sub_isi $(=> $sub_o)?);
+                    impl_instruction_trait!(@into_instruction_box $sub_isi => $isi);
+                )+)?
+            )+
+        };
+        (@single $isi:ty) => {
+            impl Instruction for $isi {
+                type Output = ();
+            }
+        };
+        (@single $isi:ty => $o:ty) => {
+            impl Instruction for $isi {
+                type Output = $o;
+            }
+        };
+        (@into_instruction_box $sub_isi:ty => $isi:ty) => {
+            impl From<$sub_isi> for InstructionBox {
+                fn from(source: $sub_isi) -> Self {
+                    Self::from(<$isi>::from(source))
+                }
+            }
+        };
+    }
 
-    impl Instruction for SetKeyValueBox {}
-    impl Instruction for RemoveKeyValueBox {}
-    impl Instruction for RegisterBox {}
-    impl Instruction for UnregisterBox {}
-    impl Instruction for MintBox {}
-    impl Instruction for BurnBox {}
-    impl Instruction for TransferBox {}
-    impl Instruction for GrantBox {}
-    impl Instruction for RevokeBox {}
-    impl Instruction for SetParameterBox {}
-    impl Instruction for NewParameterBox {}
-    impl Instruction for UpgradeBox {}
-    impl Instruction for ExecuteTriggerBox {}
-    impl Instruction for FailBox {}
-    impl Instruction for LogBox {}
+    impl_instruction_trait! {
+        InstructionBox => Option<Value>,
 
-    // Composite instructions
-    impl Instruction for SequenceBox {}
-    impl Instruction for Conditional {}
-    impl Instruction for Pair {}
+        SetKeyValueBox {
+            SetKeyValue<Account>,
+            SetKeyValue<Asset>,
+            SetKeyValue<AssetDefinition>,
+            SetKeyValue<Domain>,
+        },
+
+        RemoveKeyValueBox {
+            RemoveKeyValue<Account>,
+            RemoveKeyValue<Asset>,
+            RemoveKeyValue<AssetDefinition>,
+            RemoveKeyValue<Domain>,
+        },
+
+        RegisterBox {
+            Register<Account>,
+            Register<Asset>,
+            Register<AssetDefinition>,
+            Register<Domain>,
+            Register<Peer>,
+            Register<Role>,
+            Register<Trigger<TriggeringFilterBox, Executable>>,
+        },
+
+        UnregisterBox {
+            Unregister<Account>,
+            Unregister<Asset>,
+            Unregister<AssetDefinition>,
+            Unregister<Domain>,
+            Unregister<Peer>,
+            Unregister<Role>,
+            Unregister<Trigger<TriggeringFilterBox, Executable>>,
+        },
+
+        MintBox {
+            Mint<Account, PublicKey>,
+            Mint<Account, SignatureCheckCondition>,
+            Mint<Asset, u32>,
+            Mint<Asset, u128>,
+            Mint<Asset, Fixed>,
+            Mint<Trigger<TriggeringFilterBox, Executable>, u32>,
+        },
+
+        BurnBox {
+            Burn<Account, PublicKey>,
+            Burn<Asset, u32>,
+            Burn<Asset, u128>,
+            Burn<Asset, Fixed>,
+            Burn<Trigger<TriggeringFilterBox, Executable>, u32>,
+        },
+
+        TransferBox {
+            Transfer<Account, AssetDefinition, Account>,
+            Transfer<Asset, u32, Account>,
+            Transfer<Asset, u128, Account>,
+            Transfer<Asset, Fixed, Account>,
+        },
+
+        GrantBox {
+            Grant<Account, PermissionToken>,
+            Grant<Account, RoleId>,
+        },
+
+        RevokeBox {
+            Revoke<Account, PermissionToken>,
+            Revoke<Account, RoleId>,
+        },
+
+        SetParameterBox {
+            SetParameter,
+        },
+
+        NewParameterBox {
+            NewParameter,
+        },
+
+        UpgradeBox {
+            Upgrade<Validator>,
+        },
+
+        ExecuteTriggerBox,
+
+        FailBox,
+
+        LogBox {
+            Log
+        },
+
+        Retrieve => Value,
+
+        // Composite instructions
+        SequenceBox => Option<Value>,
+        Conditional => Option<Value>,
+        Pair => Option<Value>,
+    }
 }
 
 mod transparent {
@@ -629,6 +810,17 @@ isi! {
         pub level: EvaluatesTo<Level>,
         /// Msg to be logged
         pub msg: EvaluatesTo<String>,
+    }
+}
+
+isi! {
+    /// Instruction to make a query but with ability for validator to modify the state.
+    #[derive(Display)]
+    #[display(fmt = "RETRIEVE `{query}`")]
+    #[ffi_type]
+    pub struct Retrieve {
+        /// Query to be executed
+        pub query: QueryBox
     }
 }
 
@@ -1214,7 +1406,7 @@ pub mod prelude {
     pub use super::{
         Burn, BurnBox, Conditional, ExecuteTrigger, ExecuteTriggerBox, FailBox, Grant, GrantBox,
         InstructionBox, Log, LogBox, Mint, MintBox, NewParameter, NewParameterBox, Pair, Register,
-        RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox,
+        RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Retrieve, Revoke, RevokeBox, SequenceBox,
         SetKeyValue, SetKeyValueBox, SetParameter, SetParameterBox, Transfer, TransferBox,
         Unregister, UnregisterBox, Upgrade, UpgradeBox,
     };

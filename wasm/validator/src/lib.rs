@@ -7,50 +7,116 @@ extern crate self as iroha_validator;
 use alloc::vec::Vec;
 
 pub use iroha_schema::MetaMap;
-use iroha_wasm::data_model::{
-    permission::PermissionTokenId, validator::Result, visit::Visit, ValidationFail,
-};
 pub use iroha_wasm::{self, data_model};
+use prelude::*;
 
 pub mod default;
 pub mod permission;
 
-/// Shortcut for `return Ok(())`.
 #[macro_export]
+#[doc(hidden)]
 macro_rules! pass {
-    ($validator:ident) => {{
+    ($validator:ident, $verdict_fn:ident, $passing_object:literal) => {{
         #[cfg(debug_assertions)]
-        if let Err(_error) = $validator.verdict() {
-            unreachable!("Validator already denied");
+        if let $crate::MaybeUninitialized::Initialized(Err(_error)) = $validator.$verdict_fn() {
+            unreachable!(concat!("Validator already denied ", $passing_object));
         }
 
         return;
     }};
 }
 
-/// Shortcut for `return Err(ValidationFail)`.
+/// Shortcut check if validator transaction verdict is `Err` (on `#[cfg(debug_assertions)]` only)
+/// and return from function.
+#[macro_export]
+macro_rules! pass_transaction {
+    ($validator:ident) => {
+        $crate::pass!($validator, transaction_verdict, "transaction")
+    };
+}
+
+/// Shortcut check if validator instruction verdict is `Err` (on `#[cfg(debug_assertions)]` only)
+/// and return from function.
+#[macro_export]
+macro_rules! pass_instruction {
+    ($validator:ident) => {
+        $crate::pass!($validator, instruction_verdict, "instruction")
+    };
+}
+
+/// Shortcut check if validator query verdict is `Err` (on `#[cfg(debug_assertions)]` only)
+/// and return from function.
+#[macro_export]
+macro_rules! pass_query {
+    ($validator:ident) => {
+        $crate::pass!($validator, query_verdict, "query")
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! deny {
+    ($validator:ident, $verdict_fn:ident, $set_verdict_fn:ident, $denying_object:literal, $fmt:literal $(,$($args:tt)*)?) => {{
+        $crate::deny!(@check_already_denied $validator, $verdict_fn, $denying_object);
+
+        $validator.$set_verdict_fn(Err(::iroha_validator::data_model::ValidationFail::NotPermitted(
+            ::alloc::fmt::format(::core::format_args!($fmt $(, $($args)*)?)),
+        )));
+        return;
+    }};
+    ($validator:ident, $verdict_fn:ident, $set_verdict_fn:ident, $denying_object:literal, $e:expr) => {{
+        $crate::deny!(@check_already_denied $validator, $verdict_fn, $denying_object);
+
+        $validator.$set_verdict_fn(Err($e));
+        return;
+    }};
+    (@check_already_denied $validator:ident, $verdict_fn:ident, $denying_object:literal) => {
+        #[cfg(debug_assertions)]
+        if let $crate::MaybeUninitialized::Initialized(Err(_error)) =
+            $validator.$verdict_fn()
+        {
+            unreachable!(concat!("Validator already denied ", $denying_object));
+        }
+    }
+}
+
+/// Shortcut to set `Err(ValidationFail)` to transaction verdict and return from function.
 ///
 /// Supports [`format!`](alloc::fmt::format) syntax as well as any expression returning [`String`](alloc::string::String).
 #[macro_export]
-macro_rules! deny {
-    ($validator:ident, $l:literal $(,)?) => {{
-        #[cfg(debug_assertions)]
-        if let Err(_error) = $validator.verdict() {
-            unreachable!("Validator already denied");
-        }
-        $validator.deny(::iroha_validator::data_model::ValidationFail::NotPermitted(
-            ::alloc::fmt::format(::core::format_args!($l)),
-        ));
-        return;
-    }};
-    ($validator:ident, $e:expr $(,)?) => {{
-        #[cfg(debug_assertions)]
-        if let Err(_error) = $validator.verdict() {
-            unreachable!("Validator already denied");
-        }
-        $validator.deny($e);
-        return;
-    }};
+macro_rules! deny_transaction {
+    ($validator:ident, $fmt:literal $(,$($args:tt)*)?) => {
+        $crate::deny!($validator, transaction_verdict, set_transaction_verdict, "transaction", $fmt $(, $($args)*)?)
+    };
+    ($validator:ident, $e:expr $(,)?) => {
+        $crate::deny!($validator, transaction_verdict, set_transaction_verdict, "transaction", $e)
+    };
+}
+
+/// Shortcut to set `Err(ValidationFail)` to instruction verdict and return from function.
+///
+/// Supports [`format!`](alloc::fmt::format) syntax as well as any expression returning [`String`](alloc::string::String).
+#[macro_export]
+macro_rules! deny_instruction {
+    ($validator:ident, $fmt:literal $(,$($args:tt)*)?) => {
+        $crate::deny!($validator, instruction_verdict, set_instruction_verdict, "instruction", $fmt $(, $($args)*)?)
+    };
+    ($validator:ident, $e:expr $(,)?) => {
+        $crate::deny!($validator, instruction_verdict, set_instruction_verdict, "instruction", $e)
+    };
+}
+
+/// Shortcut to set `Err(ValidationFail)` to query verdict and return from function.
+///
+/// Supports [`format!`](alloc::fmt::format) syntax as well as any expression returning [`String`](alloc::string::String).
+#[macro_export]
+macro_rules! deny_query {
+    ($validator:ident, $fmt:literal $(,$($args:tt)*)?) => {
+        $crate::deny!($validator, query_verdict, set_query_verdict, "query", $fmt $(, $($args)*)?)
+    };
+    ($validator:ident, $e:expr $(,)?) => {
+        $crate::deny!($validator, query_verdict, set_query_verdict, "query", $e)
+    };
 }
 
 /// Macro to parse literal as a type. Panics if failed.
@@ -105,6 +171,59 @@ macro_rules! declare_tokens {
     }
 }
 
+/// Technically the same as [`Option`] but with another semantic.
+#[derive(Debug, Default, Clone, Copy)]
+pub enum MaybeUninitialized<T> {
+    #[default]
+    Uninitialized,
+    Initialized(T),
+}
+
+impl<T> MaybeUninitialized<T> {
+    /// Cast [`MaybeUninitialized`] reference to a [`MaybeUninitialized`] with reference.
+    pub const fn as_ref(&self) -> MaybeUninitialized<&T> {
+        match self {
+            Self::Uninitialized => MaybeUninitialized::Uninitialized,
+            Self::Initialized(ref value) => MaybeUninitialized::Initialized(value),
+        }
+    }
+
+    /// Map value if initialized, otherwise return `default`.
+    pub fn map_or<F, U>(self, default: U, f: F) -> U
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            Self::Uninitialized => default,
+            Self::Initialized(value) => f(value),
+        }
+    }
+
+    /// Unwrap the value assuming it is initialized.
+    ///
+    /// # Panics
+    ///
+    /// Panics if value is [`Uninitialized`](Self::Uninitialized).
+    pub fn assume_initialized(self) -> T {
+        match self {
+            Self::Uninitialized => {
+                crate::dbg_panic("`assume_initialized()` called on `Uninitialized` value")
+            }
+            Self::Initialized(value) => value,
+        }
+    }
+}
+
+impl<T, E> MaybeUninitialized<&Result<T, E>> {
+    /// Check if value is:
+    ///
+    /// - [`Initialized`](Self::Initialized) with [`Ok`] or
+    /// - [`Uninitialized`](Self::Uninitialized).
+    pub fn is_ok_or_uninitialized(self) -> bool {
+        self.map_or(true, Result::is_ok)
+    }
+}
+
 /// Collection of all permission tokens defined by the validator
 #[derive(Debug, Clone, Default)]
 pub struct PermissionTokenSchema(Vec<PermissionTokenId>, MetaMap);
@@ -137,16 +256,28 @@ impl PermissionTokenSchema {
     }
 }
 
-/// Validator of Iroha operations
+/// Validator of Iroha operations.
 pub trait Validate: Visit {
-    /// Validator verdict.
-    fn verdict(&self) -> &Result;
-
     /// Current block height.
     fn block_height(&self) -> u64;
 
-    /// Set validator verdict to deny
-    fn deny(&mut self, reason: ValidationFail);
+    /// Current validator transaction verdict.
+    fn transaction_verdict(&self) -> MaybeUninitialized<&TransactionValidationResult>;
+
+    /// Set validator transaction verdict.
+    fn set_transaction_verdict(&mut self, verdict: TransactionValidationResult);
+
+    /// Current validator instruction verdict.
+    fn instruction_verdict(&self) -> MaybeUninitialized<&InstructionValidationResult>;
+
+    /// Set validator instruction verdict.
+    fn set_instruction_verdict(&mut self, verdict: InstructionValidationResult);
+
+    /// Current validator query verdict.
+    fn query_verdict(&self) -> MaybeUninitialized<&QueryValidationResult>;
+
+    /// Set validator query verdict.
+    fn set_query_verdict(&mut self, verdict: QueryValidationResult);
 }
 
 pub mod prelude {
@@ -158,7 +289,10 @@ pub mod prelude {
     pub use iroha_wasm::{
         data_model::{
             prelude::*,
-            validator::{MigrationError, MigrationResult, Result},
+            validator::{
+                InstructionValidationResult, MigrationError, MigrationResult,
+                QueryValidationResult, Result, TransactionValidationResult,
+            },
             visit::Visit,
             ValidationFail,
         },
@@ -166,5 +300,8 @@ pub mod prelude {
         Context,
     };
 
-    pub use super::{declare_tokens, deny, pass, PermissionTokenSchema, Validate};
+    pub use super::{
+        declare_tokens, deny_instruction, deny_query, deny_transaction, pass_instruction,
+        pass_query, pass_transaction, MaybeUninitialized, PermissionTokenSchema, Validate,
+    };
 }

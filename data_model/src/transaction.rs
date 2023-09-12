@@ -618,6 +618,7 @@ pub mod error {
                 NewParameter(_) => "new parameter",
                 Upgrade(_) => "upgrade",
                 Log(_) => "log",
+                Retrieve(_) => "retrieve",
             };
             write!(
                 f,

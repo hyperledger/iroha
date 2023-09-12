@@ -19,6 +19,7 @@ use eyre::Result;
 use iroha_crypto::{HashOf, SignatureVerificationFail, SignaturesOf};
 pub use iroha_data_model::prelude::*;
 use iroha_data_model::{
+    isi::Instruction,
     query::error::FindError,
     transaction::{error::TransactionLimitError, TransactionLimits},
 };
@@ -69,6 +70,7 @@ fn instruction_size(isi: &InstructionBox) -> usize {
         NewParameter(isi) => isi.parameter.len() + 1,
         Upgrade(isi) => isi.object.len() + 1,
         Log(isi) => isi.msg.len() + isi.msg.len() + 1,
+        Retrieve(isi) => isi.query.len() + 1,
         Fail(_) | ExecuteTrigger(_) => 1,
     }
 }
@@ -229,7 +231,9 @@ impl TransactionValidator {
         let mut wsv_for_validation = wsv.clone();
 
         debug!("Validating transaction: {:?}", tx);
-        Self::validate_with_runtime_validator(tx.clone(), &mut wsv_for_validation)?;
+        // TODO: Use then returning value to client will be implemented
+        let _output_opt: Option<<InstructionBox as Instruction>::Output> =
+            Self::validate_with_runtime_validator(tx.clone(), &mut wsv_for_validation)?;
 
         if let (authority, Executable::Wasm(bytes)) = tx.into() {
             self.validate_wasm(authority, &mut wsv_for_validation, bytes)?
@@ -272,7 +276,7 @@ impl TransactionValidator {
     fn validate_with_runtime_validator(
         tx: AcceptedTransaction,
         wsv: &mut WorldStateView,
-    ) -> Result<(), TransactionRejectionReason> {
+    ) -> Result<Option<<InstructionBox as Instruction>::Output>, TransactionRejectionReason> {
         let tx: VersionedSignedTransaction = tx.into();
         let authority = tx.payload().authority.clone();
 

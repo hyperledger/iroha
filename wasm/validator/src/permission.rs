@@ -32,16 +32,16 @@ pub trait Token:
 /// instructions containing implementing token.
 pub trait ValidateGrantRevoke {
     #[allow(missing_docs, clippy::missing_errors_doc)]
-    fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result;
+    fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result<()>;
 
     #[allow(missing_docs, clippy::missing_errors_doc)]
-    fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result;
+    fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result<()>;
 }
 
 /// Predicate-like trait used for pass conditions to identify if [`Grant`] or [`Revoke`] should be allowed.
 pub trait PassCondition {
     #[allow(missing_docs, clippy::missing_errors_doc)]
-    fn validate(&self, authority: &AccountId, block_height: u64) -> Result;
+    fn validate(&self, authority: &AccountId, block_height: u64) -> Result<()>;
 }
 
 /// Error type for `TryFrom<PermissionToken>` implementations.
@@ -89,7 +89,7 @@ pub mod asset {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
+        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result<()> {
             if self.asset_id.account_id() == authority {
                 return Ok(());
             }
@@ -121,7 +121,7 @@ pub mod asset_definition {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
+        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result<()> {
             if is_asset_definition_owner(self.asset_definition_id, authority)? {
                 return Ok(());
             }
@@ -146,7 +146,7 @@ pub mod account {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
+        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result<()> {
             if self.account_id == authority {
                 return Ok(());
             }
@@ -183,7 +183,7 @@ pub mod trigger {
     }
 
     impl PassCondition for Owner<'_> {
-        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
+        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result<()> {
             if is_trigger_owner(self.trigger_id.clone(), authority)? {
                 return Ok(());
             }
@@ -200,7 +200,7 @@ pub mod trigger {
 pub struct AlwaysPass;
 
 impl PassCondition for AlwaysPass {
-    fn validate(&self, _authority: &AccountId, _block_height: u64) -> Result {
+    fn validate(&self, _authority: &AccountId, _block_height: u64) -> Result<()> {
         Ok(())
     }
 }
@@ -218,7 +218,7 @@ impl<T: Token> From<&T> for AlwaysPass {
 pub struct OnlyGenesis;
 
 impl PassCondition for OnlyGenesis {
-    fn validate(&self, _: &AccountId, block_height: u64) -> Result {
+    fn validate(&self, _: &AccountId, block_height: u64) -> Result<()> {
         if block_height == 0 {
             Ok(())
         } else {

@@ -15,7 +15,7 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
     macro_rules! match_entrypoints {
         (validate: {
             $($user_entrypoint_name:ident =>
-                $generated_entrypoint_name:ident ($query_validating_object_fn_name:ident)),* $(,)?
+                $generated_entrypoint_name:ident ($query_validating_object_fn_name:ident) -> $ret_ty:ty),* $(,)?
         }
         other: {
             $($other_user_entrypoint_name:ident => $branch:block),* $(,)?
@@ -27,6 +27,7 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
                         stringify!($user_entrypoint_name),
                         iroha_data_model::wasm::export::fn_names::$generated_entrypoint_name,
                         iroha_data_model::wasm::import::fn_names::$query_validating_object_fn_name,
+                        stringify!($ret_ty),
                     )
                 })*
                 $(fn_name if fn_name == stringify!($other_user_entrypoint_name) => $branch),*
@@ -43,9 +44,9 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     match_entrypoints! {
         validate: {
-            validate_transaction => VALIDATOR_VALIDATE_TRANSACTION(GET_VALIDATE_TRANSACTION_PAYLOAD),
-            validate_instruction => VALIDATOR_VALIDATE_INSTRUCTION(GET_VALIDATE_INSTRUCTION_PAYLOAD),
-            validate_query => VALIDATOR_VALIDATE_QUERY(GET_VALIDATE_QUERY_PAYLOAD),
+            validate_transaction => VALIDATOR_VALIDATE_TRANSACTION(GET_VALIDATE_TRANSACTION_PAYLOAD) -> TransactionValidationResult,
+            validate_instruction => VALIDATOR_VALIDATE_INSTRUCTION(GET_VALIDATE_INSTRUCTION_PAYLOAD) -> InstructionValidationResult,
+            validate_query => VALIDATOR_VALIDATE_QUERY(GET_VALIDATE_QUERY_PAYLOAD) -> QueryValidationResult,
         }
         other: {
             migrate => { impl_migrate_entrypoint(fn_item) }
@@ -58,6 +59,7 @@ fn impl_validate_entrypoint(
     user_entrypoint_name: &'static str,
     generated_entrypoint_name: &'static str,
     get_validation_payload_fn_name: &'static str,
+    return_type: &'static str,
 ) -> TokenStream {
     let syn::ItemFn {
         attrs,
@@ -69,7 +71,7 @@ fn impl_validate_entrypoint(
 
     assert!(
         matches!(sig.output, syn::ReturnType::Type(_, _)),
-        "Validator `{user_entrypoint_name}` entrypoint must have `Result` return type"
+        "Validator `{user_entrypoint_name}` entrypoint must have `{return_type}` return type",
     );
 
     block.stmts.insert(
@@ -87,6 +89,11 @@ fn impl_validate_entrypoint(
             "Provided function name to query validating object is not a valid Ident, this is a bug",
         );
 
+    let return_type_path: syn::Path = syn::parse_str(&format!(
+        "::iroha_validator::iroha_wasm::data_model::validator::{return_type}",
+    ))
+    .expect("Provided return type is not a valid Path, this is a bug");
+
     quote! {
         /// Validator `validate` entrypoint
         ///
@@ -98,7 +105,7 @@ fn impl_validate_entrypoint(
         #[doc(hidden)]
         unsafe extern "C" fn #generated_entrypoint_ident() -> *const u8 {
             let payload = ::iroha_validator::iroha_wasm::#get_validation_payload_fn_ident();
-            let verdict: ::iroha_validator::iroha_wasm::data_model::validator::Result =
+            let verdict: #return_type_path =
                 #fn_name(payload.authority, payload.to_validate, payload.block_height);
             let bytes_box = ::core::mem::ManuallyDrop::new(::iroha_validator::iroha_wasm::encode_with_length_prefix(&verdict));
 

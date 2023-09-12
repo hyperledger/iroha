@@ -11,16 +11,16 @@ use alloc::{borrow::ToOwned as _, format};
 
 use anyhow::anyhow;
 use iroha_validator::{
-    data_model::{
-        evaluate::{EvaluationError, ExpressionEvaluator},
-        ValidationFail,
-    },
+    data_model::evaluate::{EvaluationError, ExpressionEvaluator},
     iroha_wasm, parse,
     prelude::*,
 };
 
 struct Validator {
-    verdict: Result,
+    transaction_verdict: MaybeUninitialized<TransactionValidationResult>,
+    instruction_verdict: MaybeUninitialized<InstructionValidationResult>,
+    query_verdict: MaybeUninitialized<QueryValidationResult>,
+
     block_height: u64,
     host: iroha_wasm::Host,
 }
@@ -29,7 +29,10 @@ impl Validator {
     /// Construct [`Self`]
     pub fn new(block_height: u64) -> Self {
         Self {
-            verdict: Ok(()),
+            transaction_verdict: MaybeUninitialized::default(),
+            instruction_verdict: MaybeUninitialized::default(),
+            // TODO: Default initialize when queries will be executed inside validator
+            query_verdict: MaybeUninitialized::Initialized(Ok(())),
             block_height,
             host: iroha_wasm::Host,
         }
@@ -46,15 +49,14 @@ macro_rules! defaults {
 
 impl Visit for Validator {
     fn visit_query(&mut self, _authority: &AccountId, _query: &QueryBox) {
-        self.deny(ValidationFail::NotPermitted(
-            "All queries are forbidden".to_owned(),
-        ));
+        deny_query!(self, "All queries are forbidden");
     }
 
     defaults! {
         visit_unsupported<T: core::fmt::Debug>(T),
 
         visit_transaction(&VersionedSignedTransaction),
+        visit_wasm(&WasmSmartContract),
         visit_instruction(&InstructionBox),
         visit_expression<V>(&EvaluatesTo<V>),
         visit_sequence(&SequenceBox),
@@ -113,20 +115,39 @@ impl Visit for Validator {
 
         // Upgrade validation
         visit_upgrade_validator(Upgrade<iroha_validator::data_model::validator::Validator>),
+
+        // Retrieve validation
+        visit_retrieve(&Retrieve),
     }
 }
 
 impl Validate for Validator {
-    fn verdict(&self) -> &Result {
-        &self.verdict
-    }
-
     fn block_height(&self) -> u64 {
         self.block_height
     }
 
-    fn deny(&mut self, reason: ValidationFail) {
-        self.verdict = Err(reason);
+    fn transaction_verdict(&self) -> MaybeUninitialized<&TransactionValidationResult> {
+        self.transaction_verdict.as_ref()
+    }
+
+    fn set_transaction_verdict(&mut self, verdict: TransactionValidationResult) {
+        self.transaction_verdict = MaybeUninitialized::Initialized(verdict);
+    }
+
+    fn instruction_verdict(&self) -> MaybeUninitialized<&InstructionValidationResult> {
+        self.instruction_verdict.as_ref()
+    }
+
+    fn set_instruction_verdict(&mut self, verdict: InstructionValidationResult) {
+        self.instruction_verdict = MaybeUninitialized::Initialized(verdict);
+    }
+
+    fn query_verdict(&self) -> MaybeUninitialized<&QueryValidationResult> {
+        self.query_verdict.as_ref()
+    }
+
+    fn set_query_verdict(&mut self, verdict: QueryValidationResult) {
+        self.query_verdict = MaybeUninitialized::Initialized(verdict);
     }
 }
 
@@ -159,10 +180,10 @@ pub fn validate_transaction(
     authority: AccountId,
     transaction: VersionedSignedTransaction,
     block_height: u64,
-) -> Result {
+) -> TransactionValidationResult {
     let mut validator = Validator::new(block_height);
     validator.visit_transaction(&authority, &transaction);
-    validator.verdict
+    validator.transaction_verdict.assume_initialized()
 }
 
 #[entrypoint]
@@ -170,15 +191,19 @@ pub fn validate_instruction(
     authority: AccountId,
     instruction: InstructionBox,
     block_height: u64,
-) -> Result {
+) -> InstructionValidationResult {
     let mut validator = Validator::new(block_height);
     validator.visit_instruction(&authority, &instruction);
-    validator.verdict
+    validator.instruction_verdict.assume_initialized()
 }
 
 #[entrypoint]
-pub fn validate_query(authority: AccountId, query: QueryBox, block_height: u64) -> Result {
+pub fn validate_query(
+    authority: AccountId,
+    query: QueryBox,
+    block_height: u64,
+) -> QueryValidationResult {
     let mut validator = Validator::new(block_height);
     validator.visit_query(&authority, &query);
-    validator.verdict
+    validator.query_verdict.assume_initialized()
 }

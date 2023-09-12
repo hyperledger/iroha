@@ -83,33 +83,94 @@ pub mod visit;
 pub mod wasm;
 
 mod seal {
-    use crate::{isi::prelude::*, query::prelude::*};
+    use super::prelude::*;
 
     pub trait Sealed {}
 
     macro_rules! impl_sealed {
-        ($($ident:ident),+ $(,)?) => { $(
-            impl Sealed for $ident {} )+
-        };
+        ($($t:ty),+ $(,)?) => { $(
+            impl Sealed for $t {}
+        )+};
     }
 
     impl_sealed! {
-        // Boxed instructions
+        // Instructions
         InstructionBox,
+
         SetKeyValueBox,
+        SetKeyValue<Account>,
+        SetKeyValue<Asset>,
+        SetKeyValue<AssetDefinition>,
+        SetKeyValue<Domain>,
+
         RemoveKeyValueBox,
+        RemoveKeyValue<Account>,
+        RemoveKeyValue<Asset>,
+        RemoveKeyValue<AssetDefinition>,
+        RemoveKeyValue<Domain>,
+
         RegisterBox,
+        Register<Account>,
+        Register<Asset>,
+        Register<AssetDefinition>,
+        Register<Domain>,
+        Register<Peer>,
+        Register<Role>,
+        Register<Trigger<TriggeringFilterBox, Executable>>,
+
         UnregisterBox,
+        Unregister<Account>,
+        Unregister<Asset>,
+        Unregister<AssetDefinition>,
+        Unregister<Domain>,
+        Unregister<Peer>,
+        Unregister<Role>,
+        Unregister<Trigger<TriggeringFilterBox, Executable>>,
+
         MintBox,
+        Mint<Account, PublicKey>,
+        Mint<Account, SignatureCheckCondition>,
+        Mint<Asset, u32>,
+        Mint<Asset, u128>,
+        Mint<Asset, Fixed>,
+        Mint<Trigger<TriggeringFilterBox, Executable>, u32>,
+
         BurnBox,
+        Burn<Account, PublicKey>,
+        Burn<Asset, u32>,
+        Burn<Asset, u128>,
+        Burn<Asset, Fixed>,
+        Burn<Trigger<TriggeringFilterBox, Executable>, u32>,
+
         TransferBox,
+        Transfer<Account, AssetDefinition, Account>,
+        Transfer<Asset, u32, Account>,
+        Transfer<Asset, u128, Account>,
+        Transfer<Asset, Fixed, Account>,
+
         GrantBox,
+        Grant<Account, PermissionToken>,
+        Grant<Account, RoleId>,
+
         RevokeBox,
+        Revoke<Account, PermissionToken>,
+        Revoke<Account, RoleId>,
+
         SetParameterBox,
+        SetParameter,
+
         NewParameterBox,
+        NewParameter,
+
         UpgradeBox,
+        Upgrade<Validator>,
+
         ExecuteTriggerBox,
+
         LogBox,
+        Log,
+
+        Retrieve,
 
         // Composite instructions
         SequenceBox,

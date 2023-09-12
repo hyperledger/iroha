@@ -37,37 +37,47 @@ pub trait Registrable {
 }
 
 impl Execute for InstructionBox {
-    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+    fn execute(
+        self,
+        authority: &AccountId,
+        wsv: &mut WorldStateView,
+    ) -> Result<Option<Value>, Error> {
         iroha_logger::debug!(isi=%self, "Executing");
 
         macro_rules! match_all {
-            ($($isi:ident),+ $(,)?) => {
-
-                match self { $(
-                    InstructionBox::$isi(isi) => isi.execute(authority, wsv), )+
+            (
+                $($none_isi:ident)|+ => None,
+                $($some_isi:ident)|+ => Some,
+                $($option_isi:ident)|+ $(,)?
+            ) => {
+                match self {
+                    $(InstructionBox::$none_isi(isi) => isi.execute(authority, wsv).map(|_: ()| None), )+
+                    $(InstructionBox::$some_isi(isi) => isi.execute(authority, wsv).map(Some), )+
+                    $(InstructionBox::$option_isi(isi) => isi.execute(authority, wsv), )+
                 }
             };
         }
 
         match_all! {
-            Register,
-            Unregister,
-            Mint,
-            Burn,
-            Transfer,
-            If,
-            Pair,
-            Sequence,
-            Fail,
-            SetKeyValue,
-            RemoveKeyValue,
-            Grant,
-            Revoke,
-            ExecuteTrigger,
-            SetParameter,
-            NewParameter,
-            Upgrade,
-            Log,
+            Register
+            | Unregister
+            | Mint
+            | Burn
+            | Transfer
+            | Fail
+            | SetKeyValue
+            | RemoveKeyValue
+            | Grant
+            | Revoke
+            | ExecuteTrigger
+            | SetParameter
+            | NewParameter
+            | Upgrade
+            | Log => None,
+            Retrieve => Some,
+            If
+            | Pair
+            | Sequence,
         }
     }
 }
@@ -313,36 +323,58 @@ impl Execute for RemoveKeyValueBox {
 }
 
 impl Execute for Conditional {
-    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+    fn execute(
+        self,
+        authority: &AccountId,
+        wsv: &mut WorldStateView,
+    ) -> Result<Option<Value>, Error> {
         iroha_logger::trace!(?self);
         if wsv.evaluate(&self.condition)? {
-            self.then.execute(authority, wsv)?;
+            self.then.execute(authority, wsv)
         } else if let Some(otherwise) = self.otherwise {
-            otherwise.execute(authority, wsv)?;
+            otherwise.execute(authority, wsv)
+        } else {
+            Ok(None)
         }
-        Ok(())
     }
 }
 
 impl Execute for Pair {
-    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+    fn execute(
+        self,
+        authority: &AccountId,
+        wsv: &mut WorldStateView,
+    ) -> Result<Option<Value>, Error> {
         iroha_logger::trace!(?self);
 
         self.left_instruction.execute(authority, wsv)?;
-        self.right_instruction.execute(authority, wsv)?;
-        Ok(())
+        self.right_instruction.execute(authority, wsv)
     }
 }
 
 impl Execute for SequenceBox {
     #[iroha_logger::log(skip_all, name = "Sequence", fields(count))]
-    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-        Span::current().record("count", self.instructions.len());
-        for instruction in self.instructions {
+    fn execute(
+        self,
+        authority: &AccountId,
+        wsv: &mut WorldStateView,
+    ) -> Result<Option<Value>, Error> {
+        let count = self.instructions.len();
+        Span::current().record("count", count);
+
+        let mut iter = self.instructions.into_iter().peekable();
+        while let Some(instruction) = iter.next() {
             iroha_logger::trace!(%instruction);
+
+            let is_last = iter.peek().is_none();
+            if is_last {
+                return instruction.execute(authority, wsv);
+            }
+
             instruction.execute(authority, wsv)?;
         }
-        Ok(())
+
+        Ok(None)
     }
 }
 

@@ -2385,8 +2385,13 @@
         "type": "LogBox"
       },
       {
-        "tag": "Fail",
+        "tag": "Retrieve",
         "discriminant": 17,
+        "type": "Retrieve"
+      },
+      {
+        "tag": "Fail",
+        "discriminant": 18,
         "type": "FailBox"
       }
     ]
@@ -2557,8 +2562,12 @@
         "discriminant": 16
       },
       {
-        "tag": "Fail",
+        "tag": "Retrieve",
         "discriminant": 17
+      },
+      {
+        "tag": "Fail",
+        "discriminant": 18
       }
     ]
   },
@@ -3739,6 +3748,14 @@
       {
         "name": "id",
         "type": "IdBox"
+      }
+    ]
+  },
+  "Retrieve": {
+    "Struct": [
+      {
+        "name": "query",
+        "type": "QueryBox"
       }
     ]
   },

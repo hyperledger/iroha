@@ -13,9 +13,10 @@ use iroha_config::{
 };
 use iroha_data_model::{
     account::AccountId,
-    isi::InstructionBox,
+    isi::{Instruction, InstructionBox},
     permission::PermissionTokenSchema,
     prelude::*,
+    query::Query,
     validator::{self, MigrationResult},
     wasm::{export, import, payloads},
     Level as LogLevel, ValidationFail,
@@ -24,6 +25,7 @@ use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
 use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span};
 use iroha_wasm_codec::{self as codec, WasmUsize};
+use parity_scale_codec::Decode;
 use state::{Wsv as _, WsvMut as _};
 use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, TypedFunc,
@@ -44,14 +46,17 @@ mod import_traits {
     pub trait ExecuteOperations<S> {
         /// Execute `query` on host
         #[codec::wrap_trait_fn]
-        fn execute_query(query: QueryBox, state: &S) -> Result<Value, ValidationFail>;
+        fn execute_query(
+            query: QueryBox,
+            state: &S,
+        ) -> Result<<QueryBox as Query>::Output, ValidationFail>;
 
         /// Execute `instruction` on host
         #[codec::wrap_trait_fn]
         fn execute_instruction(
             instruction: InstructionBox,
             state: &mut S,
-        ) -> Result<(), ValidationFail>;
+        ) -> Result<<InstructionBox as Instruction>::Output, ValidationFail>;
     }
 
     pub trait GetValidatorPayloads<S> {
@@ -702,12 +707,15 @@ impl<S: state::LimitsMut> Runtime<S> {
         store
     }
 
-    fn execute_validator_validate_internal(
+    fn execute_validator_validate_internal<O>(
         &self,
         module: &wasmtime::Module,
         state: S,
         validate_fn_name: &'static str,
-    ) -> Result<validator::Result> {
+    ) -> Result<validator::Result<O>>
+    where
+        O: Decode + std::fmt::Debug,
+    {
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
 
@@ -730,7 +738,10 @@ impl<S: state::LimitsMut> Runtime<S> {
 
 #[allow(clippy::needless_pass_by_value)]
 impl<S: state::Authority + state::Wsv + state::WsvMut> Runtime<S> {
-    fn default_execute_query(query: QueryBox, state: &S) -> Result<Value, ValidationFail> {
+    fn default_execute_query(
+        query: QueryBox,
+        state: &S,
+    ) -> Result<<QueryBox as Query>::Output, ValidationFail> {
         iroha_logger::debug!(%query, "Executing");
 
         let wsv = state.wsv();
@@ -745,17 +756,14 @@ impl<S: state::Authority + state::Wsv + state::WsvMut> Runtime<S> {
 
         query
             .execute(wsv)
-            .map(|lazy_value| match lazy_value {
-                LazyValue::Value(value) => value,
-                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
-            })
+            .map(LazyValue::collect)
             .map_err(Into::into)
     }
 
     fn default_execute_instruction(
         instruction: InstructionBox,
         state: &mut S,
-    ) -> Result<(), ValidationFail> {
+    ) -> Result<<InstructionBox as Instruction>::Output, ValidationFail> {
         debug!(%instruction, "Executing");
 
         // TODO: Validation should be skipped when executing smart contract.
@@ -852,7 +860,7 @@ impl<'wrld> import_traits::ExecuteOperations<state::SmartContract<'wrld>>
     fn execute_query(
         query: QueryBox,
         state: &state::SmartContract<'wrld>,
-    ) -> Result<Value, ValidationFail> {
+    ) -> Result<<QueryBox as Query>::Output, ValidationFail> {
         Self::default_execute_query(query, state)
     }
 
@@ -860,7 +868,7 @@ impl<'wrld> import_traits::ExecuteOperations<state::SmartContract<'wrld>>
     fn execute_instruction(
         instruction: InstructionBox,
         state: &mut state::SmartContract<'wrld>,
-    ) -> Result<(), ValidationFail> {
+    ) -> Result<<InstructionBox as Instruction>::Output, ValidationFail> {
         if let Some(limits_validator) = state.limits_validator.as_mut() {
             limits_validator.check_instruction_limits()?;
         }
@@ -918,7 +926,7 @@ impl<'wrld> import_traits::ExecuteOperations<state::Trigger<'wrld>>
     fn execute_query(
         query: QueryBox,
         state: &state::Trigger<'wrld>,
-    ) -> Result<Value, ValidationFail> {
+    ) -> Result<<QueryBox as Query>::Output, ValidationFail> {
         Self::default_execute_query(query, state)
     }
 
@@ -926,7 +934,7 @@ impl<'wrld> import_traits::ExecuteOperations<state::Trigger<'wrld>>
     fn execute_instruction(
         instruction: InstructionBox,
         state: &mut state::Trigger<'wrld>,
-    ) -> Result<(), ValidationFail> {
+    ) -> Result<<InstructionBox as Instruction>::Output, ValidationFail> {
         Self::default_execute_instruction(instruction, state)
     }
 }
@@ -943,15 +951,15 @@ where
     S: state::Wsv + state::WsvMut + state::Authority,
 {
     #[codec::wrap]
-    fn execute_query(query: QueryBox, state: &S) -> Result<Value, ValidationFail> {
+    fn execute_query(
+        query: QueryBox,
+        state: &S,
+    ) -> Result<<QueryBox as Query>::Output, ValidationFail> {
         debug!(%query, "Executing as validator");
 
         query
             .execute(state.wsv())
-            .map(|lazy_value| match lazy_value {
-                LazyValue::Value(value) => value,
-                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
-            })
+            .map(LazyValue::collect)
             .map_err(Into::into)
     }
 
@@ -959,7 +967,7 @@ where
     fn execute_instruction(
         instruction: InstructionBox,
         state: &mut S,
-    ) -> Result<(), ValidationFail> {
+    ) -> Result<<InstructionBox as Instruction>::Output, ValidationFail> {
         debug!(%instruction, "Executing as validator");
 
         instruction
@@ -1005,7 +1013,7 @@ impl<'wrld> Runtime<state::validator::ValidateTransaction<'wrld>> {
         authority: &AccountId,
         module: &wasmtime::Module,
         transaction: VersionedSignedTransaction,
-    ) -> Result<validator::Result> {
+    ) -> Result<validator::TransactionValidationResult> {
         let span = wasm_log_span!("Running `validate_transaction()`");
 
         self.execute_validator_validate_internal(
@@ -1081,7 +1089,7 @@ impl<'wrld> Runtime<state::validator::ValidateInstruction<'wrld>> {
         authority: &AccountId,
         module: &wasmtime::Module,
         instruction: InstructionBox,
-    ) -> Result<validator::Result> {
+    ) -> Result<validator::InstructionValidationResult> {
         let span = wasm_log_span!("Running `validate_instruction()`");
 
         self.execute_validator_validate_internal(
@@ -1157,7 +1165,7 @@ impl<'wrld> Runtime<state::validator::ValidateQuery<'wrld>> {
         authority: &AccountId,
         module: &wasmtime::Module,
         query: QueryBox,
-    ) -> Result<validator::Result> {
+    ) -> Result<validator::QueryValidationResult> {
         let span = wasm_log_span!("Running `validate_query()`");
 
         self.execute_validator_validate_internal(
@@ -1181,15 +1189,12 @@ impl<'wrld> import_traits::ExecuteOperations<state::validator::ValidateQuery<'wr
     fn execute_query(
         query: QueryBox,
         state: &state::validator::ValidateQuery<'wrld>,
-    ) -> Result<Value, ValidationFail> {
+    ) -> Result<<QueryBox as Query>::Output, ValidationFail> {
         debug!(%query, "Executing as validator");
 
         query
             .execute(state.wsv())
-            .map(|lazy_value| match lazy_value {
-                LazyValue::Value(value) => value,
-                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
-            })
+            .map(LazyValue::collect)
             .map_err(Into::into)
     }
 
@@ -1197,7 +1202,7 @@ impl<'wrld> import_traits::ExecuteOperations<state::validator::ValidateQuery<'wr
     fn execute_instruction(
         _instruction: InstructionBox,
         _state: &mut state::validator::ValidateQuery<'wrld>,
-    ) -> Result<(), ValidationFail> {
+    ) -> Result<<InstructionBox as Instruction>::Output, ValidationFail> {
         panic!("Validator `validate_query()` entrypoint should not execute instructions")
     }
 }

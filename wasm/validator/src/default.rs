@@ -30,8 +30,8 @@ pub use trigger::{
 };
 pub use validator::visit_upgrade_validator;
 
-use super::*;
-use crate::{permission, permission::Token as _, prelude::*};
+use super::{MaybeUninitialized::*, *};
+use crate::{permission, permission::Token as _};
 
 macro_rules! evaluate_expr {
     ($visitor:ident, $authority:ident, <$isi:ident as $isi_type:ty>::$field:ident()) => {{
@@ -105,15 +105,36 @@ pub fn visit_transaction<V: Validate + ?Sized>(
     transaction: &VersionedSignedTransaction,
 ) {
     match transaction.payload().instructions() {
-        Executable::Wasm(wasm) => validator.visit_wasm(authority, wasm),
+        Executable::Wasm(wasm) => {
+            validator.visit_wasm(authority, wasm);
+            if let Uninitialized = validator.transaction_verdict() {
+                dbg_panic("`visit_wasm()` should initialize transaction verdict")
+            }
+        }
         Executable::Instructions(instructions) => {
             for isi in instructions {
-                if validator.verdict().is_ok() {
+                if validator.instruction_verdict().is_ok_or_uninitialized() {
                     validator.visit_instruction(authority, isi);
+                }
+            }
+            match validator.instruction_verdict() {
+                Uninitialized => validator.set_transaction_verdict(Ok(None)), // Empty transaction
+                Initialized(Err(err)) => validator.set_transaction_verdict(Err(err.clone())),
+                Initialized(Ok(output)) => {
+                    validator.set_transaction_verdict(Ok(Some(output.clone())))
                 }
             }
         }
     }
+}
+
+/// Default validation for [`WasmExecutable`].
+pub fn visit_wasm<V: Validate + ?Sized>(
+    validator: &mut V,
+    _authority: &AccountId,
+    _wasm: &WasmSmartContract,
+) {
+    validator.set_transaction_verdict(Ok(None));
 }
 
 /// Default validation for [`InstructionBox`].
@@ -124,7 +145,7 @@ pub fn visit_transaction<V: Validate + ?Sized>(
 pub fn visit_instruction<V: Validate + ?Sized>(
     validator: &mut V,
     authority: &AccountId,
-    isi: &InstructionBox,
+    isi_box: &InstructionBox,
 ) {
     macro_rules! isi_validators {
         (
@@ -135,29 +156,29 @@ pub fn visit_instruction<V: Validate + ?Sized>(
                 $composite_validator:ident($composite_isi:ident)
             ),+ $(,)?}
         ) => {
-            match isi {
+            match isi_box {
                 InstructionBox::NewParameter(isi) => {
                     let parameter = evaluate_expr!(validator, authority, <isi as NewParameter>::parameter());
                     validator.visit_new_parameter(authority, NewParameter{parameter});
 
-                    if validator.verdict().is_ok() {
-                        isi_validators!(@execute isi);
+                    if validator.instruction_verdict().is_ok_or_uninitialized() {
+                        isi_validators!(@execute);
                     }
                 }
                 InstructionBox::SetParameter(isi) => {
                     let parameter = evaluate_expr!(validator, authority, <isi as NewParameter>::parameter());
                     validator.visit_set_parameter(authority, SetParameter{parameter});
 
-                    if validator.verdict().is_ok() {
-                        isi_validators!(@execute isi);
+                    if validator.instruction_verdict().is_ok_or_uninitialized() {
+                        isi_validators!(@execute);
                     }
                 }
                 InstructionBox::ExecuteTrigger(isi) => {
                     let trigger_id = evaluate_expr!(validator, authority, <isi as ExecuteTrigger>::trigger_id());
                     validator.visit_execute_trigger(authority, ExecuteTrigger{trigger_id});
 
-                    if validator.verdict().is_ok() {
-                        isi_validators!(@execute isi);
+                    if validator.instruction_verdict().is_ok_or_uninitialized() {
+                        isi_validators!(@execute);
                     }
                 }
                 InstructionBox::Log(isi) => {
@@ -165,26 +186,24 @@ pub fn visit_instruction<V: Validate + ?Sized>(
                     let level = evaluate_expr!(validator, authority, <isi as LogBox>::level());
                     validator.visit_log(authority, Log{level, msg});
 
-                    if validator.verdict().is_ok() {
-                        isi_validators!(@execute isi);
+                    if validator.instruction_verdict().is_ok_or_uninitialized() {
+                        isi_validators!(@execute);
                     }
                 } $(
                 InstructionBox::$isi(isi) => {
                     validator.$validator(authority, isi);
 
-                    if validator.verdict().is_ok() {
-                        isi_validators!(@execute isi);
+                    if validator.instruction_verdict().is_ok_or_uninitialized() {
+                        isi_validators!(@execute);
                     }
                 } )+ $(
                 // NOTE: `visit_and_execute_instructions` is reentrant, so don't execute composite instructions
                 InstructionBox::$composite_isi(isi) => validator.$composite_validator(authority, isi), )+
             }
         };
-        (@execute $isi:ident) => {
+        (@execute) => {
             // TODO: Execution should be infallible after successful validation
-            if let Err(err) = isi.execute() {
-                validator.deny(err);
-            }
+            validator.set_instruction_verdict(isi_box.execute())
         }
     }
 
@@ -201,6 +220,7 @@ pub fn visit_instruction<V: Validate + ?Sized>(
             visit_transfer(Transfer),
             visit_unregister(Unregister),
             visit_upgrade(Upgrade),
+            visit_retrieve(Retrieve),
         }
 
         composite {
@@ -216,7 +236,7 @@ pub fn visit_unsupported<V: Validate + ?Sized, T: core::fmt::Debug>(
     _authority: &AccountId,
     isi: T,
 ) {
-    deny!(validator, "{isi:?}: Unsupported operation");
+    deny_instruction!(validator, "{isi:?}: Unsupported operation");
 }
 
 pub fn visit_expression<V: Validate + ?Sized, X>(
@@ -228,7 +248,7 @@ pub fn visit_expression<V: Validate + ?Sized, X>(
         ($e:ident) => {{
             validator.visit_expression(authority, $e.left());
 
-            if validator.verdict().is_ok() {
+            if validator.instruction_verdict().is_ok_or_uninitialized() && validator.query_verdict().is_ok_or_uninitialized() {
                 validator.visit_expression(authority, $e.right());
             }
         }};
@@ -250,32 +270,42 @@ pub fn visit_expression<V: Validate + ?Sized, X>(
         Expression::If(expr) => {
             validator.visit_expression(authority, expr.condition());
 
-            if validator.verdict().is_ok() {
+            if validator.instruction_verdict().is_ok_or_uninitialized()
+                && validator.query_verdict().is_ok_or_uninitialized()
+            {
                 validator.visit_expression(authority, expr.then());
             }
 
-            if validator.verdict().is_ok() {
+            if validator.instruction_verdict().is_ok_or_uninitialized()
+                && validator.query_verdict().is_ok_or_uninitialized()
+            {
                 validator.visit_expression(authority, expr.otherwise());
             }
         }
         Expression::Contains(expr) => {
             validator.visit_expression(authority, expr.collection());
 
-            if validator.verdict().is_ok() {
+            if validator.instruction_verdict().is_ok_or_uninitialized()
+                && validator.query_verdict().is_ok_or_uninitialized()
+            {
                 validator.visit_expression(authority, expr.element());
             }
         }
         Expression::ContainsAll(expr) => {
             validator.visit_expression(authority, expr.collection());
 
-            if validator.verdict().is_ok() {
+            if validator.instruction_verdict().is_ok_or_uninitialized()
+                && validator.query_verdict().is_ok_or_uninitialized()
+            {
                 validator.visit_expression(authority, expr.elements());
             }
         }
         Expression::ContainsAny(expr) => {
             validator.visit_expression(authority, expr.collection());
 
-            if validator.verdict().is_ok() {
+            if validator.instruction_verdict().is_ok_or_uninitialized()
+                && validator.query_verdict().is_ok_or_uninitialized()
+            {
                 validator.visit_expression(authority, expr.elements());
             }
         }
@@ -299,7 +329,7 @@ pub fn visit_if<V: Validate + ?Sized>(validator: &mut V, authority: &AccountId, 
 pub fn visit_pair<V: Validate + ?Sized>(validator: &mut V, authority: &AccountId, isi: &Pair) {
     validator.visit_instruction(authority, isi.left_instruction());
 
-    if validator.verdict().is_ok() {
+    if validator.instruction_verdict().is_ok_or_uninitialized() {
         validator.visit_instruction(authority, isi.right_instruction())
     }
 }
@@ -310,7 +340,7 @@ pub fn visit_sequence<V: Validate + ?Sized>(
     sequence: &SequenceBox,
 ) {
     for isi in sequence.instructions() {
-        if validator.verdict().is_ok() {
+        if validator.instruction_verdict().is_ok_or_uninitialized() {
             validator.visit_instruction(authority, isi);
         }
     }
@@ -340,13 +370,13 @@ pub mod peer {
         _isi: Unregister<Peer>,
     ) {
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if tokens::CanUnregisterAnyPeer.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(validator, "Can't unregister peer");
+        deny_instruction!(validator, "Can't unregister peer");
     }
 }
 
@@ -396,14 +426,14 @@ pub mod domain {
         let domain_id = isi.object_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         let can_unregister_domain_token = tokens::CanUnregisterDomain { domain_id };
         if can_unregister_domain_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(validator, "Can't unregister domain");
+        deny_instruction!(validator, "Can't unregister domain");
     }
 
     pub fn visit_set_domain_key_value<V: Validate + ?Sized>(
@@ -414,14 +444,14 @@ pub mod domain {
         let domain_id = isi.object_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         let can_set_key_value_in_domain_token = tokens::CanSetKeyValueInDomain { domain_id };
         if can_set_key_value_in_domain_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(validator, "Can't set key value in domain metadata");
+        deny_instruction!(validator, "Can't set key value in domain metadata");
     }
 
     pub fn visit_remove_domain_key_value<V: Validate + ?Sized>(
@@ -432,14 +462,14 @@ pub mod domain {
         let domain_id = isi.object_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         let can_remove_key_value_in_domain_token = tokens::CanRemoveKeyValueInDomain { domain_id };
         if can_remove_key_value_in_domain_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(validator, "Can't remove key value in domain metadata");
+        deny_instruction!(validator, "Can't remove key value in domain metadata");
     }
 }
 
@@ -510,18 +540,18 @@ pub mod account {
         let account_id = isi.object_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if account_id == *authority {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
         let can_unregister_user_account = tokens::CanUnregisterAccount { account_id };
         if can_unregister_user_account.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(validator, "Can't unregister another account");
+        deny_instruction!(validator, "Can't unregister another account");
     }
 
     pub fn visit_mint_account_public_key<V: Validate + ?Sized>(
@@ -532,17 +562,17 @@ pub mod account {
         let account_id = isi.destination_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if account_id == *authority {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         let can_mint_user_public_keys = tokens::CanMintUserPublicKeys { account_id };
         if can_mint_user_public_keys.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(validator, "Can't mint public keys of another account");
+        deny_instruction!(validator, "Can't mint public keys of another account");
     }
 
     pub fn visit_burn_account_public_key<V: Validate + ?Sized>(
@@ -553,17 +583,17 @@ pub mod account {
         let account_id = isi.destination_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if account_id == *authority {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         let can_burn_user_public_keys = tokens::CanBurnUserPublicKeys { account_id };
         if can_burn_user_public_keys.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(validator, "Can't burn public keys of another account");
+        deny_instruction!(validator, "Can't burn public keys of another account");
     }
 
     pub fn visit_mint_account_signature_check_condition<V: Validate + ?Sized>(
@@ -574,18 +604,18 @@ pub mod account {
         let account_id = isi.destination_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if account_id == *authority {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         let can_mint_user_signature_check_conditions_token =
             tokens::CanMintUserSignatureCheckConditions { account_id };
         if can_mint_user_signature_check_conditions_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't mint signature check conditions of another account"
         );
@@ -599,18 +629,18 @@ pub mod account {
         let account_id = isi.object_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if account_id == *authority {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         let can_set_key_value_in_user_account_token =
             tokens::CanSetKeyValueInUserAccount { account_id };
         if can_set_key_value_in_user_account_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't set value to the metadata of another account"
         );
@@ -624,18 +654,18 @@ pub mod account {
         let account_id = isi.object_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if account_id == *authority {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         let can_remove_key_value_in_user_account_token =
             tokens::CanRemoveKeyValueInUserAccount { account_id };
         if can_remove_key_value_in_user_account_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't remove value from the metadata of another account"
         );
@@ -694,21 +724,21 @@ pub mod asset_definition {
         let asset_definition_id = isi.object_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         match is_asset_definition_owner(&asset_definition_id, authority) {
-            Err(err) => deny!(validator, err),
-            Ok(true) => pass!(validator),
+            Err(err) => deny_instruction!(validator, err),
+            Ok(true) => pass_instruction!(validator),
             Ok(false) => {}
         }
         let can_unregister_asset_definition_token = tokens::CanUnregisterAssetDefinition {
             asset_definition_id,
         };
         if can_unregister_asset_definition_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't unregister assets registered by other accounts"
         );
@@ -723,18 +753,18 @@ pub mod asset_definition {
         let destination_id = isi.object;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if &source_id == authority {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         match is_asset_definition_owner(destination_id.id(), authority) {
-            Err(err) => deny!(validator, err),
-            Ok(true) => pass!(validator),
+            Err(err) => deny_instruction!(validator, err),
+            Ok(true) => pass_instruction!(validator),
             Ok(false) => {}
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't transfer asset definition of another account"
         );
@@ -748,21 +778,21 @@ pub mod asset_definition {
         let asset_definition_id = isi.object_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         match is_asset_definition_owner(&asset_definition_id, authority) {
-            Err(err) => deny!(validator, err),
-            Ok(true) => pass!(validator),
+            Err(err) => deny_instruction!(validator, err),
+            Ok(true) => pass_instruction!(validator),
             Ok(false) => {}
         }
         let can_set_key_value_in_asset_definition_token = tokens::CanSetKeyValueInAssetDefinition {
             asset_definition_id,
         };
         if can_set_key_value_in_asset_definition_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't set value to the asset definition metadata created by another account"
         );
@@ -776,11 +806,11 @@ pub mod asset_definition {
         let asset_definition_id = isi.object_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         match is_asset_definition_owner(&asset_definition_id, authority) {
-            Err(err) => deny!(validator, err),
-            Ok(true) => pass!(validator),
+            Err(err) => deny_instruction!(validator, err),
+            Ok(true) => pass_instruction!(validator),
             Ok(false) => {}
         }
         let can_remove_key_value_in_asset_definition_token =
@@ -788,10 +818,10 @@ pub mod asset_definition {
                 asset_definition_id,
             };
         if can_remove_key_value_in_asset_definition_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't remove value from the asset definition metadata created by another account"
         );
@@ -910,21 +940,21 @@ pub mod asset {
         let asset = isi.object;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         match asset_definition::is_asset_definition_owner(asset.id().definition_id(), authority) {
-            Err(err) => deny!(validator, err),
-            Ok(true) => pass!(validator),
+            Err(err) => deny_instruction!(validator, err),
+            Ok(true) => pass_instruction!(validator),
             Ok(false) => {}
         }
         let can_register_assets_with_definition_token = tokens::CanRegisterAssetsWithDefinition {
             asset_definition_id: asset.id().definition_id().clone(),
         };
         if can_register_assets_with_definition_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't register assets with definitions registered by other accounts"
         );
@@ -938,14 +968,14 @@ pub mod asset {
         let asset_id = isi.object_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if is_asset_owner(&asset_id, authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
-            Err(err) => deny!(validator, err),
-            Ok(true) => pass!(validator),
+            Err(err) => deny_instruction!(validator, err),
+            Ok(true) => pass_instruction!(validator),
             Ok(false) => {}
         }
         let can_unregister_assets_with_definition_token =
@@ -953,14 +983,14 @@ pub mod asset {
                 asset_definition_id: asset_id.definition_id().clone(),
             };
         if can_unregister_assets_with_definition_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         let can_unregister_user_asset_token = tokens::CanUnregisterUserAsset { asset_id };
         if can_unregister_user_asset_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(validator, "Can't unregister asset from another account");
+        deny_instruction!(validator, "Can't unregister asset from another account");
     }
 
     pub fn visit_mint_asset<V: Validate + ?Sized>(
@@ -971,21 +1001,21 @@ pub mod asset {
         let asset_id = isi.destination_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
-            Err(err) => deny!(validator, err),
-            Ok(true) => pass!(validator),
+            Err(err) => deny_instruction!(validator, err),
+            Ok(true) => pass_instruction!(validator),
             Ok(false) => {}
         }
         let can_mint_assets_with_definition_token = tokens::CanMintAssetsWithDefinition {
             asset_definition_id: asset_id.definition_id().clone(),
         };
         if can_mint_assets_with_definition_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't mint assets with definitions registered by other accounts"
         );
@@ -999,28 +1029,28 @@ pub mod asset {
         let asset_id = isi.destination_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if is_asset_owner(&asset_id, authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
-            Err(err) => deny!(validator, err),
-            Ok(true) => pass!(validator),
+            Err(err) => deny_instruction!(validator, err),
+            Ok(true) => pass_instruction!(validator),
             Ok(false) => {}
         }
         let can_burn_assets_with_definition_token = tokens::CanBurnAssetsWithDefinition {
             asset_definition_id: asset_id.definition_id().clone(),
         };
         if can_burn_assets_with_definition_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         let can_burn_user_asset_token = tokens::CanBurnUserAsset { asset_id };
         if can_burn_user_asset_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(validator, "Can't burn assets from another account");
+        deny_instruction!(validator, "Can't burn assets from another account");
     }
 
     pub fn visit_transfer_asset<V: Validate + ?Sized>(
@@ -1031,28 +1061,28 @@ pub mod asset {
         let asset_id = isi.source_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if is_asset_owner(&asset_id, authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
-            Err(err) => deny!(validator, err),
-            Ok(true) => pass!(validator),
+            Err(err) => deny_instruction!(validator, err),
+            Ok(true) => pass_instruction!(validator),
             Ok(false) => {}
         }
         let can_transfer_assets_with_definition_token = tokens::CanTransferAssetsWithDefinition {
             asset_definition_id: asset_id.definition_id().clone(),
         };
         if can_transfer_assets_with_definition_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         let can_transfer_user_asset_token = tokens::CanTransferUserAsset { asset_id };
         if can_transfer_user_asset_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(validator, "Can't transfer assets of another account");
+        deny_instruction!(validator, "Can't transfer assets of another account");
     }
 
     pub fn visit_set_asset_key_value<V: Validate + ?Sized>(
@@ -1063,18 +1093,18 @@ pub mod asset {
         let asset_id = isi.object_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if is_asset_owner(&asset_id, authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
         let can_set_key_value_in_user_asset_token = tokens::CanSetKeyValueInUserAsset { asset_id };
         if can_set_key_value_in_user_asset_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't set value to the asset metadata of another account"
         );
@@ -1088,18 +1118,18 @@ pub mod asset {
         let asset_id = isi.object_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if is_asset_owner(&asset_id, authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         let can_remove_key_value_in_user_asset_token =
             tokens::CanRemoveKeyValueInUserAsset { asset_id };
         if can_remove_key_value_in_user_asset_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't remove value from the asset metadata of another account"
         );
@@ -1141,7 +1171,7 @@ pub mod parameter {
         }
 
         impl ValidateGrantRevoke for CanCreateParameters {
-            fn validate_grant(&self, authority: &AccountId, _block_height: u64) -> Result {
+            fn validate_grant(&self, authority: &AccountId, _block_height: u64) -> Result<()> {
                 if CanGrantPermissionToCreateParameters.is_owned_by(authority) {
                     return Ok(());
                 }
@@ -1152,7 +1182,7 @@ pub mod parameter {
                     ))
             }
 
-            fn validate_revoke(&self, authority: &AccountId, _block_height: u64) -> Result {
+            fn validate_revoke(&self, authority: &AccountId, _block_height: u64) -> Result<()> {
                 if CanGrantPermissionToCreateParameters.is_owned_by(authority) {
                     return Ok(());
                 }
@@ -1182,7 +1212,7 @@ pub mod parameter {
         }
 
         impl ValidateGrantRevoke for CanSetParameters {
-            fn validate_grant(&self, authority: &AccountId, _block_height: u64) -> Result {
+            fn validate_grant(&self, authority: &AccountId, _block_height: u64) -> Result<()> {
                 if CanGrantPermissionToSetParameters.is_owned_by(authority) {
                     return Ok(());
                 }
@@ -1193,7 +1223,7 @@ pub mod parameter {
                     ))
             }
 
-            fn validate_revoke(&self, authority: &AccountId, _block_height: u64) -> Result {
+            fn validate_revoke(&self, authority: &AccountId, _block_height: u64) -> Result<()> {
                 if CanRevokePermissionToSetParameters.is_owned_by(authority) {
                     return Ok(());
                 }
@@ -1213,13 +1243,13 @@ pub mod parameter {
         _isi: NewParameter,
     ) {
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if tokens::CanCreateParameters.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't create new configuration parameters outside genesis without permission"
         );
@@ -1232,13 +1262,13 @@ pub mod parameter {
         _isi: SetParameter,
     ) {
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if tokens::CanSetParameters.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't set configuration parameters without permission"
         );
@@ -1269,7 +1299,7 @@ pub mod role {
             let find_role_query_res = match FindRoleByRoleId::new(role_id).execute() {
                 Ok(res) => res,
                 Err(error) => {
-                    deny!($validator, error);
+                    deny_instruction!($validator, error);
                 }
             };
             let role = Role::try_from(find_role_query_res)
@@ -1291,7 +1321,7 @@ pub mod role {
                                     $validator.block_height(),
                                 )
                             {
-                                deny!($validator, error);
+                                deny_instruction!($validator, error);
                             }
 
                             // Continue because token can correspond to only one concrete token
@@ -1301,13 +1331,13 @@ pub mod role {
                 }
 
                 map_all_crate_tokens!(visit_internal);
-                deny!(
+                deny_instruction!(
                     $validator,
                     "Incorrect validator implementation: Role contains unknown permission tokens"
                 )
             }
 
-            pass!($validator);
+            pass_instruction!($validator);
         };
     }
 
@@ -1338,7 +1368,7 @@ pub mod role {
         }
 
         if !unknown_tokens.is_empty() {
-            deny!(
+            deny_instruction!(
                 validator,
                 ValidationFail::NotPermitted(format!(
                     "{unknown_tokens:?}: Unrecognised permission tokens"
@@ -1346,7 +1376,7 @@ pub mod role {
             );
         }
 
-        pass!(validator);
+        pass_instruction!(validator);
     }
 
     #[allow(clippy::needless_pass_by_value)]
@@ -1356,13 +1386,13 @@ pub mod role {
         _isi: Unregister<Role>,
     ) {
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if tokens::CanUnregisterAnyRole.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(validator, "Can't unregister role");
+        deny_instruction!(validator, "Can't unregister role");
     }
 
     pub fn visit_grant_account_role<V: Validate + ?Sized>(
@@ -1447,19 +1477,19 @@ pub mod trigger {
         let trigger_id = isi.object_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         match is_trigger_owner(trigger_id.clone(), authority) {
-            Err(err) => deny!(validator, err),
-            Ok(true) => pass!(validator),
+            Err(err) => deny_instruction!(validator, err),
+            Ok(true) => pass_instruction!(validator),
             Ok(false) => {}
         }
         let can_unregister_user_trigger_token = tokens::CanUnregisterUserTrigger { trigger_id };
         if can_unregister_user_trigger_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't unregister trigger owned by another account"
         );
@@ -1473,19 +1503,19 @@ pub mod trigger {
         let trigger_id = isi.destination_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         match is_trigger_owner(trigger_id.clone(), authority) {
-            Err(err) => deny!(validator, err),
-            Ok(true) => pass!(validator),
+            Err(err) => deny_instruction!(validator, err),
+            Ok(true) => pass_instruction!(validator),
             Ok(false) => {}
         }
         let can_mint_user_trigger_token = tokens::CanMintUserTrigger { trigger_id };
         if can_mint_user_trigger_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(
+        deny_instruction!(
             validator,
             "Can't mint execution count for trigger owned by another account"
         );
@@ -1499,19 +1529,19 @@ pub mod trigger {
         let trigger_id = isi.trigger_id;
 
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         match is_trigger_owner(trigger_id.clone(), authority) {
-            Err(err) => deny!(validator, err),
-            Ok(true) => pass!(validator),
+            Err(err) => deny_instruction!(validator, err),
+            Ok(true) => pass_instruction!(validator),
             Ok(false) => {}
         }
         let can_execute_trigger_token = tokens::CanExecuteUserTrigger { trigger_id };
         if can_execute_trigger_token.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(validator, "Can't execute trigger owned by another account");
+        deny_instruction!(validator, "Can't execute trigger owned by another account");
     }
 }
 
@@ -1526,24 +1556,24 @@ pub mod permission_token {
                 ($token_ty:ty) => {
                     if let Ok(token) = <$token_ty as TryFrom<_>>::try_from(token.clone()) {
                         if is_genesis($validator) {
-                            pass!($validator);
+                            pass_instruction!($validator);
                         }
                         if let Err(error) = <$token_ty as permission::ValidateGrantRevoke>::$method(
                             &token,
                             $authority,
                             $validator.block_height(),
                         ) {
-                            deny!($validator, error);
+                            deny_instruction!($validator, error);
                         }
 
-                        pass!($validator);
+                        pass_instruction!($validator);
                     }
                 };
             }
 
             map_all_crate_tokens!(visit_internal);
 
-            deny!(
+            deny_instruction!(
                 $validator,
                 ValidationFail::NotPermitted(format!("{token:?}: Unknown permission token"))
             );
@@ -1591,13 +1621,33 @@ pub mod validator {
         _isi: Upgrade<data_model::validator::Validator>,
     ) {
         if is_genesis(validator) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
         if tokens::CanUpgradeValidator.is_owned_by(authority) {
-            pass!(validator);
+            pass_instruction!(validator);
         }
 
-        deny!(validator, "Can't upgrade validator");
+        deny_instruction!(validator, "Can't upgrade validator");
+    }
+}
+
+/// # Panics
+///
+/// Panics if [`validator.visit_query()`](Visit::visit_query) puts `Initialized(Ok(_))` verdict
+/// into [`query_verdict()`](Validator::query_verdict) because that means that query was executed
+/// which should be done by this function only.
+pub fn visit_retrieve<V: Validate + ?Sized>(
+    validator: &mut V,
+    authority: &AccountId,
+    isi: &Retrieve,
+) {
+    let query = isi.query();
+    validator.visit_query(authority, query);
+
+    match validator.query_verdict() {
+        Uninitialized => validator.set_instruction_verdict(query.execute().map(Some)),
+        Initialized(Err(err)) => validator.set_instruction_verdict(Err(err.clone())),
+        Initialized(Ok(_)) => dbg_panic("`visit_query()` should not execute query"),
     }
 }
 

@@ -25,6 +25,18 @@ pub enum LazyValue<'a> {
     Iter(Box<dyn Iterator<Item = Value> + 'a>),
 }
 
+impl LazyValue<'_> {
+    /// Compute the lazy value.
+    ///
+    /// Returns the [`Value`] if it's already computed, or collects the iterator into [`Value::Vec`].
+    pub fn collect(self) -> Value {
+        match self {
+            Self::Value(value) => value,
+            Self::Iter(iter) => Value::Vec(iter.collect()),
+        }
+    }
+}
+
 impl Lazy for Value {
     type Lazy<'a> = LazyValue<'a>;
 }

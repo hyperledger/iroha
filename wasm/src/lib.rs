@@ -24,7 +24,7 @@ use data_model::{
 use debug::DebugExpectExt as _;
 pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::main;
-use parity_scale_codec::{DecodeAll, Encode};
+use parity_scale_codec::{Decode, DecodeAll, Encode};
 
 pub mod debug;
 pub mod log;
@@ -58,7 +58,7 @@ pub trait ExecuteOnHost: Instruction {
     ///
     /// - If instruction validation failed
     /// - If instruction execution failed
-    fn execute(&self) -> Result<(), ValidationFail>;
+    fn execute(&self) -> Result<Self::Output, ValidationFail>;
 }
 
 /// Implementing queries can be executed on the host
@@ -73,22 +73,31 @@ pub trait QueryHost: Query {
 }
 
 // TODO: Remove the Clone bound. It can be done by custom serialization to InstructionBox
-impl<I: Instruction + Into<InstructionBox> + Encode + Clone> ExecuteOnHost for I {
-    fn execute(&self) -> Result<(), ValidationFail> {
+impl<I: Instruction + Into<InstructionBox> + Encode + Clone> ExecuteOnHost for I
+where
+    I::Output: Decode,
+{
+    fn execute(&self) -> Result<I::Output, ValidationFail> {
         #[cfg(not(test))]
         use host::execute_instruction as host_execute_instruction;
+        use iroha_data_model::isi::TryFromValueOpt as _;
         #[cfg(test)]
         use tests::_iroha_wasm_execute_instruction_mock as host_execute_instruction;
 
         // TODO: Redundant conversion into `InstructionBox`
         let isi_box: InstructionBox = self.clone().into();
         // Safety: `host_execute_instruction` doesn't take ownership of it's pointer parameter
-        unsafe {
+        let res: Result<Option<Value>, ValidationFail> = unsafe {
             decode_with_length_prefix_from_raw(encode_and_execute(
                 &isi_box,
                 host_execute_instruction,
             ))
-        }
+        };
+        res.and_then(|value_opt| {
+            I::Output::try_from_value_opt(value_opt).map_err(|err| {
+                ValidationFail::InternalError(format!("Failed to decode instruction output: {err}"))
+            })
+        })
     }
 }
 

@@ -6,7 +6,11 @@ use iroha_data_model::{
     isi::InstructionBox,
     query::QueryBox,
     transaction::{Executable, VersionedSignedTransaction},
-    validator as data_model_validator, ValidationFail,
+    validator::{
+        self as data_model_validator, InstructionValidationResult, QueryValidationResult,
+        TransactionValidationResult,
+    },
+    ValidationFail,
 };
 use iroha_logger::trace;
 use serde::{
@@ -124,7 +128,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Validator> {
 }
 
 impl Validator {
-    /// Validate [`VersionedSignedTransaction`].
+    /// Validate and execute [`VersionedSignedTransaction`].
     ///
     /// # Errors
     ///
@@ -136,19 +140,26 @@ impl Validator {
         wsv: &mut WorldStateView,
         authority: &AccountId,
         transaction: VersionedSignedTransaction,
-    ) -> Result<(), ValidationFail> {
+    ) -> TransactionValidationResult {
         trace!("Running transaction validation");
 
         match self {
             Self::Initial => {
                 let (_authority, Executable::Instructions(instructions)) = transaction.into()
                 else {
-                    return Ok(());
+                    return Ok(None);
                 };
-                for isi in instructions {
-                    isi.execute(authority, wsv)?
+
+                let mut iter = instructions.into_iter().peekable();
+                while let Some(isi) = iter.next() {
+                    let is_last = iter.peek().is_none();
+                    if is_last {
+                        return isi.execute(authority, wsv).map(Some).map_err(Into::into);
+                    }
+                    isi.execute(authority, wsv)?;
                 }
-                Ok(())
+
+                Ok(None)
             }
             Self::UserProvided(UserProvidedValidator(loaded_validator)) => {
                 let runtime =
@@ -167,7 +178,7 @@ impl Validator {
         }
     }
 
-    /// Validate [`InstructionBox`].
+    /// Validate and execute [`InstructionBox`].
     ///
     /// # Errors
     ///
@@ -179,7 +190,7 @@ impl Validator {
         wsv: &mut WorldStateView,
         authority: &AccountId,
         instruction: InstructionBox,
-    ) -> Result<(), ValidationFail> {
+    ) -> InstructionValidationResult {
         trace!("Running instruction validation");
 
         match self {
@@ -213,7 +224,7 @@ impl Validator {
         wsv: &WorldStateView,
         authority: &AccountId,
         query: QueryBox,
-    ) -> Result<(), ValidationFail> {
+    ) -> QueryValidationResult {
         trace!("Running query validation");
 
         match self {
