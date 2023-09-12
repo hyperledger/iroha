@@ -1,11 +1,11 @@
 #![allow(clippy::too_many_lines)]
-use proc_macro::TokenStream;
-use proc_macro_error::abort;
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{
+use syn2::{
     parse::{Parse, ParseStream},
     parse_quote,
     punctuated::Punctuated,
+    spanned::Spanned,
     Attribute, Generics, Ident, Token, Type, Variant, Visibility,
 };
 
@@ -24,15 +24,15 @@ pub struct PartiallyTaggedVariant {
 }
 
 impl Parse for PartiallyTaggedEnum {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
+    fn parse(input: ParseStream) -> syn2::Result<Self> {
         let mut attrs = input.call(Attribute::parse_outer)?;
         let _vis = input.parse::<Visibility>()?;
         let _enum_token = input.parse::<Token![enum]>()?;
         let ident = input.parse::<Ident>()?;
         let generics = input.parse::<Generics>()?;
         let content;
-        let _brace_token = syn::braced!(content in input);
-        let variants = content.parse_terminated(PartiallyTaggedVariant::parse)?;
+        let _brace_token = syn2::braced!(content in input);
+        let variants = content.parse_terminated(PartiallyTaggedVariant::parse, Token![,])?;
         attrs.retain(is_serde_attr);
         Ok(PartiallyTaggedEnum {
             attrs,
@@ -44,7 +44,7 @@ impl Parse for PartiallyTaggedEnum {
 }
 
 impl Parse for PartiallyTaggedVariant {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
+    fn parse(input: ParseStream) -> syn2::Result<Self> {
         let variant = input.parse::<Variant>()?;
         let Variant {
             ident,
@@ -53,12 +53,17 @@ impl Parse for PartiallyTaggedVariant {
             ..
         } = variant;
         let field = match fields {
-            syn::Fields::Unnamed(fields) if fields.unnamed.len() == 1 => fields
+            syn2::Fields::Unnamed(fields) if fields.unnamed.len() == 1 => fields
                 .unnamed
                 .into_iter()
                 .next()
                 .expect("Guaranteed to have exactly one field"),
-            fields => abort!(fields, "Only supports tuple variants with single field"),
+            fields => {
+                return Err(syn2::Error::new(
+                    fields.span(),
+                    "Only supports tuple variants with single field",
+                ))
+            }
         };
         let ty = field.ty;
         let is_untagged = attrs.iter().any(is_untagged_attr);
@@ -104,7 +109,7 @@ fn is_untagged_attr(attr: &Attribute) -> bool {
 
 /// Check if `#[serde...]` attribute
 fn is_serde_attr(attr: &Attribute) -> bool {
-    attr.path
+    attr.path()
         .get_ident()
         .map_or_else(|| false, |ident| ident.to_string().eq("serde"))
 }
@@ -117,7 +122,7 @@ pub fn impl_partially_tagged_serialize(enum_: &PartiallyTaggedEnum) -> TokenStre
     let (variants_ident, variants_ty, variants_attrs) = variants_to_tuple(enum_.variants());
     let (untagged_variants_ident, untagged_variants_ty, untagged_variants_attrs) =
         variants_to_tuple(enum_.untagged_variants());
-    let serialize_trait_bound: syn::TypeParamBound = parse_quote!(::serde::Serialize);
+    let serialize_trait_bound: syn2::TypeParamBound = parse_quote!(::serde::Serialize);
     let mut generics = enum_.generics.clone();
     generics
         .type_params_mut()
@@ -177,7 +182,6 @@ pub fn impl_partially_tagged_serialize(enum_: &PartiallyTaggedEnum) -> TokenStre
             }
         }
     }
-    .into()
 }
 
 pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenStream {
@@ -190,7 +194,7 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
     let (variants_ident, variants_ty, variants_attrs) = variants_to_tuple(enum_.variants());
     let (untagged_variants_ident, untagged_variants_ty, untagged_variants_attrs) =
         variants_to_tuple(enum_.untagged_variants());
-    let deserialize_trait_bound: syn::TypeParamBound = parse_quote!(::serde::de::DeserializeOwned);
+    let deserialize_trait_bound: syn2::TypeParamBound = parse_quote!(::serde::de::DeserializeOwned);
     let variants_ty_deserialize_bound = variants_ty
         .iter()
         .map(|ty| quote!(#ty: #deserialize_trait_bound).to_string())
@@ -343,5 +347,4 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
             }
         }
     }
-    .into()
 }

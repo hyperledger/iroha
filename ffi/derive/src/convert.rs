@@ -4,21 +4,17 @@ use std::fmt::{Display, Formatter};
 use darling::{
     ast::Style, util::SpannedValue, FromAttributes, FromDeriveInput, FromField, FromVariant,
 };
+use iroha_macro_utils::{parse_single_list_attr_opt, Emitter};
 use manyhow::{emit, error_message};
 use proc_macro2::{Delimiter, Span, TokenStream};
 use quote::quote;
-use syn2::{
-    parse::ParseStream, spanned::Spanned as _, visit::Visit as _, Attribute, Field, Ident, Meta,
-};
+use syn2::{parse::ParseStream, spanned::Spanned as _, visit::Visit as _, Attribute, Field, Ident};
 
-use crate::{
-    attr_parse::{
-        derive::DeriveAttrs,
-        doc::DocAttrs,
-        getset::{GetSetFieldAttrs, GetSetStructAttrs},
-        repr::{Repr, ReprKind, ReprPrimitive},
-    },
-    emitter::Emitter,
+use crate::attr_parse::{
+    derive::DeriveAttrs,
+    doc::DocAttrs,
+    getset::{GetSetFieldAttrs, GetSetStructAttrs},
+    repr::{Repr, ReprKind, ReprPrimitive},
 };
 
 #[derive(Debug)]
@@ -135,47 +131,7 @@ impl syn2::parse::Parse for FfiTypeKindFieldAttribute {
     }
 }
 
-fn parse_ffi_type_attr<T: syn2::parse::Parse>(attrs: &[Attribute]) -> darling::Result<Option<T>> {
-    let mut accumulator = darling::error::Accumulator::default();
-
-    // first, ensure there is only one "ffi_type" attribute (we don't support multiple)
-    let ffi_type_attrs = attrs
-        .iter()
-        .filter(|a| a.path().is_ident("ffi_type"))
-        .collect::<Vec<_>>();
-    let attr = match *ffi_type_attrs.as_slice() {
-        [] => {
-            return accumulator.finish_with(None);
-        }
-        [attr] => attr,
-        [attr, ref tail @ ..] => {
-            // allow parsing to proceed further to collect more errors
-            accumulator.push(
-                darling::Error::custom("Only one #[ffi_type] attribute is allowed!").with_span(
-                    &tail
-                        .iter()
-                        .map(syn2::spanned::Spanned::span)
-                        .reduce(|a, b| a.join(b).unwrap())
-                        .unwrap(),
-                ),
-            );
-            attr
-        }
-    };
-
-    let mut kind = None;
-
-    match &attr.meta {
-        Meta::Path(_) | Meta::NameValue(_) => accumulator.push(darling::Error::custom(
-            "Expected #[ffi_type(...)] attribute to be a list",
-        )),
-        Meta::List(list) => {
-            kind = accumulator.handle(syn2::parse2(list.tokens.clone()).map_err(Into::into));
-        }
-    }
-
-    accumulator.finish_with(kind)
-}
+const FFI_TYPE_ATTR: &str = "ffi_type";
 
 pub struct FfiTypeAttr {
     pub kind: Option<FfiTypeKindAttribute>,
@@ -183,7 +139,7 @@ pub struct FfiTypeAttr {
 
 impl FromAttributes for FfiTypeAttr {
     fn from_attributes(attrs: &[Attribute]) -> darling::Result<Self> {
-        parse_ffi_type_attr(attrs).map(|kind| Self { kind })
+        parse_single_list_attr_opt(FFI_TYPE_ATTR, attrs).map(|kind| Self { kind })
     }
 }
 
@@ -193,7 +149,7 @@ pub struct FfiTypeFieldAttr {
 
 impl FromAttributes for FfiTypeFieldAttr {
     fn from_attributes(attrs: &[Attribute]) -> darling::Result<Self> {
-        parse_ffi_type_attr(attrs).map(|kind| Self { kind })
+        parse_single_list_attr_opt(FFI_TYPE_ATTR, attrs).map(|kind| Self { kind })
     }
 }
 

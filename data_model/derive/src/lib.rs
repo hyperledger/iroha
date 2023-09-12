@@ -7,8 +7,9 @@ mod id;
 mod model;
 mod partially_tagged;
 
-use proc_macro::TokenStream;
-use syn::parse_macro_input;
+use iroha_macro_utils::Emitter;
+use manyhow::{emit, manyhow, Result};
+use proc_macro2::TokenStream;
 
 /// Macro which controls how to export item's API. The behaviour is controlled with `transparent_api`
 /// feature flag. If the flag is active, item's public fields will be exposed as public, however, if
@@ -80,19 +81,37 @@ use syn::parse_macro_input;
 /// ```
 ///
 /// It assumes that the derive is imported and referred to by its original name.
+#[manyhow]
 #[proc_macro_attribute]
-#[proc_macro_error::proc_macro_error]
-pub fn model(_attr: TokenStream, input: TokenStream) -> TokenStream {
-    model::impl_model(&parse_macro_input!(input)).into()
+pub fn model(attr: TokenStream, input: TokenStream) -> TokenStream {
+    let mut emitter = Emitter::new();
+
+    if !attr.is_empty() {
+        emit!(emitter, attr, "This attribute does not take any arguments");
+    }
+
+    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+        return emitter.finish_token_stream();
+    };
+
+    let result = model::impl_model(&mut emitter, &input);
+
+    emitter.finish_token_stream_with(result)
 }
 
 /// Same as [`model`] macro, but only processes a single item.
 ///
 /// You should prefer using [`model`] macro over this one.
+#[manyhow]
 #[proc_macro]
-#[proc_macro_error::proc_macro_error]
 pub fn model_single(input: TokenStream) -> TokenStream {
-    model::process_item(parse_macro_input!(input)).into()
+    let mut emitter = Emitter::new();
+
+    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+        return emitter.finish_token_stream();
+    };
+
+    emitter.finish_token_stream_with(model::process_item(input))
 }
 
 /// Derive macro for `Identifiable` trait which also automatically implements [`Ord`], [`Eq`],
@@ -209,10 +228,12 @@ pub fn model_single(input: TokenStream) -> TokenStream {
 /// }
 /// ```
 ///
-#[proc_macro_error::proc_macro_error]
+#[manyhow]
 #[proc_macro_derive(IdEqOrdHash, attributes(id, opaque))]
-pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
-    id::impl_id(&parse_macro_input!(input)).into()
+pub fn id_eq_ord_hash(input: TokenStream) -> Result<TokenStream> {
+    let input = syn2::parse2(input)?;
+
+    id::impl_id(&input)
 }
 
 /// [`Filter`] is used for code generation of `...Filter` structs and `...EventFilter` enums, as well as
@@ -377,10 +398,12 @@ pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// It assumes that the derive is imported and referred to by its original name.
+#[manyhow]
 #[proc_macro_derive(Filter)]
-pub fn filter_derive(input: TokenStream) -> TokenStream {
-    let event = parse_macro_input!(input as filter::EventEnum);
-    filter::impl_filter(&event)
+pub fn filter_derive(input: TokenStream) -> Result<TokenStream> {
+    let input = syn2::parse2(input)?;
+
+    Ok(filter::impl_filter(&input))
 }
 
 /// Derive `::serde::Serialize` trait for `enum` with possibility to avoid tags for selected variants
@@ -409,10 +432,12 @@ pub fn filter_derive(input: TokenStream) -> TokenStream {
 ///     &serde_json::to_string(&Outer::A(42)).expect("Failed to serialize"), r#"{"A":42}"#
 /// );
 /// ```
-#[proc_macro_error::proc_macro_error]
+#[manyhow]
 #[proc_macro_derive(PartiallyTaggedSerialize, attributes(serde_partially_tagged, serde))]
-pub fn partially_tagged_serialize_derive(input: TokenStream) -> TokenStream {
-    partially_tagged::impl_partially_tagged_serialize(&parse_macro_input!(input))
+pub fn partially_tagged_serialize_derive(input: TokenStream) -> Result<TokenStream> {
+    let input = syn2::parse2(input)?;
+
+    Ok(partially_tagged::impl_partially_tagged_serialize(&input))
 }
 
 /// Derive `::serde::Deserialize` trait for `enum` with possibility to avoid tags for selected variants
@@ -470,10 +495,12 @@ pub fn partially_tagged_serialize_derive(input: TokenStream) -> TokenStream {
 ///     serde_json::from_str::<Outer>(r#"{"B":42}"#).expect("Failed to deserialize"), Outer::Inner1(Inner::B(42))
 /// );
 /// ```
-#[proc_macro_error::proc_macro_error]
+#[manyhow]
 #[proc_macro_derive(PartiallyTaggedDeserialize, attributes(serde_partially_tagged, serde))]
-pub fn partially_tagged_deserialize_derive(input: TokenStream) -> TokenStream {
-    partially_tagged::impl_partially_tagged_deserialize(&parse_macro_input!(input))
+pub fn partially_tagged_deserialize_derive(input: TokenStream) -> Result<TokenStream> {
+    let input = syn2::parse2(input)?;
+
+    Ok(partially_tagged::impl_partially_tagged_deserialize(&input))
 }
 
 /// Derive macro for `HasOrigin`.
@@ -559,8 +586,10 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> TokenStream {
 /// assert_eq!(&layer_id, layer_sub_layer_event.origin_id());
 /// assert_eq!(&sub_layer_id, sub_layer_created_event.origin_id());
 /// ```
-#[proc_macro_error::proc_macro_error]
+#[manyhow]
 #[proc_macro_derive(HasOrigin, attributes(has_origin))]
-pub fn has_origin_derive(input: TokenStream) -> TokenStream {
-    has_origin::impl_has_origin(&parse_macro_input!(input))
+pub fn has_origin_derive(input: TokenStream) -> Result<TokenStream> {
+    let input = syn2::parse2(input)?;
+
+    has_origin::impl_has_origin(&input)
 }

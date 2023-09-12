@@ -2,6 +2,7 @@
 //!
 //! It also defines descriptors - types that are used for the codegen step
 
+use iroha_macro_utils::Emitter;
 use manyhow::emit;
 use proc_macro2::Span;
 use syn2::{
@@ -10,8 +11,6 @@ use syn2::{
     visit_mut::VisitMut,
     Attribute, Ident, Path, Type, Visibility,
 };
-
-use crate::emitter::Emitter;
 
 pub struct Arg {
     self_ty: Option<Path>,

@@ -3,6 +3,7 @@
 
 use darling::FromDeriveInput;
 use impl_visitor::{FnDescriptor, ImplDescriptor};
+use iroha_macro_utils::Emitter;
 use manyhow::{emit, manyhow};
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -12,12 +13,10 @@ use wrapper::wrap_method;
 use crate::{
     attr_parse::derive::Derive,
     convert::{derive_ffi_type, FfiTypeData, FfiTypeInput},
-    emitter::Emitter,
 };
 
 mod attr_parse;
 mod convert;
-mod emitter;
 mod ffi_fn;
 mod getset_gen;
 mod impl_visitor;

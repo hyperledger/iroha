@@ -1,33 +1,16 @@
 #![allow(clippy::str_to_string, clippy::mixed_read_write_in_expression)]
 
+use manyhow::{bail, Result};
 use proc_macro2::TokenStream;
-use proc_macro_error::abort;
 use quote::quote;
-use syn::parse_quote;
+use syn2::parse_quote;
 
-fn derive_identifiable(input: &syn::ItemStruct) -> TokenStream {
+pub fn impl_id(input: &syn2::ItemStruct) -> Result<TokenStream> {
     let name = &input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let (id_type, id_expr) = get_id_type(input);
+    let identifiable_derive = derive_identifiable(input)?;
 
-    quote! {
-        impl #impl_generics Identifiable for #name #ty_generics #where_clause {
-            type Id = #id_type;
-
-            #[inline]
-            fn id(&self) -> &Self::Id {
-                #id_expr
-            }
-        }
-    }
-}
-
-pub fn impl_id(input: &syn::ItemStruct) -> TokenStream {
-    let name = &input.ident;
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let identifiable_derive = derive_identifiable(input);
-
-    quote! {
+    Ok(quote! {
         #identifiable_derive
 
         impl #impl_generics ::core::cmp::PartialOrd for #name #ty_generics #where_clause where Self: Identifiable {
@@ -55,65 +38,82 @@ pub fn impl_id(input: &syn::ItemStruct) -> TokenStream {
                 self.id().hash(state);
             }
         }
-    }
+    })
 }
 
-fn get_id_type(input: &syn::ItemStruct) -> (TokenStream, TokenStream) {
+fn derive_identifiable(input: &syn2::ItemStruct) -> Result<TokenStream> {
+    let name = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let (id_type, id_expr) = get_id_type(input)?;
+
+    Ok(quote! {
+        impl #impl_generics Identifiable for #name #ty_generics #where_clause {
+            type Id = #id_type;
+
+            #[inline]
+            fn id(&self) -> &Self::Id {
+                #id_expr
+            }
+        }
+    })
+}
+
+fn get_id_type(input: &syn2::ItemStruct) -> Result<(TokenStream, TokenStream)> {
     match &input.fields {
-        syn::Fields::Named(fields) => {
+        syn2::Fields::Named(fields) => {
             for field in &fields.named {
                 let (field_name, field_ty) = (&field.ident, &field.ty);
 
                 if is_identifier(&field.attrs) {
-                    return (quote! {#field_ty}, quote! {&self.#field_name});
+                    return Ok((quote! {#field_ty}, quote! {&self.#field_name}));
                 }
                 if is_transparent(&field.attrs) {
-                    return (
+                    return Ok((
                         quote! {<#field_ty as Identifiable>::Id},
                         quote! {Identifiable::id(&self.#field_name)},
-                    );
+                    ));
                 }
             }
         }
-        syn::Fields::Unnamed(fields) => {
+        syn2::Fields::Unnamed(fields) => {
             for (i, field) in fields.unnamed.iter().enumerate() {
-                let (field_id, field_ty): (syn::Index, _) = (i.into(), &field.ty);
+                let (field_id, field_ty): (syn2::Index, _) = (i.into(), &field.ty);
 
                 if is_identifier(&field.attrs) {
-                    return (quote! {#field_ty}, quote! {&self.#field_id});
+                    return Ok((quote! {#field_ty}, quote! {&self.#field_id}));
                 }
                 if is_transparent(&field.attrs) {
-                    return (
+                    return Ok((
                         quote! {<#field_ty as Identifiable>::Id},
                         quote! {Identifiable::id(&self.#field_id)},
-                    );
+                    ));
                 }
             }
         }
-        syn::Fields::Unit => {}
+        syn2::Fields::Unit => {}
     }
 
     match &input.fields {
-        syn::Fields::Named(named) => {
+        syn2::Fields::Named(named) => {
             for field in &named.named {
                 let field_ty = &field.ty;
 
                 if field.ident.as_ref().expect("Field must be named") == "id" {
-                    return (quote! {#field_ty}, quote! {&self.id});
+                    return Ok((quote! {#field_ty}, quote! {&self.id}));
                 }
             }
         }
-        syn::Fields::Unnamed(_) | syn::Fields::Unit => {}
+        syn2::Fields::Unnamed(_) | syn2::Fields::Unit => {}
     }
 
-    abort!(input, "Identifier not found")
+    bail!(input, "Identifier not found")
 }
 
-fn is_identifier(attrs: &[syn::Attribute]) -> bool {
+fn is_identifier(attrs: &[syn2::Attribute]) -> bool {
     attrs.iter().any(|attr| attr == &parse_quote! {#[id]})
 }
 
-fn is_transparent(attrs: &[syn::Attribute]) -> bool {
+fn is_transparent(attrs: &[syn2::Attribute]) -> bool {
     attrs
         .iter()
         .any(|attr| attr == &parse_quote! {#[id(transparent)]})
