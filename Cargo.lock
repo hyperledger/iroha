@@ -3172,14 +3172,15 @@ dependencies = [
 name = "iroha_data_model_derive"
 version = "2.0.0-pre-rc.19"
 dependencies = [
+ "darling",
  "iroha_data_model",
  "iroha_macro_utils",
- "proc-macro-error",
+ "manyhow",
  "proc-macro2",
  "quote",
  "serde",
  "serde_json",
- "syn 1.0.109",
+ "syn 2.0.26",
  "trybuild",
 ]
 
@@ -3226,9 +3227,9 @@ name = "iroha_ffi_derive"
 version = "2.0.0-pre-rc.19"
 dependencies = [
  "darling",
- "drop_bomb",
  "getset",
  "iroha_ffi",
+ "iroha_macro_utils",
  "manyhow",
  "parse-display",
  "proc-macro2",
@@ -3311,10 +3312,13 @@ dependencies = [
 name = "iroha_macro_utils"
 version = "2.0.0-pre-rc.19"
 dependencies = [
- "proc-macro-error",
+ "darling",
+ "drop_bomb",
+ "manyhow",
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+ "syn 2.0.26",
 ]
 
 [[package]]
