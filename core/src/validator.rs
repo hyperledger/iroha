@@ -1,6 +1,7 @@
 //! Structures and impls related to *runtime* `Validator`s processing.
 
 use derive_more::DebugCustom;
+use eyre::eyre;
 use iroha_data_model::{
     account::AccountId,
     isi::InstructionBox,
@@ -31,10 +32,12 @@ impl From<wasm::error::Error> for ValidationFail {
 
                 match call_error {
                     ExecutionLimitsExceeded(_) => Self::TooComplex,
-                    HostExecution(error) | Other(error) => Self::InternalError(error.to_string()),
+                    HostExecution(error) | Other(error) => {
+                        Self::InternalError(format!("{:#}", eyre!(Box::new(error))))
+                    }
                 }
             }
-            _ => Self::InternalError(err.to_string()),
+            _ => Self::InternalError(format!("{:#}", eyre!(Box::new(err)))),
         }
     }
 }
