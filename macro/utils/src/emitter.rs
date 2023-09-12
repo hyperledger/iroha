@@ -1,8 +1,9 @@
+//! A wrapper type around [`manyhow::Emitter`] that provides a more ergonomic API.
+
 use drop_bomb::DropBomb;
 use manyhow::ToTokensError;
 use proc_macro2::TokenStream;
 
-// TODO: move this type to `derive-primitives` crate
 /// A wrapper type around [`manyhow::Emitter`] that provides a more ergonomic API.
 ///
 /// This type is used to accumulate errors during parsing and code generation.

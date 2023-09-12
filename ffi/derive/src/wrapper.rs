@@ -1,3 +1,4 @@
+use iroha_macro_utils::Emitter;
 use manyhow::emit;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
@@ -6,7 +7,6 @@ use syn2::{parse_quote, visit_mut::VisitMut, Attribute, Ident, Type};
 use crate::{
     attr_parse::derive::{Derive, RustcDerive},
     convert::FfiTypeInput,
-    emitter::Emitter,
     ffi_fn,
     getset_gen::{gen_resolve_type, gen_store_name},
     impl_visitor::{unwrap_result_type, Arg, FnDescriptor, ImplDescriptor, TypeImplTraitResolver},
