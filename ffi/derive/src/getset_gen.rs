@@ -1,6 +1,7 @@
 use std::default::Default;
 
 use darling::ast::Style;
+use iroha_macro_utils::Emitter;
 use manyhow::emit;
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -13,7 +14,6 @@ use crate::{
         getset::{GetSetGenMode, GetSetStructAttrs},
     },
     convert::{FfiTypeField, FfiTypeFields},
-    emitter::Emitter,
     impl_visitor::{unwrap_result_type, Arg, FnDescriptor},
 };
 

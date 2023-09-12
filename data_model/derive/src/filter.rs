@@ -4,9 +4,9 @@
     clippy::arithmetic_side_effects
 )]
 
-use proc_macro::TokenStream;
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{
+use syn2::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     Attribute, Generics, Ident, Token, Variant, Visibility,
@@ -113,15 +113,15 @@ impl EventEnum {
 }
 
 impl Parse for EventEnum {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
+    fn parse(input: ParseStream) -> syn2::Result<Self> {
         let _attrs = input.call(Attribute::parse_outer)?;
         let vis = input.parse()?;
         let _enum_token = input.parse::<Token![enum]>()?;
         let ident = input.parse::<Ident>()?;
         let generics = input.parse::<Generics>()?;
         let content;
-        let _brace_token = syn::braced!(content in input);
-        let variants = content.parse_terminated(EventVariant::parse)?;
+        let _brace_token = syn2::braced!(content in input);
+        let variants = content.parse_terminated(EventVariant::parse, Token![,])?;
         if ident.to_string().ends_with("Event") {
             Ok(EventEnum {
                 vis,
@@ -130,7 +130,7 @@ impl Parse for EventEnum {
                 variants,
             })
         } else {
-            Err(syn::Error::new_spanned(
+            Err(syn2::Error::new_spanned(
                 ident,
                 "Bad ident: only derivable for `...Event` enums",
             ))
@@ -139,7 +139,7 @@ impl Parse for EventEnum {
 }
 
 impl Parse for EventVariant {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
+    fn parse(input: ParseStream) -> syn2::Result<Self> {
         let variant = input.parse::<Variant>()?;
         let variant_ident = variant.ident;
         let field_type = variant
@@ -148,7 +148,7 @@ impl Parse for EventVariant {
             .next()
             .expect("Variant should have at least one unnamed field")
             .ty;
-        if let syn::Type::Path(path) = field_type {
+        if let syn2::Type::Path(path) = field_type {
             let field_ident = path
                 .path
                 .get_ident()
@@ -163,7 +163,7 @@ impl Parse for EventVariant {
                 Ok(EventVariant::IdField(variant_ident))
             }
         } else {
-            Err(syn::Error::new_spanned(
+            Err(syn2::Error::new_spanned(
                 field_type,
                 "Unexpected AST type variant",
             ))
@@ -220,7 +220,6 @@ pub fn impl_filter(event: &EventEnum) -> TokenStream {
 
         #event_filter_and_impl
     }
-    .into()
 }
 
 /// Generates the event filter for the event. E.g. for `AccountEvent`, `AccountEventFilter`

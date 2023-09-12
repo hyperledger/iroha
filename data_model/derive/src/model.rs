@@ -1,10 +1,11 @@
+use iroha_macro_utils::Emitter;
+use manyhow::emit;
 use proc_macro2::TokenStream;
-use proc_macro_error::abort;
 use quote::{quote, ToTokens};
-use syn::{parse_quote, Attribute};
+use syn2::{parse_quote, Attribute};
 
-pub fn impl_model(input: &syn::ItemMod) -> TokenStream {
-    let syn::ItemMod {
+pub fn impl_model(emitter: &mut Emitter, input: &syn2::ItemMod) -> TokenStream {
+    let syn2::ItemMod {
         attrs,
         vis,
         mod_token,
@@ -14,14 +15,17 @@ pub fn impl_model(input: &syn::ItemMod) -> TokenStream {
         ..
     } = input;
 
-    let syn::Visibility::Public(vis_public) = vis else {
-        abort!(
+    let syn2::Visibility::Public(vis_public) = vis else {
+        emit!(
+            emitter,
             input,
             "The `model` attribute can only be used on public modules"
         );
+        return quote!();
     };
     if ident != "model" {
-        abort!(
+        emit!(
+            emitter,
             input,
             "The `model` attribute can only be used on the `model` module"
         );
@@ -40,16 +44,16 @@ pub fn impl_model(input: &syn::ItemMod) -> TokenStream {
     }
 }
 
-pub fn process_item(item: syn::Item) -> TokenStream {
-    let mut input: syn::DeriveInput = match item {
-        syn::Item::Struct(item_struct) => item_struct.into(),
-        syn::Item::Enum(item_enum) => item_enum.into(),
-        syn::Item::Union(item_union) => item_union.into(),
+pub fn process_item(item: syn2::Item) -> TokenStream {
+    let mut input: syn2::DeriveInput = match item {
+        syn2::Item::Struct(item_struct) => item_struct.into(),
+        syn2::Item::Enum(item_enum) => item_enum.into(),
+        syn2::Item::Union(item_union) => item_union.into(),
         other => return other.into_token_stream(),
     };
     let vis = &input.vis;
 
-    if matches!(vis, syn::Visibility::Public(_)) {
+    if matches!(vis, syn2::Visibility::Public(_)) {
         return process_pub_item(input);
     }
 
@@ -70,21 +74,21 @@ pub fn process_item(item: syn::Item) -> TokenStream {
     }
 }
 
-fn process_pub_item(input: syn::DeriveInput) -> TokenStream {
+fn process_pub_item(input: syn2::DeriveInput) -> TokenStream {
     let (impl_generics, _, where_clause) = input.generics.split_for_impl();
 
     let attrs = input.attrs;
     let ident = input.ident;
 
     match input.data {
-        syn::Data::Struct(item) => match &item.fields {
-            syn::Fields::Named(fields) => {
+        syn2::Data::Struct(item) => match &item.fields {
+            syn2::Fields::Named(fields) => {
                 let fields = fields.named.iter().map(|field| {
                     let field_attrs = &field.attrs;
                     let field_name = &field.ident;
                     let field_ty = &field.ty;
 
-                    if !matches!(field.vis, syn::Visibility::Public(_)) {
+                    if !matches!(field.vis, syn2::Visibility::Public(_)) {
                         return quote! {#field,};
                     }
 
@@ -107,12 +111,12 @@ fn process_pub_item(input: syn::DeriveInput) -> TokenStream {
 
                 expose_ffi(attrs, &item)
             }
-            syn::Fields::Unnamed(fields) => {
+            syn2::Fields::Unnamed(fields) => {
                 let fields = fields.unnamed.iter().map(|field| {
                     let field_attrs = &field.attrs;
                     let field_ty = &field.ty;
 
-                    if !matches!(field.vis, syn::Visibility::Public(_)) {
+                    if !matches!(field.vis, syn2::Visibility::Public(_)) {
                         return quote! {#field,};
                     }
 
@@ -133,7 +137,7 @@ fn process_pub_item(input: syn::DeriveInput) -> TokenStream {
 
                 expose_ffi(attrs, &item)
             }
-            syn::Fields::Unit => {
+            syn2::Fields::Unit => {
                 let item = quote! {
                     pub struct #ident #impl_generics #where_clause;
                 };
@@ -141,7 +145,7 @@ fn process_pub_item(input: syn::DeriveInput) -> TokenStream {
                 expose_ffi(attrs, &item)
             }
         },
-        syn::Data::Enum(item) => {
+        syn2::Data::Enum(item) => {
             let variants = &item.variants;
 
             let item = quote! {
@@ -154,13 +158,13 @@ fn process_pub_item(input: syn::DeriveInput) -> TokenStream {
         }
         // Triggers in `quote!` side, see https://github.com/rust-lang/rust-clippy/issues/10417
         #[allow(clippy::arithmetic_side_effects)]
-        syn::Data::Union(item) => {
+        syn2::Data::Union(item) => {
             let fields = item.fields.named.iter().map(|field| {
                 let field_attrs = &field.attrs;
                 let field_name = &field.ident;
                 let field_ty = &field.ty;
 
-                if !matches!(field.vis, syn::Visibility::Public(_)) {
+                if !matches!(field.vis, syn2::Visibility::Public(_)) {
                     return quote! {#field,};
                 }
 
@@ -189,7 +193,9 @@ fn process_pub_item(input: syn::DeriveInput) -> TokenStream {
 }
 
 fn expose_ffi(mut attrs: Vec<Attribute>, item: &TokenStream) -> TokenStream {
-    let mut ffi_attrs = attrs.iter().filter(|&attr| attr.path.is_ident("ffi_type"));
+    let mut ffi_attrs = attrs
+        .iter()
+        .filter(|&attr| attr.path().is_ident("ffi_type"));
 
     if ffi_attrs.next().is_none() {
         return quote! {
@@ -201,7 +207,7 @@ fn expose_ffi(mut attrs: Vec<Attribute>, item: &TokenStream) -> TokenStream {
     attrs.retain(|attr| *attr != parse_quote! (#[ffi_type]));
     let no_ffi_attrs: Vec<_> = attrs
         .iter()
-        .filter(|&attr| !attr.path.is_ident("ffi_type"))
+        .filter(|&attr| !attr.path().is_ident("ffi_type"))
         .collect();
 
     quote! {
