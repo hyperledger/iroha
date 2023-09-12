@@ -4,74 +4,36 @@
     clippy::unwrap_in_result
 )]
 
-use iroha_macro_utils::{attr_struct, AttrParser};
-use proc_macro::TokenStream;
-use proc_macro_error::abort;
+use darling::{FromDeriveInput, FromVariant};
+use iroha_macro_utils::{attr_struct2, parse_single_list_attr, parse_single_list_attr_opt};
+use manyhow::Result;
+use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{
-    parse::{Parse, ParseStream},
-    parse_quote,
-    punctuated::Punctuated,
-    Attribute, Generics, Ident, Token, Type, Variant, Visibility,
-};
+use syn2::{parse_quote, Ident, Token, Type};
 
 mod kw {
-    syn::custom_keyword!(origin);
-    syn::custom_keyword!(variant);
+    syn2::custom_keyword!(origin);
 }
+
+const HAS_ORIGIN_ATTR: &str = "has_origin";
 
 pub struct HasOriginEnum {
     ident: Ident,
-    variants: Punctuated<HasOriginVariant, Token![,]>,
+    variants: Vec<HasOriginVariant>,
     origin: Type,
 }
 
-pub struct HasOriginVariant {
-    ident: Ident,
-    extractor: Option<OriginExtractor>,
-}
+impl FromDeriveInput for HasOriginEnum {
+    fn from_derive_input(input: &syn2::DeriveInput) -> darling::Result<Self> {
+        let ident = input.ident.clone();
 
-struct HasOriginAttr<T>(core::marker::PhantomData<T>);
+        let Some(variants) = darling::ast::Data::<HasOriginVariant, ()>::try_from(&input.data)?.take_enum() else {
+            return Err(darling::Error::custom("Expected enum"));
+        };
 
-impl<T: Parse> AttrParser<T> for HasOriginAttr<T> {
-    const IDENT: &'static str = "has_origin";
-}
+        let origin = parse_single_list_attr::<OriginAttr>(HAS_ORIGIN_ATTR, &input.attrs)?.ty;
 
-attr_struct! {
-    pub struct Origin {
-        _kw: kw::origin,
-        _eq: Token![=],
-        ty: Type,
-    }
-}
-
-attr_struct! {
-    pub struct OriginExtractor {
-        ident: Ident,
-        _eq: Token![=>],
-        extractor: syn::Expr,
-    }
-}
-
-impl Parse for HasOriginEnum {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let attrs = input.call(Attribute::parse_outer)?;
-        let _vis = input.parse::<Visibility>()?;
-        let _enum_token = input.parse::<Token![enum]>()?;
-        let ident = input.parse::<Ident>()?;
-        let generics = input.parse::<Generics>()?;
-        if !generics.params.is_empty() {
-            abort!(generics, "Generics are not supported");
-        }
-        let content;
-        let _brace_token = syn::braced!(content in input);
-        let variants = content.parse_terminated(HasOriginVariant::parse)?;
-        let origin = attrs
-            .iter()
-            .find_map(|attr| HasOriginAttr::<Origin>::parse(attr).ok())
-            .map(|origin| origin.ty)
-            .expect("Attribute `#[has_origin(origin = Type)]` is required");
-        Ok(HasOriginEnum {
+        Ok(Self {
             ident,
             variants,
             origin,
@@ -79,27 +41,43 @@ impl Parse for HasOriginEnum {
     }
 }
 
-impl Parse for HasOriginVariant {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let variant = input.parse::<Variant>()?;
-        let Variant {
-            ident,
-            fields,
-            attrs,
-            ..
-        } = variant;
-        match fields {
-            syn::Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {}
-            fields => abort!(fields, "Only supports tuple variants with single field"),
-        };
-        let extractor = attrs
-            .iter()
-            .find_map(|attr| HasOriginAttr::<OriginExtractor>::parse(attr).ok());
-        Ok(HasOriginVariant { ident, extractor })
+pub struct HasOriginVariant {
+    ident: Ident,
+    extractor: Option<OriginExtractorAttr>,
+}
+
+impl FromVariant for HasOriginVariant {
+    fn from_variant(variant: &syn2::Variant) -> darling::Result<Self> {
+        let ident = variant.ident.clone();
+        let extractor = parse_single_list_attr_opt(HAS_ORIGIN_ATTR, &variant.attrs)?;
+
+        Ok(Self { ident, extractor })
     }
 }
 
-pub fn impl_has_origin(enum_: &HasOriginEnum) -> TokenStream {
+attr_struct2! {
+    pub struct OriginAttr {
+        _kw: kw::origin,
+        _eq: Token![=],
+        ty: Type,
+    }
+}
+
+attr_struct2! {
+    pub struct OriginExtractorAttr {
+        ident: Ident,
+        _eq: Token![=>],
+        extractor: syn2::Expr,
+    }
+}
+
+pub fn impl_has_origin(input: &syn2::DeriveInput) -> Result<TokenStream> {
+    let enum_ = HasOriginEnum::from_derive_input(input)?;
+
+    // TODO: verify enum is non-empty (or make it work with empty enums)
+    // TODO: verify all the enum variants are newtype variants
+    // TODO: verify there are no generics on the enum
+
     let enum_ident = &enum_.ident;
     let enum_origin = &enum_.origin;
     let variants_match_arms = &enum_
@@ -116,9 +94,9 @@ pub fn impl_has_origin(enum_: &HasOriginEnum) -> TokenStream {
                 },
             )
         })
-        .collect::<Vec<syn::Arm>>();
+        .collect::<Vec<syn2::Arm>>();
 
-    quote! {
+    Ok(quote! {
         impl HasOrigin for #enum_ident {
             type Origin = #enum_origin;
 
@@ -131,6 +109,5 @@ pub fn impl_has_origin(enum_: &HasOriginEnum) -> TokenStream {
                 }
             }
         }
-    }
-    .into()
+    })
 }
