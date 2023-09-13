@@ -1,50 +1,92 @@
 #![allow(
     clippy::mixed_read_write_in_expression,
-    clippy::unwrap_in_result,
     clippy::arithmetic_side_effects
 )]
 
+use darling::{FromDeriveInput, FromVariant};
+use iroha_macro_utils::Emitter;
+use manyhow::emit;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn2::{
-    parse::{Parse, ParseStream},
-    punctuated::Punctuated,
-    Attribute, Generics, Ident, Token, Variant, Visibility,
-};
+use syn2::{Generics, Ident, Variant, Visibility};
 
-pub struct EventEnum {
+#[derive(FromDeriveInput)]
+#[darling(supports(enum_tuple))]
+struct EventEnum {
     vis: Visibility,
     ident: Ident,
     generics: Generics,
-    variants: Punctuated<EventVariant, Token![,]>,
+    data: darling::ast::Data<EventVariant, darling::util::Ignored>,
 }
 
-pub enum EventVariant {
-    EventField { variant: Ident, field: Ident },
-    IdField(Ident),
+enum EventVariant {
+    /// A variant of event that delegates to some other event. Identified by conventional naming of the event types: ending with `Event`.
+    /// Delegates all the filterting to the corresponding event's filter.
+    Delegating {
+        variant_name: Ident,
+        delegated_event_ty_name: Ident,
+    },
+    /// An actual event. Has either an Id or an identifiable object as a payload
+    /// The presense of the Id field is not required by this macro per se, but will be enfored by `OriginFilter` requiring a `HasOrigin` impl.
+    Direct(Ident),
+}
+
+impl FromVariant for EventVariant {
+    fn from_variant(variant: &Variant) -> darling::Result<Self> {
+        let syn2::Fields::Unnamed(fields) = &variant.fields else {
+            return Err(darling::Error::custom("Expected an enum with unnamed fields").with_span(&variant.fields));
+        };
+        // note: actually, we have only one field in the event variants
+        // this is not enforced by this macro, but by `IntoSchema`
+        let Some(first_field_ty) = fields.unnamed.first().map(|v| &v.ty) else {
+            return Err(darling::Error::custom("Expected at least one field").with_span(&fields));
+        };
+        let syn2::Type::Path(path) = first_field_ty else {
+            return Err(darling::Error::custom("Only identifiers supported as event types").with_span(first_field_ty));
+        };
+        let Some(first_field_ty_name) = path.path.get_ident() else {
+            return Err(darling::Error::custom("Only identifiers supported as event types").with_span(first_field_ty));
+        };
+
+        if first_field_ty_name.to_string().ends_with("Event") {
+            Ok(EventVariant::Delegating {
+                variant_name: variant.ident.clone(),
+                delegated_event_ty_name: first_field_ty_name.clone(),
+            })
+        } else {
+            Ok(EventVariant::Direct(variant.ident.clone()))
+        }
+    }
 }
 
 impl EventEnum {
+    fn variants(&self) -> &[EventVariant] {
+        match &self.data {
+            darling::ast::Data::Enum(variants) => variants,
+            _ => unreachable!("BUG: only enums should be here"),
+        }
+    }
+
     /// Used to produce fields like `ByAccount(crate::prelude::FilterOpt<AccountFilter>)` in `DomainEventFilter`.
-    fn generate_filter_variants_with_event_fields(&self) -> Vec<proc_macro2::TokenStream> {
-        self.variants
+    fn generate_filter_variants_for_delegating_events(&self) -> Vec<proc_macro2::TokenStream> {
+        self.variants()
             .iter()
             .filter_map(|variant| match variant {
-                EventVariant::IdField(_) => None,
-                EventVariant::EventField {
-                    variant: variant_ident,
-                    field: field_ident,
+                EventVariant::Direct(_) => None,
+                EventVariant::Delegating {
+                    variant_name,
+                    delegated_event_ty_name,
                 } => {
                     // E.g. `Account` field in the event => `ByAccount` in the event filter
-                    let filter_variant_ident = format_ident!("By{}", variant_ident);
+                    let filter_variant_ident = format_ident!("By{}", variant_name);
                     // E.g. `AccountEvent` inner field from `Account` variant in event =>
                     // `AccountFilter` inside the event filter
-                    let inner_filter_ident = format_ident!(
+                    let inner_filter_ident =
+                        format_ident!(
                         "{}Filter",
-                        field_ident
-                            .to_string()
-                            .strip_suffix("Event")
-                            .expect("Variant name should have suffix `Event`"),
+                        delegated_event_ty_name.to_string().strip_suffix("Event").expect(
+                            "BUG: Variant name should have suffix `Event` (checked in FromVariant)"
+                        ),
                     );
                     let import_path = quote! {crate::prelude};
                     Some(quote! {
@@ -55,36 +97,36 @@ impl EventEnum {
     }
 
     /// Used to produce fields like `ByCreated` in `DomainEventFilter`.
-    fn generate_filter_variants_with_id_fields(&self) -> Vec<Ident> {
-        self.variants
+    fn generate_filter_variants_for_direct_events(&self) -> Vec<Ident> {
+        self.variants()
             .iter()
             .filter_map(|variant| match variant {
-                EventVariant::IdField(event_variant_ident) => {
+                EventVariant::Direct(event_variant_ident) => {
                     // Event fields such as `MetadataRemoved` get mapped to `ByMetadataRemoved`
                     let filter_variant_ident = format_ident!("By{}", event_variant_ident);
                     Some(filter_variant_ident)
                 }
-                EventVariant::EventField { .. } => None,
+                EventVariant::Delegating { .. } => None,
             })
             .collect()
     }
 
     /// Match arms for `Filter` impls of event filters of the form
     /// `(Self::ByAccount(filter_opt), crate::prelude::DomainEvent::Account(event)) => {filter_opt.matches(event)}`.
-    fn generate_filter_impls_with_event_fields(&self) -> Vec<proc_macro2::TokenStream> {
-        self.variants
+    fn generate_filter_impls_for_delegaring_events(&self) -> Vec<proc_macro2::TokenStream> {
+        self.variants()
             .iter()
             .filter_map(|variant| match variant {
-                EventVariant::IdField(_) => None,
-                EventVariant::EventField {
-                    variant: event_variant_ident,
+                EventVariant::Direct(_) => None,
+                EventVariant::Delegating {
+                    variant_name,
                     ..
                 } => {
                     let event_ident = &self.ident;
-                    let filter_variant_ident = format_ident!("By{}", event_variant_ident);
+                    let filter_variant_ident = format_ident!("By{}", variant_name);
                     let import_path = quote! {crate::prelude};
                     Some(quote! {
-                        (Self::#filter_variant_ident(filter_opt), #import_path::#event_ident::#event_variant_ident(event)) => {
+                        (Self::#filter_variant_ident(filter_opt), #import_path::#event_ident::#variant_name(event)) => {
                             filter_opt.matches(event)
                         }})
 
@@ -93,11 +135,11 @@ impl EventEnum {
 
     /// Match arms for `Filter` impls of event filters of the form
     /// `(Self::ByCreated, crate::prelude::DomainEvent::Created(_))`.
-    fn generate_filter_impls_with_id_fields(&self) -> Vec<proc_macro2::TokenStream> {
-        self.variants
+    fn generate_filter_impls_for_direct_events(&self) -> Vec<proc_macro2::TokenStream> {
+        self.variants()
             .iter()
             .filter_map(|variant| match variant {
-                EventVariant::IdField(event_variant_ident) => {
+                EventVariant::Direct(event_variant_ident) => {
                     let event_ident = &self.ident;
                     let filter_variant_ident = format_ident!("By{}", event_variant_ident);
                     let import_path = quote! {crate::prelude};
@@ -106,119 +148,9 @@ impl EventEnum {
                             (Self::#filter_variant_ident, #import_path::#event_ident::#event_variant_ident(_))
                         })
                 },
-                EventVariant::EventField { .. } => None,
+                EventVariant::Delegating { .. } => None,
             })
             .collect()
-    }
-}
-
-impl Parse for EventEnum {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
-        let _attrs = input.call(Attribute::parse_outer)?;
-        let vis = input.parse()?;
-        let _enum_token = input.parse::<Token![enum]>()?;
-        let ident = input.parse::<Ident>()?;
-        let generics = input.parse::<Generics>()?;
-        let content;
-        let _brace_token = syn2::braced!(content in input);
-        let variants = content.parse_terminated(EventVariant::parse, Token![,])?;
-        if ident.to_string().ends_with("Event") {
-            Ok(EventEnum {
-                vis,
-                ident,
-                generics,
-                variants,
-            })
-        } else {
-            Err(syn2::Error::new_spanned(
-                ident,
-                "Bad ident: only derivable for `...Event` enums",
-            ))
-        }
-    }
-}
-
-impl Parse for EventVariant {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
-        let variant = input.parse::<Variant>()?;
-        let variant_ident = variant.ident;
-        let field_type = variant
-            .fields
-            .into_iter()
-            .next()
-            .expect("Variant should have at least one unnamed field")
-            .ty;
-        if let syn2::Type::Path(path) = field_type {
-            let field_ident = path
-                .path
-                .get_ident()
-                .expect("Should be an ident-convertible path");
-
-            if field_ident.to_string().ends_with("Event") {
-                Ok(EventVariant::EventField {
-                    variant: variant_ident,
-                    field: field_ident.clone(),
-                })
-            } else {
-                Ok(EventVariant::IdField(variant_ident))
-            }
-        } else {
-            Err(syn2::Error::new_spanned(
-                field_type,
-                "Unexpected AST type variant",
-            ))
-        }
-    }
-}
-
-/// Generates the filter for the event. E.g. for `AccountEvent`, `AccountFilter`
-/// and its `impl Filter` are generated.
-pub fn impl_filter(event: &EventEnum) -> TokenStream {
-    let EventEnum {
-        vis,
-        ident: event_ident,
-        generics,
-        ..
-    } = event;
-
-    let event_filter_and_impl = impl_event_filter(event);
-
-    let filter_ident = format_ident!(
-        "{}Filter",
-        event_ident
-            .to_string()
-            .strip_suffix("Event")
-            .expect("Events should follow the naming format")
-    );
-    let event_filter_ident = format_ident!("{}Filter", event_ident);
-
-    let import_path = quote! { crate::prelude };
-    let fil_opt = quote! { #import_path::FilterOpt };
-    let orig_fil = quote! { #import_path::OriginFilter };
-    let imp_event = quote! { #import_path::#event_ident };
-
-    let filter_doc = format!(" Filter for {event_ident} entity");
-
-    quote! {
-        iroha_data_model_derive::model_single! {
-            #[derive(Debug, Clone, PartialEq, Eq, derive_more::Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-            #[doc = #filter_doc]
-            #vis struct #filter_ident #generics {
-                origin_filter: #fil_opt<#orig_fil<#imp_event>>,
-                event_filter: #fil_opt<#event_filter_ident>
-            }
-        }
-
-        #[cfg(feature = "transparent_api")]
-        impl #import_path::Filter for #filter_ident {
-            type Event = #imp_event;
-
-            fn matches(&self, event: &Self::Event) -> bool {
-                self.origin_filter.matches(event) && self.event_filter.matches(event)
-            }
-        }
-
-        #event_filter_and_impl
     }
 }
 
@@ -232,11 +164,11 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
         ..
     } = event;
 
-    let id_variants = event.generate_filter_variants_with_id_fields();
-    let event_variants = event.generate_filter_variants_with_event_fields();
+    let id_variants = event.generate_filter_variants_for_direct_events();
+    let event_variants = event.generate_filter_variants_for_delegating_events();
 
-    let id_impls = event.generate_filter_impls_with_id_fields();
-    let event_impls = event.generate_filter_impls_with_event_fields();
+    let id_impls = event.generate_filter_impls_for_direct_events();
+    let event_impls = event.generate_filter_impls_for_delegaring_events();
 
     let event_filter_ident = format_ident!("{}Filter", event_ident);
     let import_path = quote! { crate::prelude };
@@ -267,5 +199,62 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
                 }
             }
         }
+    }
+}
+
+/// Generates the filter for the event. E.g. for `AccountEvent`, `AccountFilter`
+/// and its `impl Filter` are generated.
+pub fn impl_filter(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream {
+    let Some(event) = emitter.handle(EventEnum::from_derive_input(input)) else {
+        return quote!();
+    };
+
+    let EventEnum {
+        vis,
+        ident: event_ident,
+        generics,
+        ..
+    } = &event;
+
+    let event_filter_and_impl = impl_event_filter(&event);
+
+    let event_base = event_ident.to_string().strip_suffix("Event").map_or_else(
+        || {
+            emit!(emitter, event_ident, "Event name should end with `Event`");
+            event_ident.to_string()
+        },
+        ToString::to_string,
+    );
+
+    let filter_ident = format_ident!("{}Filter", event_base);
+    let event_filter_ident = format_ident!("{}Filter", event_ident);
+
+    let import_path = quote! { crate::prelude };
+    let fil_opt = quote! { #import_path::FilterOpt };
+    let orig_fil = quote! { #import_path::OriginFilter };
+    let imp_event = quote! { #import_path::#event_ident };
+
+    let filter_doc = format!(" Filter for {event_ident} entity");
+
+    quote! {
+        iroha_data_model_derive::model_single! {
+            #[derive(Debug, Clone, PartialEq, Eq, derive_more::Constructor, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+            #[doc = #filter_doc]
+            #vis struct #filter_ident #generics {
+                origin_filter: #fil_opt<#orig_fil<#imp_event>>,
+                event_filter: #fil_opt<#event_filter_ident>
+            }
+        }
+
+        #[cfg(feature = "transparent_api")]
+        impl #import_path::Filter for #filter_ident {
+            type Event = #imp_event;
+
+            fn matches(&self, event: &Self::Event) -> bool {
+                self.origin_filter.matches(event) && self.event_filter.matches(event)
+            }
+        }
+
+        #event_filter_and_impl
     }
 }
