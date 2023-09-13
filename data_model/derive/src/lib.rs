@@ -400,10 +400,15 @@ pub fn id_eq_ord_hash(input: TokenStream) -> Result<TokenStream> {
 /// It assumes that the derive is imported and referred to by its original name.
 #[manyhow]
 #[proc_macro_derive(Filter)]
-pub fn filter_derive(input: TokenStream) -> Result<TokenStream> {
-    let input = syn2::parse2(input)?;
+pub fn filter_derive(input: TokenStream) -> TokenStream {
+    let mut emitter = Emitter::new();
 
-    Ok(filter::impl_filter(&input))
+    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+        return emitter.finish_token_stream();
+    };
+
+    let result = filter::impl_filter(&mut emitter, &input);
+    emitter.finish_token_stream_with(result)
 }
 
 /// Derive `::serde::Serialize` trait for `enum` with possibility to avoid tags for selected variants
