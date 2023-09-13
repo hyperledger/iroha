@@ -3173,9 +3173,12 @@ name = "iroha_data_model_derive"
 version = "2.0.0-pre-rc.19"
 dependencies = [
  "darling",
+ "derive_more",
  "iroha_data_model",
  "iroha_macro_utils",
+ "iroha_schema",
  "manyhow",
+ "parity-scale-codec",
  "proc-macro2",
  "quote",
  "serde",
