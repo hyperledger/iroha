@@ -103,8 +103,4 @@ pub enum LayerEvent {
     Created(LayerId),
 }
 
-#[test]
-fn filter() {
-    // nothing much to test here...
-    // I guess we do test that it compiles
-}
+fn main() {}
