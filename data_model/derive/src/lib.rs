@@ -230,10 +230,15 @@ pub fn model_single(input: TokenStream) -> TokenStream {
 ///
 #[manyhow]
 #[proc_macro_derive(IdEqOrdHash, attributes(id, opaque))]
-pub fn id_eq_ord_hash(input: TokenStream) -> Result<TokenStream> {
-    let input = syn2::parse2(input)?;
+pub fn id_eq_ord_hash(input: TokenStream) -> TokenStream {
+    let mut emitter = Emitter::new();
 
-    id::impl_id(&input)
+    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+        return emitter.finish_token_stream();
+    };
+
+    let result = id::impl_id_eq_ord_hash(&mut emitter, &input);
+    emitter.finish_token_stream_with(result)
 }
 
 /// [`Filter`] is used for code generation of `...Filter` structs and `...EventFilter` enums, as well as
