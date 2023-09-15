@@ -1,89 +1,52 @@
 #![allow(clippy::too_many_lines)]
+// darling-generated code triggers this lint
+#![allow(clippy::option_if_let_else)]
+
+use darling::{FromDeriveInput, FromVariant};
+use manyhow::Result;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn2::{
-    parse::{Parse, ParseStream},
-    parse_quote,
-    punctuated::Punctuated,
-    spanned::Spanned,
-    Attribute, Generics, Ident, Token, Type, Variant, Visibility,
-};
+use syn2::{parse_quote, Attribute, Generics, Ident, Type};
 
+#[derive(FromDeriveInput)]
+#[darling(forward_attrs(serde), supports(enum_newtype))]
 pub struct PartiallyTaggedEnum {
-    attrs: Vec<Attribute>,
     ident: Ident,
-    variants: Punctuated<PartiallyTaggedVariant, Token![,]>,
     generics: Generics,
-}
-
-pub struct PartiallyTaggedVariant {
+    data: darling::ast::Data<PartiallyTaggedVariant, ()>,
     attrs: Vec<Attribute>,
+}
+
+#[derive(FromVariant)]
+#[darling(forward_attrs(serde), attributes(serde_partially_tagged))]
+pub struct PartiallyTaggedVariant {
     ident: Ident,
-    ty: Type,
-    is_untagged: bool,
-}
-
-impl Parse for PartiallyTaggedEnum {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
-        let mut attrs = input.call(Attribute::parse_outer)?;
-        let _vis = input.parse::<Visibility>()?;
-        let _enum_token = input.parse::<Token![enum]>()?;
-        let ident = input.parse::<Ident>()?;
-        let generics = input.parse::<Generics>()?;
-        let content;
-        let _brace_token = syn2::braced!(content in input);
-        let variants = content.parse_terminated(PartiallyTaggedVariant::parse, Token![,])?;
-        attrs.retain(is_serde_attr);
-        Ok(PartiallyTaggedEnum {
-            attrs,
-            ident,
-            variants,
-            generics,
-        })
-    }
-}
-
-impl Parse for PartiallyTaggedVariant {
-    fn parse(input: ParseStream) -> syn2::Result<Self> {
-        let variant = input.parse::<Variant>()?;
-        let Variant {
-            ident,
-            fields,
-            mut attrs,
-            ..
-        } = variant;
-        let field = match fields {
-            syn2::Fields::Unnamed(fields) if fields.unnamed.len() == 1 => fields
-                .unnamed
-                .into_iter()
-                .next()
-                .expect("Guaranteed to have exactly one field"),
-            fields => {
-                return Err(syn2::Error::new(
-                    fields.span(),
-                    "Only supports tuple variants with single field",
-                ))
-            }
-        };
-        let ty = field.ty;
-        let is_untagged = attrs.iter().any(is_untagged_attr);
-        attrs.retain(is_serde_attr);
-        Ok(PartiallyTaggedVariant {
-            attrs,
-            ident,
-            ty,
-            is_untagged,
-        })
-    }
+    fields: darling::ast::Fields<syn2::Type>,
+    attrs: Vec<Attribute>,
+    #[darling(default)]
+    untagged: bool,
 }
 
 impl PartiallyTaggedEnum {
     fn variants(&self) -> impl Iterator<Item = &PartiallyTaggedVariant> {
-        self.variants.iter()
+        match &self.data {
+            darling::ast::Data::Enum(variants) => variants.iter(),
+            _ => unreachable!(
+                "Only enums are supported. Enforced by `darling(supports(enum_newtype))`"
+            ),
+        }
     }
 
     fn untagged_variants(&self) -> impl Iterator<Item = &PartiallyTaggedVariant> {
-        self.variants.iter().filter(|variant| variant.is_untagged)
+        self.variants().filter(|variant| variant.untagged)
+    }
+}
+
+impl PartiallyTaggedVariant {
+    fn ty(&self) -> &syn2::Type {
+        self.fields.fields.first().expect(
+            "BUG: Only newtype enums are supported. Enforced by `darling(supports(enum_newtype))`",
+        )
     }
 }
 
@@ -95,26 +58,16 @@ fn variants_to_tuple<'lt, I: Iterator<Item = &'lt PartiallyTaggedVariant>>(
         (Vec::new(), Vec::new(), Vec::new()),
         |(mut idents, mut types, mut attrs), variant| {
             idents.push(&variant.ident);
-            types.push(&variant.ty);
+            types.push(&variant.ty());
             attrs.push(&variant.attrs);
             (idents, types, attrs)
         },
     )
 }
 
-/// Check if enum variant should be treated as untagged
-fn is_untagged_attr(attr: &Attribute) -> bool {
-    attr == &parse_quote!(#[serde_partially_tagged(untagged)])
-}
+pub fn impl_partially_tagged_serialize(input: &syn2::DeriveInput) -> Result<TokenStream> {
+    let enum_ = PartiallyTaggedEnum::from_derive_input(input)?;
 
-/// Check if `#[serde...]` attribute
-fn is_serde_attr(attr: &Attribute) -> bool {
-    attr.path()
-        .get_ident()
-        .map_or_else(|| false, |ident| ident.to_string().eq("serde"))
-}
-
-pub fn impl_partially_tagged_serialize(enum_: &PartiallyTaggedEnum) -> TokenStream {
     let enum_ident = &enum_.ident;
     let enum_attrs = &enum_.attrs;
     let ref_internal_repr_ident = format_ident!("{}RefInternalRepr", enum_ident);
@@ -133,7 +86,7 @@ pub fn impl_partially_tagged_serialize(enum_: &PartiallyTaggedEnum) -> TokenStre
     let (ref_internal_impl_generics, ref_internal_type_generics, ref_internal_where_clause) =
         ref_internal_generics.split_for_impl();
 
-    quote! {
+    Ok(quote! {
         impl #impl_generics ::serde::Serialize for #enum_ident #type_generics #where_clause {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where
@@ -181,10 +134,12 @@ pub fn impl_partially_tagged_serialize(enum_: &PartiallyTaggedEnum) -> TokenStre
                 wrapper.serialize(serializer)
             }
         }
-    }
+    })
 }
 
-pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenStream {
+pub fn impl_partially_tagged_deserialize(input: &syn2::DeriveInput) -> Result<TokenStream> {
+    let enum_ = PartiallyTaggedEnum::from_derive_input(input)?;
+
     let enum_ident = &enum_.ident;
     let enum_attrs = &enum_.attrs;
     let internal_repr_ident = format_ident!("{}InternalRepr", enum_ident);
@@ -211,7 +166,7 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
     let (internal_repr_impl_generics, internal_repr_type_generics, internal_repr_where_clause) =
         internal_repr_generics.split_for_impl();
 
-    quote! {
+    Ok(quote! {
         impl #impl_generics ::serde::Deserialize<'de> for #enum_ident #type_generics #where_clause {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where
@@ -346,5 +301,5 @@ pub fn impl_partially_tagged_deserialize(enum_: &PartiallyTaggedEnum) -> TokenSt
                 }
             }
         }
-    }
+    })
 }

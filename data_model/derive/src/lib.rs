@@ -447,7 +447,7 @@ pub fn filter_derive(input: TokenStream) -> TokenStream {
 pub fn partially_tagged_serialize_derive(input: TokenStream) -> Result<TokenStream> {
     let input = syn2::parse2(input)?;
 
-    Ok(partially_tagged::impl_partially_tagged_serialize(&input))
+    partially_tagged::impl_partially_tagged_serialize(&input)
 }
 
 /// Derive `::serde::Deserialize` trait for `enum` with possibility to avoid tags for selected variants
@@ -510,7 +510,7 @@ pub fn partially_tagged_serialize_derive(input: TokenStream) -> Result<TokenStre
 pub fn partially_tagged_deserialize_derive(input: TokenStream) -> Result<TokenStream> {
     let input = syn2::parse2(input)?;
 
-    Ok(partially_tagged::impl_partially_tagged_deserialize(&input))
+    partially_tagged::impl_partially_tagged_deserialize(&input)
 }
 
 /// Derive macro for `HasOrigin`.
