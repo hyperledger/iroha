@@ -91,11 +91,11 @@ macro_rules! nontrivial {
 // references (e.g. &Value).
 pub enum GenericPredicateBox<P> {
     /// Logically `&&` the results of applying the predicates.
-    And(NonTrivial<GenericPredicateBox<P>>),
+    And(NonTrivial<Self>),
     /// Logically `||` the results of applying the predicats.
-    Or(NonTrivial<GenericPredicateBox<P>>),
+    Or(NonTrivial<Self>),
     /// Negate the result of applying the predicate.
-    Not(Box<GenericPredicateBox<P>>),
+    Not(Box<Self>),
     /// The raw predicate that must be applied.
     #[serde_partially_tagged(untagged)]
     Raw(P),
