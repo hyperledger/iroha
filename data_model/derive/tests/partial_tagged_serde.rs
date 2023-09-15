@@ -7,6 +7,7 @@ use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, PartialEq, Eq, PartiallyTaggedDeserialize, PartiallyTaggedSerialize)]
 enum Value {
     Bool(bool),
+    #[serde(rename = "StringRenamed")]
     String(String),
     #[serde_partially_tagged(untagged)]
     Numeric(NumericValue),
@@ -62,7 +63,11 @@ fn partially_tagged_serde() {
         Value::String("I am string".to_owned()),
         Value::Numeric(NumericValue(42)),
     ];
-    let serialized_values = [r#"{"Bool":true}"#, r#"{"String":"I am string"}"#, r#""42""#];
+    let serialized_values = [
+        r#"{"Bool":true}"#,
+        r#"{"StringRenamed":"I am string"}"#,
+        r#""42""#,
+    ];
 
     for (value, serialized_value) in values.iter().zip(serialized_values.iter()) {
         let serialized = serde_json::to_string(value)
