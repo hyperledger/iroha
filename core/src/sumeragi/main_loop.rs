@@ -434,12 +434,7 @@ fn handle_message(
             let block_hash = block.hash();
             info!(%addr, %role, hash=%block_hash, "Block sync update received");
 
-            match handle_block_sync(
-                block,
-                &sumeragi.current_topology,
-                &sumeragi.wsv,
-                &sumeragi.finalized_wsv,
-            ) {
+            match handle_block_sync(block, &sumeragi.wsv, &sumeragi.finalized_wsv) {
                 Ok(BlockSyncOk::CommitBlock(block, new_wsv)) => {
                     sumeragi.commit_block(block, new_wsv)
                 }
@@ -1095,7 +1090,6 @@ enum BlockSyncError {
 
 fn handle_block_sync(
     block: VersionedSignedBlock,
-    topology: &Topology,
     wsv: &WorldStateView,
     finalized_wsv: &WorldStateView,
 ) -> Result<BlockSyncOk, (VersionedSignedBlock, BlockSyncError)> {
@@ -1104,10 +1098,18 @@ fn handle_block_sync(
     if wsv_height + 1 == block_height {
         // Normal branch for adding new block on top of current
         let mut new_wsv = wsv.clone();
-        ValidBlock::validate_without_topology(block, &mut new_wsv)
+        let topology = {
+            let last_committed_block = new_wsv
+                .latest_block_ref()
+                .expect("Not in genesis round so must have at least genesis block");
+            let new_peers = new_wsv.peers_ids().iter().cloned().collect();
+            let view_change_index = block.payload().header().view_change_index;
+            Topology::recreate_topology(&last_committed_block, view_change_index, new_peers)
+        };
+        ValidBlock::validate(block, &topology, &mut new_wsv)
             .and_then(|block| {
                 block
-                    .commit_without_proxy_tail(topology)
+                    .commit(&topology)
                     .map_err(|(block, err)| (block.into(), err))
             })
             .map(|block| BlockSyncOk::CommitBlock(block, new_wsv))
@@ -1116,10 +1118,18 @@ fn handle_block_sync(
         // Soft-fork on genesis block isn't possible
         // Soft fork branch for replacing current block with valid one
         let mut new_wsv = finalized_wsv.clone();
-        ValidBlock::validate_without_topology(block, &mut new_wsv)
+        let topology = {
+            let last_committed_block = new_wsv
+                .latest_block_ref()
+                .expect("Not in genesis round so must have at least genesis block");
+            let new_peers = new_wsv.peers_ids().iter().cloned().collect();
+            let view_change_index = block.payload().header().view_change_index;
+            Topology::recreate_topology(&last_committed_block, view_change_index, new_peers)
+        };
+        ValidBlock::validate(block, &topology, &mut new_wsv)
             .and_then(|block| {
                 block
-                    .commit_without_proxy_tail(topology)
+                    .commit(&topology)
                     .map_err(|(block, err)| (block.into(), err))
             })
             .map_err(|(block, error)| (block, BlockSyncError::SoftForkBlockNotValid(error)))
@@ -1167,7 +1177,7 @@ mod tests {
         let domain_id = "wonderland".parse().expect("Valid");
         let mut domain = Domain::new(domain_id).build(&alice_id);
         assert!(domain.add_account(account).is_none());
-        let world = World::with([domain], Vec::new());
+        let world = World::with([domain], topology.ordered_peers.clone());
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = WorldStateView::new(world, Arc::clone(&kura));
 
@@ -1226,7 +1236,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "fix in #3890"]
     #[allow(clippy::redundant_clone)]
     fn block_sync_invalid_block() {
         let leader_key_pair = KeyPair::generate().unwrap();
@@ -1240,12 +1249,11 @@ mod tests {
         // Malform block to make it invalid
         block.payload_mut().header.commit_topology.clear();
 
-        let result = handle_block_sync(block, &topology, &wsv, &finalized_wsv);
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
         assert!(matches!(result, Err((_, BlockSyncError::BlockNotValid(_)))))
     }
 
     #[test]
-    #[ignore = "fix in #3890"]
     fn block_sync_invalid_soft_fork_block() {
         let leader_key_pair = KeyPair::generate().unwrap();
         let topology = Topology::new(vec![PeerId::new(
@@ -1264,7 +1272,7 @@ mod tests {
         // Malform block to make it invalid
         block.payload_mut().header.commit_topology.clear();
 
-        let result = handle_block_sync(block, &topology, &wsv, &finalized_wsv);
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
         assert!(matches!(
             result,
             Err((_, BlockSyncError::SoftForkBlockNotValid(_)))
@@ -1282,7 +1290,7 @@ mod tests {
         // Change block height
         block.payload_mut().header.height = 42;
 
-        let result = handle_block_sync(block, &topology, &wsv, &finalized_wsv);
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
         assert!(matches!(
             result,
             Err((
@@ -1305,7 +1313,7 @@ mod tests {
         )]);
         let (finalized_wsv, _, block) = create_data_for_test(&topology, leader_key_pair);
         let wsv = finalized_wsv.clone();
-        let result = handle_block_sync(block, &topology, &wsv, &finalized_wsv);
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
         assert!(matches!(result, Ok(BlockSyncOk::CommitBlock(_, _))))
     }
 
@@ -1329,7 +1337,7 @@ mod tests {
         // Increase block view change index
         block.payload_mut().header.view_change_index = 42;
 
-        let result = handle_block_sync(block, &topology, &wsv, &finalized_wsv);
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
         assert!(matches!(result, Ok(BlockSyncOk::ReplaceTopBlock(_, _))))
     }
 
@@ -1356,7 +1364,7 @@ mod tests {
         // Decrease block view change index back
         block.payload_mut().header.view_change_index = 0;
 
-        let result = handle_block_sync(block, &topology, &wsv, &finalized_wsv);
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
         assert!(matches!(
             result,
             Err((
@@ -1382,7 +1390,7 @@ mod tests {
         block.payload_mut().header.view_change_index = 42;
         block.payload_mut().header.height = 1;
 
-        let result = handle_block_sync(block, &topology, &wsv, &finalized_wsv);
+        let result = handle_block_sync(block, &wsv, &finalized_wsv);
         assert!(matches!(
             result,
             Err((

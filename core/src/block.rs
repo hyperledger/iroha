@@ -300,29 +300,6 @@ mod valid {
                 return Err((block, SignatureVerificationError::LeaderMissing.into()));
             }
 
-            Self::validate_without_topology(block, wsv)
-        }
-
-        /// Validate a block against the current state of the world.
-        ///
-        /// # Errors
-        ///
-        /// - Block is empty
-        /// - There is a mismatch between candidate block height and actual blockchain height
-        /// - There is a mismatch between candidate block previous block hash and actual latest block hash
-        /// - Block has committed transactions
-        /// - Block header transaction hashes don't match with computed transaction hashes
-        /// - Error during validation of individual transactions
-        #[deprecated(
-            since = "2.0.0-pre-rc.13",
-            note = "This method exists only because some tests are failing, but it shouldn't"
-        )]
-        // TODO: a committed block should always contains Leader and Proxy tail signatures
-        // TODO: Is it ok to not validate topology field of the header in block_sync?
-        pub(crate) fn validate_without_topology(
-            block: VersionedSignedBlock,
-            wsv: &mut WorldStateView,
-        ) -> Result<ValidBlock, (VersionedSignedBlock, BlockValidationError)> {
             let expected_block_height = wsv.height() + 1;
             let actual_height = block.payload().header.height;
 
@@ -450,16 +427,20 @@ mod valid {
         ///
         /// - Not enough signatures
         /// - Not signed by proxy tail
-        #[deprecated(
-            since = "2.0.0-pre-rc.13",
-            note = "This method exists only because some tests are failing, but it shouldn't"
-        )]
-        // TODO: a committed block should always contains Leader and Proxy tail signatures
-        // TODO: Is it ok to not validate topology field of the header in block_sync?
-        pub fn commit_without_proxy_tail(
+        pub fn commit(
             self,
             topology: &Topology,
         ) -> Result<CommittedBlock, (Self, BlockValidationError)> {
+            // TODO: Should the peer that serves genesis have a fixed role of ProxyTail in topology?
+            if !self.payload().header.is_genesis()
+                && topology.is_consensus_required().is_some()
+                && topology
+                    .filter_signatures_by_roles(&[Role::ProxyTail], self.signatures())
+                    .is_empty()
+            {
+                return Err((self, SignatureVerificationError::ProxyTailMissing.into()));
+            }
+
             #[allow(clippy::collapsible_else_if)]
             if self.payload().header.is_genesis() {
                 // At genesis round we blindly take on the network topology from the genesis block.
@@ -487,29 +468,6 @@ mod valid {
             }
 
             Ok(CommittedBlock(self.0))
-        }
-
-        /// Verify signatures and commit block to the store.
-        ///
-        /// # Errors
-        ///
-        /// - Not enough signatures
-        /// - Not signed by proxy tail
-        pub fn commit(
-            self,
-            topology: &Topology,
-        ) -> Result<CommittedBlock, (Self, BlockValidationError)> {
-            // TODO: Should the peer that serves genesis have a fixed role of ProxyTail in topology?
-            if !self.payload().header.is_genesis()
-                && topology.is_consensus_required().is_some()
-                && topology
-                    .filter_signatures_by_roles(&[Role::ProxyTail], self.signatures())
-                    .is_empty()
-            {
-                return Err((self, SignatureVerificationError::ProxyTailMissing.into()));
-            }
-
-            self.commit_without_proxy_tail(topology)
         }
 
         /// Add additional signatures for [`Self`].

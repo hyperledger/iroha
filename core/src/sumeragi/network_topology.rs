@@ -10,7 +10,10 @@ use std::collections::HashSet;
 
 use derive_more::Display;
 use iroha_crypto::{PublicKey, SignatureOf, SignaturesOf};
-use iroha_data_model::{block::BlockPayload, prelude::PeerId};
+use iroha_data_model::{
+    block::{BlockPayload, VersionedSignedBlock},
+    prelude::PeerId,
+};
 use iroha_logger::trace;
 
 /// The ordering of the peers which defines their roles in the current round of consensus.
@@ -149,9 +152,24 @@ impl Topology {
     }
 
     /// Rotate peers n times where n is a number of failed attempt to create a block.
-    pub fn rotate_all_n(&mut self, n: usize) {
-        let len = self.ordered_peers.len();
-        if let Some(rem) = n.checked_rem(len) {
+    pub fn rotate_all_n(&mut self, n: u64) {
+        let len = self
+            .ordered_peers
+            .len()
+            .try_into()
+            .expect("`usize` should fit into `u64`");
+        if let Some(mut rem) = n.checked_rem(len) {
+            // In case where `n` is larger than `usize` could fit
+            let usize_max = usize::MAX
+                .try_into()
+                .expect("`usize` should fit into `u64`");
+            while rem > usize_max {
+                rem -= usize_max;
+                self.ordered_peers.rotate_left(usize::MAX);
+            }
+            let rem = rem
+                .try_into()
+                .expect("`rem` is smaller or equal then `usize::MAX`");
             self.ordered_peers.rotate_left(rem);
         }
     }
@@ -175,6 +193,28 @@ impl Topology {
         self.lift_up_peers(block_signees);
         self.rotate_set_a();
         self.update_peer_list(new_peers);
+    }
+
+    /// Recreate topology for given block and view change index
+    pub fn recreate_topology(
+        block: &VersionedSignedBlock,
+        view_change_index: u64,
+        new_peers: HashSet<PeerId>,
+    ) -> Self {
+        let mut topology = Topology::new(block.payload().header().commit_topology.clone());
+        let block_signees = block
+            .signatures()
+            .into_iter()
+            .map(|s| s.public_key())
+            .cloned()
+            .collect::<Vec<PublicKey>>();
+
+        topology.update_topology(&block_signees, new_peers);
+
+        // Rotate all once for every view_change
+        topology.rotate_all_n(view_change_index);
+
+        topology
     }
 
     /// Check if block's signatures meet requirements for given topology.
