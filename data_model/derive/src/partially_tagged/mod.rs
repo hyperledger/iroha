@@ -2,6 +2,8 @@
 // darling-generated code triggers this lint
 #![allow(clippy::option_if_let_else)]
 
+mod resolve_self;
+
 use darling::{FromDeriveInput, FromVariant};
 use manyhow::Result;
 use proc_macro2::TokenStream;
@@ -40,25 +42,36 @@ impl PartiallyTaggedEnum {
     fn untagged_variants(&self) -> impl Iterator<Item = &PartiallyTaggedVariant> {
         self.variants().filter(|variant| variant.untagged)
     }
+
+    /// Returns a type that corresponds to `Self`, handling the generics as necessary
+    fn self_ty(&self) -> syn2::Type {
+        let ident = &self.ident;
+        let (_, type_generics, _) = self.generics.split_for_impl();
+
+        parse_quote!(#ident #type_generics)
+    }
 }
 
 impl PartiallyTaggedVariant {
-    fn ty(&self) -> &syn2::Type {
-        self.fields.fields.first().expect(
+    fn ty(&self, self_ty: &syn2::Type) -> syn2::Type {
+        let ty = self.fields.fields.first().expect(
             "BUG: Only newtype enums are supported. Enforced by `darling(supports(enum_newtype))`",
-        )
+        ).clone();
+
+        resolve_self::resolve_self(self_ty, ty)
     }
 }
 
 /// Convert from vector of variants to tuple of vectors consisting of variant's fields
 fn variants_to_tuple<'lt, I: Iterator<Item = &'lt PartiallyTaggedVariant>>(
+    self_ty: &syn2::Type,
     variants: I,
-) -> (Vec<&'lt Ident>, Vec<&'lt Type>, Vec<&'lt [Attribute]>) {
+) -> (Vec<&'lt Ident>, Vec<Type>, Vec<&'lt [Attribute]>) {
     variants.fold(
         (Vec::new(), Vec::new(), Vec::new()),
         |(mut idents, mut types, mut attrs), variant| {
             idents.push(&variant.ident);
-            types.push(&variant.ty());
+            types.push(variant.ty(self_ty));
             attrs.push(&variant.attrs);
             (idents, types, attrs)
         },
@@ -72,9 +85,11 @@ pub fn impl_partially_tagged_serialize(input: &syn2::DeriveInput) -> Result<Toke
     let enum_attrs = &enum_.attrs;
     let ref_internal_repr_ident = format_ident!("{}RefInternalRepr", enum_ident);
     let ser_helper = format_ident!("{}SerializeHelper", enum_ident);
-    let (variants_ident, variants_ty, variants_attrs) = variants_to_tuple(enum_.variants());
+    let self_ty = enum_.self_ty();
+    let (variants_ident, variants_ty, variants_attrs) =
+        variants_to_tuple(&self_ty, enum_.variants());
     let (untagged_variants_ident, untagged_variants_ty, untagged_variants_attrs) =
-        variants_to_tuple(enum_.untagged_variants());
+        variants_to_tuple(&self_ty, enum_.untagged_variants());
     let serialize_trait_bound: syn2::TypeParamBound = parse_quote!(::serde::Serialize);
     let mut generics = enum_.generics.clone();
     generics
@@ -146,9 +161,11 @@ pub fn impl_partially_tagged_deserialize(input: &syn2::DeriveInput) -> Result<To
     let deser_helper = format_ident!("{}DeserializeHelper", enum_ident);
     let no_successful_untagged_variant_match =
         format!("Data did not match any variant of enum {}", deser_helper);
-    let (variants_ident, variants_ty, variants_attrs) = variants_to_tuple(enum_.variants());
+    let self_ty = enum_.self_ty();
+    let (variants_ident, variants_ty, variants_attrs) =
+        variants_to_tuple(&self_ty, enum_.variants());
     let (untagged_variants_ident, untagged_variants_ty, untagged_variants_attrs) =
-        variants_to_tuple(enum_.untagged_variants());
+        variants_to_tuple(&self_ty, enum_.untagged_variants());
     let deserialize_trait_bound: syn2::TypeParamBound = parse_quote!(::serde::de::DeserializeOwned);
     let variants_ty_deserialize_bound = variants_ty
         .iter()
