@@ -284,7 +284,10 @@ pub mod prelude {
         visit::Visit,
         ValidationFail,
     };
-    pub use iroha_executor_derive::{entrypoint, Token, ValidateGrantRevoke};
+    pub use iroha_executor_derive::{
+        entrypoint, Constructor, ExpressionEvaluator, Token, Validate, ValidateEntrypoints,
+        ValidateGrantRevoke, Visit,
+    };
     pub use iroha_smart_contract::{prelude::*, Context};
 
     pub use super::{declare_tokens, deny, pass, PermissionTokenSchema, Validate};
