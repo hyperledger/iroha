@@ -1,7 +1,7 @@
 #![allow(clippy::str_to_string, clippy::mixed_read_write_in_expression)]
 
 use darling::{FromAttributes, FromDeriveInput, FromField};
-use iroha_macro_utils::Emitter;
+use iroha_macro_utils::{find_single_attr_opt, Emitter};
 use manyhow::emit;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
@@ -20,27 +20,8 @@ enum IdAttr {
 impl FromAttributes for IdAttr {
     fn from_attributes(attrs: &[syn2::Attribute]) -> darling::Result<Self> {
         let mut accumulator = darling::error::Accumulator::default();
-        let attrs = attrs
-            .iter()
-            .filter(|v| v.path().is_ident("id"))
-            .collect::<Vec<_>>();
-        let attr = match attrs.as_slice() {
-            [] => {
-                return accumulator.finish_with(IdAttr::Missing);
-            }
-            [attr] => attr,
-            [attr, ref tail @ ..] => {
-                accumulator.push(
-                    darling::Error::custom("Only one `#[id]` attribute is allowed!").with_span(
-                        &tail
-                            .iter()
-                            .map(syn2::spanned::Spanned::span)
-                            .reduce(|a, b| a.join(b).unwrap())
-                            .unwrap(),
-                    ),
-                );
-                attr
-            }
+        let Some(attr) = find_single_attr_opt(&mut accumulator, "id", attrs) else {
+            return accumulator.finish_with(IdAttr::Missing);
         };
 
         let result = match &attr.meta {
