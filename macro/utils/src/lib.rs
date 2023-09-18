@@ -76,7 +76,8 @@ macro_rules! attr_struct {
 pub trait DarlingErrorExt: Sized {
     /// Attaches a combination of multiple spans to the error.
     ///
-    /// Note that it only attaches the first span on stable rustc, as the `Span::join` method is not yet stabilized (https://github.com/rust-lang/rust/issues/54725#issuecomment-649078500).
+    /// Note that it only attaches the first span on stable rustc, as the `Span::join` method is not yet stabilized (<https://github.com/rust-lang/rust/issues/54725#issuecomment-649078500>).
+    #[must_use]
     fn with_spans(self, spans: impl IntoIterator<Item = impl Into<proc_macro2::Span>>) -> Self;
 }
 
