@@ -24,7 +24,8 @@ enum EventVariant {
     /// Delegates all the filterting to the corresponding event's filter.
     Delegating {
         variant_name: Ident,
-        delegated_event_ty_name: Ident,
+        /// A name of the event this variant delegates to, without the the `Event` suffix
+        delegated_event_name_base: String,
     },
     /// An actual event. Has either an Id or an identifiable object as a payload
     /// The presense of the Id field is not required by this macro per se, but will be enfored by `OriginFilter` requiring a `HasOrigin` impl.
@@ -48,10 +49,14 @@ impl FromVariant for EventVariant {
             return Err(darling::Error::custom("Only identifiers supported as event types").with_span(first_field_ty));
         };
 
-        if first_field_ty_name.to_string().ends_with("Event") {
+        // What clippy suggests is much less readable in this case
+        #[allow(clippy::option_if_let_else)]
+        if let Some(delegated_event_name_base) =
+            first_field_ty_name.to_string().strip_suffix("Event")
+        {
             Ok(EventVariant::Delegating {
                 variant_name: variant.ident.clone(),
-                delegated_event_ty_name: first_field_ty_name.clone(),
+                delegated_event_name_base: delegated_event_name_base.to_string(),
             })
         } else {
             Ok(EventVariant::Direct(variant.ident.clone()))
@@ -67,90 +72,86 @@ impl EventEnum {
         }
     }
 
+    fn filter_map_variants<T, F: Fn(&EventVariant) -> Option<T>>(&self, fun: F) -> Vec<T> {
+        self.variants().iter().filter_map(fun).collect()
+    }
+
     /// Used to produce fields like `ByAccount(crate::prelude::FilterOpt<AccountFilter>)` in `DomainEventFilter`.
-    fn generate_filter_variants_for_delegating_events(&self) -> Vec<proc_macro2::TokenStream> {
-        self.variants()
-            .iter()
-            .filter_map(|variant| match variant {
-                EventVariant::Direct(_) => None,
-                EventVariant::Delegating {
-                    variant_name,
-                    delegated_event_ty_name,
-                } => {
-                    // E.g. `Account` field in the event => `ByAccount` in the event filter
-                    let filter_variant_ident = format_ident!("By{}", variant_name);
-                    // E.g. `AccountEvent` inner field from `Account` variant in event =>
-                    // `AccountFilter` inside the event filter
-                    let inner_filter_ident =
-                        format_ident!(
-                        "{}Filter",
-                        delegated_event_ty_name.to_string().strip_suffix("Event").expect(
-                            "BUG: Variant name should have suffix `Event` (checked in FromVariant)"
-                        ),
-                    );
-                    let import_path = quote! {crate::prelude};
-                    Some(quote! {
-                    #filter_variant_ident(#import_path::FilterOpt<#inner_filter_ident>) })
-                }
-            })
-            .collect()
+    fn generate_filter_variants_for_delegating_events(&self) -> Vec<TokenStream> {
+        self.filter_map_variants(|variant| {
+            if let EventVariant::Delegating {
+                variant_name,
+                delegated_event_name_base,
+            } = variant
+            {
+                // E.g. `Account` field in the event => `ByAccount` in the event filter
+                let filter_variant_ident = format_ident!("By{}", variant_name);
+                // E.g. `AccountEvent` inner field from `Account` variant in event =>
+                // `AccountFilter` inside the event filter
+                let inner_filter_ident = format_ident!("{}Filter", delegated_event_name_base);
+                let import_path = quote! {crate::prelude};
+                Some(quote! {
+                    #filter_variant_ident(#import_path::FilterOpt<#inner_filter_ident>)
+                })
+            } else {
+                None
+            }
+        })
     }
 
     /// Used to produce fields like `ByCreated` in `DomainEventFilter`.
     fn generate_filter_variants_for_direct_events(&self) -> Vec<Ident> {
-        self.variants()
-            .iter()
-            .filter_map(|variant| match variant {
-                EventVariant::Direct(event_variant_ident) => {
-                    // Event fields such as `MetadataRemoved` get mapped to `ByMetadataRemoved`
-                    let filter_variant_ident = format_ident!("By{}", event_variant_ident);
-                    Some(filter_variant_ident)
-                }
-                EventVariant::Delegating { .. } => None,
-            })
-            .collect()
+        self.filter_map_variants(|variant| {
+            if let EventVariant::Direct(event_variant_ident) = variant {
+                // Event fields such as `MetadataRemoved` get mapped to `ByMetadataRemoved`
+                let filter_variant_ident = format_ident!("By{}", event_variant_ident);
+                Some(filter_variant_ident)
+            } else {
+                None
+            }
+        })
     }
 
     /// Match arms for `Filter` impls of event filters of the form
     /// `(Self::ByAccount(filter_opt), crate::prelude::DomainEvent::Account(event)) => {filter_opt.matches(event)}`.
-    fn generate_filter_impls_for_delegaring_events(&self) -> Vec<proc_macro2::TokenStream> {
-        self.variants()
-            .iter()
-            .filter_map(|variant| match variant {
-                EventVariant::Direct(_) => None,
-                EventVariant::Delegating {
-                    variant_name,
-                    ..
-                } => {
-                    let event_ident = &self.ident;
-                    let filter_variant_ident = format_ident!("By{}", variant_name);
-                    let import_path = quote! {crate::prelude};
-                    Some(quote! {
-                        (Self::#filter_variant_ident(filter_opt), #import_path::#event_ident::#variant_name(event)) => {
-                            filter_opt.matches(event)
-                        }})
-
-                }}).collect()
+    fn generate_filter_arms_for_delegating_events(&self) -> Vec<TokenStream> {
+        self.filter_map_variants(|variant| {
+            if let EventVariant::Delegating { variant_name, .. } = variant {
+                let event_ident = &self.ident;
+                let filter_variant_ident = format_ident!("By{}", variant_name);
+                let import_path = quote! {crate::prelude};
+                Some(quote! {
+                    (
+                        Self::#filter_variant_ident(filter_opt),
+                        #import_path::#event_ident::#variant_name(event)
+                    ) => {
+                        filter_opt.matches(event)
+                    }
+                })
+            } else {
+                None
+            }
+        })
     }
 
     /// Match arms for `Filter` impls of event filters of the form
     /// `(Self::ByCreated, crate::prelude::DomainEvent::Created(_))`.
-    fn generate_filter_impls_for_direct_events(&self) -> Vec<proc_macro2::TokenStream> {
-        self.variants()
-            .iter()
-            .filter_map(|variant| match variant {
-                EventVariant::Direct(event_variant_ident) => {
-                    let event_ident = &self.ident;
-                    let filter_variant_ident = format_ident!("By{}", event_variant_ident);
-                    let import_path = quote! {crate::prelude};
-                    Some(
-                        quote! {
-                            (Self::#filter_variant_ident, #import_path::#event_ident::#event_variant_ident(_))
-                        })
-                },
-                EventVariant::Delegating { .. } => None,
-            })
-            .collect()
+    fn generate_filter_patterns_for_direct_events(&self) -> Vec<proc_macro2::TokenStream> {
+        self.filter_map_variants(|variant| {
+            if let EventVariant::Direct(event_variant_ident) = variant {
+                let event_ident = &self.ident;
+                let filter_variant_ident = format_ident!("By{}", event_variant_ident);
+                let import_path = quote! {crate::prelude};
+                Some(quote! {
+                    (
+                        Self::#filter_variant_ident,
+                        #import_path::#event_ident::#event_variant_ident(_)
+                    )
+                })
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -167,8 +168,8 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
     let id_variants = event.generate_filter_variants_for_direct_events();
     let event_variants = event.generate_filter_variants_for_delegating_events();
 
-    let id_impls = event.generate_filter_impls_for_direct_events();
-    let event_impls = event.generate_filter_impls_for_delegaring_events();
+    let id_patterns = event.generate_filter_patterns_for_direct_events();
+    let event_arms = event.generate_filter_arms_for_delegating_events();
 
     let event_filter_ident = format_ident!("{}Filter", event_ident);
     let import_path = quote! { crate::prelude };
@@ -193,8 +194,8 @@ fn impl_event_filter(event: &EventEnum) -> proc_macro2::TokenStream {
 
             fn matches(&self, event: &#imp_event) -> bool {
                 match (self, event) {
-                    #(#id_impls)|* => true,
-                    #(#event_impls),*
+                    #(#id_patterns)|* => true,
+                    #(#event_arms),*
                     _ => false,
                 }
             }
