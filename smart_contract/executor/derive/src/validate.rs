@@ -6,7 +6,7 @@ use syn::{Attribute, Ident, Path, Type};
 use super::*;
 
 /// [`derive_validate`](crate::derive_validate()) macro implementation
-pub fn impl_derive_validate(input: TokenStream) -> TokenStream {
+pub fn impl_derive_validate_grant_revoke(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let ident = input.ident;
 
