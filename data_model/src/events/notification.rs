@@ -21,7 +21,18 @@ pub mod model {
 
     /// Notification event for events that arise during block application process like trigger execution for example
     #[derive(
-        Debug, Clone, FromVariant, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
     )]
     #[ffi_type]
     #[non_exhaustive]
@@ -33,11 +44,11 @@ pub mod model {
     #[derive(
         Debug,
         Clone,
-        Getters,
         PartialEq,
         Eq,
         PartialOrd,
         Ord,
+        Getters,
         Constructor,
         Decode,
         Encode,
@@ -56,12 +67,12 @@ pub mod model {
     #[derive(
         Debug,
         Clone,
-        FromVariant,
-        EnumDiscriminants,
         PartialEq,
         Eq,
         PartialOrd,
         Ord,
+        FromVariant,
+        EnumDiscriminants,
         Decode,
         Encode,
         Deserialize,
@@ -113,12 +124,12 @@ pub mod model {
     #[derive(
         Debug,
         Clone,
-        Constructor,
-        Getters,
         PartialEq,
         Eq,
         PartialOrd,
         Ord,
+        Constructor,
+        Getters,
         Decode,
         Encode,
         Deserialize,

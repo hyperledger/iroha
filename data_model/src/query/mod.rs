@@ -28,7 +28,7 @@ use self::{
 };
 use crate::{
     account::Account,
-    block::VersionedCommittedBlock,
+    block::VersionedSignedBlock,
     seal,
     transaction::{TransactionPayload, TransactionValue, VersionedSignedTransaction},
     Identifiable, Value,
@@ -71,7 +71,7 @@ pub mod model {
     use iroha_crypto::HashOf;
 
     use super::*;
-    use crate::permission::PermissionTokenId;
+    use crate::{block::VersionedSignedBlock, permission::PermissionTokenId};
 
     /// Sized container for all possible Queries.
     #[allow(clippy::enum_variant_names)]
@@ -146,7 +146,7 @@ pub mod model {
         /// Transaction
         pub transaction: TransactionValue,
         /// The hash of the block to which `tx` belongs to
-        pub block_hash: HashOf<VersionedCommittedBlock>,
+        pub block_hash: HashOf<VersionedSignedBlock>,
     }
 
     /// Type returned from [`Metadata`] queries
@@ -203,9 +203,10 @@ impl PartialOrd for TransactionQueryOutput {
 impl Ord for TransactionQueryOutput {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
-        self.payload()
-            .creation_time_ms
-            .cmp(&other.payload().creation_time_ms)
+        let tx1 = self.transaction.payload();
+        let tx2 = other.transaction.payload();
+
+        tx1.creation_time().cmp(&tx2.creation_time())
     }
 }
 
@@ -1163,7 +1164,7 @@ pub mod transaction {
     }
 
     impl FindTransactionsByAccountId {
-        ///Construct [`FindTransactionsByAccountId`].
+        /// Construct [`FindTransactionsByAccountId`].
         pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
             Self {
                 account_id: account_id.into(),
@@ -1197,7 +1198,7 @@ pub mod block {
 
     use super::Query;
     use crate::{
-        block::{BlockHeader, VersionedCommittedBlock},
+        block::{BlockHeader, VersionedSignedBlock},
         prelude::EvaluatesTo,
     };
 
@@ -1220,16 +1221,16 @@ pub mod block {
         #[derive(Display)]
         #[display(fmt = "Find block header with `{hash}` hash")]
         #[repr(transparent)]
-        // SAFETY: `FindBlockHeaderByHash` has no trap representation in `EvaluatesTo<HashOf<VersionedCommittedBlock>>`
+        // SAFETY: `FindBlockHeaderByHash` has no trap representation in `EvaluatesTo<HashOf<VersionedSignedBlock>>`
         #[ffi_type(unsafe {robust})]
         pub struct FindBlockHeaderByHash {
             /// Block hash.
-            pub hash: EvaluatesTo<HashOf<VersionedCommittedBlock>>,
+            pub hash: EvaluatesTo<HashOf<VersionedSignedBlock>>,
         }
     }
 
     impl Query for FindAllBlocks {
-        type Output = Vec<VersionedCommittedBlock>;
+        type Output = Vec<VersionedSignedBlock>;
     }
 
     impl Query for FindAllBlockHeaders {
@@ -1242,7 +1243,7 @@ pub mod block {
 
     impl FindBlockHeaderByHash {
         /// Construct [`FindBlockHeaderByHash`].
-        pub fn new(hash: impl Into<EvaluatesTo<HashOf<VersionedCommittedBlock>>>) -> Self {
+        pub fn new(hash: impl Into<EvaluatesTo<HashOf<VersionedSignedBlock>>>) -> Self {
             Self { hash: hash.into() }
         }
     }
@@ -1436,7 +1437,7 @@ pub mod error {
 
     pub use self::model::*;
     use super::*;
-    use crate::{block::VersionedCommittedBlock, permission, prelude::*, validator};
+    use crate::{block::VersionedSignedBlock, permission, prelude::*, validator};
 
     #[model]
     pub mod model {
@@ -1515,7 +1516,7 @@ pub mod error {
             /// Failed to find metadata key: `{0}`
             MetadataKey(Name),
             /// Block with hash `{0}` not found
-            Block(HashOf<VersionedCommittedBlock>),
+            Block(HashOf<VersionedSignedBlock>),
             /// Transaction with hash `{0}` not found
             Transaction(HashOf<VersionedSignedTransaction>),
             /// Peer with id `{0}` not found

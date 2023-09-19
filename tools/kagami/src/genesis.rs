@@ -146,7 +146,7 @@ pub fn generate_default(validator: ValidatorMode) -> color_eyre::Result<RawGenes
             .validator(validator)
             .build();
 
-    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
+    let alice_id = AccountId::from_str("alice@wonderland")?;
     let mint = MintBox::new(
         13_u32.to_value(),
         IdBox::AssetId(AssetId::new("rose#wonderland".parse()?, alice_id.clone())),

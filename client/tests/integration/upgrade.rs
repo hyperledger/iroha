@@ -20,15 +20,15 @@ fn validator_upgrade_should_work() -> Result<()> {
     let register_admin_domain = RegisterBox::new(admin_domain);
     client.submit_blocking(register_admin_domain)?;
 
-    let admin_id: <Account as Identifiable>::Id = "admin@admin".parse()?;
+    let admin_id: AccountId = "admin@admin".parse()?;
     let admin_keypair = KeyPair::generate()?;
     let admin_account = Account::new(admin_id.clone(), [admin_keypair.public_key().clone()]);
     let register_admin_account = RegisterBox::new(admin_account);
     client.submit_blocking(register_admin_account)?;
 
     // Check that admin isn't allowed to transfer alice's rose by default
-    let alice_rose: <Asset as Identifiable>::Id = "rose##alice@wonderland".parse()?;
-    let admin_rose: <Account as Identifiable>::Id = "admin@admin".parse()?;
+    let alice_rose: AssetId = "rose##alice@wonderland".parse()?;
+    let admin_rose: AccountId = "admin@admin".parse()?;
     let transfer_alice_rose = TransferBox::new(alice_rose, NumericValue::U32(1), admin_rose);
     let transfer_rose_tx = TransactionBuilder::new(admin_id.clone())
         .with_instructions([transfer_alice_rose.clone()])

@@ -30,7 +30,7 @@ use core::{
     str::FromStr,
 };
 
-use block::VersionedCommittedBlock;
+use block::VersionedSignedBlock;
 #[cfg(not(target_arch = "aarch64"))]
 use derive_more::Into;
 use derive_more::{AsRef, DebugCustom, Deref, Display, From, FromStr};
@@ -779,7 +779,7 @@ pub mod model {
         PermissionToken(permission::PermissionToken),
         PermissionTokenSchema(permission::PermissionTokenSchema),
         Hash(HashValue),
-        Block(VersionedCommittedBlockWrapper),
+        Block(VersionedSignedBlockWrapper),
         BlockHeader(block::BlockHeader),
         Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
         Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
@@ -811,10 +811,10 @@ pub mod model {
         /// Transaction hash
         Transaction(HashOf<VersionedSignedTransaction>),
         /// Block hash
-        Block(HashOf<VersionedCommittedBlock>),
+        Block(HashOf<VersionedSignedBlock>),
     }
 
-    /// Cross-platform wrapper for [`VersionedCommittedBlock`].
+    /// Cross-platform wrapper for [`VersionedSignedBlock`].
     #[cfg(not(target_arch = "aarch64"))]
     #[derive(
         Debug,
@@ -833,12 +833,12 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
-    // SAFETY: VersionedCommittedBlockWrapper has no trap representations in VersionedCommittedBlock
+    // SAFETY: VersionedSignedBlockWrapper has no trap representations in VersionedSignedBlock
     #[schema(transparent)]
     #[ffi_type(unsafe {robust})]
     #[serde(transparent)]
     #[repr(transparent)]
-    pub struct VersionedCommittedBlockWrapper(VersionedCommittedBlock);
+    pub struct VersionedSignedBlockWrapper(VersionedSignedBlock);
 
     /// Cross-platform wrapper for `BlockValue`.
     #[cfg(target_arch = "aarch64")]
@@ -862,11 +862,11 @@ pub mod model {
     #[as_ref(forward)]
     #[deref(forward)]
     #[from(forward)]
-    // SAFETY: VersionedCommittedBlockWrapper has no trap representations in Box<VersionedCommittedBlock>
+    // SAFETY: VersionedSignedBlockWrapper has no trap representations in Box<VersionedSignedBlock>
     #[ffi_type(unsafe {robust})]
     #[serde(transparent)]
     #[repr(transparent)]
-    pub struct VersionedCommittedBlockWrapper(pub(super) Box<VersionedCommittedBlock>);
+    pub struct VersionedSignedBlockWrapper(pub(super) Box<VersionedSignedBlock>);
 
     /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
     #[derive(
@@ -1054,8 +1054,8 @@ macro_rules! val_vec {
 }
 
 #[cfg(target_arch = "aarch64")]
-impl From<VersionedCommittedBlockWrapper> for VersionedCommittedBlock {
-    fn from(block_value: VersionedCommittedBlockWrapper) -> Self {
+impl From<VersionedSignedBlockWrapper> for VersionedSignedBlock {
+    fn from(block_value: VersionedSignedBlockWrapper) -> Self {
         *block_value.0
     }
 }
@@ -1133,8 +1133,8 @@ impl Value {
     }
 }
 
-impl From<VersionedCommittedBlock> for Value {
-    fn from(block_value: VersionedCommittedBlock) -> Self {
+impl From<VersionedSignedBlock> for Value {
+    fn from(block_value: VersionedSignedBlock) -> Self {
         Value::Block(block_value.into())
     }
 }
@@ -1327,7 +1327,7 @@ from_and_try_from_value_identifiable!(
 
 from_and_try_from_and_try_as_value_hash! {
     Transaction(HashOf<VersionedSignedTransaction>),
-    Block(HashOf<VersionedCommittedBlock>),
+    Block(HashOf<VersionedSignedBlock>),
 }
 
 from_and_try_from_and_try_as_value_numeric! {
@@ -1427,7 +1427,7 @@ where
     }
 }
 
-impl TryFrom<Value> for VersionedCommittedBlock {
+impl TryFrom<Value> for VersionedSignedBlock {
     type Error = ErrorTryFromEnum<Value, Self>;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {

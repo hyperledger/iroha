@@ -9,7 +9,7 @@ use test_network::*;
 
 #[test]
 fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_625).start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_625).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
     // Given
@@ -59,7 +59,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
 
 #[test]
 fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_610).start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_610).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
     // Given
@@ -93,7 +93,7 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
 
 #[test]
 fn non_mintable_asset_can_be_minted_if_registered_with_zero_value() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_630).start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_630).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
     // Given
