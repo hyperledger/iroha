@@ -132,14 +132,15 @@ impl Config {
                 let block = blocks
                     .next()
                     .expect("The block is not yet in WSV. Need more sleep?");
-                let block = block.as_v1();
                 (
                     block
+                        .payload()
                         .transactions
                         .iter()
                         .filter(|tx| tx.error.is_none())
                         .count(),
                     block
+                        .payload()
                         .transactions
                         .iter()
                         .filter(|tx| tx.error.is_some())
@@ -173,7 +174,7 @@ impl MeasurerUnit {
         let keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
 
         let account_id = account_id(self.name);
-        let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
+        let alice_id = AccountId::from_str("alice@wonderland")?;
         let asset_id = asset_id(self.name);
 
         let register_me = RegisterBox::new(Account::new(
@@ -238,8 +239,7 @@ impl MeasurerUnit {
         let submitter = self.client.clone();
         let interval_us_per_tx = self.config.interval_us_per_tx;
         let instructions = self.instructions();
-        let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")
-            .expect("Failed to parse account id");
+        let alice_id = AccountId::from_str("alice@wonderland").expect("Failed to parse account id");
 
         let mut nonce = NonZeroU32::new(1).expect("Valid");
 

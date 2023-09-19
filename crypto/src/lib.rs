@@ -23,7 +23,7 @@ use core::{fmt, str::FromStr};
 
 #[cfg(feature = "base64")]
 pub use base64;
-use derive_more::Display;
+use derive_more::{DebugCustom, Display};
 use error::{Error, NoSuchAlgorithm};
 use getset::{CopyGetters, Getters};
 pub use hash::*;
@@ -308,8 +308,9 @@ impl From<KeyPair> for (PublicKey, PrivateKey) {
 ffi::ffi_item! {
     /// Public Key used in signatures.
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, CopyGetters)]
-    #[cfg_attr(not(feature="ffi_import"), derive(derive_more::DebugCustom, Hash, DeserializeFromStr, SerializeDisplay, Decode, Encode, IntoSchema))]
-    #[cfg_attr(not(feature="ffi_import"), debug(fmt = "{{digest: {digest_function}, payload: {payload:X?}}}"))]
+    #[cfg_attr(not(feature="ffi_import"), derive(DebugCustom, Display, Hash, DeserializeFromStr, SerializeDisplay, Decode, Encode, IntoSchema))]
+    #[cfg_attr(not(feature="ffi_import"), debug(fmt = "{{digest: {digest_function}, payload: {}}}", "self.normalize()"))]
+    #[cfg_attr(not(feature="ffi_import"), display(fmt = "{}", "self.normalize()"))]
     pub struct PublicKey {
         /// Digest function
         #[getset(get_copy = "pub")]
@@ -362,8 +363,8 @@ impl FromStr for PublicKey {
 }
 
 #[cfg(not(feature = "ffi_import"))]
-impl fmt::Display for PublicKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl PublicKey {
+    fn normalize(&self) -> String {
         let multihash: &multihash::Multihash = &self
             .clone()
             .try_into()
@@ -375,7 +376,7 @@ impl fmt::Display for PublicKey {
         let dig_size = hex::encode(bytes_iter.by_ref().take(1).collect::<Vec<_>>());
         let key = hex::encode_upper(bytes_iter.by_ref().collect::<Vec<_>>());
 
-        write!(f, "{fn_code}{dig_size}{key}")
+        format!("{fn_code}{dig_size}{key}")
     }
 }
 
@@ -391,8 +392,9 @@ impl From<PrivateKey> for PublicKey {
 ffi::ffi_item! {
     /// Private Key used in signatures.
     #[derive(Clone, PartialEq, Eq, CopyGetters)]
-    #[cfg_attr(not(feature="ffi_import"), derive(derive_more::DebugCustom, Serialize))]
-    #[cfg_attr(not(feature="ffi_import"), debug(fmt = "{{digest: {digest_function}, payload: {payload:X?}}}"))]
+    #[cfg_attr(not(feature="ffi_import"), derive(DebugCustom, Display, Serialize))]
+    #[cfg_attr(not(feature="ffi_import"), debug(fmt = "{{digest: {digest_function}, payload: {}}}", "hex::encode_upper(payload)"))]
+    #[cfg_attr(not(feature="ffi_import"), display(fmt = "{}", "hex::encode_upper(payload)"))]
     pub struct PrivateKey {
         /// Digest function
         #[getset(get_copy = "pub")]
@@ -400,12 +402,6 @@ ffi::ffi_item! {
         /// Key payload
         #[serde(with = "hex::serde")]
         payload: ConstVec<u8>,
-    }
-}
-
-impl fmt::Display for PrivateKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode_upper(&self.payload))
     }
 }
 

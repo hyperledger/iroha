@@ -22,7 +22,7 @@ use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
 use tokio::sync::watch;
 
-use crate::{handler::ThreadHandler, kura::BlockCount};
+use crate::{block::ValidBlock, handler::ThreadHandler, kura::BlockCount};
 
 pub mod main_loop;
 pub mod message;
@@ -33,11 +33,9 @@ use parking_lot::Mutex;
 
 use self::{
     message::{Message, *},
-    view_change::{Proof, ProofChain},
+    view_change::ProofChain,
 };
-use crate::{
-    block::*, kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, NetworkMessage,
-};
+use crate::{kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, NetworkMessage};
 
 /*
 The values in the following struct are not atomics because the code that
@@ -135,7 +133,7 @@ impl SumeragiHandle {
                 block_index += 1;
                 let mut block_txs_accepted = 0;
                 let mut block_txs_rejected = 0;
-                for tx in &block.as_v1().transactions {
+                for tx in &block.payload().transactions {
                     if tx.error.is_none() {
                         block_txs_accepted += 1;
                     } else {
@@ -173,9 +171,12 @@ impl SumeragiHandle {
         #[allow(clippy::cast_possible_truncation)]
         if let Some(timestamp) = wsv.genesis_timestamp() {
             // this will overflow in 584942417years.
-            self.metrics
-                .uptime_since_genesis_ms
-                .set((current_time().as_millis() - timestamp) as u64)
+            self.metrics.uptime_since_genesis_ms.set(
+                (current_time() - timestamp)
+                    .as_millis()
+                    .try_into()
+                    .expect("Timestamp should fit into u64"),
+            )
         };
 
         self.metrics.connected_peers.set(online_peers_count);
@@ -244,29 +245,6 @@ impl SumeragiHandle {
                 .expect("Sumeragi should be able to load the block that was reported as presented. If not, the block storage was probably disconnected.")
         });
 
-        let block_iter_except_last =
-            (&mut blocks_iter).take(block_count.saturating_sub(skip_block_count + 1));
-        for block in block_iter_except_last {
-            block.revalidate(&mut wsv).expect(
-                "The block should be valid in init. Blocks loaded from kura assumed to be valid",
-            );
-            wsv.apply_without_execution(block.as_ref())
-                .expect("Block application in init should not fail. Blocks loaded from kura assumed to be valid");
-        }
-
-        // finalized_wsv is one block behind
-        let finalized_wsv = wsv.clone();
-
-        if let Some(latest_block) = blocks_iter.next() {
-            latest_block.revalidate(&mut wsv).expect(
-                "The block should be valid in init. Blocks loaded from kura assumed to be valid",
-            );
-            wsv.apply_without_execution(latest_block.as_ref())
-                .expect("Block application in init should not fail. Blocks loaded from kura assumed to be valid");
-        }
-
-        info!("Sumeragi has finished loading blocks and setting up the WSV");
-
         let current_topology = match wsv.height() {
             0 => {
                 assert!(!configuration.trusted_peers.peers.is_empty());
@@ -274,13 +252,38 @@ impl SumeragiHandle {
             }
             height => {
                 let block_ref = kura.get_block_by_height(height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
-                let mut topology = Topology {
-                    sorted_peers: block_ref.as_v1().header.committed_with_topology.clone(),
-                };
+                let mut topology =
+                    Topology::new(block_ref.payload().header.commit_topology.clone());
                 topology.rotate_set_a();
                 topology
             }
         };
+
+        let block_iter_except_last =
+            (&mut blocks_iter).take(block_count.saturating_sub(skip_block_count + 1));
+        for block in block_iter_except_last {
+            let block = ValidBlock::validate(Clone::clone(&block), &current_topology, &mut wsv)
+                .expect("Kura blocks should be valid")
+                .commit(&current_topology)
+                .expect("Kura blocks should be valid");
+            wsv.apply_without_execution(&block)
+                .expect("Block application in init should not fail. Blocks loaded from kura assumed to be valid");
+        }
+
+        // finalized_wsv is one block behind
+        let finalized_wsv = wsv.clone();
+
+        if let Some(latest_block) = blocks_iter.next() {
+            let latest_block =
+                ValidBlock::validate(Clone::clone(&latest_block), &current_topology, &mut wsv)
+                    .expect("Kura blocks should be valid")
+                    .commit(&current_topology)
+                    .expect("Kura blocks should be valid");
+            wsv.apply_without_execution(&latest_block)
+                .expect("Block application in init should not fail. Blocks loaded from kura assumed to be valid");
+        }
+
+        info!("Sumeragi has finished loading blocks and setting up the WSV");
 
         let (public_wsv_sender, public_wsv_receiver) = watch::channel(wsv.clone());
         let (public_finalized_wsv_sender, public_finalized_wsv_receiver) =
@@ -361,14 +364,14 @@ pub struct VotingBlock {
     /// At what time has this peer voted for this block
     pub voted_at: Instant,
     /// Valid Block
-    pub block: PendingBlock,
+    pub block: ValidBlock,
     /// WSV after applying transactions to it
     pub new_wsv: WorldStateView,
 }
 
 impl VotingBlock {
     /// Construct new `VotingBlock` with current time.
-    pub fn new(block: PendingBlock, new_wsv: WorldStateView) -> VotingBlock {
+    pub fn new(block: ValidBlock, new_wsv: WorldStateView) -> VotingBlock {
         VotingBlock {
             block,
             voted_at: Instant::now(),
@@ -377,7 +380,7 @@ impl VotingBlock {
     }
     /// Construct new `VotingBlock` with the given time.
     pub(crate) fn voted_at(
-        block: PendingBlock,
+        block: ValidBlock,
         new_wsv: WorldStateView,
         voted_at: Instant,
     ) -> VotingBlock {

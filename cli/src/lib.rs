@@ -160,9 +160,9 @@ impl NetworkRelay {
 
         match msg {
             SumeragiPacket(data) => {
-                self.sumeragi.incoming_message(data.into_v1());
+                self.sumeragi.incoming_message(*data);
             }
-            BlockSync(data) => self.block_sync.message(data.into_v1()).await,
+            BlockSync(data) => self.block_sync.message(*data).await,
             TransactionGossiper(data) => self.gossiper.gossip(*data).await,
             Health => {}
         }

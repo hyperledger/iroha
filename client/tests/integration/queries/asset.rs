@@ -78,7 +78,7 @@ fn find_asset_total_quantity() -> Result<()> {
         ),
     ] {
         // Registering new asset definition
-        let definition_id: <AssetDefinition as Identifiable>::Id =
+        let definition_id: AssetDefinitionId =
             definition.parse().expect("Failed to parse `definition_id`");
         let asset_definition = AssetDefinition::new(definition_id.clone(), asset_value_type);
         test_client.submit_blocking(RegisterBox::new(asset_definition.clone()))?;
@@ -86,7 +86,7 @@ fn find_asset_total_quantity() -> Result<()> {
         let asset_ids = accounts
             .iter()
             .cloned()
-            .map(|account_id| <Asset as Identifiable>::Id::new(definition_id.clone(), account_id))
+            .map(|account_id| AssetId::new(definition_id.clone(), account_id))
             .collect::<Vec<_>>();
 
         // Assert that initial total quantity before any burns and mints is zero
@@ -151,15 +151,14 @@ fn find_asset_total_quantity() -> Result<()> {
     }
 
     // Test for `Store` asset value type
-    let definition_id: <AssetDefinition as Identifiable>::Id =
-        "store#wonderland".parse().expect("Valid");
+    let definition_id: AssetDefinitionId = "store#wonderland".parse().expect("Valid");
     let asset_definition = AssetDefinition::store(definition_id.clone());
     test_client.submit_blocking(RegisterBox::new(asset_definition))?;
 
     let asset_ids = accounts
         .iter()
         .cloned()
-        .map(|account_id| <Asset as Identifiable>::Id::new(definition_id.clone(), account_id))
+        .map(|account_id| AssetId::new(definition_id.clone(), account_id))
         .collect::<Vec<_>>();
 
     // Assert that initial total quantity before any registrations and unregistrations is zero

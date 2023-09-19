@@ -6,42 +6,15 @@
     clippy::module_name_repetitions
 )]
 
-use iroha_crypto::{HashOf, SignatureOf, SignaturesOf};
-use iroha_data_model::block::VersionedCommittedBlock;
+use iroha_crypto::{HashOf, SignaturesOf};
+use iroha_data_model::block::{BlockPayload, VersionedSignedBlock};
 use iroha_macro::*;
-use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
 use super::view_change;
-use crate::block::PendingBlock;
-
-declare_versioned_with_scale!(VersionedPacket 1..2, Debug, Clone, iroha_macro::FromVariant);
-
-impl VersionedPacket {
-    /// Convert `&`[`Self`] to V1 reference
-    pub const fn as_v1(&self) -> &MessagePacket {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-
-    /// Convert `&mut` [`Self`] to V1 mutable reference
-    pub fn as_mut_v1(&mut self) -> &mut MessagePacket {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-
-    /// Perform the conversion from [`Self`] to V1
-    pub fn into_v1(self) -> MessagePacket {
-        match self {
-            Self::V1(v1) => v1,
-        }
-    }
-}
+use crate::block::{CommittedBlock, ValidBlock};
 
 /// Helper structure, wrapping messages and view change proofs.
-#[version_with_scale(version = 1, versioned_alias = "VersionedPacket")]
 #[derive(Debug, Clone, Decode, Encode)]
 pub struct MessagePacket {
     /// Proof of view change. As part of this message handling, all
@@ -96,19 +69,14 @@ impl From<ControlFlowMessage> for MessagePacket {
 #[non_exhaustive]
 pub struct BlockCreated {
     /// The corresponding block.
-    pub block: PendingBlock,
+    pub block: VersionedSignedBlock,
 }
 
-impl From<PendingBlock> for BlockCreated {
-    fn from(block: PendingBlock) -> Self {
-        Self { block }
-    }
-}
-
-impl BlockCreated {
-    /// Get hash of block.
-    pub fn hash(&self) -> HashOf<PendingBlock> {
-        self.block.partial_hash()
+impl From<ValidBlock> for BlockCreated {
+    fn from(block: ValidBlock) -> Self {
+        Self {
+            block: block.into(),
+        }
     }
 }
 
@@ -117,16 +85,19 @@ impl BlockCreated {
 #[non_exhaustive]
 pub struct BlockSigned {
     /// Hash of the block being signed.
-    pub hash: HashOf<PendingBlock>,
+    pub hash: HashOf<BlockPayload>,
     /// Set of signatures.
-    pub signatures: SignaturesOf<PendingBlock>,
+    pub signatures: SignaturesOf<BlockPayload>,
 }
 
-impl From<&PendingBlock> for BlockSigned {
-    fn from(block: &PendingBlock) -> Self {
+impl From<ValidBlock> for BlockSigned {
+    fn from(block: ValidBlock) -> Self {
+        let block_hash = block.payload().hash();
+        let VersionedSignedBlock::V1(block) = block.into();
+
         Self {
-            hash: block.partial_hash(),
-            signatures: block.signatures.clone(),
+            hash: block_hash,
+            signatures: block.signatures,
         }
     }
 }
@@ -136,21 +107,19 @@ impl From<&PendingBlock> for BlockSigned {
 #[non_exhaustive]
 pub struct BlockCommitted {
     /// Hash of the block being signed.
-    pub hash: iroha_data_model::block::PartialBlockHash,
+    pub hash: HashOf<BlockPayload>,
     /// Set of signatures.
-    pub signatures: SignaturesOf<VersionedCommittedBlock>,
+    pub signatures: SignaturesOf<BlockPayload>,
 }
 
-impl From<VersionedCommittedBlock> for BlockCommitted {
-    fn from(block: VersionedCommittedBlock) -> Self {
+impl From<CommittedBlock> for BlockCommitted {
+    fn from(block: CommittedBlock) -> Self {
+        let block_hash = block.payload().hash();
+        let VersionedSignedBlock::V1(block) = block.into();
+
         Self {
-            hash: block.partial_hash(),
-            signatures: block
-                .signatures()
-                .cloned()
-                .collect::<std::collections::BTreeSet<SignatureOf<VersionedCommittedBlock>>>()
-                .try_into()
-                .expect("Can't send a committed block message without signatures."),
+            hash: block_hash,
+            signatures: block.signatures,
         }
     }
 }
@@ -160,18 +129,11 @@ impl From<VersionedCommittedBlock> for BlockCommitted {
 #[non_exhaustive]
 pub struct BlockSyncUpdate {
     /// The corresponding block.
-    pub block: VersionedCommittedBlock,
+    pub block: VersionedSignedBlock,
 }
 
-impl From<VersionedCommittedBlock> for BlockSyncUpdate {
-    fn from(block: VersionedCommittedBlock) -> Self {
+impl From<VersionedSignedBlock> for BlockSyncUpdate {
+    fn from(block: VersionedSignedBlock) -> Self {
         Self { block }
-    }
-}
-
-impl BlockSyncUpdate {
-    /// Get hash of block.
-    pub fn hash(&self) -> HashOf<VersionedCommittedBlock> {
-        self.block.hash()
     }
 }

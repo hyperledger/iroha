@@ -5,7 +5,7 @@ use std::sync::Arc;
 use eyre::{Result, WrapErr};
 use iroha_crypto::HashOf;
 use iroha_data_model::{
-    block::VersionedCommittedBlock,
+    block::VersionedSignedBlock,
     evaluate::ExpressionEvaluator,
     prelude::*,
     query::{
@@ -18,11 +18,11 @@ use iroha_telemetry::metrics;
 
 use super::*;
 
-pub(crate) struct BlockTransactionIter(Arc<VersionedCommittedBlock>, usize);
-pub(crate) struct BlockTransactionRef(Arc<VersionedCommittedBlock>, usize);
+pub(crate) struct BlockTransactionIter(Arc<VersionedSignedBlock>, usize);
+pub(crate) struct BlockTransactionRef(Arc<VersionedSignedBlock>, usize);
 
 impl BlockTransactionIter {
-    fn new(block: Arc<VersionedCommittedBlock>) -> Self {
+    fn new(block: Arc<VersionedSignedBlock>) -> Self {
         Self(block, 0)
     }
 }
@@ -31,9 +31,7 @@ impl Iterator for BlockTransactionIter {
     type Item = BlockTransactionRef;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let block = self.0.as_v1();
-
-        if self.1 < block.transactions.len() {
+        if self.1 < self.0.payload().transactions.len() {
             let res = Some(BlockTransactionRef(Arc::clone(&self.0), self.1));
 
             self.1 += 1;
@@ -45,17 +43,15 @@ impl Iterator for BlockTransactionIter {
 }
 
 impl BlockTransactionRef {
-    fn block_hash(&self) -> HashOf<VersionedCommittedBlock> {
+    fn block_hash(&self) -> HashOf<VersionedSignedBlock> {
         self.0.hash()
     }
 
     fn authority(&self) -> &AccountId {
-        let block = self.0.as_v1();
-
-        &block.transactions[self.1].payload().authority
+        &self.0.payload().transactions[self.1].payload().authority
     }
     fn value(&self) -> TransactionValue {
-        self.0.as_v1().transactions[self.1].clone()
+        self.0.payload().transactions[self.1].clone()
     }
 }
 
@@ -115,9 +111,9 @@ impl ValidQuery for FindTransactionByHash {
             .ok_or_else(|| FindError::Transaction(tx_hash))?;
 
         let block_hash = block.hash();
-        let block = block.as_v1();
 
         block
+            .payload()
             .transactions
             .iter()
             .find(|transaction| transaction.value.hash() == tx_hash)

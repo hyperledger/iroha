@@ -6,7 +6,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
-use derive_more::{AsRef, From, IntoIterator};
+use derive_more::{AsRef, DebugCustom, Display, From, IntoIterator};
 use iroha_macro::FromVariant;
 pub use iroha_primitives_derive::socket_addr;
 use iroha_schema::IntoSchema;
@@ -38,10 +38,8 @@ ffi::ffi_item! {
     /// An Iroha-native version of [`std::net::Ipv4Addr`], duplicated here
     /// to remain `no_std` compatible.
     #[derive(
-        AsRef,
-        From,
-        IntoIterator,
-        Debug,
+        DebugCustom,
+        Display,
         Clone,
         Copy,
         PartialEq,
@@ -49,12 +47,17 @@ ffi::ffi_item! {
         PartialOrd,
         Ord,
         Hash,
+        AsRef,
+        From,
+        IntoIterator,
         DeserializeFromStr,
         SerializeDisplay,
         Encode,
         Decode,
         IntoSchema,
     )]
+    #[display(fmt = "{}.{}.{}.{}", "self.0[0]", "self.0[1]", "self.0[2]", "self.0[3]")]
+    #[debug(fmt = "{}.{}.{}.{}", "self.0[0]", "self.0[1]", "self.0[2]", "self.0[3]")]
     #[repr(transparent)]
     pub struct Ipv4Addr([u8; 4]);
 
@@ -66,13 +69,6 @@ impl Ipv4Addr {
     /// Construct new [`Ipv4Addr`] from given octets
     pub const fn new(octets: [u8; 4]) -> Self {
         Self(octets)
-    }
-}
-
-impl core::fmt::Display for Ipv4Addr {
-    #[inline]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}.{}.{}.{}", self.0[0], self.0[1], self.0[2], self.0[3])
     }
 }
 
@@ -123,9 +119,6 @@ ffi::ffi_item! {
     /// An Iroha-native version of [`std::net::Ipv6Addr`], duplicated here
     /// to remain `no_std` compatible.
     #[derive(
-        AsRef,
-        From,
-        IntoIterator,
         Debug,
         Clone,
         Copy,
@@ -134,6 +127,9 @@ ffi::ffi_item! {
         PartialOrd,
         Ord,
         Hash,
+        AsRef,
+        From,
+        IntoIterator,
         DeserializeFromStr,
         SerializeDisplay,
         Encode,
@@ -261,7 +257,8 @@ ffi::ffi_item! {
     /// This struct provides an Iroha-native version of [`std::net::SocketAddrV4`]. It is duplicated here
     /// in order to remain `no_std` compatible.
     #[derive(
-        Debug,
+        DebugCustom,
+        Display,
         Clone,
         Copy,
         PartialEq,
@@ -275,6 +272,8 @@ ffi::ffi_item! {
         Decode,
         IntoSchema,
     )]
+    #[display(fmt = "{}:{}", "self.ip", "self.port")]
+    #[debug(fmt = "{}:{}", "self.ip", "self.port")]
     pub struct SocketAddrV4 {
         /// The Ipv4 address.
         pub ip: Ipv4Addr,
@@ -289,12 +288,6 @@ impl From<([u8; 4], u16)> for SocketAddrV4 {
             ip: value.0.into(),
             port: value.1,
         }
-    }
-}
-
-impl core::fmt::Display for SocketAddrV4 {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}:{}", self.ip, self.port)
     }
 }
 
@@ -314,7 +307,8 @@ ffi::ffi_item! {
     /// This struct provides an Iroha-native version of [`std::net::SocketAddrV6`]. It is duplicated here
     /// in order to remain `no_std` compatible.
     #[derive(
-        Debug,
+        DebugCustom,
+        Display,
         Clone,
         Copy,
         PartialEq,
@@ -328,6 +322,8 @@ ffi::ffi_item! {
         Decode,
         IntoSchema,
     )]
+    #[display(fmt = "[{}]:{}", "self.ip", "self.port")]
+    #[debug(fmt = "[{}]:{}", "self.ip", "self.port")]
     pub struct SocketAddrV6 {
         /// The Ipv6 address.
         pub ip: Ipv6Addr,
@@ -342,12 +338,6 @@ impl From<([u16; 8], u16)> for SocketAddrV6 {
             ip: value.0.into(),
             port: value.1,
         }
-    }
-}
-
-impl core::fmt::Display for SocketAddrV6 {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "[{}]:{}", self.ip, self.port)
     }
 }
 
@@ -411,7 +401,8 @@ ffi::ffi_item! {
     /// This enum provides an Iroha-native version of [`std::net::SocketAddr`]. It is duplicated here
     /// in order to remain `no_std` compatible.
     #[derive(
-        Debug,
+        DebugCustom,
+        Display,
         Clone,
         PartialEq,
         Eq,
@@ -472,16 +463,6 @@ impl SocketAddr {
             }
         }
         bytes
-    }
-}
-
-impl core::fmt::Display for SocketAddr {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            SocketAddr::Ipv4(addr) => write!(f, "{}", addr),
-            SocketAddr::Ipv6(addr) => write!(f, "{}", addr),
-            SocketAddr::Host(addr) => write!(f, "{}", addr),
-        }
     }
 }
 
@@ -785,10 +766,10 @@ mod test {
             port: 9019,
         });
 
-        assert_eq!(
-            serde_json::from_str::<SocketAddr>(&serde_json::to_string(&v6).unwrap()).unwrap(),
-            v6
-        );
+        let kita = &serde_json::to_string(&v6).unwrap();
+        println!("{kita}");
+        let kara = serde_json::from_str::<SocketAddr>(kita).unwrap();
+        assert_eq!(kara, v6);
 
         let host = SocketAddr::Host(SocketAddrHost {
             host: "localhost".into(),

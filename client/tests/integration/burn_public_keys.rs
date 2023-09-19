@@ -1,15 +1,18 @@
 #![allow(clippy::pedantic, clippy::restriction)]
 
 use iroha_client::client::{account, transaction, Client};
-use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{isi::Instruction, prelude::*};
+use iroha_crypto::{HashOf, KeyPair, PublicKey};
+use iroha_data_model::{isi::Instruction, prelude::*, transaction::TransactionPayload};
 use test_network::*;
 
-fn submit_and_get(
-    client: &mut Client,
+fn submit(
+    client: &Client,
     instructions: impl IntoIterator<Item = impl Instruction>,
     submitter: Option<(AccountId, KeyPair)>,
-) -> TransactionValue {
+) -> (
+    HashOf<VersionedSignedTransaction>,
+    eyre::Result<HashOf<TransactionPayload>>,
+) {
     let tx = if let Some((account_id, keypair)) = submitter {
         TransactionBuilder::new(account_id)
             .with_instructions(instructions)
@@ -22,16 +25,17 @@ fn submit_and_get(
         client.sign_transaction(tx).unwrap()
     };
 
-    let hash = tx.hash();
-    let _ = client.submit_transaction_blocking(&tx);
+    (tx.hash(), client.submit_transaction_blocking(&tx))
+}
 
+fn get(client: &Client, hash: HashOf<VersionedSignedTransaction>) -> TransactionValue {
     client
         .request(transaction::by_hash(hash))
         .unwrap()
         .transaction
 }
 
-fn account_keys_count(client: &mut Client, account_id: AccountId) -> usize {
+fn account_keys_count(client: &Client, account_id: AccountId) -> usize {
     let account = client.request(account::by_id(account_id)).unwrap();
     let signatories = account.signatories();
     signatories.len()
@@ -41,9 +45,9 @@ fn account_keys_count(client: &mut Client, account_id: AccountId) -> usize {
 fn public_keys_cannot_be_burned_to_nothing() {
     const KEYS_COUNT: usize = 3;
     let charlie_id: AccountId = "charlie@wonderland".parse().expect("Valid");
-    let charlie_keys_count = |client: &mut Client| account_keys_count(client, charlie_id.clone());
+    let charlie_keys_count = |client: &Client| account_keys_count(client, charlie_id.clone());
 
-    let (_rt, _peer, mut client) = <PeerBuilder>::new().with_port(10_045).start_with_runtime();
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_045).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     let charlie_initial_keypair = KeyPair::generate().unwrap();
@@ -52,8 +56,10 @@ fn public_keys_cannot_be_burned_to_nothing() {
         [charlie_initial_keypair.public_key().clone()],
     ));
 
-    let _unused = submit_and_get(&mut client, [register_charlie], None);
-    let mut keys_count = charlie_keys_count(&mut client);
+    let (tx_hash, res) = submit(&client, [register_charlie], None);
+    res.unwrap();
+    get(&client, tx_hash);
+    let mut keys_count = charlie_keys_count(&client);
     assert_eq!(keys_count, 1);
 
     let mint_keys = (0..KEYS_COUNT - 1).map(|_| {
@@ -61,12 +67,14 @@ fn public_keys_cannot_be_burned_to_nothing() {
         MintBox::new(public_key, charlie_id.clone())
     });
 
-    let _unused = submit_and_get(
-        &mut client,
+    let (tx_hash, res) = submit(
+        &client,
         mint_keys,
         Some((charlie_id.clone(), charlie_initial_keypair.clone())),
     );
-    keys_count = charlie_keys_count(&mut client);
+    res.unwrap();
+    get(&client, tx_hash);
+    keys_count = charlie_keys_count(&client);
     assert_eq!(keys_count, KEYS_COUNT);
 
     let charlie = client.request(account::by_id(charlie_id.clone())).unwrap();
@@ -78,23 +86,27 @@ fn public_keys_cannot_be_burned_to_nothing() {
         .cloned()
         .map(burn);
 
-    let mut committed_txn = submit_and_get(
-        &mut client,
+    let (tx_hash, res) = submit(
+        &client,
         burn_keys_leaving_one,
         Some((charlie_id.clone(), charlie_initial_keypair.clone())),
     );
-    keys_count = charlie_keys_count(&mut client);
+    res.unwrap();
+    let committed_txn = get(&client, tx_hash);
+    keys_count = charlie_keys_count(&client);
     assert_eq!(keys_count, 1);
     assert!(committed_txn.error.is_none());
 
     let burn_the_last_key = burn(charlie_initial_keypair.public_key().clone());
 
-    committed_txn = submit_and_get(
-        &mut client,
+    let (tx_hash, res) = submit(
+        &client,
         std::iter::once(burn_the_last_key),
         Some((charlie_id.clone(), charlie_initial_keypair)),
     );
-    keys_count = charlie_keys_count(&mut client);
+    assert!(res.is_err());
+    let committed_txn = get(&client, tx_hash);
+    keys_count = charlie_keys_count(&client);
     assert_eq!(keys_count, 1);
     assert!(committed_txn.error.is_some());
 }

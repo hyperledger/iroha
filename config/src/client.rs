@@ -224,7 +224,7 @@ mod tests {
     }
 
     #[allow(clippy::expect_used)]
-    fn placeholder_account() -> <Account as Identifiable>::Id {
+    fn placeholder_account() -> AccountId {
         AccountId::from_str("alice@wonderland").expect("Invalid account Id ")
     }
 

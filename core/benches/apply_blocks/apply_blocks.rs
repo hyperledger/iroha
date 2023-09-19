@@ -3,62 +3,44 @@
 use std::{collections::BTreeSet, str::FromStr as _};
 
 use eyre::Result;
-use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
-use iroha_core::{block::PendingBlock, prelude::*, wsv::World};
-use iroha_crypto::{HashOf, MerkleTree, SignatureOf, SignaturesOf};
+use iroha_core::{
+    block::{BlockBuilder, CommittedBlock},
+    prelude::*,
+    sumeragi::network_topology::Topology,
+    wsv::World,
+};
 use iroha_data_model::{
     asset::{AssetDefinition, AssetDefinitionId},
-    block::{BlockHeader, VersionedCommittedBlock},
     isi::InstructionBox,
     prelude::*,
 };
+use iroha_genesis::GenesisTransaction;
 
-/// Create block, bypassing validation
+/// Create block
 fn create_block(
-    height: u64,
-    previous_block_hash: Option<HashOf<VersionedCommittedBlock>>,
+    wsv: &mut WorldStateView,
     instructions: Vec<InstructionBox>,
     account_id: AccountId,
     key_pair: KeyPair,
-) -> Result<VersionedCommittedBlock> {
+) -> CommittedBlock {
     let transaction = TransactionBuilder::new(account_id)
         .with_instructions(instructions)
-        .sign(key_pair.clone())?;
+        .sign(key_pair.clone())
+        .unwrap();
 
-    let transactions_hash = [&transaction]
-        .iter()
-        .map(|tx| tx.hash())
-        .collect::<MerkleTree<_>>()
-        .hash();
-    let timestamp = current_time().as_millis();
-    let header = BlockHeader {
-        timestamp,
-        consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
-        height,
-        view_change_index: 1,
-        previous_block_hash,
-        transactions_hash, // Single transaction is merkle root hash
-        rejected_transactions_hash: None,
-        committed_with_topology: Vec::new(),
-    };
-
-    let signature = SignatureOf::from_hash(
-        key_pair,
-        HashOf::from_untyped_unchecked(Hash::new(header.payload())),
-    )?;
-    let signatures = SignaturesOf::from(signature);
-
-    let pending_block = PendingBlock {
-        header,
-        transactions: vec![TransactionValue {
-            value: transaction,
-            error: None,
-        }],
-        event_recommendations: Vec::new(),
-        signatures,
-    };
-
-    Ok(pending_block.commit_unchecked().into())
+    let topology = Topology::new(Vec::new());
+    BlockBuilder::new(
+        vec![AcceptedTransaction::accept_genesis(GenesisTransaction(
+            transaction,
+        ))],
+        topology.clone(),
+        Vec::new(),
+    )
+    .chain(0, wsv)
+    .sign(key_pair)
+    .unwrap()
+    .commit(&topology)
+    .unwrap()
 }
 
 fn delete_every_nth(
@@ -158,16 +140,14 @@ fn build_wsv(
         }
     }
 
-    let block = create_block(1, None, instructions, account_id, key_pair)?;
-
+    let block = create_block(&mut wsv, instructions, account_id, key_pair);
     wsv.apply(&block)?;
-
     Ok(wsv)
 }
 
 pub struct WsvApplyBlocks {
     wsv: WorldStateView,
-    blocks: Vec<VersionedCommittedBlock>,
+    blocks: Vec<CommittedBlock>,
 }
 
 impl WsvApplyBlocks {
@@ -183,7 +163,7 @@ impl WsvApplyBlocks {
         let assets_per_domain = 1000;
         let genesis_id: AccountId = "genesis@genesis".parse()?;
         let key_pair = KeyPair::generate()?;
-        let wsv = build_wsv(
+        let mut wsv = build_wsv(
             domains,
             accounts_per_domain,
             assets_per_domain,
@@ -199,19 +179,12 @@ impl WsvApplyBlocks {
         .into_iter()
         .collect::<Result<Vec<_>, _>>()?;
 
-        let mut previous_block_hash = wsv.latest_block_hash();
-        let mut blocks = Vec::new();
-        for (instructions, height) in instructions.into_iter().zip(wsv.height() + 1..) {
-            let block = create_block(
-                height,
-                previous_block_hash,
-                instructions,
-                genesis_id.clone(),
-                key_pair.clone(),
-            )?;
-            previous_block_hash = Some(block.hash());
-            blocks.push(block);
-        }
+        let blocks = instructions
+            .into_iter()
+            .map(|instructions| {
+                create_block(&mut wsv, instructions, genesis_id.clone(), key_pair.clone())
+            })
+            .collect();
 
         Ok(Self { wsv, blocks })
     }

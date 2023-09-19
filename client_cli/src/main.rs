@@ -577,7 +577,7 @@ mod account {
     pub struct Grant {
         /// Account id
         #[structopt(short, long)]
-        pub id: <Account as Identifiable>::Id,
+        pub id: AccountId,
         /// The JSON/JSON5 file with a permission token
         #[structopt(short, long)]
         pub permission: Permission,
@@ -622,7 +622,7 @@ mod account {
     pub struct ListPermissions {
         /// Account id
         #[structopt(short, long)]
-        id: <Account as Identifiable>::Id,
+        id: AccountId,
     }
 
     impl RunArgs for ListPermissions {

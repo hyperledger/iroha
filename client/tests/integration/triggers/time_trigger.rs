@@ -92,9 +92,8 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
     // Start listening BEFORE submitting any transaction not to miss any block committed event
     let event_listener = get_block_committed_event_listener(&test_client)?;
 
-    let asset_definition_id =
-        <AssetDefinition as Identifiable>::Id::from_str("rose#wonderland").expect("Valid");
-    let account_id = <Account as Identifiable>::Id::from_str("alice@wonderland").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
+    let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let key = Name::from_str("petal")?;
 
     let schedule = TimeSchedule::starting_at(start_time + Duration::from_millis(PERIOD_MS));
@@ -182,9 +181,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_780).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let alice_id = "alice@wonderland"
-        .parse::<<Account as Identifiable>::Id>()
-        .expect("Valid");
+    let alice_id = "alice@wonderland".parse::<AccountId>().expect("Valid");
 
     let accounts: Vec<AccountId> = vec![
         alice_id.clone(),
