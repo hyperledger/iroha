@@ -8,7 +8,7 @@ use iroha_data_model::{prelude::*, query::error::QueryExecutionFail};
 use serde_json::json;
 use test_network::*;
 
-fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {
+fn create_role_ids() -> [RoleId; 5] {
     [
         "a".parse().expect("Valid"),
         "b".parse().expect("Valid"),
@@ -83,7 +83,7 @@ fn find_role_by_id() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_535).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
-    let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
+    let role_id: RoleId = "root".parse().expect("Valid");
     let new_role = Role::new(role_id.clone());
 
     // Registering role
@@ -103,7 +103,7 @@ fn find_unregistered_role_by_id() {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_540).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
-    let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
+    let role_id: RoleId = "root".parse().expect("Valid");
 
     let found_role = test_client.request(client::role::by_id(role_id));
 
@@ -123,7 +123,7 @@ fn find_roles_by_account_id() -> Result<()> {
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let role_ids = create_role_ids();
-    let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+    let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
 
     // Registering roles
     let register_roles = role_ids

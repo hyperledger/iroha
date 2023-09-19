@@ -24,7 +24,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let quantity: u32 = 200;
 
-    let mut iroha_client = client::Client::test(&peer.api_address, &peer.telemetry_address);
+    let iroha_client = client::Client::test(&peer.api_address, &peer.telemetry_address);
 
     {
         let rt = Runtime::test();

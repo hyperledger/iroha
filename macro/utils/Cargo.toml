@@ -12,8 +12,6 @@ is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledg
 is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
 maintenance = { status = "actively-developed" }
 
-[features]
-
 [dependencies]
 syn = { workspace = true, features = ["default", "parsing", "printing"] }
 quote = { workspace = true }

@@ -145,25 +145,18 @@ fn sign_blocks(criterion: &mut Criterion) {
             .expect("Failed to accept transaction.");
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
+    let mut wsv = WorldStateView::new(World::new(), kura);
+    let topology = Topology::new(Vec::new());
 
     let mut success_count = 0;
     let mut failures_count = 0;
-    let _ = criterion.bench_function("sign_block", |b| {
-        b.iter(|| {
-            let block = BlockBuilder {
-                transactions: vec![transaction.clone()],
-                event_recommendations: Vec::new(),
-                view_change_index: 0,
-                committed_with_topology: Topology::new(Vec::new()),
-                key_pair: key_pair.clone(),
-                wsv: &mut WorldStateView::new(World::new(), kura.clone()),
-            }
-            .build();
 
-            match block.sign(key_pair.clone()) {
-                Ok(_) => success_count += 1,
-                Err(_) => failures_count += 1,
-            }
+    let block = BlockBuilder::new(vec![transaction], topology, Vec::new()).chain_first(&mut wsv);
+
+    let _ = criterion.bench_function("sign_block", |b| {
+        b.iter(|| match block.clone().sign(key_pair.clone()) {
+            Ok(_) => success_count += 1,
+            Err(_) => failures_count += 1,
         });
     });
     println!("Success count: {success_count}, Failures count: {failures_count}");

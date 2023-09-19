@@ -40,6 +40,7 @@ pub mod model {
         /// If `Some::<StatusKind>`, filter by the [`StatusKind`]. If `None`, accept all the [`StatusKind`].
         pub(super) status_kind: Option<PipelineStatusKind>,
         /// If `Some::<Hash>`, filter by the [`struct@Hash`]. If `None`, accept all the [`struct@Hash`].
+        // TODO: Can we make hash typed like HashOf<VersionedSignedTranasaction>?
         pub(super) hash: Option<Hash>,
     }
 
@@ -69,7 +70,18 @@ pub mod model {
 
     /// Strongly-typed [`Event`] that tells the receiver the kind and the hash of the changed entity as well as its [`Status`].
     #[derive(
-        Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
     )]
     #[getset(get = "pub")]
     #[ffi_type]
@@ -88,6 +100,8 @@ pub mod model {
         Clone,
         PartialEq,
         Eq,
+        PartialOrd,
+        Ord,
         FromVariant,
         EnumDiscriminants,
         Decode,
@@ -117,6 +131,8 @@ pub mod model {
         Clone,
         PartialEq,
         Eq,
+        PartialOrd,
+        Ord,
         FromVariant,
         Decode,
         Encode,

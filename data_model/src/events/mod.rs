@@ -23,7 +23,18 @@ pub mod model {
 
     #[allow(missing_docs)]
     #[derive(
-        Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
     )]
     #[ffi_type]
     pub enum Event {
@@ -185,45 +196,18 @@ pub mod stream {
     pub use self::model::*;
     use super::*;
 
-    declare_versioned_with_scale!(VersionedEventMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
-
-    impl VersionedEventMessage {
-        #[allow(missing_docs)]
-        pub const fn as_v1(&self) -> &EventMessage {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        #[allow(missing_docs)]
-        pub fn as_mut_v1(&mut self) -> &mut EventMessage {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        #[allow(missing_docs)]
-        pub fn into_v1(self) -> EventMessage {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-    }
-
     #[model]
     pub mod model {
         use super::*;
 
         /// Message sent by the stream producer.
         /// Event sent by the peer.
-        #[version_with_scale(version = 1, versioned_alias = "VersionedEventMessage")]
         #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
         pub struct EventMessage(pub Event);
 
         /// Message sent by the stream consumer.
         /// Request sent by the client to subscribe to events.
-        #[version_with_scale(version = 1, versioned_alias = "VersionedEventSubscriptionRequest")]
         #[derive(Debug, Clone, Constructor, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
         pub struct EventSubscriptionRequest(pub FilterBox);
@@ -234,40 +218,12 @@ pub mod stream {
             source.0
         }
     }
-
-    declare_versioned_with_scale!(VersionedEventSubscriptionRequest 1..2, Debug, Clone, FromVariant, IntoSchema);
-
-    impl VersionedEventSubscriptionRequest {
-        #[allow(missing_docs)]
-        pub const fn as_v1(&self) -> &EventSubscriptionRequest {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        #[allow(missing_docs)]
-        pub fn as_mut_v1(&mut self) -> &mut EventSubscriptionRequest {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-
-        #[allow(missing_docs)]
-        pub fn into_v1(self) -> EventSubscriptionRequest {
-            match self {
-                Self::V1(v1) => v1,
-            }
-        }
-    }
 }
 
 /// Exports common structs and enums from this module.
 pub mod prelude {
     #[cfg(feature = "http")]
-    pub use super::stream::{
-        EventMessage, EventSubscriptionRequest, VersionedEventMessage,
-        VersionedEventSubscriptionRequest,
-    };
+    pub use super::stream::{EventMessage, EventSubscriptionRequest};
     #[cfg(feature = "transparent_api")]
     pub use super::Filter;
     pub use super::{

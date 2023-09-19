@@ -216,7 +216,7 @@ crate::ffi::ffi_item! {
 
 impl<T> Clone for HashOf<T> {
     fn clone(&self) -> Self {
-        Self(self.0, PhantomData)
+        *self
     }
 }
 impl<T> Copy for HashOf<T> {}
@@ -230,7 +230,7 @@ impl<T> Eq for HashOf<T> {}
 
 impl<T> PartialOrd for HashOf<T> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.0.partial_cmp(&other.0)
+        Some(self.cmp(other))
     }
 }
 impl<T> Ord for HashOf<T> {
@@ -256,7 +256,7 @@ impl<T> HashOf<T> {
     /// Don't use this method if not required.
     #[inline]
     #[must_use]
-    pub const fn transmute<F>(self) -> HashOf<F> {
+    pub(crate) const fn transmute<F>(self) -> HashOf<F> {
         HashOf(self.0, PhantomData)
     }
 

@@ -325,7 +325,7 @@ impl<S> RawGenesisDomainBuilder<S> {
 
     /// Add an account to this domain without a public key.
     #[cfg(test)]
-    pub fn account_without_public_key(mut self, account_name: Name) -> Self {
+    fn account_without_public_key(mut self, account_name: Name) -> Self {
         let account_id = AccountId::new(account_name, self.domain_id.clone());
         self.transaction
             .isi

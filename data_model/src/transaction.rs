@@ -259,16 +259,16 @@ declare_versioned!(VersionedSignedTransaction 1..2, Debug, Display, Clone, Parti
 
 impl VersionedSignedTransaction {
     /// Return transaction payload
-    // TODO: Leaking concrete type TransactionPayload from Versioned container. Payload should be versioned
+    // FIXME: Leaking concrete type TransactionPayload from Versioned container. Payload should be versioned
     pub fn payload(&self) -> &TransactionPayload {
         let VersionedSignedTransaction::V1(tx) = self;
-        tx.payload()
+        &tx.payload
     }
 
     /// Return transaction signatures
     pub fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
         let VersionedSignedTransaction::V1(tx) = self;
-        tx.signatures()
+        &tx.signatures
     }
 
     /// Calculate transaction [`Hash`](`iroha_crypto::HashOf`).
@@ -299,10 +299,6 @@ impl VersionedSignedTransaction {
     }
 
     /// Add additional signatures to this transaction
-    ///
-    /// # Errors
-    ///
-    /// - if signature verification fails
     #[cfg(feature = "std")]
     #[cfg(feature = "transparent_api")]
     pub fn merge_signatures(&mut self, other: Self) -> bool {
@@ -329,25 +325,27 @@ impl From<VersionedSignedTransaction> for (AccountId, Executable) {
 impl SignedTransaction {
     #[cfg(feature = "std")]
     fn hash(&self) -> iroha_crypto::HashOf<VersionedSignedTransaction> {
-        // TODO: Redundant clone. How to construct a versioned reference?
-        // or should we return HashOf<Self>
-        iroha_crypto::HashOf::new(&self.clone().into())
-    }
-
-    fn payload(&self) -> &TransactionPayload {
-        &self.payload
-    }
-
-    fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
-        &self.signatures
+        iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::HashOf::new(self).into())
     }
 }
 
 impl TransactionValue {
-    /// Used to return payload of the transaction
+    /// Calculate transaction [`Hash`](`iroha_crypto::HashOf`).
+    #[cfg(feature = "std")]
+    pub fn hash(&self) -> iroha_crypto::HashOf<VersionedSignedTransaction> {
+        self.value.hash()
+    }
+
+    /// [`Transaction`] payload.
     #[inline]
     pub fn payload(&self) -> &TransactionPayload {
         self.value.payload()
+    }
+
+    /// [`iroha_crypto::SignatureOf`]<[`TransactionPayload`]>.
+    #[inline]
+    pub fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
+        self.value.signatures()
     }
 }
 
@@ -406,7 +404,7 @@ mod candidate {
         #[cfg(feature = "std")]
         fn validate_signatures(&self) -> Result<(), &'static str> {
             self.signatures
-                .verify_hash(self.payload.hash())
+                .verify(&self.payload)
                 .map_err(|_| "Transaction contains invalid signatures")
         }
     }
@@ -593,8 +591,6 @@ pub mod error {
             InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
             /// Failure in WebAssembly execution
             WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
-            /// The genesis account can only sign transactions in the genesis block
-            UnexpectedGenesisAccountSignature,
             /// Transaction rejected due to being expired
             Expired,
         }

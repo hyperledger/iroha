@@ -16,6 +16,8 @@ macro_rules! data_event {
                 Clone,
                 PartialEq,
                 Eq,
+                PartialOrd,
+                Ord,
                 Filter,
                 HasOrigin,
                 parity_scale_codec::Decode,
@@ -37,7 +39,19 @@ pub mod model {
 
     /// Generic [`MetadataChanged`] struct.
     /// Contains the changed metadata (`(key, value)` pair), either inserted or removed, which is determined by the wrapping event.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     // TODO: Generics are not supported. Figure out what to do
     //#[getset(get = "pub")]
     #[ffi_type]
@@ -65,7 +79,18 @@ pub mod model {
 
     /// Event
     #[derive(
-        Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
     )]
     #[ffi_type]
     pub enum DataEvent {
@@ -145,7 +170,18 @@ mod asset {
 
         /// Depending on the wrapping event, [`Self`] represents the added or removed asset quantity.
         #[derive(
-            Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
         )]
         #[getset(get = "pub")]
         #[ffi_type]
@@ -156,7 +192,18 @@ mod asset {
 
         /// [`Self`] represents updated total asset quantity.
         #[derive(
-            Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
         )]
         #[getset(get = "pub")]
         #[ffi_type]
@@ -167,7 +214,18 @@ mod asset {
 
         /// [`Self`] represents updated total asset quantity.
         #[derive(
-            Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
         )]
         #[getset(get = "pub")]
         #[ffi_type]
@@ -481,6 +539,8 @@ mod validator {
             Clone,
             PartialEq,
             Eq,
+            PartialOrd,
+            Ord,
             parity_scale_codec::Decode,
             parity_scale_codec::Encode,
             serde::Deserialize,
