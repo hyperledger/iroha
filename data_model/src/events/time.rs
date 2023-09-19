@@ -23,6 +23,8 @@ pub mod model {
         Copy,
         PartialEq,
         Eq,
+        PartialOrd,
+        Ord,
         Getters,
         Decode,
         Encode,

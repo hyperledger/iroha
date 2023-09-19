@@ -84,10 +84,9 @@ impl TestGenesis for GenesisNetwork {
             RawGenesisBlock::from_path(manifest_dir.join("../../configs/peer/genesis.json"))
                 .expect("Failed to deserialize genesis block from file");
 
-        let rose_definition_id = <AssetDefinition as Identifiable>::Id::from_str("rose#wonderland")
-            .expect("valid names");
-        let alice_id =
-            <Account as Identifiable>::Id::from_str("alice@wonderland").expect("valid names");
+        let rose_definition_id =
+            AssetDefinitionId::from_str("rose#wonderland").expect("valid names");
+        let alice_id = AccountId::from_str("alice@wonderland").expect("valid names");
 
         let mint_rose_permission = PermissionToken::new(
             "CanMintAssetsWithDefinition".parse().unwrap(),
@@ -711,7 +710,7 @@ pub trait TestClient: Sized {
     /// # Errors
     /// If predicate is not satisfied, after maximum retries.
     fn submit_till<R: Query + Debug + Clone>(
-        &mut self,
+        &self,
         instruction: impl Instruction + Debug + Clone,
         request: R,
         f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
@@ -726,7 +725,7 @@ pub trait TestClient: Sized {
     /// # Errors
     /// If predicate is not satisfied, after maximum retries.
     fn submit_all_till<R: Query + Debug + Clone>(
-        &mut self,
+        &self,
         instructions: Vec<InstructionBox>,
         request: R,
         f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
@@ -741,7 +740,7 @@ pub trait TestClient: Sized {
     /// # Errors
     /// If predicate is not satisfied after maximum retries.
     fn poll_request<R: Query + Debug + Clone>(
-        &mut self,
+        &self,
         request: R,
         f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
     ) -> eyre::Result<()>
@@ -755,7 +754,7 @@ pub trait TestClient: Sized {
     /// # Errors
     /// If predicate is not satisfied after maximum retries.
     fn poll_request_with_period<R: Query + Debug + Clone + Clone>(
-        &mut self,
+        &self,
         request: R,
         period: Duration,
         max_attempts: u32,
@@ -851,7 +850,7 @@ impl TestClient for Client {
     }
 
     fn submit_till<R: Query + Debug + Clone>(
-        &mut self,
+        &self,
         instruction: impl Instruction + Debug + Clone,
         request: R,
         f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
@@ -867,7 +866,7 @@ impl TestClient for Client {
     }
 
     fn submit_all_till<R: Query + Debug + Clone>(
-        &mut self,
+        &self,
         instructions: Vec<InstructionBox>,
         request: R,
         f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
@@ -883,7 +882,7 @@ impl TestClient for Client {
     }
 
     fn poll_request_with_period<R: Query + Debug + Clone>(
-        &mut self,
+        &self,
         request: R,
         period: Duration,
         max_attempts: u32,
@@ -906,7 +905,7 @@ impl TestClient for Client {
     }
 
     fn poll_request<R: Query + Debug + Clone>(
-        &mut self,
+        &self,
         request: R,
         f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
     ) -> eyre::Result<()>

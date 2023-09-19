@@ -35,7 +35,7 @@ fn main(_owner: AccountId, _event: Event) {
         let nft_definition = AssetDefinition::store(nft_id.clone())
             .mintable_once()
             .with_metadata(metadata);
-        let account_nft_id = <Asset as Identifiable>::Id::new(nft_id, account.id().clone());
+        let account_nft_id = AssetId::new(nft_id, account.id().clone());
         let account_nft = Asset::new(account_nft_id, Metadata::new());
 
         RegisterBox::new(nft_definition).execute().dbg_unwrap();
@@ -45,7 +45,7 @@ fn main(_owner: AccountId, _event: Event) {
     iroha_trigger::info!("Smart contract executed successfully");
 }
 
-fn generate_new_nft_id(account_id: &<Account as Identifiable>::Id) -> AssetDefinitionId {
+fn generate_new_nft_id(account_id: &AccountId) -> AssetDefinitionId {
     let assets = FindAssetsByAccountId::new(account_id.clone())
         .execute()
         .dbg_unwrap();

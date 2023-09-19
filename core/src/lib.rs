@@ -22,8 +22,8 @@ use parity_scale_codec::{Decode, Encode};
 use tokio::sync::broadcast;
 
 use crate::{
-    block_sync::message::VersionedMessage as BlockSyncMessage, prelude::*,
-    sumeragi::message::VersionedPacket as SumeragiPacket,
+    block_sync::message::Message as BlockSyncMessage, prelude::*,
+    sumeragi::message::MessagePacket as SumeragiPacket,
 };
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
@@ -33,16 +33,16 @@ pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
 pub type IrohaNetwork = iroha_p2p::NetworkHandle<NetworkMessage>;
 
 /// Ids of peers.
-pub type PeersIds = HashSet<<Peer as Identifiable>::Id>;
+pub type PeersIds = HashSet<PeerId>;
 
 /// Parameters set.
 pub type Parameters = HashSet<Parameter>;
 
 /// API to work with collections of [`DomainId`] : [`Domain`] mappings.
-pub type DomainsMap = HashMap<<Domain as Identifiable>::Id, Domain>;
+pub type DomainsMap = HashMap<DomainId, Domain>;
 
 /// API to work with a collections of [`RoleId`]: [`Role`] mappings.
-pub type RolesMap = HashMap<<Role as Identifiable>::Id, Role>;
+pub type RolesMap = HashMap<RoleId, Role>;
 
 /// API to work with a collections of [`AccountId`] [`Permissions`] mappings.
 pub type PermissionTokensMap = HashMap<AccountId, Permissions>;

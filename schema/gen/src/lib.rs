@@ -5,7 +5,9 @@
 
 use iroha_crypto::MerkleTree;
 use iroha_data_model::{
-    block::stream::prelude::*, http::VersionedBatchedResponse, query::error::QueryExecutionFail,
+    block::stream::{BlockMessage, BlockSubscriptionRequest},
+    http::VersionedBatchedResponse,
+    query::error::QueryExecutionFail,
 };
 use iroha_genesis::RawGenesisBlock;
 use iroha_schema::prelude::*;
@@ -19,7 +21,7 @@ macro_rules! types {
                 $( $callback!($t); )+
 
                 #[cfg(target_arch = "aarch64")]
-                $callback!(Box<VersionedCommittedBlock>);
+                $callback!(Box<VersionedSignedBlock>);
             }}
         }
     }
@@ -42,18 +44,18 @@ pub fn build_schemas() -> MetaMap {
 
     schemas! {
         QueryExecutionFail,
-        VersionedBlockMessage,
-        VersionedBlockSubscriptionRequest,
-        VersionedEventMessage,
-        VersionedEventSubscriptionRequest,
+        BlockMessage,
+        BlockSubscriptionRequest,
+        EventMessage,
+        EventSubscriptionRequest,
         VersionedBatchedResponse<Value>,
         VersionedBatchedResponse<Vec<VersionedSignedTransaction>>,
         VersionedSignedQuery,
 
         // Never referenced, but present in type signature. Like `PhantomData<X>`
-        UpgradableBox,
-        RegistrableBox,
         MerkleTree<VersionedSignedTransaction>,
+        RegistrableBox,
+        UpgradableBox,
 
         // SDK devs want to know how to read serialized genesis block
         RawGenesisBlock,
@@ -97,7 +99,6 @@ types!(
     BTreeSet<PermissionToken>,
     BTreeSet<PublicKey>,
     BTreeSet<RoleId>,
-    BTreeSet<SignatureWrapperOf<CommittedBlock>>,
     BatchedResponse<Value>,
     BatchedResponse<Vec<VersionedSignedTransaction>>,
     BlockHeader,
@@ -110,7 +111,7 @@ types!(
     Box<Value>,
     Box<ValuePredicate>,
     BurnBox,
-    CommittedBlock,
+    SignedBlock,
     Conditional,
     ConfigurationEvent,
     ConstString,
@@ -225,7 +226,7 @@ types!(
     Greater,
     Hash,
     HashOf<MerkleTree<VersionedSignedTransaction>>,
-    HashOf<VersionedCommittedBlock>,
+    HashOf<VersionedSignedBlock>,
     HashOf<VersionedSignedTransaction>,
     IdBox,
     IdentifiableBox,
@@ -268,7 +269,7 @@ types!(
     Option<Duration>,
     Option<Hash>,
     Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
-    Option<HashOf<VersionedCommittedBlock>>,
+    Option<HashOf<VersionedSignedBlock>>,
     Option<InstructionBox>,
     Option<IpfsPath>,
     Option<PipelineEntityKind>,
@@ -328,12 +329,9 @@ types!(
     SetParameterBox,
     Signature,
     SignatureCheckCondition,
-    SignatureOf<CommittedBlock>,
     SignatureOf<QueryPayload>,
     SignatureOf<TransactionPayload>,
-    SignatureWrapperOf<CommittedBlock>,
     SignatureWrapperOf<TransactionPayload>,
-    SignaturesOf<CommittedBlock>,
     SignaturesOf<TransactionPayload>,
     SignedQuery,
     SignedTransaction,
@@ -377,12 +375,8 @@ types!(
     Vec<u8>,
     VersionedBatchedResponse<Value>,
     VersionedBatchedResponse<Vec<VersionedSignedTransaction>>,
-    VersionedBlockMessage,
-    VersionedBlockSubscriptionRequest,
-    VersionedCommittedBlock,
-    VersionedCommittedBlockWrapper,
-    VersionedEventMessage,
-    VersionedEventSubscriptionRequest,
+    VersionedSignedBlock,
+    VersionedSignedBlockWrapper,
     VersionedSignedQuery,
     VersionedSignedTransaction,
     WasmExecutionFail,
@@ -416,11 +410,8 @@ mod tests {
         asset::NewAssetDefinition,
         block::{
             error::BlockRejectionReason,
-            stream::{
-                BlockMessage, BlockSubscriptionRequest, VersionedBlockMessage,
-                VersionedBlockSubscriptionRequest,
-            },
-            BlockHeader, CommittedBlock, VersionedCommittedBlock,
+            stream::{BlockMessage, BlockSubscriptionRequest},
+            BlockHeader, SignedBlock, VersionedSignedBlock,
         },
         domain::NewDomain,
         http::{BatchedResponse, VersionedBatchedResponse},
@@ -439,7 +430,7 @@ mod tests {
         },
         transaction::{error::TransactionLimitError, SignedTransaction, TransactionLimits},
         validator::Validator,
-        VersionedCommittedBlockWrapper,
+        VersionedSignedBlockWrapper,
     };
     use iroha_genesis::RawGenesisBlock;
     use iroha_primitives::{

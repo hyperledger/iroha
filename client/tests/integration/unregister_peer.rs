@@ -17,21 +17,21 @@ use super::Configuration;
 #[test]
 fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
     // Given a network
-    let (rt, network, mut genesis_client, pipeline_time, account_id, asset_definition_id) = init()?;
+    let (rt, network, genesis_client, pipeline_time, account_id, asset_definition_id) = init()?;
     wait_for_genesis_committed(&network.clients(), 0);
 
     // When assets are minted
     mint(
         &asset_definition_id,
         &account_id,
-        &mut genesis_client,
+        &genesis_client,
         pipeline_time,
         100,
     )?;
     // and a new peer is registered
-    let (peer, mut peer_client) = rt.block_on(network.add_peer());
+    let (peer, peer_client) = rt.block_on(network.add_peer());
     // Then the new peer should already have the mint result.
-    check_assets(&mut peer_client, &account_id, &asset_definition_id, 100);
+    check_assets(&peer_client, &account_id, &asset_definition_id, 100);
     // Also, when a peer is unregistered
     let remove_peer = UnregisterBox::new(IdBox::PeerId(peer.id.clone()));
     genesis_client.submit(remove_peer)?;
@@ -40,20 +40,20 @@ fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
     mint(
         &asset_definition_id,
         &account_id,
-        &mut genesis_client,
+        &genesis_client,
         pipeline_time,
         200,
     )?;
     // Assets are increased on the main network.
-    check_assets(&mut genesis_client, &account_id, &asset_definition_id, 300);
+    check_assets(&genesis_client, &account_id, &asset_definition_id, 300);
     // But not on the unregistered peer's network.
-    check_assets(&mut peer_client, &account_id, &asset_definition_id, 100);
+    check_assets(&peer_client, &account_id, &asset_definition_id, 100);
     Ok(())
 }
 
 #[allow(clippy::expect_used)]
 fn check_assets(
-    iroha_client: &mut client::Client,
+    iroha_client: &client::Client,
     account_id: &AccountId,
     asset_definition_id: &AssetDefinitionId,
     quantity: u32,
@@ -78,7 +78,7 @@ fn check_assets(
 fn mint(
     asset_definition_id: &AssetDefinitionId,
     account_id: &AccountId,
-    client: &mut client::Client,
+    client: &client::Client,
     pipeline_time: std::time::Duration,
     quantity: u32,
 ) -> Result<u32, color_eyre::Report> {

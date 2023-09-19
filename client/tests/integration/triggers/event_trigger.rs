@@ -13,7 +13,7 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
-    let account_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
+    let account_id = AccountId::from_str("alice@wonderland")?;
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 

@@ -4,12 +4,14 @@ use std::{collections::BTreeSet, str::FromStr as _};
 
 use eyre::Result;
 use iroha_core::{
-    block::BlockBuilder, prelude::*, smartcontracts::Execute, sumeragi::network_topology::Topology,
+    block::{BlockBuilder, CommittedBlock},
+    prelude::*,
+    smartcontracts::Execute,
+    sumeragi::network_topology::Topology,
     wsv::World,
 };
 use iroha_data_model::{
     asset::{AssetDefinition, AssetDefinitionId},
-    block::VersionedCommittedBlock,
     isi::InstructionBox,
     prelude::*,
     transaction::TransactionLimits,
@@ -21,7 +23,7 @@ fn create_block(
     account_id: AccountId,
     key_pair: KeyPair,
     wsv: &mut WorldStateView,
-) -> Result<VersionedCommittedBlock> {
+) -> Result<CommittedBlock> {
     let transaction = TransactionBuilder::new(account_id)
         .with_instructions(instructions)
         .sign(key_pair.clone())?;
@@ -29,17 +31,15 @@ fn create_block(
     let transaction_limits = &wsv.transaction_validator().transaction_limits;
     let transaction = AcceptedTransaction::accept(transaction, transaction_limits)?;
 
-    let pending_block = BlockBuilder {
-        transactions: vec![transaction],
-        event_recommendations: Vec::new(),
-        view_change_index: 0,
-        committed_with_topology: Topology::new(Vec::new()),
-        key_pair,
-        wsv,
-    }
-    .build();
+    let topology = Topology::new(Vec::new());
+    let pending_block = BlockBuilder::new(vec![transaction], topology.clone(), Vec::new())
+        .chain_first(wsv)
+        .sign(key_pair)
+        .unwrap()
+        .commit(&topology)
+        .unwrap();
 
-    Ok(pending_block.commit_unchecked().into())
+    Ok(pending_block)
 }
 
 fn populate_wsv(

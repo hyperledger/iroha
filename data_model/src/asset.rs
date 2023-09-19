@@ -220,6 +220,8 @@ pub mod model {
         Clone,
         PartialEq,
         Eq,
+        PartialOrd,
+        Ord,
         Decode,
         Encode,
         Deserialize,

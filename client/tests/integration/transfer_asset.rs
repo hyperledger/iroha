@@ -51,7 +51,7 @@ fn simulate_transfer<
 ) where
     Value: From<T>,
 {
-    let (_rt, _peer, mut iroha_client) = <PeerBuilder>::new()
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new()
         .with_port(port_number)
         .start_with_runtime();
     wait_for_genesis_committed(&[iroha_client.clone()], 0);

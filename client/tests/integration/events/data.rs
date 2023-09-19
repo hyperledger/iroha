@@ -162,8 +162,8 @@ fn produce_multiple_events() -> Result<()> {
     init_receiver.recv()?;
 
     // Registering role
-    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
-    let role_id = <Role as Identifiable>::Id::from_str("TEST_ROLE")?;
+    let alice_id = AccountId::from_str("alice@wonderland")?;
+    let role_id = RoleId::from_str("TEST_ROLE")?;
     let token_1 = PermissionToken::new(
         "CanRemoveKeyValueInUserAccount".parse()?,
         &json!({ "account_id": alice_id }),
@@ -179,7 +179,7 @@ fn produce_multiple_events() -> Result<()> {
     client.submit_all_blocking(instructions)?;
 
     // Grants role to Bob
-    let bob_id = <Account as Identifiable>::Id::from_str("bob@wonderland")?;
+    let bob_id = AccountId::from_str("bob@wonderland")?;
     let grant_role = GrantBox::new(role_id.clone(), bob_id.clone());
     client.submit_blocking(grant_role)?;
 

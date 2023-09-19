@@ -24,7 +24,7 @@ use iroha_config::{
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     account::AccountId,
-    block::{CommittedBlock, VersionedCommittedBlock},
+    block::VersionedSignedBlock,
     events::notification::{TriggerCompletedEvent, TriggerCompletedOutcome},
     isi::error::{InstructionExecutionError as Error, MathError},
     parameter::Parameter,
@@ -42,6 +42,7 @@ use serde::{
 };
 
 use crate::{
+    block::CommittedBlock,
     kura::Kura,
     smartcontracts::{
         triggers::{
@@ -273,7 +274,7 @@ pub struct WorldStateView {
     /// Configuration of World State View.
     pub config: Configuration,
     /// Blockchain.
-    pub block_hashes: Vec<HashOf<VersionedCommittedBlock>>,
+    pub block_hashes: Vec<HashOf<VersionedSignedBlock>>,
     /// Hashes of transactions mapped onto block height where they stored
     pub transactions: HashMap<HashOf<VersionedSignedTransaction>, u64>,
     /// Buffer containing events generated during `WorldStateView::apply`. Renewed on every block commit.
@@ -612,8 +613,8 @@ impl WorldStateView {
         deprecated(note = "This function is to be used in testing only. ")
     )]
     #[iroha_logger::log(skip_all, fields(block_height))]
-    pub fn apply(&mut self, block: &VersionedCommittedBlock) -> Result<()> {
-        self.execute_transactions(block.as_v1())?;
+    pub fn apply(&mut self, block: &CommittedBlock) -> Result<()> {
+        self.execute_transactions(block)?;
         debug!("All block transactions successfully executed");
 
         self.apply_without_execution(block)?;
@@ -623,17 +624,17 @@ impl WorldStateView {
 
     /// Apply transactions without actually executing them.
     /// It's assumed that block's transaction was already executed (as part of validation for example).
-    #[iroha_logger::log(skip_all, fields(block_height))]
-    pub fn apply_without_execution(&mut self, block: &VersionedCommittedBlock) -> Result<()> {
-        let hash = block.hash();
-        let block = block.as_v1();
-        iroha_logger::prelude::Span::current().record("block_height", block.header.height);
-        trace!("Applying block");
-        let time_event = self.create_time_event(block)?;
+    #[iroha_logger::log(skip_all, fields(block_height = block.payload().header.height))]
+    pub fn apply_without_execution(&mut self, block: &CommittedBlock) -> Result<()> {
+        let block_hash = block.hash();
+        trace!(%block_hash, "Applying block");
+
+        let time_event = self.create_time_event(block);
         self.events_buffer.push(Event::Time(time_event));
 
-        let block_height = block.header().height;
+        let block_height = block.payload().header.height;
         block
+            .payload()
             .transactions
             .iter()
             .map(|tx| &tx.value)
@@ -653,7 +654,7 @@ impl WorldStateView {
             );
         }
 
-        self.block_hashes.push(hash);
+        self.block_hashes.push(block_hash);
 
         self.apply_parameters();
 
@@ -691,33 +692,31 @@ impl WorldStateView {
 
     /// Get a reference to the latest block. Returns none if genesis is not committed.
     #[inline]
-    pub fn latest_block_ref(&self) -> Option<Arc<VersionedCommittedBlock>> {
+    pub fn latest_block_ref(&self) -> Option<Arc<VersionedSignedBlock>> {
         self.kura
             .get_block_by_height(self.block_hashes.len() as u64)
     }
 
     /// Create time event using previous and current blocks
-    fn create_time_event(&self, block: &CommittedBlock) -> Result<TimeEvent> {
-        let prev_interval = self
-            .latest_block_ref()
-            .map(|latest_block| {
-                let header = &latest_block.as_v1().header;
-                header.timestamp.try_into().map(|since| TimeInterval {
-                    since: Duration::from_millis(since),
-                    length: Duration::from_millis(header.consensus_estimation),
-                })
-            })
-            .transpose()?;
+    fn create_time_event(&self, block: &CommittedBlock) -> TimeEvent {
+        let prev_interval = self.latest_block_ref().map(|latest_block| {
+            let header = &latest_block.payload().header;
+
+            TimeInterval {
+                since: header.timestamp(),
+                length: header.consensus_estimation(),
+            }
+        });
 
         let interval = TimeInterval {
-            since: Duration::from_millis(block.header.timestamp.try_into()?),
-            length: Duration::from_millis(block.header.consensus_estimation),
+            since: block.payload().header.timestamp(),
+            length: block.payload().header.consensus_estimation(),
         };
 
-        Ok(TimeEvent {
+        TimeEvent {
             prev_interval,
             interval,
-        })
+        }
     }
 
     /// Execute `block` transactions and store their hashes as well as
@@ -727,7 +726,7 @@ impl WorldStateView {
     /// Fails if transaction instruction execution fails
     fn execute_transactions(&mut self, block: &CommittedBlock) -> Result<()> {
         // TODO: Should this block panic instead?
-        for tx in &block.transactions {
+        for tx in &block.payload().transactions {
             if tx.error.is_none() {
                 self.process_executable(
                     tx.payload().instructions(),
@@ -791,7 +790,7 @@ impl WorldStateView {
     }
 
     /// Load all blocks in the block chain from disc
-    pub fn all_blocks(&self) -> impl DoubleEndedIterator<Item = Arc<VersionedCommittedBlock>> + '_ {
+    pub fn all_blocks(&self) -> impl DoubleEndedIterator<Item = Arc<VersionedSignedBlock>> + '_ {
         let block_count = self.block_hashes.len() as u64;
         (1..=block_count).map(|height| {
             self.kura
@@ -803,8 +802,8 @@ impl WorldStateView {
     /// Return a vector of blockchain blocks after the block with the given `hash`
     pub fn block_hashes_after_hash(
         &self,
-        hash: Option<HashOf<VersionedCommittedBlock>>,
-    ) -> Vec<HashOf<VersionedCommittedBlock>> {
+        hash: Option<HashOf<VersionedSignedBlock>>,
+    ) -> Vec<HashOf<VersionedSignedBlock>> {
         hash.map_or_else(
             || self.block_hashes.clone(),
             |block_hash| {
@@ -830,7 +829,7 @@ impl WorldStateView {
     }
 
     /// Return an iterator over blockchain block hashes starting with the block of the given `height`
-    pub fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<VersionedCommittedBlock>> {
+    pub fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<VersionedSignedBlock>> {
         self.block_hashes
             .iter()
             .skip(height.saturating_sub(1))
@@ -915,14 +914,14 @@ impl WorldStateView {
     /// Returns [`Some`] milliseconds since the genesis block was
     /// committed, or [`None`] if it wasn't.
     #[inline]
-    pub fn genesis_timestamp(&self) -> Option<u128> {
+    pub fn genesis_timestamp(&self) -> Option<Duration> {
         if self.block_hashes.is_empty() {
             None
         } else {
             let opt = self
                 .kura
                 .get_block_by_height(1)
-                .map(|genesis_block| genesis_block.as_v1().header.timestamp);
+                .map(|genesis_block| genesis_block.payload().header.timestamp());
 
             if opt.is_none() {
                 error!("Failed to get genesis block from Kura.");
@@ -944,7 +943,7 @@ impl WorldStateView {
     }
 
     /// Return the hash of the latest block
-    pub fn latest_block_hash(&self) -> Option<HashOf<VersionedCommittedBlock>> {
+    pub fn latest_block_hash(&self) -> Option<HashOf<VersionedSignedBlock>> {
         self.block_hashes.iter().nth_back(0).copied()
     }
 
@@ -952,11 +951,11 @@ impl WorldStateView {
     pub fn latest_block_view_change_index(&self) -> u64 {
         self.kura
             .get_block_by_height(self.height())
-            .map_or(0, |block| block.as_v1().header.view_change_index)
+            .map_or(0, |block| block.payload().header.view_change_index)
     }
 
     /// Return the hash of the block one before the latest block
-    pub fn previous_block_hash(&self) -> Option<HashOf<VersionedCommittedBlock>> {
+    pub fn previous_block_hash(&self) -> Option<HashOf<VersionedSignedBlock>> {
         self.block_hashes.iter().nth_back(1).copied()
     }
 
@@ -1163,11 +1162,11 @@ impl WorldStateView {
         Ok(())
     }
 
-    /// Find a [`VersionedSignedTransaction`] by hash.
+    /// Find a [`VersionedSignedBlock`] by hash.
     pub fn block_with_tx(
         &self,
         hash: &HashOf<VersionedSignedTransaction>,
-    ) -> Option<Arc<VersionedCommittedBlock>> {
+    ) -> Option<Arc<VersionedSignedBlock>> {
         let height = *self.transactions.get(hash)?;
         self.kura.get_block_by_height(height)
     }
@@ -1253,21 +1252,25 @@ mod tests {
     #![allow(clippy::restriction)]
 
     use super::*;
-    use crate::block::PendingBlock;
+    use crate::{block::ValidBlock, sumeragi::network_topology::Topology};
 
     #[test]
     fn get_block_hashes_after_hash() {
         const BLOCK_CNT: usize = 10;
 
-        let mut block = PendingBlock::new_dummy().commit_unchecked();
+        let topology = Topology::new(Vec::new());
+        let block = ValidBlock::new_dummy().commit(&topology).unwrap();
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = WorldStateView::new(World::default(), kura);
 
         let mut block_hashes = vec![];
         for i in 1..=BLOCK_CNT {
-            block.header.height = i as u64;
-            block.header.previous_block_hash = block_hashes.last().copied();
-            let block: VersionedCommittedBlock = block.clone().into();
+            let mut block = block.clone();
+
+            let VersionedSignedBlock::V1(v1_block) = &mut block.0;
+            v1_block.payload.header.height = i as u64;
+            v1_block.payload.header.previous_block_hash = block_hashes.last().copied();
+
             block_hashes.push(block.hash());
             wsv.apply(&block).unwrap();
         }
@@ -1282,13 +1285,17 @@ mod tests {
     fn get_blocks_from_height() {
         const BLOCK_CNT: usize = 10;
 
-        let mut block = PendingBlock::new_dummy().commit_unchecked();
+        let topology = Topology::new(Vec::new());
+        let block = ValidBlock::new_dummy().commit(&topology).unwrap();
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = WorldStateView::new(World::default(), kura.clone());
 
         for i in 1..=BLOCK_CNT {
-            block.header.height = i as u64;
-            let block: VersionedCommittedBlock = block.clone().into();
+            let mut block = block.clone();
+
+            let VersionedSignedBlock::V1(v1_block) = &mut block.0;
+            v1_block.payload.header.height = i as u64;
+
             wsv.apply(&block).unwrap();
             kura.store_block(block);
         }
@@ -1296,7 +1303,7 @@ mod tests {
         assert_eq!(
             &wsv.all_blocks()
                 .skip(7)
-                .map(|block| block.as_v1().header.height)
+                .map(|block| block.payload().header.height)
                 .collect::<Vec<_>>(),
             &[8, 9, 10]
         );

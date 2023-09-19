@@ -14,7 +14,7 @@ use warp::ws::WebSocket;
 use crate::stream::{self, Sink, Stream};
 
 /// Type of Stream error
-pub type StreamError = stream::Error<<WebSocket as Stream<VersionedEventSubscriptionRequest>>::Err>;
+pub type StreamError = stream::Error<<WebSocket as Stream<EventSubscriptionRequest>>::Err>;
 
 /// Type of error for `Consumer`
 #[derive(thiserror::Error, Debug)]
@@ -57,9 +57,7 @@ impl Consumer {
     /// Can fail due to timeout or without message at websocket or during decoding request
     #[iroha_futures::telemetry_future]
     pub async fn new(mut stream: WebSocket) -> Result<Self> {
-        let subscription_request: VersionedEventSubscriptionRequest = stream.recv().await?;
-        let EventSubscriptionRequest(filter) = subscription_request.into_v1();
-
+        let EventSubscriptionRequest(filter) = stream.recv().await?;
         Ok(Consumer { stream, filter })
     }
 
@@ -74,7 +72,7 @@ impl Consumer {
         }
 
         self.stream
-            .send(VersionedEventMessage::from(EventMessage(event)))
+            .send(EventMessage(event))
             .await
             .map_err(Into::into)
     }
