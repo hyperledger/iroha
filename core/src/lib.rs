@@ -18,6 +18,7 @@ use std::collections::{HashMap, HashSet};
 
 use gossiper::TransactionGossip;
 use iroha_data_model::{permission::Permissions, prelude::*};
+use iroha_primitives::unique_vec::UniqueVec;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::broadcast;
 
@@ -33,7 +34,7 @@ pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
 pub type IrohaNetwork = iroha_p2p::NetworkHandle<NetworkMessage>;
 
 /// Ids of peers.
-pub type PeersIds = HashSet<PeerId>;
+pub type PeersIds = UniqueVec<PeerId>;
 
 /// Parameters set.
 pub type Parameters = HashSet<Parameter>;

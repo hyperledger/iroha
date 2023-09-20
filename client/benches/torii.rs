@@ -9,6 +9,7 @@ use iroha_config::base::runtime_upgrades::Reload;
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockBuilder};
+use iroha_primitives::unique_vec;
 use iroha_version::Encode;
 use test_network::{get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
 use tokio::runtime::Runtime;
@@ -17,10 +18,7 @@ const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
 
 fn query_requests(criterion: &mut Criterion) {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
-    let configuration = get_config(
-        std::iter::once(peer.id.clone()).collect(),
-        Some(get_key_pair()),
-    );
+    let configuration = get_config(unique_vec![peer.id.clone()], Some(get_key_pair()));
 
     let rt = Runtime::test();
     let genesis = GenesisNetwork::from_configuration(
@@ -117,10 +115,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     println!("instruction submits");
     let rt = Runtime::test();
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
-    let configuration = get_config(
-        std::iter::once(peer.id.clone()).collect(),
-        Some(get_key_pair()),
-    );
+    let configuration = get_config(unique_vec![peer.id.clone()], Some(get_key_pair()));
     let genesis = GenesisNetwork::from_configuration(
         RawGenesisBlockBuilder::new()
             .domain("wonderland".parse().expect("Valid"))

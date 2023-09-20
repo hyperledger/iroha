@@ -9,12 +9,10 @@
 use std::collections::HashSet;
 
 use derive_more::Display;
-use iroha_crypto::{PublicKey, SignatureOf, SignaturesOf};
-use iroha_data_model::{
-    block::{BlockPayload, VersionedSignedBlock},
-    prelude::PeerId,
-};
+use iroha_crypto::{PublicKey, SignatureOf};
+use iroha_data_model::{block::VersionedSignedBlock, prelude::PeerId};
 use iroha_logger::trace;
+use iroha_primitives::unique_vec::UniqueVec;
 
 /// The ordering of the peers which defines their roles in the current round of consensus.
 ///
@@ -30,7 +28,7 @@ use iroha_logger::trace;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
-    pub(crate) ordered_peers: Vec<PeerId>,
+    pub(crate) ordered_peers: UniqueVec<PeerId>,
 }
 
 /// Topology with at least one peer
@@ -47,9 +45,9 @@ pub struct ConsensusTopology<'topology> {
 
 impl Topology {
     /// Create a new topology.
-    pub fn new(peers: impl IntoIterator<Item = PeerId>) -> Self {
+    pub fn new(peers: UniqueVec<PeerId>) -> Self {
         Topology {
-            ordered_peers: peers.into_iter().collect(),
+            ordered_peers: peers,
         }
     }
 
@@ -141,9 +139,8 @@ impl Topology {
     }
 
     /// Add or remove peers from the topology.
-    pub fn update_peer_list(&mut self, mut new_peers: HashSet<PeerId>) {
-        self.ordered_peers.retain(|peer| new_peers.remove(peer));
-        self.ordered_peers.extend(new_peers);
+    pub fn update_peer_list(&mut self, new_peers: UniqueVec<PeerId>) {
+        self.ordered_peers = new_peers
     }
 
     /// Rotate peers after each failed attempt to create a block.
@@ -158,19 +155,12 @@ impl Topology {
             .len()
             .try_into()
             .expect("`usize` should fit into `u64`");
-        if let Some(mut rem) = n.checked_rem(len) {
-            // In case where `n` is larger than `usize` could fit
-            let usize_max = usize::MAX
-                .try_into()
-                .expect("`usize` should fit into `u64`");
-            while rem > usize_max {
-                rem -= usize_max;
-                self.ordered_peers.rotate_left(usize::MAX);
-            }
-            let rem = rem
-                .try_into()
-                .expect("`rem` is smaller or equal then `usize::MAX`");
-            self.ordered_peers.rotate_left(rem);
+        if let Some(rem) = n.checked_rem(len) {
+            let rem = rem.try_into().expect(
+                "`rem` is smaller than `usize::MAX`, because remainder is always smaller than divisor",
+            );
+
+            self.modify_peers_directly(|peers| peers.rotate_left(rem));
         }
     }
 
@@ -178,18 +168,19 @@ impl Topology {
     pub fn rotate_set_a(&mut self) {
         let rotate_at = self.min_votes_for_commit();
         if rotate_at > 0 {
-            self.ordered_peers[..rotate_at].rotate_left(1);
+            self.modify_peers_directly(|peers| peers[..rotate_at].rotate_left(1));
         }
     }
 
     /// Pull peers up in the topology to the top of the a set while preserving local order.
     pub fn lift_up_peers(&mut self, to_lift_up: &[PublicKey]) {
-        self.ordered_peers
-            .sort_by_cached_key(|peer| !to_lift_up.contains(&peer.public_key));
+        self.modify_peers_directly(|peers| {
+            peers.sort_by_cached_key(|peer| !to_lift_up.contains(&peer.public_key));
+        });
     }
 
     /// Perform sequence of actions after block committed.
-    pub fn update_topology(&mut self, block_signees: &[PublicKey], new_peers: HashSet<PeerId>) {
+    pub fn update_topology(&mut self, block_signees: &[PublicKey], new_peers: UniqueVec<PeerId>) {
         self.lift_up_peers(block_signees);
         self.rotate_set_a();
         self.update_peer_list(new_peers);
@@ -199,7 +190,7 @@ impl Topology {
     pub fn recreate_topology(
         block: &VersionedSignedBlock,
         view_change_index: u64,
-        new_peers: HashSet<PeerId>,
+        new_peers: UniqueVec<PeerId>,
     ) -> Self {
         let mut topology = Topology::new(block.payload().header().commit_topology.clone());
         let block_signees = block
@@ -217,57 +208,14 @@ impl Topology {
         topology
     }
 
-    /// Check if block's signatures meet requirements for given topology.
-    ///
-    /// In order for block to be considered valid there should be at least $2f + 1$ signatures (including proxy tail and leader signature) where f is maximum number of faulty nodes.
-    /// For further information please refer to the [whitepaper](docs/source/iroha_2_whitepaper.md) section 2.8 consensus.
-    ///
-    /// # Errors
-    /// - Not enough signatures
-    /// - Missing proxy tail signature
-    /// - Missing leader signature
-    pub fn verify_signatures(
-        &self,
-        signatures: &SignaturesOf<BlockPayload>,
-    ) -> Result<(), SignatureVerificationError> {
-        if self.is_consensus_required().is_none() {
-            return Ok(());
-        }
+    /// Modify [`ordered_peers`](Self::ordered_peers) directly as [`Vec`].
+    fn modify_peers_directly(&mut self, f: impl FnOnce(&mut Vec<PeerId>)) {
+        let unique_peers = std::mem::take(&mut self.ordered_peers);
 
-        let votes_count = self
-            .filter_signatures_by_roles(
-                &[
-                    Role::ValidatingPeer,
-                    Role::Leader,
-                    Role::ProxyTail,
-                    Role::ObservingPeer,
-                ],
-                signatures.iter(),
-            )
-            .len();
-        let min_votes_for_commit = self.min_votes_for_commit();
-        if votes_count < min_votes_for_commit {
-            return Err(SignatureVerificationError::NotEnoughSignatures {
-                votes_count,
-                min_votes_for_commit,
-            });
-        }
+        let mut peers_vec = Vec::from(unique_peers);
+        f(&mut peers_vec);
 
-        if self
-            .filter_signatures_by_roles(&[Role::Leader], signatures.iter())
-            .is_empty()
-        {
-            return Err(SignatureVerificationError::LeaderMissing);
-        }
-
-        if self
-            .filter_signatures_by_roles(&[Role::ProxyTail], signatures.iter())
-            .is_empty()
-        {
-            return Err(SignatureVerificationError::ProxyTailMissing);
-        }
-
-        Ok(())
+        self.ordered_peers = UniqueVec::from_iter(peers_vec);
     }
 }
 
@@ -320,47 +268,31 @@ pub enum Role {
     Undefined,
 }
 
-/// Error during signature verification
-#[derive(thiserror::Error, displaydoc::Display, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SignatureVerificationError {
-    /// The block doesn't have enough valid signatures to be committed ({votes_count} out of {min_votes_for_commit})
-    NotEnoughSignatures {
-        /// Current number of signatures
-        votes_count: usize,
-        /// Minimal required number of signatures
-        min_votes_for_commit: usize,
-    },
-    /// The block doesn't contain an expected signature. Expected signature can be leader or the current peer
-    SignatureMissing,
-    /// Found signature that does not correspond to block payload
-    UnknownSignature,
-    /// The block doesn't have proxy tail signature
-    ProxyTailMissing,
-    /// The block doesn't have leader signature
-    LeaderMissing,
+#[cfg(test)]
+macro_rules! test_peers {
+    ($($id:literal),+$(,)?) => {{
+        let mut iter = ::core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"));
+        test_peers![$($id),*: iter]
+    }};
+    ($($id:literal),+$(,)?: $key_pair_iter:expr) => {
+        ::iroha_primitives::unique_vec![
+            $(PeerId::new(&(([0, 0, 0, 0], $id).into()), $key_pair_iter.next().expect("Not enough key pairs").public_key())),+
+        ]
+    };
 }
+
+#[cfg(test)]
+pub(crate) use test_peers;
 
 #[cfg(test)]
 mod tests {
     use iroha_crypto::KeyPair;
+    use iroha_primitives::unique_vec;
 
     use super::*;
-    use crate::block::ValidBlock;
-
-    macro_rules! peers {
-        ($($id:literal),+$(,)?) => {{
-            let mut iter = core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"));
-            peers![$($id),*: iter]
-        }};
-        ($($id:literal),+$(,)?: $key_pair_iter:expr) => {
-            vec![
-                $(PeerId::new(&(([0, 0, 0, 0], $id).into()), $key_pair_iter.next().expect("Not enough key pairs").public_key())),+
-            ]
-        };
-    }
 
     fn topology() -> Topology {
-        let peers = peers![0, 1, 2, 3, 4, 5, 6];
+        let peers = test_peers![0, 1, 2, 3, 4, 5, 6];
         Topology::new(peers)
     }
 
@@ -405,12 +337,12 @@ mod tests {
         let mut topology = topology();
         // New peers will be 0, 2, 5, 7
         let new_peers = {
-            let mut peers = HashSet::from([
+            let mut peers = unique_vec![
                 topology.ordered_peers[0].clone(),
-                topology.ordered_peers[5].clone(),
                 topology.ordered_peers[2].clone(),
-            ]);
-            peers.extend(peers![7]);
+                topology.ordered_peers[5].clone(),
+            ];
+            peers.extend(test_peers![7]);
             peers
         };
         topology.update_peer_list(new_peers);
@@ -424,7 +356,7 @@ mod tests {
                 .take(7)
                 .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
-        let peers = peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
+        let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
         let topology = Topology::new(peers.clone());
 
         let dummy = "value to sign";
@@ -466,7 +398,7 @@ mod tests {
             core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
                 .take(7)
                 .collect::<Vec<_>>();
-        let peers = Vec::new();
+        let peers = UniqueVec::new();
         let topology = Topology::new(peers);
 
         let dummy = "value to sign";
@@ -499,7 +431,7 @@ mod tests {
                 .take(7)
                 .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
-        let peers = peers![0: key_pairs_iter];
+        let peers = test_peers![0: key_pairs_iter];
         let topology = Topology::new(peers.clone());
 
         let dummy = "value to sign";
@@ -533,7 +465,7 @@ mod tests {
                 .take(7)
                 .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
-        let peers = peers![0, 1: key_pairs_iter];
+        let peers = test_peers![0, 1: key_pairs_iter];
         let topology = Topology::new(peers.clone());
 
         let dummy = "value to sign";
@@ -568,7 +500,7 @@ mod tests {
                 .take(7)
                 .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
-        let peers = peers![0, 1, 2: key_pairs_iter];
+        let peers = test_peers![0, 1, 2: key_pairs_iter];
         let topology = Topology::new(peers.clone());
 
         let dummy = "value to sign";
@@ -602,8 +534,8 @@ mod tests {
 
     #[test]
     fn roles() {
-        let peers = peers![0, 1, 2, 3, 4, 5, 6];
-        let not_in_topology_peers = peers![7, 8, 9];
+        let peers = test_peers![0, 1, 2, 3, 4, 5, 6];
+        let not_in_topology_peers = test_peers![7, 8, 9];
         let topology = Topology::new(peers.clone());
         let expected_roles = [
             Role::Leader,
@@ -632,7 +564,7 @@ mod tests {
 
     #[test]
     fn proxy_tail() {
-        let peers = peers![0, 1, 2, 3, 4, 5, 6];
+        let peers = test_peers![0, 1, 2, 3, 4, 5, 6];
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -646,7 +578,7 @@ mod tests {
 
     #[test]
     fn proxy_tail_empty() {
-        let peers = Vec::new();
+        let peers = UniqueVec::new();
         let topology = Topology::new(peers);
 
         assert_eq!(
@@ -660,7 +592,7 @@ mod tests {
 
     #[test]
     fn proxy_tail_1() {
-        let peers = peers![0];
+        let peers = test_peers![0];
         let topology = Topology::new(peers);
 
         assert_eq!(
@@ -674,7 +606,7 @@ mod tests {
 
     #[test]
     fn proxy_tail_2() {
-        let peers = peers![0, 1];
+        let peers = test_peers![0, 1];
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -688,7 +620,7 @@ mod tests {
 
     #[test]
     fn proxy_tail_3() {
-        let peers = peers![0, 1, 2];
+        let peers = test_peers![0, 1, 2];
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -702,7 +634,7 @@ mod tests {
 
     #[test]
     fn leader() {
-        let peers = peers![0, 1, 2, 3, 4, 5, 6];
+        let peers = test_peers![0, 1, 2, 3, 4, 5, 6];
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -716,7 +648,7 @@ mod tests {
 
     #[test]
     fn leader_empty() {
-        let peers = Vec::new();
+        let peers = UniqueVec::new();
         let topology = Topology::new(peers);
 
         assert_eq!(
@@ -730,7 +662,7 @@ mod tests {
 
     #[test]
     fn leader_1() {
-        let peers = peers![0];
+        let peers = test_peers![0];
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -744,7 +676,7 @@ mod tests {
 
     #[test]
     fn leader_2() {
-        let peers = peers![0, 1];
+        let peers = test_peers![0, 1];
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -758,7 +690,7 @@ mod tests {
 
     #[test]
     fn leader_3() {
-        let peers = peers![0, 1, 3];
+        let peers = test_peers![0, 1, 3];
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -772,7 +704,7 @@ mod tests {
 
     #[test]
     fn validating_peers() {
-        let peers = peers![0, 1, 2, 3, 4, 5, 6];
+        let peers = test_peers![0, 1, 2, 3, 4, 5, 6];
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -786,7 +718,7 @@ mod tests {
 
     #[test]
     fn validating_peers_empty() {
-        let peers = Vec::new();
+        let peers = UniqueVec::new();
         let topology = Topology::new(peers);
 
         assert_eq!(
@@ -800,7 +732,7 @@ mod tests {
 
     #[test]
     fn validating_peers_1() {
-        let peers = peers![0];
+        let peers = test_peers![0];
         let topology = Topology::new(peers);
 
         assert_eq!(
@@ -814,7 +746,7 @@ mod tests {
 
     #[test]
     fn validating_peers_2() {
-        let peers = peers![0, 1];
+        let peers = test_peers![0, 1];
         let topology = Topology::new(peers);
 
         let empty_peer_slice: &[PeerId] = &[];
@@ -829,7 +761,7 @@ mod tests {
 
     #[test]
     fn validating_peers_3() {
-        let peers = peers![0, 1, 2];
+        let peers = test_peers![0, 1, 2];
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -843,7 +775,7 @@ mod tests {
 
     #[test]
     fn observing_peers() {
-        let peers = peers![0, 1, 2, 3, 4, 5, 6];
+        let peers = test_peers![0, 1, 2, 3, 4, 5, 6];
         let topology = Topology::new(peers.clone());
 
         assert_eq!(
@@ -857,7 +789,7 @@ mod tests {
 
     #[test]
     fn observing_peers_empty() {
-        let peers = Vec::new();
+        let peers = UniqueVec::new();
         let topology = Topology::new(peers);
 
         assert_eq!(
@@ -871,7 +803,7 @@ mod tests {
 
     #[test]
     fn observing_peers_1() {
-        let peers = peers![0];
+        let peers = test_peers![0];
         let topology = Topology::new(peers);
 
         assert_eq!(
@@ -885,7 +817,7 @@ mod tests {
 
     #[test]
     fn observing_peers_2() {
-        let peers = peers![0, 1];
+        let peers = test_peers![0, 1];
         let topology = Topology::new(peers);
 
         let empty_peer_slice: &[PeerId] = &[];
@@ -900,7 +832,7 @@ mod tests {
 
     #[test]
     fn observing_peers_3() {
-        let peers = peers![0, 1, 2];
+        let peers = test_peers![0, 1, 2];
         let topology = Topology::new(peers);
 
         let empty_peer_slice: &[PeerId] = &[];
@@ -911,121 +843,5 @@ mod tests {
                 .map(ConsensusTopology::observing_peers),
             Some(empty_peer_slice)
         );
-    }
-
-    #[test]
-    fn signature_verification_ok() {
-        let key_pairs =
-            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
-                .take(7)
-                .collect::<Vec<_>>();
-        let mut key_pairs_iter = key_pairs.iter();
-        let peers = peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
-        let topology = Topology::new(peers);
-
-        let dummy = ValidBlock::new_dummy();
-        let signatures = key_pairs
-            .iter()
-            .map(|key_pair| {
-                SignatureOf::new(key_pair.clone(), dummy.payload()).expect("Failed to sign")
-            })
-            .collect();
-
-        assert_eq!(topology.verify_signatures(&signatures), Ok(()));
-    }
-
-    #[test]
-    fn signature_verification_consensus_not_required_ok() {
-        let key_pairs =
-            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
-                .take(1)
-                .collect::<Vec<_>>();
-        let mut key_pairs_iter = key_pairs.iter();
-        let peers = peers![0,: key_pairs_iter];
-        let topology = Topology::new(peers);
-
-        let dummy = ValidBlock::new_dummy();
-        let signatures = key_pairs
-            .iter()
-            .enumerate()
-            .map(|(_, key_pair)| {
-                SignatureOf::new(key_pair.clone(), dummy.payload()).expect("Failed to sign")
-            })
-            .collect();
-
-        let result = topology.verify_signatures(&signatures);
-        assert_eq!(result, Ok(()))
-    }
-
-    /// Check requirement of having at least $2f + 1$ signatures in $3f + 1$ network
-    #[test]
-    fn signature_verification_not_enough_signatures() {
-        let key_pairs =
-            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
-                .take(7)
-                .collect::<Vec<_>>();
-        let mut key_pairs_iter = key_pairs.iter();
-        let peers = peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
-        let topology = Topology::new(peers);
-
-        let dummy = ValidBlock::new_dummy();
-        let signatures = SignatureOf::new(key_pairs[0].clone(), dummy.payload())
-            .expect("Failed to sign")
-            .into();
-
-        let result = topology.verify_signatures(&signatures);
-        assert_eq!(
-            result,
-            Err(SignatureVerificationError::NotEnoughSignatures {
-                votes_count: 1,
-                min_votes_for_commit: topology.min_votes_for_commit(),
-            })
-        )
-    }
-
-    /// Check requirement of having leader signature
-    #[test]
-    fn signature_verification_miss_leader_signature() {
-        let key_pairs =
-            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
-                .take(7)
-                .collect::<Vec<_>>();
-        let mut key_pairs_iter = key_pairs.iter();
-        let peers = peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
-        let topology = Topology::new(peers);
-
-        let dummy = ValidBlock::new_dummy();
-        let signatures = key_pairs
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != 0) // Skip leader
-            .map(|(_, key_pair)| SignatureOf::new(key_pair.clone(), dummy.payload()).expect("Failed to sign"))
-            .collect();
-
-        let result = topology.verify_signatures(&signatures);
-        assert_eq!(result, Err(SignatureVerificationError::LeaderMissing))
-    }
-
-    /// Check requirement of having leader signature
-    #[test]
-    fn signature_verification_miss_proxy_tail_signature() {
-        let key_pairs =
-            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
-                .take(7)
-                .collect::<Vec<_>>();
-        let mut key_pairs_iter = key_pairs.iter();
-        let peers = peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
-        let topology = Topology::new(peers);
-
-        let dummy = ValidBlock::new_dummy();
-        let signatures = key_pairs
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != 4) // Skip proxy tail
-            .map(|(_, key_pair)| SignatureOf::new(key_pair.clone(), dummy.payload()).expect("Failed to sign"))
-            .collect();
-
-        let result = topology.verify_signatures(&signatures);
-        assert_eq!(result, Err(SignatureVerificationError::ProxyTailMissing))
     }
 }

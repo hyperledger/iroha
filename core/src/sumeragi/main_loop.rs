@@ -6,6 +6,7 @@ use iroha_data_model::{
     transaction::error::TransactionRejectionReason,
 };
 use iroha_p2p::UpdateTopology;
+use iroha_primitives::unique_vec::UniqueVec;
 use tracing::{span, Level};
 
 use super::{view_change::ProofBuilder, *};
@@ -288,13 +289,10 @@ impl Sumeragi {
         self.update_state::<ReplaceTopBlockStrategy>(block, new_wsv);
     }
 
-    fn update_topology(&mut self, block_signees: &[PublicKey], peers: Vec<PeerId>) {
+    fn update_topology(&mut self, block_signees: &[PublicKey], peers: UniqueVec<PeerId>) {
         let mut topology = Topology::new(peers);
 
-        topology.update_topology(
-            block_signees,
-            self.wsv.peers_ids().iter().cloned().collect(),
-        );
+        topology.update_topology(block_signees, self.wsv.peers_ids().clone());
 
         self.current_topology = topology;
         self.connect_peers(&self.current_topology);
@@ -1102,7 +1100,7 @@ fn handle_block_sync(
             let last_committed_block = new_wsv
                 .latest_block_ref()
                 .expect("Not in genesis round so must have at least genesis block");
-            let new_peers = new_wsv.peers_ids().iter().cloned().collect();
+            let new_peers = new_wsv.peers_ids().clone();
             let view_change_index = block.payload().header().view_change_index;
             Topology::recreate_topology(&last_committed_block, view_change_index, new_peers)
         };
@@ -1122,7 +1120,7 @@ fn handle_block_sync(
             let last_committed_block = new_wsv
                 .latest_block_ref()
                 .expect("Not in genesis round so must have at least genesis block");
-            let new_peers = new_wsv.peers_ids().iter().cloned().collect();
+            let new_peers = new_wsv.peers_ids().clone();
             let view_change_index = block.payload().header().view_change_index;
             Topology::recreate_topology(&last_committed_block, view_change_index, new_peers)
         };
@@ -1162,6 +1160,8 @@ fn handle_block_sync(
 
 #[cfg(test)]
 mod tests {
+    use iroha_primitives::unique_vec;
+
     use super::*;
     use crate::smartcontracts::Registrable;
 
@@ -1239,7 +1239,7 @@ mod tests {
     #[allow(clippy::redundant_clone)]
     fn block_sync_invalid_block() {
         let leader_key_pair = KeyPair::generate().unwrap();
-        let topology = Topology::new(vec![PeerId::new(
+        let topology = Topology::new(unique_vec![PeerId::new(
             &"127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key(),
         )]);
@@ -1256,7 +1256,7 @@ mod tests {
     #[test]
     fn block_sync_invalid_soft_fork_block() {
         let leader_key_pair = KeyPair::generate().unwrap();
-        let topology = Topology::new(vec![PeerId::new(
+        let topology = Topology::new(unique_vec![PeerId::new(
             &"127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key(),
         )]);
@@ -1282,7 +1282,7 @@ mod tests {
     #[test]
     #[allow(clippy::redundant_clone)]
     fn block_sync_not_proper_height() {
-        let topology = Topology::new(Vec::new());
+        let topology = Topology::new(UniqueVec::new());
         let leader_key_pair = KeyPair::generate().unwrap();
         let (finalized_wsv, _, mut block) = create_data_for_test(&topology, leader_key_pair);
         let wsv = finalized_wsv.clone();
@@ -1307,7 +1307,7 @@ mod tests {
     #[allow(clippy::redundant_clone)]
     fn block_sync_commit_block() {
         let leader_key_pair = KeyPair::generate().unwrap();
-        let topology = Topology::new(vec![PeerId::new(
+        let topology = Topology::new(unique_vec![PeerId::new(
             &"127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key(),
         )]);
@@ -1320,7 +1320,7 @@ mod tests {
     #[test]
     fn block_sync_replace_top_block() {
         let leader_key_pair = KeyPair::generate().unwrap();
-        let topology = Topology::new(vec![PeerId::new(
+        let topology = Topology::new(unique_vec![PeerId::new(
             &"127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key(),
         )]);
@@ -1344,7 +1344,7 @@ mod tests {
     #[test]
     fn block_sync_small_view_change_index() {
         let leader_key_pair = KeyPair::generate().unwrap();
-        let topology = Topology::new(vec![PeerId::new(
+        let topology = Topology::new(unique_vec![PeerId::new(
             &"127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key(),
         )]);
@@ -1380,7 +1380,7 @@ mod tests {
     #[test]
     #[allow(clippy::redundant_clone)]
     fn block_sync_genesis_block_do_not_replace() {
-        let topology = Topology::new(Vec::new());
+        let topology = Topology::new(UniqueVec::new());
         let leader_key_pair = KeyPair::generate().unwrap();
         let (finalized_wsv, _, mut block) = create_data_for_test(&topology, leader_key_pair);
         let wsv = finalized_wsv.clone();

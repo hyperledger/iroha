@@ -1,6 +1,6 @@
 #![allow(missing_docs, clippy::restriction)]
 
-use std::{collections::BTreeSet, str::FromStr as _};
+use std::str::FromStr as _;
 
 use eyre::Result;
 use iroha_core::{
@@ -18,6 +18,7 @@ use iroha_data_model::{
     prelude::*,
     transaction::TransactionLimits,
 };
+use iroha_primitives::unique_vec::UniqueVec;
 use serde_json::json;
 
 /// Create block
@@ -33,7 +34,7 @@ pub fn create_block(
         .unwrap();
     let limits = wsv.transaction_validator().transaction_limits;
 
-    let topology = Topology::new(Vec::new());
+    let topology = Topology::new(UniqueVec::new());
     let block = BlockBuilder::new(
         vec![AcceptedTransaction::accept(transaction, &limits).unwrap()],
         topology.clone(),
@@ -174,7 +175,7 @@ pub fn restore_every_nth(
 
 pub fn build_wsv(account_id: &AccountId, key_pair: &KeyPair) -> WorldStateView {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-    let mut wsv = WorldStateView::new(World::with([], BTreeSet::new()), kura);
+    let mut wsv = WorldStateView::new(World::with([], UniqueVec::new()), kura);
     wsv.config.transaction_limits = TransactionLimits::new(u64::MAX, u64::MAX);
     wsv.config.wasm_runtime_config.fuel_limit = u64::MAX;
     wsv.config.wasm_runtime_config.max_memory = u32::MAX;
