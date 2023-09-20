@@ -1,8 +1,14 @@
 [package]
 name = "iroha_dsl"
-version = "2.0.0-pre-rc.19"
-edition = "2021"
-authors = ["Yasser"]
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
 
 [lib]
 proc-macro = true

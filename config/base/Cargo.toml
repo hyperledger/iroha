@@ -7,6 +7,9 @@ authors.workspace = true
 
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 iroha_config_derive = { workspace = true }
 iroha_crypto = { workspace = true, features = ["std"] }

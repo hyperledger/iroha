@@ -35,7 +35,7 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Lints
         if: always()
-        run: cargo lints clippy --workspace --benches --tests --examples --quiet
+        run: cargo clippy -Zlints --workspace --benches --tests --examples --quiet
       - name: Documentation
         if: always()
         run: cargo doc --no-deps --quiet

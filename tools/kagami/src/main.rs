@@ -4,7 +4,8 @@
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
+    clippy::std_instead_of_alloc,
+    missing_docs
 )]
 use std::{
     io::{stdout, BufWriter, Write},

@@ -7,6 +7,9 @@ authors.workspace = true
 
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 iroha_schema_derive = { workspace = true }
 

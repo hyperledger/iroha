@@ -1,3 +1,6 @@
+// TODO: add docs
+#![allow(missing_docs)]
+
 use std::{convert::TryFrom, iter::Peekable, str::FromStr};
 
 use litrs::Literal;

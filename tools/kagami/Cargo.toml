@@ -9,6 +9,9 @@ description = "A tool used to generate cryptographic keys, docs, the schema and 
 
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 iroha_crypto = { workspace = true }
 iroha_config = { workspace = true }

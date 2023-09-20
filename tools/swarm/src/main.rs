@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 mod cli;
 mod compose;
 mod ui;

@@ -7,6 +7,9 @@ authors.workspace = true
 
 license.workspace = true
 
+[lints]
+workspace = true
+
 [features]
 # Disable colour for all program output.
 # Useful for Docker-based deployment and terminals without colour support.
