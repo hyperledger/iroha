@@ -7,6 +7,9 @@ authors.workspace = true
 
 license.workspace = true
 
+[lints]
+workspace = true
+
 [features]
 # Support developer-specific telemetry.
 # Should not be enabled on production builds.

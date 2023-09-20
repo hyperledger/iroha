@@ -30,6 +30,158 @@ proc-macro2 = "1.0.49"
 
 webassembly-test = "0.1.0"
 
+[workspace.lints]
+rust.anonymous_parameters = "deny"
+
+# lower the priority to allow overriding later
+clippy.pedantic = { level = "deny", priority = -1 }
+clippy.all = { level = "deny", priority = -1 }
+clippy.dbg_macro = "deny"
+
+# clippy.nursery = "deny"
+clippy.debug_assert_with_mut_call = "deny"
+clippy.derive_partial_eq_without_eq = "deny"
+clippy.empty_line_after_outer_attr = "deny"
+clippy.fallible_impl_from = "deny"
+clippy.future_not_send = "deny"
+clippy.iter_with_drain = "deny"
+clippy.mutex_integer = "deny"
+clippy.needless_collect = "deny"
+clippy.path_buf_push_overwrite = "deny"
+clippy.suboptimal_flops = "deny"
+clippy.trailing_empty_array = "deny"
+clippy.transmute_undefined_repr = "deny"
+clippy.trivial_regex = "deny"
+clippy.unused_peekable = "deny"
+clippy.unused_rounding = "deny"
+
+rust.future_incompatible = "deny"
+rust.missing_copy_implementations = "deny"
+rust.missing_docs = "deny"
+rust.nonstandard_style = "deny"
+rust.private_doc_tests = "deny"
+rust.rust_2018_idioms = "deny"
+rust.trivial_casts = "deny"
+rust.trivial_numeric_casts = "deny"
+rust.unconditional_recursion = "deny"
+rust.unsafe_code = "deny"
+rust.unused = "deny"
+rust.unused_import_braces = "deny"
+rust.variant_size_differences = "deny"
+rust.unused_tuple_struct_fields = "deny"
+rust.explicit_outlives_requirements = "deny"
+rust.non_ascii_idents = "deny"
+# TODO: reenable
+# rust.unreachable_pub = "deny"
+# rust.unsafe_op_in_unsafe_fn = "deny"
+
+# These are up to personal taste. We don't want these to be enabled ever.
+clippy.string_add = "allow"
+clippy.as_conversions = "allow"
+clippy.else_if_without_else = "allow"
+clippy.enum_glob_use = "allow"
+clippy.exhaustive_enums = "allow"
+clippy.exhaustive_structs = "allow"
+clippy.implicit_return = "allow"
+clippy.inconsistent_struct_constructor = "allow"
+clippy.indexing_slicing = "allow"
+clippy.arithmetic_side_effects = "allow"
+clippy.let_underscore_must_use = "allow"
+clippy.match_wildcard_for_single_variants = "allow"
+clippy.missing_docs_in_private_items = "allow"
+clippy.module_name_repetitions = "allow"
+clippy.shadow_reuse = "allow"
+clippy.shadow_same = "allow"
+
+# These are normally decisions, which need to be audited by a human.
+clippy.unwrap_in_result = "allow"
+clippy.expect_used = "allow"
+clippy.unreachable = "allow"
+clippy.wildcard_enum_match_arm = "allow"
+clippy.wildcard_imports = "allow"
+# Our preferred style.
+clippy.non-ascii-literal = "allow"
+clippy.std_instead_of_core = "allow"
+
+# This lint could be useful in theory. The trade-off of making
+# refactoring away from references difficult isn't worth it in all
+# cases, so if it is enabled, it should be enabled locally.
+clippy.pattern_type_mismatch = "allow"
+
+# Style guide.
+clippy.mod-module-files = "allow"
+clippy.separated-literal-suffix = "allow"
+# Most trybuild code triggers a false-positive.
+
+# Not all public items should be inline. We only inline **trivial** functions.
+clippy.missing_inline_in_public_items = "allow"
+
+# --- Re-enable candidates -----
+
+# Lots of false-positives.
+clippy.self-named-module-files = "allow"
+clippy.manual_let_else = "allow"
+
+# We often need to shadow the name of the method to specialise.
+# As soon as trait specialisation is stable we need to remove it.
+clippy.same_name_method = "allow"
+clippy.pub_use = "allow"
+
+# Style guide candidate. Explicitly converting the return value to
+# () is good for refactoring, and if there is necessary
+# processing of the data returned by a function, it should
+# **really** be marked as #[must_use]
+clippy.semicolon_if_nothing_returned = "allow"
+
+# This lint has way too many false-positives, so even enabling it
+# as a warning is too much.  Instead prefer adding explicit
+# `#[deny]` directives
+clippy.must_use_candidate = "allow"
+
+# Unstable and many false-positives
+## https://rust-lang.github.io/rust-clippy/master/index.html#missing_const_for_fn
+clippy.missing_const_for_fn = "allow"
+
+# Too much affected code. Often impossible to apply suggestion on stable rust.
+rust.elided_lifetimes_in_paths = "allow"
+
+# This lint produces a lot of false positives. Recommend local #[deny] directives
+clippy.use_self = "allow"
+
+# We don't want to manually deny every `clippy.restriction.*` lint.
+clippy.blanket-clippy-restriction-lints = "allow"
+
+# A lot of false-positive.
+clippy.partial_pub_fields = "allow"
+
+# Should be enabled per trait impl rather than globally.
+clippy.missing_trait_methods = "allow"
+
+# We allow this and deny `clippy.semicolon_inside_block`.
+clippy.semicolon_outside_block = "allow"
+
+# It is debatable whether it's actually easier to read,
+# additionally, not all patterns are covered by the inlined syntax
+clippy.uninlined_format_args = "allow"
+
+rust.unknown_lints = "warn"
+# these lints were duplicated, with `allow` taking precedence
+# clippy.inconsistent_struct_constructor = "warn"
+# clippy.match_wildcard_for_single_variants = "warn"
+# clippy.arithmetic_side_effects = "warn"
+clippy.option_if_let_else = "warn"
+clippy.or_fun_call = "warn"
+clippy.redundant_pub_crate = "warn"
+clippy.string_lit_as_bytes = "warn"
+clippy.suspicious_operation_groupings = "warn"
+clippy.useless_let_if_seq = "warn"
+
+# unstable
+# rust.non_exhaustive_omitted_patterns = "warn"
+
+rust.single_use_lifetimes = "warn"
+rust.unused_lifetimes = "warn"
+
 [package]
 name = "iroha_wasm"
 

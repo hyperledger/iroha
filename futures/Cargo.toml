@@ -7,6 +7,9 @@ authors.workspace = true
 
 license.workspace = true
 
+[lints]
+workspace = true
+
 [features]
 default = []
 # Support lightweight telemetry, including diagnostics

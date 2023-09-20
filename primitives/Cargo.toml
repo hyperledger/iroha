@@ -7,6 +7,9 @@ authors.workspace = true
 
 license.workspace = true
 
+[lints]
+workspace = true
+
 [badges]
 is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
 is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
@@ -38,7 +41,6 @@ smallvec = { version = "1.10.0", default-features = false, features = ["serde", 
 smallstr = { version = "0.3.0", default-features = false, features = ["serde", "union"] }
 thiserror = { workspace = true, optional = true }
 displaydoc = { workspace = true }
-
 
 [dev-dependencies]
 serde_json = { workspace = true, features = ["alloc"] }
