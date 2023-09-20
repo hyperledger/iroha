@@ -8,6 +8,9 @@ authors.workspace = true
 license.workspace = true
 categories = ["network-programming"]
 
+[lints]
+workspace = true
+
 [dependencies]
 iroha_logger = { workspace = true }
 iroha_crypto = { workspace = true }

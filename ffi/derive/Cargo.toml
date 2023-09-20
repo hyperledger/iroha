@@ -8,6 +8,9 @@ authors.workspace = true
 license.workspace = true
 categories = ["development-tools::ffi"]
 
+[lints]
+workspace = true
+
 [lib]
 proc-macro = true
 

@@ -6,6 +6,9 @@ version.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 iroha_crypto.workspace = true
 iroha_data_model.workspace = true
