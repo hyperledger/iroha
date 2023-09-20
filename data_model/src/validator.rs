@@ -57,19 +57,19 @@ pub mod model {
 /// Result type that every validator should return.
 pub type Result<T, E = crate::ValidationFail> = core::result::Result<T, E>;
 
-/// Result type for [`VersionedSignedTransaction`] validation.
+/// Output type for [`VersionedSignedTransaction`] validation.
 ///
-/// - `Ok(None)` means that transaction contains [`Executable::Wasm`] which by definition has no output.
-/// - `Ok(Some(None))` means that transaction contains [`Executable::Instructions`] but they have no output.
-pub type TransactionValidationResult = Result<Option<<InstructionBox as Instruction>::Output>>;
+/// - `None` means that transaction contains [`Executable::Wasm`] which by definition has no output.
+/// - `Some(None)` means that transaction contains [`Executable::Instructions`] but they have no output.
+pub type TransactionValidationOutput = Option<InstructionValidationOutput>;
 
-/// Result type for [`InstructionBox`] validation.
-pub type InstructionValidationResult = Result<<InstructionBox as Instruction>::Output>;
+/// Output type for [`InstructionBox`] validation.
+pub type InstructionValidationOutput = <InstructionBox as Instruction>::Output;
 
-/// Result type for [`QueryBox`] validation.
+/// Output type for [`QueryBox`] validation.
 ///
-/// Queries are not being executed during validation, that's why [`Ok`] variant contains [`()`].
-pub type QueryValidationResult = Result<()>;
+/// Queries are not being executed during validation, that's why it's just [`()`].
+pub type QueryValidationOutput = ();
 
 /// Migration error type.
 pub type MigrationError = String;

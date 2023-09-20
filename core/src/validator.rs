@@ -8,8 +8,8 @@ use iroha_data_model::{
     query::QueryBox,
     transaction::{Executable, VersionedSignedTransaction},
     validator::{
-        self as data_model_validator, InstructionValidationResult, QueryValidationResult,
-        TransactionValidationResult,
+        self as data_model_validator, InstructionValidationOutput, QueryValidationOutput,
+        TransactionValidationOutput,
     },
     ValidationFail,
 };
@@ -143,7 +143,7 @@ impl Validator {
         wsv: &mut WorldStateView,
         authority: &AccountId,
         transaction: VersionedSignedTransaction,
-    ) -> TransactionValidationResult {
+    ) -> data_model_validator::Result<TransactionValidationOutput> {
         trace!("Running transaction validation");
 
         match self {
@@ -193,7 +193,7 @@ impl Validator {
         wsv: &mut WorldStateView,
         authority: &AccountId,
         instruction: InstructionBox,
-    ) -> InstructionValidationResult {
+    ) -> data_model_validator::Result<InstructionValidationOutput> {
         trace!("Running instruction validation");
 
         match self {
@@ -227,7 +227,7 @@ impl Validator {
         wsv: &WorldStateView,
         authority: &AccountId,
         query: QueryBox,
-    ) -> QueryValidationResult {
+    ) -> data_model_validator::Result<QueryValidationOutput> {
         trace!("Running query validation");
 
         match self {

@@ -30,7 +30,7 @@ pub use trigger::{
 };
 pub use validator::visit_upgrade_validator;
 
-use super::{MaybeUninitialized::*, *};
+use super::{MaybeVerdict::*, *};
 use crate::{permission, permission::Token as _};
 
 macro_rules! evaluate_expr {
@@ -119,10 +119,8 @@ pub fn visit_transaction<V: Validate + ?Sized>(
             }
             match validator.instruction_verdict() {
                 Uninitialized => validator.set_transaction_verdict(Ok(None)), // Empty transaction
-                Initialized(Err(err)) => validator.set_transaction_verdict(Err(err.clone())),
-                Initialized(Ok(output)) => {
-                    validator.set_transaction_verdict(Ok(Some(output.clone())))
-                }
+                Verdict(Err(err)) => validator.set_transaction_verdict(Err(err.clone())),
+                Verdict(Ok(output)) => validator.set_transaction_verdict(Ok(Some(output.clone()))),
             }
         }
     }
@@ -1646,8 +1644,8 @@ pub fn visit_retrieve<V: Validate + ?Sized>(
 
     match validator.query_verdict() {
         Uninitialized => validator.set_instruction_verdict(query.execute().map(Some)),
-        Initialized(Err(err)) => validator.set_instruction_verdict(Err(err.clone())),
-        Initialized(Ok(_)) => dbg_panic("`visit_query()` should not execute query"),
+        Verdict(Err(err)) => validator.set_instruction_verdict(Err(err.clone())),
+        Verdict(Ok(_)) => dbg_panic("`visit_query()` should not execute query"),
     }
 }
 

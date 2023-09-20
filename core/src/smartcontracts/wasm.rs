@@ -1013,7 +1013,7 @@ impl<'wrld> Runtime<state::validator::ValidateTransaction<'wrld>> {
         authority: &AccountId,
         module: &wasmtime::Module,
         transaction: VersionedSignedTransaction,
-    ) -> Result<validator::TransactionValidationResult> {
+    ) -> Result<validator::Result<validator::TransactionValidationOutput>> {
         let span = wasm_log_span!("Running `validate_transaction()`");
 
         self.execute_validator_validate_internal(
@@ -1089,7 +1089,7 @@ impl<'wrld> Runtime<state::validator::ValidateInstruction<'wrld>> {
         authority: &AccountId,
         module: &wasmtime::Module,
         instruction: InstructionBox,
-    ) -> Result<validator::InstructionValidationResult> {
+    ) -> Result<validator::Result<validator::InstructionValidationOutput>> {
         let span = wasm_log_span!("Running `validate_instruction()`");
 
         self.execute_validator_validate_internal(
@@ -1165,7 +1165,7 @@ impl<'wrld> Runtime<state::validator::ValidateQuery<'wrld>> {
         authority: &AccountId,
         module: &wasmtime::Module,
         query: QueryBox,
-    ) -> Result<validator::QueryValidationResult> {
+    ) -> Result<validator::Result<validator::QueryValidationOutput>> {
         let span = wasm_log_span!("Running `validate_query()`");
 
         self.execute_validator_validate_internal(

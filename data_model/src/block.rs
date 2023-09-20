@@ -10,7 +10,9 @@ use core::{fmt::Display, time::Duration};
 
 use derive_more::Display;
 use getset::Getters;
-use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignaturesOf};
+#[cfg(all(feature = "std", feature = "transparent_api"))]
+use iroha_crypto::KeyPair;
+use iroha_crypto::{HashOf, MerkleTree, SignaturesOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;

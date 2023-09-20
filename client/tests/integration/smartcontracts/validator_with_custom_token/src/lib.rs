@@ -57,9 +57,9 @@ mod token {
 }
 
 struct Validator {
-    transaction_verdict: MaybeUninitialized<TransactionValidationResult>,
-    instruction_verdict: MaybeUninitialized<InstructionValidationResult>,
-    query_verdict: MaybeUninitialized<QueryValidationResult>,
+    transaction_verdict: MaybeVerdict<TransactionValidationOutput>,
+    instruction_verdict: MaybeVerdict<InstructionValidationOutput>,
+    query_verdict: MaybeVerdict<QueryValidationOutput>,
 
     block_height: u64,
     host: iroha_wasm::Host,
@@ -69,10 +69,10 @@ impl Validator {
     /// Construct [`Self`]
     pub fn new(block_height: u64) -> Self {
         Self {
-            transaction_verdict: MaybeUninitialized::default(),
-            instruction_verdict: MaybeUninitialized::default(),
+            transaction_verdict: MaybeVerdict::default(),
+            instruction_verdict: MaybeVerdict::default(),
             // TODO: Default initialize when queries will be executed inside validator
-            query_verdict: MaybeUninitialized::Initialized(Ok(())),
+            query_verdict: MaybeVerdict::Verdict(Ok(())),
             block_height,
             host: iroha_wasm::Host,
         }
@@ -279,28 +279,28 @@ impl Validate for Validator {
         self.block_height
     }
 
-    fn transaction_verdict(&self) -> MaybeUninitialized<&TransactionValidationResult> {
+    fn transaction_verdict(&self) -> MaybeVerdict<&TransactionValidationOutput, &ValidationFail> {
         self.transaction_verdict.as_ref()
     }
 
-    fn set_transaction_verdict(&mut self, verdict: TransactionValidationResult) {
-        self.transaction_verdict = MaybeUninitialized::Initialized(verdict);
+    fn set_transaction_verdict(&mut self, verdict: Result<TransactionValidationOutput>) {
+        self.transaction_verdict = MaybeVerdict::Verdict(verdict);
     }
 
-    fn instruction_verdict(&self) -> MaybeUninitialized<&InstructionValidationResult> {
+    fn instruction_verdict(&self) -> MaybeVerdict<&InstructionValidationOutput, &ValidationFail> {
         self.instruction_verdict.as_ref()
     }
 
-    fn set_instruction_verdict(&mut self, verdict: InstructionValidationResult) {
-        self.instruction_verdict = MaybeUninitialized::Initialized(verdict);
+    fn set_instruction_verdict(&mut self, verdict: Result<InstructionValidationOutput>) {
+        self.instruction_verdict = MaybeVerdict::Verdict(verdict);
     }
 
-    fn query_verdict(&self) -> MaybeUninitialized<&QueryValidationResult> {
+    fn query_verdict(&self) -> MaybeVerdict<&QueryValidationOutput, &ValidationFail> {
         self.query_verdict.as_ref()
     }
 
-    fn set_query_verdict(&mut self, verdict: QueryValidationResult) {
-        self.query_verdict = MaybeUninitialized::Initialized(verdict);
+    fn set_query_verdict(&mut self, verdict: Result<QueryValidationOutput>) {
+        self.query_verdict = MaybeVerdict::Verdict(verdict);
     }
 }
 
@@ -331,10 +331,10 @@ pub fn validate_transaction(
     authority: AccountId,
     transaction: VersionedSignedTransaction,
     block_height: u64,
-) -> TransactionValidationResult {
+) -> Result<TransactionValidationOutput> {
     let mut validator = Validator::new(block_height);
     validator.visit_transaction(&authority, &transaction);
-    validator.transaction_verdict.assume_initialized()
+    validator.transaction_verdict.assume_verdict()
 }
 
 #[entrypoint]
@@ -342,10 +342,10 @@ pub fn validate_instruction(
     authority: AccountId,
     instruction: InstructionBox,
     block_height: u64,
-) -> InstructionValidationResult {
+) -> Result<InstructionValidationOutput> {
     let mut validator = Validator::new(block_height);
     validator.visit_instruction(&authority, &instruction);
-    validator.instruction_verdict.assume_initialized()
+    validator.instruction_verdict.assume_verdict()
 }
 
 #[entrypoint]
@@ -353,8 +353,8 @@ pub fn validate_query(
     authority: AccountId,
     query: QueryBox,
     block_height: u64,
-) -> QueryValidationResult {
+) -> Result<QueryValidationOutput> {
     let mut validator = Validator::new(block_height);
     validator.visit_query(&authority, &query);
-    validator.query_verdict.assume_initialized()
+    validator.query_verdict.assume_verdict()
 }

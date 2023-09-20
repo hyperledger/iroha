@@ -18,7 +18,7 @@ pub mod permission;
 macro_rules! pass {
     ($validator:ident, $verdict_fn:ident, $passing_object:literal) => {{
         #[cfg(debug_assertions)]
-        if let $crate::MaybeUninitialized::Initialized(Err(_error)) = $validator.$verdict_fn() {
+        if let $crate::MaybeVerdict::Verdict(Err(_error)) = $validator.$verdict_fn() {
             unreachable!(concat!("Validator already denied ", $passing_object));
         }
 
@@ -72,7 +72,7 @@ macro_rules! deny {
     }};
     (@check_already_denied $validator:ident, $verdict_fn:ident, $denying_object:literal) => {
         #[cfg(debug_assertions)]
-        if let $crate::MaybeUninitialized::Initialized(Err(_error)) =
+        if let $crate::MaybeVerdict::Verdict(Err(_error)) =
             $validator.$verdict_fn()
         {
             unreachable!(concat!("Validator already denied ", $denying_object));
@@ -171,56 +171,55 @@ macro_rules! declare_tokens {
     }
 }
 
-/// Technically the same as [`Option`] but with another semantic.
-#[derive(Debug, Default, Clone, Copy)]
-pub enum MaybeUninitialized<T> {
+/// Technically the same as `Option<Result<T, E>>` but with another semantic.
+#[derive(Debug, Default, Clone)]
+pub enum MaybeVerdict<T, E = ValidationFail> {
     #[default]
     Uninitialized,
-    Initialized(T),
+    Verdict(Result<T, E>),
 }
 
-impl<T> MaybeUninitialized<T> {
-    /// Cast [`MaybeUninitialized`] reference to a [`MaybeUninitialized`] with reference.
-    pub const fn as_ref(&self) -> MaybeUninitialized<&T> {
+impl<T, E> MaybeVerdict<T, E> {
+    /// Cast [`MaybeVerdict`] reference to a [`MaybeVerdict`] with reference.
+    pub const fn as_ref(&self) -> MaybeVerdict<&T, &E> {
         match self {
-            Self::Uninitialized => MaybeUninitialized::Uninitialized,
-            Self::Initialized(ref value) => MaybeUninitialized::Initialized(value),
+            Self::Uninitialized => MaybeVerdict::Uninitialized,
+            Self::Verdict(ref value) => MaybeVerdict::Verdict(value.as_ref()),
         }
     }
 
     /// Map value if initialized, otherwise return `default`.
     pub fn map_or<F, U>(self, default: U, f: F) -> U
     where
-        F: FnOnce(T) -> U,
+        F: FnOnce(Result<T, E>) -> U,
     {
         match self {
             Self::Uninitialized => default,
-            Self::Initialized(value) => f(value),
+            Self::Verdict(value) => f(value),
         }
     }
 
-    /// Unwrap the value assuming it is initialized.
+    /// Unwrap the value assuming it is initialized with verdict.
     ///
     /// # Panics
     ///
     /// Panics if value is [`Uninitialized`](Self::Uninitialized).
-    pub fn assume_initialized(self) -> T {
+    #[allow(clippy::missing_errors_doc)]
+    pub fn assume_verdict(self) -> Result<T, E> {
         match self {
             Self::Uninitialized => {
-                crate::dbg_panic("`assume_initialized()` called on `Uninitialized` value")
+                crate::dbg_panic("`assume_verdict()` called on `Uninitialized` value")
             }
-            Self::Initialized(value) => value,
+            Self::Verdict(value) => value,
         }
     }
-}
 
-impl<T, E> MaybeUninitialized<&Result<T, E>> {
     /// Check if value is:
     ///
-    /// - [`Initialized`](Self::Initialized) with [`Ok`] or
+    /// - [`Verdict`](Self::Verdict) with [`Ok`] or
     /// - [`Uninitialized`](Self::Uninitialized).
-    pub fn is_ok_or_uninitialized(self) -> bool {
-        self.map_or(true, Result::is_ok)
+    pub fn is_ok_or_uninitialized(&self) -> bool {
+        self.as_ref().map_or(true, |verdict| verdict.is_ok())
     }
 }
 
@@ -262,22 +261,22 @@ pub trait Validate: Visit {
     fn block_height(&self) -> u64;
 
     /// Current validator transaction verdict.
-    fn transaction_verdict(&self) -> MaybeUninitialized<&TransactionValidationResult>;
+    fn transaction_verdict(&self) -> MaybeVerdict<&TransactionValidationOutput, &ValidationFail>;
 
     /// Set validator transaction verdict.
-    fn set_transaction_verdict(&mut self, verdict: TransactionValidationResult);
+    fn set_transaction_verdict(&mut self, verdict: Result<TransactionValidationOutput>);
 
     /// Current validator instruction verdict.
-    fn instruction_verdict(&self) -> MaybeUninitialized<&InstructionValidationResult>;
+    fn instruction_verdict(&self) -> MaybeVerdict<&InstructionValidationOutput, &ValidationFail>;
 
     /// Set validator instruction verdict.
-    fn set_instruction_verdict(&mut self, verdict: InstructionValidationResult);
+    fn set_instruction_verdict(&mut self, verdict: Result<InstructionValidationOutput>);
 
     /// Current validator query verdict.
-    fn query_verdict(&self) -> MaybeUninitialized<&QueryValidationResult>;
+    fn query_verdict(&self) -> MaybeVerdict<&QueryValidationOutput, &ValidationFail>;
 
     /// Set validator query verdict.
-    fn set_query_verdict(&mut self, verdict: QueryValidationResult);
+    fn set_query_verdict(&mut self, verdict: Result<QueryValidationOutput>);
 }
 
 pub mod prelude {
@@ -290,8 +289,8 @@ pub mod prelude {
         data_model::{
             prelude::*,
             validator::{
-                InstructionValidationResult, MigrationError, MigrationResult,
-                QueryValidationResult, Result, TransactionValidationResult,
+                InstructionValidationOutput, MigrationError, MigrationResult,
+                QueryValidationOutput, Result, TransactionValidationOutput,
             },
             visit::Visit,
             ValidationFail,
@@ -302,6 +301,6 @@ pub mod prelude {
 
     pub use super::{
         declare_tokens, deny_instruction, deny_query, deny_transaction, pass_instruction,
-        pass_query, pass_transaction, MaybeUninitialized, PermissionTokenSchema, Validate,
+        pass_query, pass_transaction, MaybeVerdict, PermissionTokenSchema, Validate,
     };
 }
