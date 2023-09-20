@@ -1,5 +1,7 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
 #![cfg_attr(not(feature = "std"), no_std)]
+// in no_std some code gets cfg-ed out, so we silence the warnings
+#![cfg_attr(not(feature = "std"), allow(unused, unused_tuple_struct_fields))]
 #![allow(clippy::arithmetic_side_effects)]
 
 #[cfg(not(feature = "std"))]

@@ -84,6 +84,7 @@ pub mod asset {
     /// Pass condition that checks if `authority` is the owner of `asset_id`.
     #[derive(Debug, Clone)]
     pub struct Owner<'asset> {
+        /// Asset id to check against
         pub asset_id: &'asset AssetId,
     }
 
@@ -115,6 +116,7 @@ pub mod asset_definition {
     /// Pass condition that checks if `authority` is the owner of `asset_definition_id`.
     #[derive(Debug, Clone)]
     pub struct Owner<'asset_definition> {
+        /// Asset definition id to check against
         pub asset_definition_id: &'asset_definition AssetDefinitionId,
     }
 
@@ -139,6 +141,7 @@ pub mod account {
     /// Pass condition that checks if `authority` is the owner of `account_id`.
     #[derive(Debug, Clone)]
     pub struct Owner<'asset> {
+        /// Account id to check against
         pub account_id: &'asset AccountId,
     }
 
@@ -175,6 +178,7 @@ pub mod trigger {
     /// Pass condition that checks if `authority` is the owner of `trigger_id`.
     #[derive(Debug, Clone)]
     pub struct Owner<'trigger> {
+        /// Trigger id to check against
         pub trigger_id: &'trigger TriggerId,
     }
 
