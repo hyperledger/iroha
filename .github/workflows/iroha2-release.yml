@@ -59,22 +59,23 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2023-06-25
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v3
         with:
           ref: iroha2-dev
-      - name: Setup git config
-        run: |
-          cd .git
-          git config --local user.name "sorabot"
-          git config --local user.email "<>"
+          token: ${{ secrets.G_ACCESS_TOKEN }}
       - name: Update configs
         run: |
           ./scripts/update_configs.sh lts
           ./scripts/update_configs.sh stable
       - name: Commit config changes
-        run: |
-          git config --global --add safe.directory /__w/iroha/iroha
-          git add -A
-          git diff-index --quiet HEAD || git commit -m "[documentation]: Update lts/stable configs following a release" --signoff
-          git push origin iroha2-dev
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: '[documentation]: Update lts/stable configs following a release'
+          branch: iroha2-dev
+          commit_options: '--signoff'
+          commit_user_name: sorabot
+          commit_user_email: <>
+          commit_author: sorabot <actions@github.com>
