@@ -14,6 +14,9 @@ license.workspace = true
 keywords.workspace = true
 categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
 
+[lints]
+workspace = true
+
 [badges]
 is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
 is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }

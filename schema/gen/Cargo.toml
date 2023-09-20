@@ -7,6 +7,9 @@ authors.workspace = true
 
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 iroha_genesis = { workspace = true }
 iroha_primitives = { workspace = true }
