@@ -11,66 +11,102 @@ use iroha_core::{
     wsv::World,
 };
 use iroha_data_model::{
+    account::Account,
     asset::{AssetDefinition, AssetDefinitionId},
+    domain::Domain,
     isi::InstructionBox,
     prelude::*,
     transaction::TransactionLimits,
 };
+use serde_json::json;
 
-/// Create block and validate it
-fn create_block(
+/// Create block
+pub fn create_block(
+    wsv: &mut WorldStateView,
     instructions: Vec<InstructionBox>,
     account_id: AccountId,
     key_pair: KeyPair,
-    wsv: &mut WorldStateView,
-) -> Result<CommittedBlock> {
+) -> CommittedBlock {
     let transaction = TransactionBuilder::new(account_id)
         .with_instructions(instructions)
-        .sign(key_pair.clone())?;
-
-    let transaction_limits = &wsv.transaction_validator().transaction_limits;
-    let transaction = AcceptedTransaction::accept(transaction, transaction_limits)?;
+        .sign(key_pair.clone())
+        .unwrap();
+    let limits = wsv.transaction_validator().transaction_limits;
 
     let topology = Topology::new(Vec::new());
-    let pending_block = BlockBuilder::new(vec![transaction], topology.clone(), Vec::new())
-        .chain_first(wsv)
-        .sign(key_pair)
-        .unwrap()
-        .commit(&topology)
-        .unwrap();
+    let block = BlockBuilder::new(
+        vec![AcceptedTransaction::accept(transaction, &limits).unwrap()],
+        topology.clone(),
+        Vec::new(),
+    )
+    .chain(0, wsv)
+    .sign(key_pair)
+    .unwrap()
+    .commit(&topology)
+    .unwrap();
 
-    Ok(pending_block)
+    // Verify that transactions are valid
+    for tx in &block.payload().transactions {
+        assert_eq!(tx.error, None);
+    }
+
+    block
 }
 
-fn populate_wsv(
+pub fn populate_wsv(
     domains: usize,
     accounts_per_domain: usize,
     assets_per_domain: usize,
+    owner_id: &AccountId,
 ) -> Result<Vec<InstructionBox>> {
     let mut instructions: Vec<InstructionBox> = Vec::new();
     for i in 0..domains {
         let domain_id = DomainId::from_str(&i.to_string())?;
         let domain = Domain::new(domain_id.clone());
         instructions.push(RegisterBox::new(domain).into());
+        let can_unregister_domain = GrantBox::new(
+            PermissionToken::new(
+                "CanUnregisterDomain".parse().unwrap(),
+                &json!({ "domain_id": domain_id.clone() }),
+            ),
+            owner_id.clone(),
+        );
+        instructions.push(can_unregister_domain.into());
         for j in 0..accounts_per_domain {
             let account_id = AccountId::new(Name::from_str(&j.to_string())?, domain_id.clone());
             let account = Account::new(account_id.clone(), []);
             instructions.push(RegisterBox::new(account).into());
+            let can_unregister_account = GrantBox::new(
+                PermissionToken::new(
+                    "CanUnregisterAccount".parse().unwrap(),
+                    &json!({ "account_id": account_id.clone() }),
+                ),
+                owner_id.clone(),
+            );
+            instructions.push(can_unregister_account.into());
         }
         for k in 0..assets_per_domain {
             let asset_definition_id =
                 AssetDefinitionId::new(Name::from_str(&k.to_string())?, domain_id.clone());
             let asset_definition = AssetDefinition::new(
-                asset_definition_id,
+                asset_definition_id.clone(),
                 iroha_data_model::asset::AssetValueType::Quantity,
             );
             instructions.push(RegisterBox::new(asset_definition).into());
+            let can_unregister_asset_definition = GrantBox::new(
+                PermissionToken::new(
+                    "CanUnregisterAssetDefinition".parse().unwrap(),
+                    &json!({ "asset_definition_id": asset_definition_id }),
+                ),
+                owner_id.clone(),
+            );
+            instructions.push(can_unregister_asset_definition.into());
         }
     }
     Ok(instructions)
 }
 
-fn delete_every_nth(
+pub fn delete_every_nth(
     domains: usize,
     accounts_per_domain: usize,
     assets_per_domain: usize,
@@ -101,7 +137,7 @@ fn delete_every_nth(
     Ok(instructions)
 }
 
-fn restore_every_nth(
+pub fn restore_every_nth(
     domains: usize,
     accounts_per_domain: usize,
     assets_per_domain: usize,
@@ -136,10 +172,12 @@ fn restore_every_nth(
     Ok(instructions)
 }
 
-fn build_wsv(account_id: &AccountId, key_pair: &KeyPair) -> WorldStateView {
+pub fn build_wsv(account_id: &AccountId, key_pair: &KeyPair) -> WorldStateView {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let mut wsv = WorldStateView::new(World::with([], BTreeSet::new()), kura);
     wsv.config.transaction_limits = TransactionLimits::new(u64::MAX, u64::MAX);
+    wsv.config.wasm_runtime_config.fuel_limit = u64::MAX;
+    wsv.config.wasm_runtime_config.max_memory = u32::MAX;
 
     {
         let domain = Domain::new(account_id.domain_id.clone());
@@ -164,74 +202,4 @@ fn build_wsv(account_id: &AccountId, key_pair: &KeyPair) -> WorldStateView {
     }
 
     wsv
-}
-
-#[derive(Clone)]
-pub struct WsvValidateBlocks {
-    wsv: WorldStateView,
-    instructions: Vec<Vec<InstructionBox>>,
-    key_pair: KeyPair,
-    account_id: AccountId,
-}
-
-impl WsvValidateBlocks {
-    /// Create [`WorldStateView`] and blocks for benchmarking
-    ///
-    /// # Errors
-    /// - Failed to parse [`AccountId`]
-    /// - Failed to generate [`KeyPair`]
-    /// - Failed to create instructions for block
-    pub fn setup() -> Result<Self> {
-        let domains = 100;
-        let accounts_per_domain = 1000;
-        let assets_per_domain = 1000;
-        let genesis_id: AccountId = "genesis@genesis".parse()?;
-        let key_pair = KeyPair::generate()?;
-        let wsv = build_wsv(&genesis_id, &key_pair);
-
-        let nth = 100;
-        let instructions = [
-            populate_wsv(domains, accounts_per_domain, assets_per_domain),
-            delete_every_nth(domains, accounts_per_domain, assets_per_domain, nth),
-            restore_every_nth(domains, accounts_per_domain, assets_per_domain, nth),
-        ]
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(Self {
-            wsv,
-            instructions,
-            key_pair,
-            account_id: genesis_id,
-        })
-    }
-
-    /// Run benchmark body.
-    ///
-    /// # Errors
-    /// - Not enough blocks
-    /// - Failed to apply block
-    ///
-    /// # Panics
-    /// If wsv isn't one block ahead of finalized wsv.
-    pub fn measure(
-        Self {
-            wsv,
-            instructions,
-            key_pair,
-            account_id,
-        }: Self,
-    ) -> Result<()> {
-        let mut finalized_wsv = wsv;
-        let mut wsv = finalized_wsv.clone();
-
-        for instructions in instructions {
-            finalized_wsv = wsv.clone();
-            let block = create_block(instructions, account_id.clone(), key_pair.clone(), &mut wsv)?;
-            wsv.apply_without_execution(&block)?;
-            assert_eq!(wsv.height(), finalized_wsv.height() + 1);
-        }
-
-        Ok(())
-    }
 }

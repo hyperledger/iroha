@@ -535,10 +535,12 @@ mod commit {
         pub fn hash(&self) -> HashOf<VersionedSignedBlock> {
             self.0.hash()
         }
-        pub(crate) fn payload(&self) -> &BlockPayload {
+        /// Get block payload
+        pub fn payload(&self) -> &BlockPayload {
             self.0.payload()
         }
-        pub(crate) fn signatures(&self) -> &SignaturesOf<BlockPayload> {
+        /// Get block signatures
+        pub fn signatures(&self) -> &SignaturesOf<BlockPayload> {
             self.0.signatures()
         }
     }
