@@ -425,7 +425,7 @@ impl BlockStore {
                 match e.kind() {
                     std::io::ErrorKind::AlreadyExists => Err(Error::Locked(lock_path)),
                     std::io::ErrorKind::NotFound => {
-                        match std::fs::create_dir_all(&store_path)
+                        match std::fs::create_dir_all(store_path)
                             .map_err(|e| Error::MkDir(e, store_path.to_path_buf()))
                         {
                             Err(e) => Err(e),
