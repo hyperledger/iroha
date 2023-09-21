@@ -413,20 +413,20 @@ impl BlockStore {
     ///
     /// # Panics
     /// * if you pass in `LockStatus::Unlocked` and it is unable to lock the block store.
-    pub fn new(path: &Path, already_locked: LockStatus) -> Self {
+    pub fn new(store_path: &Path, already_locked: LockStatus) -> Self {
         if matches!(already_locked, LockStatus::Unlocked) {
-            let path = path.join(LOCK_FILE_NAME);
+            let lock_path = store_path.join(LOCK_FILE_NAME);
             if let Err(e) = fs::File::options()
                 .read(true)
                 .write(true)
                 .create_new(true)
-                .open(path.clone())
+                .open(lock_path.clone())
             {
                 match e.kind() {
-                    std::io::ErrorKind::AlreadyExists => Err(Error::Locked(path)),
+                    std::io::ErrorKind::AlreadyExists => Err(Error::Locked(lock_path)),
                     std::io::ErrorKind::NotFound => {
-                        match std::fs::create_dir_all(&path)
-                            .map_err(|e| Error::MkDir(e, path.clone()))
+                        match std::fs::create_dir_all(store_path)
+                            .map_err(|e| Error::MkDir(e, lock_path.clone()))
                         {
                             Err(e) => Err(e),
                             Ok(_) => {
@@ -434,22 +434,22 @@ impl BlockStore {
                                     .read(true)
                                     .write(true)
                                     .create_new(true)
-                                    .open(path.clone())
+                                    .open(lock_path.clone())
                                 {
-                                    Err(Error::IO(e, path))
+                                    Err(Error::IO(e, lock_path))
                                 } else {
                                     Ok(())
                                 }
                             }
                         }
                     }
-                    _ => Err(Error::IO(e, path)),
+                    _ => Err(Error::IO(e, lock_path)),
                 }
                 .expect("Kura must be able to lock the blockstore");
             }
         }
         BlockStore {
-            path_to_blockchain: path.to_path_buf(),
+            path_to_blockchain: store_path.to_path_buf(),
         }
     }
 
