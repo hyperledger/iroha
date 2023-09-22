@@ -200,7 +200,7 @@ iroha_data_model.workspace = true
 iroha_wasm_derive = { version = "=2.0.0-pre-rc.19", path = "derive" }
 
 parity-scale-codec = { version = "3.1.5", default-features = false }
-wee_alloc = "0.4.5"
+lol_alloc = "0.4.0"
 
 [dev-dependencies]
 webassembly-test.workspace = true
