@@ -27,10 +27,12 @@ impl From<wasm::error::Error> for ValidationFail {
 
                 match call_error {
                     ExecutionLimitsExceeded(_) => Self::TooComplex,
-                    HostExecution(error) | Other(error) => Self::InternalError(error.to_string()),
+                    HostExecution(error) | Other(error) => {
+                        Self::InternalError(format!("{error:#}"))
+                    }
                 }
             }
-            _ => Self::InternalError(err.to_string()),
+            _ => Self::InternalError(format!("{err:#}")),
         }
     }
 }
