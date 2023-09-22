@@ -1,7 +1,6 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
 #![cfg_attr(not(feature = "std"), no_std)]
 // in no_std some code gets cfg-ed out, so we silence the warnings
-#![cfg_attr(not(feature = "std"), allow(unused, unused_tuple_struct_fields))]
 #![allow(clippy::arithmetic_side_effects)]
 
 #[cfg(not(feature = "std"))]
@@ -120,6 +119,10 @@ impl FromStr for Algorithm {
 
 /// Options for key generation
 #[cfg(not(feature = "ffi_import"))]
+#[cfg_attr(
+    any(not(feature = "std"), feature = "ffi_import"),
+    allow(unused_tuple_struct_fields)
+)]
 #[derive(Debug, Clone)]
 enum KeyGenOption {
     /// Use seed
