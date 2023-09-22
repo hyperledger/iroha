@@ -186,7 +186,9 @@ pub mod error {
                     Trap::StackOverflow
                     | Trap::MemoryOutOfBounds
                     | Trap::TableOutOfBounds
-                    | Trap::IndirectCallToNull => Self::ExecutionLimitsExceeded(err),
+                    | Trap::IndirectCallToNull
+                    | Trap::OutOfFuel
+                    | Trap::Interrupt => Self::ExecutionLimitsExceeded(err),
                     _ => Self::Other(err),
                 },
                 None => Self::HostExecution(err),

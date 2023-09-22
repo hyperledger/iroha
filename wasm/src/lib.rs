@@ -24,13 +24,14 @@ use data_model::{
 use debug::DebugExpectExt as _;
 pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::main;
+use lol_alloc::{FreeListAllocator, LockedAllocator};
 use parity_scale_codec::{DecodeAll, Encode};
 
 pub mod debug;
 pub mod log;
 
 #[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
 #[no_mangle]
 extern "C" fn _iroha_wasm_alloc(len: usize) -> *const u8 {
