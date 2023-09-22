@@ -2,7 +2,7 @@
 //! 1. If a new block is constructed by the node:
 //!     `BlockBuilder<Pending>` -> `BlockBuilder<Chained>` -> `ValidBlock` -> `CommittedBlock`
 //! 2. If a block is received, i.e. deserialized:
-//!     `VersionedSignedBlock` -> `ValidBlock` -> `CommittedBlock`
+//!     `SignedBlock` -> `ValidBlock` -> `CommittedBlock`
 //! [`Block`]s are organised into a linear sequence over time (also known as the block chain).
 #![allow(
     clippy::module_name_repetitions,
@@ -47,9 +47,9 @@ pub enum BlockValidationError {
     /// Mismatch between the actual and expected hashes of the latest block. Expected: {expected:?}, actual: {actual:?}
     LatestBlockHashMismatch {
         /// Expected value
-        expected: Option<HashOf<VersionedSignedBlock>>,
+        expected: Option<HashOf<SignedBlock>>,
         /// Actual value
-        actual: Option<HashOf<VersionedSignedBlock>>,
+        actual: Option<HashOf<SignedBlock>>,
     },
     /// Mismatch between the actual and expected height of the latest block. Expected: {expected}, actual: {actual}
     LatestBlockHeightMismatch {
@@ -142,7 +142,7 @@ mod pending {
 
         fn make_header(
             previous_height: u64,
-            previous_block_hash: Option<HashOf<VersionedSignedBlock>>,
+            previous_block_hash: Option<HashOf<SignedBlock>>,
             view_change_index: u64,
             transactions: &[TransactionValue],
         ) -> BlockHeader {
@@ -231,7 +231,7 @@ mod chained {
             let signature = SignatureOf::new(key_pair, &self.0 .0)?;
 
             Ok(ValidBlock(
-                SignedBlock {
+                SignedBlockV1 {
                     payload: self.0 .0,
                     signatures: SignaturesOf::from(signature),
                 }
@@ -248,7 +248,7 @@ mod valid {
     /// Block that was validated and accepted
     #[derive(Debug, Clone)]
     #[repr(transparent)]
-    pub struct ValidBlock(pub(super) VersionedSignedBlock);
+    pub struct ValidBlock(pub(super) SignedBlock);
 
     impl ValidBlock {
         pub(crate) fn payload(&self) -> &BlockPayload {
@@ -270,10 +270,10 @@ mod valid {
         /// - Error during validation of individual transactions
         /// - Topology field is incorrect
         pub fn validate(
-            block: VersionedSignedBlock,
+            block: SignedBlock,
             topology: &Topology,
             wsv: &mut WorldStateView,
-        ) -> Result<ValidBlock, (VersionedSignedBlock, BlockValidationError)> {
+        ) -> Result<ValidBlock, (SignedBlock, BlockValidationError)> {
             let actual_commit_topology = &block.payload().commit_topology;
             let expected_commit_topology = &topology.ordered_peers;
 
@@ -336,9 +336,9 @@ mod valid {
                 return Err((block, error.into()));
             }
 
-            let VersionedSignedBlock::V1(block) = block;
+            let SignedBlock::V1(block) = block;
             Ok(ValidBlock(
-                SignedBlock {
+                SignedBlockV1 {
                     payload: block.payload,
                     signatures: block.signatures,
                 }
@@ -347,7 +347,7 @@ mod valid {
         }
 
         fn validate_transactions(
-            block: &VersionedSignedBlock,
+            block: &SignedBlock,
             wsv: &mut WorldStateView,
         ) -> Result<(), TransactionValidationError> {
             let is_genesis = block.payload().header.is_genesis();
@@ -522,7 +522,7 @@ mod valid {
         }
     }
 
-    impl From<ValidBlock> for VersionedSignedBlock {
+    impl From<ValidBlock> for SignedBlock {
         fn from(source: ValidBlock) -> Self {
             source.0
         }
@@ -648,11 +648,11 @@ mod commit {
     /// Every [`Self`] will have a different height.
     #[derive(Debug, Clone)]
     // TODO: Make it pub(super) at most
-    pub struct CommittedBlock(pub(crate) VersionedSignedBlock);
+    pub struct CommittedBlock(pub(crate) SignedBlock);
 
     impl CommittedBlock {
         /// Calculate block hash
-        pub fn hash(&self) -> HashOf<VersionedSignedBlock> {
+        pub fn hash(&self) -> HashOf<SignedBlock> {
             self.0.hash()
         }
         /// Get block payload
@@ -695,7 +695,7 @@ mod commit {
         }
     }
 
-    impl From<CommittedBlock> for VersionedSignedBlock {
+    impl From<CommittedBlock> for SignedBlock {
         fn from(source: CommittedBlock) -> Self {
             source.0
         }

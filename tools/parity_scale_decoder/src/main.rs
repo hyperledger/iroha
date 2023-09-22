@@ -25,10 +25,10 @@ use iroha_data_model::{
     block::{
         error::BlockRejectionReason,
         stream::{BlockMessage, BlockSubscriptionRequest},
-        BlockHeader, SignedBlock, VersionedSignedBlock,
+        BlockHeader, SignedBlock, SignedBlockV1,
     },
     domain::NewDomain,
-    http::{BatchedResponse, VersionedBatchedResponse},
+    http::{BatchedResponse, BatchedResponseV1},
     ipfs::IpfsPath,
     predicate::{
         ip_addr::{Ipv4Predicate, Ipv6Predicate},
@@ -42,9 +42,9 @@ use iroha_data_model::{
         error::{FindError, QueryExecutionFail},
         ForwardCursor,
     },
-    transaction::{error::TransactionLimitError, SignedTransaction, TransactionLimits},
+    transaction::{error::TransactionLimitError, SignedTransactionV1, TransactionLimits},
     validator::Validator,
-    VersionedSignedBlockWrapper,
+    SignedBlockWrapper,
 };
 use iroha_primitives::{
     addr::{Ipv4Addr, Ipv6Addr},

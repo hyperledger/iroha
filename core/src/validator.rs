@@ -5,7 +5,7 @@ use iroha_data_model::{
     account::AccountId,
     isi::InstructionBox,
     query::QueryBox,
-    transaction::{Executable, VersionedSignedTransaction},
+    transaction::{Executable, SignedTransaction},
     validator as data_model_validator, ValidationFail,
 };
 use iroha_logger::trace;
@@ -126,7 +126,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Validator> {
 }
 
 impl Validator {
-    /// Validate [`VersionedSignedTransaction`].
+    /// Validate [`SignedTransaction`].
     ///
     /// # Errors
     ///
@@ -137,7 +137,7 @@ impl Validator {
         &self,
         wsv: &mut WorldStateView,
         authority: &AccountId,
-        transaction: VersionedSignedTransaction,
+        transaction: SignedTransaction,
     ) -> Result<(), ValidationFail> {
         trace!("Running transaction validation");
 

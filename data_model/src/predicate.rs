@@ -992,7 +992,7 @@ pub mod value {
         Display(string::StringPredicate),
         /// Apply predicate to the numerical value.
         Numerical(numerical::SemiRange),
-        /// Timestamp (currently for [`VersionedSignedBlock`] only).
+        /// Timestamp (currently for [`SignedBlock`] only).
         TimeStamp(numerical::SemiInterval<u128>),
         /// IpAddress enumerable by `u32`
         Ipv4Addr(ip_addr::Ipv4Predicate),

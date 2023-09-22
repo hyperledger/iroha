@@ -58,7 +58,7 @@ impl_lazy! {
 /// Query Request statefully validated on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
 #[repr(transparent)]
-pub struct ValidQueryRequest(VersionedSignedQuery);
+pub struct ValidQueryRequest(SignedQuery);
 
 impl ValidQueryRequest {
     /// Validate query.
@@ -67,10 +67,7 @@ impl ValidQueryRequest {
     /// - Account doesn't exist
     /// - Account doesn't have the correct public key
     /// - Account has incorrect permissions
-    pub fn validate(
-        query: VersionedSignedQuery,
-        wsv: &WorldStateView,
-    ) -> Result<Self, ValidationFail> {
+    pub fn validate(query: SignedQuery, wsv: &WorldStateView) -> Result<Self, ValidationFail> {
         let account_has_public_key = wsv
             .map_account(query.authority(), |account| {
                 account.signatories.contains(query.signature().public_key())
