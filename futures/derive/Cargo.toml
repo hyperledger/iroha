@@ -19,7 +19,9 @@ telemetry = []
 proc-macro = true
 
 [dependencies]
-syn = { workspace = true, features = ["default", "full"] }
+iroha_macro_utils = { workspace = true }
+
+syn2 = { workspace = true, features = ["default", "full"] }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
-proc-macro-error = { workspace = true }
+manyhow = { workspace = true }

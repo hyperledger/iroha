@@ -6,20 +6,21 @@
     clippy::std_instead_of_core
 )]
 
-use proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
-use proc_macro_error::{abort, proc_macro_error};
+use iroha_macro_utils::Emitter;
+use manyhow::{emit, manyhow};
+use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Generics, ItemFn, ReturnType, Signature};
+use syn2::{Generics, ItemFn, ReturnType, Signature};
 
 fn impl_telemetry_future(
+    emitter: &mut Emitter,
     ItemFn {
         attrs,
         vis,
         sig,
         block,
     }: ItemFn,
-) -> TokenStream2 {
+) -> TokenStream {
     let Signature {
         asyncness,
         ident,
@@ -34,8 +35,9 @@ fn impl_telemetry_future(
     } = sig;
 
     if asyncness.is_none() {
-        abort!(
-            asyncness,
+        emit!(
+            emitter,
+            ident,
             "Only async functions can be instrumented for `telemetry_future`"
         );
     }
@@ -57,14 +59,23 @@ fn impl_telemetry_future(
 }
 
 /// Macro for wrapping future for getting telemetry info about poll times and numbers
-#[proc_macro_error]
+#[manyhow]
 #[proc_macro_attribute]
-pub fn telemetry_future(_args: TokenStream, input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as ItemFn);
-    if cfg!(feature = "telemetry") {
-        impl_telemetry_future(input)
+pub fn telemetry_future(args: TokenStream, input: TokenStream) -> TokenStream {
+    let mut emitter = Emitter::new();
+
+    if !args.is_empty() {
+        emit!(emitter, args, "Unexpected arguments")
+    }
+
+    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+        return emitter.finish_token_stream();
+    };
+    let result = if cfg!(feature = "telemetry") {
+        impl_telemetry_future(&mut emitter, input)
     } else {
         quote! { #input }
-    }
-    .into()
+    };
+
+    emitter.finish_token_stream_with(result)
 }
