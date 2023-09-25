@@ -61,9 +61,6 @@ pub mod model {
         pub previous_block_hash: Option<HashOf<VersionedSignedBlock>>,
         /// Hash of merkle tree root of transactions' hashes.
         pub transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
-        /// Topology of the network at the time of block commit.
-        #[getset(skip)] // FIXME: Because ffi related issues
-        pub commit_topology: UniqueVec<peer::PeerId>,
         /// Value of view change index. Used to resolve soft forks.
         pub view_change_index: u64,
         /// Estimation of consensus duration (in milliseconds).
@@ -92,6 +89,9 @@ pub mod model {
     pub struct BlockPayload {
         /// Block header
         pub header: BlockHeader,
+        /// Topology of the network at the time of block commit.
+        #[getset(skip)] // FIXME: Because ffi related issues
+        pub commit_topology: UniqueVec<peer::PeerId>,
         /// array of transactions, which successfully passed validation and consensus step.
         #[getset(skip)] // FIXME: Because ffi related issues
         pub transactions: Vec<TransactionValue>,

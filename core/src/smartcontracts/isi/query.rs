@@ -293,7 +293,7 @@ mod tests {
 
         let topology = Topology::new(UniqueVec::new());
         let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
-            .chain_first(&mut wsv)
+            .chain(0, &mut wsv)
             .sign(ALICE_KEYS.clone())?
             .commit(&topology)
             .expect("Block is valid");
@@ -429,7 +429,7 @@ mod tests {
 
         let topology = Topology::new(UniqueVec::new());
         let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
-            .chain_first(&mut wsv)
+            .chain(0, &mut wsv)
             .sign(ALICE_KEYS.clone())?
             .commit(&topology)
             .expect("Block is valid");
