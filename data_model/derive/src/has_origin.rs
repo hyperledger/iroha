@@ -5,8 +5,9 @@
 )]
 
 use darling::{FromDeriveInput, FromVariant};
-use iroha_macro_utils::{attr_struct2, parse_single_list_attr, parse_single_list_attr_opt};
-use manyhow::Result;
+use iroha_macro_utils::{
+    attr_struct2, parse_single_list_attr, parse_single_list_attr_opt, Emitter,
+};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn2::{parse_quote, Ident, Token, Type};
@@ -19,6 +20,8 @@ const HAS_ORIGIN_ATTR: &str = "has_origin";
 
 pub struct HasOriginEnum {
     ident: Ident,
+    #[allow(unused)]
+    generics: syn2::Generics,
     variants: Vec<HasOriginVariant>,
     origin: Type,
 }
@@ -26,6 +29,7 @@ pub struct HasOriginEnum {
 impl FromDeriveInput for HasOriginEnum {
     fn from_derive_input(input: &syn2::DeriveInput) -> darling::Result<Self> {
         let ident = input.ident.clone();
+        let generics = input.generics.clone();
 
         let Some(variants) = darling::ast::Data::<HasOriginVariant, ()>::try_from(&input.data)?.take_enum() else {
             return Err(darling::Error::custom("Expected enum"));
@@ -35,6 +39,7 @@ impl FromDeriveInput for HasOriginEnum {
 
         Ok(Self {
             ident,
+            generics,
             variants,
             origin,
         })
@@ -71,12 +76,14 @@ attr_struct2! {
     }
 }
 
-pub fn impl_has_origin(input: &syn2::DeriveInput) -> Result<TokenStream> {
-    let enum_ = HasOriginEnum::from_derive_input(input)?;
+pub fn impl_has_origin(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream {
+    let Some(enum_) = emitter.handle(HasOriginEnum::from_derive_input(input)) else {
+        return quote!();
+    };
 
-    // TODO: verify enum is non-empty (or make it work with empty enums)
-    // TODO: verify all the enum variants are newtype variants
-    // TODO: verify there are no generics on the enum
+    if enum_.variants.is_empty() {
+        return quote!();
+    }
 
     let enum_ident = &enum_.ident;
     let enum_origin = &enum_.origin;
@@ -96,8 +103,10 @@ pub fn impl_has_origin(input: &syn2::DeriveInput) -> Result<TokenStream> {
         })
         .collect::<Vec<syn2::Arm>>();
 
-    Ok(quote! {
-        impl HasOrigin for #enum_ident {
+    let (impl_generics, ty_generics, where_clause) = enum_.generics.split_for_impl();
+
+    quote! {
+        impl #impl_generics HasOrigin for #enum_ident #ty_generics #where_clause {
             type Origin = #enum_origin;
 
             fn origin_id(&self) -> &<Self::Origin as Identifiable>::Id {
@@ -109,5 +118,5 @@ pub fn impl_has_origin(input: &syn2::DeriveInput) -> Result<TokenStream> {
                 }
             }
         }
-    })
+    }
 }
