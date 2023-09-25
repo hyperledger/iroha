@@ -3183,7 +3183,7 @@ dependencies = [
  "quote",
  "serde",
  "serde_json",
- "syn 2.0.26",
+ "syn 2.0.28",
  "trybuild",
 ]
 
@@ -3321,7 +3321,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
- "syn 2.0.26",
+ "syn 2.0.28",
 ]
 
 [[package]]
