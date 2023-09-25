@@ -435,9 +435,10 @@ pub mod isi {
 /// Asset-related query implementations.
 pub mod query {
     use eyre::{Result, WrapErr as _};
+    // TODO: figure out what to do here
     use iroha_data_model::{
         asset::{Asset, AssetDefinition},
-        query::{asset::IsAssetDefinitionOwner, error::QueryExecutionFail as Error, MetadataValue},
+        query::{asset::FindAssetDefinitionById, error::QueryExecutionFail as Error, MetadataValue},
     };
 
     use super::*;
@@ -714,20 +715,4 @@ pub mod query {
         }
     }
 
-    impl ValidQuery for IsAssetDefinitionOwner {
-        #[metrics("is_asset_definition_owner")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<bool, Error> {
-            let asset_definition_id = wsv
-                .evaluate(&self.asset_definition_id)
-                .wrap_err("Failed to get asset definition id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let account_id = wsv
-                .evaluate(&self.account_id)
-                .wrap_err("Failed to get account id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
-
-            let entry = wsv.asset_definition(&asset_definition_id)?;
-            Ok(entry.owned_by == account_id)
-        }
-    }
 }

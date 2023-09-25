@@ -105,6 +105,7 @@ pub mod asset_definition {
 
     use super::*;
 
+    // TODO: figure out what to do here
     fn is_asset_definition_owner(
         asset_definition_id: &AssetDefinitionId,
         authority: &AccountId,

@@ -106,7 +106,6 @@ pub trait Visit: ExpressionEvaluator {
         visit_find_trigger_by_id(&FindTriggerById),
         visit_find_trigger_key_value_by_id_and_key(&FindTriggerKeyValueByIdAndKey),
         visit_find_triggers_by_domain_id(&FindTriggersByDomainId),
-        visit_is_asset_definition_owner(&IsAssetDefinitionOwner),
 
         // Visit RegisterBox
         visit_register_peer(Register<Peer>),
@@ -240,7 +239,6 @@ pub fn visit_query<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, qu
         visit_find_trigger_by_id(FindTriggerById),
         visit_find_trigger_key_value_by_id_and_key(FindTriggerKeyValueByIdAndKey),
         visit_find_triggers_by_domain_id(FindTriggersByDomainId),
-        visit_is_asset_definition_owner(IsAssetDefinitionOwner),
     }
 }
 
@@ -753,5 +751,4 @@ leaf_visitors! {
     visit_find_trigger_by_id(&FindTriggerById),
     visit_find_trigger_key_value_by_id_and_key(&FindTriggerKeyValueByIdAndKey),
     visit_find_triggers_by_domain_id(&FindTriggersByDomainId),
-    visit_is_asset_definition_owner(&IsAssetDefinitionOwner),
 }

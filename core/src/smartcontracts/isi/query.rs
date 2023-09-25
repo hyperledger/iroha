@@ -130,7 +130,6 @@ impl ValidQuery for QueryBox {
                 FindAssetDefinitionById,
                 FindAssetQuantityById,
                 FindTotalAssetQuantityByAssetDefinitionId,
-                IsAssetDefinitionOwner,
                 FindDomainById,
                 FindBlockHeaderByHash,
                 FindTransactionByHash,

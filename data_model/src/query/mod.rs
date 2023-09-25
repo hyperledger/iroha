@@ -110,7 +110,6 @@ pub mod model {
         FindAssetsByDomainIdAndAssetDefinitionId(FindAssetsByDomainIdAndAssetDefinitionId),
         FindAssetQuantityById(FindAssetQuantityById),
         FindTotalAssetQuantityByAssetDefinitionId(FindTotalAssetQuantityByAssetDefinitionId),
-        IsAssetDefinitionOwner(IsAssetDefinitionOwner),
         FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
         FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey),
         FindAllDomains(FindAllDomains),
@@ -671,16 +670,6 @@ pub mod asset {
             pub key: EvaluatesTo<Name>,
         }
 
-        /// [`IsAssetDefinitionOwner`] Iroha Query checks if provided account is the asset definition owner.
-        #[derive(Display)]
-        #[display(fmt = "Check if `{account_id}` is creator of `{asset_definition_id}` asset")]
-        #[ffi_type]
-        pub struct IsAssetDefinitionOwner {
-            /// `Id` of an [`AssetDefinition`] to check.
-            pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
-            /// `Id` of a possible owner [`Account`].
-            pub account_id: EvaluatesTo<AccountId>,
-        }
     }
     impl Query for FindAllAssets {
         type Output = Vec<Asset>;
@@ -732,10 +721,6 @@ pub mod asset {
 
     impl Query for FindAssetDefinitionKeyValueByIdAndKey {
         type Output = MetadataValue;
-    }
-
-    impl Query for IsAssetDefinitionOwner {
-        type Output = bool;
     }
 
     impl FindAssetById {
@@ -836,19 +821,6 @@ pub mod asset {
         }
     }
 
-    impl IsAssetDefinitionOwner {
-        /// Construct [`IsAssetDefinitionOwner`].
-        pub fn new(
-            asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
-            account_id: impl Into<EvaluatesTo<AccountId>>,
-        ) -> Self {
-            Self {
-                asset_definition_id: asset_definition_id.into(),
-                account_id: account_id.into(),
-            }
-        }
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
@@ -856,7 +828,7 @@ pub mod asset {
             FindAssetDefinitionKeyValueByIdAndKey, FindAssetKeyValueByIdAndKey,
             FindAssetQuantityById, FindAssetsByAccountId, FindAssetsByAssetDefinitionId,
             FindAssetsByDomainId, FindAssetsByDomainIdAndAssetDefinitionId, FindAssetsByName,
-            FindTotalAssetQuantityByAssetDefinitionId, IsAssetDefinitionOwner,
+            FindTotalAssetQuantityByAssetDefinitionId,
         };
     }
 }
