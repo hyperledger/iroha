@@ -598,8 +598,14 @@ pub fn partially_tagged_deserialize_derive(input: TokenStream) -> Result<TokenSt
 /// ```
 #[manyhow]
 #[proc_macro_derive(HasOrigin, attributes(has_origin))]
-pub fn has_origin_derive(input: TokenStream) -> Result<TokenStream> {
-    let input = syn2::parse2(input)?;
+pub fn has_origin_derive(input: TokenStream) -> TokenStream {
+    let mut emitter = Emitter::new();
 
-    has_origin::impl_has_origin(&input)
+    let Some(input) = emitter.handle(syn2::parse2(input)) else {
+        return emitter.finish_token_stream()
+    };
+
+    let result = has_origin::impl_has_origin(&mut emitter, &input);
+
+    emitter.finish_token_stream_with(result)
 }
