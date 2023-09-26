@@ -502,19 +502,9 @@ pub mod query {
                 .evaluate(&self.id)
                 .wrap_err("Failed to evaluate account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let account_id_clone = account_id.clone();
             iroha_logger::trace!(%account_id, roles=?wsv.world.roles);
-            Ok(Box::new(
-                // TODO: more effective through `.range`
-                // Use the fact that `BTreeSet` is ordered
-                wsv.world
-                    .account_roles
-                    .iter()
-                    .skip_while(move |role| role.account_id.ne(&account_id))
-                    .take_while(move |role| role.account_id.eq(&account_id_clone))
-                    .map(|role| &role.role_id)
-                    .cloned(),
-            ))
+            wsv.account(&account_id)?;
+            Ok(Box::new(wsv.account_roles(&account_id).cloned()))
         }
     }
 

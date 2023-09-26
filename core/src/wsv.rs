@@ -36,6 +36,7 @@ use iroha_data_model::{
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallVec;
 use parking_lot::Mutex;
+use range_bounds::RoleIdByAccountBounds;
 use serde::{
     de::{DeserializeSeed, MapAccess, Visitor},
     Deserializer, Serialize,
@@ -419,6 +420,14 @@ impl WorldStateView {
         self.map_account(id, |account| account.assets.values())
     }
 
+    /// Get [`Account`]'s [`RoleId`]s
+    pub fn account_roles(&self, id: &AccountId) -> impl Iterator<Item = &RoleId> {
+        self.world
+            .account_roles
+            .range(RoleIdByAccountBounds::new(id))
+            .map(|role| &role.role_id)
+    }
+
     /// Return a set of all permission tokens granted to this account.
     ///
     /// # Errors
@@ -434,14 +443,8 @@ impl WorldStateView {
             .account_inherent_permission_tokens(account_id)
             .collect::<BTreeSet<_>>();
 
-        for role in self
-            .world
-            .account_roles
-            .iter()
-            .skip_while(|role| role.account_id.ne(account_id))
-            .take_while(|role| role.account_id.eq(account_id))
-        {
-            if let Some(role) = self.world.roles.get(&role.role_id) {
+        for role_id in self.account_roles(account_id) {
+            if let Some(role) = self.world.roles.get(role_id) {
                 tokens.extend(role.permissions.iter());
             }
         }
@@ -1261,6 +1264,70 @@ impl WorldStateView {
     }
 }
 
+/// Bounds for `range` queries
+mod range_bounds {
+    use core::ops::{Bound, RangeBounds};
+
+    use iroha_primitives::{cmpext::MinMaxExt, impl_as_dyn_key};
+
+    use super::*;
+    use crate::role::RoleIdWithOwner;
+
+    /// Key for range queries over account for roles
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+    pub struct RoleIdByAccount<'role> {
+        account_id: &'role AccountId,
+        role_id: MinMaxExt<&'role RoleId>,
+    }
+
+    /// Bounds for range quired over account for roles
+    pub struct RoleIdByAccountBounds<'role> {
+        start: RoleIdByAccount<'role>,
+        end: RoleIdByAccount<'role>,
+    }
+
+    impl<'role> RoleIdByAccountBounds<'role> {
+        /// Create range bounds for range quires of roles over account
+        pub fn new(account_id: &'role AccountId) -> Self {
+            Self {
+                start: RoleIdByAccount {
+                    account_id,
+                    role_id: MinMaxExt::Min,
+                },
+                end: RoleIdByAccount {
+                    account_id,
+                    role_id: MinMaxExt::Max,
+                },
+            }
+        }
+    }
+
+    impl<'role> RangeBounds<dyn AsRoleIdByAccount + 'role> for RoleIdByAccountBounds<'role> {
+        fn start_bound(&self) -> Bound<&(dyn AsRoleIdByAccount + 'role)> {
+            Bound::Excluded(&self.start)
+        }
+
+        fn end_bound(&self) -> Bound<&(dyn AsRoleIdByAccount + 'role)> {
+            Bound::Excluded(&self.end)
+        }
+    }
+
+    impl AsRoleIdByAccount for RoleIdWithOwner {
+        fn as_key(&self) -> RoleIdByAccount<'_> {
+            RoleIdByAccount {
+                account_id: &self.account_id,
+                role_id: (&self.role_id).into(),
+            }
+        }
+    }
+
+    impl_as_dyn_key! {
+        target: RoleIdWithOwner,
+        key: RoleIdByAccount<'_>,
+        trait: AsRoleIdByAccount
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::restriction)]
@@ -1268,7 +1335,7 @@ mod tests {
     use iroha_primitives::unique_vec::UniqueVec;
 
     use super::*;
-    use crate::{block::ValidBlock, sumeragi::network_topology::Topology};
+    use crate::{block::ValidBlock, role::RoleIdWithOwner, sumeragi::network_topology::Topology};
 
     #[test]
     fn get_block_hashes_after_hash() {
@@ -1323,5 +1390,27 @@ mod tests {
                 .collect::<Vec<_>>(),
             &[8, 9, 10]
         );
+    }
+
+    #[test]
+    fn role_account_range() {
+        let account_id: AccountId = "alice@wonderland".parse().unwrap();
+        let roles = [
+            RoleIdWithOwner::new(account_id.clone(), "1".parse().unwrap()),
+            RoleIdWithOwner::new(account_id.clone(), "2".parse().unwrap()),
+            RoleIdWithOwner::new("bob@wonderland".parse().unwrap(), "3".parse().unwrap()),
+            RoleIdWithOwner::new("a@wonderland".parse().unwrap(), "4".parse().unwrap()),
+            RoleIdWithOwner::new("0@0".parse().unwrap(), "5".parse().unwrap()),
+            RoleIdWithOwner::new("1@1".parse().unwrap(), "6".parse().unwrap()),
+        ];
+        let map = BTreeSet::from(roles);
+
+        let range = map
+            .range(RoleIdByAccountBounds::new(&account_id))
+            .collect::<Vec<_>>();
+        assert_eq!(range.len(), 2);
+        for role in range {
+            assert_eq!(&role.account_id, &account_id);
+        }
     }
 }
