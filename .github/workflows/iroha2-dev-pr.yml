@@ -141,40 +141,36 @@ jobs:
   client-cli-test:
     runs-on: ubuntu-latest
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: alexstrokelive/iroha2-ci:pytest-nightly-2023-06-25
     timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v2
-
-      - name: Setup Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: 3.x
-
-      - name: Set up Iroha 2 Client
+      - name: Build iroha_client_cli
+        working-directory: client_cli
         run: |
-          mkdir -p test_docker
-          cp ./configs/client/config.json test_docker/
-          echo '{"comment":{"String": "Hello Meta!"}}' > test_docker/metadata.json
-          cp ./target/debug/iroha_client_cli test_docker/
+          mold --run cargo build -p iroha_client_cli --release
 
-      - name: Install Poetry
+      - name: Mark binaries as executable
         run: |
-          curl -sSL https://install.python-poetry.org | python3 -
+          chmod +x $CLIENT_CLI_DIR/
+
+      - name: Copy Iroha 2 client config
+        run: |
+          cp ./configs/client/config.json $CLIENT_CLI_DIR/
 
       - name: Set up .env for client_cli
         run: |
-          echo "CLIENT_CLI_DIR=${{ github.workspace }}/test_docker/" >> client_cli/pytest/.env
-          echo "TORII_API_PORT_MIN=8080" >> client_cli/pytest/.env
-          echo "TORII_API_PORT_MAX=8083" >> client_cli/pytest/.env
+          echo "CLIENT_CLI_DIR=$CLIENT_CLI_DIR" >> ./client_cli/pytests/.env
+          echo "TORII_API_PORT_MIN=8080" >> ./client_cli/pytests/.env
+          echo "TORII_API_PORT_MAX=8083" >> ./client_cli/pytests/.env
 
       - name: Install dependencies using Poetry
         run: |
-          cd client_cli/pytest
+          cd client_cli/pytests
           poetry install
 
       - name: Run client cli tests
         run: |
-          cd client_cli/pytest
-          poetry run pytest -k "not xfail" --alluredir allure-results
+          cd client_cli/pytests
+          poetry run pytest --alluredir allure-results
