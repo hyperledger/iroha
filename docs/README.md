@@ -19,5 +19,4 @@ Documentation for Iroha 2 tools:
 
 The following is useful for development:
 - [Hot reload Iroha in a Docker container](./source/guides/hot-reload.md)
-- [Develop a new Iroha module](./source/guides/develop-iroha-module.md)
 - [Benchmark your code](../client/benches/tps/README.md)
