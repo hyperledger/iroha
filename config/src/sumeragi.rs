@@ -1,11 +1,12 @@
 //! `Sumeragi` configuration. Contains both block commit and Gossip-related configuration.
 #![allow(clippy::std_instead_of_core, clippy::arithmetic_side_effects)]
-use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, path::Path};
+use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
 use iroha_config_base::derive::{view, Documented, Proxy};
 use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
+use iroha_primitives::{unique_vec, unique_vec::UniqueVec};
 use serde::{Deserialize, Serialize};
 
 use self::default::*;
@@ -92,14 +93,14 @@ impl ConfigurationProxy {
     /// The [`peer_id`] field of [`Self`]
     /// has not been initialized prior to calling this method.
     pub fn insert_self_as_trusted_peers(&mut self) {
-        let mut peers = HashSet::new();
         #[allow(clippy::expect_used)]
         let peer_id = self
             .peer_id
             .clone()
             .expect("Insertion of `self` as `trusted_peers` implies that `peer_id` field should be initialized");
-        peers.insert(peer_id);
-        self.trusted_peers = Some(TrustedPeers { peers });
+        self.trusted_peers = Some(TrustedPeers {
+            peers: unique_vec![peer_id],
+        });
     }
 }
 
@@ -122,52 +123,8 @@ impl Configuration {
 pub struct TrustedPeers {
     /// Optional list of predefined trusted peers. Must contain unique
     /// entries. Custom deserializer raises error if duplicates found.
-    #[serde(deserialize_with = "deserialize_unique_trusted_peers")]
-    pub peers: HashSet<PeerId>,
-}
-
-/// Custom deserializer that ensures that `trusted_peers` only
-/// contains unique `PeerId`'s.
-///
-/// # Errors
-/// - Peer Ids not unique,
-/// - Not a sequence (array)
-fn deserialize_unique_trusted_peers<'de, D>(deserializer: D) -> Result<HashSet<PeerId>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    /// Helper, for constructing a unique visitor that errors whenever
-    /// a duplicate entry is found.
-    struct UniqueVisitor(core::marker::PhantomData<fn() -> HashSet<PeerId>>);
-
-    impl<'de> serde::de::Visitor<'de> for UniqueVisitor {
-        type Value = HashSet<PeerId>;
-
-        fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
-            formatter.write_str("a set of unique `Peer::Id`s.")
-        }
-
-        fn visit_seq<S>(self, mut seq: S) -> Result<HashSet<PeerId>, S::Error>
-        where
-            S: serde::de::SeqAccess<'de>,
-        {
-            let mut result = HashSet::new();
-            while let Some(value) = seq.next_element()? {
-                if result.contains(&value) {
-                    return Err(serde::de::Error::custom(format!(
-                        "The peer id: {}'s public key appears twice.",
-                        &value
-                    )));
-                }
-                result.insert(value);
-            }
-
-            Ok(result)
-        }
-    }
-
-    let visitor = UniqueVisitor(core::marker::PhantomData);
-    deserializer.deserialize_seq(visitor)
+    #[serde(deserialize_with = "UniqueVec::display_deserialize_failing_on_duplicates")]
+    pub peers: UniqueVec<PeerId>,
 }
 
 impl TrustedPeers {
@@ -181,11 +138,9 @@ impl TrustedPeers {
         let file = File::open(&path)
             .wrap_err_with(|| format!("Failed to open trusted peers file {:?}", &path))?;
         let reader = BufReader::new(file);
-        let trusted_peers: HashSet<PeerId> =
-            serde_json::from_reader(reader).wrap_err("Failed to deserialize json from reader")?;
-        Ok(TrustedPeers {
-            peers: trusted_peers,
-        })
+        serde_json::from_reader(reader)
+            .wrap_err("Failed to deserialize json from reader")
+            .map_err(Into::into)
     }
 }
 

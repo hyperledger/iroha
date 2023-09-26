@@ -674,7 +674,7 @@
       },
       {
         "name": "commit_topology",
-        "type": "Vec<PeerId>"
+        "type": "UniqueVec<PeerId>"
       },
       {
         "name": "view_change_index",
@@ -4513,6 +4513,7 @@
       }
     ]
   },
+  "UniqueVec<PeerId>": "Vec<PeerId>",
   "UnregisterBox": {
     "Struct": [
       {

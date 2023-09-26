@@ -2928,6 +2928,7 @@ dependencies = [
  "iroha_logger",
  "iroha_macro",
  "iroha_p2p",
+ "iroha_primitives",
  "iroha_schema_gen",
  "iroha_telemetry",
  "iroha_version",

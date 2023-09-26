@@ -13,6 +13,7 @@ use iroha_core::{
 };
 use iroha_crypto::KeyPair;
 use iroha_data_model::{prelude::*, transaction::TransactionLimits};
+use iroha_primitives::unique_vec::UniqueVec;
 use tokio::{fs, runtime::Runtime};
 
 async fn measure_block_size_for_n_validators(n_validators: u32) {
@@ -42,7 +43,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     let _thread_handle = iroha_core::kura::Kura::start(kura.clone());
 
     let mut wsv = WorldStateView::new(World::new(), kura);
-    let topology = Topology::new(Vec::new());
+    let topology = Topology::new(UniqueVec::new());
     let mut block = BlockBuilder::new(vec![tx], topology, Vec::new())
         .chain_first(&mut wsv)
         .sign(KeyPair::generate().unwrap())
