@@ -26,6 +26,10 @@ jobs:
       matrix:
         feature_flag: [all-features, no-default-features]
     steps:
+      - name: Maximize build space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
       - name: Run tests, with ${{ matrix.feature_flag }}
