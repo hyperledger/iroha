@@ -212,11 +212,19 @@ impl SumeragiHandle {
                 view_change_proofs: msg.view_change_proofs,
             }) {
                 self.metrics.dropped_messages.inc();
-                error!(?error, "This peer is faulty. Incoming control messages have to be dropped due to low processing speed.");
+                error!(
+                    ?error,
+                    "This peer is faulty. \
+                     Incoming control messages have to be dropped due to low processing speed."
+                );
             }
         } else if let Err(error) = self.message_sender.try_send(msg) {
             self.metrics.dropped_messages.inc();
-            error!(?error, "This peer is faulty. Incoming messages have to be dropped due to low processing speed.");
+            error!(
+                ?error,
+                "This peer is faulty. \
+                 Incoming messages have to be dropped due to low processing speed."
+            );
         }
     }
 
@@ -224,6 +232,7 @@ impl SumeragiHandle {
     ///
     /// # Panics
     /// May panic if something is of during initialization which is bug.
+    #[allow(clippy::too_many_lines)]
     pub fn start(
         SumeragiStartArgs {
             configuration,
@@ -241,8 +250,10 @@ impl SumeragiHandle {
 
         let skip_block_count = wsv.block_hashes.len();
         let mut blocks_iter = (skip_block_count + 1..=block_count).map(|block_height| {
-            kura.get_block_by_height(block_height as u64)
-                .expect("Sumeragi should be able to load the block that was reported as presented. If not, the block storage was probably disconnected.")
+            kura.get_block_by_height(block_height as u64).expect(
+                "Sumeragi should be able to load the block that was reported as presented. \
+                 If not, the block storage was probably disconnected.",
+            )
         });
 
         let current_topology = match wsv.height() {
@@ -251,7 +262,10 @@ impl SumeragiHandle {
                 Topology::new(configuration.trusted_peers.peers.clone())
             }
             height => {
-                let block_ref = kura.get_block_by_height(height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
+                let block_ref = kura.get_block_by_height(height).expect(
+                    "Sumeragi could not load block that was reported as present. \
+                     Please check that the block storage was not disconnected.",
+                );
                 let mut topology =
                     Topology::new(block_ref.payload().header.commit_topology.clone());
                 topology.rotate_set_a();
@@ -266,8 +280,10 @@ impl SumeragiHandle {
                 .expect("Kura blocks should be valid")
                 .commit(&current_topology)
                 .expect("Kura blocks should be valid");
-            wsv.apply_without_execution(&block)
-                .expect("Block application in init should not fail. Blocks loaded from kura assumed to be valid");
+            wsv.apply_without_execution(&block).expect(
+                "Block application in init should not fail. \
+                 Blocks loaded from kura assumed to be valid",
+            );
         }
 
         // finalized_wsv is one block behind
@@ -279,8 +295,10 @@ impl SumeragiHandle {
                     .expect("Kura blocks should be valid")
                     .commit(&current_topology)
                     .expect("Kura blocks should be valid");
-            wsv.apply_without_execution(&latest_block)
-                .expect("Block application in init should not fail. Blocks loaded from kura assumed to be valid");
+            wsv.apply_without_execution(&latest_block).expect(
+                "Block application in init should not fail. \
+                 Blocks loaded from kura assumed to be valid",
+            );
         }
 
         info!("Sumeragi has finished loading blocks and setting up the WSV");

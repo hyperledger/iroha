@@ -4,12 +4,7 @@
 use core::{fmt::Debug, str::FromStr as _, time::Duration};
 #[cfg(debug_assertions)]
 use std::sync::atomic::AtomicBool;
-use std::{
-    collections::{HashMap, HashSet},
-    path::Path,
-    sync::Arc,
-    thread,
-};
+use std::{collections::BTreeMap, path::Path, sync::Arc, thread};
 
 use eyre::Result;
 use futures::{prelude::*, stream::FuturesUnordered};
@@ -28,7 +23,11 @@ use iroha_data_model::{
 };
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
-use iroha_primitives::addr::{socket_addr, SocketAddr};
+use iroha_primitives::{
+    addr::{socket_addr, SocketAddr},
+    unique_vec,
+    unique_vec::UniqueVec,
+};
 use rand::seq::IteratorRandom;
 use serde_json::json;
 use tempfile::TempDir;
@@ -47,7 +46,9 @@ pub struct Network {
     /// Genesis peer which sends genesis block to everyone
     pub genesis: Peer,
     /// Peers excluding the `genesis` peer. Use [`Network::peers`] function to get all instead.
-    pub peers: HashMap<PeerId, Peer>,
+    ///
+    /// [`BTreeMap`] is used in order to have deterministic order of peers.
+    pub peers: BTreeMap<PeerId, Peer>,
 }
 
 /// Get a standardised key-pair from the hard-coded literals.
@@ -205,7 +206,8 @@ impl Network {
             Client::test(&self.genesis.api_address, &self.genesis.telemetry_address);
 
         let mut config = Configuration::test();
-        config.sumeragi.trusted_peers.peers = self.peers().map(|peer| &peer.id).cloned().collect();
+        config.sumeragi.trusted_peers.peers =
+            UniqueVec::from_iter(self.peers().map(|peer| &peer.id).cloned());
 
         let peer = PeerBuilder::new()
             .with_configuration(config)
@@ -264,7 +266,7 @@ impl Network {
 
         let mut configuration = default_configuration.unwrap_or_else(Configuration::test);
         configuration.sumeragi.trusted_peers.peers =
-            peers.iter().map(|peer| peer.id.clone()).collect();
+            UniqueVec::from_iter(peers.iter().map(|peer| peer.id.clone()));
 
         let mut genesis_peer = peers.remove(0);
         let genesis_builder = builders.remove(0).with_configuration(configuration.clone());
@@ -296,7 +298,7 @@ impl Network {
             peers: peers
                 .into_iter()
                 .map(|peer| (peer.id.clone(), peer))
-                .collect::<HashMap<_, _>>(),
+                .collect::<BTreeMap<_, _>>(),
         })
     }
 
@@ -609,7 +611,7 @@ impl PeerBuilder {
     pub async fn start_with_peer(self, peer: &mut Peer) {
         let configuration = self.configuration.unwrap_or_else(|| {
             let mut config = Configuration::test();
-            config.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
+            config.sumeragi.trusted_peers.peers = unique_vec![peer.id.clone()];
             config
         });
         let genesis = match self.genesis {
@@ -779,7 +781,7 @@ impl TestRuntime for Runtime {
 impl TestConfiguration for Configuration {
     fn test() -> Self {
         let mut sample_proxy =
-            iroha::samples::get_config_proxy(HashSet::new(), Some(get_key_pair()));
+            iroha::samples::get_config_proxy(UniqueVec::new(), Some(get_key_pair()));
         let env_proxy =
             ConfigurationProxy::from_std_env().expect("Test env variables should parse properly");
         let (public_key, private_key) = KeyPair::generate().unwrap().into();

@@ -50,14 +50,14 @@ class Network:
             peer_entry = {"address": f"{peer.host_ip}:{peer.p2p_port}", "public_key": peer.public_key}
             self.trusted_peers.append(json.dumps(peer_entry))
         os.environ["SUMERAGI_TRUSTED_PEERS"] = f"[{','.join(self.trusted_peers)}]"
-    
+
     def wait_for_genesis(self, n_tries: int):
         for i in range(n_tries):
             logging.info(f"Waiting for genesis block to be created... Attempt {i+1}/{n_tries}")
             try:
                 with urllib.request.urlopen(f"http://{self.peers[0].host_ip}:{self.peers[0].telemetry_port}/status/blocks") as response:
                     block_count = int(response.read())
-                    if block_count > 1:
+                    if block_count >= 1:
                         logging.info(f"Genesis block created. Block count: {block_count}")
                         return
                     else:
@@ -107,7 +107,7 @@ class _Peer:
         self.private_key = json.dumps(json_keypair['private_key'])
 
         logging.info(f"Peer {self.name} initialized")
-        
+
     def run(self, is_genesis: bool = False):
         logging.info(f"Running peer {self.name}...")
         peer_dir = self.out_dir.joinpath(f"peers/{self.name}")
@@ -162,7 +162,7 @@ def copy_or_prompt_build_bin(bin_name: str, root_dir: pathlib.Path, target_dir: 
 def main(args):
     # Bold ASCII escape sequence
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
-        style="{", 
+        style="{",
         format="{asctime} {levelname} \033[1m{funcName}:{lineno}\033[0m: {message}",)
     # ISO 8601 timestamps without timezone
     logging.Formatter.formatTime = (lambda self, record, datefmt=None:

@@ -25,7 +25,9 @@ use ursa::{
     },
 };
 
-use crate::{ffi, Error, PublicKey};
+#[cfg(any(feature = "std", feature = "import_ffi"))]
+use crate::Error;
+use crate::{ffi, PublicKey};
 #[cfg(feature = "std")]
 use crate::{HashOf, KeyPair};
 
