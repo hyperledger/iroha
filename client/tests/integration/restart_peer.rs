@@ -5,6 +5,7 @@ use std::{str::FromStr, sync::Arc};
 use eyre::Result;
 use iroha_client::client::{self, QueryResult};
 use iroha_data_model::prelude::*;
+use iroha_primitives::unique_vec;
 use tempfile::TempDir;
 use test_network::*;
 use tokio::runtime::Runtime;
@@ -17,7 +18,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
 
     let mut configuration = Configuration::test();
     let mut peer = <PeerBuilder>::new().with_port(10_000).build()?;
-    configuration.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
+    configuration.sumeragi.trusted_peers.peers = unique_vec![peer.id.clone()];
 
     let account_id = AccountId::from_str("alice@wonderland").unwrap();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").unwrap();

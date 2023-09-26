@@ -9,6 +9,7 @@ use iroha_config::{
 };
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{peer::PeerId, prelude::*};
+use iroha_primitives::unique_vec::UniqueVec;
 
 /// Get sample trusted peers. The public key must be the same as `configuration.public_key`
 ///
@@ -52,7 +53,7 @@ pub fn get_trusted_peers(public_key: Option<&PublicKey>) -> HashSet<PeerId> {
 ///
 /// # Panics
 /// - when [`KeyPair`] generation fails (rare case).
-pub fn get_config_proxy(peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> ConfigurationProxy {
+pub fn get_config_proxy(peers: UniqueVec<PeerId>, key_pair: Option<KeyPair>) -> ConfigurationProxy {
     let (public_key, private_key) = key_pair
         .unwrap_or_else(|| KeyPair::generate().expect("Key pair generation failed"))
         .into();
@@ -94,7 +95,7 @@ pub fn get_config_proxy(peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> Co
 ///
 /// # Panics
 /// - when [`KeyPair`] generation fails (rare case).
-pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> Configuration {
+pub fn get_config(trusted_peers: UniqueVec<PeerId>, key_pair: Option<KeyPair>) -> Configuration {
     get_config_proxy(trusted_peers, key_pair)
         .build()
         .expect("Iroha config should build as all required fields were provided")
