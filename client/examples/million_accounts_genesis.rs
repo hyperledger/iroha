@@ -5,6 +5,7 @@ use std::{thread, time::Duration};
 use iroha::samples::{construct_validator, get_config};
 use iroha_data_model::prelude::*;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
+use iroha_primitives::unique_vec;
 use test_network::{
     get_key_pair, wait_for_genesis_committed, Peer as TestPeer, PeerBuilder, TestRuntime,
 };
@@ -37,10 +38,7 @@ fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
 
 fn main_genesis() {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
-    let configuration = get_config(
-        std::iter::once(peer.id.clone()).collect(),
-        Some(get_key_pair()),
-    );
+    let configuration = get_config(unique_vec![peer.id.clone()], Some(get_key_pair()));
     let rt = Runtime::test();
     let genesis = GenesisNetwork::from_configuration(
         generate_genesis(1_000_000_u32),

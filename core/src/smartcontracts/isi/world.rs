@@ -33,7 +33,7 @@ pub mod isi {
             let peer_id = self.object.id;
 
             let world = wsv.world_mut();
-            if !world.trusted_peers_ids.insert(peer_id.clone()) {
+            if !world.trusted_peers_ids.push(peer_id.clone()) {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
                     id: IdBox::PeerId(peer_id),
@@ -52,9 +52,11 @@ pub mod isi {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let peer_id = self.object_id;
             let world = wsv.world_mut();
-            if !world.trusted_peers_ids.remove(&peer_id) {
+            let Some(index) = world.trusted_peers_ids.iter().position(|id| id == &peer_id) else {
                 return Err(FindError::Peer(peer_id).into());
-            }
+            };
+
+            world.trusted_peers_ids.remove(index);
 
             wsv.emit_events(Some(PeerEvent::Removed(peer_id)));
 

@@ -22,14 +22,11 @@ use iroha_data_model::{
     transaction::{error::TransactionRejectionReason, prelude::*},
 };
 use iroha_genesis::GenesisTransaction;
+use iroha_primitives::unique_vec::UniqueVec;
 use thiserror::Error;
 
 pub use self::{chained::Chained, commit::CommittedBlock, valid::ValidBlock};
-use crate::{
-    prelude::*,
-    sumeragi::network_topology::{SignatureVerificationError, Topology},
-    tx::AcceptTransactionFail,
-};
+use crate::{prelude::*, sumeragi::network_topology::Topology, tx::AcceptTransactionFail};
 
 /// Error during transaction validation
 #[derive(Debug, displaydoc::Display, Error)]
@@ -68,14 +65,34 @@ pub enum BlockValidationError {
     /// Mismatch between the actual and expected topology. Expected: {expected:?}, actual: {actual:?}
     TopologyMismatch {
         /// Expected value
-        expected: Vec<PeerId>,
+        expected: UniqueVec<PeerId>,
         /// Actual value
-        actual: Vec<PeerId>,
+        actual: UniqueVec<PeerId>,
     },
     /// Error during block signatures check
     SignatureVerification(#[from] SignatureVerificationError),
     /// Received view change index is too large
     ViewChangeIndexTooLarge,
+}
+
+/// Error during signature verification
+#[derive(thiserror::Error, displaydoc::Display, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureVerificationError {
+    /// The block doesn't have enough valid signatures to be committed ({votes_count} out of {min_votes_for_commit})
+    NotEnoughSignatures {
+        /// Current number of signatures
+        votes_count: usize,
+        /// Minimal required number of signatures
+        min_votes_for_commit: usize,
+    },
+    /// The block doesn't contain an expected signature. Expected signature can be leader or the current peer
+    SignatureMissing,
+    /// Found signature that does not correspond to block payload
+    UnknownSignature,
+    /// The block doesn't have proxy tail signature
+    ProxyTailMissing,
+    /// The block doesn't have leader signature
+    LeaderMissing,
 }
 
 /// Builder for blocks
@@ -434,39 +451,9 @@ mod valid {
             self,
             topology: &Topology,
         ) -> Result<CommittedBlock, (Self, BlockValidationError)> {
-            // TODO: Should the peer that serves genesis have a fixed role of ProxyTail in topology?
-            if !self.payload().header.is_genesis()
-                && topology.is_consensus_required().is_some()
-                && topology
-                    .filter_signatures_by_roles(&[Role::ProxyTail], self.signatures())
-                    .is_empty()
-            {
-                return Err((self, SignatureVerificationError::ProxyTailMissing.into()));
-            }
-
-            #[allow(clippy::collapsible_else_if)]
-            if self.payload().header.is_genesis() {
-                // At genesis round we blindly take on the network topology from the genesis block.
-            } else {
-                let roles = [
-                    Role::ValidatingPeer,
-                    Role::Leader,
-                    Role::ProxyTail,
-                    Role::ObservingPeer,
-                ];
-
-                let votes_count = topology
-                    .filter_signatures_by_roles(&roles, self.signatures())
-                    .len();
-                if votes_count.lt(&topology.min_votes_for_commit()) {
-                    return Err((
-                        self,
-                        SignatureVerificationError::NotEnoughSignatures {
-                            votes_count,
-                            min_votes_for_commit: topology.min_votes_for_commit(),
-                        }
-                        .into(),
-                    ));
+            if !self.payload().header.is_genesis() {
+                if let Err(err) = self.verify_signatures(topology) {
+                    return Err((self, err.into()));
                 }
             }
 
@@ -500,11 +487,11 @@ mod valid {
                 header: BlockHeader {
                     timestamp_ms: 0,
                     consensus_estimation_ms: DEFAULT_CONSENSUS_ESTIMATION_MS,
-                    height: 1,
+                    height: 2,
                     view_change_index: 0,
                     previous_block_hash: None,
                     transactions_hash: None,
-                    commit_topology: Vec::new(),
+                    commit_topology: UniqueVec::new(),
                 },
                 transactions: Vec::new(),
                 event_recommendations: Vec::new(),
@@ -512,11 +499,167 @@ mod valid {
             .sign(KeyPair::generate().unwrap())
             .unwrap()
         }
+
+        /// Check if block's signatures meet requirements for given topology.
+        ///
+        /// In order for block to be considered valid there should be at least $2f + 1$ signatures (including proxy tail and leader signature) where f is maximum number of faulty nodes.
+        /// For further information please refer to the [whitepaper](docs/source/iroha_2_whitepaper.md) section 2.8 consensus.
+        ///
+        /// # Errors
+        /// - Not enough signatures
+        /// - Missing proxy tail signature
+        fn verify_signatures(&self, topology: &Topology) -> Result<(), SignatureVerificationError> {
+            // TODO: Should the peer that serves genesis have a fixed role of ProxyTail in topology?
+            if !self.payload().header.is_genesis()
+                && topology.is_consensus_required().is_some()
+                && topology
+                    .filter_signatures_by_roles(&[Role::ProxyTail], self.signatures())
+                    .is_empty()
+            {
+                return Err(SignatureVerificationError::ProxyTailMissing);
+            }
+
+            #[allow(clippy::collapsible_else_if)]
+            if self.payload().header.is_genesis() {
+                // At genesis round we blindly take on the network topology from the genesis block.
+            } else {
+                let roles = [
+                    Role::ValidatingPeer,
+                    Role::Leader,
+                    Role::ProxyTail,
+                    Role::ObservingPeer,
+                ];
+
+                let votes_count = topology
+                    .filter_signatures_by_roles(&roles, self.signatures())
+                    .len();
+                if votes_count < topology.min_votes_for_commit() {
+                    return Err(SignatureVerificationError::NotEnoughSignatures {
+                        votes_count,
+                        min_votes_for_commit: topology.min_votes_for_commit(),
+                    });
+                }
+            }
+
+            Ok(())
+        }
     }
 
     impl From<ValidBlock> for VersionedSignedBlock {
         fn from(source: ValidBlock) -> Self {
             source.0
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::sumeragi::network_topology::test_peers;
+
+        #[test]
+        fn signature_verification_ok() {
+            let key_pairs = core::iter::repeat_with(|| {
+                KeyPair::generate().expect("Failed to generate key pair")
+            })
+            .take(7)
+            .collect::<Vec<_>>();
+            let mut key_pairs_iter = key_pairs.iter();
+            let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
+            let topology = Topology::new(peers);
+
+            let mut block = ValidBlock::new_dummy();
+            let payload = block.payload().clone();
+            key_pairs
+                .iter()
+                .map(|key_pair| {
+                    SignatureOf::new(key_pair.clone(), &payload).expect("Failed to sign")
+                })
+                .try_for_each(|signature| block.add_signature(signature))
+                .expect("Failed to add signatures");
+
+            assert_eq!(block.verify_signatures(&topology), Ok(()));
+        }
+
+        #[test]
+        fn signature_verification_consensus_not_required_ok() {
+            let key_pairs = core::iter::repeat_with(|| {
+                KeyPair::generate().expect("Failed to generate key pair")
+            })
+            .take(1)
+            .collect::<Vec<_>>();
+            let mut key_pairs_iter = key_pairs.iter();
+            let peers = test_peers![0,: key_pairs_iter];
+            let topology = Topology::new(peers);
+
+            let mut block = ValidBlock::new_dummy();
+            let payload = block.payload().clone();
+            key_pairs
+                .iter()
+                .enumerate()
+                .map(|(_, key_pair)| {
+                    SignatureOf::new(key_pair.clone(), &payload).expect("Failed to sign")
+                })
+                .try_for_each(|signature| block.add_signature(signature))
+                .expect("Failed to add signatures");
+
+            assert_eq!(block.verify_signatures(&topology), Ok(()));
+        }
+
+        /// Check requirement of having at least $2f + 1$ signatures in $3f + 1$ network
+        #[test]
+        fn signature_verification_not_enough_signatures() {
+            let key_pairs = core::iter::repeat_with(|| {
+                KeyPair::generate().expect("Failed to generate key pair")
+            })
+            .take(7)
+            .collect::<Vec<_>>();
+            let mut key_pairs_iter = key_pairs.iter();
+            let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
+            let topology = Topology::new(peers);
+
+            let mut block = ValidBlock::new_dummy();
+            let payload = block.payload().clone();
+            let proxy_tail_signature =
+                SignatureOf::new(key_pairs[4].clone(), &payload).expect("Failed to sign");
+            block
+                .add_signature(proxy_tail_signature)
+                .expect("Failed to add signature");
+
+            assert_eq!(
+                block.verify_signatures(&topology),
+                Err(SignatureVerificationError::NotEnoughSignatures {
+                    votes_count: 1,
+                    min_votes_for_commit: topology.min_votes_for_commit(),
+                })
+            )
+        }
+
+        /// Check requirement of having leader signature
+        #[test]
+        fn signature_verification_miss_proxy_tail_signature() {
+            let key_pairs = core::iter::repeat_with(|| {
+                KeyPair::generate().expect("Failed to generate key pair")
+            })
+            .take(7)
+            .collect::<Vec<_>>();
+            let mut key_pairs_iter = key_pairs.iter();
+            let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
+            let topology = Topology::new(peers);
+
+            let mut block = ValidBlock::new_dummy();
+            let payload = block.payload().clone();
+            key_pairs
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != 4) // Skip proxy tail
+                .map(|(_, key_pair)| SignatureOf::new(key_pair.clone(), &payload).expect("Failed to sign"))
+                .try_for_each(|signature| block.add_signature(signature))
+                .expect("Failed to add signatures");
+
+            assert_eq!(
+                block.verify_signatures(&topology),
+                Err(SignatureVerificationError::ProxyTailMissing)
+            )
         }
     }
 }
@@ -596,7 +739,7 @@ mod tests {
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
         let valid_block = ValidBlock::new_dummy();
-        let topology = Topology::new(Vec::new());
+        let topology = Topology::new(UniqueVec::new());
         let committed_block = valid_block.clone().commit(&topology).unwrap();
 
         assert_eq!(
@@ -615,7 +758,7 @@ mod tests {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let mut domain = Domain::new(domain_id).build(&alice_id);
         assert!(domain.add_account(account).is_none());
-        let world = World::with([domain], Vec::new());
+        let world = World::with([domain], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = WorldStateView::new(world, kura);
 
@@ -634,7 +777,7 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx.clone(), tx];
-        let topology = Topology::new(Vec::new());
+        let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
             .chain_first(&mut wsv)
             .sign(alice_keys)
@@ -657,7 +800,7 @@ mod tests {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let mut domain = Domain::new(domain_id).build(&alice_id);
         assert!(domain.add_account(account).is_none());
-        let world = World::with([domain], Vec::new());
+        let world = World::with([domain], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = WorldStateView::new(world, kura);
 
@@ -701,7 +844,7 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx0, tx, tx2];
-        let topology = Topology::new(Vec::new());
+        let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
             .chain_first(&mut wsv)
             .sign(alice_keys)
@@ -727,7 +870,7 @@ mod tests {
             domain.add_account(account).is_none(),
             "`alice@wonderland` already exist in the blockchain"
         );
-        let world = World::with([domain], Vec::new());
+        let world = World::with([domain], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = WorldStateView::new(world, kura);
         let transaction_limits = &wsv.transaction_validator().transaction_limits;
@@ -754,7 +897,7 @@ mod tests {
 
         // Creating a block of where first transaction must fail and second one fully executed
         let transactions = vec![tx_fail, tx_accept];
-        let topology = Topology::new(Vec::new());
+        let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
             .chain_first(&mut wsv)
             .sign(alice_keys)

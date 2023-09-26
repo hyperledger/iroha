@@ -248,16 +248,14 @@ impl World {
     }
 
     /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
-    pub fn with<D, P>(domains: D, trusted_peers_ids: P) -> Self
+    pub fn with<D>(domains: D, trusted_peers_ids: PeersIds) -> Self
     where
         D: IntoIterator<Item = Domain>,
-        P: IntoIterator<Item = PeerId>,
     {
         let domains = domains
             .into_iter()
             .map(|domain| (domain.id().clone(), domain))
             .collect();
-        let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
         World {
             domains,
             trusted_peers_ids,
@@ -1251,6 +1249,8 @@ impl WorldStateView {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use iroha_primitives::unique_vec::UniqueVec;
+
     use super::*;
     use crate::{block::ValidBlock, sumeragi::network_topology::Topology};
 
@@ -1258,7 +1258,7 @@ mod tests {
     fn get_block_hashes_after_hash() {
         const BLOCK_CNT: usize = 10;
 
-        let topology = Topology::new(Vec::new());
+        let topology = Topology::new(UniqueVec::new());
         let block = ValidBlock::new_dummy().commit(&topology).unwrap();
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = WorldStateView::new(World::default(), kura);
@@ -1285,7 +1285,7 @@ mod tests {
     fn get_blocks_from_height() {
         const BLOCK_CNT: usize = 10;
 
-        let topology = Topology::new(Vec::new());
+        let topology = Topology::new(UniqueVec::new());
         let block = ValidBlock::new_dummy().commit(&topology).unwrap();
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = WorldStateView::new(World::default(), kura.clone());

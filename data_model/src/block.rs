@@ -10,9 +10,12 @@ use core::{fmt::Display, time::Duration};
 
 use derive_more::Display;
 use getset::Getters;
-use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignaturesOf};
+#[cfg(all(feature = "std", feature = "transparent_api"))]
+use iroha_crypto::KeyPair;
+use iroha_crypto::{HashOf, MerkleTree, SignaturesOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
+use iroha_primitives::unique_vec::UniqueVec;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
@@ -60,7 +63,7 @@ pub mod model {
         pub transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
         /// Topology of the network at the time of block commit.
         #[getset(skip)] // FIXME: Because ffi related issues
-        pub commit_topology: Vec<peer::PeerId>,
+        pub commit_topology: UniqueVec<peer::PeerId>,
         /// Value of view change index. Used to resolve soft forks.
         pub view_change_index: u64,
         /// Estimation of consensus duration (in milliseconds).
