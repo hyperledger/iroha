@@ -141,7 +141,7 @@ Generally it looks like this:
 ./iroha_client_cli ENTITY list filter PREDICATE
 ```
 
-Where ENTITY is asset, account or domain and PREDICATE is condition used for filtering serialized using JSON (check `ValuePredicate` and `GenericPredicateBox` in [schema](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/schema.json) for reference).
+Where ENTITY is asset, account or domain and PREDICATE is condition used for filtering serialized using JSON5 (check `iroha_data_model::predicate::value::ValuePredicate` type).
 
 Examples:
 
