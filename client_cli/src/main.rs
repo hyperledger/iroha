@@ -283,14 +283,13 @@ mod filter {
     /// Filter for queries
     #[derive(Clone, Debug, clap::Parser)]
     pub struct Filter {
-        /// Predicate for filtering given as JSON string
+        /// Predicate for filtering given as JSON5 string
         #[clap(value_parser = parse_filter)]
         pub predicate: PredicateBox,
     }
 
     fn parse_filter(s: &str) -> Result<PredicateBox, String> {
-        serde_json::from_str(s)
-            .map_err(|err| format!("Failed to deserialize filter from JSON: {err}"))
+        json5::from_str(s).map_err(|err| format!("Failed to deserialize filter from JSON5: {err}"))
     }
 }
 
