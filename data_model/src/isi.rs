@@ -178,7 +178,7 @@ mod transparent {
 
     /// Generic instruction for an unregistration of an object from the identifiable destination.
     #[derive(Debug, Clone)]
-    pub struct Unregister<O: Registered> {
+    pub struct Unregister<O: Identifiable> {
         /// [`Identifiable::Id`] of the object which should be unregistered.
         pub object_id: O::Id,
     }
@@ -214,7 +214,7 @@ mod transparent {
 
     /// Generic instruction for granting permission to an entity.
     #[derive(Debug, Clone)]
-    pub struct Grant<D: Registered, O: Into<Value>> {
+    pub struct Grant<D: Identifiable, O: Into<Value>> {
         /// Object to grant.
         pub object: O,
         /// Entity to which to grant this token.
@@ -223,7 +223,7 @@ mod transparent {
 
     /// Generic instruction for revoking permission from an entity.
     #[derive(Debug, Clone)]
-    pub struct Revoke<D: Registered, O: Into<Value>> {
+    pub struct Revoke<D: Identifiable, O: Into<Value>> {
         /// Object to revoke.
         pub object: O,
         /// Entity which is being revoked this token from.
@@ -285,7 +285,7 @@ mod transparent {
         }
     }
 
-    impl<O: Registered> From<Unregister<O>> for UnregisterBox {
+    impl<O: Identifiable> From<Unregister<O>> for UnregisterBox {
         fn from(source: Unregister<O>) -> Self {
             Self::new(source.object_id.into())
         }
@@ -313,13 +313,13 @@ mod transparent {
         }
     }
 
-    impl<D: Registered, O: Into<Value>> From<Grant<D, O>> for GrantBox {
+    impl<D: Identifiable, O: Into<Value>> From<Grant<D, O>> for GrantBox {
         fn from(source: Grant<D, O>) -> Self {
             Self::new(source.object, source.destination_id.into())
         }
     }
 
-    impl<D: Registered, O: Into<Value>> From<Revoke<D, O>> for RevokeBox {
+    impl<D: Identifiable, O: Into<Value>> From<Revoke<D, O>> for RevokeBox {
         fn from(source: Revoke<D, O>) -> Self {
             Self::new(source.object, source.destination_id.into())
         }
