@@ -110,13 +110,11 @@ mod pending {
     /// the previous round, which might then be processed by the trigger system.
     #[derive(Debug, Clone)]
     pub struct Pending {
-        /// Unix timestamp
-        timestamp_ms: u64,
+        /// The topology at the time of block commit.
+        commit_topology: Topology,
         /// Collection of transactions which have been accepted.
         /// Transaction will be validated when block is chained.
         transactions: Vec<AcceptedTransaction>,
-        /// The topology at the time of block commit.
-        commit_topology: Topology,
         /// Event recommendations for use in triggers and off-chain work
         event_recommendations: Vec<Event>,
     }
@@ -136,10 +134,6 @@ mod pending {
             assert!(!transactions.is_empty(), "Empty block created");
 
             Self(Pending {
-                timestamp_ms: iroha_data_model::current_time()
-                    .as_millis()
-                    .try_into()
-                    .expect("Time should fit into u64"),
                 transactions,
                 commit_topology,
                 event_recommendations,
@@ -147,15 +141,16 @@ mod pending {
         }
 
         fn make_header(
-            timestamp_ms: u64,
             previous_height: u64,
             previous_block_hash: Option<HashOf<VersionedSignedBlock>>,
             view_change_index: u64,
             transactions: &[TransactionValue],
-            commit_topology: Topology,
         ) -> BlockHeader {
             BlockHeader {
-                timestamp_ms,
+                timestamp_ms: iroha_data_model::current_time()
+                    .as_millis()
+                    .try_into()
+                    .expect("Time should fit into u64"),
                 consensus_estimation_ms: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: previous_height + 1,
                 view_change_index,
@@ -165,7 +160,6 @@ mod pending {
                     .map(TransactionValue::hash)
                     .collect::<MerkleTree<_>>()
                     .hash(),
-                commit_topology: commit_topology.ordered_peers,
             }
         }
 
@@ -196,6 +190,8 @@ mod pending {
         }
 
         /// Chain the block with existing blockchain.
+        ///
+        /// Upon executing this method current timestamp is stored in the block header.
         pub fn chain(
             self,
             view_change_index: u64,
@@ -205,32 +201,13 @@ mod pending {
 
             BlockBuilder(Chained(BlockPayload {
                 header: Self::make_header(
-                    self.0.timestamp_ms,
                     wsv.height(),
                     wsv.latest_block_hash(),
                     view_change_index,
                     &transactions,
-                    self.0.commit_topology,
                 ),
                 transactions,
-                event_recommendations: self.0.event_recommendations,
-            }))
-        }
-
-        /// Create a new blockchain with current block as the first block.
-        pub fn chain_first(self, wsv: &mut WorldStateView) -> BlockBuilder<Chained> {
-            let transactions = Self::categorize_transactions(self.0.transactions, wsv);
-
-            BlockBuilder(Chained(BlockPayload {
-                header: Self::make_header(
-                    self.0.timestamp_ms,
-                    0,
-                    None,
-                    0,
-                    &transactions,
-                    self.0.commit_topology,
-                ),
-                transactions,
+                commit_topology: self.0.commit_topology.ordered_peers,
                 event_recommendations: self.0.event_recommendations,
             }))
         }
@@ -297,7 +274,7 @@ mod valid {
             topology: &Topology,
             wsv: &mut WorldStateView,
         ) -> Result<ValidBlock, (VersionedSignedBlock, BlockValidationError)> {
-            let actual_commit_topology = &block.payload().header.commit_topology;
+            let actual_commit_topology = &block.payload().commit_topology;
             let expected_commit_topology = &topology.ordered_peers;
 
             if actual_commit_topology != expected_commit_topology {
@@ -491,9 +468,9 @@ mod valid {
                     view_change_index: 0,
                     previous_block_hash: None,
                     transactions_hash: None,
-                    commit_topology: UniqueVec::new(),
                 },
                 transactions: Vec::new(),
+                commit_topology: UniqueVec::new(),
                 event_recommendations: Vec::new(),
             }))
             .sign(KeyPair::generate().unwrap())
@@ -779,7 +756,7 @@ mod tests {
         let transactions = vec![tx.clone(), tx];
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
-            .chain_first(&mut wsv)
+            .chain(0, &mut wsv)
             .sign(alice_keys)
             .expect("Valid");
 
@@ -846,7 +823,7 @@ mod tests {
         let transactions = vec![tx0, tx, tx2];
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
-            .chain_first(&mut wsv)
+            .chain(0, &mut wsv)
             .sign(alice_keys)
             .expect("Valid");
 
@@ -899,7 +876,7 @@ mod tests {
         let transactions = vec![tx_fail, tx_accept];
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
-            .chain_first(&mut wsv)
+            .chain(0, &mut wsv)
             .sign(alice_keys)
             .expect("Valid");
 
