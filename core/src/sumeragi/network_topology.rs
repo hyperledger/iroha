@@ -192,7 +192,7 @@ impl Topology {
         view_change_index: u64,
         new_peers: UniqueVec<PeerId>,
     ) -> Self {
-        let mut topology = Topology::new(block.payload().header().commit_topology.clone());
+        let mut topology = Topology::new(block.payload().commit_topology.clone());
         let block_signees = block
             .signatures()
             .into_iter()

@@ -45,7 +45,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     let mut wsv = WorldStateView::new(World::new(), kura);
     let topology = Topology::new(UniqueVec::new());
     let mut block = BlockBuilder::new(vec![tx], topology, Vec::new())
-        .chain_first(&mut wsv)
+        .chain(0, &mut wsv)
         .sign(KeyPair::generate().unwrap())
         .unwrap();
 

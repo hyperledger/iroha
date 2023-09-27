@@ -673,10 +673,6 @@
         "type": "Option<HashOf<MerkleTree<VersionedSignedTransaction>>>"
       },
       {
-        "name": "commit_topology",
-        "type": "UniqueVec<PeerId>"
-      },
-      {
         "name": "view_change_index",
         "type": "u64"
       },
@@ -692,6 +688,10 @@
       {
         "name": "header",
         "type": "BlockHeader"
+      },
+      {
+        "name": "commit_topology",
+        "type": "UniqueVec<PeerId>"
       },
       {
         "name": "transactions",
