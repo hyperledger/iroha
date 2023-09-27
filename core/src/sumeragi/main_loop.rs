@@ -249,7 +249,7 @@ impl Sumeragi {
 
         let mut new_wsv = self.wsv.clone();
         let genesis = BlockBuilder::new(transactions, self.current_topology.clone(), vec![])
-            .chain_first(&mut new_wsv)
+            .chain(0, &mut new_wsv)
             .sign(self.key_pair.clone())
             .expect("Genesis signing failed");
 
@@ -324,7 +324,7 @@ impl Sumeragi {
         // Parameters are updated before updating public copy of sumeragi
         self.update_params();
 
-        let block_topology = block.payload().header.commit_topology.clone();
+        let block_topology = block.payload().commit_topology.clone();
         let block_signees = block
             .signatures()
             .into_iter()
@@ -1195,7 +1195,7 @@ mod tests {
 
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx.clone(), tx], topology.clone(), Vec::new())
-            .chain_first(&mut wsv)
+            .chain(0, &mut wsv)
             .sign(leader_key_pair.clone())
             .expect("Block is valid");
 
@@ -1247,7 +1247,7 @@ mod tests {
         let wsv = finalized_wsv.clone();
 
         // Malform block to make it invalid
-        block.payload_mut().header.commit_topology.clear();
+        block.payload_mut().commit_topology.clear();
 
         let result = handle_block_sync(block, &wsv, &finalized_wsv);
         assert!(matches!(result, Err((_, BlockSyncError::BlockNotValid(_)))))
@@ -1270,7 +1270,7 @@ mod tests {
         kura.store_block(committed_block);
 
         // Malform block to make it invalid
-        block.payload_mut().header.commit_topology.clear();
+        block.payload_mut().commit_topology.clear();
 
         let result = handle_block_sync(block, &wsv, &finalized_wsv);
         assert!(matches!(
