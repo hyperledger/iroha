@@ -152,7 +152,7 @@ fn sign_blocks(criterion: &mut Criterion) {
     let mut success_count = 0;
     let mut failures_count = 0;
 
-    let block = BlockBuilder::new(vec![transaction], topology, Vec::new()).chain_first(&mut wsv);
+    let block = BlockBuilder::new(vec![transaction], topology, Vec::new()).chain(0, &mut wsv);
 
     let _ = criterion.bench_function("sign_block", |b| {
         b.iter(|| match block.clone().sign(key_pair.clone()) {
