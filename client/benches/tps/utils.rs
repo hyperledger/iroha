@@ -177,7 +177,7 @@ impl MeasurerUnit {
         let alice_id = AccountId::from_str("alice@wonderland")?;
         let asset_id = asset_id(self.name);
 
-        let register_me = RegisterBox::new(Account::new(
+        let register_me = RegisterExpr::new(Account::new(
             account_id.clone(),
             [keypair.public_key().clone()],
         ));
@@ -187,12 +187,12 @@ impl MeasurerUnit {
             "CanBurnUserAsset".parse().unwrap(),
             &json!({ "asset_id": asset_id }),
         );
-        let allow_alice_to_burn_my_asset = GrantBox::new(can_burn_my_asset, alice_id.clone());
+        let allow_alice_to_burn_my_asset = GrantExpr::new(can_burn_my_asset, alice_id.clone());
         let can_transfer_my_asset = PermissionToken::new(
             "CanTransferUserAsset".parse().unwrap(),
             &json!({ "asset_id": asset_id }),
         );
-        let allow_alice_to_transfer_my_asset = GrantBox::new(can_transfer_my_asset, alice_id);
+        let allow_alice_to_transfer_my_asset = GrantExpr::new(can_transfer_my_asset, alice_id);
         let grant_tx = TransactionBuilder::new(account_id)
             .with_instructions([
                 allow_alice_to_burn_my_asset,
@@ -201,7 +201,7 @@ impl MeasurerUnit {
             .sign(keypair)?;
         self.client.submit_transaction_blocking(&grant_tx)?;
 
-        let mint_a_rose = MintBox::new(1_u32, asset_id);
+        let mint_a_rose = MintExpr::new(1_u32, asset_id);
         self.client.submit_blocking(mint_a_rose)?;
 
         Ok(self)
@@ -274,26 +274,26 @@ impl MeasurerUnit {
     }
 
     #[allow(clippy::expect_used)]
-    fn instructions(&self) -> impl Iterator<Item = InstructionBox> {
+    fn instructions(&self) -> impl Iterator<Item = InstructionExpr> {
         [self.mint_or_burn(), self.relay_a_rose()]
             .into_iter()
             .cycle()
     }
 
-    fn mint_or_burn(&self) -> InstructionBox {
+    fn mint_or_burn(&self) -> InstructionExpr {
         let is_running_out = Less::new(
             EvaluatesTo::new_unchecked(Expression::Query(
                 FindAssetQuantityById::new(asset_id(self.name)).into(),
             )),
             100_u32,
         );
-        let supply_roses = MintBox::new(100_u32.to_value(), asset_id(self.name));
-        let burn_a_rose = BurnBox::new(1_u32.to_value(), asset_id(self.name));
+        let supply_roses = MintExpr::new(100_u32.to_value(), asset_id(self.name));
+        let burn_a_rose = BurnExpr::new(1_u32.to_value(), asset_id(self.name));
 
-        Conditional::with_otherwise(is_running_out, supply_roses, burn_a_rose).into()
+        ConditionalExpr::with_otherwise(is_running_out, supply_roses, burn_a_rose).into()
     }
 
-    fn relay_a_rose(&self) -> InstructionBox {
+    fn relay_a_rose(&self) -> InstructionExpr {
         // Save at least one rose
         // because if asset value hits 0 it's automatically deleted from account
         // and query `FindAssetQuantityById` return error
@@ -303,13 +303,13 @@ impl MeasurerUnit {
             )),
             1_u32,
         );
-        let transfer_rose = TransferBox::new(
+        let transfer_rose = TransferExpr::new(
             asset_id(self.name),
             1_u32.to_value(),
             account_id(self.next_name),
         );
 
-        Conditional::new(enough_to_transfer, transfer_rose).into()
+        ConditionalExpr::new(enough_to_transfer, transfer_rose).into()
     }
 }
 

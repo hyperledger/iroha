@@ -51,7 +51,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     let charlie_initial_keypair = KeyPair::generate().unwrap();
-    let register_charlie = RegisterBox::new(Account::new(
+    let register_charlie = RegisterExpr::new(Account::new(
         charlie_id.clone(),
         [charlie_initial_keypair.public_key().clone()],
     ));
@@ -64,7 +64,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
 
     let mint_keys = (0..KEYS_COUNT - 1).map(|_| {
         let (public_key, _) = KeyPair::generate().unwrap().into();
-        MintBox::new(public_key, charlie_id.clone())
+        MintExpr::new(public_key, charlie_id.clone())
     });
 
     let (tx_hash, res) = submit(
@@ -79,7 +79,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
 
     let charlie = client.request(account::by_id(charlie_id.clone())).unwrap();
     let mut keys = charlie.signatories();
-    let burn = |key: PublicKey| InstructionBox::from(BurnBox::new(key, charlie_id.clone()));
+    let burn = |key: PublicKey| InstructionExpr::from(BurnExpr::new(key, charlie_id.clone()));
     let burn_keys_leaving_one = keys
         .by_ref()
         .filter(|pub_key| pub_key != &charlie_initial_keypair.public_key())

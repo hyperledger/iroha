@@ -398,7 +398,7 @@ mod tests {
         let message = std::iter::repeat_with(rand::random::<char>)
             .take(16)
             .collect();
-        let instructions = [FailBox { message }];
+        let instructions = [Fail { message }];
         let tx = TransactionBuilder::new(AccountId::from_str(account_id).expect("Valid"))
             .with_instructions(instructions)
             .sign(key)
@@ -507,7 +507,7 @@ mod tests {
                 .build()
                 .expect("Default queue config should always build")
         });
-        let instructions: [InstructionBox; 0] = [];
+        let instructions: [InstructionExpr; 0] = [];
         let tx = TransactionBuilder::new("alice@wonderland".parse().expect("Valid"))
             .with_instructions(instructions);
         let tx_limits = TransactionLimits {
@@ -743,7 +743,7 @@ mod tests {
                 .build()
                 .expect("Default queue config should always build")
         });
-        let instructions = [FailBox {
+        let instructions = [Fail {
             message: "expired".to_owned(),
         }];
         let mut tx =

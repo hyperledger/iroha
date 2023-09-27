@@ -35,7 +35,7 @@ mod validate;
 /// }
 ///
 /// #[entrypoint]
-/// pub fn validate_instruction(authority: AccountId, instruction: InstructionBox, block_height: u64) -> Result {
+/// pub fn validate_instruction(authority: AccountId, instruction: InstructionExpr, block_height: u64) -> Result {
 ///     todo!()
 /// }
 ///

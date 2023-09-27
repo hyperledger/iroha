@@ -6,7 +6,7 @@ use iroha_data_model::{prelude::*, ParseError};
 
 #[test]
 fn transfer_isi_should_be_valid() {
-    let _instruction = TransferBox::new(
+    let _instruction = TransferExpr::new(
         IdBox::AssetId("btc##seller@crypto".parse().expect("Valid")),
         12_u32,
         IdBox::AccountId("buyer@crypto".parse().expect("Valid")),
@@ -18,9 +18,9 @@ fn find_quantity_and_check_it_greater_than_value_isi_should_be_valid() {
     let asset_id: AssetId = "rose##alice@wonderland".parse().expect("Valid");
     let find_asset = QueryBox::from(FindAssetQuantityById::new(asset_id));
 
-    let _instruction = Conditional::new(
+    let _instruction = ConditionalExpr::new(
         Not::new(Greater::new(EvaluatesTo::new_unchecked(find_asset), 10_u32)),
-        FailBox::new("rate is less or equal to value"),
+        Fail::new("rate is less or equal to value"),
     );
 }
 
@@ -39,8 +39,8 @@ impl FindRateAndCheckItGreaterThanValue {
         }
     }
 
-    pub fn into_isi(self) -> Conditional {
-        Conditional::new(
+    pub fn into_isi(self) -> ConditionalExpr {
+        ConditionalExpr::new(
             Not::new(Greater::new(
                 EvaluatesTo::new_unchecked(QueryBox::from(FindAssetQuantityById::new(
                     AssetId::new(
@@ -52,7 +52,7 @@ impl FindRateAndCheckItGreaterThanValue {
                 ))),
                 self.value,
             )),
-            FailBox::new("rate is less or equal to value"),
+            Fail::new("rate is less or equal to value"),
         )
     }
 }

@@ -271,14 +271,14 @@ mod tests {
         wsv.config.transaction_limits = limits;
 
         let valid_tx = {
-            let instructions: [InstructionBox; 0] = [];
+            let instructions: [InstructionExpr; 0] = [];
             let tx = TransactionBuilder::new(ALICE_ID.clone())
                 .with_instructions(instructions)
                 .sign(ALICE_KEYS.clone())?;
             AcceptedTransaction::accept(tx, &limits)?
         };
         let invalid_tx = {
-            let isi = FailBox::new("fail");
+            let isi = Fail::new("fail");
             let tx = TransactionBuilder::new(ALICE_ID.clone())
                 .with_instructions([isi.clone(), isi])
                 .sign(ALICE_KEYS.clone())?;
@@ -416,7 +416,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
 
-        let instructions: [InstructionBox; 0] = [];
+        let instructions: [InstructionExpr; 0] = [];
         let tx = TransactionBuilder::new(ALICE_ID.clone())
             .with_instructions(instructions)
             .sign(ALICE_KEYS.clone())?;
@@ -435,7 +435,7 @@ mod tests {
         kura.store_block(vcb);
 
         let unapplied_tx = TransactionBuilder::new(ALICE_ID.clone())
-            .with_instructions([UnregisterBox::new(
+            .with_instructions([UnregisterExpr::new(
                 "account@domain".parse::<AccountId>().unwrap(),
             )])
             .sign(ALICE_KEYS.clone())?;

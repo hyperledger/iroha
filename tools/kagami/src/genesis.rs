@@ -4,7 +4,7 @@ use clap::{ArgGroup, Parser, Subcommand};
 use iroha_config::{sumeragi::default::*, wasm::default::*, wsv::default::*};
 use iroha_data_model::{
     asset::AssetValueType,
-    isi::{MintBox, RegisterBox},
+    isi::{MintExpr, RegisterExpr},
     metadata::Limits,
     parameter::{default::*, ParametersBuilder},
     prelude::AssetId,
@@ -147,22 +147,22 @@ pub fn generate_default(validator: ValidatorMode) -> color_eyre::Result<RawGenes
             .build();
 
     let alice_id = AccountId::from_str("alice@wonderland")?;
-    let mint = MintBox::new(
+    let mint = MintExpr::new(
         13_u32.to_value(),
         IdBox::AssetId(AssetId::new("rose#wonderland".parse()?, alice_id.clone())),
     );
-    let mint_cabbage = MintBox::new(
+    let mint_cabbage = MintExpr::new(
         44_u32.to_value(),
         IdBox::AssetId(AssetId::new(
             "cabbage#garden_of_live_flowers".parse()?,
             alice_id.clone(),
         )),
     );
-    let grant_permission_to_set_parameters = GrantBox::new(
+    let grant_permission_to_set_parameters = GrantExpr::new(
         PermissionToken::new("CanSetParameters".parse()?, &json!(null)),
         alice_id.clone(),
     );
-    let register_user_metadata_access = RegisterBox::new(
+    let register_user_metadata_access = RegisterExpr::new(
         Role::new("ALICE_METADATA_ACCESS".parse()?)
             .add_permission(PermissionToken::new(
                 "CanSetKeyValueInUserAccount".parse()?,
@@ -246,7 +246,7 @@ fn generate_synthetic(
             // FIXME: it actually generates (assets_per_domain * accounts_per_domain) assets per domain
             //        https://github.com/hyperledger/iroha/issues/3508
             for asset in 0..assets_per_domain {
-                let mint = MintBox::new(
+                let mint = MintExpr::new(
                     13_u32.to_value(),
                     IdBox::AssetId(AssetId::new(
                         format!("asset_{asset}#domain_{domain}").parse()?,

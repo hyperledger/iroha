@@ -15,7 +15,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
 use crate::{
-    domain::DomainId, events::prelude::*, metadata::Metadata, prelude::InstructionBox,
+    domain::DomainId, events::prelude::*, metadata::Metadata, prelude::InstructionExpr,
     transaction::Executable, Identifiable, Name, ParseError, Registered,
 };
 
@@ -91,8 +91,8 @@ pub mod model {
     pub enum OptimizedExecutable {
         /// WASM serialized with `wasmtime`.
         WasmInternalRepr(WasmInternalRepr),
-        /// Vector of [`instructions`](InstructionBox).
-        Instructions(Vec<InstructionBox>),
+        /// Vector of [`instructions`](InstructionExpr).
+        Instructions(Vec<InstructionExpr>),
     }
 }
 

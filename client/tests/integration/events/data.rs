@@ -9,14 +9,14 @@ use test_network::*;
 
 use crate::wasm::utils::wasm_template;
 
-fn produce_instructions() -> Vec<InstructionBox> {
+fn produce_instructions() -> Vec<InstructionExpr> {
     let domains = (0..4)
         .map(|domain_index: usize| Domain::new(domain_index.to_string().parse().expect("Valid")));
 
-    let registers: [InstructionBox; 4] = domains
+    let registers: [InstructionExpr; 4] = domains
         .into_iter()
-        .map(RegisterBox::new)
-        .map(InstructionBox::from)
+        .map(RegisterExpr::new)
+        .map(InstructionExpr::from)
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
@@ -30,12 +30,12 @@ fn produce_instructions() -> Vec<InstructionBox> {
         //          domain "2"
         //          domain "3"
         registers[0].clone(),
-        Pair::new::<InstructionBox, _>(
+        PairExpr::new(
             registers[1].clone(),
-            Conditional::with_otherwise(
+            ConditionalExpr::with_otherwise(
                 false,
-                FailBox::new("unreachable"),
-                SequenceBox::new([registers[2].clone(), registers[3].clone()]),
+                Fail::new("unreachable"),
+                SequenceExpr::new([registers[2].clone(), registers[3].clone()]),
             ),
         )
         .into(),
@@ -175,16 +175,16 @@ fn produce_multiple_events() -> Result<()> {
     let role = iroha_data_model::role::Role::new(role_id.clone())
         .add_permission(token_1.clone())
         .add_permission(token_2.clone());
-    let instructions = [RegisterBox::new(role.clone())];
+    let instructions = [RegisterExpr::new(role.clone())];
     client.submit_all_blocking(instructions)?;
 
     // Grants role to Bob
     let bob_id = AccountId::from_str("bob@wonderland")?;
-    let grant_role = GrantBox::new(role_id.clone(), bob_id.clone());
+    let grant_role = GrantExpr::new(role_id.clone(), bob_id.clone());
     client.submit_blocking(grant_role)?;
 
     // Unregister role
-    let unregister_role = UnregisterBox::new(role_id.clone());
+    let unregister_role = UnregisterExpr::new(role_id.clone());
     client.submit_blocking(unregister_role)?;
 
     // Inspect produced events

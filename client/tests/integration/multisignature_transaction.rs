@@ -31,8 +31,8 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     let alice_key_pair = get_key_pair();
     let key_pair_2 = KeyPair::generate()?;
     let asset_definition_id = AssetDefinitionId::from_str("camomile#wonderland")?;
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
-    let set_signature_condition = MintBox::new(
+    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let set_signature_condition = MintExpr::new(
         SignatureCheckCondition::AllAccountSignaturesAnd(
             vec![key_pair_2.public_key().clone()].into(),
         ),
@@ -44,13 +44,13 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
         &network.genesis.telemetry_address,
     );
     let client = Client::new(&client_configuration)?;
-    let instructions: [InstructionBox; 2] = [create_asset.into(), set_signature_condition.into()];
+    let instructions: [InstructionExpr; 2] = [create_asset.into(), set_signature_condition.into()];
     client.submit_all_blocking(instructions)?;
 
     //When
     let quantity: u32 = 200;
     let asset_id = AssetId::new(asset_definition_id, alice_id.clone());
-    let mint_asset = MintBox::new(quantity.to_value(), IdBox::AssetId(asset_id.clone()));
+    let mint_asset = MintExpr::new(quantity.to_value(), IdBox::AssetId(asset_id.clone()));
 
     let (public_key1, private_key1) = alice_key_pair.into();
     client_configuration.account_id = alice_id.clone();

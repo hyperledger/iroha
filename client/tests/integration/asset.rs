@@ -21,8 +21,8 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
 
     let asset_definition_id = AssetDefinitionId::from_str("test_asset#wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
-    let register_asset = RegisterBox::new(Asset::new(
+    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let register_asset = RegisterExpr::new(Asset::new(
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
         AssetValue::Quantity(0),
     ));
@@ -56,9 +56,9 @@ fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
 
     let asset_definition_id = AssetDefinitionId::from_str("test_asset#wonderland").expect("Valid");
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
-    let register_asset = RegisterBox::new(Asset::new(asset_id.clone(), AssetValue::Quantity(0)));
-    let unregister_asset = UnregisterBox::new(asset_id);
+    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let register_asset = RegisterExpr::new(Asset::new(asset_id.clone(), AssetValue::Quantity(0)));
+    let unregister_asset = UnregisterExpr::new(asset_id);
 
     test_client.submit_all([create_asset, register_asset])?;
 
@@ -93,18 +93,18 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
     //When
     let quantity: u32 = 200;
-    let mint = MintBox::new(
+    let mint = MintExpr::new(
         quantity.to_value(),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
             account_id.clone(),
         )),
     );
-    let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
+    let instructions: [InstructionExpr; 2] = [create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata)?;
     test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
@@ -126,18 +126,19 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::big_quantity(asset_definition_id.clone()));
+    let create_asset =
+        RegisterExpr::new(AssetDefinition::big_quantity(asset_definition_id.clone()));
     let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
     //When
     let quantity: u128 = 2_u128.pow(65);
-    let mint = MintBox::new(
+    let mint = MintExpr::new(
         quantity.to_value(),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
             account_id.clone(),
         )),
     );
-    let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
+    let instructions: [InstructionExpr; 2] = [create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata)?;
     test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
@@ -160,19 +161,19 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let identifiable_box = AssetDefinition::fixed(asset_definition_id.clone());
-    let create_asset = RegisterBox::new(identifiable_box);
+    let create_asset = RegisterExpr::new(identifiable_box);
     let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
 
     //When
     let quantity: Fixed = Fixed::try_from(123.456_f64).unwrap();
-    let mint = MintBox::new(
+    let mint = MintExpr::new(
         quantity.to_value(),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
             account_id.clone(),
         )),
     );
-    let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
+    let instructions: [InstructionExpr; 2] = [create_asset.into(), mint.into()];
     let tx = test_client.build_transaction(instructions, metadata)?;
     test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
@@ -186,7 +187,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
 
     // Add some fractional part
     let quantity2: Fixed = Fixed::try_from(0.55_f64).unwrap();
-    let mint = MintBox::new(
+    let mint = MintExpr::new(
         quantity2.to_value(),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
@@ -216,7 +217,7 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
 
     // Given
     let normal_asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(
+    let create_asset = RegisterExpr::new(AssetDefinition::quantity(
         normal_asset_definition_id.clone(),
     ));
     test_client.submit(create_asset)?;
@@ -225,7 +226,7 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
     let too_long_asset_name = "0".repeat(2_usize.pow(14));
     let incorrect_asset_definition_id =
         AssetDefinitionId::from_str(&(too_long_asset_name + "#wonderland")).expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(
+    let create_asset = RegisterExpr::new(AssetDefinition::quantity(
         incorrect_asset_definition_id.clone(),
     ));
 
@@ -272,11 +273,11 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     let buyer_keypair = KeyPair::generate().expect("Failed to generate seller KeyPair.");
 
     let register_account = |account_id: AccountId, signature: PublicKey| {
-        RegisterBox::new(Account::new(account_id, [signature]))
+        RegisterExpr::new(Account::new(account_id, [signature]))
     };
 
     let grant_alice_asset_transfer_permission = |asset_id: AssetId, owner_keypair: KeyPair| {
-        let allow_alice_to_transfer_asset = GrantBox::new(
+        let allow_alice_to_transfer_asset = GrantExpr::new(
             PermissionToken::new(
                 "CanTransferUserAsset".parse().unwrap(),
                 &json!({ "asset_id": asset_id }),
@@ -303,7 +304,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         "exchange",
         account_id_new("dex", "exchange"),
     );
-    let instructions: [InstructionBox; 12] = [
+    let instructions: [InstructionExpr; 12] = [
         register::domain("exchange").into(),
         register::domain("company").into(),
         register::domain("crypto").into(),
@@ -313,17 +314,17 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         register::asset_definition("btc", "crypto").into(),
         register::asset_definition("eth", "crypto").into(),
         register::asset_definition("btc2eth_rate", "exchange").into(),
-        MintBox::new(
+        MintExpr::new(
             200_u32.to_value(),
             IdBox::AssetId(asset_id_new("eth", "crypto", buyer_account_id.clone())),
         )
         .into(),
-        MintBox::new(
+        MintExpr::new(
             20_u32.to_value(),
             IdBox::AssetId(asset_id_new("btc", "crypto", seller_account_id.clone())),
         )
         .into(),
-        MintBox::new(20_u32.to_value(), IdBox::AssetId(asset_id.clone())).into(),
+        MintExpr::new(20_u32.to_value(), IdBox::AssetId(asset_id.clone())).into(),
     ];
     test_client
         .submit_all_blocking(instructions)
@@ -333,15 +334,15 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     grant_alice_asset_transfer_permission(buyer_eth, buyer_keypair);
 
     test_client
-        .submit_all_blocking([Pair::new(
-            TransferBox::new(
+        .submit_all_blocking([PairExpr::new(
+            TransferExpr::new(
                 IdBox::AssetId(asset_id_new("btc", "crypto", seller_account_id.clone())),
                 EvaluatesTo::new_evaluates_to_value(Expression::Query(
                     FindAssetQuantityById::new(asset_id.clone()).into(),
                 )),
                 IdBox::AccountId(buyer_account_id.clone()),
             ),
-            TransferBox::new(
+            TransferExpr::new(
                 IdBox::AssetId(asset_id_new("eth", "crypto", buyer_account_id)),
                 EvaluatesTo::new_evaluates_to_value(Expression::Query(
                     FindAssetQuantityById::new(asset_id).into(),
@@ -412,12 +413,12 @@ fn asset_id_new(definition_name: &str, definition_domain: &str, account_id: Acco
 mod register {
     use super::*;
 
-    pub fn domain(name: &str) -> RegisterBox {
-        RegisterBox::new(Domain::new(DomainId::from_str(name).expect("Valid")))
+    pub fn domain(name: &str) -> RegisterExpr {
+        RegisterExpr::new(Domain::new(DomainId::from_str(name).expect("Valid")))
     }
 
-    pub fn account(account_name: &str, domain_name: &str) -> RegisterBox {
-        RegisterBox::new(Account::new(
+    pub fn account(account_name: &str, domain_name: &str) -> RegisterExpr {
+        RegisterExpr::new(Account::new(
             AccountId::new(
                 account_name.parse().expect("Valid"),
                 domain_name.parse().expect("Valid"),
@@ -426,8 +427,8 @@ mod register {
         ))
     }
 
-    pub fn asset_definition(asset_name: &str, domain_name: &str) -> RegisterBox {
-        RegisterBox::new(AssetDefinition::quantity(AssetDefinitionId::new(
+    pub fn asset_definition(asset_name: &str, domain_name: &str) -> RegisterExpr {
+        RegisterExpr::new(AssetDefinition::quantity(AssetDefinitionId::new(
             asset_name.parse().expect("Valid"),
             domain_name.parse().expect("Valid"),
         )))

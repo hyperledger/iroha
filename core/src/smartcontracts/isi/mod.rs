@@ -1,5 +1,5 @@
 //! This module contains enumeration of all possible Iroha Special
-//! Instructions [`InstructionBox`], generic instruction types and related
+//! Instructions [`InstructionExpr`], generic instruction types and related
 //! implementations.
 #![allow(
     clippy::arithmetic_side_effects,
@@ -36,7 +36,7 @@ pub trait Registrable {
     fn build(self, authority: &AccountId) -> Self::Target;
 }
 
-impl Execute for InstructionBox {
+impl Execute for InstructionExpr {
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         iroha_logger::debug!(isi=%self, "Executing");
 
@@ -44,7 +44,7 @@ impl Execute for InstructionBox {
             ($($isi:ident),+ $(,)?) => {
 
                 match self { $(
-                    InstructionBox::$isi(isi) => isi.execute(authority, wsv), )+
+                    InstructionExpr::$isi(isi) => isi.execute(authority, wsv), )+
                 }
             };
         }
@@ -72,7 +72,7 @@ impl Execute for InstructionBox {
     }
 }
 
-impl Execute for RegisterBox {
+impl Execute for RegisterExpr {
     #[iroha_logger::log(name = "register", skip_all, fields(id))]
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let object_id = wsv.evaluate(&self.object)?;
@@ -96,7 +96,7 @@ impl Execute for RegisterBox {
     }
 }
 
-impl Execute for UnregisterBox {
+impl Execute for UnregisterExpr {
     #[iroha_logger::log(name = "unregister", skip_all, fields(id))]
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let object_id = wsv.evaluate(&self.object_id)?;
@@ -125,7 +125,7 @@ impl Execute for UnregisterBox {
     }
 }
 
-impl Execute for MintBox {
+impl Execute for MintExpr {
     #[iroha_logger::log(name = "Mint", skip_all, fields(destination))]
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let destination_id = wsv.evaluate(&self.destination_id)?;
@@ -134,42 +134,42 @@ impl Execute for MintBox {
         iroha_logger::trace!(?object, %authority);
         match (destination_id, object) {
             (IdBox::AssetId(destination_id), Value::Numeric(NumericValue::U32(object))) => {
-                Mint::<Asset, u32> {
+                Mint::<u32, Asset> {
                     object,
                     destination_id,
                 }
                 .execute(authority, wsv)
             }
             (IdBox::AssetId(destination_id), Value::Numeric(NumericValue::U128(object))) => {
-                Mint::<Asset, u128> {
+                Mint::<u128, Asset> {
                     object,
                     destination_id,
                 }
                 .execute(authority, wsv)
             }
             (IdBox::AssetId(destination_id), Value::Numeric(NumericValue::Fixed(object))) => {
-                Mint::<Asset, Fixed> {
+                Mint::<Fixed, Asset> {
                     object,
                     destination_id,
                 }
                 .execute(authority, wsv)
             }
             (IdBox::AccountId(destination_id), Value::PublicKey(object)) => {
-                Mint::<Account, PublicKey> {
+                Mint::<PublicKey, Account> {
                     object,
                     destination_id,
                 }
                 .execute(authority, wsv)
             }
             (IdBox::AccountId(destination_id), Value::SignatureCheckCondition(object)) => {
-                Mint::<Account, SignatureCheckCondition> {
+                Mint::<SignatureCheckCondition, Account> {
                     object,
                     destination_id,
                 }
                 .execute(authority, wsv)
             }
             (IdBox::TriggerId(destination_id), Value::Numeric(NumericValue::U32(object))) => {
-                Mint::<Trigger<TriggeringFilterBox, Executable>, u32> {
+                Mint::<u32, Trigger<TriggeringFilterBox, Executable>> {
                     object,
                     destination_id,
                 }
@@ -180,7 +180,7 @@ impl Execute for MintBox {
     }
 }
 
-impl Execute for BurnBox {
+impl Execute for BurnExpr {
     #[iroha_logger::log(name = "burn", skip_all, fields(destination))]
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let destination_id = wsv.evaluate(&self.destination_id)?;
@@ -189,7 +189,7 @@ impl Execute for BurnBox {
         iroha_logger::trace!(?object, %authority);
         match (destination_id, object) {
             (IdBox::AssetId(destination_id), Value::Numeric(NumericValue::U32(object))) => {
-                Burn::<Asset, u32> {
+                Burn::<u32, Asset> {
                     object,
                     destination_id,
                 }
@@ -219,7 +219,7 @@ impl Execute for BurnBox {
     }
 }
 
-impl Execute for TransferBox {
+impl Execute for TransferExpr {
     #[iroha_logger::log(name = "transfer", skip_all, fields(from, to))]
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let (IdBox::AssetId(source_id), IdBox::AccountId(destination_id)) = (
@@ -229,12 +229,12 @@ impl Execute for TransferBox {
             return Err(Error::Evaluate(InstructionType::Transfer.into()));
         };
 
-        let value = wsv.evaluate(&self.object)?;
+        let object = wsv.evaluate(&self.object)?;
         Span::current().record("from", source_id.to_string());
         Span::current().record("to", destination_id.to_string());
-        iroha_logger::trace!(%value, %authority);
+        iroha_logger::trace!(%object, %authority);
 
-        match value {
+        match object {
             Value::Numeric(NumericValue::U32(object)) => Transfer {
                 source_id,
                 object,
@@ -258,7 +258,7 @@ impl Execute for TransferBox {
     }
 }
 
-impl Execute for SetKeyValueBox {
+impl Execute for SetKeyValueExpr {
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let key = wsv.evaluate(&self.key)?;
         let value = wsv.evaluate(&self.value)?;
@@ -293,7 +293,7 @@ impl Execute for SetKeyValueBox {
     }
 }
 
-impl Execute for RemoveKeyValueBox {
+impl Execute for RemoveKeyValueExpr {
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let key = wsv.evaluate(&self.key)?;
         iroha_logger::trace!(?key, %authority);
@@ -312,7 +312,7 @@ impl Execute for RemoveKeyValueBox {
     }
 }
 
-impl Execute for Conditional {
+impl Execute for ConditionalExpr {
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         iroha_logger::trace!(?self);
         if wsv.evaluate(&self.condition)? {
@@ -324,7 +324,7 @@ impl Execute for Conditional {
     }
 }
 
-impl Execute for Pair {
+impl Execute for PairExpr {
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         iroha_logger::trace!(?self);
 
@@ -334,7 +334,7 @@ impl Execute for Pair {
     }
 }
 
-impl Execute for SequenceBox {
+impl Execute for SequenceExpr {
     #[iroha_logger::log(skip_all, name = "Sequence", fields(count))]
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         Span::current().record("count", self.instructions.len());
@@ -346,7 +346,7 @@ impl Execute for SequenceBox {
     }
 }
 
-impl Execute for FailBox {
+impl Execute for Fail {
     fn execute(self, _authority: &AccountId, _wsv: &mut WorldStateView) -> Result<(), Error> {
         iroha_logger::trace!(?self);
 
@@ -354,75 +354,67 @@ impl Execute for FailBox {
     }
 }
 
-impl Execute for GrantBox {
+impl Execute for GrantExpr {
     #[iroha_logger::log(name = "grant", skip_all, fields(object))]
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let destination_id = wsv.evaluate(&self.destination_id)?;
         let object = wsv.evaluate(&self.object)?;
         Span::current().record("object", &object.to_string());
         iroha_logger::trace!(%destination_id, %authority);
-        match (destination_id, object) {
-            (IdBox::AccountId(destination_id), Value::PermissionToken(object)) => {
-                Grant::<Account, PermissionToken> {
-                    object,
-                    destination_id,
-                }
-                .execute(authority, wsv)
+        match object {
+            Value::PermissionToken(object) => Grant::<PermissionToken> {
+                object,
+                destination_id,
             }
-            (IdBox::AccountId(destination_id), Value::Id(IdBox::RoleId(object))) => {
-                Grant::<Account, RoleId> {
-                    object,
-                    destination_id,
-                }
-                .execute(authority, wsv)
+            .execute(authority, wsv),
+            Value::Id(IdBox::RoleId(object)) => Grant::<RoleId> {
+                object,
+                destination_id,
             }
+            .execute(authority, wsv),
             _ => Err(Error::Evaluate(InstructionType::Grant.into())),
         }
     }
 }
 
-impl Execute for RevokeBox {
+impl Execute for RevokeExpr {
     #[iroha_logger::log(name = "revoke", skip_all, fields(object))]
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let destination_id = wsv.evaluate(&self.destination_id)?;
         let object = wsv.evaluate(&self.object)?;
         Span::current().record("object", &object.to_string());
         iroha_logger::trace!(?destination_id, ?object, %authority);
-        match (destination_id, object) {
-            (IdBox::AccountId(destination_id), Value::PermissionToken(object)) => {
-                Revoke::<Account, PermissionToken> {
-                    object,
-                    destination_id,
-                }
-                .execute(authority, wsv)
+        match object {
+            Value::PermissionToken(object) => Revoke::<PermissionToken> {
+                object,
+                destination_id,
             }
-            (IdBox::AccountId(destination_id), Value::Id(IdBox::RoleId(object))) => {
-                Revoke::<Account, RoleId> {
-                    object,
-                    destination_id,
-                }
-                .execute(authority, wsv)
+            .execute(authority, wsv),
+            Value::Id(IdBox::RoleId(object)) => Revoke::<RoleId> {
+                object,
+                destination_id,
             }
+            .execute(authority, wsv),
             _ => Err(Error::Evaluate(InstructionType::Revoke.into())),
         }
     }
 }
 
-impl Execute for SetParameterBox {
+impl Execute for SetParameterExpr {
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let parameter = wsv.evaluate(&self.parameter)?;
         SetParameter { parameter }.execute(authority, wsv)
     }
 }
 
-impl Execute for NewParameterBox {
+impl Execute for NewParameterExpr {
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let parameter = wsv.evaluate(&self.parameter)?;
         NewParameter { parameter }.execute(authority, wsv)
     }
 }
 
-impl Execute for UpgradeBox {
+impl Execute for UpgradeExpr {
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let object = wsv.evaluate(&self.object)?;
         match object {
@@ -433,7 +425,7 @@ impl Execute for UpgradeBox {
     }
 }
 
-impl Execute for LogBox {
+impl Execute for LogExpr {
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let level = wsv.evaluate(&self.level)?;
         let msg = wsv.evaluate(&self.msg)?;
@@ -466,11 +458,11 @@ mod tests {
         let account_id = AccountId::from_str("alice@wonderland")?;
         let (public_key, _) = KeyPair::generate()?.into();
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
-        RegisterBox::new(Domain::new(DomainId::from_str("wonderland")?))
+        RegisterExpr::new(Domain::new(DomainId::from_str("wonderland")?))
             .execute(&genesis_account_id, &mut wsv)?;
-        RegisterBox::new(Account::new(account_id, [public_key]))
+        RegisterExpr::new(Account::new(account_id, [public_key]))
             .execute(&genesis_account_id, &mut wsv)?;
-        RegisterBox::new(AssetDefinition::store(asset_definition_id))
+        RegisterExpr::new(AssetDefinition::store(asset_definition_id))
             .execute(&genesis_account_id, &mut wsv)?;
         Ok(wsv)
     }
@@ -482,7 +474,7 @@ mod tests {
         let account_id = AccountId::from_str("alice@wonderland")?;
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-        SetKeyValueBox::new(
+        SetKeyValueExpr::new(
             IdBox::from(asset_id.clone()),
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
@@ -509,7 +501,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = wsv_with_test_domains(&kura)?;
         let account_id = AccountId::from_str("alice@wonderland")?;
-        SetKeyValueBox::new(
+        SetKeyValueExpr::new(
             IdBox::from(account_id.clone()),
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
@@ -538,7 +530,7 @@ mod tests {
         let mut wsv = wsv_with_test_domains(&kura)?;
         let definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
-        SetKeyValueBox::new(
+        SetKeyValueExpr::new(
             IdBox::from(definition_id.clone()),
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
@@ -566,7 +558,7 @@ mod tests {
         let mut wsv = wsv_with_test_domains(&kura)?;
         let domain_id = DomainId::from_str("wonderland")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
-        SetKeyValueBox::new(
+        SetKeyValueExpr::new(
             IdBox::from(domain_id.clone()),
             Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
@@ -596,7 +588,7 @@ mod tests {
         let trigger_id = TriggerId::from_str("test_trigger_id")?;
 
         assert!(matches!(
-            ExecuteTriggerBox::new(trigger_id)
+            ExecuteTriggerExpr::new(trigger_id)
                 .execute(&account_id, &mut wsv)
                 .expect_err("Error expected"),
             Error::Find(_)
@@ -618,14 +610,14 @@ mod tests {
             .expect("Failed to generate KeyPair")
             .into();
         let register_account =
-            RegisterBox::new(Account::new(fake_account_id.clone(), [public_key]));
+            RegisterExpr::new(Account::new(fake_account_id.clone(), [public_key]));
         register_account.execute(&account_id, &mut wsv)?;
 
         // register the trigger
-        let register_trigger = RegisterBox::new(Trigger::new(
+        let register_trigger = RegisterExpr::new(Trigger::new(
             trigger_id.clone(),
             Action::new(
-                Vec::<InstructionBox>::new(),
+                Vec::<InstructionExpr>::new(),
                 Repeats::Indefinitely,
                 account_id.clone(),
                 TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
@@ -638,11 +630,11 @@ mod tests {
         register_trigger.execute(&account_id, &mut wsv)?;
 
         // execute with the valid account
-        ExecuteTriggerBox::new(trigger_id.clone()).execute(&account_id, &mut wsv)?;
+        ExecuteTriggerExpr::new(trigger_id.clone()).execute(&account_id, &mut wsv)?;
 
         // execute with the fake account
         assert!(matches!(
-            ExecuteTriggerBox::new(trigger_id)
+            ExecuteTriggerExpr::new(trigger_id)
                 .execute(&fake_account_id, &mut wsv)
                 .expect_err("Error expected"),
             Error::InvariantViolation(_)
