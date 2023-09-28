@@ -12,7 +12,7 @@ use core::str::FromStr;
 #[cfg(feature = "std")]
 use std::collections::{btree_map, btree_set};
 
-use derive_more::{Constructor, DebugCustom, Display};
+use derive_more::{DebugCustom, Display};
 use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_primitives::{const_vec::ConstVec, must_use::MustUse};
@@ -29,8 +29,8 @@ use crate::{
     },
     domain::prelude::*,
     metadata::Metadata,
-    role::{prelude::RoleId, RoleIds},
-    HasMetadata, Identifiable, Name, ParseError, PublicKey, Registered,
+    name::Name,
+    HasMetadata, Identifiable, ParseError, PublicKey, Registered,
 };
 
 /// API to work with collections of [`Id`] : [`Account`] mappings.
@@ -66,7 +66,6 @@ pub mod model {
         PartialOrd,
         Ord,
         Hash,
-        Constructor,
         Getters,
         Decode,
         Encode,
@@ -79,10 +78,10 @@ pub mod model {
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct AccountId {
-        /// [`Account`]'s name.
-        pub name: Name,
         /// [`Account`]'s [`Domain`](`crate::domain::Domain`) id.
         pub domain_id: DomainId,
+        /// [`Account`]'s name.
+        pub name: Name,
     }
 
     /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
@@ -113,8 +112,6 @@ pub mod model {
         pub signature_check_condition: SignatureCheckCondition,
         /// Metadata of this account as a key-value store.
         pub metadata: Metadata,
-        /// Roles of this account, they are tags for sets of permissions stored in `World`.
-        pub roles: RoleIds,
     }
 
     /// Builder which should be submitted in a transaction to create a new [`Account`]
@@ -158,6 +155,14 @@ pub mod model {
     }
 }
 
+impl AccountId {
+    /// Construct [`Self`].
+    // NOTE: not derived to preserve order of fields in which [`Self`] is parsed from string
+    pub fn new(name: Name, domain_id: DomainId) -> Self {
+        Self { domain_id, name }
+    }
+}
+
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[inline]
@@ -187,22 +192,10 @@ impl Account {
         self.assets.values()
     }
 
-    /// Get an iterator over [`role ids`](RoleId) of the `Account`
-    #[inline]
-    pub fn roles(&self) -> impl ExactSizeIterator<Item = &RoleId> {
-        self.roles.iter()
-    }
-
     /// Return `true` if the `Account` contains the given signatory
     #[inline]
     pub fn contains_signatory(&self, signatory: &PublicKey) -> bool {
         self.signatories.contains(signatory)
-    }
-
-    /// Return `true` if `Account` contains the given role
-    #[inline]
-    pub fn contains_role(&self, role_id: &RoleId) -> bool {
-        self.roles.contains(role_id)
     }
 }
 
@@ -219,22 +212,6 @@ impl Account {
     pub fn remove_asset(&mut self, asset_id: &AssetId) -> Option<Asset> {
         self.assets.remove(asset_id)
     }
-
-    /// Add [`Role`](crate::role::Role) into the [`Account`].
-    ///
-    /// If `Account` did not have this role present, `true` is returned.
-    /// If `Account` did have this role present, `false` is returned.
-    #[inline]
-    pub fn add_role(&mut self, role_id: RoleId) -> bool {
-        self.roles.insert(role_id)
-    }
-
-    /// Remove a role from the `Account` and return whether the role was present in the `Account`
-    #[inline]
-    pub fn remove_role(&mut self, role_id: &RoleId) -> bool {
-        self.roles.remove(role_id)
-    }
-
     /// Add [`signatory`](PublicKey) into the [`Account`].
     ///
     /// If `Account` did not have this signatory present, `true` is returned.
@@ -365,9 +342,12 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    use core::cmp::Ordering;
+
     use iroha_crypto::{KeyPair, PublicKey};
 
-    use super::SignatureCheckCondition;
+    use super::{AccountId, SignatureCheckCondition};
+    use crate::{domain::DomainId, name::Name};
 
     fn make_key() -> PublicKey {
         KeyPair::generate().unwrap().public_key().clone()
@@ -457,5 +437,37 @@ mod tests {
         check_signature_check_condition(&condition, &[&key1], &[&key1, &key3], true);
         check_signature_check_condition(&condition, &[&key2], &[&key1, &key3], false);
         check_signature_check_condition(&condition, &[&key2], &[&key1, &key2, &key3], true);
+    }
+
+    #[test]
+    fn cmp_account_id() {
+        let domain_id_a: DomainId = "a".parse().expect("failed to parse DomainId");
+        let domain_id_b: DomainId = "b".parse().expect("failed to parse DomainId");
+        let name_a: Name = "a".parse().expect("failed to parse Name");
+        let name_b: Name = "b".parse().expect("failed to parse Name");
+
+        let mut account_ids = Vec::new();
+        for name in [&name_a, &name_b] {
+            for domain_id in [&domain_id_a, &domain_id_b] {
+                account_ids.push(AccountId::new(name.clone(), domain_id.clone()));
+            }
+        }
+
+        for account_id_1 in &account_ids {
+            for account_id_2 in &account_ids {
+                match (
+                    account_id_1.domain_id.cmp(&account_id_2.domain_id),
+                    account_id_1.name.cmp(&account_id_2.name),
+                ) {
+                    // `DomainId` take precedence in comparison
+                    // if `DomainId`s are equal than comparison based on `Name`s
+                    (Ordering::Equal, ordering) | (ordering, _) => assert_eq!(
+                        account_id_1.cmp(account_id_2),
+                        ordering,
+                        "{account_id_1:?} and {account_id_2:?} are expected to be {ordering:?}"
+                    ),
+                }
+            }
+        }
     }
 }

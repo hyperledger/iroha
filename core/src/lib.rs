@@ -14,7 +14,7 @@ pub mod validator;
 pub mod wsv;
 
 use core::time::Duration;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use gossiper::TransactionGossip;
 use iroha_data_model::{permission::Permissions, prelude::*};
@@ -47,6 +47,9 @@ pub type RolesMap = HashMap<RoleId, Role>;
 
 /// API to work with a collections of [`AccountId`] [`Permissions`] mappings.
 pub type PermissionTokensMap = HashMap<AccountId, Permissions>;
+
+/// API to work with a collections of [`AccountId`] to [`RoleId`] mappings.
+pub type AccountRolesSet = BTreeSet<role::RoleIdWithOwner>;
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
 pub type EventsSender = broadcast::Sender<Event>;
@@ -101,6 +104,37 @@ pub mod handler {
     }
 }
 
+pub mod role {
+    //! Module with extension for [`RoleId`] to be stored inside wsv.
+
+    use derive_more::Constructor;
+    use serde::{Deserialize, Serialize};
+
+    use super::*;
+
+    /// [`RoleId`] with owner [`AccountId`] attached to it.
+    #[derive(
+        Debug,
+        Clone,
+        Constructor,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+    )]
+    pub struct RoleIdWithOwner {
+        /// [`AccountId`] of the owner.
+        pub account_id: AccountId,
+        /// [`RoleId`]  of the given role.
+        pub role_id: RoleId,
+    }
+}
+
 pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
 
@@ -113,4 +147,48 @@ pub mod prelude {
         tx::AcceptedTransaction,
         wsv::{World, WorldStateView},
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cmp::Ordering;
+
+    use iroha_data_model::{account::AccountId, role::RoleId};
+
+    use crate::role::RoleIdWithOwner;
+
+    #[test]
+    fn cmp_role_id_with_owner() {
+        let role_id_a: RoleId = "a".parse().expect("failed to parse RoleId");
+        let role_id_b: RoleId = "b".parse().expect("failed to parse RoleId");
+        let account_id_a: AccountId = "a@domain".parse().expect("failed to parse AccountId");
+        let account_id_b: AccountId = "b@domain".parse().expect("failed to parse AccountId");
+
+        let mut role_ids_with_owner = Vec::new();
+        for account_id in [&account_id_a, &account_id_b] {
+            for role_id in [&role_id_a, &role_id_b] {
+                role_ids_with_owner.push(RoleIdWithOwner {
+                    role_id: role_id.clone(),
+                    account_id: account_id.clone(),
+                })
+            }
+        }
+
+        for role_id_with_owner_1 in &role_ids_with_owner {
+            for role_id_with_owner_2 in &role_ids_with_owner {
+                match (
+                    role_id_with_owner_1.account_id.cmp(&role_id_with_owner_2.account_id),
+                    role_id_with_owner_1.role_id.cmp(&role_id_with_owner_2.role_id),
+                ) {
+                    // `AccountId` take precedence in comparison
+                    // if `AccountId`s are equal than comparison based on `RoleId`s
+                    (Ordering::Equal, ordering) | (ordering, _) => assert_eq!(
+                        role_id_with_owner_1.cmp(role_id_with_owner_2),
+                        ordering,
+                        "{role_id_with_owner_1:?} and {role_id_with_owner_2:?} are expected to be {ordering:?}"
+                    ),
+                }
+            }
+        }
+    }
 }

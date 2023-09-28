@@ -98,7 +98,6 @@ types!(
     BTreeMap<Name, Value>,
     BTreeSet<PermissionToken>,
     BTreeSet<PublicKey>,
-    BTreeSet<RoleId>,
     BatchedResponse<Value>,
     BatchedResponse<Vec<SignedTransaction>>,
     BatchedResponseV1<Value>,

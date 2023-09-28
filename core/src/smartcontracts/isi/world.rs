@@ -146,18 +146,14 @@ pub mod isi {
         fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let role_id = self.object_id;
 
-            let mut accounts_with_role = vec![];
-            for domain in wsv.domains().values() {
-                let account_ids = domain.accounts.values().filter_map(|account| {
-                    if account.roles.contains(&role_id) {
-                        return Some(account.id().clone());
-                    }
-
-                    None
-                });
-
-                accounts_with_role.extend(account_ids);
-            }
+            let accounts_with_role = wsv
+                .world
+                .account_roles
+                .iter()
+                .filter(|role| role.role_id.eq(&role_id))
+                .map(|role| &role.account_id)
+                .cloned()
+                .collect::<Vec<_>>();
 
             for account_id in accounts_with_role {
                 let revoke = Revoke {
