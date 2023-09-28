@@ -169,15 +169,17 @@ mod tests {
 
     use webassembly_test::webassembly_test;
 
-    use crate::_decode_from_raw;
-
     fn get_dbg_message() -> &'static str {
         "dbg_message"
     }
 
     #[no_mangle]
     pub unsafe extern "C" fn _dbg_mock(ptr: *const u8, len: usize) {
-        assert_eq!(_decode_from_raw::<String>(ptr, len), get_dbg_message());
+        use parity_scale_codec::DecodeAll;
+
+        // can't use _decode_from_raw here, because we must NOT take the ownership
+        let bytes = core::slice::from_raw_parts(ptr, len);
+        assert_eq!(String::decode_all(&mut &*bytes).unwrap(), get_dbg_message());
     }
 
     #[webassembly_test]
