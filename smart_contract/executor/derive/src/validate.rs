@@ -1,28 +1,27 @@
 //! Module with [`derive_validate`](crate::derive_validate) macro implementation
 
-use proc_macro2::Span;
-use syn::{Attribute, Ident, Path, Type};
-
-use super::*;
+use darling::FromAttributes;
+use manyhow::Result;
+use proc_macro2::{Span, TokenStream};
+use quote::quote;
+use syn2::{Attribute, Ident, Type};
 
 /// [`derive_validate`](crate::derive_validate()) macro implementation
-pub fn impl_derive_validate_grant_revoke(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    let ident = input.ident;
+pub fn impl_derive_validate_grant_revoke(input: &syn2::DeriveInput) -> Result<TokenStream> {
+    let ident = &input.ident;
 
-    let (validate_grant_impl, validate_revoke_impl) = gen_validate_impls(&input.attrs);
+    let (validate_grant_impl, validate_revoke_impl) = gen_validate_impls(&input.attrs)?;
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
-    quote! {
+    Ok(quote! {
         impl #impl_generics ::iroha_executor::permission::ValidateGrantRevoke for #ident #ty_generics
         #where_clause
         {
             #validate_grant_impl
             #validate_revoke_impl
         }
-    }
-    .into()
+    })
 }
 
 /// Enum representing possible attributes.
@@ -37,119 +36,140 @@ enum ValidateAttribute {
     },
 }
 
-impl ValidateAttribute {
-    fn from_attributes<'attr, A>(attributes: A) -> Self
-    where
-        A: IntoIterator<Item = &'attr Attribute>,
-    {
+impl FromAttributes for ValidateAttribute {
+    // we use `Option::or` to select the first specified condition in case of duplicates
+    // but we still _want_ to validate that each attribute parses successfully
+    // this is to ensure that we provide the user with as much validation as possible, instead of bailing out early
+    // `Option::or_else` would NOT work here, as it would not validate conditions after the first valid one
+    #[allow(clippy::or_fun_call)]
+    fn from_attributes(attrs: &[Attribute]) -> darling::Result<Self> {
+        let mut accumulator = darling::error::Accumulator::default();
+
         let mut general_condition: Option<Type> = None;
         let mut grant_condition: Option<Type> = None;
         let mut revoke_condition: Option<Type> = None;
 
-        let general_path: Path = syn::parse_str("validate").unwrap();
-        let grant_path: Path = syn::parse_str("validate_grant").unwrap();
-        let revoke_path: Path = syn::parse_str("validate_revoke").unwrap();
-
-        for attribute in attributes {
-            let path = &attribute.path;
-
-            // Skip if it's not our attribute
-            if path != &general_path && path != &grant_path && path != &revoke_path {
+        for attr in attrs {
+            let path = attr.path();
+            if !path.is_ident("validate")
+                && !path.is_ident("validate_grant")
+                && !path.is_ident("validate_revoke")
+            {
                 continue;
             }
 
-            let Some(proc_macro2::TokenTree::Group(group)) =
-                attribute.tokens.clone().into_iter().next()
-            else {
-                panic!("Expected parentheses group");
-            };
-            assert!(
-                group.delimiter() == proc_macro2::Delimiter::Parenthesis,
-                "Expected parentheses"
-            );
-            let tokens = group.stream().into();
+            let Some(list) = accumulator.handle(attr.meta.require_list().map_err(darling::Error::from)) else { continue; };
+            let tokens = &list.tokens;
 
-            match path {
-                _general if path == &general_path => {
-                    assert!(grant_condition.is_none() && revoke_condition.is_none(),
-                        "`validate` attribute can't be used with `validate_grant` or `validate_revoke` attributes");
-                    assert!(
-                        general_condition.is_none(),
-                        "`validate` attribute duplication is not allowed"
-                    );
-
-                    general_condition.replace(syn::parse(tokens).unwrap());
+            if path.is_ident("validate") {
+                if grant_condition.is_some() || revoke_condition.is_some() {
+                    accumulator.push(darling::Error::custom(
+                        "`validate` attribute can't be used with `validate_grant` or `validate_revoke` attributes"
+                    ).with_span(&attr))
                 }
-                _grant if path == &grant_path => {
-                    assert!(
-                        general_condition.is_none(),
-                        "`validate_grant` attribute can't be used with `validate` attribute"
-                    );
-                    assert!(
-                        grant_condition.is_none(),
-                        "`validate_grant` attribute duplication is not allowed"
-                    );
-
-                    grant_condition.replace(syn::parse(tokens).unwrap());
-                }
-                _revoke if path == &revoke_path => {
-                    assert!(
-                        general_condition.is_none(),
-                        "`validate_revoke` attribute can't be used with `validate` attribute"
-                    );
-                    assert!(
-                        revoke_condition.is_none(),
-                        "`validate_revoke` attribute duplication is not allowed"
-                    );
-
-                    revoke_condition.replace(syn::parse(tokens).unwrap());
-                }
-                path => {
-                    panic!(
-                        "Unexpected attribute: `{}`. Expected `validate`, `validate_grant` or `validate_revoke`",
-                        path.get_ident().map_or_else(|| "<can't display>".to_owned(), ToString::to_string)
+                if general_condition.is_some() {
+                    accumulator.push(
+                        darling::Error::custom("`validate` attribute duplication is not allowed")
+                            .with_span(&attr),
                     )
                 }
+
+                general_condition = general_condition
+                    .or(accumulator
+                        .handle(syn2::parse2(tokens.clone()).map_err(darling::Error::from)));
+            } else if path.is_ident("grant") {
+                if general_condition.is_some() {
+                    accumulator.push(
+                        darling::Error::custom(
+                            "`validate_grant` attribute can't be used with `validate` attribute",
+                        )
+                        .with_span(&attr),
+                    )
+                }
+                if grant_condition.is_some() {
+                    accumulator.push(
+                        darling::Error::custom(
+                            "`validate_grant` attribute duplication is not allowed",
+                        )
+                        .with_span(&attr),
+                    )
+                }
+
+                grant_condition = grant_condition
+                    .or(accumulator
+                        .handle(syn2::parse2(tokens.clone()).map_err(darling::Error::from)));
+            } else if path.is_ident("revoke") {
+                if general_condition.is_some() {
+                    accumulator.push(
+                        darling::Error::custom(
+                            "`validate_revoke` attribute can't be used with `validate` attribute",
+                        )
+                        .with_span(&attr),
+                    )
+                }
+                if revoke_condition.is_some() {
+                    accumulator.push(
+                        darling::Error::custom(
+                            "`validate_revoke` attribute duplication is not allowed",
+                        )
+                        .with_span(&attr),
+                    )
+                }
+
+                revoke_condition = revoke_condition
+                    .or(accumulator
+                        .handle(syn2::parse2(tokens.clone()).map_err(darling::Error::from)));
+            } else {
+                unreachable!()
             }
         }
 
-        match (general_condition, grant_condition, revoke_condition) {
-            (Some(condition), None, None) => ValidateAttribute::General(condition),
+        let result = match (general_condition, grant_condition, revoke_condition) {
+            (Some(condition), None, None) => Ok(ValidateAttribute::General(condition)),
             (None, Some(grant_condition), Some(revoke_condition)) => {
-                ValidateAttribute::Separate {
+                Ok(ValidateAttribute::Separate {
                     grant_condition,
                     revoke_condition,
-                }
+                })
             }
             (None, Some(_grant_condition), None) => {
-                panic!("`validate_grant` attribute should be used together with `validate_revoke` attribute")
+                Err(darling::Error::custom(
+                    "`validate_grant` attribute should be used together with `validate_revoke` attribute"
+                ))
             }
             (None, None, Some(_revoke_condition)) => {
-                panic!("`validate_revoke` attribute should be used together with `validate_grant` attribute")
+                Err(darling::Error::custom(
+                    "`validate_revoke` attribute should be used together with `validate_grant` attribute"
+                ))
             }
-            (None, None, None) => panic!("`validate` attribute or combination of `validate_grant` and `validate_revoke` attributes is required"),
-            _ => unreachable!(),
-        }
+            (None, None, None) => Err(darling::Error::custom(
+                "`validate` attribute or combination of `validate_grant` and `validate_revoke` attributes is required",
+            )),
+            _ => Err(darling::Error::custom("Invalid combination of attributes")),
+        };
+
+        let res = accumulator.handle(result);
+
+        accumulator.finish().map(|_| res.unwrap())
     }
 }
 
 fn gen_validate_impls(
     attributes: &[Attribute],
-) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
-    let validate_attribute = ValidateAttribute::from_attributes(attributes);
-
+) -> Result<(proc_macro2::TokenStream, proc_macro2::TokenStream)> {
+    let validate_attribute = ValidateAttribute::from_attributes(attributes)?;
     match validate_attribute {
-        ValidateAttribute::General(pass_condition) => (
+        ValidateAttribute::General(pass_condition) => Ok((
             gen_validate_impl(IsiName::Grant, &pass_condition),
             gen_validate_impl(IsiName::Revoke, &pass_condition),
-        ),
+        )),
         ValidateAttribute::Separate {
             grant_condition,
             revoke_condition,
-        } => (
+        } => Ok((
             gen_validate_impl(IsiName::Grant, &grant_condition),
             gen_validate_impl(IsiName::Revoke, &revoke_condition),
-        ),
+        )),
     }
 }
 

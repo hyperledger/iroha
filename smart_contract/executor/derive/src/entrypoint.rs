@@ -1,6 +1,10 @@
 //! Module [`executor_entrypoint`](crate::executor_entrypoint) macro implementation
 
-use super::*;
+use iroha_macro_utils::Emitter;
+use manyhow::emit;
+use proc_macro2::TokenStream;
+use quote::quote;
+use syn2::parse_quote;
 
 mod export {
     pub const EXECUTOR_VALIDATE_TRANSACTION: &str = "_iroha_executor_validate_transaction";
@@ -17,14 +21,7 @@ mod import {
 
 /// [`executor_entrypoint`](crate::executor_entrypoint()) macro implementation
 #[allow(clippy::needless_pass_by_value)]
-pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let fn_item = parse_macro_input!(item as syn::ItemFn);
-
-    assert!(
-        attr.is_empty(),
-        "`#[entrypoint]` macro for Executor entrypoints accepts no attributes"
-    );
-
+pub fn impl_entrypoint(emitter: &mut Emitter, item: syn2::ItemFn) -> TokenStream {
     macro_rules! match_entrypoints {
         (validate: {
             $($user_entrypoint_name:ident =>
@@ -33,23 +30,27 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         other: {
             $($other_user_entrypoint_name:ident => $branch:block),* $(,)?
         }) => {
-            match &fn_item.sig.ident {
+            match &item.sig.ident {
                 $(fn_name if fn_name == stringify!($user_entrypoint_name) => {
                     impl_validate_entrypoint(
-                        fn_item,
+                        item,
                         stringify!($user_entrypoint_name),
                         export::$generated_entrypoint_name,
                         import::$query_validating_object_fn_name,
                     )
                 })*
                 $(fn_name if fn_name == stringify!($other_user_entrypoint_name) => $branch),*
-                _ => panic!(
-                    "Executor entrypoint name must be one of: {:?}",
-                    [
-                        $(stringify!($user_entrypoint_name),)*
-                        $(stringify!($other_user_entrypoint_name),)*
-                    ]
-                ),
+                _ => {
+                    emit!(
+                        emitter,
+                        "Executor entrypoint name must be one of: {:?}",
+                        [
+                            $(stringify!($user_entrypoint_name),)*
+                            $(stringify!($other_user_entrypoint_name),)*
+                        ]
+                    );
+                    return quote!();
+                },
             }
         };
     }
@@ -61,18 +62,18 @@ pub fn impl_entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
             validate_query => EXECUTOR_VALIDATE_QUERY(GET_VALIDATE_QUERY_PAYLOAD),
         }
         other: {
-            migrate => { impl_migrate_entrypoint(fn_item) }
+            migrate => { impl_migrate_entrypoint(item) }
         }
     }
 }
 
 fn impl_validate_entrypoint(
-    fn_item: syn::ItemFn,
+    fn_item: syn2::ItemFn,
     user_entrypoint_name: &'static str,
     generated_entrypoint_name: &'static str,
     get_validation_payload_fn_name: &'static str,
 ) -> TokenStream {
-    let syn::ItemFn {
+    let syn2::ItemFn {
         attrs,
         vis,
         sig,
@@ -81,7 +82,7 @@ fn impl_validate_entrypoint(
     let fn_name = &sig.ident;
 
     assert!(
-        matches!(sig.output, syn::ReturnType::Type(_, _)),
+        matches!(sig.output, syn2::ReturnType::Type(_, _)),
         "Executor `{user_entrypoint_name}` entrypoint must have `Result` return type"
     );
 
@@ -92,11 +93,11 @@ fn impl_validate_entrypoint(
         ),
     );
 
-    let generated_entrypoint_ident: syn::Ident = syn::parse_str(generated_entrypoint_name)
+    let generated_entrypoint_ident: syn2::Ident = syn2::parse_str(generated_entrypoint_name)
         .expect("Provided entrypoint name to generate is not a valid Ident, this is a bug");
 
-    let get_validation_payload_fn_ident: syn::Ident =
-        syn::parse_str(get_validation_payload_fn_name).expect(
+    let get_validation_payload_fn_ident: syn2::Ident =
+        syn2::parse_str(get_validation_payload_fn_name).expect(
             "Provided function name to query validating object is not a valid Ident, this is a bug",
         );
 
@@ -125,11 +126,10 @@ fn impl_validate_entrypoint(
         #vis #sig
         #block
     }
-    .into()
 }
 
-fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
-    let syn::ItemFn {
+fn impl_migrate_entrypoint(fn_item: syn2::ItemFn) -> TokenStream {
+    let syn2::ItemFn {
         attrs,
         vis,
         sig,
@@ -138,11 +138,12 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
     let fn_name = &sig.ident;
 
     assert!(
-        matches!(sig.output, syn::ReturnType::Type(_, _)),
+        matches!(sig.output, syn2::ReturnType::Type(_, _)),
         "Executor `migrate()` entrypoint must have `MigrationResult` return type"
     );
 
-    let migrate_fn_name = syn::Ident::new(export::EXECUTOR_MIGRATE, proc_macro2::Span::call_site());
+    let migrate_fn_name =
+        syn2::Ident::new(export::EXECUTOR_MIGRATE, proc_macro2::Span::call_site());
 
     quote! {
         /// Executor `permission_token_schema` entrypoint
@@ -167,5 +168,4 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
         #vis #sig
         #block
     }
-    .into()
 }
