@@ -1,6 +1,8 @@
 //! Macros for writing smart contracts.
 
-use proc_macro::TokenStream;
+use iroha_macro_utils::Emitter;
+use manyhow::{emit, manyhow};
+use proc_macro2::TokenStream;
 
 mod entrypoint;
 
@@ -23,7 +25,23 @@ mod entrypoint;
 ///    todo!()
 /// }
 /// ```
+#[manyhow]
 #[proc_macro_attribute]
 pub fn main(attr: TokenStream, item: TokenStream) -> TokenStream {
-    entrypoint::impl_entrypoint(attr, item)
+    let mut emitter = Emitter::new();
+
+    if !attr.is_empty() {
+        emit!(
+            emitter,
+            "Smart contract entrypoint does not accept attributes"
+        );
+    }
+
+    let Some(item) = emitter.handle(syn2::parse2(item)) else {
+        return emitter.finish_token_stream();
+    };
+
+    let result = entrypoint::impl_entrypoint(&mut emitter, item);
+
+    emitter.finish_token_stream_with(result)
 }
