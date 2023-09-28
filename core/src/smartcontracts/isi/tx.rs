@@ -5,7 +5,7 @@ use std::sync::Arc;
 use eyre::{Result, WrapErr};
 use iroha_crypto::HashOf;
 use iroha_data_model::{
-    block::VersionedSignedBlock,
+    block::SignedBlock,
     evaluate::ExpressionEvaluator,
     prelude::*,
     query::{
@@ -18,11 +18,11 @@ use iroha_telemetry::metrics;
 
 use super::*;
 
-pub(crate) struct BlockTransactionIter(Arc<VersionedSignedBlock>, usize);
-pub(crate) struct BlockTransactionRef(Arc<VersionedSignedBlock>, usize);
+pub(crate) struct BlockTransactionIter(Arc<SignedBlock>, usize);
+pub(crate) struct BlockTransactionRef(Arc<SignedBlock>, usize);
 
 impl BlockTransactionIter {
-    fn new(block: Arc<VersionedSignedBlock>) -> Self {
+    fn new(block: Arc<SignedBlock>) -> Self {
         Self(block, 0)
     }
 }
@@ -43,7 +43,7 @@ impl Iterator for BlockTransactionIter {
 }
 
 impl BlockTransactionRef {
-    fn block_hash(&self) -> HashOf<VersionedSignedBlock> {
+    fn block_hash(&self) -> HashOf<SignedBlock> {
         self.0.hash()
     }
 

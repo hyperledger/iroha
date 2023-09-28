@@ -37,7 +37,7 @@ pub static GENESIS_ACCOUNT_ID: Lazy<AccountId> =
 
 /// Genesis transaction
 #[derive(Debug, Clone)]
-pub struct GenesisTransaction(pub VersionedSignedTransaction);
+pub struct GenesisTransaction(pub SignedTransaction);
 
 /// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.
 #[derive(Debug, Clone)]
@@ -202,14 +202,14 @@ pub struct GenesisTransactionBuilder {
 }
 
 impl GenesisTransactionBuilder {
-    /// Convert [`GenesisTransactionBuilder`] into [`VersionedSignedTransaction`] with signature.
+    /// Convert [`GenesisTransactionBuilder`] into [`SignedTransaction`] with signature.
     ///
     /// # Errors
     /// Fails if signing or accepting fails.
     pub fn sign(
         self,
         genesis_key_pair: KeyPair,
-    ) -> core::result::Result<VersionedSignedTransaction, iroha_crypto::error::Error> {
+    ) -> core::result::Result<SignedTransaction, iroha_crypto::error::Error> {
         TransactionBuilder::new(GENESIS_ACCOUNT_ID.clone())
             .with_instructions(self.isi)
             .sign(genesis_key_pair)

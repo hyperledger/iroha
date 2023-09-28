@@ -28,7 +28,7 @@ mod validate;
 /// #[entrypoint]
 /// pub fn validate_transaction(
 ///     authority: AccountId,
-///     transaction: VersionedSignedTransaction,
+///     transaction: SignedTransaction,
 ///     block_height: u64,
 /// ) -> Result {
 ///     todo!()

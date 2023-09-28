@@ -10,7 +10,7 @@ fn submit(
     instructions: impl IntoIterator<Item = impl Instruction>,
     submitter: Option<(AccountId, KeyPair)>,
 ) -> (
-    HashOf<VersionedSignedTransaction>,
+    HashOf<SignedTransaction>,
     eyre::Result<HashOf<TransactionPayload>>,
 ) {
     let tx = if let Some((account_id, keypair)) = submitter {
@@ -28,7 +28,7 @@ fn submit(
     (tx.hash(), client.submit_transaction_blocking(&tx))
 }
 
-fn get(client: &Client, hash: HashOf<VersionedSignedTransaction>) -> TransactionValue {
+fn get(client: &Client, hash: HashOf<SignedTransaction>) -> TransactionValue {
     client
         .request(transaction::by_hash(hash))
         .unwrap()

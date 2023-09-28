@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use derive_more::{Deref, DerefMut};
 use eyre::Result;
 use iroha_crypto::{HashOf, KeyPair, PublicKey, SignatureOf, SignaturesOf};
-use iroha_data_model::{block::VersionedSignedBlock, prelude::PeerId};
+use iroha_data_model::{block::SignedBlock, prelude::PeerId};
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
 
@@ -28,7 +28,7 @@ pub enum Error {
 #[derive(Debug, Clone, Decode, Encode)]
 struct ProofPayload {
     /// Hash of the latest committed block.
-    latest_block_hash: Option<HashOf<VersionedSignedBlock>>,
+    latest_block_hash: Option<HashOf<SignedBlock>>,
     /// Within a round, what is the index of the view change this proof is trying to prove.
     view_change_index: u64,
 }
@@ -47,10 +47,7 @@ pub struct ProofBuilder(SignedProof);
 
 impl ProofBuilder {
     /// Constructor from index.
-    pub fn new(
-        latest_block_hash: Option<HashOf<VersionedSignedBlock>>,
-        view_change_index: u64,
-    ) -> Self {
+    pub fn new(latest_block_hash: Option<HashOf<SignedBlock>>, view_change_index: u64) -> Self {
         let proof = SignedProof {
             payload: ProofPayload {
                 latest_block_hash,
@@ -115,7 +112,7 @@ impl ProofChain {
         &self,
         peers: &[PeerId],
         max_faults: usize,
-        latest_block_hash: Option<HashOf<VersionedSignedBlock>>,
+        latest_block_hash: Option<HashOf<SignedBlock>>,
     ) -> usize {
         self.iter()
             .enumerate()
@@ -128,7 +125,7 @@ impl ProofChain {
     }
 
     /// Remove invalid proofs from the chain.
-    pub fn prune(&mut self, latest_block_hash: Option<HashOf<VersionedSignedBlock>>) {
+    pub fn prune(&mut self, latest_block_hash: Option<HashOf<SignedBlock>>) {
         let valid_count = self
             .iter()
             .enumerate()
@@ -150,7 +147,7 @@ impl ProofChain {
         &mut self,
         peers: &[PeerId],
         max_faults: usize,
-        latest_block_hash: Option<HashOf<VersionedSignedBlock>>,
+        latest_block_hash: Option<HashOf<SignedBlock>>,
         new_proof: SignedProof,
     ) -> Result<(), Error> {
         if new_proof.payload.latest_block_hash != latest_block_hash {
@@ -181,7 +178,7 @@ impl ProofChain {
         mut other: Self,
         peers: &[PeerId],
         max_faults: usize,
-        latest_block_hash: Option<HashOf<VersionedSignedBlock>>,
+        latest_block_hash: Option<HashOf<SignedBlock>>,
     ) -> Result<(), Error> {
         // Prune to exclude invalid proofs
         other.prune(latest_block_hash);
