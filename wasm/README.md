@@ -8,10 +8,10 @@ Check the [WASM section of our tutorial](https://hyperledger.github.io/iroha-2-d
 
 ## Running tests
 
-To be able to run tests compiled for `wasm32-unknown-unknown` target install `webassembly-test-runner`:
+To be able to run tests compiled for `wasm32-unknown-unknown` target install `iroha_wasm_test_runner` from the root of the iroha repository:
 
 ```bash
-cargo install webassembly-test-runner
+cargo install --path tools/wasm_test_runner 
 ```
 
 Then run tests:
