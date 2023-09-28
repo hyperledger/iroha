@@ -1,7 +1,7 @@
 //! This module contains implementations of smart-contract traits and instructions for [`Account`] structure
 //! and implementations of [`Query`]'s to [`WorldStateView`] about [`Account`].
 
-use iroha_data_model::{asset::AssetsMap, prelude::*, query::error::FindError, role::RoleIds};
+use iroha_data_model::{asset::AssetsMap, prelude::*, query::error::FindError};
 use iroha_telemetry::metrics;
 
 use super::prelude::*;
@@ -19,7 +19,6 @@ impl Registrable for iroha_data_model::account::NewAccount {
             assets: AssetsMap::default(),
             signature_check_condition: SignatureCheckCondition::default(),
             metadata: self.metadata,
-            roles: RoleIds::default(),
         }
     }
 }
@@ -40,6 +39,7 @@ pub mod isi {
     };
 
     use super::*;
+    use crate::role::RoleIdWithOwner;
 
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     impl Execute for Register<Asset> {
@@ -312,7 +312,7 @@ pub mod isi {
             let permission = self.object;
 
             // Check if account exists
-            wsv.account_mut(&account_id)?;
+            wsv.account(&account_id)?;
 
             if !wsv.remove_account_permission(&account_id, &permission) {
                 return Err(FindError::PermissionToken(permission.definition_id).into());
@@ -345,18 +345,19 @@ pub mod isi {
                 .into_iter()
                 .map(|token| token.definition_id);
 
-            wsv.account_mut(&account_id)
-                .map_err(Error::from)
-                .and_then(|account| {
-                    if !account.add_role(role_id.clone()) {
-                        return Err(RepetitionError {
-                            instruction_type: InstructionType::Grant,
-                            id: IdBox::RoleId(role_id.clone()),
-                        }
-                        .into());
-                    }
-                    Ok(())
-                })?;
+            wsv.account(&account_id)?;
+
+            if !wsv
+                .world
+                .account_roles
+                .insert(RoleIdWithOwner::new(account_id.clone(), role_id.clone()))
+            {
+                return Err(RepetitionError {
+                    instruction_type: InstructionType::Grant,
+                    id: IdBox::RoleId(role_id),
+                }
+                .into());
+            }
 
             wsv.emit_events({
                 let account_id_clone = account_id.clone();
@@ -395,12 +396,14 @@ pub mod isi {
                 .into_iter()
                 .map(|token| token.definition_id);
 
-            wsv.account_mut(&account_id).and_then(|account| {
-                if !account.remove_role(&role_id) {
-                    return Err(FindError::Role(role_id.clone()));
-                }
-                Ok(())
-            })?;
+            // TODO: clone could be avoided through `borrow`
+            if !wsv
+                .world
+                .account_roles
+                .remove(&RoleIdWithOwner::new(account_id.clone(), role_id.clone()))
+            {
+                return Err(FindError::Role(role_id).into());
+            }
 
             wsv.emit_events({
                 let account_id_clone = account_id.clone();
@@ -499,10 +502,17 @@ pub mod query {
                 .evaluate(&self.id)
                 .wrap_err("Failed to evaluate account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let account_id_clone = account_id.clone();
             iroha_logger::trace!(%account_id, roles=?wsv.world.roles);
             Ok(Box::new(
-                wsv.map_account(&account_id, |account| &account.roles)?
+                // TODO: more effective through `.range`
+                // Use the fact that `BTreeSet` is ordered
+                wsv.world
+                    .account_roles
                     .iter()
+                    .skip_while(move |role| role.account_id.ne(&account_id))
+                    .take_while(move |role| role.account_id.eq(&account_id_clone))
+                    .map(|role| &role.role_id)
                     .cloned(),
             ))
         }

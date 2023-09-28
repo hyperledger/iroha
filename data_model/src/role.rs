@@ -1,9 +1,7 @@
 //! Structures, traits and impls related to `Role`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{collections::btree_set, format, string::String, vec::Vec};
-#[cfg(feature = "std")]
-use std::collections::btree_set;
+use alloc::{format, string::String, vec::Vec};
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
@@ -17,9 +15,6 @@ use crate::{
     permission::{PermissionToken, Permissions},
     Identifiable, Name, Registered,
 };
-
-/// Collection of [`RoleId`](Id)s
-pub type RoleIds = btree_set::BTreeSet<RoleId>;
 
 #[model]
 pub mod model {
