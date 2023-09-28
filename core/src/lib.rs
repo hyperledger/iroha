@@ -108,6 +108,7 @@ pub mod role {
     //! Module with extension for [`RoleId`] to be stored inside wsv.
 
     use derive_more::Constructor;
+    use iroha_primitives::impl_as_dyn_key;
     use serde::{Deserialize, Serialize};
 
     use super::*;
@@ -132,6 +133,30 @@ pub mod role {
         pub account_id: AccountId,
         /// [`RoleId`]  of the given role.
         pub role_id: RoleId,
+    }
+
+    /// Reference to [`RoleIdWithOwner`].
+    #[derive(Debug, Clone, Copy, Constructor, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct RoleIdWithOwnerRef<'role> {
+        /// [`AccountId`] of the owner.
+        pub account_id: &'role AccountId,
+        /// [`RoleId`]  of the given role.
+        pub role_id: &'role RoleId,
+    }
+
+    impl AsRoleIdWithOwnerRef for RoleIdWithOwner {
+        fn as_key(&self) -> RoleIdWithOwnerRef<'_> {
+            RoleIdWithOwnerRef {
+                account_id: &self.account_id,
+                role_id: &self.role_id,
+            }
+        }
+    }
+
+    impl_as_dyn_key! {
+        target: RoleIdWithOwner,
+        key: RoleIdWithOwnerRef<'_>,
+        trait: AsRoleIdWithOwnerRef
     }
 }
 
