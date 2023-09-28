@@ -448,7 +448,7 @@ mod tests {
     }
 
     fn get_test_expression() -> EvaluatesTo<NumericValue> {
-        Add::new(1_u32, 2_u32).into()
+        Add::new(2_u32, 3_u32).into()
     }
 
     #[no_mangle]

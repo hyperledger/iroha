@@ -47,5 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
+      - name: Install iroha_wasm_test_runner
+        run: cd .. && cargo install --path tools/wasm_test_runner
       - name: Run tests
         run: mold --run cargo test --tests --no-fail-fast --quiet
