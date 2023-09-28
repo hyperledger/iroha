@@ -23,7 +23,6 @@ RUN rustup component add llvm-tools-preview clippy
 RUN rustup component add rust-src
 RUN rustup component add rustfmt
 RUN rustup target add wasm32-unknown-unknown
-RUN cargo install webassembly-test-runner
 RUN cargo install cargo-llvm-cov
 
 # TODO: Figure out a way to pull in libgit2, which doesn't crash if this useless variable is gone.

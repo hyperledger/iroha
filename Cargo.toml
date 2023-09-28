@@ -319,6 +319,7 @@ members = [
   "tools/parity_scale_decoder",
   "tools/swarm",
   "tools/wasm_builder_cli",
+  "tools/wasm_test_runner",
   "version",
   "version/derive",
   "wasm_codec",
