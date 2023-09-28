@@ -39,7 +39,7 @@ pub mod isi {
     };
 
     use super::*;
-    use crate::role::RoleIdWithOwner;
+    use crate::role::{AsRoleIdWithOwnerRef, RoleIdWithOwner, RoleIdWithOwnerRef};
 
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     impl Execute for Register<Asset> {
@@ -396,11 +396,10 @@ pub mod isi {
                 .into_iter()
                 .map(|token| token.definition_id);
 
-            // TODO: clone could be avoided through `borrow`
             if !wsv
                 .world
                 .account_roles
-                .remove(&RoleIdWithOwner::new(account_id.clone(), role_id.clone()))
+                .remove::<dyn AsRoleIdWithOwnerRef>(&RoleIdWithOwnerRef::new(&account_id, &role_id))
             {
                 return Err(FindError::Role(role_id).into());
             }
