@@ -6,7 +6,7 @@
 use iroha_crypto::MerkleTree;
 use iroha_data_model::{
     block::stream::{BlockMessage, BlockSubscriptionRequest},
-    http::VersionedBatchedResponse,
+    http::BatchedResponse,
     query::error::QueryExecutionFail,
 };
 use iroha_genesis::RawGenesisBlock;
@@ -21,7 +21,7 @@ macro_rules! types {
                 $( $callback!($t); )+
 
                 #[cfg(target_arch = "aarch64")]
-                $callback!(Box<VersionedSignedBlock>);
+                $callback!(Box<SignedBlock>);
             }}
         }
     }
@@ -48,12 +48,12 @@ pub fn build_schemas() -> MetaMap {
         BlockSubscriptionRequest,
         EventMessage,
         EventSubscriptionRequest,
-        VersionedBatchedResponse<Value>,
-        VersionedBatchedResponse<Vec<VersionedSignedTransaction>>,
-        VersionedSignedQuery,
+        BatchedResponse<Value>,
+        BatchedResponse<Vec<SignedTransaction>>,
+        SignedQuery,
 
         // Never referenced, but present in type signature. Like `PhantomData<X>`
-        MerkleTree<VersionedSignedTransaction>,
+        MerkleTree<SignedTransaction>,
         RegistrableBox,
         UpgradableBox,
 
@@ -100,7 +100,9 @@ types!(
     BTreeSet<PublicKey>,
     BTreeSet<RoleId>,
     BatchedResponse<Value>,
-    BatchedResponse<Vec<VersionedSignedTransaction>>,
+    BatchedResponse<Vec<SignedTransaction>>,
+    BatchedResponseV1<Value>,
+    BatchedResponseV1<Vec<SignedTransaction>>,
     BlockHeader,
     BlockMessage,
     BlockRejectionReason,
@@ -111,7 +113,6 @@ types!(
     Box<Value>,
     Box<ValuePredicate>,
     BurnBox,
-    SignedBlock,
     Conditional,
     ConfigurationEvent,
     ConstString,
@@ -192,7 +193,6 @@ types!(
     FindAllDomains,
     FindAllParameters,
     FindAllPeers,
-    FindPermissionTokenSchema,
     FindAllRoleIds,
     FindAllRoles,
     FindAllTransactions,
@@ -210,6 +210,7 @@ types!(
     FindDomainById,
     FindDomainKeyValueByIdAndKey,
     FindError,
+    FindPermissionTokenSchema,
     FindPermissionTokensByAccountId,
     FindRoleByRoleId,
     FindRolesByAccountId,
@@ -225,9 +226,9 @@ types!(
     GrantBox,
     Greater,
     Hash,
-    HashOf<MerkleTree<VersionedSignedTransaction>>,
-    HashOf<VersionedSignedBlock>,
-    HashOf<VersionedSignedTransaction>,
+    HashOf<MerkleTree<SignedTransaction>>,
+    HashOf<SignedBlock>,
+    HashOf<SignedTransaction>,
     IdBox,
     IdentifiableBox,
     If,
@@ -243,7 +244,7 @@ types!(
     IsAssetDefinitionOwner,
     LengthLimits,
     Less,
-    MerkleTree<VersionedSignedTransaction>,
+    MerkleTree<SignedTransaction>,
     Metadata,
     MetadataChanged<AccountId>,
     MetadataChanged<AssetDefinitionId>,
@@ -268,8 +269,8 @@ types!(
     Option<DomainId>,
     Option<Duration>,
     Option<Hash>,
-    Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
-    Option<HashOf<VersionedSignedBlock>>,
+    Option<HashOf<MerkleTree<SignedTransaction>>>,
+    Option<HashOf<SignedBlock>>,
     Option<InstructionBox>,
     Option<IpfsPath>,
     Option<PipelineEntityKind>,
@@ -333,8 +334,13 @@ types!(
     SignatureOf<TransactionPayload>,
     SignatureWrapperOf<TransactionPayload>,
     SignaturesOf<TransactionPayload>,
+    SignedBlock,
+    SignedBlockV1,
+    SignedBlockWrapper,
     SignedQuery,
+    SignedQueryV1,
     SignedTransaction,
+    SignedTransactionV1,
     String,
     StringPredicate,
     Subtract,
@@ -350,13 +356,13 @@ types!(
     TransactionValue,
     TransferBox,
     Trigger<TriggeringFilterBox, Executable>,
+    TriggerCompletedEventFilter,
+    TriggerCompletedOutcomeType,
     TriggerEvent,
     TriggerEventFilter,
     TriggerFilter,
     TriggerId,
     TriggerNumberOfExecutionsChanged,
-    TriggerCompletedEventFilter,
-    TriggerCompletedOutcomeType,
     TriggeringFilterBox,
     UnregisterBox,
     UpgradableBox,
@@ -370,15 +376,9 @@ types!(
     Vec<InstructionBox>,
     Vec<PeerId>,
     Vec<PredicateBox>,
+    Vec<SignedTransaction>,
     Vec<Value>,
-    Vec<VersionedSignedTransaction>,
     Vec<u8>,
-    VersionedBatchedResponse<Value>,
-    VersionedBatchedResponse<Vec<VersionedSignedTransaction>>,
-    VersionedSignedBlock,
-    VersionedSignedBlockWrapper,
-    VersionedSignedQuery,
-    VersionedSignedTransaction,
     WasmExecutionFail,
     WasmSmartContract,
     Where,
@@ -411,10 +411,10 @@ mod tests {
         block::{
             error::BlockRejectionReason,
             stream::{BlockMessage, BlockSubscriptionRequest},
-            BlockHeader, SignedBlock, VersionedSignedBlock,
+            BlockHeader, SignedBlock, SignedBlockV1,
         },
         domain::NewDomain,
-        http::{BatchedResponse, VersionedBatchedResponse},
+        http::{BatchedResponse, BatchedResponseV1},
         ipfs::IpfsPath,
         predicate::{
             ip_addr::{Ipv4Predicate, Ipv6Predicate},
@@ -428,9 +428,9 @@ mod tests {
             error::{FindError, QueryExecutionFail},
             ForwardCursor,
         },
-        transaction::{error::TransactionLimitError, SignedTransaction, TransactionLimits},
+        transaction::{error::TransactionLimitError, SignedTransactionV1, TransactionLimits},
         validator::Validator,
-        VersionedSignedBlockWrapper,
+        SignedBlockWrapper,
     };
     use iroha_genesis::RawGenesisBlock;
     use iroha_primitives::{
@@ -567,6 +567,6 @@ mod tests {
     fn no_schema_type_overlap() {
         let mut schemas = super::build_schemas();
         <Vec<PublicKey>>::update_schema_map(&mut schemas);
-        <BTreeSet<SignedTransaction>>::update_schema_map(&mut schemas);
+        <BTreeSet<SignedTransactionV1>>::update_schema_map(&mut schemas);
     }
 }

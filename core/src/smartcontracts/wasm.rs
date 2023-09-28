@@ -470,7 +470,7 @@ pub mod state {
         }
 
         /// State for executing `validate_transaction()` entrypoint of validator
-        pub type ValidateTransaction<'wrld> = ValidateMut<'wrld, VersionedSignedTransaction>;
+        pub type ValidateTransaction<'wrld> = ValidateMut<'wrld, SignedTransaction>;
 
         /// State for executing `validate_instruction()` entrypoint of validator
         pub type ValidateInstruction<'wrld> = ValidateMut<'wrld, InstructionBox>;
@@ -1006,7 +1006,7 @@ impl<'wrld> Runtime<state::validator::ValidateTransaction<'wrld>> {
         wsv: &'wrld mut WorldStateView,
         authority: &AccountId,
         module: &wasmtime::Module,
-        transaction: VersionedSignedTransaction,
+        transaction: SignedTransaction,
     ) -> Result<validator::Result> {
         let span = wasm_log_span!("Running `validate_transaction()`");
 

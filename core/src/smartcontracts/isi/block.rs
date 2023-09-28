@@ -1,7 +1,7 @@
 //! This module contains trait implementations related to block queries
 use eyre::{Result, WrapErr};
 use iroha_data_model::{
-    block::{BlockHeader, VersionedSignedBlock},
+    block::{BlockHeader, SignedBlock},
     evaluate::ExpressionEvaluator,
     query::{
         block::FindBlockHeaderByHash,
@@ -17,11 +17,11 @@ impl ValidQuery for FindAllBlocks {
     fn execute<'wsv>(
         &self,
         wsv: &'wsv WorldStateView,
-    ) -> Result<Box<dyn Iterator<Item = VersionedSignedBlock> + 'wsv>, QueryExecutionFail> {
+    ) -> Result<Box<dyn Iterator<Item = SignedBlock> + 'wsv>, QueryExecutionFail> {
         Ok(Box::new(
             wsv.all_blocks()
                 .rev()
-                .map(|block| VersionedSignedBlock::clone(&block)),
+                .map(|block| SignedBlock::clone(&block)),
         ))
     }
 }

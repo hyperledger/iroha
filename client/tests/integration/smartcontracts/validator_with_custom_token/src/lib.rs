@@ -203,7 +203,7 @@ impl Visit for Validator {
     defaults! {
         visit_unsupported<T: core::fmt::Debug>(T),
 
-        visit_transaction(&VersionedSignedTransaction),
+        visit_transaction(&SignedTransaction),
         visit_instruction(&InstructionBox),
         visit_expression<V>(&EvaluatesTo<V>),
         visit_sequence(&SequenceBox),
@@ -303,7 +303,7 @@ pub fn migrate(_block_height: u64) -> MigrationResult {
 #[entrypoint]
 pub fn validate_transaction(
     authority: AccountId,
-    transaction: VersionedSignedTransaction,
+    transaction: SignedTransaction,
     block_height: u64,
 ) -> Result {
     let mut validator = Validator::new(block_height);

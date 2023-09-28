@@ -32,7 +32,7 @@ use core::{
     str::FromStr,
 };
 
-use block::VersionedSignedBlock;
+use block::SignedBlock;
 #[cfg(not(target_arch = "aarch64"))]
 use derive_more::Into;
 use derive_more::{AsRef, DebugCustom, Deref, Display, From, FromStr};
@@ -50,7 +50,7 @@ use iroha_primitives::{
 use iroha_schema::IntoSchema;
 pub use numeric::model::NumericValue;
 use parity_scale_codec::{Decode, Encode};
-use prelude::{Executable, TransactionQueryOutput, VersionedSignedTransaction};
+use prelude::{Executable, SignedTransaction, TransactionQueryOutput};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use strum::FromRepr;
@@ -781,7 +781,7 @@ pub mod model {
         PermissionToken(permission::PermissionToken),
         PermissionTokenSchema(permission::PermissionTokenSchema),
         Hash(HashValue),
-        Block(VersionedSignedBlockWrapper),
+        Block(SignedBlockWrapper),
         BlockHeader(block::BlockHeader),
         Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
         Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
@@ -811,12 +811,12 @@ pub mod model {
     #[ffi_type]
     pub enum HashValue {
         /// Transaction hash
-        Transaction(HashOf<VersionedSignedTransaction>),
+        Transaction(HashOf<SignedTransaction>),
         /// Block hash
-        Block(HashOf<VersionedSignedBlock>),
+        Block(HashOf<SignedBlock>),
     }
 
-    /// Cross-platform wrapper for [`VersionedSignedBlock`].
+    /// Cross-platform wrapper for [`SignedBlock`].
     #[cfg(not(target_arch = "aarch64"))]
     #[derive(
         Debug,
@@ -835,12 +835,12 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
-    // SAFETY: VersionedSignedBlockWrapper has no trap representations in VersionedSignedBlock
+    // SAFETY: SignedBlockWrapper has no trap representations in SignedBlock
     #[schema(transparent)]
     #[ffi_type(unsafe {robust})]
     #[serde(transparent)]
     #[repr(transparent)]
-    pub struct VersionedSignedBlockWrapper(VersionedSignedBlock);
+    pub struct SignedBlockWrapper(SignedBlock);
 
     /// Cross-platform wrapper for `BlockValue`.
     #[cfg(target_arch = "aarch64")]
@@ -864,11 +864,11 @@ pub mod model {
     #[as_ref(forward)]
     #[deref(forward)]
     #[from(forward)]
-    // SAFETY: VersionedSignedBlockWrapper has no trap representations in Box<VersionedSignedBlock>
+    // SAFETY: SignedBlockWrapper has no trap representations in Box<SignedBlock>
     #[ffi_type(unsafe {robust})]
     #[serde(transparent)]
     #[repr(transparent)]
-    pub struct VersionedSignedBlockWrapper(pub(super) Box<VersionedSignedBlock>);
+    pub struct SignedBlockWrapper(pub(super) Box<SignedBlock>);
 
     /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
     #[derive(
@@ -1056,8 +1056,8 @@ macro_rules! val_vec {
 }
 
 #[cfg(target_arch = "aarch64")]
-impl From<VersionedSignedBlockWrapper> for VersionedSignedBlock {
-    fn from(block_value: VersionedSignedBlockWrapper) -> Self {
+impl From<SignedBlockWrapper> for SignedBlock {
+    fn from(block_value: SignedBlockWrapper) -> Self {
         *block_value.0
     }
 }
@@ -1135,8 +1135,8 @@ impl Value {
     }
 }
 
-impl From<VersionedSignedBlock> for Value {
-    fn from(block_value: VersionedSignedBlock) -> Self {
+impl From<SignedBlock> for Value {
+    fn from(block_value: SignedBlock) -> Self {
         Value::Block(block_value.into())
     }
 }
@@ -1328,8 +1328,8 @@ from_and_try_from_value_identifiable!(
 );
 
 from_and_try_from_and_try_as_value_hash! {
-    Transaction(HashOf<VersionedSignedTransaction>),
-    Block(HashOf<VersionedSignedBlock>),
+    Transaction(HashOf<SignedTransaction>),
+    Block(HashOf<SignedBlock>),
 }
 
 from_and_try_from_and_try_as_value_numeric! {
@@ -1429,7 +1429,7 @@ where
     }
 }
 
-impl TryFrom<Value> for VersionedSignedBlock {
+impl TryFrom<Value> for SignedBlock {
     type Error = ErrorTryFromEnum<Value, Self>;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -1855,7 +1855,7 @@ pub mod http {
     pub use self::model::*;
     use crate::prelude::QueryOutput;
 
-    declare_versioned_with_scale!(VersionedBatchedResponse<T> 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+    declare_versioned_with_scale!(BatchedResponse<T> 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
     #[model]
     pub mod model {
@@ -1868,10 +1868,10 @@ pub mod http {
 
         /// Batched response of a query sent to torii
         #[derive(Debug, Clone, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-        #[version_with_scale(version = 1, versioned_alias = "VersionedBatchedResponse")]
+        #[version_with_scale(version = 1, versioned_alias = "BatchedResponse")]
         #[getset(get = "pub")]
         #[must_use]
-        pub struct BatchedResponse<T> {
+        pub struct BatchedResponseV1<T> {
             /// Current batch
             pub batch: T,
             /// Index of the next element in the result set. Client will use this value
@@ -1880,16 +1880,16 @@ pub mod http {
         }
     }
 
-    impl From<BatchedResponse<Self>> for QueryOutput {
+    impl From<BatchedResponseV1<Self>> for QueryOutput {
         #[inline]
-        fn from(source: BatchedResponse<Self>) -> Self {
+        fn from(source: BatchedResponseV1<Self>) -> Self {
             source.batch
         }
     }
 
-    impl<T> From<BatchedResponse<T>> for (T, crate::query::cursor::ForwardCursor) {
-        fn from(source: BatchedResponse<T>) -> Self {
-            let BatchedResponse { batch, cursor } = source;
+    impl<T> From<BatchedResponseV1<T>> for (T, crate::query::cursor::ForwardCursor) {
+        fn from(source: BatchedResponseV1<T>) -> Self {
+            let BatchedResponseV1 { batch, cursor } = source;
 
             (batch, cursor)
         }

@@ -28,9 +28,9 @@ use self::{
 };
 use crate::{
     account::Account,
-    block::VersionedSignedBlock,
+    block::SignedBlock,
     seal,
-    transaction::{TransactionPayload, TransactionValue, VersionedSignedTransaction},
+    transaction::{SignedTransaction, TransactionPayload, TransactionValue},
     Identifiable, Value,
 };
 
@@ -71,7 +71,7 @@ pub mod model {
     use iroha_crypto::HashOf;
 
     use super::*;
-    use crate::{block::VersionedSignedBlock, permission::PermissionTokenId};
+    use crate::{block::SignedBlock, permission::PermissionTokenId};
 
     /// Sized container for all possible Queries.
     #[allow(clippy::enum_variant_names)]
@@ -146,7 +146,7 @@ pub mod model {
         /// Transaction
         pub transaction: TransactionValue,
         /// The hash of the block to which `tx` belongs to
-        pub block_hash: HashOf<VersionedSignedBlock>,
+        pub block_hash: HashOf<SignedBlock>,
     }
 
     /// Type returned from [`Metadata`] queries
@@ -1116,7 +1116,7 @@ pub mod transaction {
     use super::{Query, TransactionQueryOutput};
     use crate::{
         account::AccountId, expression::EvaluatesTo, prelude::Account,
-        transaction::VersionedSignedTransaction,
+        transaction::SignedTransaction,
     };
 
     queries! {
@@ -1143,11 +1143,11 @@ pub mod transaction {
         #[derive(Display)]
         #[display(fmt = "Find transaction with `{hash}` hash")]
         #[repr(transparent)]
-        // SAFETY: `FindTransactionByHash` has no trap representation in `EvaluatesTo<HashOf<VersionedSignedTransaction>>`
+        // SAFETY: `FindTransactionByHash` has no trap representation in `EvaluatesTo<HashOf<SignedTransaction>>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTransactionByHash {
             /// Transaction hash.
-            pub hash: EvaluatesTo<HashOf<VersionedSignedTransaction>>,
+            pub hash: EvaluatesTo<HashOf<SignedTransaction>>,
         }
     }
 
@@ -1174,7 +1174,7 @@ pub mod transaction {
 
     impl FindTransactionByHash {
         /// Construct [`FindTransactionByHash`].
-        pub fn new(hash: impl Into<EvaluatesTo<HashOf<VersionedSignedTransaction>>>) -> Self {
+        pub fn new(hash: impl Into<EvaluatesTo<HashOf<SignedTransaction>>>) -> Self {
             Self { hash: hash.into() }
         }
     }
@@ -1198,7 +1198,7 @@ pub mod block {
 
     use super::Query;
     use crate::{
-        block::{BlockHeader, VersionedSignedBlock},
+        block::{BlockHeader, SignedBlock},
         prelude::EvaluatesTo,
     };
 
@@ -1221,16 +1221,16 @@ pub mod block {
         #[derive(Display)]
         #[display(fmt = "Find block header with `{hash}` hash")]
         #[repr(transparent)]
-        // SAFETY: `FindBlockHeaderByHash` has no trap representation in `EvaluatesTo<HashOf<VersionedSignedBlock>>`
+        // SAFETY: `FindBlockHeaderByHash` has no trap representation in `EvaluatesTo<HashOf<SignedBlock>>`
         #[ffi_type(unsafe {robust})]
         pub struct FindBlockHeaderByHash {
             /// Block hash.
-            pub hash: EvaluatesTo<HashOf<VersionedSignedBlock>>,
+            pub hash: EvaluatesTo<HashOf<SignedBlock>>,
         }
     }
 
     impl Query for FindAllBlocks {
-        type Output = Vec<VersionedSignedBlock>;
+        type Output = Vec<SignedBlock>;
     }
 
     impl Query for FindAllBlockHeaders {
@@ -1243,7 +1243,7 @@ pub mod block {
 
     impl FindBlockHeaderByHash {
         /// Construct [`FindBlockHeaderByHash`].
-        pub fn new(hash: impl Into<EvaluatesTo<HashOf<VersionedSignedBlock>>>) -> Self {
+        pub fn new(hash: impl Into<EvaluatesTo<HashOf<SignedBlock>>>) -> Self {
             Self { hash: hash.into() }
         }
     }
@@ -1269,7 +1269,7 @@ pub mod http {
     /// Type representing Result of executing a query
     pub type QueryOutput = Value;
 
-    declare_versioned_with_scale!(VersionedSignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+    declare_versioned_with_scale!(SignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
     #[model]
     pub mod model {
@@ -1301,8 +1301,8 @@ pub mod http {
 
         /// I/O ready structure to send queries.
         #[derive(Debug, Clone, Encode, Serialize, IntoSchema)]
-        #[version_with_scale(version = 1, versioned_alias = "VersionedSignedQuery")]
-        pub struct SignedQuery {
+        #[version_with_scale(version = 1, versioned_alias = "SignedQuery")]
+        pub struct SignedQueryV1 {
             /// Signature of the client who sends this query.
             pub signature: SignatureOf<QueryPayload>,
             /// Payload
@@ -1322,20 +1322,20 @@ pub mod http {
         }
 
         impl SignedQueryCandidate {
-            fn validate(self) -> Result<SignedQuery, &'static str> {
+            fn validate(self) -> Result<SignedQueryV1, &'static str> {
                 #[cfg(feature = "std")]
                 if self.signature.verify(&self.payload).is_err() {
                     return Err("Query signature not valid");
                 }
 
-                Ok(SignedQuery {
+                Ok(SignedQueryV1 {
                     payload: self.payload,
                     signature: self.signature,
                 })
             }
         }
 
-        impl Decode for SignedQuery {
+        impl Decode for SignedQueryV1 {
             fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
                 SignedQueryCandidate::decode(input)?
                     .validate()
@@ -1343,7 +1343,7 @@ pub mod http {
             }
         }
 
-        impl<'de> Deserialize<'de> for SignedQuery {
+        impl<'de> Deserialize<'de> for SignedQueryV1 {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where
                 D: serde::Deserializer<'de>,
@@ -1358,25 +1358,25 @@ pub mod http {
     }
 
     #[cfg(feature = "transparent_api")]
-    impl VersionedSignedQuery {
+    impl SignedQuery {
         /// Return query signature
         pub fn signature(&self) -> &SignatureOf<QueryPayload> {
-            let VersionedSignedQuery::V1(query) = self;
+            let SignedQuery::V1(query) = self;
             &query.signature
         }
         /// Return query payload
         pub fn query(&self) -> &QueryBox {
-            let VersionedSignedQuery::V1(query) = self;
+            let SignedQuery::V1(query) = self;
             &query.payload.query
         }
         /// Return query authority
         pub fn authority(&self) -> &AccountId {
-            let VersionedSignedQuery::V1(query) = self;
+            let SignedQuery::V1(query) = self;
             &query.payload.authority
         }
         /// Return query filter
         pub fn filter(&self) -> &PredicateBox {
-            let VersionedSignedQuery::V1(query) = self;
+            let SignedQuery::V1(query) = self;
             &query.payload.filter
         }
     }
@@ -1408,9 +1408,9 @@ pub mod http {
         pub fn sign(
             self,
             key_pair: iroha_crypto::KeyPair,
-        ) -> Result<VersionedSignedQuery, iroha_crypto::error::Error> {
+        ) -> Result<SignedQuery, iroha_crypto::error::Error> {
             SignatureOf::new(key_pair, &self.payload)
-                .map(|signature| SignedQuery {
+                .map(|signature| SignedQueryV1 {
                     payload: self.payload,
                     signature,
                 })
@@ -1421,7 +1421,7 @@ pub mod http {
     pub mod prelude {
         //! The prelude re-exports most commonly used traits, structs and macros from this crate.
 
-        pub use super::{QueryBuilder, SignedQuery, VersionedSignedQuery};
+        pub use super::{QueryBuilder, SignedQuery, SignedQueryV1};
     }
 }
 
@@ -1437,7 +1437,7 @@ pub mod error {
 
     pub use self::model::*;
     use super::*;
-    use crate::{block::VersionedSignedBlock, permission, prelude::*, validator};
+    use crate::{block::SignedBlock, permission, prelude::*, validator};
 
     #[model]
     pub mod model {
@@ -1516,9 +1516,9 @@ pub mod error {
             /// Failed to find metadata key: `{0}`
             MetadataKey(Name),
             /// Block with hash `{0}` not found
-            Block(HashOf<VersionedSignedBlock>),
+            Block(HashOf<SignedBlock>),
             /// Transaction with hash `{0}` not found
-            Transaction(HashOf<VersionedSignedTransaction>),
+            Transaction(HashOf<SignedTransaction>),
             /// Peer with id `{0}` not found
             Peer(PeerId),
             /// Trigger with id `{0}` not found

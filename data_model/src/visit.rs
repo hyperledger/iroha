@@ -38,7 +38,7 @@ pub trait Visit: ExpressionEvaluator {
         visit_unsupported<T: core::fmt::Debug>(T),
 
         // Visit SignedTransaction
-        visit_transaction(&VersionedSignedTransaction),
+        visit_transaction(&SignedTransaction),
         visit_instruction(&InstructionBox),
         visit_expression<V>(&EvaluatesTo<V>),
         visit_wasm(&WasmSmartContract),
@@ -177,7 +177,7 @@ fn visit_unsupported<V: Visit + ?Sized, T: core::fmt::Debug>(
 pub fn visit_transaction<V: Visit + ?Sized>(
     visitor: &mut V,
     authority: &AccountId,
-    transaction: &VersionedSignedTransaction,
+    transaction: &SignedTransaction,
 ) {
     match transaction.payload().instructions() {
         Executable::Wasm(wasm) => visitor.visit_wasm(authority, wasm),

@@ -40,7 +40,7 @@ pub mod model {
         /// If `Some::<StatusKind>`, filter by the [`StatusKind`]. If `None`, accept all the [`StatusKind`].
         pub(super) status_kind: Option<PipelineStatusKind>,
         /// If `Some::<Hash>`, filter by the [`struct@Hash`]. If `None`, accept all the [`struct@Hash`].
-        // TODO: Can we make hash typed like HashOf<VersionedSignedTranasaction>?
+        // TODO: Can we make hash typed like HashOf<SignedTranasaction>?
         pub(super) hash: Option<Hash>,
     }
 

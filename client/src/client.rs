@@ -21,8 +21,8 @@ use http_default::{AsyncWebSocketStream, WebSocketStream};
 use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
-    block::VersionedSignedBlock,
-    http::VersionedBatchedResponse,
+    block::SignedBlock,
+    http::BatchedResponse,
     isi::Instruction,
     predicate::PredicateBox,
     prelude::*,
@@ -76,23 +76,23 @@ pub trait Sign {
     fn sign(
         self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<VersionedSignedTransaction, iroha_crypto::error::Error>;
+    ) -> Result<SignedTransaction, iroha_crypto::error::Error>;
 }
 
 impl Sign for TransactionBuilder {
     fn sign(
         self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<VersionedSignedTransaction, iroha_crypto::error::Error> {
+    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
         self.sign(key_pair)
     }
 }
 
-impl Sign for VersionedSignedTransaction {
+impl Sign for SignedTransaction {
     fn sign(
         self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<VersionedSignedTransaction, iroha_crypto::error::Error> {
+    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
         self.sign(key_pair)
     }
 }
@@ -105,10 +105,10 @@ where
         // Separate-compilation friendly response handling
         fn _handle_query_response_base(
             resp: &Response<Vec<u8>>,
-        ) -> QueryResult<VersionedBatchedResponse<Value>> {
+        ) -> QueryResult<BatchedResponse<Value>> {
             match resp.status() {
                 StatusCode::OK => {
-                    let res = VersionedBatchedResponse::decode_all_versioned(resp.body());
+                    let res = BatchedResponse::decode_all_versioned(resp.body());
                     res.wrap_err(
                         "Failed to decode response from Iroha. \
                          You are likely using a version of the client library \
@@ -143,8 +143,8 @@ where
             }
         }
 
-        let response = _handle_query_response_base(resp)
-            .map(|VersionedBatchedResponse::V1(response)| response)?;
+        let response =
+            _handle_query_response_base(resp).map(|BatchedResponse::V1(response)| response)?;
 
         let (batch, cursor) = response.into();
 
@@ -457,7 +457,7 @@ impl Client {
         &self,
         instructions: impl Into<Executable>,
         metadata: UnlimitedMetadata,
-    ) -> Result<VersionedSignedTransaction> {
+    ) -> Result<SignedTransaction> {
         let tx_builder = TransactionBuilder::new(self.account_id.clone());
 
         let mut tx_builder = match instructions.into() {
@@ -483,10 +483,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if signature generation fails
-    pub fn sign_transaction<Tx: Sign>(
-        &self,
-        transaction: Tx,
-    ) -> Result<VersionedSignedTransaction> {
+    pub fn sign_transaction<Tx: Sign>(&self, transaction: Tx) -> Result<SignedTransaction> {
         transaction
             .sign(self.key_pair.clone())
             .wrap_err("Failed to sign transaction")
@@ -496,7 +493,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if signature generation fails
-    pub fn sign_query(&self, query: QueryBuilder) -> Result<VersionedSignedQuery> {
+    pub fn sign_query(&self, query: QueryBuilder) -> Result<SignedQuery> {
         query
             .sign(self.key_pair.clone())
             .wrap_err("Failed to sign query")
@@ -559,7 +556,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_transaction(
         &self,
-        transaction: &VersionedSignedTransaction,
+        transaction: &SignedTransaction,
     ) -> Result<HashOf<TransactionPayload>> {
         iroha_logger::trace!(tx=?transaction, "Submitting");
         let (req, hash) = self.prepare_transaction_request::<DefaultRequestBuilder>(transaction);
@@ -578,7 +575,7 @@ impl Client {
     /// Fails if sending a transaction to a peer fails or there is an error in the response
     pub fn submit_transaction_blocking(
         &self,
-        transaction: &VersionedSignedTransaction,
+        transaction: &SignedTransaction,
     ) -> Result<HashOf<TransactionPayload>> {
         let (init_sender, init_receiver) = tokio::sync::oneshot::channel();
         let hash = transaction.payload().hash();
@@ -672,7 +669,7 @@ impl Client {
     /// For general usage example see [`Client::prepare_query_request`].
     fn prepare_transaction_request<B: RequestBuilder>(
         &self,
-        transaction: &VersionedSignedTransaction,
+        transaction: &SignedTransaction,
     ) -> (B, HashOf<TransactionPayload>) {
         let transaction_bytes: Vec<u8> = transaction.encode_versioned();
 
@@ -1036,7 +1033,7 @@ impl Client {
     pub fn listen_for_blocks(
         &self,
         height: NonZeroU64,
-    ) -> Result<impl Iterator<Item = Result<VersionedSignedBlock>>> {
+    ) -> Result<impl Iterator<Item = Result<SignedBlock>>> {
         blocks_api::BlockIterator::new(self.blocks_handler(height)?)
     }
 
@@ -1081,11 +1078,11 @@ impl Client {
     /// - if subscribing to websocket fails
     pub fn get_original_transaction_with_pagination(
         &self,
-        transaction: &VersionedSignedTransaction,
+        transaction: &SignedTransaction,
         retry_count: u32,
         retry_in: Duration,
         pagination: Pagination,
-    ) -> Result<Option<VersionedSignedTransaction>> {
+    ) -> Result<Option<SignedTransaction>> {
         let pagination: Vec<_> = pagination.into();
         for _ in 0..retry_count {
             let response = DefaultRequestBuilder::new(
@@ -1100,7 +1097,7 @@ impl Client {
             .send()?;
 
             if response.status() == StatusCode::OK {
-                let pending_transactions: Vec<VersionedSignedTransaction> =
+                let pending_transactions: Vec<SignedTransaction> =
                     DecodeAll::decode_all(&mut response.body().as_slice())?;
 
                 let transaction = pending_transactions
@@ -1133,10 +1130,10 @@ impl Client {
     /// - if sending request fails
     pub fn get_original_transaction(
         &self,
-        transaction: &VersionedSignedTransaction,
+        transaction: &SignedTransaction,
         retry_count: u32,
         retry_in: Duration,
-    ) -> Result<Option<VersionedSignedTransaction>> {
+    ) -> Result<Option<SignedTransaction>> {
         self.get_original_transaction_with_pagination(
             transaction,
             retry_count,
@@ -1538,7 +1535,7 @@ mod blocks_api {
         pub struct Events;
 
         impl FlowEvents for Events {
-            type Event = iroha_data_model::block::VersionedSignedBlock;
+            type Event = iroha_data_model::block::SignedBlock;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 Ok(BlockMessage::decode_all(&mut message.as_slice()).map(Into::into)?)
@@ -1624,7 +1621,7 @@ pub mod block {
 
     /// Construct a query to find block header by hash
     pub fn header_by_hash(
-        hash: impl Into<EvaluatesTo<HashOf<VersionedSignedBlock>>>,
+        hash: impl Into<EvaluatesTo<HashOf<SignedBlock>>>,
     ) -> FindBlockHeaderByHash {
         FindBlockHeaderByHash::new(hash)
     }
@@ -1664,7 +1661,7 @@ pub mod transaction {
 
     /// Construct a query to retrieve transaction by hash
     pub fn by_hash(
-        hash: impl Into<EvaluatesTo<HashOf<VersionedSignedTransaction>>>,
+        hash: impl Into<EvaluatesTo<HashOf<SignedTransaction>>>,
     ) -> FindTransactionByHash {
         FindTransactionByHash::new(hash)
     }
@@ -1785,7 +1782,7 @@ mod tests {
         let mut tx2 = build_transaction();
         assert_ne!(tx1.payload().hash(), tx2.payload().hash());
 
-        let VersionedSignedTransaction::V1(tx2_ref) = &mut tx2;
+        let SignedTransaction::V1(tx2_ref) = &mut tx2;
         tx2_ref.payload.creation_time_ms = tx1
             .payload()
             .creation_time()
