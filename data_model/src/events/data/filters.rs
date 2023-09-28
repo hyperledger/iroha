@@ -212,7 +212,6 @@ mod tests {
     use crate::{
         account::AccountsMap,
         asset::{AssetDefinitionsMap, AssetTotalQuantityMap, AssetsMap},
-        role::RoleIds,
     };
 
     #[test]
@@ -238,7 +237,6 @@ mod tests {
             signatories: BTreeSet::default(),
             signature_check_condition: SignatureCheckCondition::default(),
             metadata: Metadata::default(),
-            roles: RoleIds::default(),
         };
         let asset_id = AssetId::new(
             AssetDefinitionId::new(asset_name, domain_id),

@@ -70,6 +70,8 @@ pub struct World {
     pub(crate) roles: crate::RolesMap,
     /// Permission tokens of an account.
     pub(crate) account_permission_tokens: crate::PermissionTokensMap,
+    /// Roles of an account.
+    pub(crate) account_roles: crate::AccountRolesSet,
     /// Registered permission token ids.
     pub(crate) permission_token_schema: PermissionTokenSchema,
     /// Triggers
@@ -169,6 +171,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, World> {
                 let mut domains = None;
                 let mut roles = None;
                 let mut account_permission_tokens = None;
+                let mut account_roles = None;
                 let mut permission_token_schema = None;
                 let mut triggers = None;
                 let mut validator = None;
@@ -189,6 +192,9 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, World> {
                         }
                         "account_permission_tokens" => {
                             account_permission_tokens = Some(map.next_value()?);
+                        }
+                        "account_roles" => {
+                            account_roles = Some(map.next_value()?);
                         }
                         "permission_token_schema" => {
                             permission_token_schema = Some(map.next_value()?);
@@ -213,6 +219,8 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, World> {
                     account_permission_tokens: account_permission_tokens.ok_or_else(|| {
                         serde::de::Error::missing_field("account_permission_tokens")
                     })?,
+                    account_roles: account_roles
+                        .ok_or_else(|| serde::de::Error::missing_field("account_roles"))?,
                     permission_token_schema: permission_token_schema.ok_or_else(|| {
                         serde::de::Error::missing_field("permission_token_schema")
                     })?,
@@ -232,6 +240,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, World> {
                 "domains",
                 "roles",
                 "account_permission_tokens",
+                "account_roles",
                 "permission_token_schema",
                 "triggers",
                 "validator",
@@ -419,14 +428,20 @@ impl WorldStateView {
         &self,
         account_id: &AccountId,
     ) -> Result<impl ExactSizeIterator<Item = &PermissionToken>, FindError> {
-        let account = self.account(account_id)?;
+        self.account(account_id)?;
 
         let mut tokens = self
             .account_inherent_permission_tokens(account_id)
             .collect::<BTreeSet<_>>();
 
-        for role_id in &account.roles {
-            if let Some(role) = self.world.roles.get(role_id) {
+        for role in self
+            .world
+            .account_roles
+            .iter()
+            .skip_while(|role| role.account_id.ne(account_id))
+            .take_while(|role| role.account_id.eq(account_id))
+        {
+            if let Some(role) = self.world.roles.get(&role.role_id) {
                 tokens.extend(role.permissions.iter());
             }
         }
@@ -974,7 +989,11 @@ impl WorldStateView {
         Ok(f(account))
     }
 
-    fn account(&self, id: &AccountId) -> Result<&Account, FindError> {
+    /// Get `Account` and return reference to it.
+    ///
+    /// # Errors
+    /// Fails if there is no domain or account
+    pub fn account(&self, id: &AccountId) -> Result<&Account, FindError> {
         self.domain(&id.domain_id).and_then(|domain| {
             domain
                 .accounts

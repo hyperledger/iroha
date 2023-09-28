@@ -20,10 +20,6 @@
       {
         "name": "metadata",
         "type": "Metadata"
-      },
-      {
-        "name": "roles",
-        "type": "SortedVec<RoleId>"
       }
     ]
   },
@@ -150,12 +146,12 @@
   "AccountId": {
     "Struct": [
       {
-        "name": "name",
-        "type": "Name"
-      },
-      {
         "name": "domain_id",
         "type": "DomainId"
+      },
+      {
+        "name": "name",
+        "type": "Name"
       }
     ]
   },
@@ -4150,9 +4146,6 @@
   },
   "SortedVec<PublicKey>": {
     "Vec": "PublicKey"
-  },
-  "SortedVec<RoleId>": {
-    "Vec": "RoleId"
   },
   "SortedVec<SignatureOf<BlockPayload>>": {
     "Vec": "SignatureOf<BlockPayload>"
