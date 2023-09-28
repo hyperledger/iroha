@@ -1087,10 +1087,10 @@ enum BlockSyncError {
 }
 
 fn handle_block_sync(
-    block: VersionedSignedBlock,
+    block: SignedBlock,
     wsv: &WorldStateView,
     finalized_wsv: &WorldStateView,
-) -> Result<BlockSyncOk, (VersionedSignedBlock, BlockSyncError)> {
+) -> Result<BlockSyncOk, (SignedBlock, BlockSyncError)> {
     let block_height = block.payload().header.height;
     let wsv_height = wsv.height();
     if wsv_height + 1 == block_height {
@@ -1168,7 +1168,7 @@ mod tests {
     fn create_data_for_test(
         topology: &Topology,
         leader_key_pair: KeyPair,
-    ) -> (WorldStateView, Arc<Kura>, VersionedSignedBlock) {
+    ) -> (WorldStateView, Arc<Kura>, SignedBlock) {
         // Predefined world state
         let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
         let alice_keys = KeyPair::generate().expect("Valid");

@@ -7,7 +7,7 @@
 )]
 
 use iroha_crypto::{HashOf, SignaturesOf};
-use iroha_data_model::block::{BlockPayload, VersionedSignedBlock};
+use iroha_data_model::block::{BlockPayload, SignedBlock};
 use iroha_macro::*;
 use parity_scale_codec::{Decode, Encode};
 
@@ -69,7 +69,7 @@ impl From<ControlFlowMessage> for MessagePacket {
 #[non_exhaustive]
 pub struct BlockCreated {
     /// The corresponding block.
-    pub block: VersionedSignedBlock,
+    pub block: SignedBlock,
 }
 
 impl From<ValidBlock> for BlockCreated {
@@ -93,7 +93,7 @@ pub struct BlockSigned {
 impl From<ValidBlock> for BlockSigned {
     fn from(block: ValidBlock) -> Self {
         let block_hash = block.payload().hash();
-        let VersionedSignedBlock::V1(block) = block.into();
+        let SignedBlock::V1(block) = block.into();
 
         Self {
             hash: block_hash,
@@ -115,7 +115,7 @@ pub struct BlockCommitted {
 impl From<CommittedBlock> for BlockCommitted {
     fn from(block: CommittedBlock) -> Self {
         let block_hash = block.payload().hash();
-        let VersionedSignedBlock::V1(block) = block.into();
+        let SignedBlock::V1(block) = block.into();
 
         Self {
             hash: block_hash,
@@ -129,11 +129,11 @@ impl From<CommittedBlock> for BlockCommitted {
 #[non_exhaustive]
 pub struct BlockSyncUpdate {
     /// The corresponding block.
-    pub block: VersionedSignedBlock,
+    pub block: SignedBlock,
 }
 
-impl From<VersionedSignedBlock> for BlockSyncUpdate {
-    fn from(block: VersionedSignedBlock) -> Self {
+impl From<SignedBlock> for BlockSyncUpdate {
+    fn from(block: SignedBlock) -> Self {
         Self { block }
     }
 }

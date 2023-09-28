@@ -93,7 +93,7 @@ pub fn default_permission_token_schema() -> PermissionTokenSchema {
     schema
 }
 
-/// Default validation for [`VersionedSignedTransaction`].
+/// Default validation for [`SignedTransaction`].
 ///
 /// # Warning
 ///
@@ -102,7 +102,7 @@ pub fn default_permission_token_schema() -> PermissionTokenSchema {
 pub fn visit_transaction<V: Validate + ?Sized>(
     validator: &mut V,
     authority: &AccountId,
-    transaction: &VersionedSignedTransaction,
+    transaction: &SignedTransaction,
 ) {
     match transaction.payload().instructions() {
         Executable::Wasm(wasm) => validator.visit_wasm(authority, wasm),

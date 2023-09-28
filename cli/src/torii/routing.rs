@@ -26,9 +26,9 @@ use iroha_core::{
 use iroha_data_model::{
     block::{
         stream::{BlockMessage, BlockSubscriptionRequest},
-        VersionedSignedBlock,
+        SignedBlock,
     },
-    http::{BatchedResponse, VersionedBatchedResponse},
+    http::{BatchedResponse, BatchedResponseV1},
     prelude::*,
     query::{ForwardCursor, Pagination, Sorting},
 };
@@ -59,7 +59,7 @@ fn paginate() -> impl warp::Filter<Extract = (Pagination,), Error = warp::Reject
 async fn handle_instructions(
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
-    transaction: VersionedSignedTransaction,
+    transaction: SignedTransaction,
 ) -> Result<Empty> {
     let wsv = sumeragi.wsv_clone();
     let transaction_limits = wsv.config.transaction_limits;
@@ -85,12 +85,12 @@ async fn handle_queries(
     query_store: Arc<LiveQueryStore>,
     fetch_size: NonZeroUsize,
 
-    request: VersionedSignedQuery,
+    request: SignedQuery,
     sorting: Sorting,
     pagination: Pagination,
 
     cursor: ForwardCursor,
-) -> Result<Scale<VersionedBatchedResponse<Value>>> {
+) -> Result<Scale<BatchedResponse<Value>>> {
     let valid_request = sumeragi.apply_wsv(|wsv| ValidQueryRequest::validate(request, wsv))?;
     let request_id = (&valid_request, &sorting, &pagination);
 
@@ -114,7 +114,7 @@ async fn handle_queries(
         match res {
             LazyValue::Value(batch) => {
                 let cursor = ForwardCursor::default();
-                let result = BatchedResponse { batch, cursor };
+                let result = BatchedResponseV1 { batch, cursor };
                 Ok(Scale(result.into()))
             }
             LazyValue::Iter(iter) => {
@@ -141,14 +141,14 @@ fn construct_query_response(
     query_id: String,
     curr_cursor: Option<u64>,
     mut live_query: Batched<Vec<Value>>,
-) -> Result<Scale<VersionedBatchedResponse<Value>>> {
+) -> Result<Scale<BatchedResponse<Value>>> {
     let (batch, next_cursor) = live_query.next_batch(curr_cursor)?;
 
     if !live_query.is_depleted() {
         query_store.insert(query_id.clone(), request_id, live_query);
     }
 
-    let query_response = BatchedResponse {
+    let query_response = BatchedResponseV1 {
         batch: Value::Vec(batch),
         cursor: ForwardCursor {
             query_id: Some(query_id),
@@ -220,7 +220,7 @@ async fn handle_pending_transactions(
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
     pagination: Pagination,
-) -> Result<Scale<Vec<VersionedSignedTransaction>>> {
+) -> Result<Scale<Vec<SignedTransaction>>> {
     let query_response = sumeragi.apply_wsv(|wsv| {
         queue
             .all_transactions(wsv)
@@ -304,7 +304,7 @@ async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::R
                 if let Some(block) = kura.get_block_by_height(from_height.get()) {
                     stream
                         // TODO: to avoid clone `BlockMessage` could be split into sending and receiving parts
-                        .send(BlockMessage(VersionedSignedBlock::clone(&block)))
+                        .send(BlockMessage(SignedBlock::clone(&block)))
                         .await?;
                     from_height = from_height.checked_add(1).expect("Maximum block height is achieved.");
                 }
