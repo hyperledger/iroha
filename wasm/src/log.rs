@@ -88,7 +88,6 @@ mod tests {
     use webassembly_test::webassembly_test;
 
     use super::*;
-    use crate::_decode_from_raw;
 
     fn get_log_message() -> &'static str {
         "log_message"
@@ -96,7 +95,9 @@ mod tests {
 
     #[no_mangle]
     pub unsafe extern "C" fn _log_mock(ptr: *const u8, len: usize) {
-        let (log_level, msg) = _decode_from_raw::<(u8, String)>(ptr, len);
+        // can't use _decode_from_raw here, because we must NOT take the ownership
+        let bytes = core::slice::from_raw_parts(ptr, len);
+        let (log_level, msg) = <(u8, String)>::decode_all(&mut &*bytes).unwrap();
         assert_eq!(log_level, 3);
         assert_eq!(msg, get_log_message());
     }
