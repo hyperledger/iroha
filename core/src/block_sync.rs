@@ -8,7 +8,7 @@ use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use iroha_config::block_sync::Configuration;
 use iroha_crypto::HashOf;
-use iroha_data_model::{block::VersionedSignedBlock, prelude::*};
+use iroha_data_model::{block::SignedBlock, prelude::*};
 use iroha_logger::prelude::*;
 use iroha_macro::*;
 use iroha_p2p::Post;
@@ -43,8 +43,8 @@ pub struct BlockSynchronizer {
     gossip_period: Duration,
     block_batch_size: u32,
     network: IrohaNetwork,
-    latest_hash: Option<HashOf<VersionedSignedBlock>>,
-    previous_hash: Option<HashOf<VersionedSignedBlock>>,
+    latest_hash: Option<HashOf<SignedBlock>>,
+    previous_hash: Option<HashOf<SignedBlock>>,
 }
 
 impl BlockSynchronizer {
@@ -139,9 +139,9 @@ pub mod message {
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct GetBlocksAfter {
         /// Hash of latest available block
-        pub latest_hash: Option<HashOf<VersionedSignedBlock>>,
+        pub latest_hash: Option<HashOf<SignedBlock>>,
         /// Hash of second to latest block
-        pub previous_hash: Option<HashOf<VersionedSignedBlock>>,
+        pub previous_hash: Option<HashOf<SignedBlock>>,
         /// Peer id
         pub peer_id: PeerId,
     }
@@ -149,8 +149,8 @@ pub mod message {
     impl GetBlocksAfter {
         /// Construct [`GetBlocksAfter`].
         pub const fn new(
-            latest_hash: Option<HashOf<VersionedSignedBlock>>,
-            previous_hash: Option<HashOf<VersionedSignedBlock>>,
+            latest_hash: Option<HashOf<SignedBlock>>,
+            previous_hash: Option<HashOf<SignedBlock>>,
             peer_id: PeerId,
         ) -> Self {
             Self {
@@ -165,14 +165,14 @@ pub mod message {
     #[derive(Debug, Clone, Decode, Encode)]
     pub struct ShareBlocks {
         /// Blocks
-        pub blocks: Vec<VersionedSignedBlock>,
+        pub blocks: Vec<SignedBlock>,
         /// Peer id
         pub peer_id: PeerId,
     }
 
     impl ShareBlocks {
         /// Construct [`ShareBlocks`].
-        pub const fn new(blocks: Vec<VersionedSignedBlock>, peer_id: PeerId) -> Self {
+        pub const fn new(blocks: Vec<SignedBlock>, peer_id: PeerId) -> Self {
             Self { blocks, peer_id }
         }
     }
@@ -222,7 +222,7 @@ pub mod message {
                         .take(1 + block_sync.block_batch_size as usize)
                         .map_while(|height| block_sync.kura.get_block_by_height(height))
                         .skip_while(|block| Some(block.hash()) == *latest_hash)
-                        .map(|block| VersionedSignedBlock::clone(&block))
+                        .map(|block| SignedBlock::clone(&block))
                         .collect::<Vec<_>>();
 
                     if blocks.is_empty() {

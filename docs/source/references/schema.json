@@ -619,6 +619,24 @@
     ]
   },
   "BatchedResponse<Value>": {
+    "Enum": [
+      {
+        "tag": "V1",
+        "discriminant": 1,
+        "type": "BatchedResponseV1<Value>"
+      }
+    ]
+  },
+  "BatchedResponse<Vec<SignedTransaction>>": {
+    "Enum": [
+      {
+        "tag": "V1",
+        "discriminant": 1,
+        "type": "BatchedResponseV1<Vec<SignedTransaction>>"
+      }
+    ]
+  },
+  "BatchedResponseV1<Value>": {
     "Struct": [
       {
         "name": "batch",
@@ -630,11 +648,11 @@
       }
     ]
   },
-  "BatchedResponse<Vec<VersionedSignedTransaction>>": {
+  "BatchedResponseV1<Vec<SignedTransaction>>": {
     "Struct": [
       {
         "name": "batch",
-        "type": "Vec<VersionedSignedTransaction>"
+        "type": "Vec<SignedTransaction>"
       },
       {
         "name": "cursor",
@@ -666,11 +684,11 @@
       },
       {
         "name": "previous_block_hash",
-        "type": "Option<HashOf<VersionedSignedBlock>>"
+        "type": "Option<HashOf<SignedBlock>>"
       },
       {
         "name": "transactions_hash",
-        "type": "Option<HashOf<MerkleTree<VersionedSignedTransaction>>>"
+        "type": "Option<HashOf<MerkleTree<SignedTransaction>>>"
       },
       {
         "name": "view_change_index",
@@ -682,7 +700,7 @@
       }
     ]
   },
-  "BlockMessage": "VersionedSignedBlock",
+  "BlockMessage": "SignedBlock",
   "BlockPayload": {
     "Struct": [
       {
@@ -1099,7 +1117,7 @@
       }
     ]
   },
-  "EvaluatesTo<HashOf<VersionedSignedBlock>>": {
+  "EvaluatesTo<HashOf<SignedBlock>>": {
     "Struct": [
       {
         "name": "expression",
@@ -1107,7 +1125,7 @@
       }
     ]
   },
-  "EvaluatesTo<HashOf<VersionedSignedTransaction>>": {
+  "EvaluatesTo<HashOf<SignedTransaction>>": {
     "Struct": [
       {
         "name": "expression",
@@ -1912,7 +1930,7 @@
     "Struct": [
       {
         "name": "hash",
-        "type": "EvaluatesTo<HashOf<VersionedSignedBlock>>"
+        "type": "EvaluatesTo<HashOf<SignedBlock>>"
       }
     ]
   },
@@ -1966,12 +1984,12 @@
       {
         "tag": "Block",
         "discriminant": 5,
-        "type": "HashOf<VersionedSignedBlock>"
+        "type": "HashOf<SignedBlock>"
       },
       {
         "tag": "Transaction",
         "discriminant": 6,
-        "type": "HashOf<VersionedSignedTransaction>"
+        "type": "HashOf<SignedTransaction>"
       },
       {
         "tag": "Peer",
@@ -2042,7 +2060,7 @@
     "Struct": [
       {
         "name": "hash",
-        "type": "EvaluatesTo<HashOf<VersionedSignedTransaction>>"
+        "type": "EvaluatesTo<HashOf<SignedTransaction>>"
       }
     ]
   },
@@ -2150,21 +2168,21 @@
     ]
   },
   "Hash": "Array<u8, 32>",
-  "HashOf<MerkleTree<VersionedSignedTransaction>>": "Hash",
-  "HashOf<VersionedSignedBlock>": "Hash",
-  "HashOf<VersionedSignedTransaction>": "Hash",
+  "HashOf<MerkleTree<SignedTransaction>>": "Hash",
+  "HashOf<SignedBlock>": "Hash",
+  "HashOf<SignedTransaction>": "Hash",
   "HashOf<WasmSmartContract>": "Hash",
   "HashValue": {
     "Enum": [
       {
         "tag": "Transaction",
         "discriminant": 0,
-        "type": "HashOf<VersionedSignedTransaction>"
+        "type": "HashOf<SignedTransaction>"
       },
       {
         "tag": "Block",
         "discriminant": 1,
-        "type": "HashOf<VersionedSignedBlock>"
+        "type": "HashOf<SignedBlock>"
       }
     ]
   },
@@ -2726,8 +2744,8 @@
       }
     ]
   },
-  "MerkleTree<VersionedSignedTransaction>": {
-    "Vec": "HashOf<VersionedSignedTransaction>"
+  "MerkleTree<SignedTransaction>": {
+    "Vec": "HashOf<SignedTransaction>"
   },
   "Metadata": {
     "Struct": [
@@ -3082,11 +3100,11 @@
   "Option<Hash>": {
     "Option": "Hash"
   },
-  "Option<HashOf<MerkleTree<VersionedSignedTransaction>>>": {
-    "Option": "HashOf<MerkleTree<VersionedSignedTransaction>>"
+  "Option<HashOf<MerkleTree<SignedTransaction>>>": {
+    "Option": "HashOf<MerkleTree<SignedTransaction>>"
   },
-  "Option<HashOf<VersionedSignedBlock>>": {
-    "Option": "HashOf<VersionedSignedBlock>"
+  "Option<HashOf<SignedBlock>>": {
+    "Option": "HashOf<SignedBlock>"
   },
   "Option<InstructionBox>": {
     "Option": "InstructionBox"
@@ -3966,6 +3984,15 @@
     ]
   },
   "SignedBlock": {
+    "Enum": [
+      {
+        "tag": "V1",
+        "discriminant": 1,
+        "type": "SignedBlockV1"
+      }
+    ]
+  },
+  "SignedBlockV1": {
     "Struct": [
       {
         "name": "signatures",
@@ -3978,6 +4005,15 @@
     ]
   },
   "SignedQuery": {
+    "Enum": [
+      {
+        "tag": "V1",
+        "discriminant": 1,
+        "type": "SignedQueryV1"
+      }
+    ]
+  },
+  "SignedQueryV1": {
     "Struct": [
       {
         "name": "signature",
@@ -3990,6 +4026,15 @@
     ]
   },
   "SignedTransaction": {
+    "Enum": [
+      {
+        "tag": "V1",
+        "discriminant": 1,
+        "type": "SignedTransactionV1"
+      }
+    ]
+  },
+  "SignedTransactionV1": {
     "Struct": [
       {
         "name": "signatures",
@@ -4238,7 +4283,7 @@
       },
       {
         "name": "block_hash",
-        "type": "HashOf<VersionedSignedBlock>"
+        "type": "HashOf<SignedBlock>"
       }
     ]
   },
@@ -4279,7 +4324,7 @@
     "Struct": [
       {
         "name": "value",
-        "type": "VersionedSignedTransaction"
+        "type": "SignedTransaction"
       },
       {
         "name": "error",
@@ -4681,7 +4726,7 @@
       {
         "tag": "Block",
         "discriminant": 16,
-        "type": "VersionedSignedBlock"
+        "type": "SignedBlock"
       },
       {
         "tag": "BlockHeader",
@@ -4788,6 +4833,9 @@
   "Vec<PublicKey>": {
     "Vec": "PublicKey"
   },
+  "Vec<SignedTransaction>": {
+    "Vec": "SignedTransaction"
+  },
   "Vec<TransactionValue>": {
     "Vec": "TransactionValue"
   },
@@ -4797,56 +4845,8 @@
   "Vec<Vec<InstructionBox>>": {
     "Vec": "Vec<InstructionBox>"
   },
-  "Vec<VersionedSignedTransaction>": {
-    "Vec": "VersionedSignedTransaction"
-  },
   "Vec<u8>": {
     "Vec": "u8"
-  },
-  "VersionedBatchedResponse<Value>": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "BatchedResponse<Value>"
-      }
-    ]
-  },
-  "VersionedBatchedResponse<Vec<VersionedSignedTransaction>>": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "BatchedResponse<Vec<VersionedSignedTransaction>>"
-      }
-    ]
-  },
-  "VersionedSignedBlock": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "SignedBlock"
-      }
-    ]
-  },
-  "VersionedSignedQuery": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "SignedQuery"
-      }
-    ]
-  },
-  "VersionedSignedTransaction": {
-    "Enum": [
-      {
-        "tag": "V1",
-        "discriminant": 1,
-        "type": "SignedTransaction"
-      }
-    ]
   },
   "WasmExecutionFail": {
     "Struct": [

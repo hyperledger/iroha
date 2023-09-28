@@ -3,7 +3,7 @@
 use std::{sync::Arc, time::Duration};
 
 use iroha_config::sumeragi::Configuration;
-use iroha_data_model::transaction::VersionedSignedTransaction;
+use iroha_data_model::transaction::SignedTransaction;
 use iroha_p2p::Broadcast;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
@@ -140,7 +140,7 @@ impl TransactionGossiper {
 #[derive(Decode, Encode, Debug, Clone)]
 pub struct TransactionGossip {
     /// Batch of transactions.
-    pub txs: Vec<VersionedSignedTransaction>,
+    pub txs: Vec<SignedTransaction>,
 }
 
 impl TransactionGossip {

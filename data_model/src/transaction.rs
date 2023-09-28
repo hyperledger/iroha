@@ -154,7 +154,7 @@ pub mod model {
     /// After a transaction is signed and before it can be processed any further,
     /// the transaction must be accepted by the `Iroha` peer.
     /// The peer verifies the signatures and checks the limits.
-    #[version(version = 1, versioned_alias = "VersionedSignedTransaction")]
+    #[version(version = 1, versioned_alias = "SignedTransaction")]
     #[derive(
         Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Serialize, IntoSchema,
     )]
@@ -162,7 +162,7 @@ pub mod model {
     #[cfg_attr(feature = "std", display(fmt = "{}", "self.hash()"))]
     #[ffi_type]
     // TODO: All fields in this struct should be private
-    pub struct SignedTransaction {
+    pub struct SignedTransactionV1 {
         /// [`iroha_crypto::SignatureOf`]<[`TransactionPayload`]>.
         pub signatures: SignaturesOf<TransactionPayload>,
         /// [`Transaction`] payload.
@@ -174,7 +174,7 @@ pub mod model {
     #[ffi_type]
     pub struct TransactionValue {
         /// Committed transaction
-        pub value: VersionedSignedTransaction,
+        pub value: SignedTransaction,
         /// Reason of rejection
         pub error: Option<error::TransactionRejectionReason>,
     }
@@ -253,21 +253,21 @@ impl TransactionPayload {
 }
 
 #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
-declare_versioned!(VersionedSignedTransaction 1..2, Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, iroha_ffi::FfiType, IntoSchema);
+declare_versioned!(SignedTransaction 1..2, Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, iroha_ffi::FfiType, IntoSchema);
 #[cfg(all(not(feature = "ffi_export"), not(feature = "ffi_import")))]
-declare_versioned!(VersionedSignedTransaction 1..2, Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, IntoSchema);
+declare_versioned!(SignedTransaction 1..2, Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, IntoSchema);
 
-impl VersionedSignedTransaction {
+impl SignedTransaction {
     /// Return transaction payload
     // FIXME: Leaking concrete type TransactionPayload from Versioned container. Payload should be versioned
     pub fn payload(&self) -> &TransactionPayload {
-        let VersionedSignedTransaction::V1(tx) = self;
+        let SignedTransaction::V1(tx) = self;
         &tx.payload
     }
 
     /// Return transaction signatures
     pub fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
-        let VersionedSignedTransaction::V1(tx) = self;
+        let SignedTransaction::V1(tx) = self;
         &tx.signatures
     }
 
@@ -286,12 +286,12 @@ impl VersionedSignedTransaction {
     pub fn sign(
         self,
         key_pair: iroha_crypto::KeyPair,
-    ) -> Result<VersionedSignedTransaction, iroha_crypto::error::Error> {
-        let VersionedSignedTransaction::V1(mut tx) = self;
+    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
+        let SignedTransaction::V1(mut tx) = self;
         let signature = iroha_crypto::SignatureOf::new(key_pair, &tx.payload)?;
         tx.signatures.insert(signature);
 
-        Ok(SignedTransaction {
+        Ok(SignedTransactionV1 {
             payload: tx.payload,
             signatures: tx.signatures,
         }
@@ -306,8 +306,8 @@ impl VersionedSignedTransaction {
             return false;
         }
 
-        let VersionedSignedTransaction::V1(tx1) = self;
-        let VersionedSignedTransaction::V1(tx2) = other;
+        let SignedTransaction::V1(tx1) = self;
+        let SignedTransaction::V1(tx2) = other;
         tx1.signatures.extend(tx2.signatures);
 
         true
@@ -315,16 +315,16 @@ impl VersionedSignedTransaction {
 }
 
 #[cfg(feature = "transparent_api")]
-impl From<VersionedSignedTransaction> for (AccountId, Executable) {
-    fn from(source: VersionedSignedTransaction) -> Self {
-        let VersionedSignedTransaction::V1(tx) = source;
+impl From<SignedTransaction> for (AccountId, Executable) {
+    fn from(source: SignedTransaction) -> Self {
+        let SignedTransaction::V1(tx) = source;
         (tx.payload.authority, tx.payload.instructions)
     }
 }
 
-impl SignedTransaction {
+impl SignedTransactionV1 {
     #[cfg(feature = "std")]
-    fn hash(&self) -> iroha_crypto::HashOf<VersionedSignedTransaction> {
+    fn hash(&self) -> iroha_crypto::HashOf<SignedTransaction> {
         iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::HashOf::new(self).into())
     }
 }
@@ -332,7 +332,7 @@ impl SignedTransaction {
 impl TransactionValue {
     /// Calculate transaction [`Hash`](`iroha_crypto::HashOf`).
     #[cfg(feature = "std")]
-    pub fn hash(&self) -> iroha_crypto::HashOf<VersionedSignedTransaction> {
+    pub fn hash(&self) -> iroha_crypto::HashOf<SignedTransaction> {
         self.value.hash()
     }
 
@@ -378,24 +378,24 @@ mod candidate {
 
     impl SignedTransactionCandidate {
         #[cfg(feature = "std")]
-        fn validate(self) -> Result<SignedTransaction, &'static str> {
+        fn validate(self) -> Result<SignedTransactionV1, &'static str> {
             self.validate_signatures()?;
             self.validate_instructions()
         }
 
         #[cfg(not(feature = "std"))]
-        fn validate(self) -> Result<SignedTransaction, &'static str> {
+        fn validate(self) -> Result<SignedTransactionV1, &'static str> {
             self.validate_instructions()
         }
 
-        fn validate_instructions(self) -> Result<SignedTransaction, &'static str> {
+        fn validate_instructions(self) -> Result<SignedTransactionV1, &'static str> {
             if let Executable::Instructions(instructions) = &self.payload.instructions {
                 if instructions.is_empty() {
                     return Err("Transaction is empty");
                 }
             }
 
-            Ok(SignedTransaction {
+            Ok(SignedTransactionV1 {
                 payload: self.payload,
                 signatures: self.signatures,
             })
@@ -409,14 +409,14 @@ mod candidate {
         }
     }
 
-    impl Decode for SignedTransaction {
+    impl Decode for SignedTransactionV1 {
         fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
             SignedTransactionCandidate::decode(input)?
                 .validate()
                 .map_err(Into::into)
         }
     }
-    impl<'de> Deserialize<'de> for SignedTransaction {
+    impl<'de> Deserialize<'de> for SignedTransactionV1 {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: serde::Deserializer<'de>,
@@ -743,10 +743,10 @@ mod http {
         pub fn sign(
             self,
             key_pair: iroha_crypto::KeyPair,
-        ) -> Result<VersionedSignedTransaction, iroha_crypto::error::Error> {
+        ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
             let signatures = SignaturesOf::new(key_pair, &self.payload)?;
 
-            Ok(SignedTransaction {
+            Ok(SignedTransactionV1 {
                 payload: self.payload,
                 signatures,
             }
@@ -760,8 +760,8 @@ pub mod prelude {
     #[cfg(feature = "http")]
     pub use super::http::TransactionBuilder;
     pub use super::{
-        error::prelude::*, Executable, TransactionPayload, TransactionValue,
-        VersionedSignedTransaction, WasmSmartContract,
+        error::prelude::*, Executable, SignedTransaction, TransactionPayload, TransactionValue,
+        WasmSmartContract,
     };
 }
 

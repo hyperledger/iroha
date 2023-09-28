@@ -10,7 +10,7 @@ use std::collections::HashSet;
 
 use derive_more::Display;
 use iroha_crypto::{PublicKey, SignatureOf};
-use iroha_data_model::{block::VersionedSignedBlock, prelude::PeerId};
+use iroha_data_model::{block::SignedBlock, prelude::PeerId};
 use iroha_logger::trace;
 use iroha_primitives::unique_vec::UniqueVec;
 
@@ -188,7 +188,7 @@ impl Topology {
 
     /// Recreate topology for given block and view change index
     pub fn recreate_topology(
-        block: &VersionedSignedBlock,
+        block: &SignedBlock,
         view_change_index: u64,
         new_peers: UniqueVec<PeerId>,
     ) -> Self {

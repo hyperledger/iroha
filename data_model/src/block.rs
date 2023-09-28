@@ -58,9 +58,9 @@ pub mod model {
         #[getset(skip)]
         pub timestamp_ms: u64,
         /// Hash of the previous block in the chain.
-        pub previous_block_hash: Option<HashOf<VersionedSignedBlock>>,
+        pub previous_block_hash: Option<HashOf<SignedBlock>>,
         /// Hash of merkle tree root of transactions' hashes.
-        pub transactions_hash: Option<HashOf<MerkleTree<VersionedSignedTransaction>>>,
+        pub transactions_hash: Option<HashOf<MerkleTree<SignedTransaction>>>,
         /// Value of view change index. Used to resolve soft forks.
         pub view_change_index: u64,
         /// Estimation of consensus duration (in milliseconds).
@@ -101,7 +101,7 @@ pub mod model {
     }
 
     /// Signed block
-    #[version_with_scale(version = 1, versioned_alias = "VersionedSignedBlock")]
+    #[version_with_scale(version = 1, versioned_alias = "SignedBlock")]
     #[derive(
         Debug,
         Display,
@@ -119,7 +119,7 @@ pub mod model {
     #[cfg_attr(feature = "std", display(fmt = "{}", "self.hash()"))]
     #[getset(get = "pub")]
     #[ffi_type]
-    pub struct SignedBlock {
+    pub struct SignedBlockV1 {
         /// Signatures of peers which approved this block.
         #[getset(skip)]
         pub signatures: SignaturesOf<BlockPayload>,
@@ -129,9 +129,9 @@ pub mod model {
 }
 
 #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
-declare_versioned!(VersionedSignedBlock 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, iroha_ffi::FfiType, IntoSchema);
+declare_versioned!(SignedBlock 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, iroha_ffi::FfiType, IntoSchema);
 #[cfg(all(not(feature = "ffi_export"), not(feature = "ffi_import")))]
-declare_versioned!(VersionedSignedBlock 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, IntoSchema);
+declare_versioned!(SignedBlock 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, IntoSchema);
 
 impl BlockPayload {
     /// Calculate block payload [`Hash`](`iroha_crypto::HashOf`).
@@ -159,18 +159,18 @@ impl BlockHeader {
     }
 }
 
-impl SignedBlock {
+impl SignedBlockV1 {
     #[cfg(feature = "std")]
-    fn hash(&self) -> iroha_crypto::HashOf<VersionedSignedBlock> {
+    fn hash(&self) -> iroha_crypto::HashOf<SignedBlock> {
         iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::HashOf::new(self).into())
     }
 }
 
-impl VersionedSignedBlock {
+impl SignedBlock {
     /// Block payload
     // FIXME: Leaking concrete type BlockPayload from Versioned container. Payload should be versioned
     pub fn payload(&self) -> &BlockPayload {
-        let VersionedSignedBlock::V1(block) = self;
+        let SignedBlock::V1(block) = self;
         block.payload()
     }
 
@@ -178,13 +178,13 @@ impl VersionedSignedBlock {
     #[cfg(debug_assertions)]
     #[cfg(feature = "transparent_api")]
     pub fn payload_mut(&mut self) -> &mut BlockPayload {
-        let VersionedSignedBlock::V1(block) = self;
+        let SignedBlock::V1(block) = self;
         &mut block.payload
     }
 
     /// Signatures of peers which approved this block.
     pub fn signatures(&self) -> &SignaturesOf<BlockPayload> {
-        let VersionedSignedBlock::V1(block) = self;
+        let SignedBlock::V1(block) = self;
         &block.signatures
     }
 
@@ -203,7 +203,7 @@ impl VersionedSignedBlock {
     #[cfg(feature = "transparent_api")]
     pub fn sign(mut self, key_pair: KeyPair) -> Result<Self, iroha_crypto::error::Error> {
         iroha_crypto::SignatureOf::new(key_pair, self.payload()).map(|signature| {
-            let VersionedSignedBlock::V1(block) = &mut self;
+            let SignedBlock::V1(block) = &mut self;
             block.signatures.insert(signature);
             self
         })
@@ -222,7 +222,7 @@ impl VersionedSignedBlock {
     ) -> Result<(), iroha_crypto::error::Error> {
         signature.verify(self.payload())?;
 
-        let VersionedSignedBlock::V1(block) = self;
+        let SignedBlock::V1(block) = self;
         block.signatures.insert(signature);
 
         Ok(())
@@ -240,7 +240,7 @@ impl VersionedSignedBlock {
         #[cfg(feature = "std")]
         use std::collections::BTreeSet;
 
-        let VersionedSignedBlock::V1(block) = self;
+        let SignedBlock::V1(block) = self;
         block.signatures = BTreeSet::new().into();
 
         for signature in signatures {
@@ -265,7 +265,7 @@ mod candidate {
     }
 
     impl SignedBlockCandidate {
-        fn validate(self) -> Result<SignedBlock, &'static str> {
+        fn validate(self) -> Result<SignedBlockV1, &'static str> {
             #[cfg(feature = "std")]
             self.validate_signatures()?;
             #[cfg(feature = "std")]
@@ -275,7 +275,7 @@ mod candidate {
                 return Err("Block is empty");
             }
 
-            Ok(SignedBlock {
+            Ok(SignedBlockV1 {
                 payload: self.payload,
                 signatures: self.signatures,
             })
@@ -309,14 +309,14 @@ mod candidate {
         }
     }
 
-    impl Decode for SignedBlock {
+    impl Decode for SignedBlockV1 {
         fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
             SignedBlockCandidate::decode(input)?
                 .validate()
                 .map_err(Into::into)
         }
     }
-    impl<'de> Deserialize<'de> for SignedBlock {
+    impl<'de> Deserialize<'de> for SignedBlockV1 {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: serde::Deserializer<'de>,
@@ -330,9 +330,9 @@ mod candidate {
     }
 }
 
-impl Display for VersionedSignedBlock {
+impl Display for SignedBlock {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let VersionedSignedBlock::V1(block) = self;
+        let SignedBlock::V1(block) = self;
         block.fmt(f)
     }
 }
@@ -362,10 +362,10 @@ pub mod stream {
         /// Message sent by the stream producer containing block.
         #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
-        pub struct BlockMessage(pub VersionedSignedBlock);
+        pub struct BlockMessage(pub SignedBlock);
     }
 
-    impl From<BlockMessage> for VersionedSignedBlock {
+    impl From<BlockMessage> for SignedBlock {
         fn from(source: BlockMessage) -> Self {
             source.0
         }

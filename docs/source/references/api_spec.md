@@ -12,7 +12,7 @@
 
 **Method**: `POST`
 
-**Expects**: Body: `VersionedSignedTransaction`
+**Expects**: Body: `SignedTransaction`
 
 **Responses**:
 
@@ -34,7 +34,7 @@
 
 **Expects**:
 
-- Body: `VersionedSignedQuery`
+- Body: `SignedQuery`
 - Query parameters:
     - `start`: Optional parameter in queries where results can be indexed. Use to return results from specified point.
       Results are ordered where can be by id which uses

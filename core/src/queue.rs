@@ -863,7 +863,7 @@ mod tests {
         let mut tx = accepted_tx("alice@wonderland", alice_key);
         assert!(queue.push(tx.clone(), &wsv).is_ok());
         // tamper timestamp
-        let VersionedSignedTransaction::V1(tx_ref) = &mut tx.0;
+        let SignedTransaction::V1(tx_ref) = &mut tx.0;
         tx_ref.payload.creation_time_ms += 2 * future_threshold_ms;
         assert!(matches!(
             queue.push(tx, &wsv),

@@ -31,9 +31,9 @@ use crate::{prelude::*, smartcontracts::wasm};
 /// `AcceptedTransaction` — a transaction accepted by iroha peer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 // TODO: Inner field should be private to maintain invariants
-pub struct AcceptedTransaction(pub(crate) VersionedSignedTransaction);
+pub struct AcceptedTransaction(pub(crate) SignedTransaction);
 
-/// Error type for transaction from [`VersionedSignedTransaction`] to [`AcceptedTransaction`]
+/// Error type for transaction from [`SignedTransaction`] to [`AcceptedTransaction`]
 #[derive(Debug, FromVariant, thiserror::Error, displaydoc::Display)]
 pub enum AcceptTransactionFail {
     /// Failure during limits check
@@ -79,13 +79,13 @@ impl AcceptedTransaction {
         Self(tx.0)
     }
 
-    /// Accept transaction. Transition from [`VersionedSignedTransaction`] to [`AcceptedTransaction`].
+    /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
     ///
     /// # Errors
     ///
     /// - if it does not adhere to limits
     pub fn accept(
-        transaction: VersionedSignedTransaction,
+        transaction: SignedTransaction,
         limits: &TransactionLimits,
     ) -> Result<Self, AcceptTransactionFail> {
         if *iroha_genesis::GENESIS_ACCOUNT_ID == transaction.payload().authority {
@@ -138,7 +138,7 @@ impl AcceptedTransaction {
     }
 
     /// Transaction hash
-    pub fn hash(&self) -> HashOf<VersionedSignedTransaction> {
+    pub fn hash(&self) -> HashOf<SignedTransaction> {
         self.0.hash()
     }
 
@@ -156,7 +156,7 @@ impl AcceptedTransaction {
     }
 }
 
-impl From<AcceptedTransaction> for VersionedSignedTransaction {
+impl From<AcceptedTransaction> for SignedTransaction {
     fn from(source: AcceptedTransaction) -> Self {
         source.0
     }
@@ -194,8 +194,7 @@ impl TransactionValidator {
         &self,
         tx: AcceptedTransaction,
         wsv: &mut WorldStateView,
-    ) -> Result<VersionedSignedTransaction, (VersionedSignedTransaction, TransactionRejectionReason)>
-    {
+    ) -> Result<SignedTransaction, (SignedTransaction, TransactionRejectionReason)> {
         if let Err(rejection_reason) = self.validate_internal(tx.clone(), wsv) {
             return Err((tx.0, rejection_reason));
         }
@@ -273,7 +272,7 @@ impl TransactionValidator {
         tx: AcceptedTransaction,
         wsv: &mut WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
-        let tx: VersionedSignedTransaction = tx.into();
+        let tx: SignedTransaction = tx.into();
         let authority = tx.payload().authority.clone();
 
         wsv.validator()
