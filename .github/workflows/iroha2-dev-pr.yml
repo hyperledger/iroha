@@ -146,31 +146,36 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - name: Build iroha_client_cli
-        working-directory: client_cli
+      - name: Build bins
         run: |
-          mold --run cargo build -p iroha_client_cli --release
+          cargo build --bin iroha_client_cli
+          cargo build --bin kagami
+          cargo build --bin iroha
 
       - name: Mark binaries as executable
         run: |
           chmod +x $CLIENT_CLI_DIR/
 
+      - name: Run Iroha 2 on bare metal
+        run: |
+          ./scripts/test_env.py setup   
+
       - name: Copy Iroha 2 client config
         run: |
           cp ./configs/client/config.json $CLIENT_CLI_DIR/
 
-      - name: Set up .env for client_cli
+      - name: Set up .env for client_cli tests
         run: |
           echo "CLIENT_CLI_DIR=$CLIENT_CLI_DIR" >> ./client_cli/pytests/.env
           echo "TORII_API_PORT_MIN=8080" >> ./client_cli/pytests/.env
           echo "TORII_API_PORT_MAX=8083" >> ./client_cli/pytests/.env
 
       - name: Install dependencies using Poetry
+        working-directory: client_cli/pytests
         run: |
-          cd client_cli/pytests
           poetry install
 
       - name: Run client cli tests
+        working-directory: client_cli/pytests
         run: |
-          cd client_cli/pytests
-          poetry run pytest --alluredir allure-results
+          poetry run pytest

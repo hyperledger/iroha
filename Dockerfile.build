@@ -3,12 +3,15 @@ FROM archlinux:base-devel
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
-    POETRY_HOME=/opt/poetry
+    POETRY_HOME=/opt/poetry \
+    CLIENT_CLI_DIR=/__w/iroha/iroha/target/debug
 
 ENV PATH=$POETRY_HOME/bin:$PATH
-ENV CLIENT_CLI_DIR=/__w/iroha/iroha/target/release
 
-RUN pacman -Syu rustup mold musl rust-musl openssl libgit2 git docker docker-buildx docker-compose --noconfirm
+RUN pacman -Syu rustup mold musl rust-musl openssl libgit2 \
+    git docker docker-buildx docker-compose \
+    python python-pip --noconfirm --disable-download-timeout && \
+    curl -sSL https://install.python-poetry.org | python3 -
 
 RUN rustup toolchain install nightly-2023-06-25-x86_64-unknown-linux-gnu
 RUN rustup default nightly-2023-06-25-x86_64-unknown-linux-gnu
@@ -18,12 +21,6 @@ RUN rustup component add rustfmt
 RUN rustup target add wasm32-unknown-unknown
 RUN cargo install webassembly-test-runner
 RUN cargo install cargo-llvm-cov
-
-RUN pacman -S python python-pip --noconfirm --disable-download-timeout
-RUN curl -sSL https://install.python-poetry.org | python3 -
-# RUN which poetry
-
-RUN pacman -S allure --noconfirm
 
 # TODO: Figure out a way to pull in libgit2, which doesn't crash if this useless variable is gone.
 RUN git config --global --add safe.directory .
