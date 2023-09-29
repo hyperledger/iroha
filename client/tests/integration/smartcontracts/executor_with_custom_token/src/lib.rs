@@ -3,9 +3,9 @@
 //!
 //! This executor should be applied on top of the blockchain with default validation.
 //!
-//! It also doesn't have [`iroha_executor::default::domain::tokens::CanUnregisterDomain`].
+//! It also doesn't have [`iroha_executor::default::tokens::domain::CanUnregisterDomain`].
 //!
-//! In migration it replaces [`iroha_executor::default::domain::tokens::CanUnregisterDomain`]
+//! In migration it replaces [`iroha_executor::default::tokens::domain::CanUnregisterDomain`]
 //! with [`token::CanControlDomainLives`] for all accounts.
 //! So it doesn't matter which domain user was able to unregister before migration, they will
 //! get access to control all domains. Remember that this is just a test example.
@@ -108,7 +108,7 @@ impl Executor {
                 })?;
 
                 if let Ok(can_unregister_domain_token) =
-                    iroha_executor::default::domain::tokens::CanUnregisterDomain::try_from(token)
+                    iroha_executor::default::tokens::domain::CanUnregisterDomain::try_from(token)
                 {
                     found_accounts.push((account, can_unregister_domain_token.domain_id));
                     break;
@@ -121,7 +121,7 @@ impl Executor {
 
     fn replace_token(accounts: &[(Account, DomainId)]) -> MigrationResult {
         let can_unregister_domain_definition_id = PermissionTokenId::try_from(
-            iroha_executor::default::domain::tokens::CanUnregisterDomain::type_name(),
+            iroha_executor::default::tokens::domain::CanUnregisterDomain::type_name(),
         )
         .unwrap();
 
@@ -304,7 +304,7 @@ pub fn migrate(_block_height: u64) -> MigrationResult {
     let accounts = Executor::get_all_accounts_with_can_unregister_domain_permission()?;
 
     let mut schema = default_permission_token_schema();
-    schema.remove::<iroha_executor::default::domain::tokens::CanUnregisterDomain>();
+    schema.remove::<iroha_executor::default::tokens::domain::CanUnregisterDomain>();
     schema.insert::<token::CanControlDomainLives>();
 
     let (token_ids, schema_str) = schema.serialize();
