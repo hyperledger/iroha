@@ -45,7 +45,7 @@ namespace shared_model {
         if (status.ok()) {
           return result;
         }
-        return status.error_message();
+        return status.message();
       }
     }  // namespace protobuf
   }    // namespace converters

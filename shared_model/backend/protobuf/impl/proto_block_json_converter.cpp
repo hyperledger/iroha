@@ -24,7 +24,7 @@ ProtoBlockJsonConverter::serialize(const interface::Block &block) const
       google::protobuf::util::MessageToJsonString(proto_block, &result);
 
   if (not status.ok()) {
-    return iroha::expected::makeError(status.error_message());
+    return iroha::expected::makeError(status.message());
   }
   return iroha::expected::makeValue(result);
 }
@@ -35,7 +35,7 @@ ProtoBlockJsonConverter::deserialize(
   iroha::protocol::Block block;
   auto status = google::protobuf::util::JsonStringToMessage(json, &block);
   if (not status.ok()) {
-    return iroha::expected::makeError(status.error_message());
+    return iroha::expected::makeError(status.message());
   }
   std::unique_ptr<interface::Block> result =
       std::make_unique<Block>(std::move(block.block_v1()));
