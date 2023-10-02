@@ -144,7 +144,7 @@ impl syn2::parse::Parse for SpannedGetSetAttrToken {
                     let span = ident
                         .span()
                         .join(options.span)
-                        .expect("must be in the same file");
+                        .unwrap_or_else(|| ident.span());
 
                     Ok(SpannedGetSetAttrToken {
                         span,
