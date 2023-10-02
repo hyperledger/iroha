@@ -123,7 +123,7 @@ fn query_status_code(validation_error: &iroha_data_model::ValidationFail) -> Sta
         QueryFailed(query_error)
         | InstructionFailed(InstructionExecutionError::Query(query_error)) => match query_error {
             Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
-            Signature(_) | Unauthorized => StatusCode::UNAUTHORIZED,
+            Signature(_) => StatusCode::UNAUTHORIZED,
             Find(_) => StatusCode::NOT_FOUND,
         },
         TooComplex => StatusCode::UNPROCESSABLE_ENTITY,

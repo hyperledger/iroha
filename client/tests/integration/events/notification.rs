@@ -16,11 +16,11 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id);
     let trigger_id = TriggerId::from_str("mint_rose")?;
 
-    let instruction = MintBox::new(1_u32, asset_id.clone());
-    let register_trigger = RegisterBox::new(Trigger::new(
+    let instruction = MintExpr::new(1_u32, asset_id.clone());
+    let register_trigger = RegisterExpr::new(Trigger::new(
         trigger_id.clone(),
         Action::new(
-            vec![InstructionBox::from(instruction)],
+            vec![InstructionExpr::from(instruction)],
             Repeats::Indefinitely,
             asset_id.account_id.clone(),
             TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
@@ -31,7 +31,7 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
     ));
     test_client.submit_blocking(register_trigger)?;
 
-    let call_trigger = ExecuteTriggerBox::new(trigger_id.clone());
+    let call_trigger = ExecuteTriggerExpr::new(trigger_id.clone());
 
     let thread_client = test_client.clone();
     let (sender, receiver) = mpsc::channel();
@@ -65,11 +65,11 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
     let account_id: AccountId = "alice@wonderland".parse()?;
     let trigger_id = TriggerId::from_str("fail_box")?;
 
-    let instruction = FailBox::new("Fail box");
-    let register_trigger = RegisterBox::new(Trigger::new(
+    let instruction = Fail::new("Fail box");
+    let register_trigger = RegisterExpr::new(Trigger::new(
         trigger_id.clone(),
         Action::new(
-            vec![InstructionBox::from(instruction)],
+            vec![InstructionExpr::from(instruction)],
             Repeats::Indefinitely,
             account_id.clone(),
             TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
@@ -80,7 +80,7 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
     ));
     test_client.submit_blocking(register_trigger)?;
 
-    let call_trigger = ExecuteTriggerBox::new(trigger_id.clone());
+    let call_trigger = ExecuteTriggerExpr::new(trigger_id.clone());
 
     let thread_client = test_client.clone();
     let (sender, receiver) = mpsc::channel();

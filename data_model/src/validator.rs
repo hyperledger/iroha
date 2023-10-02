@@ -20,7 +20,7 @@ pub mod model {
     /// validator that checks if an operation satisfies some conditions.
     ///
     /// Can be used with things like [`Transaction`]s,
-    /// [`InstructionBox`]s, etc.
+    /// [`InstructionExpr`]s, etc.
     #[derive(
         Debug,
         Clone,

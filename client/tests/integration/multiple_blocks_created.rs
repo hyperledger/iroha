@@ -29,12 +29,12 @@ fn long_multiple_blocks_created() -> Result<()> {
             .into_set_parameters(),
     )?;
 
-    let create_domain = RegisterBox::new(Domain::new("domain".parse()?));
+    let create_domain = RegisterExpr::new(Domain::new("domain".parse()?));
     let account_id: AccountId = "account@domain".parse()?;
     let (public_key, _) = KeyPair::generate()?.into();
-    let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
+    let create_account = RegisterExpr::new(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
 
     client.submit_all([create_domain, create_account, create_asset])?;
 
@@ -44,7 +44,7 @@ fn long_multiple_blocks_created() -> Result<()> {
     //When
     for _ in 0..N_BLOCKS {
         let quantity: u32 = 1;
-        let mint_asset = MintBox::new(
+        let mint_asset = MintExpr::new(
             quantity.to_value(),
             IdBox::AssetId(AssetId::new(
                 asset_definition_id.clone(),

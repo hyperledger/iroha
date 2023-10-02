@@ -49,16 +49,16 @@ fn query_requests(criterion: &mut Criterion) {
         .expect("Should not fail");
     let mut group = criterion.benchmark_group("query-requests");
     let domain_id: DomainId = "domain".parse().expect("Valid");
-    let create_domain = RegisterBox::new(Domain::new(domain_id.clone()));
+    let create_domain = RegisterExpr::new(Domain::new(domain_id.clone()));
     let account_id = AccountId::new("account".parse().expect("Valid"), domain_id.clone());
     let (public_key, _) = KeyPair::generate()
         .expect("Failed to generate KeyPair")
         .into();
-    let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
+    let create_account = RegisterExpr::new(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id = AssetDefinitionId::new("xor".parse().expect("Valid"), domain_id);
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let quantity: u32 = 200;
-    let mint_asset = MintBox::new(
+    let mint_asset = MintExpr::new(
         quantity.to_value(),
         IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
     );
@@ -69,7 +69,7 @@ fn query_requests(criterion: &mut Criterion) {
     let iroha_client = Client::new(&client_config).expect("Invalid client configuration");
     thread::sleep(std::time::Duration::from_millis(5000));
 
-    let instructions: [InstructionBox; 4] = [
+    let instructions: [InstructionExpr; 4] = [
         create_domain.into(),
         create_account.into(),
         create_asset.into(),
@@ -137,12 +137,12 @@ fn instruction_submits(criterion: &mut Criterion) {
     rt.block_on(builder.start_with_peer(&mut peer));
     let mut group = criterion.benchmark_group("instruction-requests");
     let domain_id: DomainId = "domain".parse().expect("Valid");
-    let create_domain = RegisterBox::new(Domain::new(domain_id.clone()));
+    let create_domain = RegisterExpr::new(Domain::new(domain_id.clone()));
     let account_id = AccountId::new("account".parse().expect("Valid"), domain_id.clone());
     let (public_key, _) = KeyPair::generate()
         .expect("Failed to generate Key-pair.")
         .into();
-    let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
+    let create_account = RegisterExpr::new(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id = AssetDefinitionId::new("xor".parse().expect("Valid"), domain_id);
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
     client_config.torii_api_url = format!("http://{}", peer.api_address).parse().unwrap();
@@ -157,7 +157,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     let _dropable = group.bench_function("instructions", |b| {
         b.iter(|| {
             let quantity: u32 = 200;
-            let mint_asset = MintBox::new(
+            let mint_asset = MintExpr::new(
                 quantity.to_value(),
                 IdBox::AssetId(AssetId::new(
                     asset_definition_id.clone(),

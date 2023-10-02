@@ -304,7 +304,7 @@ Code guidelines:
 - Avoid `Box<dyn Error>` if possible (we prefer strong typing).
 - If your function is a getter/setter, mark it `#[inline]`.
 - If your function is a constructor (i.e., it's creating a new value from the input parameters and calls `default()`), mark it `#[inline]`.
-- Avoid tying your code to concrete data structures; `rustc` is smart enough to turn a `Vec<InstructionBox>` into `impl IntoIterator<Item = InstructionBox>` and vice versa when it needs to.
+- Avoid tying your code to concrete data structures; `rustc` is smart enough to turn a `Vec<InstructionExpr>` into `impl IntoIterator<Item = InstructionExpr>` and vice versa when it needs to.
 
 Naming guidelines:
 - Use only full words in *public* structure, variable, method, trait, constant, and module names. However, abbreviations are allowed if:

@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 pub use self::model::*;
 use crate::{
     account::AccountId,
-    isi::{Instruction, InstructionBox},
+    isi::{Instruction, InstructionExpr},
     metadata::UnlimitedMetadata,
     name::Name,
     Value,
@@ -52,7 +52,7 @@ pub mod model {
     pub enum Executable {
         /// Ordered set of instructions.
         #[debug(fmt = "{_0:?}")]
-        Instructions(Vec<InstructionBox>),
+        Instructions(Vec<InstructionExpr>),
         /// WebAssembly smartcontract
         Wasm(WasmSmartContract),
     }
@@ -520,7 +520,7 @@ pub mod error {
         pub struct InstructionExecutionFail {
             /// Instruction for which execution failed
             #[getset(get = "pub")]
-            pub instruction: InstructionBox,
+            pub instruction: InstructionExpr,
             /// Error which happened during execution
             pub reason: String,
         }
@@ -598,7 +598,7 @@ pub mod error {
 
     impl Display for InstructionExecutionFail {
         fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-            use InstructionBox::*;
+            use InstructionExpr::*;
             let kind = match self.instruction {
                 Burn(_) => "burn",
                 Fail(_) => "fail",
@@ -678,7 +678,7 @@ mod http {
                     creation_time_ms,
                     nonce: None,
                     time_to_live_ms: None,
-                    instructions: Vec::<InstructionBox>::new().into(),
+                    instructions: Vec::<InstructionExpr>::new().into(),
                     metadata: UnlimitedMetadata::new(),
                 },
             }
@@ -694,7 +694,7 @@ mod http {
             self.payload.instructions = instructions
                 .into_iter()
                 .map(Into::into)
-                .collect::<Vec<InstructionBox>>()
+                .collect::<Vec<InstructionExpr>>()
                 .into();
             self
         }

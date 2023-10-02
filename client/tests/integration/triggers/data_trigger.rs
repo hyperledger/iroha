@@ -16,8 +16,8 @@ fn must_execute_both_triggers() -> Result<()> {
 
     let prev_value = get_asset_value(&test_client, asset_id.clone())?;
 
-    let instruction = MintBox::new(1_u32, asset_id.clone());
-    let register_trigger = RegisterBox::new(Trigger::new(
+    let instruction = MintExpr::new(1_u32, asset_id.clone());
+    let register_trigger = RegisterExpr::new(Trigger::new(
         "mint_rose_1".parse()?,
         Action::new(
             [instruction.clone()],
@@ -30,7 +30,7 @@ fn must_execute_both_triggers() -> Result<()> {
     ));
     test_client.submit_blocking(register_trigger)?;
 
-    let register_trigger = RegisterBox::new(Trigger::new(
+    let register_trigger = RegisterExpr::new(Trigger::new(
         "mint_rose_2".parse()?,
         Action::new(
             [instruction],
@@ -43,11 +43,11 @@ fn must_execute_both_triggers() -> Result<()> {
     ));
     test_client.submit_blocking(register_trigger)?;
 
-    test_client.submit_blocking(RegisterBox::new(Account::new(
+    test_client.submit_blocking(RegisterExpr::new(Account::new(
         "bunny@wonderland".parse()?,
         [],
     )))?;
-    test_client.submit_blocking(RegisterBox::new(Domain::new("neverland".parse()?)))?;
+    test_client.submit_blocking(RegisterExpr::new(Domain::new("neverland".parse()?)))?;
 
     let new_value = get_asset_value(&test_client, asset_id)?;
     assert_eq!(new_value, prev_value + 2);
@@ -60,18 +60,18 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_655).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
-    let create_neverland_domain = RegisterBox::new(Domain::new("neverland".parse()?));
+    let create_neverland_domain = RegisterExpr::new(Domain::new("neverland".parse()?));
 
     let account_id: AccountId = "sapporo@neverland".parse()?;
-    let create_sapporo_account = RegisterBox::new(Account::new(account_id.clone(), []));
+    let create_sapporo_account = RegisterExpr::new(Account::new(account_id.clone(), []));
 
     let asset_definition_id: AssetDefinitionId = "sakura#neverland".parse()?;
     let create_sakura_asset_definition =
-        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+        RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
 
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let create_sakura_asset =
-        RegisterBox::new(Asset::new(asset_id.clone(), AssetValue::Quantity(0)));
+        RegisterExpr::new(Asset::new(asset_id.clone(), AssetValue::Quantity(0)));
 
     test_client.submit_all_blocking([
         create_neverland_domain,
@@ -82,10 +82,10 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
 
     let prev_value = get_asset_value(&test_client, asset_id.clone())?;
 
-    let register_trigger = RegisterBox::new(Trigger::new(
+    let register_trigger = RegisterExpr::new(Trigger::new(
         "mint_sakura$neverland".parse()?,
         Action::new(
-            [MintBox::new(1_u32, asset_id.clone())],
+            [MintExpr::new(1_u32, asset_id.clone())],
             Repeats::Indefinitely,
             account_id,
             TriggeringFilterBox::Data(BySome(DataEntityFilter::ByAccount(BySome(
@@ -95,12 +95,12 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
     ));
     test_client.submit_blocking(register_trigger)?;
 
-    test_client.submit_blocking(RegisterBox::new(Account::new(
+    test_client.submit_blocking(RegisterExpr::new(Account::new(
         "asahi@wonderland".parse()?,
         [],
     )))?;
 
-    test_client.submit_blocking(RegisterBox::new(Account::new(
+    test_client.submit_blocking(RegisterExpr::new(Account::new(
         "asahi@neverland".parse()?,
         [],
     )))?;

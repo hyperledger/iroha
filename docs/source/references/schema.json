@@ -730,7 +730,7 @@
     ]
   },
   "BlockSubscriptionRequest": "NonZero<u64>",
-  "BurnBox": {
+  "BurnExpr": {
     "Struct": [
       {
         "name": "object",
@@ -742,7 +742,7 @@
       }
     ]
   },
-  "Conditional": {
+  "ConditionalExpr": {
     "Struct": [
       {
         "name": "condition",
@@ -750,11 +750,11 @@
       },
       {
         "name": "then",
-        "type": "InstructionBox"
+        "type": "InstructionExpr"
       },
       {
         "name": "otherwise",
-        "type": "Option<InstructionBox>"
+        "type": "Option<InstructionExpr>"
       }
     ]
   },
@@ -1297,20 +1297,12 @@
       {
         "tag": "Instructions",
         "discriminant": 0,
-        "type": "Vec<InstructionBox>"
+        "type": "Vec<InstructionExpr>"
       },
       {
         "tag": "Wasm",
         "discriminant": 1,
         "type": "WasmSmartContract"
-      }
-    ]
-  },
-  "ExecuteTriggerBox": {
-    "Struct": [
-      {
-        "name": "trigger_id",
-        "type": "EvaluatesTo<TriggerId>"
       }
     ]
   },
@@ -1335,6 +1327,14 @@
       {
         "name": "authority",
         "type": "AccountId"
+      }
+    ]
+  },
+  "ExecuteTriggerExpr": {
+    "Struct": [
+      {
+        "name": "trigger_id",
+        "type": "EvaluatesTo<TriggerId>"
       }
     ]
   },
@@ -1455,7 +1455,7 @@
       }
     ]
   },
-  "FailBox": {
+  "Fail": {
     "Struct": [
       {
         "name": "message",
@@ -2143,7 +2143,7 @@
       }
     ]
   },
-  "GrantBox": {
+  "GrantExpr": {
     "Struct": [
       {
         "name": "object",
@@ -2151,7 +2151,7 @@
       },
       {
         "name": "destination_id",
-        "type": "EvaluatesTo<IdBox>"
+        "type": "EvaluatesTo<AccountId>"
       }
     ]
   },
@@ -2315,100 +2315,6 @@
       }
     ]
   },
-  "InstructionBox": {
-    "Enum": [
-      {
-        "tag": "Register",
-        "discriminant": 0,
-        "type": "RegisterBox"
-      },
-      {
-        "tag": "Unregister",
-        "discriminant": 1,
-        "type": "UnregisterBox"
-      },
-      {
-        "tag": "Mint",
-        "discriminant": 2,
-        "type": "MintBox"
-      },
-      {
-        "tag": "Burn",
-        "discriminant": 3,
-        "type": "BurnBox"
-      },
-      {
-        "tag": "Transfer",
-        "discriminant": 4,
-        "type": "TransferBox"
-      },
-      {
-        "tag": "If",
-        "discriminant": 5,
-        "type": "Conditional"
-      },
-      {
-        "tag": "Pair",
-        "discriminant": 6,
-        "type": "Pair"
-      },
-      {
-        "tag": "Sequence",
-        "discriminant": 7,
-        "type": "SequenceBox"
-      },
-      {
-        "tag": "SetKeyValue",
-        "discriminant": 8,
-        "type": "SetKeyValueBox"
-      },
-      {
-        "tag": "RemoveKeyValue",
-        "discriminant": 9,
-        "type": "RemoveKeyValueBox"
-      },
-      {
-        "tag": "Grant",
-        "discriminant": 10,
-        "type": "GrantBox"
-      },
-      {
-        "tag": "Revoke",
-        "discriminant": 11,
-        "type": "RevokeBox"
-      },
-      {
-        "tag": "ExecuteTrigger",
-        "discriminant": 12,
-        "type": "ExecuteTriggerBox"
-      },
-      {
-        "tag": "SetParameter",
-        "discriminant": 13,
-        "type": "SetParameterBox"
-      },
-      {
-        "tag": "NewParameter",
-        "discriminant": 14,
-        "type": "NewParameterBox"
-      },
-      {
-        "tag": "Upgrade",
-        "discriminant": 15,
-        "type": "UpgradeBox"
-      },
-      {
-        "tag": "Log",
-        "discriminant": 16,
-        "type": "LogBox"
-      },
-      {
-        "tag": "Fail",
-        "discriminant": 17,
-        "type": "FailBox"
-      }
-    ]
-  },
   "InstructionEvaluationError": {
     "Enum": [
       {
@@ -2496,11 +2402,105 @@
     "Struct": [
       {
         "name": "instruction",
-        "type": "InstructionBox"
+        "type": "InstructionExpr"
       },
       {
         "name": "reason",
         "type": "String"
+      }
+    ]
+  },
+  "InstructionExpr": {
+    "Enum": [
+      {
+        "tag": "Register",
+        "discriminant": 0,
+        "type": "RegisterExpr"
+      },
+      {
+        "tag": "Unregister",
+        "discriminant": 1,
+        "type": "UnregisterExpr"
+      },
+      {
+        "tag": "Mint",
+        "discriminant": 2,
+        "type": "MintExpr"
+      },
+      {
+        "tag": "Burn",
+        "discriminant": 3,
+        "type": "BurnExpr"
+      },
+      {
+        "tag": "Transfer",
+        "discriminant": 4,
+        "type": "TransferExpr"
+      },
+      {
+        "tag": "If",
+        "discriminant": 5,
+        "type": "ConditionalExpr"
+      },
+      {
+        "tag": "Pair",
+        "discriminant": 6,
+        "type": "PairExpr"
+      },
+      {
+        "tag": "Sequence",
+        "discriminant": 7,
+        "type": "SequenceExpr"
+      },
+      {
+        "tag": "SetKeyValue",
+        "discriminant": 8,
+        "type": "SetKeyValueExpr"
+      },
+      {
+        "tag": "RemoveKeyValue",
+        "discriminant": 9,
+        "type": "RemoveKeyValueExpr"
+      },
+      {
+        "tag": "Grant",
+        "discriminant": 10,
+        "type": "GrantExpr"
+      },
+      {
+        "tag": "Revoke",
+        "discriminant": 11,
+        "type": "RevokeExpr"
+      },
+      {
+        "tag": "ExecuteTrigger",
+        "discriminant": 12,
+        "type": "ExecuteTriggerExpr"
+      },
+      {
+        "tag": "SetParameter",
+        "discriminant": 13,
+        "type": "SetParameterExpr"
+      },
+      {
+        "tag": "NewParameter",
+        "discriminant": 14,
+        "type": "NewParameterExpr"
+      },
+      {
+        "tag": "Upgrade",
+        "discriminant": 15,
+        "type": "UpgradeExpr"
+      },
+      {
+        "tag": "Log",
+        "discriminant": 16,
+        "type": "LogExpr"
+      },
+      {
+        "tag": "Fail",
+        "discriminant": 17,
+        "type": "Fail"
       }
     ]
   },
@@ -2694,7 +2694,7 @@
       }
     ]
   },
-  "LogBox": {
+  "LogExpr": {
     "Struct": [
       {
         "name": "level",
@@ -2847,7 +2847,7 @@
       }
     ]
   },
-  "MintBox": {
+  "MintExpr": {
     "Struct": [
       {
         "name": "object",
@@ -3004,7 +3004,7 @@
       }
     ]
   },
-  "NewParameterBox": {
+  "NewParameterExpr": {
     "Struct": [
       {
         "name": "parameter",
@@ -3087,7 +3087,7 @@
       {
         "tag": "Instructions",
         "discriminant": 1,
-        "type": "Vec<InstructionBox>"
+        "type": "Vec<InstructionExpr>"
       }
     ]
   },
@@ -3106,8 +3106,8 @@
   "Option<HashOf<SignedBlock>>": {
     "Option": "HashOf<SignedBlock>"
   },
-  "Option<InstructionBox>": {
-    "Option": "InstructionBox"
+  "Option<InstructionExpr>": {
+    "Option": "InstructionExpr"
   },
   "Option<IpfsPath>": {
     "Option": "IpfsPath"
@@ -3158,15 +3158,15 @@
   "OriginFilter<PeerEvent>": "PeerId",
   "OriginFilter<RoleEvent>": "RoleId",
   "OriginFilter<TriggerEvent>": "TriggerId",
-  "Pair": {
+  "PairExpr": {
     "Struct": [
       {
         "name": "left_instruction",
-        "type": "InstructionBox"
+        "type": "InstructionExpr"
       },
       {
         "name": "right_instruction",
-        "type": "InstructionBox"
+        "type": "InstructionExpr"
       }
     ]
   },
@@ -3629,10 +3629,6 @@
         "tag": "Conversion",
         "discriminant": 3,
         "type": "String"
-      },
-      {
-        "tag": "Unauthorized",
-        "discriminant": 4
       }
     ]
   },
@@ -3668,7 +3664,7 @@
     "Struct": [
       {
         "name": "transactions",
-        "type": "Vec<Vec<InstructionBox>>"
+        "type": "Vec<Vec<InstructionExpr>>"
       },
       {
         "name": "validator",
@@ -3676,7 +3672,7 @@
       }
     ]
   },
-  "RegisterBox": {
+  "RegisterExpr": {
     "Struct": [
       {
         "name": "object",
@@ -3723,7 +3719,7 @@
       }
     ]
   },
-  "RemoveKeyValueBox": {
+  "RemoveKeyValueExpr": {
     "Struct": [
       {
         "name": "object_id",
@@ -3760,7 +3756,7 @@
       }
     ]
   },
-  "RevokeBox": {
+  "RevokeExpr": {
     "Struct": [
       {
         "name": "object",
@@ -3768,7 +3764,7 @@
       },
       {
         "name": "destination_id",
-        "type": "EvaluatesTo<IdBox>"
+        "type": "EvaluatesTo<AccountId>"
       }
     ]
   },
@@ -3906,15 +3902,15 @@
       }
     ]
   },
-  "SequenceBox": {
+  "SequenceExpr": {
     "Struct": [
       {
         "name": "instructions",
-        "type": "Vec<InstructionBox>"
+        "type": "Vec<InstructionExpr>"
       }
     ]
   },
-  "SetKeyValueBox": {
+  "SetKeyValueExpr": {
     "Struct": [
       {
         "name": "object_id",
@@ -3930,7 +3926,7 @@
       }
     ]
   },
-  "SetParameterBox": {
+  "SetParameterExpr": {
     "Struct": [
       {
         "name": "parameter",
@@ -4332,7 +4328,7 @@
       }
     ]
   },
-  "TransferBox": {
+  "TransferExpr": {
     "Struct": [
       {
         "name": "source_id",
@@ -4559,7 +4555,7 @@
     ]
   },
   "UniqueVec<PeerId>": "Vec<PeerId>",
-  "UnregisterBox": {
+  "UnregisterExpr": {
     "Struct": [
       {
         "name": "object_id",
@@ -4576,7 +4572,7 @@
       }
     ]
   },
-  "UpgradeBox": {
+  "UpgradeExpr": {
     "Struct": [
       {
         "name": "object",
@@ -4821,8 +4817,8 @@
   "Vec<GenericPredicateBox<ValuePredicate>>": {
     "Vec": "GenericPredicateBox<ValuePredicate>"
   },
-  "Vec<InstructionBox>": {
-    "Vec": "InstructionBox"
+  "Vec<InstructionExpr>": {
+    "Vec": "InstructionExpr"
   },
   "Vec<Name>": {
     "Vec": "Name"
@@ -4842,8 +4838,8 @@
   "Vec<Value>": {
     "Vec": "Value"
   },
-  "Vec<Vec<InstructionBox>>": {
-    "Vec": "Vec<InstructionBox>"
+  "Vec<Vec<InstructionExpr>>": {
+    "Vec": "Vec<InstructionExpr>"
   },
   "Vec<u8>": {
     "Vec": "u8"

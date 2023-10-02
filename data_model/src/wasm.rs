@@ -102,7 +102,7 @@ pub mod payloads {
     pub type ValidateTransaction = Validate<SignedTransaction>;
 
     /// Payload for [`validate_instruction()`](super::export::fn_names::VALIDATOR_VALIDATE_INSTRUCTION) entrypoint
-    pub type ValidateInstruction = Validate<InstructionBox>;
+    pub type ValidateInstruction = Validate<InstructionExpr>;
 
     /// Payload for [`validate_query()`](super::export::fn_names::VALIDATOR_VALIDATE_QUERY) entrypoint
     pub type ValidateQuery = Validate<QueryBox>;

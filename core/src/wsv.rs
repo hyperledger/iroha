@@ -582,7 +582,7 @@ impl WorldStateView {
 
     fn process_instructions(
         &mut self,
-        instructions: impl IntoIterator<Item = InstructionBox>,
+        instructions: impl IntoIterator<Item = InstructionExpr>,
         authority: &AccountId,
     ) -> Result<()> {
         instructions.into_iter().try_for_each(|instruction| {
@@ -970,7 +970,7 @@ impl WorldStateView {
         let account = domain
             .accounts
             .get(id)
-            .ok_or(QueryExecutionFail::Unauthorized)?;
+            .ok_or(FindError::Account(id.clone()))?;
         Ok(f(account))
     }
 

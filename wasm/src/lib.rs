@@ -73,16 +73,16 @@ pub trait QueryHost: Query {
     fn execute(&self) -> Result<Self::Output, ValidationFail>;
 }
 
-// TODO: Remove the Clone bound. It can be done by custom serialization to InstructionBox
-impl<I: Instruction + Into<InstructionBox> + Encode + Clone> ExecuteOnHost for I {
+// TODO: Remove the Clone bound. It can be done by custom serialization to InstructionExpr
+impl<I: Instruction + Encode + Clone> ExecuteOnHost for I {
     fn execute(&self) -> Result<(), ValidationFail> {
         #[cfg(not(test))]
         use host::execute_instruction as host_execute_instruction;
         #[cfg(test)]
         use tests::_iroha_wasm_execute_instruction_mock as host_execute_instruction;
 
-        // TODO: Redundant conversion into `InstructionBox`
-        let isi_box: InstructionBox = self.clone().into();
+        // TODO: Redundant conversion into `InstructionExpr`
+        let isi_box: InstructionExpr = self.clone().into();
         // Safety: `host_execute_instruction` doesn't take ownership of it's pointer parameter
         unsafe {
             decode_with_length_prefix_from_raw(encode_and_execute(
@@ -435,9 +435,9 @@ mod tests {
     const ISI_RESULT: Result<(), ValidationFail> = Ok(());
     const EXPRESSION_RESULT: NumericValue = NumericValue::U32(5_u32);
 
-    fn get_test_instruction() -> InstructionBox {
+    fn get_test_instruction() -> InstructionExpr {
         let new_account_id = "mad_hatter@wonderland".parse().expect("Valid");
-        let register_isi = RegisterBox::new(Account::new(new_account_id, []));
+        let register_isi = RegisterExpr::new(Account::new(new_account_id, []));
 
         register_isi.into()
     }
@@ -457,7 +457,7 @@ mod tests {
         len: usize,
     ) -> *const u8 {
         let bytes = slice::from_raw_parts(ptr, len);
-        let instruction = InstructionBox::decode_all(&mut &*bytes);
+        let instruction = InstructionExpr::decode_all(&mut &*bytes);
         assert_eq!(get_test_instruction(), instruction.unwrap());
 
         ManuallyDrop::new(encode_with_length_prefix(&ISI_RESULT)).as_ptr()

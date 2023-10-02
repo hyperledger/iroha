@@ -116,7 +116,7 @@ pub fn visit_transaction<V: Validate + ?Sized>(
     }
 }
 
-/// Default validation for [`InstructionBox`].
+/// Default validation for [`InstructionExpr`].
 ///
 /// # Warning
 ///
@@ -124,7 +124,7 @@ pub fn visit_transaction<V: Validate + ?Sized>(
 pub fn visit_instruction<V: Validate + ?Sized>(
     validator: &mut V,
     authority: &AccountId,
-    isi: &InstructionBox,
+    isi: &InstructionExpr,
 ) {
     macro_rules! isi_validators {
         (
@@ -136,7 +136,7 @@ pub fn visit_instruction<V: Validate + ?Sized>(
             ),+ $(,)?}
         ) => {
             match isi {
-                InstructionBox::NewParameter(isi) => {
+                InstructionExpr::NewParameter(isi) => {
                     let parameter = evaluate_expr!(validator, authority, <isi as NewParameter>::parameter());
                     validator.visit_new_parameter(authority, NewParameter{parameter});
 
@@ -144,7 +144,7 @@ pub fn visit_instruction<V: Validate + ?Sized>(
                         isi_validators!(@execute isi);
                     }
                 }
-                InstructionBox::SetParameter(isi) => {
+                InstructionExpr::SetParameter(isi) => {
                     let parameter = evaluate_expr!(validator, authority, <isi as NewParameter>::parameter());
                     validator.visit_set_parameter(authority, SetParameter{parameter});
 
@@ -152,7 +152,7 @@ pub fn visit_instruction<V: Validate + ?Sized>(
                         isi_validators!(@execute isi);
                     }
                 }
-                InstructionBox::ExecuteTrigger(isi) => {
+                InstructionExpr::ExecuteTrigger(isi) => {
                     let trigger_id = evaluate_expr!(validator, authority, <isi as ExecuteTrigger>::trigger_id());
                     validator.visit_execute_trigger(authority, ExecuteTrigger{trigger_id});
 
@@ -160,16 +160,16 @@ pub fn visit_instruction<V: Validate + ?Sized>(
                         isi_validators!(@execute isi);
                     }
                 }
-                InstructionBox::Log(isi) => {
-                    let msg = evaluate_expr!(validator, authority, <isi as LogBox>::msg());
-                    let level = evaluate_expr!(validator, authority, <isi as LogBox>::level());
+                InstructionExpr::Log(isi) => {
+                    let msg = evaluate_expr!(validator, authority, <isi as LogExpr>::msg());
+                    let level = evaluate_expr!(validator, authority, <isi as LogExpr>::level());
                     validator.visit_log(authority, Log{level, msg});
 
                     if validator.verdict().is_ok() {
                         isi_validators!(@execute isi);
                     }
                 } $(
-                InstructionBox::$isi(isi) => {
+                InstructionExpr::$isi(isi) => {
                     validator.$validator(authority, isi);
 
                     if validator.verdict().is_ok() {
@@ -177,7 +177,7 @@ pub fn visit_instruction<V: Validate + ?Sized>(
                     }
                 } )+ $(
                 // NOTE: `visit_and_execute_instructions` is reentrant, so don't execute composite instructions
-                InstructionBox::$composite_isi(isi) => validator.$composite_validator(authority, isi), )+
+                InstructionExpr::$composite_isi(isi) => validator.$composite_validator(authority, isi), )+
             }
         };
         (@execute $isi:ident) => {
@@ -285,8 +285,12 @@ pub fn visit_expression<V: Validate + ?Sized, X>(
     }
 }
 
-pub fn visit_if<V: Validate + ?Sized>(validator: &mut V, authority: &AccountId, isi: &Conditional) {
-    let condition = evaluate_expr!(validator, authority, <isi as Conditional>::condition());
+pub fn visit_if<V: Validate + ?Sized>(
+    validator: &mut V,
+    authority: &AccountId,
+    isi: &ConditionalExpr,
+) {
+    let condition = evaluate_expr!(validator, authority, <isi as ConditionalExpr>::condition());
 
     // TODO: Do we have to make sure both branches are syntactically valid?
     if condition {
@@ -296,7 +300,7 @@ pub fn visit_if<V: Validate + ?Sized>(validator: &mut V, authority: &AccountId, 
     }
 }
 
-pub fn visit_pair<V: Validate + ?Sized>(validator: &mut V, authority: &AccountId, isi: &Pair) {
+pub fn visit_pair<V: Validate + ?Sized>(validator: &mut V, authority: &AccountId, isi: &PairExpr) {
     validator.visit_instruction(authority, isi.left_instruction());
 
     if validator.verdict().is_ok() {
@@ -307,7 +311,7 @@ pub fn visit_pair<V: Validate + ?Sized>(validator: &mut V, authority: &AccountId
 pub fn visit_sequence<V: Validate + ?Sized>(
     validator: &mut V,
     authority: &AccountId,
-    sequence: &SequenceBox,
+    sequence: &SequenceExpr,
 ) {
     for isi in sequence.instructions() {
         if validator.verdict().is_ok() {
@@ -527,7 +531,7 @@ pub mod account {
     pub fn visit_mint_account_public_key<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
-        isi: Mint<Account, PublicKey>,
+        isi: Mint<PublicKey, Account>,
     ) {
         let account_id = isi.destination_id;
 
@@ -548,7 +552,7 @@ pub mod account {
     pub fn visit_burn_account_public_key<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
-        isi: Burn<Account, PublicKey>,
+        isi: Burn<PublicKey, Account>,
     ) {
         let account_id = isi.destination_id;
 
@@ -569,7 +573,7 @@ pub mod account {
     pub fn visit_mint_account_signature_check_condition<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
-        isi: Mint<Account, SignatureCheckCondition>,
+        isi: Mint<SignatureCheckCondition, Account>,
     ) {
         let account_id = isi.destination_id;
 
@@ -966,7 +970,7 @@ pub mod asset {
     pub fn visit_mint_asset<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
-        isi: Mint<Asset, NumericValue>,
+        isi: Mint<NumericValue, Asset>,
     ) {
         let asset_id = isi.destination_id;
 
@@ -994,7 +998,7 @@ pub mod asset {
     pub fn visit_burn_asset<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
-        isi: Burn<Asset, NumericValue>,
+        isi: Burn<NumericValue, Asset>,
     ) {
         let asset_id = isi.destination_id;
 
@@ -1368,7 +1372,7 @@ pub mod role {
     pub fn visit_grant_account_role<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
-        isi: Grant<Account, RoleId>,
+        isi: Grant<RoleId>,
     ) {
         impl_validate!(validator, isi, authority, validate_grant);
     }
@@ -1376,7 +1380,7 @@ pub mod role {
     pub fn visit_revoke_account_role<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
-        isi: Revoke<Account, RoleId>,
+        isi: Revoke<RoleId>,
     ) {
         impl_validate!(validator, isi, authority, validate_revoke);
     }
@@ -1468,7 +1472,7 @@ pub mod trigger {
     pub fn visit_mint_trigger_repetitions<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
-        isi: Mint<Trigger<TriggeringFilterBox, Executable>, u32>,
+        isi: Mint<u32, Trigger<TriggeringFilterBox, Executable>>,
     ) {
         let trigger_id = isi.destination_id;
 
@@ -1553,7 +1557,7 @@ pub mod permission_token {
     pub fn visit_grant_account_permission<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
-        isi: Grant<Account, PermissionToken>,
+        isi: Grant<PermissionToken>,
     ) {
         impl_validate!(validator, authority, isi, validate_grant);
     }
@@ -1561,7 +1565,7 @@ pub mod permission_token {
     pub fn visit_revoke_account_permission<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
-        isi: Revoke<Account, PermissionToken>,
+        isi: Revoke<PermissionToken>,
     ) {
         impl_validate!(validator, authority, isi, validate_revoke);
     }

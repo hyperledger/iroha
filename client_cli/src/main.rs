@@ -401,7 +401,7 @@ mod domain {
                 id,
                 metadata: Metadata(metadata),
             } = self;
-            let create_domain = RegisterBox::new(Domain::new(id));
+            let create_domain = RegisterExpr::new(Domain::new(id));
             submit([create_domain], metadata, context).wrap_err("Failed to create domain")
         }
     }
@@ -490,7 +490,7 @@ mod account {
                 key,
                 metadata: Metadata(metadata),
             } = self;
-            let create_account = RegisterBox::new(Account::new(id, [key]));
+            let create_account = RegisterExpr::new(Account::new(id, [key]));
             submit([create_account], metadata, context).wrap_err("Failed to register account")
         }
     }
@@ -541,7 +541,7 @@ mod account {
                 condition: Signature(condition),
                 metadata: Metadata(metadata),
             } = self;
-            let mint_box = MintBox::new(account, EvaluatesTo::new_unchecked(condition));
+            let mint_box = MintExpr::new(account, EvaluatesTo::new_unchecked(condition));
             submit([mint_box], metadata, context).wrap_err("Failed to set signature condition")
         }
     }
@@ -610,7 +610,7 @@ mod account {
                 permission,
                 metadata: Metadata(metadata),
             } = self;
-            let grant = GrantBox::new(permission.0, id);
+            let grant = GrantExpr::new(permission.0, id);
             submit([grant], metadata, context)
                 .wrap_err("Failed to grant the permission to the account")
         }
@@ -703,7 +703,7 @@ mod asset {
             if unmintable {
                 asset_definition = asset_definition.mintable_once();
             }
-            let create_asset_definition = RegisterBox::new(asset_definition);
+            let create_asset_definition = RegisterExpr::new(asset_definition);
             submit([create_asset_definition], metadata, context)
                 .wrap_err("Failed to register asset")
         }
@@ -734,7 +734,7 @@ mod asset {
                 quantity,
                 metadata: Metadata(metadata),
             } = self;
-            let mint_asset = MintBox::new(
+            let mint_asset = MintExpr::new(
                 quantity.to_value(),
                 IdBox::AssetId(AssetId::new(asset, account)),
             );
@@ -768,7 +768,7 @@ mod asset {
                 quantity,
                 metadata: Metadata(metadata),
             } = self;
-            let burn_asset = BurnBox::new(
+            let burn_asset = BurnExpr::new(
                 quantity.to_value(),
                 IdBox::AssetId(AssetId::new(asset, account)),
             );
@@ -806,7 +806,7 @@ mod asset {
                 quantity,
                 metadata: Metadata(metadata),
             } = self;
-            let transfer_asset = TransferBox::new(
+            let transfer_asset = TransferExpr::new(
                 IdBox::AssetId(AssetId::new(asset_id, from)),
                 quantity.to_value(),
                 IdBox::AccountId(to),
@@ -908,7 +908,7 @@ mod peer {
                 key,
                 metadata: Metadata(metadata),
             } = self;
-            let register_peer = RegisterBox::new(Peer::new(PeerId::new(&address, &key)));
+            let register_peer = RegisterExpr::new(Peer::new(PeerId::new(&address, &key)));
             submit([register_peer], metadata, context).wrap_err("Failed to register peer")
         }
     }
@@ -934,7 +934,7 @@ mod peer {
                 key,
                 metadata: Metadata(metadata),
             } = self;
-            let unregister_peer = UnregisterBox::new(IdBox::PeerId(PeerId::new(&address, &key)));
+            let unregister_peer = UnregisterExpr::new(IdBox::PeerId(PeerId::new(&address, &key)));
             submit([unregister_peer], metadata, context).wrap_err("Failed to unregister peer")
         }
     }
@@ -991,7 +991,7 @@ mod json {
             reader.read_to_end(&mut raw_content)?;
 
             let string_content = String::from_utf8(raw_content)?;
-            let instructions: Vec<InstructionBox> = json5::from_str(&string_content)?;
+            let instructions: Vec<InstructionExpr> = json5::from_str(&string_content)?;
             submit(instructions, UnlimitedMetadata::new(), context)
                 .wrap_err("Failed to submit parsed instructions")
         }
