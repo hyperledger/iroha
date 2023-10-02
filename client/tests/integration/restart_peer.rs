@@ -22,7 +22,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
 
     let account_id = AccountId::from_str("alice@wonderland").unwrap();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").unwrap();
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let quantity: u32 = 200;
 
     let iroha_client = client::Client::test(&peer.api_address, &peer.telemetry_address);
@@ -38,7 +38,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
         iroha_client.submit_blocking(create_asset)?;
-        let mint_asset = MintBox::new(
+        let mint_asset = MintExpr::new(
             quantity.to_value(),
             IdBox::AssetId(AssetId::new(
                 asset_definition_id.clone(),

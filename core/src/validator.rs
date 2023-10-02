@@ -3,7 +3,7 @@
 use derive_more::DebugCustom;
 use iroha_data_model::{
     account::AccountId,
-    isi::InstructionBox,
+    isi::InstructionExpr,
     query::QueryBox,
     transaction::{Executable, SignedTransaction},
     validator as data_model_validator, ValidationFail,
@@ -169,7 +169,7 @@ impl Validator {
         }
     }
 
-    /// Validate [`InstructionBox`].
+    /// Validate [`InstructionExpr`].
     ///
     /// # Errors
     ///
@@ -180,7 +180,7 @@ impl Validator {
         &self,
         wsv: &mut WorldStateView,
         authority: &AccountId,
-        instruction: InstructionBox,
+        instruction: InstructionExpr,
     ) -> Result<(), ValidationFail> {
         trace!("Running instruction validation");
 

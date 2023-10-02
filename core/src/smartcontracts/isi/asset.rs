@@ -104,26 +104,11 @@ pub mod isi {
         }
     }
 
-    impl Execute for Transfer<Account, AssetDefinition, Account> {
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-            wsv.asset_definition_mut(&self.object.id)?.owned_by = self.destination_id.clone();
-
-            wsv.emit_events(Some(AssetDefinitionEvent::OwnerChanged(
-                AssetDefinitionOwnerChanged {
-                    asset_definition_id: self.object.id,
-                    new_owner: self.destination_id,
-                },
-            )));
-
-            Ok(())
-        }
-    }
-
     macro_rules! impl_mint {
         ($ty:ty, $metrics:literal) => {
             impl InnerMint for $ty {}
 
-            impl Execute for Mint<Asset, $ty> {
+            impl Execute for Mint<$ty, Asset> {
                 #[metrics(+$metrics)]
                 fn execute(
                     self,
@@ -140,7 +125,7 @@ pub mod isi {
         ($ty:ty, $metrics:literal) => {
             impl InnerBurn for $ty {}
 
-            impl Execute for Burn<Asset, $ty> {
+            impl Execute for Burn<$ty, Asset> {
                 #[metrics(+$metrics)]
                 fn execute(
                     self,
@@ -185,7 +170,7 @@ pub mod isi {
     /// Trait for blanket mint implementation.
     trait InnerMint {
         fn execute(
-            mint: Mint<Asset, Self>,
+            mint: Mint<Self, Asset>,
             _authority: &AccountId,
             wsv: &mut WorldStateView,
         ) -> Result<(), Error>
@@ -243,7 +228,7 @@ pub mod isi {
     /// Trait for blanket burn implementation.
     trait InnerBurn {
         fn execute(
-            burn: Burn<Asset, Self>,
+            burn: Burn<Self, Asset>,
             _authority: &AccountId,
             wsv: &mut WorldStateView,
         ) -> Result<(), Error>

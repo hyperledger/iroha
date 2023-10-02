@@ -998,7 +998,7 @@ pub mod trigger {
         domain::prelude::*,
         events::TriggeringFilterBox,
         expression::EvaluatesTo,
-        prelude::InstructionBox,
+        prelude::InstructionExpr,
         trigger::{OptimizedExecutable, Trigger, TriggerId},
         Executable, Identifiable, Name, Value,
     };
@@ -1482,8 +1482,6 @@ pub mod error {
                 #[skip_try_from]
                 String,
             ),
-            /// Unauthorized query: account not provided
-            Unauthorized,
         }
 
         /// Type assertion error

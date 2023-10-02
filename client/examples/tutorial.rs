@@ -52,7 +52,7 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
     use iroha_client::client::Client;
     use iroha_data_model::{
         metadata::UnlimitedMetadata,
-        prelude::{Domain, DomainId, InstructionBox, RegisterBox},
+        prelude::{Domain, DomainId, InstructionExpr, RegisterExpr},
     };
     // #endregion domain_register_example_crates
 
@@ -63,7 +63,7 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
 
     // #region domain_register_example_create_isi
     // Create an ISI
-    let create_looking_glass = RegisterBox::new(Domain::new(looking_glass));
+    let create_looking_glass = RegisterExpr::new(Domain::new(looking_glass));
     // #endregion domain_register_example_create_isi
 
     // #region rust_client_create
@@ -74,7 +74,7 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region domain_register_example_prepare_tx
     // Prepare a transaction
     let metadata = UnlimitedMetadata::default();
-    let instructions: Vec<InstructionBox> = vec![create_looking_glass.into()];
+    let instructions: Vec<InstructionExpr> = vec![create_looking_glass.into()];
     let tx = iroha_client
         .build_transaction(instructions, metadata)
         .wrap_err("Error building a domain registration transaction")?;
@@ -117,7 +117,7 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     use iroha_crypto::KeyPair;
     use iroha_data_model::{
         metadata::UnlimitedMetadata,
-        prelude::{Account, AccountId, InstructionBox, RegisterBox},
+        prelude::{Account, AccountId, InstructionExpr, RegisterExpr},
     };
     // #endregion register_account_crates
 
@@ -139,14 +139,14 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
 
     // #region register_account_generate
     // Generate a new account
-    let create_account = RegisterBox::new(Account::new(account_id, [public_key]));
+    let create_account = RegisterExpr::new(Account::new(account_id, [public_key]));
     // #endregion register_account_generate
 
     // #region register_account_prepare_tx
     // Prepare a transaction using the
-    // Account's RegisterBox
+    // Account's RegisterExpr
     let metadata = UnlimitedMetadata::new();
-    let instructions: Vec<InstructionBox> = vec![create_account.into()];
+    let instructions: Vec<InstructionExpr> = vec![create_account.into()];
     let tx = iroha_client.build_transaction(instructions, metadata)?;
     // #endregion register_account_prepare_tx
 
@@ -165,7 +165,7 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
 
     use iroha_client::client::Client;
     use iroha_data_model::prelude::{
-        AccountId, AssetDefinition, AssetDefinitionId, AssetId, IdBox, MintBox, RegisterBox,
+        AccountId, AssetDefinition, AssetDefinitionId, AssetId, IdBox, MintExpr, RegisterExpr,
     };
     // #endregion register_asset_crates
 
@@ -181,7 +181,7 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region register_asset_init_submit
     // Initialise the registration time
     let register_time =
-        RegisterBox::new(AssetDefinition::fixed(asset_def_id.clone()).mintable_once());
+        RegisterExpr::new(AssetDefinition::fixed(asset_def_id.clone()).mintable_once());
 
     // Submit a registration time
     iroha_client.submit(register_time)?;
@@ -193,8 +193,8 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
         .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
 
     // #region register_asset_mint_submit
-    // Create a MintBox using a previous asset and account
-    let mint = MintBox::new(
+    // Create a MintExpr using a previous asset and account
+    let mint = MintExpr::new(
         12.34_f64.try_to_value()?,
         IdBox::AssetId(AssetId::new(asset_def_id, account_id)),
     );
@@ -213,7 +213,7 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
 
     use iroha_client::client::Client;
     use iroha_data_model::{
-        prelude::{AccountId, AssetDefinitionId, AssetId, MintBox, ToValue},
+        prelude::{AccountId, AssetDefinitionId, AssetId, MintExpr, ToValue},
         IdBox,
     };
     // #endregion mint_asset_crates
@@ -231,7 +231,7 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
 
     // Mint the Asset instance
     // #region mint_asset_mint
-    let mint_roses = MintBox::new(
+    let mint_roses = MintExpr::new(
         42_u32.to_value(),
         IdBox::AssetId(AssetId::new(roses, alice)),
     );
@@ -249,7 +249,7 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
     // or `roses.to_string() + "#" + alice.to_string()`.
     // The `##` is a short-hand for the rose `which belongs to the same domain as the account
     // to which it belongs to.
-    let mint_roses_alt = MintBox::new(
+    let mint_roses_alt = MintExpr::new(
         10_u32.to_value(),
         IdBox::AssetId("rose##alice@wonderland".parse()?),
     );
@@ -271,7 +271,7 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
 
     use iroha_client::client::Client;
     use iroha_data_model::{
-        prelude::{AccountId, AssetDefinitionId, AssetId, BurnBox, ToValue},
+        prelude::{AccountId, AssetDefinitionId, AssetId, BurnExpr, ToValue},
         IdBox,
     };
     // #endregion burn_asset_crates
@@ -289,7 +289,7 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
 
     // #region burn_asset_burn
     // Burn the Asset instance
-    let burn_roses = BurnBox::new(
+    let burn_roses = BurnExpr::new(
         10_u32.to_value(),
         IdBox::AssetId(AssetId::new(roses, alice)),
     );
@@ -307,7 +307,7 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
     // or `roses.to_string() + "#" + alice.to_string()`.
     // The `##` is a short-hand for the rose `which belongs to the same domain as the account
     // to which it belongs to.
-    let burn_roses_alt = BurnBox::new(
+    let burn_roses_alt = BurnExpr::new(
         10_u32.to_value(),
         IdBox::AssetId("rose##alice@wonderland".parse()?),
     );

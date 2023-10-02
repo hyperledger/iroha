@@ -17,8 +17,8 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
-    let instruction = MintBox::new(1_u32, asset_id.clone());
-    let register_trigger = RegisterBox::new(Trigger::new(
+    let instruction = MintExpr::new(1_u32, asset_id.clone());
+    let register_trigger = RegisterExpr::new(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
             vec![instruction],
@@ -35,7 +35,7 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
     test_client.submit(register_trigger)?;
 
     let tea_definition_id = "tea#wonderland".parse()?;
-    let register_tea_definition = RegisterBox::new(AssetDefinition::quantity(tea_definition_id));
+    let register_tea_definition = RegisterExpr::new(AssetDefinition::quantity(tea_definition_id));
     test_client.submit_blocking(register_tea_definition)?;
 
     let new_value = get_asset_value(&mut test_client, asset_id)?;

@@ -101,7 +101,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Mint<Trigger<TriggeringFilterBox, Executable>, u32> {
+    impl Execute for Mint<u32, Trigger<TriggeringFilterBox, Executable>> {
         #[metrics(+"mint_trigger_repetitions")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let id = self.destination_id;
@@ -133,7 +133,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Burn<Trigger<TriggeringFilterBox, Executable>, u32> {
+    impl Execute for Burn<u32, Trigger<TriggeringFilterBox, Executable>> {
         #[metrics(+"burn_trigger_repetitions")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let trigger = self.destination_id;
@@ -155,7 +155,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for ExecuteTriggerBox {
+    impl Execute for ExecuteTriggerExpr {
         #[metrics(+"execute_trigger")]
         fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let id = wsv.evaluate(&self.trigger_id)?;

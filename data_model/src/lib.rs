@@ -95,28 +95,28 @@ mod seal {
 
     impl_sealed! {
         // Boxed instructions
-        InstructionBox,
-        SetKeyValueBox,
-        RemoveKeyValueBox,
-        RegisterBox,
-        UnregisterBox,
-        MintBox,
-        BurnBox,
-        TransferBox,
-        GrantBox,
-        RevokeBox,
-        SetParameterBox,
-        NewParameterBox,
-        UpgradeBox,
-        ExecuteTriggerBox,
-        LogBox,
+        InstructionExpr,
+        SetKeyValueExpr,
+        RemoveKeyValueExpr,
+        RegisterExpr,
+        UnregisterExpr,
+        MintExpr,
+        BurnExpr,
+        TransferExpr,
+        GrantExpr,
+        RevokeExpr,
+        SetParameterExpr,
+        NewParameterExpr,
+        UpgradeExpr,
+        ExecuteTriggerExpr,
+        LogExpr,
 
         // Composite instructions
-        SequenceBox,
-        Conditional,
-        Pair,
+        SequenceExpr,
+        ConditionalExpr,
+        PairExpr,
 
-        FailBox,
+        Fail,
 
         // Boxed queries
         QueryBox,
@@ -458,24 +458,24 @@ pub mod parameter {
         }
 
         /// Create sequence isi for setting parameters
-        pub fn into_set_parameters(self) -> isi::SequenceBox {
-            isi::SequenceBox {
+        pub fn into_set_parameters(self) -> isi::SequenceExpr {
+            isi::SequenceExpr {
                 instructions: self
                     .parameters
                     .into_iter()
-                    .map(isi::SetParameterBox::new)
+                    .map(isi::SetParameterExpr::new)
                     .map(Into::into)
                     .collect(),
             }
         }
 
         /// Create sequence isi for creating parameters
-        pub fn into_create_parameters(self) -> isi::SequenceBox {
-            isi::SequenceBox {
+        pub fn into_create_parameters(self) -> isi::SequenceExpr {
+            isi::SequenceExpr {
                 instructions: self
                     .parameters
                     .into_iter()
-                    .map(isi::NewParameterBox::new)
+                    .map(isi::NewParameterExpr::new)
                     .map(Into::into)
                     .collect(),
             }

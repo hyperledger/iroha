@@ -16,14 +16,14 @@ fn client_add_account_with_name_length_more_than_limit_should_not_commit_transac
     let pipeline_time = super::Configuration::pipeline_time();
 
     let normal_account_id: AccountId = "bob@wonderland".parse().expect("Valid");
-    let create_account = RegisterBox::new(Account::new(normal_account_id.clone(), []));
+    let create_account = RegisterExpr::new(Account::new(normal_account_id.clone(), []));
     test_client.submit(create_account)?;
 
     let too_long_account_name = "0".repeat(2_usize.pow(14));
     let incorrect_account_id: AccountId = (too_long_account_name + "@wonderland")
         .parse()
         .expect("Valid");
-    let create_account = RegisterBox::new(Account::new(incorrect_account_id.clone(), []));
+    let create_account = RegisterExpr::new(Account::new(incorrect_account_id.clone(), []));
     test_client.submit(create_account)?;
 
     thread::sleep(pipeline_time * 2);
