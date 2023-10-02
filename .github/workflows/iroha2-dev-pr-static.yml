@@ -9,9 +9,6 @@ on:
       - '**.toml'
       - '.github/workflows/**.yml'
 
-      # Not part of the workspace
-      - '!wasm/**'
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

@@ -8,6 +8,10 @@ extern crate panic_halt;
 use core::str::FromStr as _;
 
 use iroha_trigger::prelude::*;
+use lol_alloc::{FreeListAllocator, LockedAllocator};
+
+#[global_allocator]
+static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
 /// Mint 1 rose for owner
 #[iroha_trigger::main]

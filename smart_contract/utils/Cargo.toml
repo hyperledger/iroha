@@ -1,0 +1,19 @@
+[package]
+name = "iroha_smart_contract_utils"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iroha_data_model.workspace = true
+
+parity-scale-codec.workspace = true
+
+[dev-dependencies]
+webassembly-test = "0.1.0"
