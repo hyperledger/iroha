@@ -24,17 +24,21 @@ fn impl_token(ident: &syn::Ident, generics: &syn::Generics) -> proc_macro2::Toke
     quote! {
         impl #impl_generics ::iroha_executor::permission::Token for #ident #ty_generics #where_clause {
             fn is_owned_by(&self, account_id: &::iroha_executor::data_model::account::AccountId) -> bool {
-                let all_account_tokens: Vec<iroha_executor::data_model::permission::PermissionToken> = ::iroha_executor::smart_contract::debug::DebugExpectExt::dbg_expect(
-                    ::iroha_executor::smart_contract::QueryHost::execute(
-                        &::iroha_executor::data_model::query::permission::FindPermissionTokensByAccountId::new(
+                let account_tokens_cursor = ::iroha_executor::smart_contract::debug::DebugExpectExt::dbg_expect(
+                    ::iroha_executor::smart_contract::ExecuteQueryOnHost::execute(
+                        ::iroha_executor::data_model::query::permission::FindPermissionTokensByAccountId::new(
                             account_id.clone(),
                         )
                     ),
                     "Failed to execute `FindPermissionTokensByAccountId` query"
-                ).try_into().unwrap();
+                );
 
-                all_account_tokens
+                account_tokens_cursor
                     .into_iter()
+                    .map(|res| ::iroha_executor::smart_contract::debug::DebugExpectExt::dbg_expect(
+                        res,
+                        "Failed to get permission token from cursor"
+                    ))
                     .filter_map(|token| Self::try_from(token).ok())
                     .any(|token| self == &token)
             }

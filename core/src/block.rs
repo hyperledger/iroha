@@ -354,27 +354,21 @@ mod valid {
                     let transaction_executor = wsv.transaction_executor();
                     let limits = &transaction_executor.transaction_limits;
 
-                    if error.is_none() {
-                        let tx = if is_genesis {
+                    let tx = if is_genesis {
                             AcceptedTransaction::accept_genesis(GenesisTransaction(value))
-                        } else {
-                            AcceptedTransaction::accept(value, limits)?
-                        };
-
-                        transaction_executor.validate(tx, wsv).map_err(|(_tx, error)| {
-                            TransactionValidationError::NotValid(error)
-                        })?;
                     } else {
-                        let tx = if is_genesis {
-                            AcceptedTransaction::accept_genesis(GenesisTransaction(value))
-                        } else {
                             AcceptedTransaction::accept(value, limits)?
-                        };
+                    };
 
+                    if error.is_some() {
                         match transaction_executor.validate(tx, wsv) {
                             Err(rejected_transaction) => Ok(rejected_transaction),
                             Ok(_) => Err(TransactionValidationError::RejectedIsValid),
                         }?;
+                    } else {
+                        transaction_executor.validate(tx, wsv).map_err(|(_tx, error)| {
+                            TransactionValidationError::NotValid(error)
+                        })?;
                     }
 
                     Ok(())
@@ -702,7 +696,7 @@ mod tests {
     use iroha_data_model::prelude::*;
 
     use super::*;
-    use crate::{kura::Kura, smartcontracts::isi::Registrable as _};
+    use crate::{kura::Kura, query::store::LiveQueryStore, smartcontracts::isi::Registrable as _};
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
@@ -716,8 +710,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn should_reject_due_to_repetition() {
+    #[tokio::test]
+    async fn should_reject_due_to_repetition() {
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let alice_keys = KeyPair::generate().expect("Valid");
@@ -728,7 +722,8 @@ mod tests {
         assert!(domain.add_account(account).is_none());
         let world = World::with([domain], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world, kura);
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(world, kura, query_handle);
 
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
@@ -758,8 +753,8 @@ mod tests {
         assert!(valid_block.payload().transactions[1].error.is_some());
     }
 
-    #[test]
-    fn tx_order_same_in_validation_and_revalidation() {
+    #[tokio::test]
+    async fn tx_order_same_in_validation_and_revalidation() {
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let alice_keys = KeyPair::generate().expect("Valid");
@@ -770,7 +765,8 @@ mod tests {
         assert!(domain.add_account(account).is_none());
         let world = World::with([domain], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world, kura);
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(world, kura, query_handle);
 
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
@@ -825,8 +821,8 @@ mod tests {
         assert!(valid_block.payload().transactions[2].error.is_none());
     }
 
-    #[test]
-    fn failed_transactions_revert() {
+    #[tokio::test]
+    async fn failed_transactions_revert() {
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let alice_keys = KeyPair::generate().expect("Valid");
@@ -840,7 +836,8 @@ mod tests {
         );
         let world = World::with([domain], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world, kura);
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(world, kura, query_handle);
         let transaction_limits = &wsv.transaction_executor().transaction_limits;
 
         let domain_id = DomainId::from_str("domain").expect("Valid");

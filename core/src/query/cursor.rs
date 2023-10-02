@@ -1,8 +1,14 @@
+//! Module with cursor-based pagination functional like [`Batched`].
+
 use std::num::{NonZeroU64, NonZeroUsize};
 
-use crate::torii::{Error, Result};
+use derive_more::Display;
+use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
+/// Trait for iterators that can be batched.
 pub trait Batch: IntoIterator + Sized {
+    /// Pack iterator into batches of the given size.
     fn batched(self, fetch_size: NonZeroUsize) -> Batched<Self>;
 }
 
@@ -25,10 +31,20 @@ pub struct Batched<I: IntoIterator> {
     cursor: Option<u64>,
 }
 
+/// Unknown cursor error.
+///
+/// Happens when client sends a cursor that doesn't match any server's cursor.
+#[derive(Debug, Display, thiserror::Error, Copy, Clone, Serialize, Deserialize, Encode, Decode)]
+#[display(fmt = "Unknown cursor")]
+pub struct UnknownCursor;
+
 impl<I: IntoIterator + FromIterator<I::Item>> Batched<I> {
-    pub(crate) fn next_batch(&mut self, cursor: Option<u64>) -> Result<(I, Option<NonZeroU64>)> {
+    pub(crate) fn next_batch(
+        &mut self,
+        cursor: Option<u64>,
+    ) -> Result<(I, Option<NonZeroU64>), UnknownCursor> {
         if cursor != self.cursor {
-            return Err(Error::UnknownCursor);
+            return Err(UnknownCursor);
         }
 
         let mut batch_size = 0;
@@ -72,6 +88,7 @@ impl<I: IntoIterator + FromIterator<I::Item>> Batched<I> {
         ))
     }
 
+    /// Check if all values where drained from the iterator.
     pub fn is_depleted(&self) -> bool {
         self.cursor.is_none()
     }

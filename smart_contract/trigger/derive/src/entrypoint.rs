@@ -27,7 +27,7 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
         0,
         parse_quote!(
             use ::iroha_trigger::smart_contract::{
-                debug::DebugExpectExt as _, ExecuteOnHost as _, QueryHost as _,
+                debug::DebugExpectExt as _, ExecuteOnHost as _, ExecuteQueryOnHost as _,
             };
         ),
     );

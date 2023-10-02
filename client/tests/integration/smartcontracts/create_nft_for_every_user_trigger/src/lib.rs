@@ -16,10 +16,14 @@ static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeList
 #[iroha_trigger::main]
 fn main(_owner: AccountId, _event: Event) {
     iroha_trigger::log::info!("Executing trigger");
-    let accounts = FindAllAccounts.execute().dbg_unwrap();
+
+    let accounts_cursor = FindAllAccounts.execute().dbg_unwrap();
+
     let limits = MetadataLimits::new(256, 256);
 
-    for account in accounts {
+    for account in accounts_cursor {
+        let account = account.dbg_unwrap();
+
         let mut metadata = Metadata::new();
         let name = format!(
             "nft_for_{}_in_{}",
@@ -53,6 +57,7 @@ fn generate_new_nft_id(account_id: &AccountId) -> AssetDefinitionId {
 
     let new_number = assets
         .into_iter()
+        .map(|res| res.dbg_unwrap())
         .filter(|asset| asset.id().definition_id().to_string().starts_with("nft_"))
         .count()
         .checked_add(1)

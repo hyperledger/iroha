@@ -1,5 +1,5 @@
 error: expected literal
- --> tests/ui_fail/bare_spec.rs:4:11
+ --> tests/ui_fail/bare_spec.rs:3:11
   |
-4 | #[metrics(test_query, "another_test_query_without_timing")]
+3 | #[metrics(test_query, "another_test_query_without_timing")]
   |           ^^^^^^^^^^

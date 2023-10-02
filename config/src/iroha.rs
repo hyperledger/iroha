@@ -57,6 +57,9 @@ view! {
         /// SnapshotMaker configuration
         #[config(inner)]
         pub snapshot: snapshot::Configuration,
+        /// LiveQueryStore configuration
+        #[config(inner)]
+        pub live_query_store: live_query_store::Configuration,
     }
 }
 
@@ -77,6 +80,7 @@ impl Default for ConfigurationProxy {
             network: Some(network::ConfigurationProxy::default()),
             telemetry: Some(telemetry::ConfigurationProxy::default()),
             snapshot: Some(snapshot::ConfigurationProxy::default()),
+            live_query_store: Some(live_query_store::ConfigurationProxy::default()),
         }
     }
 }
@@ -215,9 +219,10 @@ mod tests {
             network in prop::option::of(network::tests::arb_proxy()),
             telemetry in prop::option::of(telemetry::tests::arb_proxy()),
             snapshot in prop::option::of(snapshot::tests::arb_proxy()),
+            live_query_store in prop::option::of(live_query_store::tests::arb_proxy()),
             ) -> ConfigurationProxy {
             ConfigurationProxy { public_key, private_key, disable_panic_terminal_colors, kura, sumeragi, torii, block_sync, queue,
-                                 logger, genesis, wsv, network, telemetry, snapshot }
+                                 logger, genesis, wsv, network, telemetry, snapshot, live_query_store }
         }
     }
 

@@ -4,6 +4,7 @@
 use alloc::{
     format,
     string::{String, ToString as _},
+    vec,
     vec::Vec,
 };
 
@@ -21,7 +22,7 @@ pub mod model {
     use super::*;
 
     /// Struct for sorting requests
-    #[derive(Debug, Clone, Default, Decode, Encode, Deserialize, Serialize)]
+    #[derive(Debug, Clone, Default, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
     pub struct Sorting {
         /// Sort query result using [`Name`] of the key in [`Asset`]'s metadata.
         pub sort_by_metadata_key: Option<Name>,

@@ -15,6 +15,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     kura::{BlockCount, Kura},
+    query::store::LiveQueryStoreHandle,
     sumeragi::SumeragiHandle,
     wsv::{KuraSeed, WorldStateView},
 };
@@ -155,6 +156,7 @@ impl SnapshotMaker {
 pub fn try_read_snapshot(
     snapshot_dir: impl AsRef<Path>,
     kura: &Arc<Kura>,
+    query_handle: LiveQueryStoreHandle,
     BlockCount(block_count): BlockCount,
 ) -> Result<WorldStateView> {
     let mut bytes = Vec::new();
@@ -168,6 +170,7 @@ pub fn try_read_snapshot(
     let mut deserializer = serde_json::Deserializer::from_slice(&bytes);
     let seed = KuraSeed {
         kura: Arc::clone(kura),
+        query_handle,
     };
     let wsv = seed.deserialize(&mut deserializer)?;
     let snapshot_height = wsv.block_hashes.len();

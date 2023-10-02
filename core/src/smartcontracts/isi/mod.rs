@@ -470,13 +470,15 @@ mod tests {
     use std::sync::Arc;
 
     use iroha_crypto::KeyPair;
+    use tokio::test;
 
     use super::*;
-    use crate::{kura::Kura, wsv::World, PeersIds};
+    use crate::{kura::Kura, query::store::LiveQueryStore, wsv::World, PeersIds};
 
     fn wsv_with_test_domains(kura: &Arc<Kura>) -> Result<WorldStateView> {
         let world = World::with([], PeersIds::new());
-        let mut wsv = WorldStateView::new(world, kura.clone());
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(world, kura.clone(), query_handle);
         let genesis_account_id = AccountId::from_str("genesis@genesis")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
         let (public_key, _) = KeyPair::generate()?.into();
@@ -491,7 +493,7 @@ mod tests {
     }
 
     #[test]
-    fn asset_store() -> Result<()> {
+    async fn asset_store() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = wsv_with_test_domains(&kura)?;
         let account_id = AccountId::from_str("alice@wonderland")?;
@@ -520,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn account_metadata() -> Result<()> {
+    async fn account_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = wsv_with_test_domains(&kura)?;
         let account_id = AccountId::from_str("alice@wonderland")?;
@@ -548,7 +550,7 @@ mod tests {
     }
 
     #[test]
-    fn asset_definition_metadata() -> Result<()> {
+    async fn asset_definition_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = wsv_with_test_domains(&kura)?;
         let definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
@@ -576,7 +578,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_metadata() -> Result<()> {
+    async fn domain_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = wsv_with_test_domains(&kura)?;
         let domain_id = DomainId::from_str("wonderland")?;
@@ -604,7 +606,7 @@ mod tests {
     }
 
     #[test]
-    fn executing_unregistered_trigger_should_return_error() -> Result<()> {
+    async fn executing_unregistered_trigger_should_return_error() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = wsv_with_test_domains(&kura)?;
         let account_id = AccountId::from_str("alice@wonderland")?;
@@ -621,7 +623,7 @@ mod tests {
     }
 
     #[test]
-    fn unauthorized_trigger_execution_should_return_error() -> Result<()> {
+    async fn unauthorized_trigger_execution_should_return_error() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = wsv_with_test_domains(&kura)?;
         let account_id = AccountId::from_str("alice@wonderland")?;

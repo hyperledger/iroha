@@ -17,13 +17,12 @@ use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConf
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
     block::SignedBlock,
-    http::BatchedResponse,
     isi::Instruction,
     predicate::PredicateBox,
     prelude::*,
-    query::{ForwardCursor, Pagination, Query, Sorting},
+    query::{Pagination, Query, Sorting},
     transaction::TransactionPayload,
-    ValidationFail,
+    BatchedResponse, ValidationFail,
 };
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
@@ -147,7 +146,7 @@ where
             .map_err(Into::into)
             .wrap_err("Unexpected type")?;
 
-        self.query_request.query_cursor = cursor;
+        self.query_request.request = iroha_data_model::query::QueryRequest::Cursor(cursor);
         Ok(value)
     }
 }
@@ -257,13 +256,10 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.client_cursor >= self.iter.len() {
-            if self
-                .query_handler
-                .query_request
-                .query_cursor
-                .cursor()
-                .is_none()
-            {
+            let iroha_data_model::query::QueryRequest::Cursor(cursor) = &self.query_handler.query_request.request else {
+                return None;
+            };
+            if cursor.cursor().is_none() {
                 return None;
             }
 
@@ -305,7 +301,7 @@ where
     }
 }
 
-macro_rules! impl_query_result {
+macro_rules! impl_query_output {
     ( $($ident:ty),+ $(,)? ) => { $(
         impl QueryOutput for $ident {
             type Target = Self;
@@ -316,7 +312,7 @@ macro_rules! impl_query_result {
         } )+
     };
 }
-impl_query_result! {
+impl_query_output! {
     bool,
     iroha_data_model::Value,
     iroha_data_model::numeric::NumericValue,
@@ -362,10 +358,7 @@ pub struct Client {
 pub struct QueryRequest {
     torii_url: Url,
     headers: HashMap<String, String>,
-    request: Vec<u8>,
-    sorting: Sorting,
-    pagination: Pagination,
-    query_cursor: ForwardCursor,
+    request: iroha_data_model::query::QueryRequest<Vec<u8>>,
 }
 
 impl QueryRequest {
@@ -376,22 +369,31 @@ impl QueryRequest {
         Self {
             torii_url: format!("http://{torii_url}").parse().unwrap(),
             headers: HashMap::new(),
-            request: Vec::new(),
-            sorting: Sorting::default(),
-            pagination: Pagination::default(),
-            query_cursor: ForwardCursor::default(),
+            request: iroha_data_model::query::QueryRequest::Query(
+                iroha_data_model::query::QueryWithParameters {
+                    query: Vec::default(),
+                    sorting: Sorting::default(),
+                    pagination: Pagination::default(),
+                },
+            ),
         }
     }
     fn assemble(self) -> DefaultRequestBuilder {
-        DefaultRequestBuilder::new(
+        let builder = DefaultRequestBuilder::new(
             HttpMethod::POST,
             self.torii_url.join(uri::QUERY).expect("Valid URI"),
         )
-        .headers(self.headers)
-        .params(Vec::from(self.sorting))
-        .params(Vec::from(self.pagination))
-        .params(Vec::from(self.query_cursor))
-        .body(self.request)
+        .headers(self.headers);
+
+        match self.request {
+            iroha_data_model::query::QueryRequest::Query(query_with_params) => builder
+                .params(Vec::from(query_with_params.sorting))
+                .params(Vec::from(query_with_params.pagination))
+                .body(query_with_params.query),
+            iroha_data_model::query::QueryRequest::Cursor(cursor) => {
+                builder.params(Vec::from(cursor))
+            }
+        }
     }
 }
 
@@ -806,10 +808,13 @@ impl Client {
         let query_request = QueryRequest {
             torii_url: self.torii_url.clone(),
             headers: self.headers.clone(),
-            request,
-            sorting,
-            pagination,
-            query_cursor: ForwardCursor::default(),
+            request: iroha_data_model::query::QueryRequest::Query(
+                iroha_data_model::query::QueryWithParameters {
+                    query: request,
+                    pagination,
+                    sorting,
+                },
+            ),
         };
 
         Ok((

@@ -38,6 +38,7 @@ use crate::{
     block::CommittedBlock,
     executor::Executor,
     kura::Kura,
+    query::store::LiveQueryStoreHandle,
     smartcontracts::{
         triggers::{
             self,
@@ -287,6 +288,9 @@ pub struct WorldStateView {
     /// Reference to Kura subsystem.
     #[serde(skip)]
     kura: Arc<Kura>,
+    /// Handle to the [`LiveQueryStore`].
+    #[serde(skip)]
+    query_handle: LiveQueryStoreHandle,
     /// Temporary metrics buffer of amounts of any asset that has been transacted.
     #[serde(skip)]
     pub new_tx_amounts: Arc<Mutex<Vec<f64>>>,
@@ -296,6 +300,8 @@ pub struct WorldStateView {
 pub struct KuraSeed {
     /// Kura subsystem reference
     pub kura: Arc<Kura>,
+    /// Handle to the [`LiveQueryStore`](crate::query::store::LiveQueryStore).
+    pub query_handle: LiveQueryStoreHandle,
 }
 
 impl<'de> DeserializeSeed<'de> for KuraSeed {
@@ -358,6 +364,7 @@ impl<'de> DeserializeSeed<'de> for KuraSeed {
                     transactions: transactions
                         .ok_or_else(|| serde::de::Error::missing_field("transactions"))?,
                     kura: self.loader.kura,
+                    query_handle: self.loader.query_handle,
                     engine,
                     events_buffer: Vec::new(),
                     new_tx_amounts: Arc::new(Mutex::new(Vec::new())),
@@ -384,6 +391,7 @@ impl Clone for WorldStateView {
             new_tx_amounts: Arc::clone(&self.new_tx_amounts),
             engine: self.engine.clone(),
             kura: Arc::clone(&self.kura),
+            query_handle: self.query_handle.clone(),
         }
     }
 }
@@ -393,12 +401,12 @@ impl WorldStateView {
     /// Construct [`WorldStateView`] with given [`World`].
     #[must_use]
     #[inline]
-    pub fn new(world: World, kura: Arc<Kura>) -> Self {
+    pub fn new(world: World, kura: Arc<Kura>, query_handle: LiveQueryStoreHandle) -> Self {
         // Added to remain backward compatible with other code primary in tests
         let config = ConfigurationProxy::default()
             .build()
             .expect("Wsv proxy always builds");
-        Self::from_configuration(config, world, kura)
+        Self::from_configuration(config, world, kura, query_handle)
     }
 
     /// Get `Account`'s `Asset`s
@@ -907,7 +915,12 @@ impl WorldStateView {
 
     /// Construct [`WorldStateView`] with specific [`Configuration`].
     #[inline]
-    pub fn from_configuration(config: Configuration, world: World, kura: Arc<Kura>) -> Self {
+    pub fn from_configuration(
+        config: Configuration,
+        world: World,
+        kura: Arc<Kura>,
+        query_handle: LiveQueryStoreHandle,
+    ) -> Self {
         Self {
             world,
             config,
@@ -917,6 +930,7 @@ impl WorldStateView {
             new_tx_amounts: Arc::new(Mutex::new(Vec::new())),
             engine: wasm::create_engine(),
             kura,
+            query_handle,
         }
     }
 
@@ -1255,6 +1269,11 @@ impl WorldStateView {
             },
         )))
     }
+
+    /// Get reference to the [`LiveQueryStoreHandle`].
+    pub fn query_handle(&self) -> &LiveQueryStoreHandle {
+        &self.query_handle
+    }
 }
 
 /// Bounds for `range` queries
@@ -1326,16 +1345,20 @@ mod tests {
     use iroha_primitives::unique_vec::UniqueVec;
 
     use super::*;
-    use crate::{block::ValidBlock, role::RoleIdWithOwner, sumeragi::network_topology::Topology};
+    use crate::{
+        block::ValidBlock, query::store::LiveQueryStore, role::RoleIdWithOwner,
+        sumeragi::network_topology::Topology,
+    };
 
-    #[test]
-    fn get_block_hashes_after_hash() {
+    #[tokio::test]
+    async fn get_block_hashes_after_hash() {
         const BLOCK_CNT: usize = 10;
 
         let topology = Topology::new(UniqueVec::new());
         let block = ValidBlock::new_dummy().commit(&topology).unwrap();
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(World::default(), kura);
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(World::default(), kura, query_handle);
 
         let mut block_hashes = vec![];
         for i in 1..=BLOCK_CNT {
@@ -1355,14 +1378,15 @@ mod tests {
             .eq(block_hashes.into_iter().skip(7)));
     }
 
-    #[test]
-    fn get_blocks_from_height() {
+    #[tokio::test]
+    async fn get_blocks_from_height() {
         const BLOCK_CNT: usize = 10;
 
         let topology = Topology::new(UniqueVec::new());
         let block = ValidBlock::new_dummy().commit(&topology).unwrap();
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(World::default(), kura.clone());
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(World::default(), kura.clone(), query_handle);
 
         for i in 1..=BLOCK_CNT {
             let mut block = block.clone();

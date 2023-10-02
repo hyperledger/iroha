@@ -3,22 +3,24 @@
 #![allow(clippy::missing_inline_in_public_items, unused_imports)]
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString as _},
+    vec::Vec,
+};
 use core::cmp::Ordering;
 
-#[cfg(feature = "http")]
 pub use cursor::ForwardCursor;
-use derive_more::Display;
+use derive_more::{Constructor, Display};
 use iroha_crypto::{PublicKey, SignatureOf};
 use iroha_data_model_derive::model;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
-#[cfg(feature = "http")]
 pub use pagination::Pagination;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "http")]
 pub use sorting::Sorting;
 
 pub use self::model::*;
@@ -34,11 +36,8 @@ use crate::{
     Identifiable, Value,
 };
 
-#[cfg(feature = "http")]
 pub mod cursor;
-#[cfg(feature = "http")]
 pub mod pagination;
-#[cfg(feature = "http")]
 pub mod sorting;
 
 macro_rules! queries {
@@ -164,6 +163,27 @@ pub mod model {
     )]
     #[ffi_type]
     pub struct MetadataValue(pub Value);
+
+    /// Request type clients (like http clients or wasm) can send to a query endpoint.
+    #[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+    pub enum QueryRequest<Q> {
+        /// Query it-self.
+        /// Basically used for one-time queries or to get a cursor for big queries.
+        Query(QueryWithParameters<Q>),
+        /// Cursor over previously sent [`Query`](QueryRequest::Query).
+        Cursor(ForwardCursor),
+    }
+
+    /// Query with parameters client can specify.
+    #[derive(
+        Debug, Constructor, Getters, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize,
+    )]
+    #[getset(get = "pub")]
+    pub struct QueryWithParameters<Q> {
+        pub query: Q,
+        pub sorting: Sorting,
+        pub pagination: Pagination,
+    }
 }
 
 impl From<MetadataValue> for Value {
@@ -206,6 +226,25 @@ impl Ord for TransactionQueryOutput {
         let tx2 = other.transaction.payload();
 
         tx1.creation_time().cmp(&tx2.creation_time())
+    }
+}
+
+impl<Q: core::fmt::Display> core::fmt::Display for QueryRequest<Q> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Query(query) => write!(f, "{query}"),
+            Self::Cursor(cursor) => write!(f, "{cursor:?}"),
+        }
+    }
+}
+
+impl<Q: core::fmt::Display> core::fmt::Display for QueryWithParameters<Q> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("QueryWithParameters")
+            .field("query", &self.query.to_string())
+            .field("sorting", &self.sorting)
+            .field("pagination", &self.pagination)
+            .finish()
     }
 }
 
@@ -1237,10 +1276,6 @@ pub mod http {
     use super::*;
     use crate::{account::AccountId, predicate::PredicateBox};
 
-    // TODO: Could we make a variant of `Value` that holds only query results?
-    /// Type representing Result of executing a query
-    pub type QueryOutput = Value;
-
     declare_versioned_with_scale!(SignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
     #[model]
@@ -1279,6 +1314,24 @@ pub mod http {
             pub signature: SignatureOf<QueryPayload>,
             /// Payload
             pub payload: QueryPayload,
+        }
+
+        /// End type of a query http clients can send to an endpoint.
+        #[derive(Debug, Clone, Decode, Encode)]
+        pub struct ClientQueryRequest(pub QueryRequest<SignedQuery>);
+    }
+
+    impl ClientQueryRequest {
+        /// Construct a new request containing query.
+        pub fn query(query: SignedQuery, sorting: Sorting, pagination: Pagination) -> Self {
+            Self(QueryRequest::Query(QueryWithParameters::new(
+                query, sorting, pagination,
+            )))
+        }
+
+        /// Construct a new request containing cursor.
+        pub fn cursor(cursor: ForwardCursor) -> Self {
+            Self(QueryRequest::Cursor(cursor))
         }
     }
 
@@ -1454,6 +1507,8 @@ pub mod error {
                 #[skip_try_from]
                 String,
             ),
+            /// Unknown query cursor
+            UnknownCursor,
         }
 
         /// Type assertion error

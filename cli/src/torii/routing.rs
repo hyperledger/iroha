@@ -5,12 +5,8 @@
 // FIXME: This can't be fixed, because one trait in `warp` is private.
 #![allow(opaque_hidden_inferred_bound)]
 
-use std::{
-    cmp::Ordering,
-    num::{NonZeroU64, NonZeroUsize},
-};
+use std::num::NonZeroUsize;
 
-use cursor::Batch;
 use eyre::WrapErr;
 use futures::TryStreamExt;
 use iroha_config::{
@@ -20,7 +16,8 @@ use iroha_config::{
     GetConfiguration, PostConfiguration,
 };
 use iroha_core::{
-    smartcontracts::{isi::query::ValidQueryRequest, query::LazyValue},
+    query::{pagination::Paginate, store::LiveQueryStoreHandle},
+    smartcontracts::query::ValidQueryRequest,
     sumeragi::SumeragiHandle,
 };
 use iroha_data_model::{
@@ -28,17 +25,38 @@ use iroha_data_model::{
         stream::{BlockMessage, BlockSubscriptionRequest},
         SignedBlock,
     },
-    http::{BatchedResponse, BatchedResponseV1},
     prelude::*,
-    query::{ForwardCursor, Pagination, Sorting},
+    query::{
+        cursor::ForwardCursor, http, sorting::Sorting, Pagination, QueryRequest,
+        QueryWithParameters,
+    },
+    BatchedResponse,
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
-use pagination::Paginate;
 use tokio::task;
 
 use super::*;
 use crate::stream::{Sink, Stream};
+
+/// Filter for warp which extracts [`http::ClientQueryRequest`]
+fn client_query_request(
+) -> impl warp::Filter<Extract = (http::ClientQueryRequest,), Error = warp::Rejection> + Copy {
+    body::versioned::<SignedQuery>()
+        .and(sorting())
+        .and(paginate())
+        .and_then(|signed_query, sorting, pagination| async move {
+            Result::<_, std::convert::Infallible>::Ok(http::ClientQueryRequest::query(
+                signed_query,
+                sorting,
+                pagination,
+            ))
+        })
+        .or(cursor().and_then(|cursor| async move {
+            Result::<_, std::convert::Infallible>::Ok(http::ClientQueryRequest::cursor(cursor))
+        }))
+        .unify()
+}
 
 /// Filter for warp which extracts sorting
 fn sorting() -> impl warp::Filter<Extract = (Sorting,), Error = warp::Rejection> + Copy {
@@ -81,122 +99,33 @@ async fn handle_instructions(
 
 #[iroha_futures::telemetry_future]
 async fn handle_queries(
+    live_query_store: LiveQueryStoreHandle,
     sumeragi: SumeragiHandle,
-    query_store: Arc<LiveQueryStore>,
     fetch_size: NonZeroUsize,
 
-    request: SignedQuery,
-    sorting: Sorting,
-    pagination: Pagination,
-
-    cursor: ForwardCursor,
+    query_request: http::ClientQueryRequest,
 ) -> Result<Scale<BatchedResponse<Value>>> {
-    let valid_request = sumeragi.apply_wsv(|wsv| ValidQueryRequest::validate(request, wsv))?;
-    let request_id = (&valid_request, &sorting, &pagination);
-
-    if let Some(query_id) = cursor.query_id {
-        let live_query = query_store
-            .remove(&query_id, &request_id)
-            .ok_or(Error::UnknownCursor)?;
-
-        return construct_query_response(
-            request_id,
-            &query_store,
-            query_id,
-            cursor.cursor.map(NonZeroU64::get),
-            live_query,
-        );
-    }
-
-    sumeragi.apply_wsv(|wsv| {
-        let res = valid_request.execute(wsv).map_err(ValidationFail::from)?;
-
-        match res {
-            LazyValue::Value(batch) => {
-                let cursor = ForwardCursor::default();
-                let result = BatchedResponseV1 { batch, cursor };
-                Ok(Scale(result.into()))
-            }
-            LazyValue::Iter(iter) => {
-                let live_query = apply_sorting_and_pagination(iter, &sorting, pagination);
-                let query_id = uuid::Uuid::new_v4().to_string();
-
-                let curr_cursor = Some(0);
-                let live_query = live_query.batched(fetch_size);
-                construct_query_response(
-                    request_id,
-                    &query_store,
-                    query_id,
-                    curr_cursor,
-                    live_query,
-                )
-            }
-        }
-    })
-}
-
-fn construct_query_response(
-    request_id: (&ValidQueryRequest, &Sorting, &Pagination),
-    query_store: &LiveQueryStore,
-    query_id: String,
-    curr_cursor: Option<u64>,
-    mut live_query: Batched<Vec<Value>>,
-) -> Result<Scale<BatchedResponse<Value>>> {
-    let (batch, next_cursor) = live_query.next_batch(curr_cursor)?;
-
-    if !live_query.is_depleted() {
-        query_store.insert(query_id.clone(), request_id, live_query);
-    }
-
-    let query_response = BatchedResponseV1 {
-        batch: Value::Vec(batch),
-        cursor: ForwardCursor {
-            query_id: Some(query_id),
-            cursor: next_cursor,
-        },
-    };
-
-    Ok(Scale(query_response.into()))
-}
-
-fn apply_sorting_and_pagination(
-    iter: impl Iterator<Item = Value>,
-    sorting: &Sorting,
-    pagination: Pagination,
-) -> Vec<Value> {
-    if let Some(key) = &sorting.sort_by_metadata_key {
-        let mut pairs: Vec<(Option<Value>, Value)> = iter
-            .map(|value| {
-                let key = match &value {
-                    Value::Identifiable(IdentifiableBox::Asset(asset)) => match asset.value() {
-                        AssetValue::Store(store) => store.get(key).cloned(),
-                        _ => None,
-                    },
-                    Value::Identifiable(v) => TryInto::<&dyn HasMetadata>::try_into(v)
-                        .ok()
-                        .and_then(|has_metadata| has_metadata.metadata().get(key))
-                        .cloned(),
-                    _ => None,
-                };
-                (key, value)
-            })
-            .collect();
-        pairs.sort_by(
-            |(left_key, _), (right_key, _)| match (left_key, right_key) {
-                (Some(l), Some(r)) => l.cmp(r),
-                (Some(_), None) => Ordering::Less,
-                (None, Some(_)) => Ordering::Greater,
-                (None, None) => Ordering::Equal,
-            },
-        );
-        pairs
-            .into_iter()
-            .map(|(_, val)| val)
-            .paginate(pagination)
-            .collect()
-    } else {
-        iter.paginate(pagination).collect()
-    }
+    let handle = tokio::task::spawn_blocking(move || match query_request.0 {
+        QueryRequest::Query(QueryWithParameters {
+            query: signed_query,
+            sorting,
+            pagination,
+        }) => sumeragi.apply_wsv(|wsv| {
+            let valid_query = ValidQueryRequest::validate(signed_query, wsv)?;
+            let query_output = valid_query.execute(wsv)?;
+            live_query_store
+                .handle_query_output(query_output, fetch_size, &sorting, pagination)
+                .map_err(ValidationFail::from)
+        }),
+        QueryRequest::Cursor(cursor) => live_query_store
+            .handle_query_cursor(cursor)
+            .map_err(ValidationFail::from),
+    });
+    handle
+        .await
+        .expect("Failed to join query handling task")
+        .map(Scale)
+        .map_err(Into::into)
 }
 
 #[derive(serde::Serialize)]
@@ -454,7 +383,7 @@ async fn handle_status_precise(sumeragi: SumeragiHandle, segment: String) -> Res
 }
 
 impl Torii {
-    /// Construct `Torii` from `ToriiConfiguration`.
+    /// Construct `Torii`.
     #[allow(clippy::too_many_arguments)]
     pub fn from_configuration(
         iroha_cfg: Configuration,
@@ -462,15 +391,16 @@ impl Torii {
         events: EventsSender,
         notify_shutdown: Arc<Notify>,
         sumeragi: SumeragiHandle,
+        query_service: LiveQueryStoreHandle,
         kura: Arc<Kura>,
     ) -> Self {
         Self {
             iroha_cfg,
-            events,
             queue,
+            events,
             notify_shutdown,
             sumeragi,
-            query_store: Arc::default(),
+            query_service,
             kura,
         }
     }
@@ -540,19 +470,16 @@ impl Torii {
                         ))
                         .and(body::versioned()),
                 )
-                .or(endpoint7(
+                .or(endpoint4(
                     handle_queries,
                     warp::path(uri::QUERY)
                         .and(add_state!(
+                            self.query_service,
                             self.sumeragi,
-                            self.query_store,
                             NonZeroUsize::try_from(self.iroha_cfg.torii.fetch_size)
-                                .expect("u64 should always fit into usize"),
+                                .expect("u64 should always fit into usize")
                         ))
-                        .and(body::versioned())
-                        .and(sorting())
-                        .and(paginate())
-                        .and(cursor()),
+                        .and(client_query_request()),
                 ))
                 .or(endpoint2(
                     handle_post_configuration,
@@ -648,16 +575,10 @@ impl Torii {
     /// Can fail due to listening to network or if http server fails
     #[iroha_futures::telemetry_future]
     pub(crate) async fn start(self) -> eyre::Result<()> {
-        let query_idle_time = Duration::from_millis(self.iroha_cfg.torii.query_idle_time_ms.get());
-
         let torii = Arc::new(self);
         let mut handles = vec![];
 
         handles.extend(Arc::clone(&torii).start_api()?);
-        handles.push(
-            Arc::clone(&torii.query_store)
-                .expired_query_cleanup(query_idle_time, Arc::clone(&torii.notify_shutdown)),
-        );
 
         handles
             .into_iter()

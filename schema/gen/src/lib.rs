@@ -4,8 +4,8 @@
 use iroha_crypto::MerkleTree;
 use iroha_data_model::{
     block::stream::{BlockMessage, BlockSubscriptionRequest},
-    http::BatchedResponse,
     query::error::QueryExecutionFail,
+    BatchedResponse,
 };
 use iroha_genesis::RawGenesisBlock;
 use iroha_schema::prelude::*;
@@ -411,7 +411,6 @@ mod tests {
         },
         domain::NewDomain,
         executor::Executor,
-        http::{BatchedResponse, BatchedResponseV1},
         ipfs::IpfsPath,
         predicate::{
             ip_addr::{Ipv4Predicate, Ipv6Predicate},
@@ -426,7 +425,7 @@ mod tests {
             ForwardCursor,
         },
         transaction::{error::TransactionLimitError, SignedTransactionV1, TransactionLimits},
-        SignedBlockWrapper,
+        BatchedResponse, BatchedResponseV1, SignedBlockWrapper,
     };
     use iroha_genesis::RawGenesisBlock;
     use iroha_primitives::{

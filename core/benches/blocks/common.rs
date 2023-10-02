@@ -4,6 +4,7 @@ use eyre::Result;
 use iroha_core::{
     block::{BlockBuilder, CommittedBlock},
     prelude::*,
+    query::store::LiveQueryStore,
     smartcontracts::Execute,
     sumeragi::network_topology::Topology,
     wsv::World,
@@ -173,7 +174,8 @@ pub fn restore_every_nth(
 
 pub fn build_wsv(account_id: &AccountId, key_pair: &KeyPair) -> WorldStateView {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-    let mut wsv = WorldStateView::new(World::with([], UniqueVec::new()), kura);
+    let query_handle = LiveQueryStore::test().start();
+    let mut wsv = WorldStateView::new(World::with([], UniqueVec::new()), kura, query_handle);
     wsv.config.transaction_limits = TransactionLimits::new(u64::MAX, u64::MAX);
     wsv.config.wasm_runtime_config.fuel_limit = u64::MAX;
     wsv.config.wasm_runtime_config.max_memory = u32::MAX;

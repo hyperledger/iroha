@@ -6,6 +6,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{
     block::*,
     prelude::*,
+    query::store::LiveQueryStore,
     smartcontracts::{isi::Registrable as _, Execute},
     sumeragi::network_topology::Topology,
     tx::TransactionExecutor,
@@ -55,6 +56,7 @@ fn build_test_transaction(keys: KeyPair) -> SignedTransaction {
 
 fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
+    let query_handle = LiveQueryStore::test().start();
     let (public_key, _) = keys.into();
 
     let mut wsv = WorldStateView::new(
@@ -70,6 +72,7 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
             World::with([domain], UniqueVec::new())
         },
         kura,
+        query_handle,
     );
 
     {
@@ -146,7 +149,8 @@ fn sign_blocks(criterion: &mut Criterion) {
             .expect("Failed to accept transaction.");
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-    let mut wsv = WorldStateView::new(World::new(), kura);
+    let query_handle = LiveQueryStore::test().start();
+    let mut wsv = WorldStateView::new(World::new(), kura, query_handle);
     let topology = Topology::new(UniqueVec::new());
 
     let mut success_count = 0;
