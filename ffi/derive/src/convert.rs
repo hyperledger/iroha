@@ -59,7 +59,7 @@ impl syn2::parse::Parse for SpannedFfiTypeToken {
                     let Some((inside_of_group, group_span, after_group)) = after_token.group(Delimiter::Brace) else {
                         return Err(cursor.error("expected `{ ... }` after `unsafe`"))
                     };
-                    span = span.join(group_span.span()).expect("Spans must be in the same file");
+                    span = span.join(group_span.span()).unwrap_or(span);
 
                     let Some((token, after_token)) = inside_of_group.ident() else {
                         return Err(cursor.error("expected ffi type kind"))
