@@ -25,12 +25,12 @@ fn call_execute_trigger() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id);
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
-    let instruction = MintBox::new(1_u32, asset_id.clone());
+    let instruction = MintExpr::new(1_u32, asset_id.clone());
     let register_trigger = build_register_trigger_isi(asset_id.clone(), vec![instruction.into()]);
     test_client.submit_blocking(register_trigger)?;
 
     let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
-    let call_trigger = ExecuteTriggerBox::new(trigger_id);
+    let call_trigger = ExecuteTriggerExpr::new(trigger_id);
     test_client.submit_blocking(call_trigger)?;
 
     let new_value = get_asset_value(&mut test_client, asset_id)?;
@@ -48,12 +48,12 @@ fn execute_trigger_should_produce_event() -> Result<()> {
     let account_id: AccountId = "alice@wonderland".parse()?;
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
-    let instruction = MintBox::new(1_u32, asset_id.clone());
+    let instruction = MintExpr::new(1_u32, asset_id.clone());
     let register_trigger = build_register_trigger_isi(asset_id, vec![instruction.into()]);
     test_client.submit_blocking(register_trigger)?;
 
     let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
-    let call_trigger = ExecuteTriggerBox::new(trigger_id.clone());
+    let call_trigger = ExecuteTriggerExpr::new(trigger_id.clone());
 
     let thread_client = test_client.clone();
     let (sender, receiver) = mpsc::channel();
@@ -83,11 +83,11 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
     let account_id = "alice@wonderland".parse()?;
     let asset_id = AssetId::new(asset_definition_id, account_id);
     let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
-    let call_trigger = ExecuteTriggerBox::new(trigger_id);
+    let call_trigger = ExecuteTriggerExpr::new(trigger_id);
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     let instructions = vec![
-        MintBox::new(1_u32, asset_id.clone()).into(),
+        MintExpr::new(1_u32, asset_id.clone()).into(),
         call_trigger.clone().into(),
     ];
     let register_trigger = build_register_trigger_isi(asset_id.clone(), instructions);
@@ -113,8 +113,8 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
     // Registering trigger that should fail on execution
     let bad_trigger_id = TriggerId::from_str("bad_trigger")?;
     // Invalid instruction
-    let bad_trigger_instructions = vec![MintBox::new(1_u32, account_id.clone())];
-    let register_bad_trigger = RegisterBox::new(Trigger::new(
+    let bad_trigger_instructions = vec![MintExpr::new(1_u32, account_id.clone())];
+    let register_bad_trigger = RegisterExpr::new(Trigger::new(
         bad_trigger_id.clone(),
         Action::new(
             bad_trigger_instructions,
@@ -130,8 +130,8 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
 
     // Registering normal trigger
     let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
-    let trigger_instructions = vec![MintBox::new(1_u32, asset_id.clone())];
-    let register_trigger = RegisterBox::new(Trigger::new(
+    let trigger_instructions = vec![MintExpr::new(1_u32, asset_id.clone())];
+    let register_trigger = RegisterExpr::new(Trigger::new(
         trigger_id,
         Action::new(
             trigger_instructions,
@@ -147,7 +147,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
     let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     // Executing bad trigger
-    test_client.submit_blocking(ExecuteTriggerBox::new(bad_trigger_id))?;
+    test_client.submit_blocking(ExecuteTriggerExpr::new(bad_trigger_id))?;
 
     // Checking results
     let new_asset_value = get_asset_value(&mut test_client, asset_id)?;
@@ -165,8 +165,8 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let trigger_id = TriggerId::from_str("self_modifying_trigger")?;
 
-    let trigger_instructions = vec![MintBox::new(1_u32, asset_id.clone())];
-    let register_trigger = RegisterBox::new(Trigger::new(
+    let trigger_instructions = vec![MintExpr::new(1_u32, asset_id.clone())];
+    let register_trigger = RegisterExpr::new(Trigger::new(
         trigger_id.clone(),
         Action::new(
             trigger_instructions,
@@ -184,7 +184,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     // Executing trigger first time
-    let execute_trigger = ExecuteTriggerBox::new(trigger_id.clone());
+    let execute_trigger = ExecuteTriggerExpr::new(trigger_id.clone());
     test_client.submit_blocking(execute_trigger.clone())?;
 
     // Executing trigger second time
@@ -224,10 +224,10 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
     let trigger_id = TriggerId::from_str("self_modifying_trigger")?;
 
     let trigger_instructions = vec![
-        MintBox::new(1_u32, trigger_id.clone()),
-        MintBox::new(1_u32, asset_id.clone()),
+        MintExpr::new(1_u32, trigger_id.clone()),
+        MintExpr::new(1_u32, asset_id.clone()),
     ];
-    let register_trigger = RegisterBox::new(Trigger::new(
+    let register_trigger = RegisterExpr::new(Trigger::new(
         trigger_id.clone(),
         Action::new(
             trigger_instructions,
@@ -245,7 +245,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
     let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     // Executing trigger first time
-    let execute_trigger = ExecuteTriggerBox::new(trigger_id);
+    let execute_trigger = ExecuteTriggerExpr::new(trigger_id);
     test_client.submit_blocking(execute_trigger.clone())?;
 
     // Executing trigger second time
@@ -270,7 +270,7 @@ fn unregister_trigger() -> Result<()> {
     let trigger = Trigger::new(
         trigger_id.clone(),
         Action::new(
-            Vec::<InstructionBox>::new(),
+            Vec::<InstructionExpr>::new(),
             Repeats::Indefinitely,
             account_id.clone(),
             TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
@@ -279,7 +279,7 @@ fn unregister_trigger() -> Result<()> {
             )),
         ),
     );
-    let register_trigger = RegisterBox::new(trigger.clone());
+    let register_trigger = RegisterExpr::new(trigger.clone());
     test_client.submit_blocking(register_trigger)?;
 
     // Finding trigger
@@ -303,7 +303,7 @@ fn unregister_trigger() -> Result<()> {
     assert_eq!(found_trigger, trigger);
 
     // Unregistering trigger
-    let unregister_trigger = UnregisterBox::new(trigger_id);
+    let unregister_trigger = UnregisterExpr::new(trigger_id);
     test_client.submit_blocking(unregister_trigger)?;
 
     // Checking result
@@ -360,7 +360,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
     let SignedTransaction::V1(tx_ref) = &mut genesis.transactions[0].0;
     match &mut tx_ref.payload.instructions {
         Executable::Instructions(instructions) => {
-            instructions.push(RegisterBox::new(trigger).into());
+            instructions.push(RegisterExpr::new(trigger).into());
         }
         Executable::Wasm(_) => panic!("Expected instructions"),
     }
@@ -376,7 +376,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     // Executing trigger
-    let call_trigger = ExecuteTriggerBox::new(trigger_id);
+    let call_trigger = ExecuteTriggerExpr::new(trigger_id);
     test_client.submit_blocking(call_trigger)?;
 
     // Checking result
@@ -397,10 +397,10 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
     let trigger_id_unregister = TriggerId::from_str("unregister_other_trigger")?;
     let trigger_id_should_be_unregistered = TriggerId::from_str("should_be_unregistered_trigger")?;
 
-    let trigger_unregister_instructions = vec![UnregisterBox::new(
+    let trigger_unregister_instructions = vec![UnregisterExpr::new(
         trigger_id_should_be_unregistered.clone(),
     )];
-    let register_trigger = RegisterBox::new(Trigger::new(
+    let register_trigger = RegisterExpr::new(Trigger::new(
         trigger_id_unregister.clone(),
         Action::new(
             trigger_unregister_instructions,
@@ -414,8 +414,8 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
     ));
     test_client.submit_blocking(register_trigger)?;
 
-    let trigger_should_be_unregistered_instructions = vec![MintBox::new(1_u32, asset_id.clone())];
-    let register_trigger = RegisterBox::new(Trigger::new(
+    let trigger_should_be_unregistered_instructions = vec![MintExpr::new(1_u32, asset_id.clone())];
+    let register_trigger = RegisterExpr::new(Trigger::new(
         trigger_id_should_be_unregistered.clone(),
         Action::new(
             trigger_should_be_unregistered_instructions,
@@ -433,9 +433,9 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
     let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     // Executing triggers
-    let execute_trigger_unregister = ExecuteTriggerBox::new(trigger_id_unregister);
+    let execute_trigger_unregister = ExecuteTriggerExpr::new(trigger_id_unregister);
     let execute_trigger_should_be_unregistered =
-        ExecuteTriggerBox::new(trigger_id_should_be_unregistered);
+        ExecuteTriggerExpr::new(trigger_id_should_be_unregistered);
     test_client.submit_all_blocking([
         execute_trigger_unregister,
         execute_trigger_should_be_unregistered,
@@ -456,11 +456,11 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
 
 fn build_register_trigger_isi(
     asset_id: AssetId,
-    trigger_instructions: Vec<InstructionBox>,
-) -> RegisterBox {
+    trigger_instructions: Vec<InstructionExpr>,
+) -> RegisterExpr {
     let trigger_id: TriggerId = TRIGGER_NAME.parse().expect("Valid");
 
-    RegisterBox::new(Trigger::new(
+    RegisterExpr::new(Trigger::new(
         trigger_id.clone(),
         Action::new(
             trigger_instructions,

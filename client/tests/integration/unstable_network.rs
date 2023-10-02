@@ -80,7 +80,7 @@ fn unstable_network(
 
     let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
-    let register_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let register_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
     iroha_client
         .submit_blocking(register_asset)
         .expect("Failed to register asset");
@@ -102,7 +102,7 @@ fn unstable_network(
         }
 
         let quantity = 1;
-        let mint_asset = MintBox::new(
+        let mint_asset = MintExpr::new(
             quantity.to_value(),
             IdBox::AssetId(AssetId::new(
                 asset_definition_id.clone(),

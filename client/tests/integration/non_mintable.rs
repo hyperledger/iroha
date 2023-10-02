@@ -16,11 +16,11 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset =
-        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).mintable_once());
+        RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()).mintable_once());
 
     let metadata = UnlimitedMetadata::default();
 
-    let mint = MintBox::new(
+    let mint = MintExpr::new(
         200_u32.to_value(),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
@@ -28,7 +28,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
         )),
     );
 
-    let instructions: [InstructionBox; 2] = [create_asset.into(), mint.clone().into()];
+    let instructions: [InstructionExpr; 2] = [create_asset.into(), mint.clone().into()];
     let tx = test_client.build_transaction(instructions, metadata)?;
 
     // We can register and mint the non-mintable token
@@ -66,10 +66,10 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset =
-        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).mintable_once());
+        RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()).mintable_once());
 
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
-    let register_asset = RegisterBox::new(Asset::new(asset_id.clone(), 1_u32));
+    let register_asset = RegisterExpr::new(Asset::new(asset_id.clone(), 1_u32));
 
     // We can register the non-mintable token
     test_client.submit_all([create_asset, register_asset.clone()])?;
@@ -85,7 +85,7 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
     assert!(test_client.submit_blocking(register_asset).is_err());
 
     // And can't be minted
-    let mint = MintBox::new(1_u32.to_value(), IdBox::AssetId(asset_id));
+    let mint = MintExpr::new(1_u32.to_value(), IdBox::AssetId(asset_id));
     assert!(test_client.submit_blocking(mint).is_err());
 
     Ok(())
@@ -100,14 +100,14 @@ fn non_mintable_asset_can_be_minted_if_registered_with_zero_value() -> Result<()
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset =
-        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).mintable_once());
+        RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()).mintable_once());
 
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
-    let register_asset = RegisterBox::new(Asset::new(asset_id.clone(), 0_u32));
-    let mint = MintBox::new(1_u32.to_value(), IdBox::AssetId(asset_id));
+    let register_asset = RegisterExpr::new(Asset::new(asset_id.clone(), 0_u32));
+    let mint = MintExpr::new(1_u32.to_value(), IdBox::AssetId(asset_id));
 
     // We can register the non-mintable token wih zero value and then mint it
-    let instructions: [InstructionBox; 3] =
+    let instructions: [InstructionExpr; 3] =
         [create_asset.into(), register_asset.into(), mint.into()];
     test_client.submit_all(instructions)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {

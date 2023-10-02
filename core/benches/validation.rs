@@ -25,12 +25,12 @@ const TRANSACTION_LIMITS: TransactionLimits = TransactionLimits {
 fn build_test_transaction(keys: KeyPair) -> SignedTransaction {
     let domain_name = "domain";
     let domain_id = DomainId::from_str(domain_name).expect("does not panic");
-    let create_domain = RegisterBox::new(Domain::new(domain_id));
+    let create_domain = RegisterExpr::new(Domain::new(domain_id));
     let account_name = "account";
     let (public_key, _) = KeyPair::generate()
         .expect("Failed to generate KeyPair.")
         .into();
-    let create_account = RegisterBox::new(Account::new(
+    let create_account = RegisterExpr::new(Account::new(
         AccountId::new(
             account_name.parse().expect("Valid"),
             domain_name.parse().expect("Valid"),
@@ -41,7 +41,7 @@ fn build_test_transaction(keys: KeyPair) -> SignedTransaction {
         "xor".parse().expect("Valid"),
         domain_name.parse().expect("Valid"),
     );
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id));
+    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id));
     let instructions = [create_domain, create_account, create_asset];
 
     TransactionBuilder::new(AccountId::new(
@@ -79,7 +79,7 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
             .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_validator.display()));
         let validator = Validator::new(WasmSmartContract::from_compiled(wasm));
         let authority = "genesis@genesis".parse().expect("Valid");
-        UpgradeBox::new(validator)
+        UpgradeExpr::new(validator)
             .execute(&authority, &mut wsv)
             .expect("Failed to load validator");
     }

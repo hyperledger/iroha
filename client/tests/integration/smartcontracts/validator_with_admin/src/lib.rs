@@ -39,7 +39,7 @@ macro_rules! defaults {
 }
 
 impl Visit for Validator {
-    fn visit_instruction(&mut self, authority: &AccountId, isi: &InstructionBox) {
+    fn visit_instruction(&mut self, authority: &AccountId, isi: &InstructionExpr) {
         if parse!("admin@admin" as AccountId) == *authority {
             pass!(self);
         }
@@ -52,9 +52,9 @@ impl Visit for Validator {
 
         visit_transaction(&SignedTransaction),
         visit_expression<V>(&EvaluatesTo<V>),
-        visit_sequence(&SequenceBox),
-        visit_if(&Conditional),
-        visit_pair(&Pair),
+        visit_sequence(&SequenceExpr),
+        visit_if(&ConditionalExpr),
+        visit_pair(&PairExpr),
 
         // Peer validation
         visit_unregister_peer(Unregister<Peer>),
@@ -66,17 +66,17 @@ impl Visit for Validator {
 
         // Account validation
         visit_unregister_account(Unregister<Account>),
-        visit_mint_account_public_key(Mint<Account, PublicKey>),
-        visit_burn_account_public_key(Burn<Account, PublicKey>),
-        visit_mint_account_signature_check_condition(Mint<Account, SignatureCheckCondition>),
+        visit_mint_account_public_key(Mint<PublicKey, Account>),
+        visit_burn_account_public_key(Burn<PublicKey, Account>),
+        visit_mint_account_signature_check_condition(Mint<SignatureCheckCondition, Account>),
         visit_set_account_key_value(SetKeyValue<Account>),
         visit_remove_account_key_value(RemoveKeyValue<Account>),
 
         // Asset validation
         visit_register_asset(Register<Asset>),
         visit_unregister_asset(Unregister<Asset>),
-        visit_mint_asset(Mint<Asset, NumericValue>),
-        visit_burn_asset(Burn<Asset, NumericValue>),
+        visit_mint_asset(Mint<NumericValue, Asset>),
+        visit_burn_asset(Burn<NumericValue, Asset>),
         visit_transfer_asset(Transfer<Asset, NumericValue, Account>),
         visit_set_asset_key_value(SetKeyValue<Asset>),
         visit_remove_asset_key_value(RemoveKeyValue<Asset>),
@@ -88,18 +88,18 @@ impl Visit for Validator {
         visit_remove_asset_definition_key_value(RemoveKeyValue<AssetDefinition>),
 
         // Permission validation
-        visit_grant_account_permission(Grant<Account, PermissionToken>),
-        visit_revoke_account_permission(Revoke<Account, PermissionToken>),
+        visit_grant_account_permission(Grant<PermissionToken>),
+        visit_revoke_account_permission(Revoke<PermissionToken>),
 
         // Role validation
         visit_register_role(Register<Role>),
         visit_unregister_role(Unregister<Role>),
-        visit_grant_account_role(Grant<Account, RoleId>),
-        visit_revoke_account_role(Revoke<Account, RoleId>),
+        visit_grant_account_role(Grant<RoleId>),
+        visit_revoke_account_role(Revoke<RoleId>),
 
         // Trigger validation
         visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
-        visit_mint_trigger_repetitions(Mint<Trigger<TriggeringFilterBox, Executable>, u32>),
+        visit_mint_trigger_repetitions(Mint<u32, Trigger<TriggeringFilterBox, Executable>>),
         visit_execute_trigger(ExecuteTrigger),
 
         // Parameter validation
@@ -150,7 +150,7 @@ pub fn validate_transaction(
 #[entrypoint]
 pub fn validate_instruction(
     authority: AccountId,
-    instruction: InstructionBox,
+    instruction: InstructionExpr,
     block_height: u64,
 ) -> Result {
     let mut validator = Validator::new(block_height);

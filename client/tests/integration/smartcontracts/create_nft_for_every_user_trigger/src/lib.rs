@@ -38,8 +38,8 @@ fn main(_owner: AccountId, _event: Event) {
         let account_nft_id = AssetId::new(nft_id, account.id().clone());
         let account_nft = Asset::new(account_nft_id, Metadata::new());
 
-        RegisterBox::new(nft_definition).execute().dbg_unwrap();
-        RegisterBox::new(account_nft).execute().dbg_unwrap();
+        RegisterExpr::new(nft_definition).execute().dbg_unwrap();
+        RegisterExpr::new(account_nft).execute().dbg_unwrap();
     }
 
     iroha_trigger::info!("Smart contract executed successfully");

@@ -44,8 +44,8 @@ pub enum AcceptTransactionFail {
     UnexpectedGenesisAccountSignature,
 }
 
-fn instruction_size(isi: &InstructionBox) -> usize {
-    use InstructionBox::*;
+fn instruction_size(isi: &InstructionExpr) -> usize {
+    use InstructionExpr::*;
 
     match isi {
         Register(isi) => isi.object.len() + 1,
@@ -299,12 +299,12 @@ mod tests {
 
     fn if_instruction(
         c: impl Into<Expression>,
-        then: InstructionBox,
-        otherwise: Option<InstructionBox>,
-    ) -> InstructionBox {
+        then: InstructionExpr,
+        otherwise: Option<InstructionExpr>,
+    ) -> InstructionExpr {
         let condition: Expression = c.into();
         let condition = EvaluatesTo::new_unchecked(condition);
-        Conditional {
+        ConditionalExpr {
             condition,
             then,
             otherwise,
@@ -312,8 +312,8 @@ mod tests {
         .into()
     }
 
-    fn fail() -> InstructionBox {
-        FailBox {
+    fn fail() -> InstructionExpr {
+        Fail {
             message: String::default(),
         }
         .into()
@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn len_empty_sequence() {
-        assert_eq!(instruction_size(&SequenceBox::new(vec![]).into()), 1);
+        assert_eq!(instruction_size(&SequenceExpr::new(vec![]).into()), 1);
     }
 
     #[test]
@@ -334,7 +334,7 @@ mod tests {
             None,
         )];
 
-        assert_eq!(instruction_size(&SequenceBox::new(instructions).into()), 4);
+        assert_eq!(instruction_size(&SequenceExpr::new(instructions).into()), 4);
     }
 
     #[test]
@@ -351,6 +351,6 @@ mod tests {
             fail(),
         ];
 
-        assert_eq!(instruction_size(&SequenceBox::new(instructions).into()), 7);
+        assert_eq!(instruction_size(&SequenceExpr::new(instructions).into()), 7);
     }
 }

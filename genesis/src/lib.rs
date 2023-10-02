@@ -69,7 +69,7 @@ impl GenesisNetwork {
         // First instruction should be Validator upgrade.
         // This makes possible to grant permissions to users in genesis.
         let transactions_iter = std::iter::once(GenesisTransactionBuilder {
-            isi: vec![UpgradeBox::new(Validator::try_from(raw_block.validator)?).into()],
+            isi: vec![UpgradeExpr::new(Validator::try_from(raw_block.validator)?).into()],
         })
         .chain(raw_block.transactions.into_iter());
 
@@ -198,7 +198,7 @@ impl ValidatorPath {
 #[repr(transparent)]
 pub struct GenesisTransactionBuilder {
     /// Instructions
-    isi: Vec<InstructionBox>,
+    isi: Vec<InstructionExpr>,
 }
 
 impl GenesisTransactionBuilder {
@@ -216,7 +216,7 @@ impl GenesisTransactionBuilder {
     }
 
     /// Add new instruction to the transaction.
-    pub fn append_instruction(&mut self, instruction: InstructionBox) {
+    pub fn append_instruction(&mut self, instruction: InstructionExpr) {
         self.isi.push(instruction);
     }
 }
@@ -294,7 +294,7 @@ impl<S> RawGenesisBlockBuilder<S> {
         let new_domain = Domain::new(domain_id.clone()).with_metadata(metadata);
         self.transaction
             .isi
-            .push(RegisterBox::new(new_domain).into());
+            .push(RegisterExpr::new(new_domain).into());
         RawGenesisDomainBuilder {
             transaction: self.transaction,
             domain_id,
@@ -329,7 +329,7 @@ impl<S> RawGenesisDomainBuilder<S> {
         let account_id = AccountId::new(account_name, self.domain_id.clone());
         self.transaction
             .isi
-            .push(RegisterBox::new(Account::new(account_id, [])).into());
+            .push(RegisterExpr::new(Account::new(account_id, [])).into());
         self
     }
 
@@ -347,7 +347,7 @@ impl<S> RawGenesisDomainBuilder<S> {
     ) -> Self {
         let account_id = AccountId::new(account_name, self.domain_id.clone());
         let register =
-            RegisterBox::new(Account::new(account_id, [public_key]).with_metadata(metadata));
+            RegisterExpr::new(Account::new(account_id, [public_key]).with_metadata(metadata));
         self.transaction.isi.push(register.into());
         self
     }
@@ -363,7 +363,7 @@ impl<S> RawGenesisDomainBuilder<S> {
         };
         self.transaction
             .isi
-            .push(RegisterBox::new(asset_definition).into());
+            .push(RegisterExpr::new(asset_definition).into());
         self
     }
 }
@@ -427,11 +427,11 @@ mod tests {
             let domain_id: DomainId = "wonderland".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[0],
-                RegisterBox::new(Domain::new(domain_id.clone())).into()
+                RegisterExpr::new(Domain::new(domain_id.clone())).into()
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[1],
-                RegisterBox::new(Account::new(
+                RegisterExpr::new(Account::new(
                     AccountId::new("alice".parse().unwrap(), domain_id.clone()),
                     []
                 ))
@@ -439,7 +439,7 @@ mod tests {
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[2],
-                RegisterBox::new(Account::new(
+                RegisterExpr::new(Account::new(
                     AccountId::new("bob".parse().unwrap(), domain_id),
                     []
                 ))
@@ -450,11 +450,11 @@ mod tests {
             let domain_id: DomainId = "tulgey_wood".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[3],
-                RegisterBox::new(Domain::new(domain_id.clone())).into()
+                RegisterExpr::new(Domain::new(domain_id.clone())).into()
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[4],
-                RegisterBox::new(Account::new(
+                RegisterExpr::new(Account::new(
                     AccountId::new("Cheshire_Cat".parse().unwrap(), domain_id),
                     []
                 ))
@@ -465,11 +465,11 @@ mod tests {
             let domain_id: DomainId = "meadow".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[5],
-                RegisterBox::new(Domain::new(domain_id.clone())).into()
+                RegisterExpr::new(Domain::new(domain_id.clone())).into()
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[6],
-                RegisterBox::new(Account::new(
+                RegisterExpr::new(Account::new(
                     AccountId::new("Mad_Hatter".parse().unwrap(), domain_id),
                     [public_key.parse().unwrap()],
                 ))
@@ -477,7 +477,7 @@ mod tests {
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[7],
-                RegisterBox::new(AssetDefinition::big_quantity(
+                RegisterExpr::new(AssetDefinition::big_quantity(
                     "hats#meadow".parse().unwrap()
                 ))
                 .into()

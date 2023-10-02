@@ -19,19 +19,19 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
     // Given
     let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let key_pair = KeyPair::generate()?;
-    let add_signatory = MintBox::new(
+    let add_signatory = MintExpr::new(
         key_pair.public_key().clone(),
         IdBox::AccountId(account_id.clone()),
     );
 
-    let instructions: [InstructionBox; 2] = [create_asset.into(), add_signatory.into()];
+    let instructions: [InstructionExpr; 2] = [create_asset.into(), add_signatory.into()];
     client.submit_all(instructions)?;
     thread::sleep(pipeline_time * 2);
     //When
     let quantity: u32 = 200;
-    let mint_asset = MintBox::new(
+    let mint_asset = MintExpr::new(
         quantity.to_value(),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),

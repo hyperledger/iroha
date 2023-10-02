@@ -67,8 +67,8 @@ fn create_million_accounts_directly() {
             format!("bob-{i}").parse().expect("Valid"),
             domain_id.clone(),
         );
-        let create_domain = RegisterBox::new(Domain::new(domain_id));
-        let create_account = RegisterBox::new(Account::new(normal_account_id.clone(), []));
+        let create_domain = RegisterExpr::new(Domain::new(domain_id));
+        let create_account = RegisterExpr::new(Account::new(normal_account_id.clone(), []));
         if test_client
             .submit_all([create_domain, create_account])
             .is_err()
