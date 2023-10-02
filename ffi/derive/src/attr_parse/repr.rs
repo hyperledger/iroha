@@ -78,7 +78,8 @@ impl Parse for SpannedReprToken {
                     let Some((inside_of_group, group_span, after_group)) = after_token.group(Delimiter::Parenthesis) else {
                         return Err(cursor.error("Expected a number inside of a `repr(aligned(<number>)), found `repr(aligned)`"));
                     };
-                    span = span.join(group_span.span()).expect("Spans must be in the same file");
+
+                    span = span.join(group_span.span()).unwrap_or(span);
                     let alignment = syn2::parse2::<syn2::LitInt>(inside_of_group.token_stream())?;
                     let alignment = alignment.base10_parse::<u32>()?;
 
