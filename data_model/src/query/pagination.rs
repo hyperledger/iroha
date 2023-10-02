@@ -17,17 +17,14 @@ use derive_more::{Constructor, Display};
 use iroha_data_model_derive::model;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use warp::{
-    http::StatusCode,
-    reply::{self, Response},
-    Reply,
-};
 
 const PAGINATION_START: &str = "start";
 const PAGINATION_LIMIT: &str = "limit";
 
 /// Structure for pagination requests
-#[derive(Debug, Display, Clone, Copy, Default, Decode, Encode, Deserialize, Serialize)]
+#[derive(
+    Debug, Display, Clone, Copy, PartialEq, Eq, Default, Decode, Encode, Deserialize, Serialize,
+)]
 #[display(
     fmt = "{}--{}",
     "start.map(NonZeroU64::get).unwrap_or(0)",

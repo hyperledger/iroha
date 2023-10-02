@@ -22,7 +22,6 @@ use iroha_data_model::{
     },
     domain::NewDomain,
     executor::Executor,
-    http::{BatchedResponse, BatchedResponseV1},
     ipfs::IpfsPath,
     predicate::{
         ip_addr::{Ipv4Predicate, Ipv6Predicate},
@@ -37,7 +36,7 @@ use iroha_data_model::{
         ForwardCursor,
     },
     transaction::{error::TransactionLimitError, SignedTransactionV1, TransactionLimits},
-    SignedBlockWrapper,
+    BatchedResponse, BatchedResponseV1, SignedBlockWrapper,
 };
 use iroha_primitives::{
     addr::{Ipv4Addr, Ipv6Addr},

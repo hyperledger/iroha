@@ -84,6 +84,9 @@ impl Executor {
         let mut found_accounts = Vec::new();
 
         for account in accounts {
+            let account = account.map_err(|error| {
+                format!("{:?}", anyhow!(error).context("Failed to get account"))
+            })?;
             let permission_tokens = FindPermissionTokensByAccountId::new(account.id().clone())
                 .execute()
                 .map_err(|error| {
@@ -97,6 +100,13 @@ impl Executor {
                 })?;
 
             for token in permission_tokens {
+                let token = token.map_err(|error| {
+                    format!(
+                        "{:?}",
+                        anyhow!(error).context("Failed to get permission token")
+                    )
+                })?;
+
                 if let Ok(can_unregister_domain_token) =
                     iroha_executor::default::domain::tokens::CanUnregisterDomain::try_from(token)
                 {

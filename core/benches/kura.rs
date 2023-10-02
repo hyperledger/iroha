@@ -8,6 +8,7 @@ use iroha_core::{
     block::*,
     kura::{BlockStore, LockStatus},
     prelude::*,
+    query::store::LiveQueryStore,
     sumeragi::network_topology::Topology,
     wsv::World,
 };
@@ -42,7 +43,8 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
         iroha_core::kura::Kura::new(iroha_config::kura::Mode::Strict, dir.path(), false).unwrap();
     let _thread_handle = iroha_core::kura::Kura::start(kura.clone());
 
-    let mut wsv = WorldStateView::new(World::new(), kura);
+    let query_handle = LiveQueryStore::test().start();
+    let mut wsv = WorldStateView::new(World::new(), kura, query_handle);
     let topology = Topology::new(UniqueVec::new());
     let mut block = BlockBuilder::new(vec![tx], topology, Vec::new())
         .chain(0, &mut wsv)

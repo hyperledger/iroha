@@ -47,11 +47,11 @@ pub struct Sumeragi {
     pub debug_force_soft_fork: bool,
     /// The current network topology.
     pub current_topology: Topology,
-    /// The sumeragi internal `WorldStateView`. This will probably
+    /// The sumeragi internal [`WorldStateView`]. This will probably
     /// morph into a wsv + various patches as we attempt to
     /// multithread isi execution. In the future we might also once
     /// again merge the internal wsv with the public facing one. But
-    /// as of now we keep them seperate for greater flexibility when
+    /// as of now we keep them separate for greater flexibility when
     /// optimizing.
     pub wsv: WorldStateView,
     /// A copy of wsv that is kept one block behind at all times. Because
@@ -1159,9 +1159,10 @@ fn handle_block_sync(
 #[cfg(test)]
 mod tests {
     use iroha_primitives::unique_vec;
+    use tokio::test;
 
     use super::*;
-    use crate::smartcontracts::Registrable;
+    use crate::{query::store::LiveQueryStore, smartcontracts::Registrable};
 
     fn create_data_for_test(
         topology: &Topology,
@@ -1177,7 +1178,8 @@ mod tests {
         assert!(domain.add_account(account).is_none());
         let world = World::with([domain], topology.ordered_peers.clone());
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world, Arc::clone(&kura));
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(world, Arc::clone(&kura), query_handle);
 
         // Create "genesis" block
         // Creating an instruction
@@ -1235,7 +1237,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::redundant_clone)]
-    fn block_sync_invalid_block() {
+    async fn block_sync_invalid_block() {
         let leader_key_pair = KeyPair::generate().unwrap();
         let topology = Topology::new(unique_vec![PeerId::new(
             &"127.0.0.1:8080".parse().unwrap(),
@@ -1252,7 +1254,7 @@ mod tests {
     }
 
     #[test]
-    fn block_sync_invalid_soft_fork_block() {
+    async fn block_sync_invalid_soft_fork_block() {
         let leader_key_pair = KeyPair::generate().unwrap();
         let topology = Topology::new(unique_vec![PeerId::new(
             &"127.0.0.1:8080".parse().unwrap(),
@@ -1279,7 +1281,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::redundant_clone)]
-    fn block_sync_not_proper_height() {
+    async fn block_sync_not_proper_height() {
         let topology = Topology::new(UniqueVec::new());
         let leader_key_pair = KeyPair::generate().unwrap();
         let (finalized_wsv, _, mut block) = create_data_for_test(&topology, leader_key_pair);
@@ -1303,7 +1305,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::redundant_clone)]
-    fn block_sync_commit_block() {
+    async fn block_sync_commit_block() {
         let leader_key_pair = KeyPair::generate().unwrap();
         let topology = Topology::new(unique_vec![PeerId::new(
             &"127.0.0.1:8080".parse().unwrap(),
@@ -1316,7 +1318,7 @@ mod tests {
     }
 
     #[test]
-    fn block_sync_replace_top_block() {
+    async fn block_sync_replace_top_block() {
         let leader_key_pair = KeyPair::generate().unwrap();
         let topology = Topology::new(unique_vec![PeerId::new(
             &"127.0.0.1:8080".parse().unwrap(),
@@ -1340,7 +1342,7 @@ mod tests {
     }
 
     #[test]
-    fn block_sync_small_view_change_index() {
+    async fn block_sync_small_view_change_index() {
         let leader_key_pair = KeyPair::generate().unwrap();
         let topology = Topology::new(unique_vec![PeerId::new(
             &"127.0.0.1:8080".parse().unwrap(),
@@ -1377,7 +1379,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::redundant_clone)]
-    fn block_sync_genesis_block_do_not_replace() {
+    async fn block_sync_genesis_block_do_not_replace() {
         let topology = Topology::new(UniqueVec::new());
         let leader_key_pair = KeyPair::generate().unwrap();
         let (finalized_wsv, _, mut block) = create_data_for_test(&topology, leader_key_pair);

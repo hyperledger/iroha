@@ -7,6 +7,7 @@ pub mod client;
 pub mod genesis;
 pub mod iroha;
 pub mod kura;
+pub mod live_query_store;
 pub mod logger;
 pub mod network;
 pub mod path;

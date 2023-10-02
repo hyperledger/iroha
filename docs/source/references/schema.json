@@ -3624,6 +3624,10 @@
         "tag": "Conversion",
         "discriminant": 3,
         "type": "String"
+      },
+      {
+        "tag": "UnknownCursor",
+        "discriminant": 4
       }
     ]
   },

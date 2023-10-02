@@ -28,7 +28,7 @@ use core::{
 use block::SignedBlock;
 #[cfg(not(target_arch = "aarch64"))]
 use derive_more::Into;
-use derive_more::{AsRef, DebugCustom, Deref, Display, From, FromStr};
+use derive_more::{AsRef, Constructor, DebugCustom, Deref, Display, From, FromStr};
 use events::TriggeringFilterBox;
 use getset::Getters;
 use iroha_crypto::{HashOf, PublicKey};
@@ -41,6 +41,7 @@ use iroha_primitives::{
     small::{Array as SmallArray, SmallVec},
 };
 use iroha_schema::IntoSchema;
+use iroha_version::{declare_versioned_with_scale, version_with_scale};
 pub use numeric::model::NumericValue;
 use parity_scale_codec::{Decode, Encode};
 use prelude::{Executable, SignedTransaction, TransactionQueryOutput};
@@ -956,6 +957,21 @@ pub mod model {
         /// Error
         ERROR,
     }
+
+    /// Batched response of a query sent to torii
+    #[derive(
+        Debug, Clone, Constructor, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    )]
+    #[version_with_scale(version = 1, versioned_alias = "BatchedResponse")]
+    #[getset(get = "pub")]
+    #[must_use]
+    pub struct BatchedResponseV1<T> {
+        /// Current batch
+        pub batch: T,
+        /// Index of the next element in the result set. Client will use this value
+        /// in the next request to continue fetching results of the original query
+        pub cursor: crate::query::cursor::ForwardCursor,
+    }
 }
 
 // TODO: think of a way to `impl Identifiable for IdentifiableBox`.
@@ -1756,55 +1772,13 @@ pub fn current_time() -> core::time::Duration {
         .expect("Failed to get the current system time")
 }
 
-#[cfg(feature = "http")]
-pub mod http {
-    //! Structures related to HTTP communication
+declare_versioned_with_scale!(BatchedResponse<T> 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
-    use iroha_data_model_derive::model;
-    use iroha_schema::IntoSchema;
-    use iroha_version::declare_versioned_with_scale;
+impl<T> From<BatchedResponseV1<T>> for (T, crate::query::cursor::ForwardCursor) {
+    fn from(source: BatchedResponseV1<T>) -> Self {
+        let BatchedResponseV1 { batch, cursor } = source;
 
-    pub use self::model::*;
-    use crate::prelude::QueryOutput;
-
-    declare_versioned_with_scale!(BatchedResponse<T> 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
-
-    #[model]
-    pub mod model {
-        use getset::Getters;
-        use iroha_version::version_with_scale;
-        use parity_scale_codec::{Decode, Encode};
-        use serde::{Deserialize, Serialize};
-
-        use super::*;
-
-        /// Batched response of a query sent to torii
-        #[derive(Debug, Clone, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-        #[version_with_scale(version = 1, versioned_alias = "BatchedResponse")]
-        #[getset(get = "pub")]
-        #[must_use]
-        pub struct BatchedResponseV1<T> {
-            /// Current batch
-            pub batch: T,
-            /// Index of the next element in the result set. Client will use this value
-            /// in the next request to continue fetching results of the original query
-            pub cursor: crate::query::cursor::ForwardCursor,
-        }
-    }
-
-    impl From<BatchedResponseV1<Self>> for QueryOutput {
-        #[inline]
-        fn from(source: BatchedResponseV1<Self>) -> Self {
-            source.batch
-        }
-    }
-
-    impl<T> From<BatchedResponseV1<T>> for (T, crate::query::cursor::ForwardCursor) {
-        fn from(source: BatchedResponseV1<T>) -> Self {
-            let BatchedResponseV1 { batch, cursor } = source;
-
-            (batch, cursor)
-        }
+        (batch, cursor)
     }
 }
 

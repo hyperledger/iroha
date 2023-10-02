@@ -1326,7 +1326,7 @@ pub mod role {
             let role_id = $isi.object;
 
             let find_role_query_res = match FindRoleByRoleId::new(role_id).execute() {
-                Ok(res) => res,
+                Ok(res) => res.into_inner(),
                 Err(error) => {
                     deny!($executor, error);
                 }

@@ -1,6 +1,9 @@
 //! This module contains logic related to executing smartcontracts via
 //! `WebAssembly` VM Smartcontracts can be written in Rust, compiled
 //! to wasm format and submitted in a transaction
+
+use std::num::NonZeroUsize;
+
 use error::*;
 use import_traits::{
     ExecuteOperations as _, GetExecutorPayloads as _, SetPermissionTokenSchema as _,
@@ -15,9 +18,12 @@ use iroha_data_model::{
     isi::InstructionExpr,
     permission::PermissionTokenSchema,
     prelude::*,
-    query::QueryBox,
-    smart_contract::payloads::{self, Validate},
-    Level as LogLevel, ValidationFail,
+    query::{QueryBox, QueryRequest, QueryWithParameters},
+    smart_contract::{
+        payloads::{self, Validate},
+        SmartContractQueryRequest,
+    },
+    BatchedResponse, Level as LogLevel, ValidationFail,
 };
 use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
@@ -29,11 +35,7 @@ use wasmtime::{
 };
 
 use self::state::Authority;
-use super::query::LazyValue;
-use crate::{
-    smartcontracts::{Execute, ValidQuery as _},
-    wsv::WorldStateView,
-};
+use crate::{smartcontracts::Execute, wsv::WorldStateView, ValidQuery as _};
 
 /// Name of the exported memory
 const WASM_MEMORY: &str = "memory";
@@ -77,7 +79,10 @@ mod import_traits {
     pub trait ExecuteOperations<S> {
         /// Execute `query` on host
         #[codec::wrap_trait_fn]
-        fn execute_query(query: QueryBox, state: &S) -> Result<Value, ValidationFail>;
+        fn execute_query(
+            query_request: SmartContractQueryRequest,
+            state: &S,
+        ) -> Result<BatchedResponse<Value>, ValidationFail>;
 
         /// Execute `instruction` on host
         #[codec::wrap_trait_fn]
@@ -765,26 +770,34 @@ impl<S: state::LimitsMut> Runtime<S> {
 
 #[allow(clippy::needless_pass_by_value)]
 impl<S: state::Authority + state::Wsv + state::WsvMut> Runtime<S> {
-    fn default_execute_query(query: QueryBox, state: &S) -> Result<Value, ValidationFail> {
-        iroha_logger::debug!(%query, "Executing");
+    fn default_execute_query(
+        query_request: SmartContractQueryRequest,
+        state: &S,
+    ) -> Result<BatchedResponse<Value>, ValidationFail> {
+        iroha_logger::debug!(%query_request, "Executing");
 
         let wsv = state.wsv();
 
-        // NOTE: Smart contract (not executor) is trying to execute the query, validate it first
-        // TODO: Validation should be skipped when executing smart contract.
-        // There should be two steps validation and execution. First smart contract
-        // is validated and then it's executed. Here it's validating in both steps.
-        // Add a flag indicating whether smart contract is being validated or executed
-        wsv.executor()
-            .validate_query(wsv, state.authority(), query.clone())?;
+        match query_request.0 {
+            QueryRequest::Query(QueryWithParameters {
+                query,
+                sorting,
+                pagination,
+            }) => {
+                wsv.executor()
+                    .validate_query(wsv, state.authority(), query.clone())?;
+                let output = query.execute(wsv)?;
 
-        query
-            .execute(wsv)
-            .map(|lazy_value| match lazy_value {
-                LazyValue::Value(value) => value,
-                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
-            })
-            .map_err(Into::into)
+                wsv.query_handle().handle_query_output(
+                    output,
+                    NonZeroUsize::new(30_000).expect("30 000 is not zero"),
+                    &sorting,
+                    pagination,
+                )
+            }
+            QueryRequest::Cursor(cursor) => wsv.query_handle().handle_query_cursor(cursor),
+        }
+        .map_err(Into::into)
     }
 
     fn default_execute_instruction(
@@ -882,10 +895,10 @@ impl<'wrld> import_traits::ExecuteOperations<state::SmartContract<'wrld>>
 {
     #[codec::wrap]
     fn execute_query(
-        query: QueryBox,
+        query_request: SmartContractQueryRequest,
         state: &state::SmartContract<'wrld>,
-    ) -> Result<Value, ValidationFail> {
-        Self::default_execute_query(query, state)
+    ) -> Result<BatchedResponse<Value>, ValidationFail> {
+        Self::default_execute_query(query_request, state)
     }
 
     #[codec::wrap]
@@ -948,10 +961,10 @@ impl<'wrld> import_traits::ExecuteOperations<state::Trigger<'wrld>>
 {
     #[codec::wrap]
     fn execute_query(
-        query: QueryBox,
+        query_request: SmartContractQueryRequest,
         state: &state::Trigger<'wrld>,
-    ) -> Result<Value, ValidationFail> {
-        Self::default_execute_query(query, state)
+    ) -> Result<BatchedResponse<Value>, ValidationFail> {
+        Self::default_execute_query(query_request, state)
     }
 
     #[codec::wrap]
@@ -975,16 +988,32 @@ where
     S: state::Wsv + state::WsvMut + state::Authority,
 {
     #[codec::wrap]
-    fn execute_query(query: QueryBox, state: &S) -> Result<Value, ValidationFail> {
-        debug!(%query, "Executing as executor");
+    fn execute_query(
+        query_request: SmartContractQueryRequest,
+        state: &S,
+    ) -> Result<BatchedResponse<Value>, ValidationFail> {
+        debug!(%query_request, "Executing as executor");
 
-        query
-            .execute(state.wsv())
-            .map(|lazy_value| match lazy_value {
-                LazyValue::Value(value) => value,
-                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
-            })
-            .map_err(Into::into)
+        let wsv = state.wsv();
+
+        match query_request.0 {
+            QueryRequest::Query(QueryWithParameters {
+                query,
+                sorting,
+                pagination,
+            }) => {
+                let output = query.execute(wsv)?;
+
+                wsv.query_handle().handle_query_output(
+                    output,
+                    NonZeroUsize::new(30_000).expect("30 000 is not zero"),
+                    &sorting,
+                    pagination,
+                )
+            }
+            QueryRequest::Cursor(cursor) => wsv.query_handle().handle_query_cursor(cursor),
+        }
+        .map_err(Into::into)
     }
 
     #[codec::wrap]
@@ -1211,18 +1240,31 @@ impl<'wrld> import_traits::ExecuteOperations<state::executor::ValidateQuery<'wrl
 {
     #[codec::wrap]
     fn execute_query(
-        query: QueryBox,
+        query_request: SmartContractQueryRequest,
         state: &state::executor::ValidateQuery<'wrld>,
-    ) -> Result<Value, ValidationFail> {
-        debug!(%query, "Executing as executor");
+    ) -> Result<BatchedResponse<Value>, ValidationFail> {
+        debug!(%query_request, "Executing as executor");
 
-        query
-            .execute(state.wsv())
-            .map(|lazy_value| match lazy_value {
-                LazyValue::Value(value) => value,
-                LazyValue::Iter(iter) => Value::Vec(iter.collect()),
-            })
-            .map_err(Into::into)
+        let wsv = state.wsv();
+
+        match query_request.0 {
+            QueryRequest::Query(QueryWithParameters {
+                query,
+                sorting,
+                pagination,
+            }) => {
+                let output = query.execute(wsv)?;
+
+                wsv.query_handle().handle_query_output(
+                    output,
+                    NonZeroUsize::new(30_000).expect("30 000 is not zero"),
+                    &sorting,
+                    pagination,
+                )
+            }
+            QueryRequest::Cursor(cursor) => wsv.query_handle().handle_query_cursor(cursor),
+        }
+        .map_err(Into::into)
     }
 
     #[codec::wrap]
@@ -1615,10 +1657,15 @@ mod tests {
     use std::str::FromStr as _;
 
     use iroha_crypto::KeyPair;
+    use iroha_data_model::query::{sorting::Sorting, Pagination};
     use parity_scale_codec::Encode;
+    use tokio::test;
 
     use super::*;
-    use crate::{kura::Kura, smartcontracts::isi::Registrable as _, PeersIds, World};
+    use crate::{
+        kura::Kura, query::store::LiveQueryStore, smartcontracts::isi::Registrable as _, PeersIds,
+        World,
+    };
 
     fn world_with_test_account(authority: &AccountId) -> World {
         let domain_id = authority.domain_id.clone();
@@ -1675,10 +1722,11 @@ mod tests {
     }
 
     #[test]
-    fn execute_instruction_exported() -> Result<(), Error> {
+    async fn execute_instruction_exported() -> Result<(), Error> {
         let authority = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura);
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura, query_handle);
 
         let isi_hex = {
             let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
@@ -1716,11 +1764,16 @@ mod tests {
     }
 
     #[test]
-    fn execute_query_exported() -> Result<(), Error> {
+    async fn execute_query_exported() -> Result<(), Error> {
         let authority = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura);
-        let query_hex = encode_hex(QueryBox::from(FindAccountById::new(authority.clone())));
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura, query_handle);
+        let query_hex = encode_hex(SmartContractQueryRequest::query(
+            QueryBox::from(FindAccountById::new(authority.clone())),
+            Sorting::default(),
+            Pagination::default(),
+        ));
 
         let wat = format!(
             r#"
@@ -1753,11 +1806,12 @@ mod tests {
     }
 
     #[test]
-    fn instruction_limit_reached() -> Result<(), Error> {
+    async fn instruction_limit_reached() -> Result<(), Error> {
         let authority = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::test().start();
 
-        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura);
+        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura, query_handle);
 
         let isi_hex = {
             let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
@@ -1802,10 +1856,11 @@ mod tests {
     }
 
     #[test]
-    fn instructions_not_allowed() -> Result<(), Error> {
+    async fn instructions_not_allowed() -> Result<(), Error> {
         let authority = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura);
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura, query_handle);
 
         let isi_hex = {
             let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
@@ -1850,10 +1905,11 @@ mod tests {
     }
 
     #[test]
-    fn queries_not_allowed() -> Result<(), Error> {
+    async fn queries_not_allowed() -> Result<(), Error> {
         let authority = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura);
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura, query_handle);
         let query_hex = encode_hex(QueryBox::from(FindAccountById::new(authority.clone())));
 
         let wat = format!(
@@ -1891,10 +1947,11 @@ mod tests {
     }
 
     #[test]
-    fn trigger_related_func_is_not_linked_for_smart_contract() -> Result<(), Error> {
+    async fn trigger_related_func_is_not_linked_for_smart_contract() -> Result<(), Error> {
         let authority = AccountId::from_str("alice@wonderland").expect("Valid");
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura);
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(world_with_test_account(&authority), kura, query_handle);
         let query_hex = encode_hex(QueryBox::from(FindAccountById::new(authority.clone())));
 
         let wat = format!(

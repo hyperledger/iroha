@@ -68,6 +68,7 @@ displaydoc = { workspace = true }
 wasmtime = { workspace = true }
 parking_lot = { workspace = true, features = ["deadlock_detection"] }
 derive_more = { workspace = true }
+uuid = { version = "1.4.1", features = ["v4"] }
 
 [dev-dependencies]
 criterion = { workspace = true }

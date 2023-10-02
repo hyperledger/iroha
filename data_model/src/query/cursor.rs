@@ -1,5 +1,12 @@
 //! Structures and traits related to server-side cursor.
 
+#[cfg(not(feature = "std"))]
+use alloc::{
+    format,
+    string::{String, ToString as _},
+    vec,
+    vec::Vec,
+};
 use core::num::{NonZeroU64, NonZeroUsize};
 
 use getset::Getters;
@@ -26,6 +33,13 @@ pub mod model {
         pub query_id: Option<String>,
         /// Pointer to the next element in the result set
         pub cursor: Option<NonZeroU64>,
+    }
+
+    impl ForwardCursor {
+        /// Create a new cursor.
+        pub const fn new(query_id: Option<String>, cursor: Option<NonZeroU64>) -> Self {
+            Self { query_id, cursor }
+        }
     }
 }
 

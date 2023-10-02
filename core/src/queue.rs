@@ -381,9 +381,13 @@ mod tests {
     use iroha_data_model::{prelude::*, transaction::TransactionLimits};
     use iroha_primitives::must_use::MustUse;
     use rand::Rng as _;
+    use tokio::test;
 
     use super::*;
-    use crate::{kura::Kura, smartcontracts::isi::Registrable as _, wsv::World, PeersIds};
+    use crate::{
+        kura::Kura, query::store::LiveQueryStore, smartcontracts::isi::Registrable as _,
+        wsv::World, PeersIds,
+    };
 
     fn accepted_tx(account_id: &str, key: KeyPair) -> AcceptedTransaction {
         let message = std::iter::repeat_with(rand::random::<char>)
@@ -413,12 +417,14 @@ mod tests {
     }
 
     #[test]
-    fn push_tx() {
+    async fn push_tx() {
         let key_pair = KeyPair::generate().unwrap();
         let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([key_pair.public_key().clone()]),
             kura,
+            query_handle,
         ));
 
         let queue = Queue::from_configuration(&Configuration {
@@ -435,14 +441,16 @@ mod tests {
     }
 
     #[test]
-    fn push_tx_overflow() {
+    async fn push_tx_overflow() {
         let max_txs_in_queue = 10;
 
         let key_pair = KeyPair::generate().unwrap();
         let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([key_pair.public_key().clone()]),
             kura,
+            query_handle,
         ));
 
         let queue = Queue::from_configuration(&Configuration {
@@ -470,7 +478,7 @@ mod tests {
     }
 
     #[test]
-    fn push_multisignature_tx() {
+    async fn push_multisignature_tx() {
         let max_txs_in_block = 2;
         let key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
         let kura = Kura::blank_kura_for_testing();
@@ -485,9 +493,11 @@ mod tests {
             .build(&account_id);
             account.signature_check_condition = SignatureCheckCondition::all_account_signatures();
             assert!(domain.add_account(account).is_none());
+            let query_handle = LiveQueryStore::test().start();
             Arc::new(WorldStateView::new(
                 World::with([domain], PeersIds::new()),
                 kura,
+                query_handle,
             ))
         };
 
@@ -555,13 +565,15 @@ mod tests {
     }
 
     #[test]
-    fn get_available_txs() {
+    async fn get_available_txs() {
         let max_txs_in_block = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
+            query_handle,
         ));
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
@@ -582,12 +594,14 @@ mod tests {
     }
 
     #[test]
-    fn push_tx_already_in_blockchain() {
+    async fn push_tx_already_in_blockchain() {
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::test().start();
         let mut wsv = WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
+            query_handle,
         );
         let tx = accepted_tx("alice@wonderland", alice_key);
         wsv.transactions.insert(tx.hash(), 1);
@@ -609,13 +623,15 @@ mod tests {
     }
 
     #[test]
-    fn get_tx_drop_if_in_blockchain() {
+    async fn get_tx_drop_if_in_blockchain() {
         let max_txs_in_block = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::test().start();
         let mut wsv = WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
+            query_handle,
         );
         let tx = accepted_tx("alice@wonderland", alice_key);
         let queue = Queue::from_configuration(&Configuration {
@@ -637,13 +653,15 @@ mod tests {
     }
 
     #[test]
-    fn get_available_txs_with_timeout() {
+    async fn get_available_txs_with_timeout() {
         let max_txs_in_block = 6;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
+            query_handle,
         ));
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 200,
@@ -685,13 +703,15 @@ mod tests {
     // Queue should only drop transactions which are already committed or ttl expired.
     // Others should stay in the queue until that moment.
     #[test]
-    fn transactions_available_after_pop() {
+    async fn transactions_available_after_pop() {
         let max_txs_in_block = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
+            query_handle,
         ));
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
@@ -719,13 +739,15 @@ mod tests {
     }
 
     #[test]
-    fn custom_expired_transaction_is_rejected() {
+    async fn custom_expired_transaction_is_rejected() {
         let max_txs_in_block = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
+            query_handle,
         ));
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
@@ -760,13 +782,15 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_stress_test() {
+    async fn concurrent_stress_test() {
         let max_txs_in_block = 10;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::test().start();
         let wsv = WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
+            query_handle,
         );
 
         let queue = Arc::new(Queue::from_configuration(&Configuration {
@@ -831,14 +855,16 @@ mod tests {
     }
 
     #[test]
-    fn push_tx_in_future() {
+    async fn push_tx_in_future() {
         let future_threshold_ms = 1000;
 
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::test().start();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
+            query_handle,
         ));
 
         let queue = Queue::from_configuration(&Configuration {
@@ -864,7 +890,7 @@ mod tests {
     }
 
     #[test]
-    fn queue_throttling() {
+    async fn queue_throttling() {
         let alice_key_pair = KeyPair::generate().unwrap();
         let bob_key_pair = KeyPair::generate().unwrap();
         let kura = Kura::blank_kura_for_testing();
@@ -885,7 +911,8 @@ mod tests {
             assert!(domain.add_account(bob_account).is_none());
             World::with([domain], PeersIds::new())
         };
-        let mut wsv = WorldStateView::new(world, kura);
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(world, kura, query_handle);
 
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,

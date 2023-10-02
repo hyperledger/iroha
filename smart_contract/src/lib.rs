@@ -4,16 +4,20 @@
 
 extern crate alloc;
 
-use alloc::{boxed::Box, collections::BTreeMap};
+use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 
 #[cfg(not(test))]
 use data_model::smart_contract::payloads;
 use data_model::{
     isi::Instruction,
     prelude::*,
-    query::{Query, QueryBox},
+    query::{cursor::ForwardCursor, sorting::Sorting, Pagination, Query, QueryBox},
+    smart_contract::SmartContractQueryRequest,
+    BatchedResponse,
 };
+use derive_more::Display;
 pub use iroha_data_model as data_model;
+use iroha_macro::error::ErrorTryFromEnum;
 pub use iroha_smart_contract_derive::main;
 pub use iroha_smart_contract_utils::{debug, log};
 use iroha_smart_contract_utils::{
@@ -50,17 +54,6 @@ pub trait ExecuteOnHost: Instruction {
     fn execute(&self) -> Result<(), ValidationFail>;
 }
 
-/// Implementing queries can be executed on the host
-pub trait QueryHost: Query {
-    /// Execute query on the host
-    ///
-    /// # Errors
-    ///
-    /// - If query validation failed
-    /// - If query execution failed
-    fn execute(&self) -> Result<Self::Output, ValidationFail>;
-}
-
 // TODO: Remove the Clone bound. It can be done by custom serialization to InstructionExpr
 impl<I: Instruction + Encode + Clone> ExecuteOnHost for I {
     fn execute(&self) -> Result<(), ValidationFail> {
@@ -81,28 +74,258 @@ impl<I: Instruction + Encode + Clone> ExecuteOnHost for I {
     }
 }
 
-// TODO: Remove the Clone bound. It can be done by custom serialization/deserialization to QueryBox
-impl<Q: Query + Into<QueryBox> + Encode + Clone> QueryHost for Q
+/// Generic query request containing additional parameters.
+#[derive(Debug)]
+pub struct QueryRequest<Q> {
+    query: Q,
+    sorting: Sorting,
+    pagination: Pagination,
+}
+
+impl<Q: Query> From<QueryRequest<Q>> for SmartContractQueryRequest {
+    fn from(query_request: QueryRequest<Q>) -> Self {
+        SmartContractQueryRequest::query(
+            query_request.query.into(),
+            query_request.sorting,
+            query_request.pagination,
+        )
+    }
+}
+
+/// Implementing queries can be executed on the host
+///
+/// TODO: `&self` should be enough
+pub trait ExecuteQueryOnHost: Sized {
+    /// Query output type.
+    type Output;
+
+    /// Type of [`QueryRequest`].
+    type QueryRequest;
+
+    /// Apply sorting to a query
+    fn sort(self, sorting: Sorting) -> Self::QueryRequest;
+
+    /// Apply pagination to a query
+    fn paginate(self, pagination: Pagination) -> Self::QueryRequest;
+
+    /// Execute query on the host
+    ///
+    /// # Errors
+    ///
+    /// - If query validation failed
+    /// - If query execution failed
+    fn execute(self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail>;
+}
+
+impl<Q: Query + Encode> ExecuteQueryOnHost for Q
 where
     Q::Output: DecodeAll,
     <Q::Output as TryFrom<Value>>::Error: core::fmt::Debug,
 {
-    fn execute(&self) -> Result<Q::Output, ValidationFail> {
+    type Output = Q::Output;
+    type QueryRequest = QueryRequest<Self>;
+
+    fn sort(self, sorting: Sorting) -> Self::QueryRequest {
+        QueryRequest {
+            query: self,
+            sorting,
+            pagination: Pagination::default(),
+        }
+    }
+
+    fn paginate(self, pagination: Pagination) -> Self::QueryRequest {
+        QueryRequest {
+            query: self,
+            sorting: Sorting::default(),
+            pagination,
+        }
+    }
+
+    fn execute(self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail> {
+        QueryRequest {
+            query: self,
+            sorting: Sorting::default(),
+            pagination: Pagination::default(),
+        }
+        .execute()
+    }
+}
+
+impl<Q: Query + Encode> ExecuteQueryOnHost for QueryRequest<Q>
+where
+    Q::Output: DecodeAll,
+    <Q::Output as TryFrom<Value>>::Error: core::fmt::Debug,
+{
+    type Output = Q::Output;
+    type QueryRequest = Self;
+
+    fn sort(mut self, sorting: Sorting) -> Self {
+        self.sorting = sorting;
+        self
+    }
+
+    fn paginate(mut self, pagination: Pagination) -> Self {
+        self.pagination = pagination;
+        self
+    }
+
+    #[allow(irrefutable_let_patterns)]
+    fn execute(self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail> {
         #[cfg(not(test))]
         use host::execute_query as host_execute_query;
         #[cfg(test)]
         use tests::_iroha_smart_contract_execute_query_mock as host_execute_query;
 
-        // TODO: Redundant conversion into `QueryBox`
-        let query_box: QueryBox = self.clone().into();
+        let wasm_query_request = SmartContractQueryRequest::from(self);
+
         // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
         //         - ownership of the returned result is transferred into `_decode_from_raw`
-        let res: Result<Value, ValidationFail> = unsafe {
-            decode_with_length_prefix_from_raw(encode_and_execute(&query_box, host_execute_query))
+        let res: Result<BatchedResponse<Value>, ValidationFail> = unsafe {
+            decode_with_length_prefix_from_raw(encode_and_execute(
+                &wasm_query_request,
+                host_execute_query,
+            ))
+        };
+        let BatchedResponse::V1(response) = res? else {
+            panic!("Unsupported response version")
+        };
+        let (value, cursor) = response.into();
+        let typed_value = Self::Output::try_from(value).expect("Query output has incorrect type");
+        Ok(QueryOutputCursor {
+            batch: typed_value,
+            cursor,
+        })
+    }
+}
+
+/// Cursor over query results implementing [`IntoIterator`].
+///
+/// If you execute [`QueryBox`] when you probably want to use [`collect()`](Self::collect) method
+/// instead of [`into_iter()`](Self::into_iter) to ensure that all results vere consumed.
+#[derive(Debug, Encode, PartialEq, Eq)]
+pub struct QueryOutputCursor<T> {
+    batch: T,
+    cursor: ForwardCursor,
+}
+
+impl<T> QueryOutputCursor<T> {
+    /// Get inner value consuming [`Self`].
+    pub fn into_inner(self) -> T {
+        self.batch
+    }
+}
+
+impl QueryOutputCursor<Value> {
+    /// Same as [`into_inner()`](Self::into_inner) but collects all values of [`Value::Vec`]
+    /// in case if there are some cached results left on the host side.
+    ///
+    /// # Errors
+    ///
+    /// May fail due to the same reasons [`QueryOutputCursorIterator`] can fail to iterate.
+    pub fn collect(self) -> Result<Value, QueryOutputCursorError<Vec<Value>>> {
+        let Value::Vec(v) = self.batch else {
+            return Ok(self.batch)
         };
 
-        res.map(|value| value.try_into().expect("Query returned invalid type"))
+        // Making sure we received all values
+        let cursor = QueryOutputCursor {
+            batch: v,
+            cursor: self.cursor,
+        };
+        cursor
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Vec)
     }
+}
+
+impl<U: TryFrom<Value>> IntoIterator for QueryOutputCursor<Vec<U>> {
+    type Item = Result<U, QueryOutputCursorError<Vec<U>>>;
+    type IntoIter = QueryOutputCursorIterator<U>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        QueryOutputCursorIterator {
+            iter: self.batch.into_iter(),
+            cursor: self.cursor,
+        }
+    }
+}
+
+/// Iterator over query results.
+///
+/// # Errors
+///
+/// Iteration may fail due to the following reasons:
+///
+/// - Failed to get next batch of results from the host
+/// - Failed to convert batch of results into the requested type
+///
+/// # Panics
+///
+/// Panics if response from host is not [`BatchedResponse::V1`].
+pub struct QueryOutputCursorIterator<T> {
+    iter: <Vec<T> as IntoIterator>::IntoIter,
+    cursor: ForwardCursor,
+}
+
+impl<T: TryFrom<Value>> QueryOutputCursorIterator<T> {
+    #[allow(irrefutable_let_patterns)]
+    fn next_batch(&self) -> Result<Self, QueryOutputCursorError<Vec<T>>> {
+        #[cfg(not(test))]
+        use host::execute_query as host_execute_query;
+        #[cfg(test)]
+        use tests::_iroha_smart_contract_execute_query_mock as host_execute_query;
+
+        let wasm_query_request = SmartContractQueryRequest::cursor(self.cursor.clone());
+
+        // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
+        //         - ownership of the returned result is transferred into `_decode_from_raw`
+        let res: Result<BatchedResponse<Value>, ValidationFail> = unsafe {
+            decode_with_length_prefix_from_raw(encode_and_execute(
+                &wasm_query_request,
+                host_execute_query,
+            ))
+        };
+        let BatchedResponse::V1(response) = res? else {
+            panic!("Unsupported response version")
+        };
+        let (value, cursor) = response.into();
+        let vec = Vec::<T>::try_from(value)?;
+        Ok(Self {
+            iter: vec.into_iter(),
+            cursor,
+        })
+    }
+}
+
+impl<T: TryFrom<Value>> Iterator for QueryOutputCursorIterator<T> {
+    type Item = Result<T, QueryOutputCursorError<Vec<T>>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(item) = self.iter.next() {
+            return Some(Ok(item));
+        }
+
+        let mut next_iter = match self.next_batch() {
+            Ok(next_iter) => next_iter,
+            Err(QueryOutputCursorError::Validation(ValidationFail::QueryFailed(
+                iroha_data_model::query::error::QueryExecutionFail::UnknownCursor,
+            ))) => return None,
+            Err(err) => return Some(Err(err)),
+        };
+
+        core::mem::swap(self, &mut next_iter);
+        self.iter.next().map(Ok)
+    }
+}
+
+/// Error iterating other query results.
+#[derive(Debug, Display, iroha_macro::FromVariant)]
+pub enum QueryOutputCursorError<T> {
+    /// Validation error on the host side during next batch retrieval.
+    Validation(ValidationFail),
+    /// Host returned unexpected output type.
+    Conversion(ErrorTryFromEnum<Value, T>),
 }
 
 /// World state view of the host
@@ -136,7 +359,14 @@ impl Context {
 
 impl iroha_data_model::evaluate::Context for Context {
     fn query(&self, query: &QueryBox) -> Result<Value, ValidationFail> {
-        query.execute()
+        let value_cursor = query.clone().execute()?;
+        match value_cursor.collect() {
+            Ok(value) => Ok(value),
+            Err(QueryOutputCursorError::Validation(err)) => Err(err),
+            Err(QueryOutputCursorError::Conversion(err)) => {
+                panic!("Conversion error during collecting query result: {err:?}")
+            }
+        }
     }
 
     fn get(&self, name: &Name) -> Option<&Value> {
@@ -188,20 +418,23 @@ mod host {
 
 /// Most used items
 pub mod prelude {
-    pub use crate::{ExecuteOnHost, QueryHost};
+    pub use crate::{ExecuteOnHost, ExecuteQueryOnHost};
 }
 
 #[cfg(test)]
 mod tests {
     use core::{mem::ManuallyDrop, slice};
 
+    use data_model::{query::asset::FindAssetQuantityById, BatchedResponseV1};
     use iroha_smart_contract_utils::encode_with_length_prefix;
     use webassembly_test::webassembly_test;
 
     use super::*;
 
-    const QUERY_RESULT: Result<Value, ValidationFail> =
-        Ok(Value::Numeric(NumericValue::U32(1234_u32)));
+    const QUERY_RESULT: Result<QueryOutputCursor<Value>, ValidationFail> = Ok(QueryOutputCursor {
+        batch: Value::Numeric(NumericValue::U32(1234_u32)),
+        cursor: ForwardCursor::new(None, None),
+    });
     const ISI_RESULT: Result<(), ValidationFail> = Ok(());
     const EXPRESSION_RESULT: NumericValue = NumericValue::U32(5_u32);
 
@@ -213,8 +446,8 @@ mod tests {
     }
 
     fn get_test_query() -> QueryBox {
-        let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
-        FindAccountById::new(account_id).into()
+        let asset_id: AssetId = "rose##alice@wonderland".parse().expect("Valid");
+        FindAssetQuantityById::new(asset_id).into()
     }
 
     fn get_test_expression() -> EvaluatesTo<NumericValue> {
@@ -239,10 +472,16 @@ mod tests {
         len: usize,
     ) -> *const u8 {
         let bytes = slice::from_raw_parts(ptr, len);
-        let query = QueryBox::decode_all(&mut &*bytes).unwrap();
+        let query_request = SmartContractQueryRequest::decode_all(&mut &*bytes).unwrap();
+        let query = query_request.unwrap_query().0;
         assert_eq!(query, get_test_query());
 
-        ManuallyDrop::new(encode_with_length_prefix(&QUERY_RESULT)).as_ptr()
+        let response: Result<BatchedResponse<Value>, ValidationFail> = Ok(BatchedResponseV1::new(
+            QUERY_RESULT.unwrap().into_inner(),
+            ForwardCursor::new(None, None),
+        )
+        .into());
+        ManuallyDrop::new(encode_with_length_prefix(&response)).as_ptr()
     }
 
     #[webassembly_test]

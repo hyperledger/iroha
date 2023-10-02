@@ -14,6 +14,7 @@ impl Reply for Empty {
 }
 
 /// Structure for response in scale codec in body
+#[derive(Debug)]
 pub struct Scale<T>(pub T);
 
 impl<T: Encode + Send> Reply for Scale<T> {

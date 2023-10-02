@@ -20,6 +20,7 @@ use iroha_core::{
     handler::ThreadHandler,
     kura::Kura,
     prelude::{World, WorldStateView},
+    query::store::LiveQueryStore,
     queue::Queue,
     smartcontracts::isi::Registrable as _,
     snapshot::{try_read_snapshot, SnapshotMaker, SnapshotMakerHandle},
@@ -92,12 +93,13 @@ pub struct Iroha {
     pub kura: Arc<Kura>,
     /// Torii web server
     pub torii: Option<Torii>,
-    /// Snapshot service,
+    /// Snapshot service
     pub snapshot_maker: SnapshotMakerHandle,
     /// Thread handlers
     thread_handlers: Vec<ThreadHandler>,
-    /// A boolean value indicating whether or not the peers will recieve data from the network. Used in
-    /// sumeragi testing.
+
+    /// A boolean value indicating whether or not the peers will receive data from the network.
+    /// Used in sumeragi testing.
     #[cfg(debug_assertions)]
     pub freeze_status: Arc<AtomicBool>,
 }
@@ -241,13 +243,25 @@ impl Iroha {
             std::path::Path::new(&config.kura.block_store_path),
             config.kura.debug_output_new_blocks,
         )?;
+        let live_query_store_handle =
+            LiveQueryStore::from_configuration(config.live_query_store).start();
 
-        let notify_shutdown = Arc::new(Notify::new());
         let block_count = kura.init()?;
-        let wsv = try_read_snapshot(&config.snapshot.dir_path, &kura, block_count).map_or_else(
+        let wsv = try_read_snapshot(
+            &config.snapshot.dir_path,
+            &kura,
+            live_query_store_handle.clone(),
+            block_count,
+        )
+        .map_or_else(
             |error| {
                 iroha_logger::warn!(%error, "Failed to load wsv from snapshot, creating empty wsv");
-                WorldStateView::from_configuration(config.wsv, world, Arc::clone(&kura))
+                WorldStateView::from_configuration(
+                    config.wsv,
+                    world,
+                    Arc::clone(&kura),
+                    live_query_store_handle.clone(),
+                )
             },
             |wsv| {
                 iroha_logger::info!(
@@ -298,6 +312,8 @@ impl Iroha {
         #[cfg(debug_assertions)]
         let freeze_status = Arc::new(AtomicBool::new(false));
 
+        let notify_shutdown = Arc::new(Notify::new());
+
         NetworkRelay {
             sumeragi: sumeragi.clone(),
             block_sync,
@@ -318,6 +334,7 @@ impl Iroha {
             events_sender,
             Arc::clone(&notify_shutdown),
             sumeragi.clone(),
+            live_query_store_handle,
             Arc::clone(&kura),
         );
 

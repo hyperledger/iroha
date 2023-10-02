@@ -51,7 +51,7 @@ impl_lazy! {
 }
 
 /// Query Request statefully validated on the Iroha node side.
-#[derive(Debug, Decode, Encode)]
+#[derive(Debug, Clone, Decode, Encode)]
 #[repr(transparent)]
 pub struct ValidQueryRequest(SignedQuery);
 
@@ -171,10 +171,11 @@ mod tests {
     use iroha_data_model::{query::error::FindError, transaction::TransactionLimits};
     use iroha_primitives::unique_vec::UniqueVec;
     use once_cell::sync::Lazy;
+    use tokio::test;
 
     use super::*;
     use crate::{
-        block::*, kura::Kura, smartcontracts::isi::Registrable as _,
+        block::*, kura::Kura, query::store::LiveQueryStore, smartcontracts::isi::Registrable as _,
         sumeragi::network_topology::Topology, tx::AcceptedTransaction, wsv::World, PeersIds,
     };
 
@@ -249,7 +250,8 @@ mod tests {
         invalid_tx_per_block: usize,
     ) -> Result<WorldStateView> {
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(world_with_test_domains(), kura.clone(), query_handle);
 
         let limits = TransactionLimits {
             max_instruction_number: 1,
@@ -305,9 +307,10 @@ mod tests {
     }
 
     #[test]
-    fn asset_store() -> Result<()> {
+    async fn asset_store() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_asset_with_metadata(), kura);
+        let query_handle = LiveQueryStore::test().start();
+        let wsv = WorldStateView::new(world_with_test_asset_with_metadata(), kura, query_handle);
 
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
@@ -321,9 +324,10 @@ mod tests {
     }
 
     #[test]
-    fn account_metadata() -> Result<()> {
+    async fn account_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = WorldStateView::new(world_with_test_account_with_metadata()?, kura);
+        let query_handle = LiveQueryStore::test().start();
+        let wsv = WorldStateView::new(world_with_test_account_with_metadata()?, kura, query_handle);
 
         let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::from_str("Bytes")?)
             .execute(&wsv)?;
@@ -335,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn find_all_blocks() -> Result<()> {
+    async fn find_all_blocks() -> Result<()> {
         let num_blocks = 100;
 
         let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
@@ -348,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn find_all_block_headers() -> Result<()> {
+    async fn find_all_block_headers() -> Result<()> {
         let num_blocks = 100;
 
         let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
@@ -361,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    fn find_block_header_by_hash() -> Result<()> {
+    async fn find_block_header_by_hash() -> Result<()> {
         let wsv = wsv_with_test_blocks_and_transactions(1, 1, 1)?;
         let block = wsv.all_blocks().last().expect("WSV is empty");
 
@@ -380,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn find_all_transactions() -> Result<()> {
+    async fn find_all_transactions() -> Result<()> {
         let num_blocks = 100;
 
         let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
@@ -404,9 +408,10 @@ mod tests {
     }
 
     #[test]
-    fn find_transaction() -> Result<()> {
+    async fn find_transaction() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let mut wsv = WorldStateView::new(world_with_test_domains(), kura.clone());
+        let query_handle = LiveQueryStore::test().start();
+        let mut wsv = WorldStateView::new(world_with_test_domains(), kura.clone(), query_handle);
 
         let instructions: [InstructionExpr; 0] = [];
         let tx = TransactionBuilder::new(ALICE_ID.clone())
@@ -446,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn domain_metadata() -> Result<()> {
+    async fn domain_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let wsv = {
             let mut metadata = Metadata::new();
@@ -467,7 +472,8 @@ mod tests {
                     AssetDefinition::quantity(asset_definition_id).build(&ALICE_ID)
                 )
                 .is_none());
-            WorldStateView::new(World::with([domain], PeersIds::new()), kura)
+            let query_handle = LiveQueryStore::test().start();
+            WorldStateView::new(World::with([domain], PeersIds::new()), kura, query_handle)
         };
 
         let domain_id = DomainId::from_str("wonderland")?;

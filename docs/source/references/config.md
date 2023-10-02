@@ -56,8 +56,7 @@ The following is the default configuration used by Iroha.
     "API_URL": null,
     "MAX_TRANSACTION_SIZE": 32768,
     "MAX_CONTENT_LEN": 16384000,
-    "FETCH_SIZE": 10,
-    "QUERY_IDLE_TIME_MS": 30000
+    "FETCH_SIZE": 10
   },
   "BLOCK_SYNC": {
     "GOSSIP_PERIOD_MS": 10000,
@@ -125,6 +124,9 @@ The following is the default configuration used by Iroha.
     "CREATE_EVERY_MS": 60000,
     "DIR_PATH": "./storage",
     "CREATION_ENABLED": true
+  },
+  "LIVE_QUERY_STORE": {
+    "QUERY_IDLE_TIME_MS": 30000
   }
 }
 ```
@@ -280,6 +282,28 @@ Has type `Option<Mode>`[^1]. Can be configured via environment variable `KURA_IN
 
 ```json
 "strict"
+```
+
+## `live_query_store`
+
+LiveQueryStore configuration
+
+Has type `Option<live_query_store::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_LIVE_QUERY_STORE`
+
+```json
+{
+  "QUERY_IDLE_TIME_MS": 30000
+}
+```
+
+### `live_query_store.query_idle_time_ms`
+
+Time query can remain in the store if unaccessed
+
+Has type `Option<NonZeroU64>`[^1]. Can be configured via environment variable `LIVE_QUERY_STORE_QUERY_IDLE_TIME_MS`
+
+```json
+30000
 ```
 
 ## `logger`
@@ -677,8 +701,7 @@ Has type `Option<torii::ConfigurationProxy>`[^1]. Can be configured via environm
   "FETCH_SIZE": 10,
   "MAX_CONTENT_LEN": 16384000,
   "MAX_TRANSACTION_SIZE": 32768,
-  "P2P_ADDR": null,
-  "QUERY_IDLE_TIME_MS": 30000
+  "P2P_ADDR": null
 }
 ```
 
@@ -730,16 +753,6 @@ Has type `Option<SocketAddr>`[^1]. Can be configured via environment variable `T
 
 ```json
 null
-```
-
-### `torii.query_idle_time_ms`
-
-Time query can remain in the store if unaccessed
-
-Has type `Option<NonZeroU64>`[^1]. Can be configured via environment variable `TORII_QUERY_IDLE_TIME_MS`
-
-```json
-30000
 ```
 
 ## `wsv`
