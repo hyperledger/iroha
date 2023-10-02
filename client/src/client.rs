@@ -1775,7 +1775,7 @@ mod tests {
 
         let build_transaction = || {
             client
-                .build_transaction(Vec::<InstructionBox>::new(), UnlimitedMetadata::new())
+                .build_transaction(Vec::<InstructionExpr>::new(), UnlimitedMetadata::new())
                 .unwrap()
         };
         let tx1 = build_transaction();

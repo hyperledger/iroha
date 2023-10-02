@@ -742,7 +742,7 @@ mod tests {
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
         let create_asset_definition =
-            RegisterBox::new(AssetDefinition::quantity(asset_definition_id));
+            RegisterExpr::new(AssetDefinition::quantity(asset_definition_id));
 
         // Making two transactions that have the same instruction
         let transaction_limits = &wsv.transaction_validator().transaction_limits;
@@ -784,7 +784,7 @@ mod tests {
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
         let create_asset_definition =
-            RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+            RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
 
         // Making two transactions that have the same instruction
         let transaction_limits = &wsv.transaction_validator().transaction_limits;
@@ -797,12 +797,12 @@ mod tests {
         let quantity: u32 = 200;
         let fail_quantity: u32 = 20;
 
-        let fail_mint = MintBox::new(
+        let fail_mint = MintExpr::new(
             fail_quantity.to_value(),
             IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
         );
 
-        let succeed_mint = MintBox::new(
+        let succeed_mint = MintExpr::new(
             quantity.to_value(),
             IdBox::AssetId(AssetId::new(asset_definition_id, alice_id.clone())),
         );
@@ -853,14 +853,14 @@ mod tests {
         let transaction_limits = &wsv.transaction_validator().transaction_limits;
 
         let domain_id = DomainId::from_str("domain").expect("Valid");
-        let create_domain = RegisterBox::new(Domain::new(domain_id));
+        let create_domain = RegisterExpr::new(Domain::new(domain_id));
         let asset_definition_id = AssetDefinitionId::from_str("coin#domain").expect("Valid");
-        let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id));
-        let instructions_fail: [InstructionBox; 2] = [
+        let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id));
+        let instructions_fail: [InstructionExpr; 2] = [
             create_domain.clone().into(),
-            FailBox::new("Always fail").into(),
+            Fail::new("Always fail").into(),
         ];
-        let instructions_accept: [InstructionBox; 2] = [create_domain.into(), create_asset.into()];
+        let instructions_accept: [InstructionExpr; 2] = [create_domain.into(), create_asset.into()];
         let tx_fail = TransactionBuilder::new(alice_id.clone())
             .with_instructions(instructions_fail)
             .sign(alice_keys.clone())
@@ -883,7 +883,7 @@ mod tests {
         // The first transaction should be rejected
         assert!(
             valid_block.payload().transactions[0].error.is_some(),
-            "The first transaction should be rejected, as it contains `FailBox`."
+            "The first transaction should be rejected, as it contains `Fail`."
         );
 
         // The second transaction should be accepted

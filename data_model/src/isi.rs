@@ -19,7 +19,7 @@ use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
 use crate::{seal, Level, Registered};
 
 /// Marker trait designating instruction
-pub trait Instruction: Into<InstructionBox> + seal::Sealed {}
+pub trait Instruction: Into<InstructionExpr> + seal::Sealed {}
 
 macro_rules! isi {
     ($($meta:meta)* $item:item) => {
@@ -79,67 +79,67 @@ pub mod model {
     )]
     #[ffi_type(opaque)]
     #[allow(missing_docs)]
-    pub enum InstructionBox {
+    pub enum InstructionExpr {
         #[debug(fmt = "{_0:?}")]
-        Register(RegisterBox),
+        Register(RegisterExpr),
         #[debug(fmt = "{_0:?}")]
-        Unregister(UnregisterBox),
+        Unregister(UnregisterExpr),
         #[debug(fmt = "{_0:?}")]
-        Mint(MintBox),
+        Mint(MintExpr),
         #[debug(fmt = "{_0:?}")]
-        Burn(BurnBox),
+        Burn(BurnExpr),
         #[debug(fmt = "{_0:?}")]
-        Transfer(TransferBox),
+        Transfer(TransferExpr),
         #[debug(fmt = "{_0:?}")]
-        If(Box<Conditional>),
+        If(Box<ConditionalExpr>),
         #[debug(fmt = "{_0:?}")]
-        Pair(Box<Pair>),
+        Pair(Box<PairExpr>),
         #[debug(fmt = "{_0:?}")]
-        Sequence(SequenceBox),
+        Sequence(SequenceExpr),
         #[debug(fmt = "{_0:?}")]
-        SetKeyValue(SetKeyValueBox),
+        SetKeyValue(SetKeyValueExpr),
         #[debug(fmt = "{_0:?}")]
-        RemoveKeyValue(RemoveKeyValueBox),
+        RemoveKeyValue(RemoveKeyValueExpr),
         #[debug(fmt = "{_0:?}")]
-        Grant(GrantBox),
+        Grant(GrantExpr),
         #[debug(fmt = "{_0:?}")]
-        Revoke(RevokeBox),
+        Revoke(RevokeExpr),
         #[debug(fmt = "{_0:?}")]
-        ExecuteTrigger(ExecuteTriggerBox),
+        ExecuteTrigger(ExecuteTriggerExpr),
         #[debug(fmt = "{_0:?}")]
-        SetParameter(SetParameterBox),
+        SetParameter(SetParameterExpr),
         #[debug(fmt = "{_0:?}")]
-        NewParameter(NewParameterBox),
-        Upgrade(UpgradeBox),
+        NewParameter(NewParameterExpr),
+        Upgrade(UpgradeExpr),
         /// `Log` variant.
-        Log(LogBox),
+        Log(LogExpr),
 
         #[debug(fmt = "{_0:?}")]
-        Fail(FailBox),
+        Fail(Fail),
     }
 
-    impl Instruction for InstructionBox {}
+    impl Instruction for InstructionExpr {}
 
-    impl Instruction for SetKeyValueBox {}
-    impl Instruction for RemoveKeyValueBox {}
-    impl Instruction for RegisterBox {}
-    impl Instruction for UnregisterBox {}
-    impl Instruction for MintBox {}
-    impl Instruction for BurnBox {}
-    impl Instruction for TransferBox {}
-    impl Instruction for GrantBox {}
-    impl Instruction for RevokeBox {}
-    impl Instruction for SetParameterBox {}
-    impl Instruction for NewParameterBox {}
-    impl Instruction for UpgradeBox {}
-    impl Instruction for ExecuteTriggerBox {}
-    impl Instruction for FailBox {}
-    impl Instruction for LogBox {}
+    impl Instruction for SetKeyValueExpr {}
+    impl Instruction for RemoveKeyValueExpr {}
+    impl Instruction for RegisterExpr {}
+    impl Instruction for UnregisterExpr {}
+    impl Instruction for MintExpr {}
+    impl Instruction for BurnExpr {}
+    impl Instruction for TransferExpr {}
+    impl Instruction for GrantExpr {}
+    impl Instruction for RevokeExpr {}
+    impl Instruction for SetParameterExpr {}
+    impl Instruction for NewParameterExpr {}
+    impl Instruction for UpgradeExpr {}
+    impl Instruction for ExecuteTriggerExpr {}
+    impl Instruction for LogExpr {}
+    impl Instruction for Fail {}
 
     // Composite instructions
-    impl Instruction for SequenceBox {}
-    impl Instruction for Conditional {}
-    impl Instruction for Pair {}
+    impl Instruction for ConditionalExpr {}
+    impl Instruction for SequenceExpr {}
+    impl Instruction for PairExpr {}
 }
 
 mod transparent {
@@ -185,7 +185,7 @@ mod transparent {
 
     /// Generic instruction for a mint of an object to the identifiable destination.
     #[derive(Debug, Clone)]
-    pub struct Mint<D: Identifiable, O: Into<Value>> {
+    pub struct Mint<O: Into<Value>, D: Identifiable> {
         /// Object which should be minted.
         pub object: O,
         /// Destination object [`Identifiable::Id`].
@@ -194,7 +194,7 @@ mod transparent {
 
     /// Generic instruction for a burn of an object to the identifiable destination.
     #[derive(Debug, Clone)]
-    pub struct Burn<D: Identifiable, O: Into<Value>> {
+    pub struct Burn<O: Into<Value>, D: Identifiable> {
         /// Object which should be burned.
         pub object: O,
         /// Destination object [`Identifiable::Id`].
@@ -214,20 +214,20 @@ mod transparent {
 
     /// Generic instruction for granting permission to an entity.
     #[derive(Debug, Clone)]
-    pub struct Grant<D: Identifiable, O: Into<Value>> {
+    pub struct Grant<O: Into<Value>> {
         /// Object to grant.
         pub object: O,
         /// Entity to which to grant this token.
-        pub destination_id: D::Id,
+        pub destination_id: AccountId,
     }
 
     /// Generic instruction for revoking permission from an entity.
     #[derive(Debug, Clone)]
-    pub struct Revoke<D: Identifiable, O: Into<Value>> {
+    pub struct Revoke<O: Into<Value>> {
         /// Object to revoke.
         pub object: O,
         /// Entity which is being revoked this token from.
-        pub destination_id: D::Id,
+        pub destination_id: AccountId,
     }
 
     /// Generic instruction for setting a chain-wide config parameter.
@@ -267,43 +267,43 @@ mod transparent {
         pub level: Level,
     }
 
-    impl<O: Identifiable> From<SetKeyValue<O>> for SetKeyValueBox {
+    impl<O: Identifiable> From<SetKeyValue<O>> for SetKeyValueExpr {
         fn from(source: SetKeyValue<O>) -> Self {
             Self::new(source.object_id.into(), source.key, source.value)
         }
     }
 
-    impl<O: Identifiable> From<RemoveKeyValue<O>> for RemoveKeyValueBox {
+    impl<O: Identifiable> From<RemoveKeyValue<O>> for RemoveKeyValueExpr {
         fn from(source: RemoveKeyValue<O>) -> Self {
             Self::new(source.object_id.into(), source.key)
         }
     }
 
-    impl<O: Registered> From<Register<O>> for RegisterBox {
+    impl<O: Registered> From<Register<O>> for RegisterExpr {
         fn from(source: Register<O>) -> Self {
             Self::new(source.object.into())
         }
     }
 
-    impl<O: Identifiable> From<Unregister<O>> for UnregisterBox {
+    impl<O: Identifiable> From<Unregister<O>> for UnregisterExpr {
         fn from(source: Unregister<O>) -> Self {
             Self::new(source.object_id.into())
         }
     }
 
-    impl<D: Identifiable, O: Into<Value>> From<Mint<D, O>> for MintBox {
-        fn from(source: Mint<D, O>) -> Self {
+    impl<O: Into<Value>, D: Identifiable> From<Mint<O, D>> for MintExpr {
+        fn from(source: Mint<O, D>) -> Self {
             Self::new(source.object, source.destination_id.into())
         }
     }
 
-    impl<D: Identifiable, O: Into<Value>> From<Burn<D, O>> for BurnBox {
-        fn from(source: Burn<D, O>) -> Self {
+    impl<O: Into<Value>, D: Identifiable> From<Burn<O, D>> for BurnExpr {
+        fn from(source: Burn<O, D>) -> Self {
             Self::new(source.object, source.destination_id.into())
         }
     }
 
-    impl<S: Identifiable, O: Into<Value>, D: Identifiable> From<Transfer<S, O, D>> for TransferBox {
+    impl<S: Identifiable, O: Into<Value>, D: Identifiable> From<Transfer<S, O, D>> for TransferExpr {
         fn from(source: Transfer<S, O, D>) -> Self {
             Self::new(
                 source.source_id.into(),
@@ -313,43 +313,43 @@ mod transparent {
         }
     }
 
-    impl<D: Identifiable, O: Into<Value>> From<Grant<D, O>> for GrantBox {
-        fn from(source: Grant<D, O>) -> Self {
-            Self::new(source.object, source.destination_id.into())
+    impl<O: Into<Value>> From<Grant<O>> for GrantExpr {
+        fn from(source: Grant<O>) -> Self {
+            Self::new(source.object, source.destination_id)
         }
     }
 
-    impl<D: Identifiable, O: Into<Value>> From<Revoke<D, O>> for RevokeBox {
-        fn from(source: Revoke<D, O>) -> Self {
-            Self::new(source.object, source.destination_id.into())
+    impl<O: Into<Value>> From<Revoke<O>> for RevokeExpr {
+        fn from(source: Revoke<O>) -> Self {
+            Self::new(source.object, source.destination_id)
         }
     }
 
-    impl From<SetParameter> for SetParameterBox {
+    impl From<SetParameter> for SetParameterExpr {
         fn from(source: SetParameter) -> Self {
             Self::new(source.parameter)
         }
     }
 
-    impl From<NewParameter> for NewParameterBox {
+    impl From<NewParameter> for NewParameterExpr {
         fn from(source: NewParameter) -> Self {
             Self::new(source.parameter)
         }
     }
 
-    impl From<Upgrade<Validator>> for UpgradeBox {
+    impl From<Upgrade<Validator>> for UpgradeExpr {
         fn from(source: Upgrade<Validator>) -> Self {
             Self::new(source.object)
         }
     }
 
-    impl From<ExecuteTrigger> for ExecuteTriggerBox {
+    impl From<ExecuteTrigger> for ExecuteTriggerExpr {
         fn from(source: ExecuteTrigger) -> Self {
             Self::new(source.trigger_id)
         }
     }
 
-    impl From<Log> for LogBox {
+    impl From<Log> for LogExpr {
         fn from(source: Log) -> Self {
             Self::new(source.level, source.msg)
         }
@@ -362,9 +362,9 @@ isi! {
     #[display(fmt = "SET `{parameter}`")]
     #[serde(transparent)]
     #[repr(transparent)]
-    // SAFETY: `SetParameterBox` has no trap representation in `EvaluatesTo<Parameter>`
+    // SAFETY: `SetParameterExpr` has no trap representation in `EvaluatesTo<Parameter>`
     #[ffi_type(unsafe {robust})]
-    pub struct SetParameterBox {
+    pub struct SetParameterExpr {
         /// The configuration parameter being changed.
         #[serde(flatten)]
         pub parameter: EvaluatesTo<Parameter>,
@@ -377,9 +377,9 @@ isi! {
     #[display(fmt = "SET `{parameter}`")]
     #[serde(transparent)]
     #[repr(transparent)]
-    // SAFETY: `NewParameterBox` has no trap representation in `EvaluatesTo<Parameter>`
+    // SAFETY: `NewParameterExpr` has no trap representation in `EvaluatesTo<Parameter>`
     #[ffi_type(unsafe {robust})]
-    pub struct NewParameterBox {
+    pub struct NewParameterExpr {
         /// The configuration parameter being created.
         #[serde(flatten)]
         pub parameter: EvaluatesTo<Parameter>,
@@ -391,7 +391,7 @@ isi! {
     #[derive(Display)]
     #[display(fmt = "SET `{key}` = `{value}` IN `{object_id}`")]
     #[ffi_type]
-    pub struct SetKeyValueBox {
+    pub struct SetKeyValueExpr {
         /// Where to set this key value.
         #[serde(flatten)]
         pub object_id: EvaluatesTo<IdBox>,
@@ -407,7 +407,7 @@ isi! {
     #[derive(Display)]
     #[display(fmt = "REMOVE `{key}` from `{object_id}`")]
     #[ffi_type]
-    pub struct RemoveKeyValueBox {
+    pub struct RemoveKeyValueExpr {
         /// From where to remove this key value.
         #[serde(flatten)]
         pub object_id: EvaluatesTo<IdBox>,
@@ -422,9 +422,9 @@ isi! {
     #[display(fmt = "REGISTER `{object}`")]
     #[serde(transparent)]
     #[repr(transparent)]
-    // SAFETY: `RegisterBox` has no trap representation in `EvaluatesTo<RegistrableBox>`
+    // SAFETY: `RegisterExpr` has no trap representation in `EvaluatesTo<RegistrableBox>`
     #[ffi_type(unsafe {robust})]
-    pub struct RegisterBox {
+    pub struct RegisterExpr {
         /// The object that should be registered, should be uniquely identifiable by its id.
         pub object: EvaluatesTo<RegistrableBox>,
     }
@@ -436,9 +436,9 @@ isi! {
     #[display(fmt = "UNREGISTER `{object_id}`")]
     #[serde(transparent)]
     #[repr(transparent)]
-    // SAFETY: `UnregisterBox` has no trap representation in `EvaluatesTo<IdBox>`
+    // SAFETY: `UnregisterExpr` has no trap representation in `EvaluatesTo<IdBox>`
     #[ffi_type(unsafe {robust})]
-    pub struct UnregisterBox {
+    pub struct UnregisterExpr {
         /// The id of the object that should be unregistered.
         pub object_id: EvaluatesTo<IdBox>,
     }
@@ -449,7 +449,7 @@ isi! {
     #[derive(Display)]
     #[display(fmt = "MINT `{object}` TO `{destination_id}`")]
     #[ffi_type]
-    pub struct MintBox {
+    pub struct MintExpr {
         /// Object to mint.
         pub object: EvaluatesTo<Value>,
         /// Entity to mint to.
@@ -462,7 +462,7 @@ isi! {
     #[derive(Display)]
     #[display(fmt = "BURN `{object}` FROM `{destination_id}`")]
     #[ffi_type]
-    pub struct BurnBox {
+    pub struct BurnExpr {
         /// Object to burn.
         pub object: EvaluatesTo<Value>,
         /// Entity to burn from.
@@ -475,7 +475,7 @@ isi! {
     #[derive(Display)]
     #[display(fmt = "TRANSFER `{object}` FROM `{source_id}` TO `{destination_id}`")]
     #[ffi_type]
-    pub struct TransferBox {
+    pub struct TransferExpr {
         /// Entity to transfer from.
         pub source_id: EvaluatesTo<IdBox>,
         /// Object to transfer.
@@ -490,11 +490,11 @@ isi! {
     #[derive(Display)]
     #[display(fmt = "(`{left_instruction}`, `{right_instruction}`)")]
     #[ffi_type]
-    pub struct Pair {
+    pub struct PairExpr {
         /// Left instruction
-        pub left_instruction: InstructionBox,
+        pub left_instruction: InstructionExpr,
         /// Right instruction
-        pub right_instruction: InstructionBox,
+        pub right_instruction: InstructionExpr,
     }
 }
 
@@ -502,15 +502,15 @@ isi! {
     /// Composite instruction for a sequence of instructions.
     #[serde(transparent)]
     #[repr(transparent)]
-    // SAFETY: `SequenceBox` has no trap representation in `Vec<InstructionBox>`
+    // SAFETY: `SequenceExpr` has no trap representation in `Vec<InstructionExpr>`
     #[ffi_type(unsafe {robust})]
-    pub struct SequenceBox {
+    pub struct SequenceExpr {
         /// Sequence of Iroha Special Instructions to execute.
-        pub instructions: Vec<InstructionBox>,
+        pub instructions: Vec<InstructionExpr>,
     }
 }
 
-impl core::fmt::Display for SequenceBox {
+impl core::fmt::Display for SequenceExpr {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "SEQUENCE [")?;
         let mut first = true;
@@ -529,17 +529,17 @@ impl core::fmt::Display for SequenceBox {
 isi! {
     /// Composite instruction for a conditional execution of other instructions.
     #[ffi_type]
-    pub struct Conditional {
+    pub struct ConditionalExpr {
         /// Condition to be checked.
         pub condition: EvaluatesTo<bool>,
         /// Instruction to be executed if condition pass.
-        pub then: InstructionBox,
+        pub then: InstructionExpr,
         /// Optional instruction to be executed if condition fail.
-        pub otherwise: Option<InstructionBox>,
+        pub otherwise: Option<InstructionExpr>,
     }
 }
 
-impl core::fmt::Display for Conditional {
+impl core::fmt::Display for ConditionalExpr {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "IF `{}` THEN `{}`", self.condition, self.then)?;
         if let Some(otherwise) = &self.otherwise {
@@ -558,7 +558,7 @@ isi! {
     #[repr(transparent)]
     // SAFETY: `Fail` has no trap representation in `String`
     #[ffi_type(unsafe {robust})]
-    pub struct FailBox {
+    pub struct Fail {
         /// Message to submit.
         pub message: String,
     }
@@ -569,11 +569,11 @@ isi! {
     #[derive(Display)]
     #[display(fmt = "GRANT `{object}` TO `{destination_id}`")]
     #[ffi_type]
-    pub struct GrantBox {
+    pub struct GrantExpr {
         /// Object to grant.
         pub object: EvaluatesTo<Value>,
-        /// Entity to which to grant this token.
-        pub destination_id: EvaluatesTo<IdBox>,
+        /// Account to which to grant this object.
+        pub destination_id: EvaluatesTo<AccountId>,
     }
 }
 
@@ -582,11 +582,11 @@ isi! {
     #[derive(Display)]
     #[display(fmt = "REVOKE `{object}` FROM `{destination_id}`")]
     #[ffi_type]
-    pub struct RevokeBox {
-        /// Object to grant.
+    pub struct RevokeExpr {
+        /// Object to revoke.
         pub object: EvaluatesTo<Value>,
-        /// Entity to which to grant this token.
-        pub destination_id: EvaluatesTo<IdBox>,
+        /// Account to which to revoke this object from.
+        pub destination_id: EvaluatesTo<AccountId>,
     }
 }
 
@@ -596,9 +596,9 @@ isi! {
     #[display(fmt = "EXECUTE `{trigger_id}`")]
     #[serde(transparent)]
     #[repr(transparent)]
-    // SAFETY: `ExecuteTriggerBox` has no trap representation in `TriggerId`
+    // SAFETY: `ExecuteTriggerExpr` has no trap representation in `TriggerId`
     #[ffi_type(unsafe {robust})]
-    pub struct ExecuteTriggerBox {
+    pub struct ExecuteTriggerExpr {
         /// Id of a trigger to execute
         pub trigger_id: EvaluatesTo<TriggerId>,
     }
@@ -610,9 +610,9 @@ isi! {
     #[display(fmt = "UPGRADE `{object}`")]
     #[serde(transparent)]
     #[repr(transparent)]
-    // SAFETY: `UpgradeBox` has no trap representation in `EvaluatesTo<RegistrableBox>`
+    // SAFETY: `UpgradeExpr` has no trap representation in `EvaluatesTo<RegistrableBox>`
     #[ffi_type(unsafe {robust})]
-    pub struct UpgradeBox {
+    pub struct UpgradeExpr {
         /// The object to upgrade.
         pub object: EvaluatesTo<UpgradableBox>,
     }
@@ -623,7 +623,7 @@ isi! {
     #[derive(Display)]
     #[display(fmt = "LOG({level}): {msg}")]
     #[ffi_type]
-    pub struct LogBox {
+    pub struct LogExpr {
         /// Message log level
         #[serde(flatten)]
         pub level: EvaluatesTo<Level>,
@@ -632,8 +632,8 @@ isi! {
     }
 }
 
-impl ExecuteTriggerBox {
-    /// Construct [`ExecuteTriggerBox`]
+impl ExecuteTriggerExpr {
+    /// Construct [`ExecuteTriggerExpr`]
     pub fn new<I>(trigger_id: I) -> Self
     where
         I: Into<EvaluatesTo<TriggerId>>,
@@ -644,9 +644,9 @@ impl ExecuteTriggerBox {
     }
 }
 
-impl RevokeBox {
+impl RevokeExpr {
     /// Generic constructor.
-    pub fn new<P: Into<EvaluatesTo<Value>>, I: Into<EvaluatesTo<IdBox>>>(
+    pub fn new<P: Into<EvaluatesTo<Value>>, I: Into<EvaluatesTo<AccountId>>>(
         object: P,
         destination_id: I,
     ) -> Self {
@@ -657,9 +657,9 @@ impl RevokeBox {
     }
 }
 
-impl GrantBox {
+impl GrantExpr {
     /// Constructor.
-    pub fn new<P: Into<EvaluatesTo<Value>>, I: Into<EvaluatesTo<IdBox>>>(
+    pub fn new<P: Into<EvaluatesTo<Value>>, I: Into<EvaluatesTo<AccountId>>>(
         object: P,
         destination_id: I,
     ) -> Self {
@@ -670,8 +670,8 @@ impl GrantBox {
     }
 }
 
-impl SetKeyValueBox {
-    /// Construct [`SetKeyValueBox`].
+impl SetKeyValueExpr {
+    /// Construct [`SetKeyValueExpr`].
     pub fn new<
         I: Into<EvaluatesTo<IdBox>>,
         K: Into<EvaluatesTo<Name>>,
@@ -689,8 +689,8 @@ impl SetKeyValueBox {
     }
 }
 
-impl RemoveKeyValueBox {
-    /// Construct [`RemoveKeyValueBox`].
+impl RemoveKeyValueExpr {
+    /// Construct [`RemoveKeyValueExpr`].
     pub fn new<I: Into<EvaluatesTo<IdBox>>, K: Into<EvaluatesTo<Name>>>(
         object_id: I,
         key: K,
@@ -702,7 +702,7 @@ impl RemoveKeyValueBox {
     }
 }
 
-impl RegisterBox {
+impl RegisterExpr {
     /// Construct [`Register`].
     pub fn new<O: Into<EvaluatesTo<RegistrableBox>>>(object: O) -> Self {
         Self {
@@ -711,7 +711,7 @@ impl RegisterBox {
     }
 }
 
-impl UnregisterBox {
+impl UnregisterExpr {
     /// Construct [`Unregister`].
     pub fn new<O: Into<EvaluatesTo<IdBox>>>(object_id: O) -> Self {
         Self {
@@ -720,7 +720,7 @@ impl UnregisterBox {
     }
 }
 
-impl MintBox {
+impl MintExpr {
     /// Construct [`Mint`].
     pub fn new<O: Into<EvaluatesTo<Value>>, D: Into<EvaluatesTo<IdBox>>>(
         object: O,
@@ -733,7 +733,7 @@ impl MintBox {
     }
 }
 
-impl BurnBox {
+impl BurnExpr {
     /// Construct [`Burn`].
     pub fn new<O: Into<EvaluatesTo<Value>>, D: Into<EvaluatesTo<IdBox>>>(
         object: O,
@@ -746,7 +746,7 @@ impl BurnBox {
     }
 }
 
-impl TransferBox {
+impl TransferExpr {
     /// Construct [`Transfer`].
     pub fn new<
         S: Into<EvaluatesTo<IdBox>>,
@@ -765,31 +765,34 @@ impl TransferBox {
     }
 }
 
-impl Pair {
+impl PairExpr {
     /// Construct [`Pair`].
-    pub fn new<LI: Into<InstructionBox>, RI: Into<InstructionBox>>(
+    pub fn new<LI: Into<InstructionExpr>, RI: Into<InstructionExpr>>(
         left_instruction: LI,
         right_instruction: RI,
     ) -> Self {
-        Pair {
+        PairExpr {
             left_instruction: left_instruction.into(),
             right_instruction: right_instruction.into(),
         }
     }
 }
 
-impl SequenceBox {
-    /// Construct [`SequenceBox`].
-    pub fn new(instructions: impl IntoIterator<Item = InstructionBox>) -> Self {
+impl SequenceExpr {
+    /// Construct [`SequenceExpr`].
+    pub fn new(instructions: impl IntoIterator<Item = InstructionExpr>) -> Self {
         Self {
             instructions: instructions.into_iter().collect(),
         }
     }
 }
 
-impl Conditional {
+impl ConditionalExpr {
     /// Construct [`If`].
-    pub fn new<C: Into<EvaluatesTo<bool>>, T: Into<InstructionBox>>(condition: C, then: T) -> Self {
+    pub fn new<C: Into<EvaluatesTo<bool>>, T: Into<InstructionExpr>>(
+        condition: C,
+        then: T,
+    ) -> Self {
         Self {
             condition: condition.into(),
             then: then.into(),
@@ -799,8 +802,8 @@ impl Conditional {
     /// [`If`] constructor with `Otherwise` instruction.
     pub fn with_otherwise<
         C: Into<EvaluatesTo<bool>>,
-        T: Into<InstructionBox>,
-        O: Into<InstructionBox>,
+        T: Into<InstructionExpr>,
+        O: Into<InstructionExpr>,
     >(
         condition: C,
         then: T,
@@ -814,7 +817,7 @@ impl Conditional {
     }
 }
 
-impl FailBox {
+impl Fail {
     /// Construct [`Fail`].
     pub fn new(message: &str) -> Self {
         Self {
@@ -823,8 +826,8 @@ impl FailBox {
     }
 }
 
-impl SetParameterBox {
-    /// Construct [`SetParameterBox`].
+impl SetParameterExpr {
+    /// Construct [`SetParameterExpr`].
     pub fn new<P: Into<EvaluatesTo<Parameter>>>(parameter: P) -> Self {
         Self {
             parameter: parameter.into(),
@@ -832,8 +835,8 @@ impl SetParameterBox {
     }
 }
 
-impl NewParameterBox {
-    /// Construct [`NewParameterBox`].
+impl NewParameterExpr {
+    /// Construct [`NewParameterExpr`].
     pub fn new<P: Into<EvaluatesTo<Parameter>>>(parameter: P) -> Self {
         Self {
             parameter: parameter.into(),
@@ -841,8 +844,8 @@ impl NewParameterBox {
     }
 }
 
-impl UpgradeBox {
-    /// Construct [`UpgradeBox`].
+impl UpgradeExpr {
+    /// Construct [`UpgradeExpr`].
     pub fn new<O: Into<EvaluatesTo<UpgradableBox>>>(object: O) -> Self {
         Self {
             object: object.into(),
@@ -850,8 +853,8 @@ impl UpgradeBox {
     }
 }
 
-impl LogBox {
-    /// Construct [`LogBox`]
+impl LogExpr {
+    /// Construct [`LogExpr`]
     pub fn new<L: Into<EvaluatesTo<Level>>, M: Into<EvaluatesTo<String>>>(
         level: L,
         msg: M,
@@ -1212,10 +1215,10 @@ pub mod error {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Burn, BurnBox, Conditional, ExecuteTrigger, ExecuteTriggerBox, FailBox, Grant, GrantBox,
-        InstructionBox, Log, LogBox, Mint, MintBox, NewParameter, NewParameterBox, Pair, Register,
-        RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox,
-        SetKeyValue, SetKeyValueBox, SetParameter, SetParameterBox, Transfer, TransferBox,
-        Unregister, UnregisterBox, Upgrade, UpgradeBox,
+        Burn, BurnExpr, ConditionalExpr, ExecuteTrigger, ExecuteTriggerExpr, Fail, Grant,
+        GrantExpr, InstructionExpr, Log, LogExpr, Mint, MintExpr, NewParameter, NewParameterExpr,
+        PairExpr, Register, RegisterExpr, RemoveKeyValue, RemoveKeyValueExpr, Revoke, RevokeExpr,
+        SequenceExpr, SetKeyValue, SetKeyValueExpr, SetParameter, SetParameterExpr, Transfer,
+        TransferExpr, Unregister, UnregisterExpr, Upgrade, UpgradeExpr,
     };
 }

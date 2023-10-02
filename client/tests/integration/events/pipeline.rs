@@ -26,7 +26,7 @@ fn transaction_with_no_instructions_should_be_committed() -> Result<()> {
 // #[ignore = "Experiment"]
 #[test]
 fn transaction_with_fail_instruction_should_be_rejected() -> Result<()> {
-    let fail = FailBox::new("Should be rejected");
+    let fail = Fail::new("Should be rejected");
     test_with_instruction_and_status_and_port(
         Some(fail.into()),
         PipelineStatusKind::Rejected,
@@ -36,7 +36,7 @@ fn transaction_with_fail_instruction_should_be_rejected() -> Result<()> {
 
 #[allow(dead_code, clippy::needless_range_loop, clippy::needless_pass_by_value)]
 fn test_with_instruction_and_status_and_port(
-    instruction: Option<InstructionBox>,
+    instruction: Option<InstructionExpr>,
     should_be: PipelineStatusKind,
     port: u16,
 ) -> Result<()> {
@@ -112,7 +112,7 @@ fn committed_block_must_be_available_in_kura() {
         .expect("Failed to subscribe for events");
 
     client
-        .submit(FailBox::new("Dummy instruction"))
+        .submit(Fail::new("Dummy instruction"))
         .expect("Failed to submit transaction");
 
     let event = event_iter.next().expect("Block must be committed");

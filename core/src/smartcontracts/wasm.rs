@@ -13,7 +13,7 @@ use iroha_config::{
 };
 use iroha_data_model::{
     account::AccountId,
-    isi::InstructionBox,
+    isi::InstructionExpr,
     permission::PermissionTokenSchema,
     prelude::*,
     validator::{self, MigrationResult},
@@ -49,7 +49,7 @@ mod import_traits {
         /// Execute `instruction` on host
         #[codec::wrap_trait_fn]
         fn execute_instruction(
-            instruction: InstructionBox,
+            instruction: InstructionExpr,
             state: &mut S,
         ) -> Result<(), ValidationFail>;
     }
@@ -473,7 +473,7 @@ pub mod state {
         pub type ValidateTransaction<'wrld> = ValidateMut<'wrld, SignedTransaction>;
 
         /// State for executing `validate_instruction()` entrypoint of validator
-        pub type ValidateInstruction<'wrld> = ValidateMut<'wrld, InstructionBox>;
+        pub type ValidateInstruction<'wrld> = ValidateMut<'wrld, InstructionExpr>;
 
         /// State for executing `validate_query()` entrypoint of validator
         ///
@@ -755,7 +755,7 @@ impl<S: state::Authority + state::Wsv + state::WsvMut> Runtime<S> {
     }
 
     fn default_execute_instruction(
-        instruction: InstructionBox,
+        instruction: InstructionExpr,
         state: &mut S,
     ) -> Result<(), ValidationFail> {
         debug!(%instruction, "Executing");
@@ -860,7 +860,7 @@ impl<'wrld> import_traits::ExecuteOperations<state::SmartContract<'wrld>>
 
     #[codec::wrap]
     fn execute_instruction(
-        instruction: InstructionBox,
+        instruction: InstructionExpr,
         state: &mut state::SmartContract<'wrld>,
     ) -> Result<(), ValidationFail> {
         if let Some(limits_validator) = state.limits_validator.as_mut() {
@@ -926,7 +926,7 @@ impl<'wrld> import_traits::ExecuteOperations<state::Trigger<'wrld>>
 
     #[codec::wrap]
     fn execute_instruction(
-        instruction: InstructionBox,
+        instruction: InstructionExpr,
         state: &mut state::Trigger<'wrld>,
     ) -> Result<(), ValidationFail> {
         Self::default_execute_instruction(instruction, state)
@@ -959,7 +959,7 @@ where
 
     #[codec::wrap]
     fn execute_instruction(
-        instruction: InstructionBox,
+        instruction: InstructionExpr,
         state: &mut S,
     ) -> Result<(), ValidationFail> {
         debug!(%instruction, "Executing as validator");
@@ -1082,7 +1082,7 @@ impl<'wrld> Runtime<state::validator::ValidateInstruction<'wrld>> {
         wsv: &'wrld mut WorldStateView,
         authority: &AccountId,
         module: &wasmtime::Module,
-        instruction: InstructionBox,
+        instruction: InstructionExpr,
     ) -> Result<validator::Result> {
         let span = wasm_log_span!("Running `validate_instruction()`");
 
@@ -1197,7 +1197,7 @@ impl<'wrld> import_traits::ExecuteOperations<state::validator::ValidateQuery<'wr
 
     #[codec::wrap]
     fn execute_instruction(
-        _instruction: InstructionBox,
+        _instruction: InstructionExpr,
         _state: &mut state::validator::ValidateQuery<'wrld>,
     ) -> Result<(), ValidationFail> {
         panic!("Validator `validate_query()` entrypoint should not execute instructions")
@@ -1657,8 +1657,8 @@ mod tests {
 
         let isi_hex = {
             let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
-            let register_isi = RegisterBox::new(Account::new(new_authority, []));
-            encode_hex(InstructionBox::from(register_isi))
+            let register_isi = RegisterExpr::new(Account::new(new_authority, []));
+            encode_hex(InstructionExpr::from(register_isi))
         };
 
         let wat = format!(
@@ -1736,8 +1736,8 @@ mod tests {
 
         let isi_hex = {
             let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
-            let register_isi = RegisterBox::new(Account::new(new_authority, []));
-            encode_hex(InstructionBox::from(register_isi))
+            let register_isi = RegisterExpr::new(Account::new(new_authority, []));
+            encode_hex(InstructionExpr::from(register_isi))
         };
 
         let wat = format!(
@@ -1784,8 +1784,8 @@ mod tests {
 
         let isi_hex = {
             let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
-            let register_isi = RegisterBox::new(Account::new(new_authority, []));
-            encode_hex(InstructionBox::from(register_isi))
+            let register_isi = RegisterExpr::new(Account::new(new_authority, []));
+            encode_hex(InstructionExpr::from(register_isi))
         };
 
         let wat = format!(

@@ -160,7 +160,7 @@ pub mod isi {
             }
 
             for account_id in accounts_with_role {
-                let revoke: Revoke<Account, RoleId> = Revoke {
+                let revoke = Revoke {
                     object: role_id.clone(),
                     destination_id: account_id,
                 };

@@ -61,15 +61,15 @@ fn simulate_transfer<
     let (bob_public_key, _) = KeyPair::generate()
         .expect("Failed to generate KeyPair")
         .into();
-    let create_mouse = RegisterBox::new(Account::new(mouse_id.clone(), [bob_public_key]));
+    let create_mouse = RegisterExpr::new(Account::new(mouse_id.clone(), [bob_public_key]));
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
-    let create_asset = RegisterBox::new(value_type(asset_definition_id.clone()));
-    let mint_asset = MintBox::new(
+    let create_asset = RegisterExpr::new(value_type(asset_definition_id.clone()));
+    let mint_asset = MintExpr::new(
         starting_amount.to_value(),
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
     );
 
-    let instructions: [InstructionBox; 3] = [
+    let instructions: [InstructionExpr; 3] = [
         // create_alice.into(), We don't need to register Alice, because she is created in genesis
         create_mouse.into(),
         create_asset.into(),
@@ -80,7 +80,7 @@ fn simulate_transfer<
         .expect("Failed to prepare state.");
 
     //When
-    let transfer_asset = TransferBox::new(
+    let transfer_asset = TransferExpr::new(
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id)),
         amount_to_transfer.clone().to_value(),
         IdBox::AccountId(mouse_id.clone()),

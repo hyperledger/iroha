@@ -21,7 +21,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     let bob_id = AccountId::from_str("bob@test").expect("tested");
     let xor_id = AssetDefinitionId::from_str("xor#test").expect("tested");
     let alice_xor_id = AssetId::new(xor_id, alice_id);
-    let transfer = TransferBox::new(
+    let transfer = TransferExpr::new(
         IdBox::AssetId(alice_xor_id),
         10_u32.to_value(),
         IdBox::AccountId(bob_id),

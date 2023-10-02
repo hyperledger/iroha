@@ -39,26 +39,26 @@ pub trait Visit: ExpressionEvaluator {
 
         // Visit SignedTransaction
         visit_transaction(&SignedTransaction),
-        visit_instruction(&InstructionBox),
+        visit_instruction(&InstructionExpr),
         visit_expression<V>(&EvaluatesTo<V>),
         visit_wasm(&WasmSmartContract),
         visit_query(&QueryBox),
 
-        // Visit InstructionBox
-        visit_burn(&BurnBox),
-        visit_fail(&FailBox),
-        visit_grant(&GrantBox),
-        visit_if(&Conditional),
-        visit_mint(&MintBox),
-        visit_pair(&Pair),
-        visit_register(&RegisterBox),
-        visit_remove_key_value(&RemoveKeyValueBox),
-        visit_revoke(&RevokeBox),
-        visit_sequence(&SequenceBox),
-        visit_set_key_value(&SetKeyValueBox),
-        visit_transfer(&TransferBox),
-        visit_unregister(&UnregisterBox),
-        visit_upgrade(&UpgradeBox),
+        // Visit InstructionExpr
+        visit_burn(&BurnExpr),
+        visit_fail(&Fail),
+        visit_grant(&GrantExpr),
+        visit_if(&ConditionalExpr),
+        visit_mint(&MintExpr),
+        visit_pair(&PairExpr),
+        visit_register(&RegisterExpr),
+        visit_remove_key_value(&RemoveKeyValueExpr),
+        visit_revoke(&RevokeExpr),
+        visit_sequence(&SequenceExpr),
+        visit_set_key_value(&SetKeyValueExpr),
+        visit_transfer(&TransferExpr),
+        visit_unregister(&UnregisterExpr),
+        visit_upgrade(&UpgradeExpr),
 
         visit_execute_trigger(ExecuteTrigger),
         visit_new_parameter(NewParameter),
@@ -108,7 +108,7 @@ pub trait Visit: ExpressionEvaluator {
         visit_find_triggers_by_domain_id(&FindTriggersByDomainId),
         visit_is_asset_definition_owner(&IsAssetDefinitionOwner),
 
-        // Visit RegisterBox
+        // Visit RegisterExpr
         visit_register_peer(Register<Peer>),
         visit_register_domain(Register<Domain>),
         visit_register_account(Register<Account>),
@@ -117,7 +117,7 @@ pub trait Visit: ExpressionEvaluator {
         visit_register_role(Register<Role>),
         visit_register_trigger(Register<Trigger<TriggeringFilterBox, Executable>>),
 
-        // Visit UnregisterBox
+        // Visit UnregisterExpr
         visit_unregister_peer(Unregister<Peer>),
         visit_unregister_domain(Unregister<Domain>),
         visit_unregister_account(Unregister<Account>),
@@ -127,41 +127,41 @@ pub trait Visit: ExpressionEvaluator {
         visit_unregister_role(Unregister<Role>),
         visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
 
-        // Visit MintBox
-        visit_mint_asset(Mint<Asset, NumericValue>),
-        visit_mint_account_public_key(Mint<Account, PublicKey>),
-        visit_mint_account_signature_check_condition(Mint<Account, SignatureCheckCondition>),
-        visit_mint_trigger_repetitions(Mint<Trigger<TriggeringFilterBox, Executable>, u32>),
+        // Visit MintExpr
+        visit_mint_asset(Mint<NumericValue, Asset>),
+        visit_mint_account_public_key(Mint<PublicKey, Account>),
+        visit_mint_account_signature_check_condition(Mint<SignatureCheckCondition, Account>),
+        visit_mint_trigger_repetitions(Mint<u32, Trigger<TriggeringFilterBox, Executable>>),
 
-        // Visit BurnBox
-        visit_burn_account_public_key(Burn<Account, PublicKey>),
-        visit_burn_asset(Burn<Asset, NumericValue>),
+        // Visit BurnExpr
+        visit_burn_account_public_key(Burn<PublicKey, Account>),
+        visit_burn_asset(Burn<NumericValue, Asset>),
 
-        // Visit TransferBox
+        // Visit TransferExpr
         visit_transfer_asset_definition(Transfer<Account, AssetDefinition, Account>),
         visit_transfer_asset(Transfer<Asset, NumericValue, Account>),
 
-        // Visit SetKeyValueBox
+        // Visit SetKeyValueExpr
         visit_set_domain_key_value(SetKeyValue<Domain>),
         visit_set_account_key_value(SetKeyValue<Account>),
         visit_set_asset_definition_key_value(SetKeyValue<AssetDefinition>),
         visit_set_asset_key_value(SetKeyValue<Asset>),
 
-        // Visit RemoveKeyValueBox
+        // Visit RemoveKeyValueExpr
         visit_remove_domain_key_value(RemoveKeyValue<Domain>),
         visit_remove_account_key_value(RemoveKeyValue<Account>),
         visit_remove_asset_definition_key_value(RemoveKeyValue<AssetDefinition>),
         visit_remove_asset_key_value(RemoveKeyValue<Asset>),
 
-        // Visit GrantBox
-        visit_grant_account_permission(Grant<Account, PermissionToken>),
-        visit_grant_account_role(Grant<Account, RoleId>),
+        // Visit GrantExpr
+        visit_grant_account_permission(Grant<PermissionToken>),
+        visit_grant_account_role(Grant<RoleId>),
 
-        // Visit RevokeBox
-        visit_revoke_account_permission(Revoke<Account, PermissionToken>),
-        visit_revoke_account_role(Revoke<Account, RoleId>),
+        // Visit RevokeExpr
+        visit_revoke_account_permission(Revoke<PermissionToken>),
+        visit_revoke_account_role(Revoke<RoleId>),
 
-        // Visit UpgradeBox
+        // Visit UpgradeExpr
         visit_upgrade_validator(Upgrade<Validator>),
     }
 }
@@ -251,7 +251,7 @@ pub fn visit_wasm<V: Visit + ?Sized>(
 ) {
 }
 
-/// Default validation for [`InstructionBox`].
+/// Default validation for [`InstructionExpr`].
 ///
 /// # Warning
 ///
@@ -259,29 +259,29 @@ pub fn visit_wasm<V: Visit + ?Sized>(
 pub fn visit_instruction<V: Visit + ?Sized>(
     visitor: &mut V,
     authority: &AccountId,
-    isi: &InstructionBox,
+    isi: &InstructionExpr,
 ) {
     macro_rules! isi_visitors {
         ( $($visitor:ident($isi:ident)),+ $(,)? ) => {
             match isi {
-                InstructionBox::NewParameter(isi) => {
+                InstructionExpr::NewParameter(isi) => {
                     let parameter = evaluate_expr!(visitor, authority, <isi as NewParameter>::parameter());
                     visitor.visit_new_parameter(authority, NewParameter{parameter});
                 }
-                InstructionBox::SetParameter(isi) => {
+                InstructionExpr::SetParameter(isi) => {
                     let parameter = evaluate_expr!(visitor, authority, <isi as NewParameter>::parameter());
                     visitor.visit_set_parameter(authority, SetParameter{parameter});
                 }
-                InstructionBox::ExecuteTrigger(isi) => {
+                InstructionExpr::ExecuteTrigger(isi) => {
                     let trigger_id = evaluate_expr!(visitor, authority, <isi as ExecuteTrigger>::trigger_id());
                     visitor.visit_execute_trigger(authority, ExecuteTrigger{trigger_id});
                 }
-                InstructionBox::Log(isi) => {
-                    let msg = evaluate_expr!(visitor, authority, <isi as LogBox>::msg());
-                    let level = evaluate_expr!(visitor, authority, <isi as LogBox>::level());
+                InstructionExpr::Log(isi) => {
+                    let msg = evaluate_expr!(visitor, authority, <isi as LogExpr>::msg());
+                    let level = evaluate_expr!(visitor, authority, <isi as LogExpr>::level());
                     visitor.visit_log(authority, Log { msg, level });
                 } $(
-                InstructionBox::$isi(isi) => {
+                InstructionExpr::$isi(isi) => {
                     visitor.$visitor(authority, isi);
                 } )+
             }
@@ -364,7 +364,7 @@ pub fn visit_expression<V: Visit + ?Sized, X>(
 pub fn visit_register<V: Visit + ?Sized>(
     visitor: &mut V,
     authority: &AccountId,
-    isi: &RegisterBox,
+    isi: &RegisterExpr,
 ) {
     macro_rules! match_all {
         ( $( $visitor:ident($object:ident) ),+ $(,)? ) => {
@@ -390,7 +390,7 @@ pub fn visit_register<V: Visit + ?Sized>(
 pub fn visit_unregister<V: Visit + ?Sized>(
     visitor: &mut V,
     authority: &AccountId,
-    isi: &UnregisterBox,
+    isi: &UnregisterExpr,
 ) {
     macro_rules! match_all {
         ( $( $visitor:ident($id:ident) ),+ $(,)? ) => {
@@ -413,7 +413,7 @@ pub fn visit_unregister<V: Visit + ?Sized>(
     }
 }
 
-pub fn visit_mint<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &MintBox) {
+pub fn visit_mint<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &MintExpr) {
     let destination_id = evaluate_expr!(visitor, authority, <isi as Mint>::destination_id());
     let object = evaluate_expr!(visitor, authority, <isi as Mint>::object());
 
@@ -453,7 +453,7 @@ pub fn visit_mint<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi
     }
 }
 
-pub fn visit_burn<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &BurnBox) {
+pub fn visit_burn<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &BurnExpr) {
     let destination_id = evaluate_expr!(visitor, authority, <isi as Burn>::destination_id());
     let object = evaluate_expr!(visitor, authority, <isi as Burn>::object());
 
@@ -480,7 +480,7 @@ pub fn visit_burn<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi
 pub fn visit_transfer<V: Visit + ?Sized>(
     visitor: &mut V,
     authority: &AccountId,
-    isi: &TransferBox,
+    isi: &TransferExpr,
 ) {
     let object = evaluate_expr!(visitor, authority, <isi as Transfer>::object());
 
@@ -507,7 +507,7 @@ pub fn visit_transfer<V: Visit + ?Sized>(
 pub fn visit_set_key_value<V: Visit + ?Sized>(
     visitor: &mut V,
     authority: &AccountId,
-    isi: &SetKeyValueBox,
+    isi: &SetKeyValueExpr,
 ) {
     let object_id = evaluate_expr!(visitor, authority, <isi as SetKeyValue>::object_id());
     let key = evaluate_expr!(visitor, authority, <isi as SetKeyValue>::key());
@@ -553,7 +553,7 @@ pub fn visit_set_key_value<V: Visit + ?Sized>(
 pub fn visit_remove_key_value<V: Visit + ?Sized>(
     visitor: &mut V,
     authority: &AccountId,
-    isi: &RemoveKeyValueBox,
+    isi: &RemoveKeyValueExpr,
 ) {
     let object_id = evaluate_expr!(visitor, authority, <isi as RemoveKeyValue>::object_id());
     let key = evaluate_expr!(visitor, authority, <isi as RemoveKeyValue>::key());
@@ -574,57 +574,53 @@ pub fn visit_remove_key_value<V: Visit + ?Sized>(
     }
 }
 
-pub fn visit_grant<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &GrantBox) {
+pub fn visit_grant<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &GrantExpr) {
     let destination_id = evaluate_expr!(visitor, authority, <isi as Grant>::destination_id());
     let object = evaluate_expr!(visitor, authority, <isi as Grant>::object());
 
-    match (object, destination_id) {
-        (Value::PermissionToken(object), IdBox::AccountId(destination_id)) => visitor
-            .visit_grant_account_permission(
-                authority,
-                Grant {
-                    object,
-                    destination_id,
-                },
-            ),
-        (Value::Id(IdBox::RoleId(object)), IdBox::AccountId(destination_id)) => visitor
-            .visit_grant_account_role(
-                authority,
-                Grant {
-                    object,
-                    destination_id,
-                },
-            ),
+    match object {
+        Value::PermissionToken(object) => visitor.visit_grant_account_permission(
+            authority,
+            Grant {
+                object,
+                destination_id,
+            },
+        ),
+        Value::Id(IdBox::RoleId(object)) => visitor.visit_grant_account_role(
+            authority,
+            Grant {
+                object,
+                destination_id,
+            },
+        ),
         _ => visitor.visit_unsupported(authority, isi),
     }
 }
 
-pub fn visit_revoke<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &RevokeBox) {
+pub fn visit_revoke<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &RevokeExpr) {
     let destination_id = evaluate_expr!(visitor, authority, <isi as Revoke>::destination_id());
     let object = evaluate_expr!(visitor, authority, <isi as Revoke>::object());
 
-    match (object, destination_id) {
-        (Value::PermissionToken(object), IdBox::AccountId(destination_id)) => visitor
-            .visit_revoke_account_permission(
-                authority,
-                Revoke {
-                    object,
-                    destination_id,
-                },
-            ),
-        (Value::Id(IdBox::RoleId(object)), IdBox::AccountId(destination_id)) => visitor
-            .visit_revoke_account_role(
-                authority,
-                Revoke {
-                    object,
-                    destination_id,
-                },
-            ),
+    match object {
+        Value::PermissionToken(object) => visitor.visit_revoke_account_permission(
+            authority,
+            Revoke {
+                object,
+                destination_id,
+            },
+        ),
+        Value::Id(IdBox::RoleId(object)) => visitor.visit_revoke_account_role(
+            authority,
+            Revoke {
+                object,
+                destination_id,
+            },
+        ),
         _ => visitor.visit_unsupported(authority, isi),
     }
 }
 
-pub fn visit_upgrade<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &UpgradeBox) {
+pub fn visit_upgrade<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &UpgradeExpr) {
     let object = evaluate_expr!(visitor, authority, <isi as Upgrade>::object());
 
     match object {
@@ -634,8 +630,8 @@ pub fn visit_upgrade<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, 
     }
 }
 
-pub fn visit_if<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &Conditional) {
-    let condition = evaluate_expr!(visitor, authority, <isi as Conditional>::condition());
+pub fn visit_if<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &ConditionalExpr) {
+    let condition = evaluate_expr!(visitor, authority, <isi as ConditionalExpr>::condition());
 
     // TODO: Should visit both by default or not? It will affect Validator behavior
     // because only one branch needs to be executed. IMO both should be validated
@@ -646,7 +642,7 @@ pub fn visit_if<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: 
     }
 }
 
-pub fn visit_pair<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &Pair) {
+pub fn visit_pair<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &PairExpr) {
     visitor.visit_instruction(authority, isi.left_instruction());
     visitor.visit_instruction(authority, isi.right_instruction());
 }
@@ -654,7 +650,7 @@ pub fn visit_pair<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi
 pub fn visit_sequence<V: Visit + ?Sized>(
     visitor: &mut V,
     authority: &AccountId,
-    isi: &SequenceBox,
+    isi: &SequenceExpr,
 ) {
     for instruction in isi.instructions() {
         visitor.visit_instruction(authority, instruction);
@@ -673,15 +669,15 @@ leaf_visitors! {
     // Instruction visitors
     visit_register_account(Register<Account>),
     visit_unregister_account(Unregister<Account>),
-    visit_mint_account_public_key(Mint<Account, PublicKey>),
-    visit_burn_account_public_key(Burn<Account, PublicKey>),
-    visit_mint_account_signature_check_condition(Mint<Account, SignatureCheckCondition>),
+    visit_mint_account_public_key(Mint<PublicKey, Account>),
+    visit_burn_account_public_key(Burn<PublicKey, Account>),
+    visit_mint_account_signature_check_condition(Mint<SignatureCheckCondition, Account>),
     visit_set_account_key_value(SetKeyValue<Account>),
     visit_remove_account_key_value(RemoveKeyValue<Account>),
     visit_register_asset(Register<Asset>),
     visit_unregister_asset(Unregister<Asset>),
-    visit_mint_asset(Mint<Asset, NumericValue>),
-    visit_burn_asset(Burn<Asset, NumericValue>),
+    visit_mint_asset(Mint<NumericValue, Asset>),
+    visit_burn_asset(Burn<NumericValue, Asset>),
     visit_transfer_asset(Transfer<Asset, NumericValue, Account>),
     visit_set_asset_key_value(SetKeyValue<Asset>),
     visit_remove_asset_key_value(RemoveKeyValue<Asset>),
@@ -696,20 +692,20 @@ leaf_visitors! {
     visit_remove_domain_key_value(RemoveKeyValue<Domain>),
     visit_register_peer(Register<Peer>),
     visit_unregister_peer(Unregister<Peer>),
-    visit_grant_account_permission(Grant<Account, PermissionToken>),
-    visit_revoke_account_permission(Revoke<Account, PermissionToken>),
+    visit_grant_account_permission(Grant<PermissionToken>),
+    visit_revoke_account_permission(Revoke<PermissionToken>),
     visit_register_role(Register<Role>),
     visit_unregister_role(Unregister<Role>),
-    visit_grant_account_role(Grant<Account, RoleId>),
-    visit_revoke_account_role(Revoke<Account, RoleId>),
+    visit_grant_account_role(Grant<RoleId>),
+    visit_revoke_account_role(Revoke<RoleId>),
     visit_register_trigger(Register<Trigger<TriggeringFilterBox, Executable>>),
     visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
-    visit_mint_trigger_repetitions(Mint<Trigger<TriggeringFilterBox, Executable>, u32>),
+    visit_mint_trigger_repetitions(Mint<u32, Trigger<TriggeringFilterBox, Executable>>),
     visit_upgrade_validator(Upgrade<Validator>),
     visit_new_parameter(NewParameter),
     visit_set_parameter(SetParameter),
     visit_execute_trigger(ExecuteTrigger),
-    visit_fail(&FailBox),
+    visit_fail(&Fail),
     visit_log(Log),
 
     // Query visitors

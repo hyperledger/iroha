@@ -131,7 +131,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Mint<Account, PublicKey> {
+    impl Execute for Mint<PublicKey, Account> {
         #[metrics(+"mint_account_public_key")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
@@ -158,7 +158,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Burn<Account, PublicKey> {
+    impl Execute for Burn<PublicKey, Account> {
         #[metrics(+"burn_account_public_key")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
@@ -185,7 +185,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Mint<Account, SignatureCheckCondition> {
+    impl Execute for Mint<SignatureCheckCondition, Account> {
         #[metrics(+"mint_account_signature_check_condition")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
@@ -194,6 +194,21 @@ pub mod isi {
             wsv.account_mut(&account_id)?.signature_check_condition = signature_check_condition;
 
             wsv.emit_events(Some(AccountEvent::AuthenticationAdded(account_id.clone())));
+
+            Ok(())
+        }
+    }
+
+    impl Execute for Transfer<Account, AssetDefinition, Account> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+            wsv.asset_definition_mut(&self.object.id)?.owned_by = self.destination_id.clone();
+
+            wsv.emit_events(Some(AssetDefinitionEvent::OwnerChanged(
+                AssetDefinitionOwnerChanged {
+                    asset_definition_id: self.object.id,
+                    new_owner: self.destination_id,
+                },
+            )));
 
             Ok(())
         }
@@ -251,7 +266,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Grant<Account, PermissionToken> {
+    impl Execute for Grant<PermissionToken> {
         #[metrics(+"grant_account_permission")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
@@ -290,7 +305,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Revoke<Account, PermissionToken> {
+    impl Execute for Revoke<PermissionToken> {
         #[metrics(+"revoke_account_permission")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
@@ -314,7 +329,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Grant<Account, RoleId> {
+    impl Execute for Grant<RoleId> {
         #[metrics(+"grant_account_role")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;
@@ -364,7 +379,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Revoke<Account, RoleId> {
+    impl Execute for Revoke<RoleId> {
         #[metrics(+"revoke_account_role")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let account_id = self.destination_id;

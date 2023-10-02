@@ -18,7 +18,7 @@ fn find_asset_total_quantity() -> Result<()> {
     // Register new domain
     let domain_id: DomainId = "looking_glass".parse()?;
     let domain = Domain::new(domain_id);
-    test_client.submit_blocking(RegisterBox::new(domain))?;
+    test_client.submit_blocking(RegisterExpr::new(domain))?;
 
     let accounts: [AccountId; 5] = [
         "alice@wonderland".parse()?,
@@ -39,7 +39,7 @@ fn find_asset_total_quantity() -> Result<()> {
         .skip(1) // Alice has already been registered in genesis
         .cloned()
         .zip(keys.iter().map(KeyPair::public_key).cloned())
-        .map(|(account_id, public_key)| RegisterBox::new(Account::new(account_id, [public_key])))
+        .map(|(account_id, public_key)| RegisterExpr::new(Account::new(account_id, [public_key])))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 
@@ -81,7 +81,7 @@ fn find_asset_total_quantity() -> Result<()> {
         let definition_id: AssetDefinitionId =
             definition.parse().expect("Failed to parse `definition_id`");
         let asset_definition = AssetDefinition::new(definition_id.clone(), asset_value_type);
-        test_client.submit_blocking(RegisterBox::new(asset_definition.clone()))?;
+        test_client.submit_blocking(RegisterExpr::new(asset_definition.clone()))?;
 
         let asset_ids = accounts
             .iter()
@@ -99,20 +99,20 @@ fn find_asset_total_quantity() -> Result<()> {
             .iter()
             .cloned()
             .map(|asset_id| Asset::new(asset_id, initial_value.clone()))
-            .map(RegisterBox::new)
+            .map(RegisterExpr::new)
             .collect::<Vec<_>>();
         test_client.submit_all_blocking(register_asset)?;
 
         let mint_asset = asset_ids
             .iter()
             .cloned()
-            .map(|asset_id| MintBox::new(to_mint.clone(), asset_id));
+            .map(|asset_id| MintExpr::new(to_mint.clone(), asset_id));
         test_client.submit_all_blocking(mint_asset)?;
 
         let burn_asset = asset_ids
             .iter()
             .cloned()
-            .map(|asset_id| BurnBox::new(to_burn.clone(), asset_id))
+            .map(|asset_id| BurnExpr::new(to_burn.clone(), asset_id))
             .collect::<Vec<_>>();
         test_client.submit_all_blocking(burn_asset)?;
 
@@ -125,7 +125,7 @@ fn find_asset_total_quantity() -> Result<()> {
         let unregister_asset = asset_ids
             .iter()
             .cloned()
-            .map(UnregisterBox::new)
+            .map(UnregisterExpr::new)
             .collect::<Vec<_>>();
         test_client.submit_all_blocking(unregister_asset)?;
 
@@ -136,7 +136,7 @@ fn find_asset_total_quantity() -> Result<()> {
         assert!(total_asset_quantity.is_zero_value());
 
         // Unregister asset definition
-        test_client.submit_blocking(UnregisterBox::new(definition_id.clone()))?;
+        test_client.submit_blocking(UnregisterExpr::new(definition_id.clone()))?;
 
         // Assert that total asset quantity cleared with unregistering of asset definition
         let result = test_client.request(FindTotalAssetQuantityByAssetDefinitionId::new(
@@ -153,7 +153,7 @@ fn find_asset_total_quantity() -> Result<()> {
     // Test for `Store` asset value type
     let definition_id: AssetDefinitionId = "store#wonderland".parse().expect("Valid");
     let asset_definition = AssetDefinition::store(definition_id.clone());
-    test_client.submit_blocking(RegisterBox::new(asset_definition))?;
+    test_client.submit_blocking(RegisterExpr::new(asset_definition))?;
 
     let asset_ids = accounts
         .iter()
@@ -171,7 +171,7 @@ fn find_asset_total_quantity() -> Result<()> {
         .iter()
         .cloned()
         .map(|asset_id| Asset::new(asset_id, Metadata::default()))
-        .map(RegisterBox::new)
+        .map(RegisterExpr::new)
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_asset)?;
 
@@ -184,7 +184,7 @@ fn find_asset_total_quantity() -> Result<()> {
     let unregister_asset = asset_ids
         .iter()
         .cloned()
-        .map(UnregisterBox::new)
+        .map(UnregisterExpr::new)
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(unregister_asset)?;
 
@@ -195,7 +195,7 @@ fn find_asset_total_quantity() -> Result<()> {
     assert!(total_asset_quantity.is_zero_value());
 
     // Unregister asset definition
-    test_client.submit_blocking(UnregisterBox::new(definition_id.clone()))?;
+    test_client.submit_blocking(UnregisterExpr::new(definition_id.clone()))?;
 
     // Assert that total asset quantity cleared with unregistering of asset definition
     let result = test_client.request(FindTotalAssetQuantityByAssetDefinitionId::new(
