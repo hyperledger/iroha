@@ -13,9 +13,9 @@ RUN pacman -Syu rustup mold musl rust-musl openssl libgit2 \
     python python-pip --noconfirm --disable-download-timeout && \
     curl -sSL https://install.python-poetry.org | python3 -
 
-COPY . .
-WORKDIR client_cli/pytests/
-RUN poetry install --no-root
+WORKDIR /client_cli/pytests
+COPY /client_cli/pytests/pyproject.toml /client_cli/pytests/poetry.lock $WORKDIR
+RUN poetry install
 
 RUN rustup toolchain install nightly-2023-06-25-x86_64-unknown-linux-gnu
 RUN rustup default nightly-2023-06-25-x86_64-unknown-linux-gnu
