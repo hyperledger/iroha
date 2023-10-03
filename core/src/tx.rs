@@ -44,7 +44,151 @@ pub enum AcceptTransactionFail {
     UnexpectedGenesisAccountSignature,
 }
 
+mod len {
+    use iroha_data_model::{expression::*, query::QueryBox, Value};
+
+    pub trait ExprLen {
+        fn len(&self) -> usize;
+    }
+
+    impl<V: TryFrom<Value>> ExprLen for EvaluatesTo<V> {
+        fn len(&self) -> usize {
+            self.expression.len()
+        }
+    }
+
+    impl ExprLen for Expression {
+        fn len(&self) -> usize {
+            use Expression::*;
+
+            match self {
+                Add(add) => add.len(),
+                Subtract(subtract) => subtract.len(),
+                Greater(greater) => greater.len(),
+                Less(less) => less.len(),
+                Equal(equal) => equal.len(),
+                Not(not) => not.len(),
+                And(and) => and.len(),
+                Or(or) => or.len(),
+                If(if_expression) => if_expression.len(),
+                Raw(raw) => raw.len(),
+                Query(query) => query.len(),
+                Contains(contains) => contains.len(),
+                ContainsAll(contains_all) => contains_all.len(),
+                ContainsAny(contains_any) => contains_any.len(),
+                Where(where_expression) => where_expression.len(),
+                ContextValue(context_value) => context_value.len(),
+                Multiply(multiply) => multiply.len(),
+                Divide(divide) => divide.len(),
+                Mod(modulus) => modulus.len(),
+                RaiseTo(raise_to) => raise_to.len(),
+            }
+        }
+    }
+    impl ExprLen for ContextValue {
+        fn len(&self) -> usize {
+            1
+        }
+    }
+    impl ExprLen for QueryBox {
+        fn len(&self) -> usize {
+            1
+        }
+    }
+
+    impl ExprLen for Add {
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+    impl ExprLen for Subtract {
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+    impl ExprLen for Multiply {
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+    impl ExprLen for RaiseTo {
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+    impl ExprLen for Divide {
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+    impl ExprLen for Mod {
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+    impl ExprLen for Greater {
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+    impl ExprLen for Less {
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+    impl ExprLen for Equal {
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+    impl ExprLen for And {
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+    impl ExprLen for Or {
+        fn len(&self) -> usize {
+            self.left.len() + self.right.len() + 1
+        }
+    }
+
+    impl ExprLen for Not {
+        fn len(&self) -> usize {
+            self.expression.len() + 1
+        }
+    }
+
+    impl ExprLen for Contains {
+        fn len(&self) -> usize {
+            self.collection.len() + self.element.len() + 1
+        }
+    }
+    impl ExprLen for ContainsAll {
+        fn len(&self) -> usize {
+            self.collection.len() + self.elements.len() + 1
+        }
+    }
+    impl ExprLen for ContainsAny {
+        fn len(&self) -> usize {
+            self.collection.len() + self.elements.len() + 1
+        }
+    }
+
+    impl ExprLen for If {
+        fn len(&self) -> usize {
+            // TODO: This is wrong because we don't evaluate both branches
+            self.condition.len() + self.then.len() + self.otherwise.len() + 1
+        }
+    }
+    impl ExprLen for Where {
+        fn len(&self) -> usize {
+            self.expression.len() + self.values.values().map(EvaluatesTo::len).sum::<usize>() + 1
+        }
+    }
+}
+
 fn instruction_size(isi: &InstructionExpr) -> usize {
+    use len::ExprLen as _;
     use InstructionExpr::*;
 
     match isi {
