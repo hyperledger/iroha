@@ -141,7 +141,7 @@ jobs:
   client-cli-test:
     runs-on: ubuntu-latest
     container:
-      image: alexstrokelive/iroha2-ci:pytest-nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2023-06-25
     timeout-minutes: 60
 
     steps:
