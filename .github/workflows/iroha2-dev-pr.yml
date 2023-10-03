@@ -145,8 +145,9 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v2
-      - name: Build bins
+      - uses: actions/checkout@v3
+      - uses: Swatinem/rust-cache@v2
+      - name: Build binaries
         run: |
           cargo build --bin iroha_client_cli
           cargo build --bin kagami
