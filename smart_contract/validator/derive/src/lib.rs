@@ -185,3 +185,15 @@ pub fn derive_ref_into_asset_owner(input: TokenStream) -> TokenStream {
 pub fn derive_ref_into_account_owner(input: TokenStream) -> TokenStream {
     conversion::impl_derive_ref_into_account_owner(input)
 }
+
+/// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
+/// from your token to a `permission::domain::Owner` type.
+///
+/// Requires `domain_id` field in the token.
+///
+/// Implements [`From`] for `permission::domain::Owner`
+/// and not [`Into`] for your type. [`Into`] will be implemented automatically.
+#[proc_macro_derive(RefIntoDomainOwner)]
+pub fn derive_ref_into_domain_owner(input: TokenStream) -> TokenStream {
+    conversion::impl_derive_ref_into_domain_owner(input)
+}

@@ -42,6 +42,19 @@ pub fn impl_derive_ref_into_account_owner(input: TokenStream) -> TokenStream {
     .into()
 }
 
+/// [`derive_ref_into_domain_owner`](crate::derive_ref_into_domain_owner) macro implementation
+pub fn impl_derive_ref_into_domain_owner(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    impl_from(
+        &input.ident,
+        &input.generics,
+        &syn::parse_quote!(::iroha_validator::permission::domain::Owner),
+        &syn::parse_quote!(domain_id),
+    )
+    .into()
+}
+
 fn impl_from(
     ident: &syn::Ident,
     generics: &syn::Generics,
