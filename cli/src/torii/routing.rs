@@ -475,11 +475,28 @@ impl Torii {
         }
     }
 
-    #[cfg(feature = "telemetry")]
     /// Helper function to create router. This router can tested without starting up an HTTP server
-    fn create_telemetry_router(
-        &self,
-    ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
+    #[allow(clippy::too_many_lines)]
+    fn create_api_router(&self) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
+        let health_route = warp::get()
+            .and(warp::path(uri::HEALTH))
+            .and_then(|| async { Ok::<_, Infallible>(handle_health()) });
+
+        let get_router = warp::get().and(
+            endpoint3(
+                handle_pending_transactions,
+                warp::path(uri::PENDING_TRANSACTIONS)
+                    .and(add_state!(self.queue, self.sumeragi,))
+                    .and(paginate()),
+            )
+            .or(endpoint2(
+                handle_get_configuration,
+                warp::path(uri::CONFIGURATION)
+                    .and(add_state!(self.iroha_cfg))
+                    .and(warp::body::json()),
+            )),
+        );
+
         let status_path = warp::path(uri::STATUS);
         let get_router_status_precise = endpoint2(
             handle_status_precise,
@@ -502,33 +519,11 @@ impl Torii {
             .and(add_state!(self.sumeragi.clone()))
             .and_then(|sumeragi| async { Ok::<_, Infallible>(handle_version(sumeragi).await) });
 
-        warp::get()
+        #[cfg(feature = "telemetry")]
+        let get_router = get_router.or(warp::any()
             .and(get_router_status_precise.or(get_router_status_bare))
             .or(get_router_metrics)
-            .or(get_api_version)
-            .with(warp::trace::request())
-    }
-
-    /// Helper function to create router. This router can tested without starting up an HTTP server
-    fn create_api_router(&self) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
-        let health_route = warp::get()
-            .and(warp::path(uri::HEALTH))
-            .and_then(|| async { Ok::<_, Infallible>(handle_health()) });
-
-        let get_router = warp::get().and(
-            endpoint3(
-                handle_pending_transactions,
-                warp::path(uri::PENDING_TRANSACTIONS)
-                    .and(add_state!(self.queue, self.sumeragi,))
-                    .and(paginate()),
-            )
-            .or(endpoint2(
-                handle_get_configuration,
-                warp::path(uri::CONFIGURATION)
-                    .and(add_state!(self.iroha_cfg))
-                    .and(warp::body::json()),
-            )),
-        );
+            .or(get_api_version));
 
         #[cfg(feature = "schema-endpoint")]
         let get_router = get_router.or(warp::path(uri::SCHEMA)
@@ -617,37 +612,6 @@ impl Torii {
                 .with(warp::trace::request()))
     }
 
-    /// Start status and metrics endpoints.
-    ///
-    /// # Errors
-    /// Can fail due to listening to network or if http server fails
-    #[cfg(feature = "telemetry")]
-    fn start_telemetry(self: Arc<Self>) -> eyre::Result<Vec<tokio::task::JoinHandle<()>>> {
-        let telemetry_url = &self.iroha_cfg.torii.telemetry_url;
-
-        let mut handles = vec![];
-        match telemetry_url.to_socket_addrs() {
-            Ok(addrs) => {
-                for addr in addrs {
-                    let torii = Arc::clone(&self);
-
-                    let telemetry_router = torii.create_telemetry_router();
-                    let signal_fut = async move { torii.notify_shutdown.notified().await };
-                    let (_, serve_fut) =
-                        warp::serve(telemetry_router).bind_with_graceful_shutdown(addr, signal_fut);
-
-                    handles.push(task::spawn(serve_fut));
-                }
-
-                Ok(handles)
-            }
-            Err(error) => {
-                iroha_logger::error!(%telemetry_url, ?error, "Telemetry address configuration parse error");
-                Err(eyre::Error::new(error))
-            }
-        }
-    }
-
     /// Start main api endpoints.
     ///
     /// # Errors
@@ -689,8 +653,6 @@ impl Torii {
         let torii = Arc::new(self);
         let mut handles = vec![];
 
-        #[cfg(feature = "telemetry")]
-        handles.extend(Arc::clone(&torii).start_telemetry()?);
         handles.extend(Arc::clone(&torii).start_api()?);
         handles.push(
             Arc::clone(&torii.query_store)

@@ -68,10 +68,7 @@ fn unstable_network(
         )
         .await
         .expect("Failed to init peers");
-        let client = Client::test(
-            &network.genesis.api_address,
-            &network.genesis.telemetry_address,
-        );
+        let client = Client::test(&network.genesis.api_address);
         (network, client)
     });
     wait_for_genesis_committed(&network.clients(), n_offline_peers);
