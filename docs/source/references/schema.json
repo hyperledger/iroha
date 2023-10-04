@@ -976,6 +976,10 @@
       {
         "name": "metadata",
         "type": "Metadata"
+      },
+      {
+        "name": "owned_by",
+        "type": "AccountId"
       }
     ]
   },
