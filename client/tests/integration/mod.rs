@@ -10,6 +10,7 @@ mod asset_propagation;
 mod burn_public_keys;
 mod config;
 mod connected_peers;
+mod domain_owner;
 mod events;
 mod multiple_blocks_created;
 mod multisignature_account;
