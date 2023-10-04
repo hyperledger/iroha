@@ -352,6 +352,8 @@ pub mod peer {
 }
 
 pub mod domain {
+    use permission::domain::is_domain_owner;
+
     use super::*;
 
     declare_tokens! {
@@ -365,24 +367,24 @@ pub mod domain {
         use super::*;
 
         token! {
-            #[derive(ValidateGrantRevoke)]
-            #[validate(permission::OnlyGenesis)]
+            #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
+            #[validate(permission::domain::Owner)]
             pub struct CanUnregisterDomain {
                 pub domain_id: DomainId,
             }
         }
 
         token! {
-            #[derive(ValidateGrantRevoke)]
-            #[validate(permission::OnlyGenesis)]
+            #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
+            #[validate(permission::domain::Owner)]
             pub struct CanSetKeyValueInDomain {
                 pub domain_id: DomainId,
             }
         }
 
         token! {
-            #[derive(ValidateGrantRevoke)]
-            #[validate(permission::OnlyGenesis)]
+            #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
+            #[validate(permission::domain::Owner)]
             pub struct CanRemoveKeyValueInDomain {
                 pub domain_id: DomainId,
             }
@@ -398,6 +400,11 @@ pub mod domain {
 
         if is_genesis(validator) {
             pass!(validator);
+        }
+        match is_domain_owner(&domain_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
         }
         let can_unregister_domain_token = tokens::CanUnregisterDomain { domain_id };
         if can_unregister_domain_token.is_owned_by(authority) {
@@ -417,6 +424,11 @@ pub mod domain {
         if is_genesis(validator) {
             pass!(validator);
         }
+        match is_domain_owner(&domain_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+        }
         let can_set_key_value_in_domain_token = tokens::CanSetKeyValueInDomain { domain_id };
         if can_set_key_value_in_domain_token.is_owned_by(authority) {
             pass!(validator);
@@ -435,6 +447,11 @@ pub mod domain {
         if is_genesis(validator) {
             pass!(validator);
         }
+        match is_domain_owner(&domain_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+        }
         let can_remove_key_value_in_domain_token = tokens::CanRemoveKeyValueInDomain { domain_id };
         if can_remove_key_value_in_domain_token.is_owned_by(authority) {
             pass!(validator);
@@ -445,6 +462,8 @@ pub mod domain {
 }
 
 pub mod account {
+    use permission::account::is_account_owner;
+
     use super::*;
 
     declare_tokens! {
@@ -513,10 +532,11 @@ pub mod account {
         if is_genesis(validator) {
             pass!(validator);
         }
-        if account_id == *authority {
-            pass!(validator);
+        match is_account_owner(&account_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
         }
-
         let can_unregister_user_account = tokens::CanUnregisterAccount { account_id };
         if can_unregister_user_account.is_owned_by(authority) {
             pass!(validator);
@@ -535,8 +555,10 @@ pub mod account {
         if is_genesis(validator) {
             pass!(validator);
         }
-        if account_id == *authority {
-            pass!(validator);
+        match is_account_owner(&account_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
         }
         let can_mint_user_public_keys = tokens::CanMintUserPublicKeys { account_id };
         if can_mint_user_public_keys.is_owned_by(authority) {
@@ -556,8 +578,10 @@ pub mod account {
         if is_genesis(validator) {
             pass!(validator);
         }
-        if account_id == *authority {
-            pass!(validator);
+        match is_account_owner(&account_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
         }
         let can_burn_user_public_keys = tokens::CanBurnUserPublicKeys { account_id };
         if can_burn_user_public_keys.is_owned_by(authority) {
@@ -577,8 +601,10 @@ pub mod account {
         if is_genesis(validator) {
             pass!(validator);
         }
-        if account_id == *authority {
-            pass!(validator);
+        match is_account_owner(&account_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
         }
         let can_mint_user_signature_check_conditions_token =
             tokens::CanMintUserSignatureCheckConditions { account_id };
@@ -602,8 +628,10 @@ pub mod account {
         if is_genesis(validator) {
             pass!(validator);
         }
-        if account_id == *authority {
-            pass!(validator);
+        match is_account_owner(&account_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
         }
         let can_set_key_value_in_user_account_token =
             tokens::CanSetKeyValueInUserAccount { account_id };
@@ -627,8 +655,10 @@ pub mod account {
         if is_genesis(validator) {
             pass!(validator);
         }
-        if account_id == *authority {
-            pass!(validator);
+        match is_account_owner(&account_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
         }
         let can_remove_key_value_in_user_account_token =
             tokens::CanRemoveKeyValueInUserAccount { account_id };
@@ -644,6 +674,8 @@ pub mod account {
 }
 
 pub mod asset_definition {
+    use permission::{account::is_account_owner, asset_definition::is_asset_definition_owner};
+
     use super::*;
 
     declare_tokens! {
@@ -678,13 +710,6 @@ pub mod asset_definition {
                 pub asset_definition_id: AssetDefinitionId,
             }
         }
-    }
-
-    pub(super) fn is_asset_definition_owner(
-        asset_definition_id: &AssetDefinitionId,
-        authority: &AccountId,
-    ) -> Result<bool> {
-        IsAssetDefinitionOwner::new(asset_definition_id.clone(), authority.clone()).execute()
     }
 
     pub fn visit_unregister_asset_definition<V: Validate + ?Sized>(
@@ -726,8 +751,10 @@ pub mod asset_definition {
         if is_genesis(validator) {
             pass!(validator);
         }
-        if &source_id == authority {
-            pass!(validator);
+        match is_account_owner(&source_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
         }
         match is_asset_definition_owner(&destination_id, authority) {
             Err(err) => deny!(validator, err),
@@ -800,6 +827,8 @@ pub mod asset_definition {
 }
 
 pub mod asset {
+    use permission::{asset::is_asset_owner, asset_definition::is_asset_definition_owner};
+
     use super::*;
 
     declare_tokens! {
@@ -899,10 +928,6 @@ pub mod asset {
         }
     }
 
-    fn is_asset_owner(asset_id: &AssetId, authority: &AccountId) -> bool {
-        asset_id.account_id() == authority
-    }
-
     pub fn visit_register_asset<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
@@ -913,7 +938,7 @@ pub mod asset {
         if is_genesis(validator) {
             pass!(validator);
         }
-        match asset_definition::is_asset_definition_owner(asset.id().definition_id(), authority) {
+        match is_asset_definition_owner(asset.id().definition_id(), authority) {
             Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
@@ -941,10 +966,12 @@ pub mod asset {
         if is_genesis(validator) {
             pass!(validator);
         }
-        if is_asset_owner(&asset_id, authority) {
-            pass!(validator);
+        match is_asset_owner(&asset_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
         }
-        match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
+        match is_asset_definition_owner(asset_id.definition_id(), authority) {
             Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
@@ -974,7 +1001,7 @@ pub mod asset {
         if is_genesis(validator) {
             pass!(validator);
         }
-        match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
+        match is_asset_definition_owner(asset_id.definition_id(), authority) {
             Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
@@ -1002,10 +1029,12 @@ pub mod asset {
         if is_genesis(validator) {
             pass!(validator);
         }
-        if is_asset_owner(&asset_id, authority) {
-            pass!(validator);
+        match is_asset_owner(&asset_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
         }
-        match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
+        match is_asset_definition_owner(asset_id.definition_id(), authority) {
             Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
@@ -1034,10 +1063,12 @@ pub mod asset {
         if is_genesis(validator) {
             pass!(validator);
         }
-        if is_asset_owner(&asset_id, authority) {
-            pass!(validator);
+        match is_asset_owner(&asset_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
         }
-        match asset_definition::is_asset_definition_owner(asset_id.definition_id(), authority) {
+        match is_asset_definition_owner(asset_id.definition_id(), authority) {
             Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
@@ -1066,8 +1097,10 @@ pub mod asset {
         if is_genesis(validator) {
             pass!(validator);
         }
-        if is_asset_owner(&asset_id, authority) {
-            pass!(validator);
+        match is_asset_owner(&asset_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
         }
 
         let can_set_key_value_in_user_asset_token = tokens::CanSetKeyValueInUserAsset { asset_id };
@@ -1091,8 +1124,10 @@ pub mod asset {
         if is_genesis(validator) {
             pass!(validator);
         }
-        if is_asset_owner(&asset_id, authority) {
-            pass!(validator);
+        match is_asset_owner(&asset_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
         }
         let can_remove_key_value_in_user_asset_token =
             tokens::CanRemoveKeyValueInUserAsset { asset_id };
@@ -1460,7 +1495,7 @@ pub mod trigger {
         if is_genesis(validator) {
             pass!(validator);
         }
-        match is_trigger_owner(trigger_id.clone(), authority) {
+        match is_trigger_owner(&trigger_id, authority) {
             Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
@@ -1486,7 +1521,7 @@ pub mod trigger {
         if is_genesis(validator) {
             pass!(validator);
         }
-        match is_trigger_owner(trigger_id.clone(), authority) {
+        match is_trigger_owner(&trigger_id, authority) {
             Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
@@ -1512,7 +1547,7 @@ pub mod trigger {
         if is_genesis(validator) {
             pass!(validator);
         }
-        match is_trigger_owner(trigger_id.clone(), authority) {
+        match is_trigger_owner(&trigger_id, authority) {
             Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
@@ -1538,7 +1573,7 @@ pub mod trigger {
         if is_genesis(validator) {
             pass!(validator);
         }
-        match is_trigger_owner(trigger_id.clone(), authority) {
+        match is_trigger_owner(&trigger_id, authority) {
             Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}
