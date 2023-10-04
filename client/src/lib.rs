@@ -10,7 +10,7 @@ mod http_default;
 pub mod samples {
     use iroha_config::{
         client::{Configuration, ConfigurationProxy},
-        torii::{uri::DEFAULT_API_ADDR, DEFAULT_TORII_TELEMETRY_ADDR},
+        torii::uri::DEFAULT_API_ADDR,
     };
     use iroha_crypto::KeyPair;
 
@@ -28,11 +28,6 @@ pub mod samples {
             ),
             torii_api_url: Some(
                 format!("http://{DEFAULT_API_ADDR}")
-                    .parse()
-                    .expect("Should be a valid url"),
-            ),
-            torii_telemetry_url: Some(
-                format!("http://{DEFAULT_TORII_TELEMETRY_ADDR}")
                     .parse()
                     .expect("Should be a valid url"),
             ),

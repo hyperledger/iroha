@@ -23,7 +23,6 @@
   "TORII": {
     "P2P_ADDR": null,
     "API_URL": null,
-    "TELEMETRY_URL": null,
     "MAX_TRANSACTION_SIZE": 32768,
     "MAX_CONTENT_LEN": 16384000,
     "FETCH_SIZE": 10,

@@ -8,7 +8,7 @@ In this document we provide a reference and detailed descriptions of Iroha's con
 
 A type wrapped in a single `Option<..>` signifies that in the corresponding `json` block there is a fallback value for this type, and that it only serves as a reference. If a default for such a type has a `null` value, it means that there is no meaningful fallback available for this particular value.
 
-All the default values can be freely obtained from a provided [sample configuration file](../../../configs/peer/config.json), but it should only serve as a starting point. If left unchanged, the sample configuration file would still fail to build due to it having `null` in place of [public](#public_key) and [private](#private_key) keys as well as [endpoint](#torii.api_url) [URLs](#torii.telemetry_url). These should be provided either by modifying the sample config file or as environment variables. No other overloading of configuration values happens besides reading them from a file and capturing the environment variables.
+All the default values can be freely obtained from a provided [sample configuration file](../../../configs/peer/config.json), but it should only serve as a starting point. If left unchanged, the sample configuration file would still fail to build due to it having `null` in place of [public](#public_key) and [private](#private_key) keys as well as [API endpoint URL](#torii.api_url). These should be provided either by modifying the sample config file or as environment variables. No other overloading of configuration values happens besides reading them from a file and capturing the environment variables.
 
 For both types of configuration options wrapped in a single `Option<..>` (i.e. both those that have meaningful defaults and those that have `null`), failure to provide them in any of the above two ways results in an error.
 
@@ -54,7 +54,6 @@ The following is the default configuration used by Iroha.
   "TORII": {
     "P2P_ADDR": null,
     "API_URL": null,
-    "TELEMETRY_URL": null,
     "MAX_TRANSACTION_SIZE": 32768,
     "MAX_CONTENT_LEN": 16384000,
     "FETCH_SIZE": 10,
@@ -679,8 +678,7 @@ Has type `Option<torii::ConfigurationProxy>`[^1]. Can be configured via environm
   "MAX_CONTENT_LEN": 16384000,
   "MAX_TRANSACTION_SIZE": 32768,
   "P2P_ADDR": null,
-  "QUERY_IDLE_TIME_MS": 30000,
-  "TELEMETRY_URL": null
+  "QUERY_IDLE_TIME_MS": 30000
 }
 ```
 
@@ -742,16 +740,6 @@ Has type `Option<NonZeroU64>`[^1]. Can be configured via environment variable `T
 
 ```json
 30000
-```
-
-### `torii.telemetry_url`
-
-Torii address for reporting internal status and metrics for administration.
-
-Has type `Option<SocketAddr>`[^1]. Can be configured via environment variable `TORII_TELEMETRY_URL`
-
-```json
-null
 ```
 
 ## `wsv`

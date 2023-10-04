@@ -340,15 +340,13 @@ impl_query_result! {
 /// Iroha client
 #[derive(Clone, DebugCustom, Display)]
 #[debug(
-    fmt = "Client {{ torii: {torii_url}, telemetry_url: {telemetry_url}, public_key: {} }}",
+    fmt = "Client {{ torii: {torii_url}, public_key: {} }}",
     "key_pair.public_key()"
 )]
 #[display(fmt = "{}@{torii_url}", "key_pair.public_key()")]
 pub struct Client {
     /// Url for accessing iroha node
     torii_url: Url,
-    /// Url to report status for administration
-    telemetry_url: Url,
     /// Accounts keypair
     key_pair: KeyPair,
     /// Transaction time to live in milliseconds
@@ -432,7 +430,6 @@ impl Client {
 
         Ok(Self {
             torii_url: configuration.torii_api_url.clone(),
-            telemetry_url: configuration.torii_telemetry_url.clone(),
             key_pair: KeyPair::new(
                 configuration.public_key.clone(),
                 configuration.private_key.clone(),
@@ -1225,7 +1222,7 @@ impl Client {
     pub fn prepare_status_request<B: RequestBuilder>(&self) -> B {
         B::new(
             HttpMethod::GET,
-            self.telemetry_url.join(uri::STATUS).expect("Valid URI"),
+            self.torii_url.join(uri::STATUS).expect("Valid URI"),
         )
         .headers(self.headers.clone())
     }
@@ -1737,7 +1734,7 @@ mod tests {
 
     use iroha_config::{
         client::{BasicAuth, ConfigurationProxy, WebLogin},
-        torii::{uri::DEFAULT_API_ADDR, DEFAULT_TORII_TELEMETRY_ADDR},
+        torii::uri::DEFAULT_API_ADDR,
     };
     use iroha_primitives::small::SmallStr;
 
@@ -1761,11 +1758,6 @@ mod tests {
                     .expect("This account ID should be valid"),
             ),
             torii_api_url: Some(format!("http://{DEFAULT_API_ADDR}").parse().unwrap()),
-            torii_telemetry_url: Some(
-                format!("http://{DEFAULT_TORII_TELEMETRY_ADDR}")
-                    .parse()
-                    .unwrap(),
-            ),
             add_transaction_nonce: Some(true),
             ..ConfigurationProxy::default()
         }
@@ -1816,7 +1808,6 @@ mod tests {
                     .expect("This account ID should be valid"),
             ),
             torii_api_url: Some(format!("http://{DEFAULT_API_ADDR}").parse().unwrap()),
-            torii_telemetry_url: Some(format!("http://{DEFAULT_TORII_TELEMETRY_ADDR}").parse().unwrap()),
             basic_auth: Some(Some(basic_auth)),
             ..ConfigurationProxy::default()
         }
