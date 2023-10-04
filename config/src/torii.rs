@@ -8,8 +8,6 @@ use serde::{Deserialize, Serialize};
 
 /// Default socket for p2p communication
 pub const DEFAULT_TORII_P2P_ADDR: SocketAddr = socket_addr!(127.0.0.1:1337);
-/// Default socket for reporting internal status and metrics
-pub const DEFAULT_TORII_TELEMETRY_ADDR: SocketAddr = socket_addr!(127.0.0.1:8180);
 /// Default maximum size of single transaction
 pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: u32 = 2_u32.pow(15);
 /// Default upper bound on `content-length` specified in the HTTP request header
@@ -34,9 +32,6 @@ pub struct Configuration {
     /// Torii address for client API.
     #[config(serde_as_str)]
     pub api_url: SocketAddr,
-    /// Torii address for reporting internal status and metrics for administration.
-    #[config(serde_as_str)]
-    pub telemetry_url: SocketAddr,
     /// Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
     pub max_transaction_size: u32,
     /// Maximum number of bytes in raw message. Used to prevent from DOS attacks.
@@ -52,7 +47,6 @@ impl Default for ConfigurationProxy {
         Self {
             p2p_addr: None,
             api_url: None,
-            telemetry_url: None,
             max_transaction_size: Some(DEFAULT_TORII_MAX_TRANSACTION_SIZE),
             max_content_len: Some(DEFAULT_TORII_MAX_CONTENT_LENGTH),
             fetch_size: Some(*DEFAULT_TORII_FETCH_SIZE),
@@ -107,14 +101,13 @@ pub mod tests {
             (
                 p2p_addr in prop::option::of(Just(DEFAULT_TORII_P2P_ADDR)),
                 api_url in prop::option::of(Just(uri::DEFAULT_API_ADDR)),
-                telemetry_url in prop::option::of(Just(DEFAULT_TORII_TELEMETRY_ADDR)),
                 max_transaction_size in prop::option::of(Just(DEFAULT_TORII_MAX_TRANSACTION_SIZE)),
                 max_content_len in prop::option::of(Just(DEFAULT_TORII_MAX_CONTENT_LENGTH)),
                 fetch_size in prop::option::of(Just(*DEFAULT_TORII_FETCH_SIZE)),
                 query_idle_time_ms in prop::option::of(Just(*DEFAULT_TORII_QUERY_IDLE_TIME_MS)),
             )
             -> ConfigurationProxy {
-            ConfigurationProxy { p2p_addr, api_url, telemetry_url, max_transaction_size, max_content_len, fetch_size, query_idle_time_ms }
+            ConfigurationProxy { p2p_addr, api_url, max_transaction_size, max_content_len, fetch_size, query_idle_time_ms }
         }
     }
 }

@@ -39,10 +39,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
         IdBox::AccountId(alice_id.clone()),
     );
 
-    let mut client_configuration = ClientConfiguration::test(
-        &network.genesis.api_address,
-        &network.genesis.telemetry_address,
-    );
+    let mut client_configuration = ClientConfiguration::test(&network.genesis.api_address);
     let client = Client::new(&client_configuration)?;
     let instructions: [InstructionExpr; 2] = [create_asset.into(), set_signature_condition.into()];
     client.submit_all_blocking(instructions)?;

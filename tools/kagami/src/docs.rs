@@ -47,7 +47,7 @@ where
                  and that it only serves as a reference. If a default for such a type has a `null` value, it means that there is no meaningful fallback \
                  available for this particular value.\n\nAll the default values can be freely obtained from a provided [sample configuration file](../../../configs/peer/config.json), \
                  but it should only serve as a starting point. If left unchanged, the sample configuration file would still fail to build due to it having `null` in place of \
-                 [public](#public_key) and [private](#private_key) keys as well as [endpoint](#torii.api_url) [URLs](#torii.telemetry_url). \
+                 [public](#public_key) and [private](#private_key) keys as well as [API endpoint URL](#torii.api_url). \
                  These should be provided either by modifying the sample config file or as environment variables. \
                  No other overloading of configuration values happens besides reading them from a file and capturing the environment variables.\n\n\
                  For both types of configuration options wrapped in a single `Option<..>` (i.e. both those that have meaningful defaults and those that have `null`), \

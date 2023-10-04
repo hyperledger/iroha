@@ -48,7 +48,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
 
     //Then
     let peer = network.peers.values().last().unwrap();
-    client::Client::test(&peer.api_address, &peer.telemetry_address).poll_request(
+    client::Client::test(&peer.api_address).poll_request(
         client::asset::by_account_id(account_id),
         |result| {
             let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
