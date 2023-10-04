@@ -739,7 +739,8 @@ pub mod asset_definition {
         asset_definition_id: &AssetDefinitionId,
         authority: &AccountId,
     ) -> Result<bool> {
-        let asset_definition = FindAssetDefinitionById::new(asset_definition_id.clone()).execute()?;
+        let asset_definition =
+            FindAssetDefinitionById::new(asset_definition_id.clone()).execute()?;
         Ok(asset_definition.owned_by() == authority)
     }
 

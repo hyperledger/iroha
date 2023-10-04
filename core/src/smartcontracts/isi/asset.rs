@@ -420,10 +420,11 @@ pub mod isi {
 /// Asset-related query implementations.
 pub mod query {
     use eyre::{Result, WrapErr as _};
-
     use iroha_data_model::{
         asset::{Asset, AssetDefinition},
-        query::{asset::FindAssetDefinitionById, error::QueryExecutionFail as Error, MetadataValue},
+        query::{
+            asset::FindAssetDefinitionById, error::QueryExecutionFail as Error, MetadataValue,
+        },
     };
 
     use super::*;
@@ -699,5 +700,4 @@ pub mod query {
                 .map(Into::into)
         }
     }
-
 }
