@@ -52,7 +52,7 @@ fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
     // Unregister a peer: committed with f = `faults`
     // then `status.peers` decrements
     let peer = network.peers.values().last().unwrap();
-    let peer_client = Client::test(&peer.api_address, &peer.telemetry_address);
+    let peer_client = Client::test(&peer.api_address);
     let unregister_peer = UnregisterExpr::new(IdBox::PeerId(peer.id.clone()));
     client.submit_blocking(unregister_peer)?;
     thread::sleep(pipeline_time * 2); // Wait for some time to allow peers to connect
