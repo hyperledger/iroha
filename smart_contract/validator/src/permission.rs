@@ -75,12 +75,31 @@ pub mod derive_conversions {
 
         pub use iroha_validator_derive::RefIntoAccountOwner as Owner;
     }
+
+    pub mod domain {
+        //! Module with derives related to domain tokens
+
+        pub use iroha_validator_derive::RefIntoDomainOwner as Owner;
+    }
 }
 
 pub mod asset {
     //! Module with pass conditions for asset related tokens
 
     use super::*;
+
+    /// Check if `authority` is the owner of `asset_id`.
+    ///
+    /// `authority` is owner of `asset_id` if:
+    /// - `asset_id.account_id` is `account_id`
+    /// - `asset_id.account_id.domain_id` domain is owned by `authority`
+    ///
+    /// # Errors
+    ///
+    /// Fails if `is_account_owner` fails
+    pub fn is_asset_owner(asset_id: &AssetId, authority: &AccountId) -> Result<bool> {
+        crate::permission::account::is_account_owner(asset_id.account_id(), authority)
+    }
 
     /// Pass condition that checks if `authority` is the owner of `asset_id`.
     #[derive(Debug, Clone)]
@@ -91,7 +110,7 @@ pub mod asset {
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if self.asset_id.account_id() == authority {
+            if is_asset_owner(self.asset_id, authority)? {
                 return Ok(());
             }
 
@@ -107,11 +126,26 @@ pub mod asset_definition {
 
     use super::*;
 
-    fn is_asset_definition_owner(
+    /// Check if `authority` is the owner of `asset_definition_id`
+
+    /// `authority` is owner of `asset_definition_id` if:
+    /// - `asset_definition.owned_by` is `authority`
+    /// - `asset_definition.domain_id` domain is owned by `authority`
+    ///
+    /// # Errors
+    /// - if `FindAssetDefinitionById` fails
+    /// - if `is_domain_owner` fails
+    pub fn is_asset_definition_owner(
         asset_definition_id: &AssetDefinitionId,
         authority: &AccountId,
     ) -> Result<bool> {
-        IsAssetDefinitionOwner::new(asset_definition_id.clone(), authority.clone()).execute()
+        let asset_definition =
+            FindAssetDefinitionById::new(asset_definition_id.clone()).execute()?;
+        if asset_definition.owned_by() == authority {
+            Ok(true)
+        } else {
+            crate::permission::domain::is_domain_owner(asset_definition_id.domain_id(), authority)
+        }
     }
 
     /// Pass condition that checks if `authority` is the owner of `asset_definition_id`.
@@ -139,6 +173,23 @@ pub mod account {
 
     use super::*;
 
+    /// Check if `authority` is the owner of `account_id`.
+    ///
+    /// `authority` is owner of `account_id` if:
+    /// - `account_id` is `authority`
+    /// - `account_id.domain_id` is owned by `authority`
+    ///
+    /// # Errors
+    ///
+    /// Fails if `is_domain_owner` fails
+    pub fn is_account_owner(account_id: &AccountId, authority: &AccountId) -> Result<bool> {
+        if account_id == authority {
+            Ok(true)
+        } else {
+            crate::permission::domain::is_domain_owner(account_id.domain_id(), authority)
+        }
+    }
+
     /// Pass condition that checks if `authority` is the owner of `account_id`.
     #[derive(Debug, Clone)]
     pub struct Owner<'asset> {
@@ -148,7 +199,7 @@ pub mod account {
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if self.account_id == authority {
+            if is_account_owner(self.account_id, authority)? {
                 return Ok(());
             }
 
@@ -165,15 +216,25 @@ pub mod trigger {
 
     /// Check if `authority` is the owner of `trigger_id`.
     ///
-    /// Wrapper around [`FindTriggerById`](crate::data_model::prelude::FindTriggerById) query.
+    /// `authority` is owner of `trigger_id` if:
+    /// - `trigger.action.authority` is `authority`
+    /// - `trigger.domain_id` is not none and domain is owned by `authority`
     ///
     /// # Errors
-    ///
-    /// Fails if query fails
-    pub fn is_trigger_owner(trigger_id: TriggerId, authority: &AccountId) -> Result<bool> {
-        FindTriggerById::new(trigger_id)
-            .execute()
-            .map(|trigger| trigger.action().authority() == authority)
+    /// - `FindTrigger` fails
+    /// - `is_domain_owner` fails
+    pub fn is_trigger_owner(trigger_id: &TriggerId, authority: &AccountId) -> Result<bool> {
+        let trigger = FindTriggerById::new(trigger_id.clone()).execute()?;
+        if trigger.action().authority() == authority {
+            Ok(true)
+        } else {
+            trigger_id
+                .domain_id()
+                .as_ref()
+                .map_or(Ok(false), |domain_id| {
+                    crate::permission::domain::is_domain_owner(domain_id, authority)
+                })
+        }
     }
 
     /// Pass condition that checks if `authority` is the owner of `trigger_id`.
@@ -185,12 +246,46 @@ pub mod trigger {
 
     impl PassCondition for Owner<'_> {
         fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
-            if is_trigger_owner(self.trigger_id.clone(), authority)? {
+            if is_trigger_owner(self.trigger_id, authority)? {
                 return Ok(());
             }
 
             Err(ValidationFail::NotPermitted(
                 "Can't give permission to access trigger owned by another account".to_owned(),
+            ))
+        }
+    }
+}
+
+pub mod domain {
+    //! Module with pass conditions for domain related tokens
+    use super::*;
+
+    /// Check if `authority` is owner of `domain_id`
+    ///
+    /// # Errors
+    /// Fails if query fails
+    pub fn is_domain_owner(domain_id: &DomainId, authority: &AccountId) -> Result<bool> {
+        FindDomainById::new(domain_id.clone())
+            .execute()
+            .map(|domain| domain.owned_by() == authority)
+    }
+
+    /// Pass condition that checks if `authority` is the owner of `domain_id`.
+    #[derive(Debug, Clone)]
+    pub struct Owner<'domain> {
+        /// Domain id to check against
+        pub domain_id: &'domain DomainId,
+    }
+
+    impl PassCondition for Owner<'_> {
+        fn validate(&self, authority: &AccountId, _block_height: u64) -> Result {
+            if is_domain_owner(self.domain_id, authority)? {
+                return Ok(());
+            }
+
+            Err(ValidationFail::NotPermitted(
+                "Can't access domain owned by another account".to_owned(),
             ))
         }
     }
