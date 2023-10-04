@@ -85,6 +85,9 @@ pub mod model {
         pub logo: Option<IpfsPath>,
         /// [`Metadata`] of this `Domain` as a key-value store.
         pub metadata: Metadata,
+        /// The account that owns this domain. Usually the [`Account`] that registered it.
+        #[getset(get = "pub")]
+        pub owned_by: AccountId,
     }
 
     /// Builder which can be submitted in a transaction to create a new [`Domain`]
