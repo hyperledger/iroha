@@ -240,7 +240,6 @@ types!(
     Ipv4Predicate,
     Ipv6Addr,
     Ipv6Predicate,
-    IsAssetDefinitionOwner,
     LengthLimits,
     Less,
     MerkleTree<SignedTransaction>,

@@ -735,6 +735,14 @@ pub mod asset_definition {
         }
     }
 
+    pub(super) fn is_asset_definition_owner(
+        asset_definition_id: &AssetDefinitionId,
+        authority: &AccountId,
+    ) -> Result<bool> {
+        let asset_definition = FindAssetDefinitionById::new(asset_definition_id.clone()).execute()?;
+        Ok(asset_definition.owned_by() == authority)
+    }
+
     pub fn visit_unregister_asset_definition<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
