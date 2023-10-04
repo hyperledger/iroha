@@ -69,9 +69,6 @@ pub trait Evaluate {
     /// # Errors
     /// Concrete to each implementer.
     fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError>;
-
-    /// Number of underneath expressions.
-    fn len(&self) -> usize;
 }
 
 impl<V: TryFrom<Value>> Evaluate for EvaluatesTo<V>
@@ -84,10 +81,6 @@ where
         let expr = self.expression.evaluate(context)?;
 
         V::try_from(expr).map_err(|error| EvaluationError::Conversion(error.to_string()))
-    }
-
-    fn len(&self) -> usize {
-        self.expression.len()
     }
 }
 
@@ -132,33 +125,6 @@ impl Evaluate for Expression {
 
         Ok(result)
     }
-
-    fn len(&self) -> usize {
-        use Expression::*;
-
-        match self {
-            Add(add) => add.len(),
-            Subtract(subtract) => subtract.len(),
-            Greater(greater) => greater.len(),
-            Less(less) => less.len(),
-            Equal(equal) => equal.len(),
-            Not(not) => not.len(),
-            And(and) => and.len(),
-            Or(or) => or.len(),
-            If(if_expression) => if_expression.len(),
-            Raw(raw) => raw.len(),
-            Query(query) => query.len(),
-            Contains(contains) => contains.len(),
-            ContainsAll(contains_all) => contains_all.len(),
-            ContainsAny(contains_any) => contains_any.len(),
-            Where(where_expression) => where_expression.len(),
-            ContextValue(context_value) => context_value.len(),
-            Multiply(multiply) => multiply.len(),
-            Divide(divide) => divide.len(),
-            Mod(modulus) => modulus.len(),
-            RaiseTo(raise_to) => raise_to.len(),
-        }
-    }
 }
 
 impl Evaluate for ContextValue {
@@ -169,10 +135,6 @@ impl Evaluate for ContextValue {
             .get(&self.value_name)
             .cloned()
             .ok_or_else(|| EvaluationError::Find(self.value_name.to_string()))
-    }
-
-    fn len(&self) -> usize {
-        1
     }
 }
 
@@ -207,10 +169,6 @@ mod numeric {
 
             Ok(result)
         }
-
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
     }
 
     impl Evaluate for Subtract {
@@ -240,10 +198,6 @@ mod numeric {
             };
 
             Ok(result)
-        }
-
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
         }
     }
 
@@ -275,10 +229,6 @@ mod numeric {
 
             Ok(result)
         }
-
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
     }
 
     impl Evaluate for RaiseTo {
@@ -305,10 +255,6 @@ mod numeric {
             };
 
             Ok(result)
-        }
-
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
         }
     }
 
@@ -340,10 +286,6 @@ mod numeric {
 
             Ok(result)
         }
-
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
     }
 
     impl Evaluate for Mod {
@@ -370,10 +312,6 @@ mod numeric {
 
             Ok(result)
         }
-
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
     }
 }
 
@@ -399,10 +337,6 @@ mod logical {
 
             Ok(result)
         }
-
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
     }
 
     impl Evaluate for Less {
@@ -424,22 +358,15 @@ mod logical {
 
             Ok(result)
         }
-
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
     }
 
-    impl Evaluate for Not {
+    impl Evaluate for Equal {
         type Value = bool;
 
         fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
-            let expression = self.expression.evaluate(context)?;
-            Ok(!expression)
-        }
-
-        fn len(&self) -> usize {
-            self.expression.len() + 1
+            let left = self.left.evaluate(context)?;
+            let right = self.right.evaluate(context)?;
+            Ok(left == right)
         }
     }
 
@@ -451,10 +378,6 @@ mod logical {
             let right = self.right.evaluate(context)?;
             Ok(left && right)
         }
-
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
     }
 
     impl Evaluate for Or {
@@ -465,9 +388,14 @@ mod logical {
             let right = self.right.evaluate(context)?;
             Ok(left || right)
         }
+    }
 
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
+    impl Evaluate for Not {
+        type Value = bool;
+
+        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
+            let expression = self.expression.evaluate(context)?;
+            Ok(!expression)
         }
     }
 
@@ -479,10 +407,6 @@ mod logical {
             let element = self.element.evaluate(context)?;
             Ok(collection.contains(&element))
         }
-
-        fn len(&self) -> usize {
-            self.collection.len() + self.element.len() + 1
-        }
     }
 
     impl Evaluate for ContainsAll {
@@ -493,10 +417,6 @@ mod logical {
             let elements = self.elements.evaluate(context)?;
             Ok(elements.iter().all(|element| collection.contains(element)))
         }
-
-        fn len(&self) -> usize {
-            self.collection.len() + self.elements.len() + 1
-        }
     }
 
     impl Evaluate for ContainsAny {
@@ -506,24 +426,6 @@ mod logical {
             let collection = self.collection.evaluate(context)?;
             let elements = self.elements.evaluate(context)?;
             Ok(elements.iter().any(|element| collection.contains(element)))
-        }
-
-        fn len(&self) -> usize {
-            self.collection.len() + self.elements.len() + 1
-        }
-    }
-
-    impl Evaluate for Equal {
-        type Value = bool;
-
-        fn evaluate<C: Context>(&self, context: &C) -> Result<Self::Value, EvaluationError> {
-            let left = self.left.evaluate(context)?;
-            let right = self.right.evaluate(context)?;
-            Ok(left == right)
-        }
-
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
         }
     }
 }
@@ -538,11 +440,6 @@ impl Evaluate for If {
         } else {
             self.otherwise.evaluate(context)
         }
-    }
-
-    fn len(&self) -> usize {
-        // TODO: This is wrong because we don't evaluate both branches
-        self.condition.len() + self.then.len() + self.otherwise.len() + 1
     }
 }
 
@@ -565,10 +462,6 @@ impl Evaluate for Where {
         combined_context.update(additional_context?);
         self.expression.evaluate(&combined_context)
     }
-
-    fn len(&self) -> usize {
-        self.expression.len() + self.values.values().map(EvaluatesTo::len).sum::<usize>() + 1
-    }
 }
 
 impl Evaluate for QueryBox {
@@ -578,10 +471,6 @@ impl Evaluate for QueryBox {
         context
             .query(self)
             .map_err(|err| EvaluationError::Validation(Box::new(err)))
-    }
-
-    fn len(&self) -> usize {
-        1
     }
 }
 
