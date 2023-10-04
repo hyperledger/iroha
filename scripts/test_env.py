@@ -55,7 +55,7 @@ class Network:
         for i in range(n_tries):
             logging.info(f"Waiting for genesis block to be created... Attempt {i+1}/{n_tries}")
             try:
-                with urllib.request.urlopen(f"http://{self.peers[0].host_ip}:{self.peers[0].telemetry_port}/status/blocks") as response:
+                with urllib.request.urlopen(f"http://{self.peers[0].host_ip}:{self.peers[0].api_port}/status/blocks") as response:
                     block_count = int(response.read())
                     if block_count >= 1:
                         logging.info(f"Genesis block created. Block count: {block_count}")
@@ -85,7 +85,6 @@ class _Peer:
         self.name = f"iroha{nth}"
         self.p2p_port = 1337 + nth
         self.api_port = 8080 + nth
-        self.telemetry_port = 8180 + nth
         self.tokio_console_port = 5555 + nth
         self.out_dir = args.out_dir
         self.root_dir = args.root_dir
@@ -123,7 +122,6 @@ class _Peer:
         os.environ["SUMERAGI_DEBUG_FORCE_SOFT_FORK"] = "false"
         os.environ["TORII_P2P_ADDR"] = f"{self.host_ip}:{self.p2p_port}"
         os.environ["TORII_API_URL"] = f"{self.host_ip}:{self.api_port}"
-        os.environ["TORII_TELEMETRY_URL"] = f"{self.host_ip}:{self.telemetry_port}"
         os.environ["TOKIO_CONSOLE_ADDR"] = f"{self.host_ip}:{self.tokio_console_port}"
 
         genesis_arg = "--submit-genesis" if is_genesis else ""

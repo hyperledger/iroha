@@ -60,7 +60,7 @@ fn long_multiple_blocks_created() -> Result<()> {
 
     //Then
     let peer = network.peers().last().unwrap();
-    Client::test(&peer.api_address, &peer.telemetry_address).poll_request(
+    Client::test(&peer.api_address).poll_request(
         client::asset::by_account_id(account_id),
         |result| {
             let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");

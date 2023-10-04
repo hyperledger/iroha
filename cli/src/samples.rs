@@ -5,7 +5,7 @@ use std::{collections::HashSet, path::Path, str::FromStr};
 use iroha_config::{
     iroha::{Configuration, ConfigurationProxy},
     sumeragi::TrustedPeers,
-    torii::{uri::DEFAULT_API_ADDR, DEFAULT_TORII_P2P_ADDR, DEFAULT_TORII_TELEMETRY_ADDR},
+    torii::{uri::DEFAULT_API_ADDR, DEFAULT_TORII_P2P_ADDR},
 };
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{peer::PeerId, prelude::*};
@@ -69,7 +69,6 @@ pub fn get_config_proxy(peers: UniqueVec<PeerId>, key_pair: Option<KeyPair>) -> 
         torii: Some(iroha_config::torii::ConfigurationProxy {
             p2p_addr: Some(DEFAULT_TORII_P2P_ADDR.clone()),
             api_url: Some(DEFAULT_API_ADDR.clone()),
-            telemetry_url: Some(DEFAULT_TORII_TELEMETRY_ADDR.clone()),
             ..iroha_config::torii::ConfigurationProxy::default()
         }),
         block_sync: Some(iroha_config::block_sync::ConfigurationProxy {
