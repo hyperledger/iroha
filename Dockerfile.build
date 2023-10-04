@@ -2,9 +2,20 @@ FROM archlinux:base-devel
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH
+    PATH=/usr/local/cargo/bin:$PATH \
+    POETRY_HOME=/opt/poetry \
+    CLIENT_CLI_DIR=/__w/iroha/iroha/target/debug
 
-RUN pacman -Syu rustup mold musl rust-musl openssl libgit2 git docker docker-buildx docker-compose --noconfirm
+ENV PATH=$POETRY_HOME/bin:$PATH
+
+RUN pacman -Syu rustup mold musl rust-musl openssl libgit2 \
+    git docker docker-buildx docker-compose \
+    python python-pip --noconfirm --disable-download-timeout && \
+    curl -sSL https://install.python-poetry.org | python3 -
+
+WORKDIR /client_cli/pytests
+COPY /client_cli/pytests/pyproject.toml /client_cli/pytests/poetry.lock $WORKDIR
+RUN poetry install
 
 RUN rustup toolchain install nightly-2023-06-25-x86_64-unknown-linux-gnu
 RUN rustup default nightly-2023-06-25-x86_64-unknown-linux-gnu
