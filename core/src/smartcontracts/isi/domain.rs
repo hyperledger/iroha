@@ -16,7 +16,7 @@ impl Registrable for iroha_data_model::domain::NewDomain {
 
     #[must_use]
     #[inline]
-    fn build(self, _authority: &AccountId) -> Self::Target {
+    fn build(self, authority: &AccountId) -> Self::Target {
         Self::Target {
             id: self.id,
             accounts: AccountsMap::default(),
@@ -24,6 +24,7 @@ impl Registrable for iroha_data_model::domain::NewDomain {
             asset_total_quantities: AssetTotalQuantityMap::default(),
             metadata: self.metadata,
             logo: self.logo,
+            owned_by: authority.clone(),
         }
     }
 }

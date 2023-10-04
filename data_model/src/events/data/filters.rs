@@ -221,6 +221,7 @@ mod tests {
         let domain_name = "wonderland".parse().expect("Valid");
         let account_name = "alice".parse().expect("Valid");
         let asset_name = "rose".parse().expect("Valid");
+        let domain_owner_id = "genesis@genesis".parse().expect("Valid");
 
         let domain_id = DomainId::new(domain_name);
         let domain = Domain {
@@ -230,6 +231,7 @@ mod tests {
             asset_total_quantities: AssetTotalQuantityMap::default(),
             logo: None,
             metadata: Metadata::default(),
+            owned_by: domain_owner_id,
         };
         let account_id = AccountId::new(account_name, domain_id.clone());
         let account = Account {
