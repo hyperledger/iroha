@@ -210,6 +210,13 @@ impl Execute for BurnExpr {
                 destination_id,
             }
             .execute(authority, wsv),
+            (IdBox::TriggerId(destination_id), Value::Numeric(NumericValue::U32(object))) => {
+                Burn::<u32, Trigger<TriggeringFilterBox, Executable>> {
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv)
+            }
             // TODO: Not implemented yet.
             // (IdBox::AccountId(account_id), Value::SignatureCheckCondition(condition)) => {
             //     Burn::<Account, SignatureCheckCondition>{condition, account_id}.execute(authority, wsv)

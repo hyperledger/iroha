@@ -449,6 +449,42 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn trigger_burn_repetitions() -> Result<()> {
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_070).start_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let asset_definition_id = "rose#wonderland".parse()?;
+    let account_id = AccountId::from_str("alice@wonderland")?;
+    let asset_id = AssetId::new(asset_definition_id, account_id.clone());
+    let trigger_id = TriggerId::from_str("trigger")?;
+
+    let trigger_instructions = vec![MintExpr::new(1_u32, asset_id)];
+    let register_trigger = RegisterExpr::new(Trigger::new(
+        trigger_id.clone(),
+        Action::new(
+            trigger_instructions,
+            Repeats::from(1_u32),
+            account_id.clone(),
+            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+                trigger_id.clone(),
+                account_id,
+            )),
+        ),
+    ));
+    test_client.submit_blocking(register_trigger)?;
+
+    test_client.submit_blocking(BurnExpr::new(1_u32, trigger_id.clone()))?;
+
+    // Executing trigger
+    let execute_trigger = ExecuteTriggerExpr::new(trigger_id);
+    let _err = test_client
+        .submit_blocking(execute_trigger)
+        .expect_err("Should fail without repetitions");
+
+    Ok(())
+}
+
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
     Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
