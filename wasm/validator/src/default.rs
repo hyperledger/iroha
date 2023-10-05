@@ -717,7 +717,7 @@ pub mod asset_definition {
     pub fn visit_transfer_asset_definition<V: Validate + ?Sized>(
         validator: &mut V,
         authority: &AccountId,
-        isi: Transfer<Account, AssetDefinition, Account>,
+        isi: Transfer<Account, AssetDefinitionId, Account>,
     ) {
         let source_id = isi.source_id;
         let destination_id = isi.object;
@@ -728,7 +728,7 @@ pub mod asset_definition {
         if &source_id == authority {
             pass!(validator);
         }
-        match is_asset_definition_owner(destination_id.id(), authority) {
+        match is_asset_definition_owner(&destination_id, authority) {
             Err(err) => deny!(validator, err),
             Ok(true) => pass!(validator),
             Ok(false) => {}

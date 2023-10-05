@@ -392,6 +392,40 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     assert_eq!(expected_buyer_btc, buyer_btc_quantity);
 }
 
+#[test]
+fn transfer_asset_definition() {
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_060).start_with_runtime();
+    wait_for_genesis_committed(&[test_client.clone()], 0);
+
+    let alice_id: AccountId = "alice@wonderland".parse().expect("Valid.");
+    let bob_id: AccountId = "bob@wonderland".parse().expect("Valid.");
+    let asset_definition_id: AssetDefinitionId = "asset#wonderland".parse().expect("Valid");
+
+    test_client
+        .submit_blocking(RegisterBox::new(AssetDefinition::quantity(
+            asset_definition_id.clone(),
+        )))
+        .expect("Failed to submit transaction");
+
+    let asset_definition = test_client
+        .request(FindAssetDefinitionById::new(asset_definition_id.clone()))
+        .expect("Failed to execute Iroha Query");
+    assert_eq!(asset_definition.owned_by(), &alice_id);
+
+    test_client
+        .submit_blocking(TransferBox::new(
+            alice_id,
+            asset_definition_id.clone(),
+            bob_id.clone(),
+        ))
+        .expect("Failed to submit transaction");
+
+    let asset_definition = test_client
+        .request(FindAssetDefinitionById::new(asset_definition_id))
+        .expect("Failed to execute Iroha Query");
+    assert_eq!(asset_definition.owned_by(), &bob_id);
+}
+
 fn account_id_new(account_name: &str, account_domain: &str) -> AccountId {
     AccountId::new(
         account_name.parse().expect("Valid"),

@@ -104,13 +104,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for Transfer<Account, AssetDefinition, Account> {
+    impl Execute for Transfer<Account, AssetDefinitionId, Account> {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-            wsv.asset_definition_mut(&self.object.id)?.owned_by = self.destination_id.clone();
+            wsv.asset_definition_mut(&self.object)?.owned_by = self.destination_id.clone();
 
             wsv.emit_events(Some(AssetDefinitionEvent::OwnerChanged(
                 AssetDefinitionOwnerChanged {
-                    asset_definition_id: self.object.id,
+                    asset_definition_id: self.object,
                     new_owner: self.destination_id,
                 },
             )));

@@ -138,7 +138,7 @@ pub trait Visit: ExpressionEvaluator {
         visit_burn_asset(Burn<Asset, NumericValue>),
 
         // Visit TransferBox
-        visit_transfer_asset_definition(Transfer<Account, AssetDefinition, Account>),
+        visit_transfer_asset_definition(Transfer<Account, AssetDefinitionId, Account>),
         visit_transfer_asset(Transfer<Asset, NumericValue, Account>),
 
         // Visit SetKeyValueBox
@@ -483,16 +483,25 @@ pub fn visit_transfer<V: Visit + ?Sized>(
     isi: &TransferBox,
 ) {
     let object = evaluate_expr!(visitor, authority, <isi as Transfer>::object());
+    let source_id = evaluate_expr!(visitor, authority, <isi as Transfer>::source_id());
+    let destination_id = evaluate_expr!(visitor, authority, <isi as Transfer>::destination_id());
 
-    let (IdBox::AssetId(source_id), IdBox::AccountId(destination_id)) = (
-        evaluate_expr!(visitor, authority, <isi as Transfer>::source_id()),
-        evaluate_expr!(visitor, authority, <isi as Transfer>::destination_id()),
-    ) else {
-        return visitor.visit_unsupported(authority, isi);
-    };
-
-    match object {
-        Value::Numeric(object) => visitor.visit_transfer_asset(
+    match (source_id, object, destination_id) {
+        (IdBox::AssetId(source_id), Value::Numeric(object), IdBox::AccountId(destination_id)) => {
+            visitor.visit_transfer_asset(
+                authority,
+                Transfer {
+                    source_id,
+                    object,
+                    destination_id,
+                },
+            )
+        }
+        (
+            IdBox::AccountId(source_id),
+            Value::Id(IdBox::AssetDefinitionId(object)),
+            IdBox::AccountId(destination_id),
+        ) => visitor.visit_transfer_asset_definition(
             authority,
             Transfer {
                 source_id,
@@ -687,7 +696,7 @@ leaf_visitors! {
     visit_remove_asset_key_value(RemoveKeyValue<Asset>),
     visit_register_asset_definition(Register<AssetDefinition>),
     visit_unregister_asset_definition(Unregister<AssetDefinition>),
-    visit_transfer_asset_definition(Transfer<Account, AssetDefinition, Account>),
+    visit_transfer_asset_definition(Transfer<Account, AssetDefinitionId, Account>),
     visit_set_asset_definition_key_value(SetKeyValue<AssetDefinition>),
     visit_remove_asset_definition_key_value(RemoveKeyValue<AssetDefinition>),
     visit_register_domain(Register<Domain>),
