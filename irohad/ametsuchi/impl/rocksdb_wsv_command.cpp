@@ -11,6 +11,7 @@
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
 #include "ametsuchi/ledger_state.hpp"
+#include "backend/protobuf/permissions.hpp"
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/account_asset.hpp"
 #include "interfaces/common_objects/asset.hpp"
@@ -148,10 +149,9 @@ namespace iroha::ametsuchi {
           return {};
         },
         [&]() {
-          using underlying_type_for_grantable = std::underlying_type_t<decltype(permission)>;
           return fmt::format("Insert account {} grantable permission {} for {}",
                              account_id,
-                             static_cast<underlying_type_for_grantable>(permission),
+                             permission,
                              permittee_account_id);
         });
   }
@@ -189,10 +189,9 @@ namespace iroha::ametsuchi {
           return {};
         },
         [&]() {
-          using underlying_type_for_grantable = std::underlying_type_t<decltype(permission)>;
           return fmt::format("Delete account {} grantable permission {} for {}",
                              account_id,
-                             static_cast<underlying_type_for_grantable>(permission),
+                             permission,
                              permittee_account_id);
         });
   }

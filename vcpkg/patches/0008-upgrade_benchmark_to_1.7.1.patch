@@ -1,0 +1,117 @@
+diff --git a/ports/benchmark/CONTROL b/ports/benchmark/CONTROL
+deleted file mode 100644
+index 9a7618385..000000000
+--- a/ports/benchmark/CONTROL
++++ /dev/null
+@@ -1,5 +0,0 @@
+-Source: benchmark
+-Version: 1.5.2
+-Homepage: https://github.com/google/benchmark
+-Description: A library to support the benchmarking of functions, similar to unit-tests.
+-Supports: !(arm|uwp)
+diff --git a/ports/benchmark/fixedBuildingForMac.patch b/ports/benchmark/fixedBuildingForMac.patch
+new file mode 100644
+index 000000000..74d3fd220
+--- /dev/null
++++ b/ports/benchmark/fixedBuildingForMac.patch
+@@ -0,0 +1,26 @@
++From b976cab799c7fb20a5ceadd368431125ac0d99c4 Mon Sep 17 00:00:00 2001
++From: Grzegorz Bazior <bazior@agh.edu.pl>
++Date: Fri, 31 Mar 2023 16:20:55 +0200
++Subject: [PATCH] Fixed building for MacOS - there were unused variable
++
++Signed-off-by: Your Name <you@example.com>
++---
++ CMakeLists.txt | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/CMakeLists.txt b/CMakeLists.txt
++index 9ab265e..0cc0e4a 100644
++--- a/CMakeLists.txt
+++++ b/CMakeLists.txt
++@@ -20,7 +20,7 @@ option(BENCHMARK_ENABLE_TESTING "Enable testing of the benchmark library." ON)
++ option(BENCHMARK_ENABLE_EXCEPTIONS "Enable the use of exceptions in the benchmark library." ON)
++ option(BENCHMARK_ENABLE_LTO "Enable link time optimisation of the benchmark library." OFF)
++ option(BENCHMARK_USE_LIBCXX "Build and test using libc++ as the standard library." OFF)
++-option(BENCHMARK_ENABLE_WERROR "Build Release candidates with -Werror." ON)
+++option(BENCHMARK_ENABLE_WERROR "Build Release candidates with -Werror." OFF)
++ option(BENCHMARK_FORCE_WERROR "Build Release candidates with -Werror regardless of compiler issues." OFF)
++ 
++ if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "PGI")
++-- 
++2.34.1
++
+diff --git a/ports/benchmark/portfile.cmake b/ports/benchmark/portfile.cmake
+index 7f4add94c..36676e59c 100644
+--- a/ports/benchmark/portfile.cmake
++++ b/ports/benchmark/portfile.cmake
+@@ -1,33 +1,29 @@
+-#https://github.com/google/benchmark/issues/661
+-vcpkg_fail_port_install(ON_TARGET "uwp") 
+-
+ vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
+ 
+ vcpkg_from_github(
+     OUT_SOURCE_PATH SOURCE_PATH
+     REPO google/benchmark
+-    REF 73d4d5e8d6d449fc8663765a42aa8aeeee844489 # v1.5.2
+-    SHA512 b87a7c207eb85187165df8ff99ab1bbf5d38fc2a6d839e267a71987951c94e33b55fd7fbee6f2b59202b0379a7e9705b73b193edaea0b9c742eddf3fcbe5f48e
++    REF v1.7.1
++    SHA512 396af1c1d3eaa2b78c6d23b1472f6088db85a294056ae1c2366dc5c0becdc8f141ba8fc3a235033324ab0a41c2298f5d242ef09b9b6f69d9877de6bcb2062efd
+     HEAD_REF master
++    PATCHES fixedBuildingForMac.patch
+ )
+ 
+-vcpkg_configure_cmake(
++vcpkg_cmake_configure(
+     SOURCE_PATH ${SOURCE_PATH}
+-    PREFER_NINJA
+     OPTIONS
+         -DBENCHMARK_ENABLE_TESTING=OFF
+ )
+ 
+-vcpkg_install_cmake()
+-
++vcpkg_cmake_install()
+ vcpkg_copy_pdbs()
+ 
+-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/benchmark)
++vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/benchmark)
+ 
+-vcpkg_fixup_pkgconfig(SYSTEM_LIBRARIES pthread)
++vcpkg_fixup_pkgconfig()
+ 
+-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
+-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/share)
++file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
++file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
+ 
+ # Handle copyright
+-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+\ No newline at end of file
++file(INSTALL "${SOURCE_PATH}/LICENSE" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)
+diff --git a/ports/benchmark/vcpkg.json b/ports/benchmark/vcpkg.json
+new file mode 100644
+index 000000000..279c2663d
+--- /dev/null
++++ b/ports/benchmark/vcpkg.json
+@@ -0,0 +1,19 @@
++{
++  "$comment": "https://github.com/google/benchmark/issues/661 describes the missing UWP support upstream",
++  "name": "benchmark",
++  "version-semver": "1.7.1",
++  "description": "A library to support the benchmarking of functions, similar to unit-tests.",
++  "homepage": "https://github.com/google/benchmark",
++  "license": "Apache-2.0",
++  "supports": "!uwp",
++  "dependencies": [
++    {
++      "name": "vcpkg-cmake",
++      "host": true
++    },
++    {
++      "name": "vcpkg-cmake-config",
++      "host": true
++    }
++  ]
++}

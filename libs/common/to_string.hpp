@@ -77,7 +77,7 @@ namespace iroha {
 
     template <typename T>
     inline auto toString(const T &o) -> std::enable_if_t<
-        boost::optional_detail::is_optional_or_tag<T>::value,
+        boost::optional_detail::is_optional_related<T>::value,
         std::string> {
       return detail::toStringDereferenced(o);
     }

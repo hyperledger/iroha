@@ -1,0 +1,171 @@
+diff --git a/ports/abseil/fix-32-bit-arm.patch b/ports/abseil/fix-32-bit-arm.patch
+new file mode 100644
+index 000000000..bc9ba4f14
+--- /dev/null
++++ b/ports/abseil/fix-32-bit-arm.patch
+@@ -0,0 +1,23 @@
++diff --git a/absl/time/internal/cctz/src/zone_info_source.cc b/absl/time/internal/cctz/src/zone_info_source.cc
++index 7209533..5ab5a59 100644
++--- a/absl/time/internal/cctz/src/zone_info_source.cc
+++++ b/absl/time/internal/cctz/src/zone_info_source.cc
++@@ -65,7 +65,7 @@ ZoneInfoSourceFactory zone_info_source_factory __attribute__((weak)) =
++ extern ZoneInfoSourceFactory zone_info_source_factory;
++ extern ZoneInfoSourceFactory default_factory;
++ ZoneInfoSourceFactory default_factory = DefaultFactory;
++-#if defined(_M_IX86)
+++#if defined(_M_IX86) || defined(_M_ARM)
++ #pragma comment(                                                                                                         \
++     linker,                                                                                                              \
++     "/alternatename:?zone_info_source_factory@cctz_extension@time_internal@" ABSL_INTERNAL_MANGLED_NS                    \
++@@ -83,8 +83,7 @@ ZoneInfoSourceFactory default_factory = DefaultFactory;
++     "@@U?$default_delete@VZoneInfoSource@cctz@time_internal@" ABSL_INTERNAL_MANGLED_NS                                   \
++     "@@@std@@@std@@ABV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@2@@Z@" ABSL_INTERNAL_MANGLED_BACKREFERENCE \
++     "@@ZA")
++-#elif defined(_M_IA_64) || defined(_M_AMD64) || defined(_M_ARM) || \
++-    defined(_M_ARM64)
+++#elif defined(_M_IA_64) || defined(_M_AMD64) || defined(_M_ARM64)
++ #pragma comment(                                                                                                          \
++     linker,                                                                                                               \
++     "/alternatename:?zone_info_source_factory@cctz_extension@time_internal@" ABSL_INTERNAL_MANGLED_NS                     \
+diff --git a/ports/abseil/fix-dll-support.patch b/ports/abseil/fix-dll-support.patch
+new file mode 100644
+index 000000000..c06b39588
+--- /dev/null
++++ b/ports/abseil/fix-dll-support.patch
+@@ -0,0 +1,24 @@
++diff --git a/CMake/AbseilDll.cmake b/CMake/AbseilDll.cmake
++index c4a41e6..da46613 100644
++--- a/CMake/AbseilDll.cmake
+++++ b/CMake/AbseilDll.cmake
++@@ -787,7 +787,7 @@ Cflags: -I\${includedir}${PC_CFLAGS}\n")
++     # Abseil libraries require C++14 as the current minimum standard. When
++     # compiled with C++17 (either because it is the compiler's default or
++     # explicitly requested), then Abseil requires C++17.
++-    _absl_target_compile_features_if_available(${_NAME} PUBLIC ${ABSL_INTERNAL_CXX_STD_FEATURE})
+++    _absl_target_compile_features_if_available(${_dll} PUBLIC ${ABSL_INTERNAL_CXX_STD_FEATURE})
++   else()
++     # Note: This is legacy (before CMake 3.8) behavior. Setting the
++     # target-level CXX_STANDARD property to ABSL_CXX_STANDARD (which is
++@@ -797,8 +797,8 @@ Cflags: -I\${includedir}${PC_CFLAGS}\n")
++     # CXX_STANDARD_REQUIRED does guard against the top-level CMake project
++     # not having enabled CMAKE_CXX_STANDARD_REQUIRED (which prevents
++     # "decaying" to an older standard if the requested one isn't available).
++-    set_property(TARGET ${_NAME} PROPERTY CXX_STANDARD ${ABSL_CXX_STANDARD})
++-    set_property(TARGET ${_NAME} PROPERTY CXX_STANDARD_REQUIRED ON)
+++    set_property(TARGET ${_dll} PROPERTY CXX_STANDARD ${ABSL_CXX_STANDARD})
+++    set_property(TARGET ${_dll} PROPERTY CXX_STANDARD_REQUIRED ON)
++   endif()
++ 
++   install(TARGETS ${_dll} EXPORT ${PROJECT_NAME}Targets
+diff --git a/ports/abseil/portfile.cmake b/ports/abseil/portfile.cmake
+index 94a7673c0..366d6ae27 100644
+--- a/ports/abseil/portfile.cmake
++++ b/ports/abseil/portfile.cmake
+@@ -5,51 +5,49 @@ endif()
+ vcpkg_from_github(
+     OUT_SOURCE_PATH SOURCE_PATH
+     REPO abseil/abseil-cpp
+-    REF 997aaf3a28308eba1b9156aa35ab7bca9688e9f6 #LTS 20210324
+-    SHA512 bdd80a2278eef121e8837791fdebca06e87bfff4adc438c123e0ce11efc42a8bd461edcbbe18c0eee05be2cd6100f9acf8eab3db58ac73322b5852e6ffe7c85b
++    REF 20230125.0
++    SHA512 b3d334215c78b31a2eb10bd9d4a978cd48367866d6daa2065c6c727282bafe19ef7ff5bd7cd4ed5c319d3b04e0711222e08ddbe7621ef1e079fed93a7307112f
+     HEAD_REF master
+     PATCHES
+-        # in C++17 mode, use std::any, std::optional, std::string_view, std::variant
+-        # instead of the library replacement types
+-        # in C++11 mode, force use of library replacement types, otherwise the automatic
+-        # detection can cause ABI issues depending on which compiler options
+-        # are enabled for consuming user code
+-        fix-cxx-standard.patch
++        fix-dll-support.patch
+ )
+ 
+-vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+-    FEATURES
+-        cxx17 ABSL_USE_CXX17
+-)
++# With ABSL_PROPAGATE_CXX_STD=ON abseil automatically detect if it is being
++# compiled with C++14 or C++17, and modifies the installed `absl/base/options.h`
++# header accordingly. This works even if CMAKE_CXX_STANDARD is not set. Abseil
++# uses the compiler default behavior to update `absl/base/options.h` as needed.
++if (ABSL_USE_CXX17 IN_LIST FEATURES)
++    set(ABSL_USE_CXX17_OPTION "-DCMAKE_CXX_STANDARD=17")
++endif ()
+ 
+-vcpkg_configure_cmake(
+-    SOURCE_PATH ${SOURCE_PATH}
+-    PREFER_NINJA
++vcpkg_cmake_configure(
++    SOURCE_PATH "${SOURCE_PATH}"
+     DISABLE_PARALLEL_CONFIGURE
+-    OPTIONS ${FEATURE_OPTIONS}
++    OPTIONS -DABSL_PROPAGATE_CXX_STD=ON ${ABSL_USE_CXX17_OPTION}
+ )
+ 
+-vcpkg_install_cmake()
+-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/absl TARGET_PATH share/absl)
++vcpkg_cmake_install()
++vcpkg_cmake_config_fixup(PACKAGE_NAME absl CONFIG_PATH lib/cmake/absl)
++vcpkg_fixup_pkgconfig()
+ 
+ vcpkg_copy_pdbs()
+-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/share
+-                    ${CURRENT_PACKAGES_DIR}/debug/include
+-                    ${CURRENT_PACKAGES_DIR}/include/absl/copts
+-                    ${CURRENT_PACKAGES_DIR}/include/absl/strings/testdata
+-                    ${CURRENT_PACKAGES_DIR}/include/absl/time/internal/cctz/testdata
++file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share"
++                    "${CURRENT_PACKAGES_DIR}/debug/include"
++                    "${CURRENT_PACKAGES_DIR}/include/absl/copts"
++                    "${CURRENT_PACKAGES_DIR}/include/absl/strings/testdata"
++                    "${CURRENT_PACKAGES_DIR}/include/absl/time/internal/cctz/testdata"
+ )
+ 
+ if (VCPKG_LIBRARY_LINKAGE STREQUAL dynamic)
+-    vcpkg_replace_string(${CURRENT_PACKAGES_DIR}/include/absl/base/config.h
++    vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/include/absl/base/config.h"
+         "#elif defined(ABSL_CONSUME_DLL)" "#elif 1"
+     )
+-    vcpkg_replace_string(${CURRENT_PACKAGES_DIR}/include/absl/base/internal/thread_identity.h
++    vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/include/absl/base/internal/thread_identity.h"
+         "&& !defined(ABSL_CONSUME_DLL)" "&& 0"
+     )
+-    vcpkg_replace_string(${CURRENT_PACKAGES_DIR}/include/absl/container/internal/hashtablez_sampler.h
++    vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/include/absl/container/internal/hashtablez_sampler.h"
+         "!defined(ABSL_CONSUME_DLL)" "0"
+     )
+ endif()
+ 
+-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
++file(INSTALL "${SOURCE_PATH}/LICENSE" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)
+diff --git a/ports/abseil/vcpkg.json b/ports/abseil/vcpkg.json
+index aaf8773c4..b805a4d5d 100644
+--- a/ports/abseil/vcpkg.json
++++ b/ports/abseil/vcpkg.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "abseil",
+-  "version-date": "2021-03-24",
++  "version": "20230125.0",
+   "description": [
+     "an open-source collection designed to augment the C++ standard library.",
+     "Abseil is an open-source collection of C++ library code designed to augment the C++ standard library. The Abseil library code is collected from Google's own C++ code base, has been extensively tested and used in production, and is the same code we depend on in our daily coding lives.",
+@@ -8,7 +8,17 @@
+     "Abseil is not meant to be a competitor to the standard library; we've just found that many of these utilities serve a purpose within our code base, and we now want to provide those resources to the C++ community as a whole."
+   ],
+   "homepage": "https://github.com/abseil/abseil-cpp",
+-  "supports": "(x64 | arm64) & (linux | osx | windows)",
++  "license": "Apache-2.0",
++  "dependencies": [
++    {
++      "name": "vcpkg-cmake",
++      "host": true
++    },
++    {
++      "name": "vcpkg-cmake-config",
++      "host": true
++    }
++  ],
+   "features": {
+     "cxx17": {
+       "description": "Enable compiler C++17."
