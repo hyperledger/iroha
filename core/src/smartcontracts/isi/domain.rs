@@ -284,6 +284,19 @@ pub mod isi {
             Ok(())
         }
     }
+
+    impl Execute for Transfer<Account, DomainId, Account> {
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+            wsv.domain_mut(&self.object)?.owned_by = self.destination_id.clone();
+
+            wsv.emit_events(Some(DomainEvent::OwnerChanged(DomainOwnerChanged {
+                domain_id: self.object,
+                new_owner: self.destination_id,
+            })));
+
+            Ok(())
+        }
+    }
 }
 
 /// Query module provides [`Query`] Domain related implementations.

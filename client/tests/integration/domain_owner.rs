@@ -271,3 +271,37 @@ fn domain_owner_trigger_permissions() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn domain_owner_transfer() -> Result<()> {
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_100).start_with_runtime();
+    wait_for_genesis_committed(&[test_client.clone()], 0);
+
+    let alice_id: AccountId = "alice@wonderland".parse()?;
+    let kingdom_id: DomainId = "kingdom".parse()?;
+    let bob_id: AccountId = "bob@kingdom".parse()?;
+
+    // "alice@wonderland" is owner of "kingdom" domain
+    let kingdom = Domain::new(kingdom_id.clone());
+    test_client.submit_blocking(RegisterBox::new(kingdom))?;
+
+    let bob_keypair = KeyPair::generate()?;
+    let bob = Account::new(bob_id.clone(), [bob_keypair.public_key().clone()]);
+    test_client.submit_blocking(RegisterBox::new(bob))?;
+
+    let domain = test_client.request(FindDomainById::new(kingdom_id.clone()))?;
+    assert_eq!(domain.owned_by(), &alice_id);
+
+    test_client
+        .submit_blocking(TransferBox::new(
+            alice_id,
+            kingdom_id.clone(),
+            bob_id.clone(),
+        ))
+        .expect("Failed to submit transaction");
+
+    let asset_definition = test_client.request(FindDomainById::new(kingdom_id))?;
+    assert_eq!(asset_definition.owned_by(), &bob_id);
+
+    Ok(())
+}
