@@ -110,6 +110,7 @@ impl Visit for Validator {
         // Trigger validation
         visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
         visit_mint_trigger_repetitions(Mint<Trigger<TriggeringFilterBox, Executable>, u32>),
+        visit_burn_trigger_repetitions(Burn<Trigger<TriggeringFilterBox, Executable>, u32>),
         visit_execute_trigger(ExecuteTrigger),
 
         // Parameter validation

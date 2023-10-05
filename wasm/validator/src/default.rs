@@ -26,7 +26,8 @@ pub use role::{
     visit_grant_account_role, visit_register_role, visit_revoke_account_role, visit_unregister_role,
 };
 pub use trigger::{
-    visit_execute_trigger, visit_mint_trigger_repetitions, visit_unregister_trigger,
+    visit_burn_trigger_repetitions, visit_execute_trigger, visit_mint_trigger_repetitions,
+    visit_unregister_trigger,
 };
 pub use validator::visit_upgrade_validator;
 
@@ -1403,6 +1404,7 @@ pub mod trigger {
         crate::default::trigger::tokens::CanExecuteUserTrigger,
         crate::default::trigger::tokens::CanUnregisterUserTrigger,
         crate::default::trigger::tokens::CanMintUserTrigger,
+        crate::default::trigger::tokens::CanBurnUserTrigger,
     }
 
     pub mod tokens {
@@ -1431,12 +1433,21 @@ pub mod trigger {
                 pub trigger_id: TriggerId,
             }
         }
+
+        token! {
+            #[derive(ValidateGrantRevoke)]
+            #[validate(permission::trigger::Owner)]
+            pub struct CanBurnUserTrigger {
+                pub trigger_id: TriggerId,
+            }
+        }
     }
 
     impl_froms!(
         tokens::CanExecuteUserTrigger,
         tokens::CanUnregisterUserTrigger,
         tokens::CanMintUserTrigger,
+        tokens::CanBurnUserTrigger,
     );
 
     pub fn visit_unregister_trigger<V: Validate + ?Sized>(
@@ -1488,6 +1499,32 @@ pub mod trigger {
         deny!(
             validator,
             "Can't mint execution count for trigger owned by another account"
+        );
+    }
+
+    pub fn visit_burn_trigger_repetitions<V: Validate + ?Sized>(
+        validator: &mut V,
+        authority: &AccountId,
+        isi: Burn<Trigger<TriggeringFilterBox, Executable>, u32>,
+    ) {
+        let trigger_id = isi.destination_id;
+
+        if is_genesis(validator) {
+            pass!(validator);
+        }
+        match is_trigger_owner(trigger_id.clone(), authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+        }
+        let can_mint_user_trigger_token = tokens::CanMintUserTrigger { trigger_id };
+        if can_mint_user_trigger_token.is_owned_by(authority) {
+            pass!(validator);
+        }
+
+        deny!(
+            validator,
+            "Can't burn execution count for trigger owned by another account"
         );
     }
 
