@@ -307,6 +307,9 @@ impl Execute for RemoveKeyValueBox {
             IdBox::AccountId(object_id) => {
                 RemoveKeyValue::<Account> { object_id, key }.execute(authority, wsv)
             }
+            IdBox::DomainId(object_id) => {
+                RemoveKeyValue::<Domain> { object_id, key }.execute(authority, wsv)
+            }
             _ => Err(Error::Evaluate(InstructionType::RemoveKeyValue.into())),
         }
     }
