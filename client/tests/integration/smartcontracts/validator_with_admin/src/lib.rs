@@ -83,7 +83,7 @@ impl Visit for Validator {
 
         // AssetDefinition validation
         visit_unregister_asset_definition(Unregister<AssetDefinition>),
-        visit_transfer_asset_definition(Transfer<Account, AssetDefinition, Account>),
+        visit_transfer_asset_definition(Transfer<Account, AssetDefinitionId, Account>),
         visit_set_asset_definition_key_value(SetKeyValue<AssetDefinition>),
         visit_remove_asset_definition_key_value(RemoveKeyValue<AssetDefinition>),
 

@@ -222,32 +222,44 @@ impl Execute for BurnBox {
 impl Execute for TransferBox {
     #[iroha_logger::log(name = "transfer", skip_all, fields(from, to))]
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-        let (IdBox::AssetId(source_id), IdBox::AccountId(destination_id)) = (
-            wsv.evaluate(&self.source_id)?,
-            wsv.evaluate(&self.destination_id)?,
-        ) else {
-            return Err(Error::Evaluate(InstructionType::Transfer.into()));
-        };
-
+        let source_id = wsv.evaluate(&self.source_id)?;
+        let destination_id = wsv.evaluate(&self.destination_id)?;
         let value = wsv.evaluate(&self.object)?;
+        iroha_logger::trace!(%value, %authority);
         Span::current().record("from", source_id.to_string());
         Span::current().record("to", destination_id.to_string());
-        iroha_logger::trace!(%value, %authority);
 
-        match value {
-            Value::Numeric(NumericValue::U32(object)) => Transfer {
-                source_id,
-                object,
-                destination_id,
-            }
-            .execute(authority, wsv),
-            Value::Numeric(NumericValue::U128(object)) => Transfer {
-                source_id,
-                object,
-                destination_id,
-            }
-            .execute(authority, wsv),
-            Value::Numeric(NumericValue::Fixed(object)) => Transfer {
+        match (source_id, value, destination_id) {
+            (
+                IdBox::AssetId(source_id),
+                Value::Numeric(value),
+                IdBox::AccountId(destination_id),
+            ) => match value {
+                NumericValue::U32(object) => Transfer {
+                    source_id,
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv),
+                NumericValue::U128(object) => Transfer {
+                    source_id,
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv),
+                NumericValue::Fixed(object) => Transfer {
+                    source_id,
+                    object,
+                    destination_id,
+                }
+                .execute(authority, wsv),
+                _ => Err(Error::Evaluate(InstructionType::Transfer.into())),
+            },
+            (
+                IdBox::AccountId(source_id),
+                Value::Id(IdBox::AssetDefinitionId(object)),
+                IdBox::AccountId(destination_id),
+            ) => Transfer {
                 source_id,
                 object,
                 destination_id,
