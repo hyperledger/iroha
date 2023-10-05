@@ -17,7 +17,8 @@ pub use asset_definition::{
     visit_transfer_asset_definition, visit_unregister_asset_definition,
 };
 pub use domain::{
-    visit_remove_domain_key_value, visit_set_domain_key_value, visit_unregister_domain,
+    visit_remove_domain_key_value, visit_set_domain_key_value, visit_transfer_domain,
+    visit_unregister_domain,
 };
 pub use parameter::{visit_new_parameter, visit_set_parameter};
 pub use peer::visit_unregister_peer;
@@ -415,6 +416,25 @@ pub mod domain {
         }
 
         deny!(validator, "Can't unregister domain");
+    }
+
+    pub fn visit_transfer_domain<V: Validate + ?Sized>(
+        validator: &mut V,
+        authority: &AccountId,
+        isi: Transfer<Account, DomainId, Account>,
+    ) {
+        let destination_id = isi.object;
+
+        if is_genesis(validator) {
+            pass!(validator);
+        }
+        match is_domain_owner(&destination_id, authority) {
+            Err(err) => deny!(validator, err),
+            Ok(true) => pass!(validator),
+            Ok(false) => {}
+        }
+
+        deny!(validator, "Can't transfer domain of another account");
     }
 
     pub fn visit_set_domain_key_value<V: Validate + ?Sized>(
