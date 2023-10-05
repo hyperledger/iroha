@@ -141,6 +141,7 @@ pub trait Visit: ExpressionEvaluator {
         // Visit TransferBox
         visit_transfer_asset_definition(Transfer<Account, AssetDefinitionId, Account>),
         visit_transfer_asset(Transfer<Asset, NumericValue, Account>),
+        visit_transfer_domain(Transfer<Account, DomainId, Account>),
 
         // Visit SetKeyValueBox
         visit_set_domain_key_value(SetKeyValue<Domain>),
@@ -518,6 +519,18 @@ pub fn visit_transfer<V: Visit + ?Sized>(
                 destination_id,
             },
         ),
+        (
+            IdBox::AccountId(source_id),
+            Value::Id(IdBox::DomainId(object)),
+            IdBox::AccountId(destination_id),
+        ) => visitor.visit_transfer_domain(
+            authority,
+            Transfer {
+                source_id,
+                object,
+                destination_id,
+            },
+        ),
         _ => visitor.visit_unsupported(authority, isi),
     }
 }
@@ -710,6 +723,7 @@ leaf_visitors! {
     visit_remove_asset_definition_key_value(RemoveKeyValue<AssetDefinition>),
     visit_register_domain(Register<Domain>),
     visit_unregister_domain(Unregister<Domain>),
+    visit_transfer_domain(Transfer<Account, DomainId, Account>),
     visit_set_domain_key_value(SetKeyValue<Domain>),
     visit_remove_domain_key_value(RemoveKeyValue<Domain>),
     visit_register_peer(Register<Peer>),

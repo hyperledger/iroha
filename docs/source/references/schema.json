@@ -1008,6 +1008,11 @@
         "tag": "MetadataRemoved",
         "discriminant": 5,
         "type": "MetadataChanged<DomainId>"
+      },
+      {
+        "tag": "OwnerChanged",
+        "discriminant": 6,
+        "type": "DomainOwnerChanged"
       }
     ]
   },
@@ -1030,13 +1035,17 @@
         "discriminant": 3
       },
       {
+        "tag": "ByOwnerChanged",
+        "discriminant": 4
+      },
+      {
         "tag": "ByAccount",
-        "discriminant": 4,
+        "discriminant": 5,
         "type": "FilterOpt<AccountFilter>"
       },
       {
         "tag": "ByAssetDefinition",
-        "discriminant": 5,
+        "discriminant": 6,
         "type": "FilterOpt<AssetDefinitionFilter>"
       }
     ]
@@ -1058,6 +1067,18 @@
       {
         "name": "name",
         "type": "Name"
+      }
+    ]
+  },
+  "DomainOwnerChanged": {
+    "Struct": [
+      {
+        "name": "domain_id",
+        "type": "DomainId"
+      },
+      {
+        "name": "new_owner",
+        "type": "AccountId"
       }
     ]
   },

@@ -214,6 +214,7 @@ impl Visit for Validator {
         visit_unregister_peer(Unregister<Peer>),
 
         // Domain validation
+        visit_transfer_domain(Transfer<Account, DomainId, Account>),
         visit_set_domain_key_value(SetKeyValue<Domain>),
         visit_remove_domain_key_value(RemoveKeyValue<Domain>),
 

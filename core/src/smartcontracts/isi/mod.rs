@@ -272,6 +272,16 @@ impl Execute for TransferBox {
                 destination_id,
             }
             .execute(authority, wsv),
+            (
+                IdBox::AccountId(source_id),
+                Value::Id(IdBox::DomainId(object)),
+                IdBox::AccountId(destination_id),
+            ) => Transfer {
+                source_id,
+                object,
+                destination_id,
+            }
+            .execute(authority, wsv),
             _ => Err(Error::Evaluate(InstructionType::Transfer.into())),
         }
     }
