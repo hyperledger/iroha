@@ -136,6 +136,7 @@ pub trait Visit: ExpressionEvaluator {
         // Visit BurnExpr
         visit_burn_account_public_key(Burn<PublicKey, Account>),
         visit_burn_asset(Burn<NumericValue, Asset>),
+        visit_burn_trigger_repetitions(Burn<u32, Trigger<TriggeringFilterBox, Executable>>),
 
         // Visit TransferExpr
         visit_transfer_asset_definition(Transfer<Account, AssetDefinitionId, Account>),
@@ -473,6 +474,14 @@ pub fn visit_burn<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi
                     destination_id,
                 },
             ),
+        (IdBox::TriggerId(destination_id), Value::Numeric(NumericValue::U32(object))) => visitor
+            .visit_burn_trigger_repetitions(
+                authority,
+                Burn {
+                    object,
+                    destination_id,
+                },
+            ),
         _ => visitor.visit_unsupported(authority, isi),
     }
 }
@@ -710,6 +719,7 @@ leaf_visitors! {
     visit_register_trigger(Register<Trigger<TriggeringFilterBox, Executable>>),
     visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
     visit_mint_trigger_repetitions(Mint<u32, Trigger<TriggeringFilterBox, Executable>>),
+    visit_burn_trigger_repetitions(Burn<u32, Trigger<TriggeringFilterBox, Executable>>),
     visit_upgrade_validator(Upgrade<Validator>),
     visit_new_parameter(NewParameter),
     visit_set_parameter(SetParameter),
