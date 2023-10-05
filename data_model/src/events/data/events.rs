@@ -440,6 +440,7 @@ mod account {
 mod domain {
     //! This module contains `DomainEvent` and its impls
 
+    pub use self::model::*;
     use super::*;
 
     // type alias required by `Filter` macro
@@ -459,6 +460,35 @@ mod domain {
             MetadataInserted(DomainMetadataChanged),
             #[has_origin(metadata_changed => &metadata_changed.target_id)]
             MetadataRemoved(DomainMetadataChanged),
+            #[has_origin(owner_changed => &owner_changed.domain_id)]
+            OwnerChanged(DomainOwnerChanged),
+        }
+    }
+
+    #[model]
+    pub mod model {
+        use super::*;
+
+        /// Event indicate that owner of the [`Domain`] is changed
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Getters,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
+        #[getset(get = "pub")]
+        #[ffi_type]
+        pub struct DomainOwnerChanged {
+            pub domain_id: DomainId,
+            pub new_owner: AccountId,
         }
     }
 }
@@ -675,7 +705,7 @@ pub mod prelude {
             AssetEventFilter, AssetFilter,
         },
         config::ConfigurationEvent,
-        domain::{DomainEvent, DomainEventFilter, DomainFilter},
+        domain::{DomainEvent, DomainEventFilter, DomainFilter, DomainOwnerChanged},
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
         permission::PermissionTokenSchemaUpdateEvent,
         role::{PermissionRemoved, RoleEvent, RoleEventFilter, RoleFilter},
