@@ -17,7 +17,8 @@ use iroha_data_model::{
     isi::error::{InstructionExecutionError, MathError},
     prelude::*,
     query::error::FindError,
-    trigger::{action::ActionTrait, OptimizedExecutable, Trigger, WasmInternalRepr},
+    transaction::WasmSmartContract,
+    trigger::Trigger,
 };
 use serde::{
     de::{DeserializeSeed, MapAccess, Visitor},
@@ -38,8 +39,98 @@ pub enum Error {
 /// Result type for [`Set`] operations.
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
-/// Type of action with pre-loaded executable.
-pub type LoadedAction<F> = Action<F, LoadedExecutable>;
+/// Same as [`Action`](`iroha_data_model::trigger::Action`) but with
+/// executable in pre-loaded form
+#[derive(Clone, Debug)]
+pub struct LoadedAction<F> {
+    /// The executable linked to this action in loaded form
+    executable: LoadedExecutable,
+    /// The repeating scheme of the action. It's kept as part of the
+    /// action and not inside the [`Trigger`] type, so that further
+    /// sanity checking can be done.
+    pub repeats: Repeats,
+    /// Account executing this action
+    pub authority: AccountId,
+    /// Defines events which trigger the `Action`
+    pub filter: F,
+    /// Metadata used as persistent storage for trigger data.
+    pub metadata: Metadata,
+}
+
+/// Trait common for all `LoadedAction`s
+pub trait LoadedActionTrait {
+    /// Get action executable
+    fn executable(&self) -> &LoadedExecutable;
+
+    /// Get action repeats enum
+    fn repeats(&self) -> &Repeats;
+
+    /// Set action repeats
+    fn set_repeats(&mut self, repeats: Repeats);
+
+    /// Get action technical account
+    fn authority(&self) -> &AccountId;
+
+    /// Get action metadata
+    fn metadata(&self) -> &Metadata;
+
+    /// Check if action is mintable.
+    fn mintable(&self) -> bool;
+
+    /// Convert action to a boxed representation
+    fn into_boxed(self) -> LoadedAction<TriggeringFilterBox>;
+
+    /// Same as [`into_boxed()`](LoadedActionTrait::into_boxed) but clones `self`
+    fn clone_and_box(&self) -> LoadedAction<TriggeringFilterBox>;
+}
+
+impl<F: Filter + Into<TriggeringFilterBox> + Clone> LoadedActionTrait for LoadedAction<F> {
+    fn executable(&self) -> &LoadedExecutable {
+        &self.executable
+    }
+
+    fn repeats(&self) -> &iroha_data_model::trigger::action::Repeats {
+        &self.repeats
+    }
+
+    fn set_repeats(&mut self, repeats: iroha_data_model::trigger::action::Repeats) {
+        self.repeats = repeats;
+    }
+
+    fn authority(&self) -> &AccountId {
+        &self.authority
+    }
+
+    fn metadata(&self) -> &Metadata {
+        &self.metadata
+    }
+
+    fn mintable(&self) -> bool {
+        self.filter.mintable()
+    }
+
+    fn into_boxed(self) -> LoadedAction<TriggeringFilterBox> {
+        let Self {
+            executable,
+            repeats,
+            authority,
+            filter,
+            metadata,
+        } = self;
+
+        LoadedAction {
+            executable,
+            repeats,
+            authority,
+            filter: filter.into(),
+            metadata,
+        }
+    }
+
+    fn clone_and_box(&self) -> LoadedAction<TriggeringFilterBox> {
+        self.clone().into_boxed()
+    }
+}
 
 /// Specialized structure that maps event filters to Triggers.
 // NB: `Set` has custom `Serialize` and `DeserializeSeed` implementations
@@ -57,7 +148,7 @@ pub struct Set {
     /// Trigger ids with type of events they process
     ids: HashMap<TriggerId, TriggeringEventType>,
     /// Original [`WasmSmartContract`]s by [`TriggerId`] for querying purposes.
-    original_contracts: HashMap<TriggerId, WasmSmartContract>,
+    original_contracts: HashMap<HashOf<WasmSmartContract>, WasmSmartContract>,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     matched_ids: Vec<(Event, TriggerId)>,
@@ -85,7 +176,7 @@ impl<F: Clone + Serialize> Serialize for TriggersWithContext<'_, F> {
     {
         let mut map = serializer.serialize_map(Some(self.triggers.len()))?;
         for (id, action) in self.triggers.iter() {
-            let action = self.set.get_original_action(id, action.clone());
+            let action = self.set.get_original_action(action.clone());
             map.serialize_entry(&id, &action)?;
         }
         map.end()
@@ -145,7 +236,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "data_triggers" => {
-                            let triggers: HashMap<TriggerId, Action<DataEventFilter, Executable>> =
+                            let triggers: HashMap<TriggerId, Action<DataEventFilter>> =
                                 map.next_value()?;
                             for (id, action) in triggers {
                                 set.add_data_trigger(self.loader.engine, Trigger::new(id, action))
@@ -153,10 +244,8 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                             }
                         }
                         "pipeline_triggers" => {
-                            let triggers: HashMap<
-                                TriggerId,
-                                Action<PipelineEventFilter, Executable>,
-                            > = map.next_value()?;
+                            let triggers: HashMap<TriggerId, Action<PipelineEventFilter>> =
+                                map.next_value()?;
                             for (id, action) in triggers {
                                 set.add_pipeline_trigger(
                                     self.loader.engine,
@@ -166,7 +255,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                             }
                         }
                         "time_triggers" => {
-                            let triggers: HashMap<TriggerId, Action<TimeEventFilter, Executable>> =
+                            let triggers: HashMap<TriggerId, Action<TimeEventFilter>> =
                                 map.next_value()?;
                             for (id, action) in triggers {
                                 set.add_time_trigger(self.loader.engine, Trigger::new(id, action))
@@ -174,10 +263,8 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                             }
                         }
                         "by_call_triggers" => {
-                            let triggers: HashMap<
-                                TriggerId,
-                                Action<ExecuteTriggerEventFilter, Executable>,
-                            > = map.next_value()?;
+                            let triggers: HashMap<TriggerId, Action<ExecuteTriggerEventFilter>> =
+                                map.next_value()?;
                             for (id, action) in triggers {
                                 set.add_by_call_trigger(
                                     self.loader.engine,
@@ -227,7 +314,7 @@ impl Set {
     pub fn add_data_trigger(
         &mut self,
         engine: &wasmtime::Engine,
-        trigger: Trigger<DataEventFilter, Executable>,
+        trigger: Trigger<DataEventFilter>,
     ) -> Result<bool> {
         self.add_to(engine, trigger, TriggeringEventType::Data, |me| {
             &mut me.data_triggers
@@ -245,7 +332,7 @@ impl Set {
     pub fn add_pipeline_trigger(
         &mut self,
         engine: &wasmtime::Engine,
-        trigger: Trigger<PipelineEventFilter, Executable>,
+        trigger: Trigger<PipelineEventFilter>,
     ) -> Result<bool> {
         self.add_to(engine, trigger, TriggeringEventType::Pipeline, |me| {
             &mut me.pipeline_triggers
@@ -263,7 +350,7 @@ impl Set {
     pub fn add_time_trigger(
         &mut self,
         engine: &wasmtime::Engine,
-        trigger: Trigger<TimeEventFilter, Executable>,
+        trigger: Trigger<TimeEventFilter>,
     ) -> Result<bool> {
         self.add_to(engine, trigger, TriggeringEventType::Time, |me| {
             &mut me.time_triggers
@@ -281,7 +368,7 @@ impl Set {
     pub fn add_by_call_trigger(
         &mut self,
         engine: &wasmtime::Engine,
-        trigger: Trigger<ExecuteTriggerEventFilter, Executable>,
+        trigger: Trigger<ExecuteTriggerEventFilter>,
     ) -> Result<bool> {
         self.add_to(engine, trigger, TriggeringEventType::ExecuteTrigger, |me| {
             &mut me.by_call_triggers
@@ -298,7 +385,7 @@ impl Set {
     fn add_to<F: Filter>(
         &mut self,
         engine: &wasmtime::Engine,
-        trigger: Trigger<F, Executable>,
+        trigger: Trigger<F>,
         event_type: TriggeringEventType,
         map: impl FnOnce(&mut Self) -> &mut HashMap<TriggerId, LoadedAction<F>>,
     ) -> Result<bool> {
@@ -317,12 +404,13 @@ impl Set {
 
         let loaded_executable = match executable {
             Executable::Wasm(bytes) => {
+                let hash = HashOf::new(&bytes);
                 let loaded = LoadedExecutable::Wasm(LoadedWasm {
                     module: wasm::load_module(engine, &bytes)?,
-                    blob_hash: HashOf::new(&bytes),
+                    blob_hash: hash,
                 });
                 // Store original executable representation to respond to queries with.
-                self.original_contracts.insert(trigger_id.clone(), bytes);
+                self.original_contracts.insert(hash, bytes);
                 loaded
             }
             Executable::Instructions(instructions) => LoadedExecutable::Instructions(instructions),
@@ -345,16 +433,17 @@ impl Set {
     /// Returns `None` if there's no [`Trigger`]
     /// with specified `id` that has WASM executable
     #[inline]
-    pub fn get_original_contract(&self, id: &TriggerId) -> Option<&WasmSmartContract> {
-        self.original_contracts.get(id)
+    pub fn get_original_contract(
+        &self,
+        hash: &HashOf<WasmSmartContract>,
+    ) -> Option<&WasmSmartContract> {
+        self.original_contracts.get(hash)
     }
 
-    fn get_original_action<F: Clone>(
-        &self,
-        id: &TriggerId,
-        action: LoadedAction<F>,
-    ) -> Action<F, Executable> {
-        let Action {
+    /// Convert [`LoadedAction`] to original [`Action`] by retrieving original
+    /// [`WasmSmartContract`] if applicable
+    pub fn get_original_action<F: Clone>(&self, action: LoadedAction<F>) -> Action<F> {
+        let LoadedAction {
             executable,
             repeats,
             authority,
@@ -363,9 +452,9 @@ impl Set {
         } = action;
 
         let original_executable = match executable {
-            LoadedExecutable::Wasm(_) => {
+            LoadedExecutable::Wasm(LoadedWasm { ref blob_hash, .. }) => {
                 let original_wasm = self
-                    .get_original_contract(id)
+                    .get_original_contract(blob_hash)
                     .cloned()
                     .expect("No original smartcontract saved for trigger. This is a bug.");
                 Executable::Wasm(original_wasm)
@@ -388,6 +477,43 @@ impl Set {
         self.ids.keys()
     }
 
+    /// Get [`LoadedExecutable`] for given [`TriggerId`].
+    /// Returns `None` if `id` is not in the set.
+    pub fn get_executable(&self, id: &TriggerId) -> Option<&LoadedExecutable> {
+        let event_type = self.ids.get(id)?;
+
+        Some(match event_type {
+            TriggeringEventType::Data => {
+                &self
+                    .data_triggers
+                    .get(id)
+                    .expect("`Set::data_triggers` doesn't contain required id. This is a bug")
+                    .executable
+            }
+            TriggeringEventType::Pipeline => {
+                &self
+                    .pipeline_triggers
+                    .get(id)
+                    .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug")
+                    .executable
+            }
+            TriggeringEventType::Time => {
+                &self
+                    .time_triggers
+                    .get(id)
+                    .expect("`Set::time_triggers` doesn't contain required id. This is a bug")
+                    .executable
+            }
+            TriggeringEventType::ExecuteTrigger => {
+                &self
+                    .by_call_triggers
+                    .get(id)
+                    .expect("`Set::by_call_triggers` doesn't contain required id. This is a bug")
+                    .executable
+            }
+        })
+    }
+
     /// Apply `f` to triggers that belong to the given [`DomainId`]
     ///
     /// Return an empty list if [`Set`] doesn't contain any triggers belonging to [`DomainId`].
@@ -397,7 +523,7 @@ impl Set {
         f: F,
     ) -> impl Iterator<Item = R> + '_
     where
-        F: Fn(&TriggerId, &dyn ActionTrait<Executable = LoadedExecutable>) -> R,
+        F: Fn(&TriggerId, &dyn LoadedActionTrait) -> R,
     {
         let domain_id = domain_id.clone();
 
@@ -440,7 +566,7 @@ impl Set {
     /// Return [`None`] if [`Set`] doesn't contain the trigger with the given `id`.
     pub fn inspect_by_id<F, R>(&self, id: &TriggerId, f: F) -> Option<R>
     where
-        F: Fn(&dyn ActionTrait<Executable = LoadedExecutable>) -> R,
+        F: Fn(&dyn LoadedActionTrait) -> R,
     {
         let event_type = self.ids.get(id).copied()?;
 
@@ -474,7 +600,7 @@ impl Set {
     /// Return [`None`] if [`Set`] doesn't contain the trigger with the given `id`.
     pub fn inspect_by_id_mut<F, R>(&mut self, id: &TriggerId, f: F) -> Option<R>
     where
-        F: Fn(&mut dyn ActionTrait<Executable = LoadedExecutable>) -> R,
+        F: Fn(&mut dyn LoadedActionTrait) -> R,
     {
         let event_type = self.ids.get(id).copied()?;
 
@@ -507,32 +633,49 @@ impl Set {
     ///
     /// Return `false` if [`Set`] doesn't contain the trigger with the given `id`.
     pub fn remove(&mut self, id: &TriggerId) -> bool {
-        self.original_contracts.remove(id);
-        self.ids
-            .remove(id)
-            .map(|event_type| match event_type {
-                TriggeringEventType::Data => self
-                    .data_triggers
-                    .remove(id)
-                    .map(|_| ())
-                    .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
-                TriggeringEventType::Pipeline => {
-                    self.pipeline_triggers.remove(id).map(|_| ()).expect(
-                        "`Set::pipeline_triggers` doesn't contain required id. This is a bug",
-                    )
-                }
-                TriggeringEventType::Time => self
-                    .time_triggers
-                    .remove(id)
-                    .map(|_| ())
-                    .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
-                TriggeringEventType::ExecuteTrigger => {
-                    self.by_call_triggers.remove(id).map(|_| ()).expect(
-                        "`Set::by_call_triggers` doesn't contain required id. This is a bug",
-                    )
-                }
-            })
-            .is_some()
+        // Used in a map that requires this signature
+        #[allow(clippy::needless_pass_by_value)]
+        fn extract_blob_hash<F>(action: LoadedAction<F>) -> Option<HashOf<WasmSmartContract>> {
+            match action.executable {
+                LoadedExecutable::Wasm(LoadedWasm { blob_hash, .. }) => Some(blob_hash),
+                LoadedExecutable::Instructions(_) => None,
+            }
+        }
+
+        let Some(event_type) = self.ids.remove(id) else {
+            return false;
+        };
+
+        let blob_hash = match event_type {
+            TriggeringEventType::Data => self
+                .data_triggers
+                .remove(id)
+                .map(extract_blob_hash)
+                .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
+            TriggeringEventType::Pipeline => self
+                .pipeline_triggers
+                .remove(id)
+                .map(extract_blob_hash)
+                .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug"),
+            TriggeringEventType::Time => self
+                .time_triggers
+                .remove(id)
+                .map(extract_blob_hash)
+                .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
+            TriggeringEventType::ExecuteTrigger => self
+                .by_call_triggers
+                .remove(id)
+                .map(extract_blob_hash)
+                .expect("`Set::by_call_triggers` doesn't contain required id. This is a bug"),
+        };
+
+        if let Some(blob_hash) = blob_hash {
+            self.original_contracts
+                .remove(&blob_hash)
+                .expect("`Set::original_contracts` doesn't contain required hash. This is a bug");
+        }
+
+        true
     }
 
     /// Check if [`Set`] contains `id`.
@@ -730,24 +873,6 @@ impl core::fmt::Debug for LoadedExecutable {
                 .finish(),
             Self::Instructions(instructions) => {
                 f.debug_tuple("Instructions").field(instructions).finish()
-            }
-        }
-    }
-}
-
-impl From<LoadedExecutable> for OptimizedExecutable {
-    fn from(executable: LoadedExecutable) -> Self {
-        match executable {
-            LoadedExecutable::Wasm(LoadedWasm { module, blob_hash }) => {
-                OptimizedExecutable::WasmInternalRepr(WasmInternalRepr {
-                    serialized: module
-                        .serialize()
-                        .expect("Serialization of optimized wasm module should always succeed"),
-                    blob_hash,
-                })
-            }
-            LoadedExecutable::Instructions(instructions) => {
-                OptimizedExecutable::Instructions(instructions)
             }
         }
     }

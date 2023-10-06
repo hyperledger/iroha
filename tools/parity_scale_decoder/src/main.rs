@@ -261,7 +261,7 @@ mod tests {
         );
         let rose_id = AssetId::new(rose_definition_id, account_id.clone());
         let trigger_id = "mint_rose".parse().expect("Valid");
-        let action = Action::<FilterBox, Executable>::new(
+        let action = Action::<FilterBox>::new(
             vec![MintExpr::new(1_u32, rose_id)],
             Repeats::Indefinitely,
             account_id,
@@ -273,7 +273,7 @@ mod tests {
 
         decode_sample(
             "trigger.bin",
-            String::from("Trigger<TriggeringFilterBox, Executable>"),
+            String::from("Trigger<TriggeringFilterBox>"),
             &trigger,
         );
     }

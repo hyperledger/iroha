@@ -1510,7 +1510,7 @@ pub mod trigger {
     pub fn visit_unregister_trigger<V: Validate + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: Unregister<Trigger<TriggeringFilterBox, Executable>>,
+        isi: Unregister<Trigger<TriggeringFilterBox>>,
     ) {
         let trigger_id = isi.object_id;
 
@@ -1536,7 +1536,7 @@ pub mod trigger {
     pub fn visit_mint_trigger_repetitions<V: Validate + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: Mint<u32, Trigger<TriggeringFilterBox, Executable>>,
+        isi: Mint<u32, Trigger<TriggeringFilterBox>>,
     ) {
         let trigger_id = isi.destination_id;
 
@@ -1562,7 +1562,7 @@ pub mod trigger {
     pub fn visit_burn_trigger_repetitions<V: Validate + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        isi: Burn<u32, Trigger<TriggeringFilterBox, Executable>>,
+        isi: Burn<u32, Trigger<TriggeringFilterBox>>,
     ) {
         let trigger_id = isi.destination_id;
 
