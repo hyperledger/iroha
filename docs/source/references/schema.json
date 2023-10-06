@@ -179,35 +179,11 @@
       }
     ]
   },
-  "Action<TriggeringFilterBox, Executable>": {
+  "Action<TriggeringFilterBox>": {
     "Struct": [
       {
         "name": "executable",
         "type": "Executable"
-      },
-      {
-        "name": "repeats",
-        "type": "Repeats"
-      },
-      {
-        "name": "authority",
-        "type": "AccountId"
-      },
-      {
-        "name": "filter",
-        "type": "TriggeringFilterBox"
-      },
-      {
-        "name": "metadata",
-        "type": "Metadata"
-      }
-    ]
-  },
-  "Action<TriggeringFilterBox, OptimizedExecutable>": {
-    "Struct": [
-      {
-        "name": "executable",
-        "type": "OptimizedExecutable"
       },
       {
         "name": "repeats",
@@ -2222,7 +2198,6 @@
   "HashOf<MerkleTree<SignedTransaction>>": "Hash",
   "HashOf<SignedBlock>": "Hash",
   "HashOf<SignedTransaction>": "Hash",
-  "HashOf<WasmSmartContract>": "Hash",
   "HashValue": {
     "Enum": [
       {
@@ -2336,7 +2311,7 @@
       {
         "tag": "Trigger",
         "discriminant": 9,
-        "type": "TriggerBox"
+        "type": "Trigger<TriggeringFilterBox>"
       },
       {
         "tag": "Role",
@@ -3116,20 +3091,6 @@
       }
     ]
   },
-  "OptimizedExecutable": {
-    "Enum": [
-      {
-        "tag": "WasmInternalRepr",
-        "discriminant": 0,
-        "type": "WasmInternalRepr"
-      },
-      {
-        "tag": "Instructions",
-        "discriminant": 1,
-        "type": "Vec<InstructionExpr>"
-      }
-    ]
-  },
   "Option<DomainId>": {
     "Option": "DomainId"
   },
@@ -3744,7 +3705,7 @@
       {
         "tag": "Trigger",
         "discriminant": 5,
-        "type": "Trigger<TriggeringFilterBox, Executable>"
+        "type": "Trigger<TriggeringFilterBox>"
       },
       {
         "tag": "Role",
@@ -4375,7 +4336,7 @@
       }
     ]
   },
-  "Trigger<TriggeringFilterBox, Executable>": {
+  "Trigger<TriggeringFilterBox>": {
     "Struct": [
       {
         "name": "id",
@@ -4383,33 +4344,7 @@
       },
       {
         "name": "action",
-        "type": "Action<TriggeringFilterBox, Executable>"
-      }
-    ]
-  },
-  "Trigger<TriggeringFilterBox, OptimizedExecutable>": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "TriggerId"
-      },
-      {
-        "name": "action",
-        "type": "Action<TriggeringFilterBox, OptimizedExecutable>"
-      }
-    ]
-  },
-  "TriggerBox": {
-    "Enum": [
-      {
-        "tag": "Raw",
-        "discriminant": 0,
-        "type": "Trigger<TriggeringFilterBox, Executable>"
-      },
-      {
-        "tag": "Optimized",
-        "discriminant": 1,
-        "type": "Trigger<TriggeringFilterBox, OptimizedExecutable>"
+        "type": "Action<TriggeringFilterBox>"
       }
     ]
   },
@@ -4521,12 +4456,12 @@
   "TriggerId": {
     "Struct": [
       {
-        "name": "name",
-        "type": "Name"
-      },
-      {
         "name": "domain_id",
         "type": "Option<DomainId>"
+      },
+      {
+        "name": "name",
+        "type": "Name"
       }
     ]
   },
@@ -4850,18 +4785,6 @@
       {
         "name": "reason",
         "type": "String"
-      }
-    ]
-  },
-  "WasmInternalRepr": {
-    "Struct": [
-      {
-        "name": "serialized",
-        "type": "Vec<u8>"
-      },
-      {
-        "name": "blob_hash",
-        "type": "HashOf<WasmSmartContract>"
       }
     ]
   },

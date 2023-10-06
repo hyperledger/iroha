@@ -1025,7 +1025,7 @@ pub mod trigger {
     }
 
     impl Query for FindTriggerById {
-        type Output = Trigger<TriggeringFilterBox, Executable>;
+        type Output = Trigger<TriggeringFilterBox>;
     }
 
     impl Query for FindTriggerKeyValueByIdAndKey {
@@ -1033,7 +1033,7 @@ pub mod trigger {
     }
 
     impl Query for FindTriggersByDomainId {
-        type Output = Vec<Trigger<TriggeringFilterBox, Executable>>;
+        type Output = Vec<Trigger<TriggeringFilterBox>>;
     }
 
     impl FindTriggerById {
