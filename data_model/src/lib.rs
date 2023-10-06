@@ -630,7 +630,7 @@ pub mod model {
         Asset(<asset::Asset as Registered>::With),
         /// [`Trigger`](`trigger::Trigger`) variant.
         #[display(fmt = "Trigger {_0}")]
-        Trigger(<trigger::Trigger<TriggeringFilterBox, Executable> as Registered>::With),
+        Trigger(<trigger::Trigger<TriggeringFilterBox> as Registered>::With),
         /// [`Role`](`role::Role`) variant.
         #[display(fmt = "Role {_0}")]
         Role(<role::Role as Registered>::With),
@@ -672,38 +672,12 @@ pub mod model {
         AssetDefinition(asset::AssetDefinition),
         /// [`Asset`](`asset::Asset`) variant.
         Asset(asset::Asset),
-        /// [`TriggerBox`] variant.
-        Trigger(TriggerBox),
+        /// [`Trigger`](`trigger::Trigger`) variant.
+        Trigger(trigger::Trigger<TriggeringFilterBox>),
         /// [`Role`](`role::Role`) variant.
         Role(role::Role),
         /// [`Parameter`](`parameter::Parameter`) variant.
         Parameter(parameter::Parameter),
-    }
-
-    /// Sized container for triggers with different executables.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[ffi_type]
-    pub enum TriggerBox {
-        /// Un-optimized [`Trigger`](`trigger::Trigger`) submitted from client to Iroha.
-        #[display(fmt = "{_0}")]
-        Raw(trigger::Trigger<TriggeringFilterBox, Executable>),
-        /// Optimized [`Trigger`](`trigger::Trigger`) returned from Iroha to client.
-        #[display(fmt = "{_0} (optimised)")]
-        Optimized(trigger::Trigger<TriggeringFilterBox, trigger::OptimizedExecutable>),
     }
 
     /// Sized container for all possible upgradable entities.
@@ -981,17 +955,6 @@ pub mod model {
         WARN,
         /// Error
         ERROR,
-    }
-}
-
-impl Identifiable for TriggerBox {
-    type Id = trigger::TriggerId;
-
-    fn id(&self) -> &Self::Id {
-        match self {
-            TriggerBox::Raw(trigger) => trigger.id(),
-            TriggerBox::Optimized(trigger) => trigger.id(),
-        }
     }
 }
 
@@ -1312,7 +1275,7 @@ from_and_try_from_value_identifiable!(
     Account(account::Account),
     AssetDefinition(asset::AssetDefinition),
     Asset(asset::Asset),
-    Trigger(TriggerBox),
+    Trigger(trigger::Trigger<TriggeringFilterBox>),
     Role(role::Role),
     Parameter(parameter::Parameter),
 );
@@ -1365,13 +1328,10 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             }
             NewRole(role) => Ok(RegistrableBox::Role(role)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
-            Trigger(TriggerBox::Raw(trigger)) => Ok(RegistrableBox::Trigger(trigger)),
-            Domain(_)
-            | Account(_)
-            | AssetDefinition(_)
-            | Role(_)
-            | Parameter(_)
-            | Trigger(TriggerBox::Optimized(_)) => Err(Self::Error::default()),
+            Trigger(trigger) => Ok(RegistrableBox::Trigger(trigger)),
+            Domain(_) | Account(_) | AssetDefinition(_) | Role(_) | Parameter(_) => {
+                Err(Self::Error::default())
+            }
         }
     }
 }
@@ -1389,7 +1349,7 @@ impl From<RegistrableBox> for IdentifiableBox {
             }
             Role(role) => IdentifiableBox::NewRole(role),
             Asset(asset) => IdentifiableBox::Asset(asset),
-            Trigger(trigger) => IdentifiableBox::Trigger(TriggerBox::Raw(trigger)),
+            Trigger(trigger) => IdentifiableBox::Trigger(trigger),
         }
     }
 }
@@ -1456,43 +1416,6 @@ impl TryFrom<f64> for Value {
             .try_into()
             .map(NumericValue::Fixed)
             .map(Value::Numeric)
-    }
-}
-
-impl From<trigger::Trigger<TriggeringFilterBox, Executable>> for Value {
-    fn from(trigger: trigger::Trigger<TriggeringFilterBox, Executable>) -> Self {
-        Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Raw(trigger)))
-    }
-}
-
-impl From<trigger::Trigger<TriggeringFilterBox, trigger::OptimizedExecutable>> for Value {
-    fn from(trigger: trigger::Trigger<TriggeringFilterBox, trigger::OptimizedExecutable>) -> Self {
-        Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Optimized(trigger)))
-    }
-}
-
-impl TryFrom<Value> for trigger::Trigger<TriggeringFilterBox, Executable> {
-    type Error = ErrorTryFromEnum<Value, Self>;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Raw(trigger))) = value {
-            return Ok(trigger);
-        }
-
-        Err(Self::Error::default())
-    }
-}
-
-impl TryFrom<Value> for trigger::Trigger<TriggeringFilterBox, trigger::OptimizedExecutable> {
-    type Error = ErrorTryFromEnum<Value, Self>;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Value::Identifiable(IdentifiableBox::Trigger(TriggerBox::Optimized(trigger))) = value
-        {
-            return Ok(trigger);
-        }
-
-        Err(Self::Error::default())
     }
 }
 
@@ -1938,7 +1861,7 @@ pub mod prelude {
         metadata::prelude::*, name::prelude::*, parameter::prelude::*, peer::prelude::*,
         permission::prelude::*, query::prelude::*, role::prelude::*, transaction::prelude::*,
         trigger::prelude::*, EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox,
-        LengthLimits, NumericValue, PredicateTrait, RegistrableBox, ToValue, TriggerBox, TryAsMut,
-        TryAsRef, TryToValue, UpgradableBox, ValidationFail, Value,
+        LengthLimits, NumericValue, PredicateTrait, RegistrableBox, ToValue, TryAsMut, TryAsRef,
+        TryToValue, UpgradableBox, ValidationFail, Value,
     };
 }

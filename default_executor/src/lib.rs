@@ -112,9 +112,9 @@ impl Visit for Executor {
         visit_revoke_account_role(Revoke<RoleId>),
 
         // Trigger validation
-        visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
-        visit_mint_trigger_repetitions(Mint<u32, Trigger<TriggeringFilterBox, Executable>>),
-        visit_burn_trigger_repetitions(Burn<u32, Trigger<TriggeringFilterBox, Executable>>),
+        visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox>>),
+        visit_mint_trigger_repetitions(Mint<u32, Trigger<TriggeringFilterBox>>),
+        visit_burn_trigger_repetitions(Burn<u32, Trigger<TriggeringFilterBox>>),
         visit_execute_trigger(ExecuteTrigger),
 
         // Parameter validation
