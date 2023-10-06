@@ -198,11 +198,11 @@ pub mod query {
     use iroha_data_model::{
         events::TriggeringFilterBox,
         query::{error::QueryExecutionFail as Error, MetadataValue},
-        trigger::{OptimizedExecutable, Trigger, TriggerId},
+        trigger::{Trigger, TriggerId},
     };
 
     use super::*;
-    use crate::prelude::*;
+    use crate::{prelude::*, smartcontracts::triggers::set::LoadedExecutable};
 
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
@@ -219,7 +219,7 @@ pub mod query {
         fn execute(
             &self,
             wsv: &WorldStateView,
-        ) -> Result<Trigger<TriggeringFilterBox, OptimizedExecutable>, Error> {
+        ) -> Result<Trigger<TriggeringFilterBox, Executable>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
@@ -237,8 +237,20 @@ pub mod query {
                 .inspect_by_id(&id, |action| action.clone_and_box())
                 .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))?;
 
-            let action =
-                Action::new(loaded_executable, repeats, authority, filter).with_metadata(metadata);
+            let original_executable = match loaded_executable {
+                LoadedExecutable::Wasm(_) => {
+                    let original_wasm = wsv
+                        .triggers()
+                        .get_original_contract(&id)
+                        .cloned()
+                        .expect("No original smartcontract saved for trigger. This is a bug.");
+                    Executable::Wasm(original_wasm)
+                }
+                LoadedExecutable::Instructions(isi) => Executable::Instructions(isi),
+            };
+
+            let action = Action::new(original_executable, repeats, authority, filter)
+                .with_metadata(metadata);
 
             // TODO: Should we redact the metadata if the account is not the authority/owner?
             Ok(Trigger::new(id, action))
@@ -274,7 +286,7 @@ pub mod query {
             &self,
             wsv: &'wsv WorldStateView,
         ) -> eyre::Result<
-            Box<dyn Iterator<Item = Trigger<TriggeringFilterBox, OptimizedExecutable>> + 'wsv>,
+            Box<dyn Iterator<Item = Trigger<TriggeringFilterBox, Executable>> + 'wsv>,
             Error,
         > {
             let domain_id = wsv
@@ -292,9 +304,21 @@ pub mod query {
                         metadata,
                     } = action.clone_and_box();
 
+                    let original_executable =
+                        match loaded_executable {
+                            LoadedExecutable::Wasm(_) => {
+                                let original_wasm =
+                                wsv.triggers().get_original_contract(&trigger_id).cloned().expect(
+                                    "No original smartcontract saved for trigger. This is a bug.",
+                                );
+                                Executable::Wasm(original_wasm)
+                            }
+                            LoadedExecutable::Instructions(isi) => Executable::Instructions(isi),
+                        };
+
                     Trigger::new(
                         trigger_id.clone(),
-                        Action::new(loaded_executable, repeats, authority, filter)
+                        Action::new(original_executable, repeats, authority, filter)
                             .with_metadata(metadata),
                     )
                 },
