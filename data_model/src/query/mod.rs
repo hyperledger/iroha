@@ -971,7 +971,7 @@ pub mod trigger {
         events::TriggeringFilterBox,
         expression::EvaluatesTo,
         prelude::InstructionExpr,
-        trigger::{OptimizedExecutable, Trigger, TriggerId},
+        trigger::{Trigger, TriggerId},
         Executable, Identifiable, Name, Value,
     };
 
@@ -1025,7 +1025,7 @@ pub mod trigger {
     }
 
     impl Query for FindTriggerById {
-        type Output = Trigger<TriggeringFilterBox, OptimizedExecutable>;
+        type Output = Trigger<TriggeringFilterBox, Executable>;
     }
 
     impl Query for FindTriggerKeyValueByIdAndKey {
@@ -1033,7 +1033,7 @@ pub mod trigger {
     }
 
     impl Query for FindTriggersByDomainId {
-        type Output = Vec<Trigger<TriggeringFilterBox, OptimizedExecutable>>;
+        type Output = Vec<Trigger<TriggeringFilterBox, Executable>>;
     }
 
     impl FindTriggerById {
