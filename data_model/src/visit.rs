@@ -114,7 +114,7 @@ pub trait Visit: ExpressionEvaluator {
         visit_register_asset_definition(Register<AssetDefinition>),
         visit_register_asset(Register<Asset>),
         visit_register_role(Register<Role>),
-        visit_register_trigger(Register<Trigger<TriggeringFilterBox, Executable>>),
+        visit_register_trigger(Register<Trigger<TriggeringFilterBox>>),
 
         // Visit UnregisterExpr
         visit_unregister_peer(Unregister<Peer>),
@@ -124,18 +124,18 @@ pub trait Visit: ExpressionEvaluator {
         visit_unregister_asset(Unregister<Asset>),
         // TODO: Need to allow role creator to unregister it somehow
         visit_unregister_role(Unregister<Role>),
-        visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
+        visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox>>),
 
         // Visit MintExpr
         visit_mint_asset(Mint<NumericValue, Asset>),
         visit_mint_account_public_key(Mint<PublicKey, Account>),
         visit_mint_account_signature_check_condition(Mint<SignatureCheckCondition, Account>),
-        visit_mint_trigger_repetitions(Mint<u32, Trigger<TriggeringFilterBox, Executable>>),
+        visit_mint_trigger_repetitions(Mint<u32, Trigger<TriggeringFilterBox>>),
 
         // Visit BurnExpr
         visit_burn_account_public_key(Burn<PublicKey, Account>),
         visit_burn_asset(Burn<NumericValue, Asset>),
-        visit_burn_trigger_repetitions(Burn<u32, Trigger<TriggeringFilterBox, Executable>>),
+        visit_burn_trigger_repetitions(Burn<u32, Trigger<TriggeringFilterBox>>),
 
         // Visit TransferExpr
         visit_transfer_asset_definition(Transfer<Account, AssetDefinitionId, Account>),
@@ -728,10 +728,10 @@ leaf_visitors! {
     visit_unregister_role(Unregister<Role>),
     visit_grant_account_role(Grant<RoleId>),
     visit_revoke_account_role(Revoke<RoleId>),
-    visit_register_trigger(Register<Trigger<TriggeringFilterBox, Executable>>),
-    visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
-    visit_mint_trigger_repetitions(Mint<u32, Trigger<TriggeringFilterBox, Executable>>),
-    visit_burn_trigger_repetitions(Burn<u32, Trigger<TriggeringFilterBox, Executable>>),
+    visit_register_trigger(Register<Trigger<TriggeringFilterBox>>),
+    visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox>>),
+    visit_mint_trigger_repetitions(Mint<u32, Trigger<TriggeringFilterBox>>),
+    visit_burn_trigger_repetitions(Burn<u32, Trigger<TriggeringFilterBox>>),
     visit_upgrade_executor(Upgrade<Executor>),
     visit_new_parameter(NewParameter),
     visit_set_parameter(SetParameter),

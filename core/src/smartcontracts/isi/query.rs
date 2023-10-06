@@ -47,7 +47,7 @@ impl_lazy! {
     iroha_data_model::query::MetadataValue,
     iroha_data_model::query::TransactionQueryOutput,
     iroha_data_model::permission::PermissionTokenSchema,
-    iroha_data_model::trigger::Trigger<iroha_data_model::events::TriggeringFilterBox, iroha_data_model::transaction::Executable>,
+    iroha_data_model::trigger::Trigger<iroha_data_model::events::TriggeringFilterBox>,
 }
 
 /// Query Request statefully validated on the Iroha node side.
