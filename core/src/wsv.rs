@@ -24,7 +24,6 @@ use iroha_data_model::{
     permission::PermissionTokenSchema,
     prelude::*,
     query::error::{FindError, QueryExecutionFail},
-    trigger::action::ActionTrait,
 };
 use iroha_logger::prelude::*;
 use iroha_primitives::small::SmallVec;
@@ -42,7 +41,7 @@ use crate::{
     smartcontracts::{
         triggers::{
             self,
-            set::{LoadedExecutable, LoadedWasm, Set as TriggerSet},
+            set::{LoadedActionTrait, LoadedWasm, Set as TriggerSet},
         },
         wasm, Execute,
     },
@@ -511,7 +510,7 @@ impl WorldStateView {
     fn process_trigger(
         &mut self,
         id: &TriggerId,
-        action: &dyn ActionTrait<Executable = LoadedExecutable>,
+        action: &dyn LoadedActionTrait,
         event: Event,
     ) -> Result<()> {
         use triggers::set::LoadedExecutable::*;
@@ -540,6 +539,8 @@ impl WorldStateView {
         let mut succeed = Vec::<TriggerId>::with_capacity(matched_ids.len());
         let mut errors = Vec::new();
         for (event, id) in matched_ids {
+            // Eliding the closure triggers a lifetime mismatch
+            #[allow(clippy::redundant_closure_for_method_calls)]
             let action = self
                 .world
                 .triggers
