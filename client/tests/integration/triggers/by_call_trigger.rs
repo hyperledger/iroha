@@ -5,7 +5,7 @@ use iroha_client::client::{self, Client};
 use iroha_data_model::{
     prelude::*,
     query::error::{FindError, QueryExecutionFail},
-    trigger::OptimizedExecutable,
+    transaction::Executable,
 };
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::info;
@@ -286,7 +286,7 @@ fn unregister_trigger() -> Result<()> {
     };
     let found_trigger = test_client.request(find_trigger.clone())?;
     let found_action = found_trigger.action;
-    let OptimizedExecutable::Instructions(found_instructions) = found_action.executable else {
+    let Executable::Instructions(found_instructions) = found_action.executable else {
         panic!("Expected instructions");
     };
     let found_trigger = Trigger::new(
