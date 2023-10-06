@@ -22,7 +22,7 @@ pub mod isi {
 
     use super::{super::prelude::*, *};
 
-    impl Execute for Register<Trigger<TriggeringFilterBox, Executable>> {
+    impl Execute for Register<Trigger<TriggeringFilterBox>> {
         #[metrics(+"register_trigger")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let new_trigger = self.object;
@@ -81,7 +81,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Unregister<Trigger<TriggeringFilterBox, Executable>> {
+    impl Execute for Unregister<Trigger<TriggeringFilterBox>> {
         #[metrics(+"unregister_trigger")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let trigger_id = self.object_id.clone();
@@ -100,7 +100,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Mint<u32, Trigger<TriggeringFilterBox, Executable>> {
+    impl Execute for Mint<u32, Trigger<TriggeringFilterBox>> {
         #[metrics(+"mint_trigger_repetitions")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let id = self.destination_id;
@@ -132,7 +132,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Burn<u32, Trigger<TriggeringFilterBox, Executable>> {
+    impl Execute for Burn<u32, Trigger<TriggeringFilterBox>> {
         #[metrics(+"burn_trigger_repetitions")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let trigger = self.destination_id;
@@ -202,7 +202,7 @@ pub mod query {
     };
 
     use super::*;
-    use crate::{prelude::*, smartcontracts::triggers::set::LoadedExecutable};
+    use crate::prelude::*;
 
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
@@ -216,41 +216,19 @@ pub mod query {
 
     impl ValidQuery for FindTriggerById {
         #[metrics(+"find_trigger_by_id")]
-        fn execute(
-            &self,
-            wsv: &WorldStateView,
-        ) -> Result<Trigger<TriggeringFilterBox, Executable>, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Trigger<TriggeringFilterBox>, Error> {
             let id = wsv
                 .evaluate(&self.id)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
             iroha_logger::trace!(%id);
-            // Can't use just `ActionTrait::clone_and_box` cause this will trigger lifetime mismatch
+            // Can't use just `LoadedActionTrait::clone_and_box` cause this will trigger lifetime mismatch
             #[allow(clippy::redundant_closure_for_method_calls)]
-            let Action {
-                executable: loaded_executable,
-                repeats,
-                authority,
-                filter,
-                metadata,
-            } = wsv
+            let loaded_action = wsv
                 .triggers()
                 .inspect_by_id(&id, |action| action.clone_and_box())
                 .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))?;
 
-            let original_executable = match loaded_executable {
-                LoadedExecutable::Wasm(_) => {
-                    let original_wasm = wsv
-                        .triggers()
-                        .get_original_contract(&id)
-                        .cloned()
-                        .expect("No original smartcontract saved for trigger. This is a bug.");
-                    Executable::Wasm(original_wasm)
-                }
-                LoadedExecutable::Instructions(isi) => Executable::Instructions(isi),
-            };
-
-            let action = Action::new(original_executable, repeats, authority, filter)
-                .with_metadata(metadata);
+            let action = wsv.triggers().get_original_action(loaded_action);
 
             // TODO: Should we redact the metadata if the account is not the authority/owner?
             Ok(Trigger::new(id, action))
@@ -285,44 +263,22 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> eyre::Result<
-            Box<dyn Iterator<Item = Trigger<TriggeringFilterBox, Executable>> + 'wsv>,
-            Error,
-        > {
+        ) -> eyre::Result<Box<dyn Iterator<Item = Trigger<TriggeringFilterBox>> + 'wsv>, Error>
+        {
             let domain_id = wsv
                 .evaluate(&self.domain_id)
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate domain id. {e}")))?;
 
-            Ok(Box::new(wsv.triggers().inspect_by_domain_id(
-                &domain_id,
-                |trigger_id, action| {
-                    let Action {
-                        executable: loaded_executable,
-                        repeats,
-                        authority,
-                        filter,
-                        metadata,
-                    } = action.clone_and_box();
-
-                    let original_executable =
-                        match loaded_executable {
-                            LoadedExecutable::Wasm(_) => {
-                                let original_wasm =
-                                wsv.triggers().get_original_contract(&trigger_id).cloned().expect(
-                                    "No original smartcontract saved for trigger. This is a bug.",
-                                );
-                                Executable::Wasm(original_wasm)
-                            }
-                            LoadedExecutable::Instructions(isi) => Executable::Instructions(isi),
-                        };
-
-                    Trigger::new(
-                        trigger_id.clone(),
-                        Action::new(original_executable, repeats, authority, filter)
-                            .with_metadata(metadata),
-                    )
-                },
-            )))
+            Ok(Box::new(
+                wsv.triggers()
+                    .inspect_by_domain_id(&domain_id, |trigger_id, action| {
+                        (trigger_id.clone(), action.clone_and_box())
+                    })
+                    .map(|(trigger_id, action)| {
+                        let action = wsv.triggers().get_original_action(action);
+                        Trigger::new(trigger_id, action)
+                    }),
+            ))
         }
     }
 }

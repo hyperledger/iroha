@@ -7,7 +7,7 @@ use core::{cmp, str::FromStr};
 use derive_more::{Constructor, Display};
 use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
-use iroha_macro::{ffi_impl_opaque, FromVariant};
+use iroha_macro::ffi_impl_opaque;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -15,8 +15,8 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::model::*;
 use crate::{
-    domain::DomainId, events::prelude::*, metadata::Metadata, prelude::InstructionExpr,
-    transaction::Executable, Identifiable, Name, ParseError, Registered,
+    domain::DomainId, events::prelude::*, metadata::Metadata, transaction::Executable,
+    Identifiable, Name, ParseError, Registered,
 };
 
 #[model]
@@ -43,10 +43,10 @@ pub mod model {
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct TriggerId {
-        /// Name given to trigger by its creator.
-        pub name: Name,
         /// DomainId of domain of the trigger.
         pub domain_id: Option<DomainId>,
+        /// Name given to trigger by its creator.
+        pub name: Name,
     }
 
     /// Type which is used for registering a `Trigger`.
@@ -64,62 +64,38 @@ pub mod model {
     )]
     #[display(fmt = "@@{id}")]
     #[ffi_type]
-    pub struct Trigger<F, E> {
+    pub struct Trigger<F> {
         /// [`Id`] of the [`Trigger`].
         pub id: TriggerId,
         /// Action to be performed when the trigger matches.
-        pub action: action::Action<F, E>,
-    }
-
-    /// Internal representation of Wasm blob provided by preloading it with `wasmtime` crate.
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct WasmInternalRepr {
-        /// Serialized with `wasmtime::Module::serialize`
-        pub serialized: Vec<u8>,
-        /// Hash of original WASM blob on blockchain
-        pub blob_hash: iroha_crypto::HashOf<crate::transaction::WasmSmartContract>,
-    }
-
-    /// Same as [`Executable`] but instead of [`Wasm`](Executable::Wasm) contains
-    /// [`WasmInternalRepr`] with serialized optimized representation
-    /// from `wasmtime` library.
-    #[derive(
-        Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
-    )]
-    // TODO: Made opaque temporarily
-    #[ffi_type(opaque)]
-    pub enum OptimizedExecutable {
-        /// WASM serialized with `wasmtime`.
-        WasmInternalRepr(WasmInternalRepr),
-        /// Vector of [`instructions`](InstructionExpr).
-        Instructions(Vec<InstructionExpr>),
+        pub action: action::Action<F>,
     }
 }
 
 #[ffi_impl_opaque]
-impl Trigger<TriggeringFilterBox, OptimizedExecutable> {
+impl Trigger<TriggeringFilterBox> {
     /// [`Id`] of the [`Trigger`].
     pub fn id(&self) -> &TriggerId {
         &self.id
     }
 
     /// Action to be performed when the trigger matches.
-    pub fn action(&self) -> &action::Action<TriggeringFilterBox, OptimizedExecutable> {
+    pub fn action(&self) -> &action::Action<TriggeringFilterBox> {
         &self.action
     }
 }
 
-impl Registered for Trigger<TriggeringFilterBox, Executable> {
+impl Registered for Trigger<TriggeringFilterBox> {
     type With = Self;
 }
 
 macro_rules! impl_try_from_box {
     ($($variant:ident => $filter_type:ty),+ $(,)?) => {
         $(
-            impl<E> TryFrom<Trigger<TriggeringFilterBox, E>> for Trigger<$filter_type, E> {
+            impl TryFrom<Trigger<TriggeringFilterBox>> for Trigger<$filter_type> {
                 type Error = &'static str;
 
-                fn try_from(boxed: Trigger<TriggeringFilterBox, E>) -> Result<Self, Self::Error> {
+                fn try_from(boxed: Trigger<TriggeringFilterBox>) -> Result<Self, Self::Error> {
                     if let TriggeringFilterBox::$variant(concrete_filter) = boxed.action.filter {
                         let action = action::Action::new(
                             boxed.action.executable,
@@ -210,9 +186,9 @@ pub mod action {
             Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
         )]
         #[ffi_type]
-        pub struct Action<F, E> {
+        pub struct Action<F> {
             /// The executable linked to this action
-            pub executable: E,
+            pub executable: Executable,
             /// The repeating scheme of the action. It's kept as part of the
             /// action and not inside the [`Trigger`] type, so that further
             /// sanity checking can be done.
@@ -239,16 +215,16 @@ pub mod action {
     }
 
     #[cfg(feature = "transparent_api")]
-    impl<F, E> crate::HasMetadata for Action<F, E> {
+    impl<F> crate::HasMetadata for Action<F> {
         fn metadata(&self) -> &crate::metadata::Metadata {
             &self.metadata
         }
     }
 
     #[ffi_impl_opaque]
-    impl Action<TriggeringFilterBox, OptimizedExecutable> {
+    impl Action<TriggeringFilterBox> {
         /// The executable linked to this action
-        pub fn executable(&self) -> &OptimizedExecutable {
+        pub fn executable(&self) -> &Executable {
             &self.executable
         }
         /// The repeating scheme of the action. It's kept as part of the
@@ -267,10 +243,10 @@ pub mod action {
         }
     }
 
-    impl<F, E> Action<F, E> {
+    impl<F> Action<F> {
         /// Construct an action given `executable`, `repeats`, `authority` and `filter`.
         pub fn new(
-            executable: impl Into<E>,
+            executable: impl Into<Executable>,
             repeats: impl Into<Repeats>,
             authority: AccountId,
             filter: F,
@@ -293,7 +269,7 @@ pub mod action {
         }
     }
 
-    impl<F: PartialEq, E: PartialEq> PartialOrd for Action<F, E> {
+    impl<F: PartialEq> PartialOrd for Action<F> {
         fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
             // Exclude the executable. When debugging and replacing
             // the trigger, its position in Hash and Tree maps should
@@ -306,90 +282,10 @@ pub mod action {
         }
     }
 
-    impl<F: Eq, E: Eq> Ord for Action<F, E> {
+    impl<F: Eq> Ord for Action<F> {
         fn cmp(&self, other: &Self) -> cmp::Ordering {
             self.partial_cmp(other)
                 .expect("`PartialCmp::partial_cmp()` for `Action` should never return `None`")
-        }
-    }
-
-    /// Trait for common methods for all [`Action`]'s
-    #[cfg(feature = "transparent_api")]
-    pub trait ActionTrait {
-        /// Type of action executable
-        type Executable;
-
-        /// Get action executable
-        fn executable(&self) -> &Self::Executable;
-
-        /// Get action repeats enum
-        fn repeats(&self) -> &Repeats;
-
-        /// Set action repeats
-        fn set_repeats(&mut self, repeats: Repeats);
-
-        /// Get action technical account
-        fn authority(&self) -> &AccountId;
-
-        /// Get action metadata
-        fn metadata(&self) -> &Metadata;
-
-        /// Check if action is mintable.
-        fn mintable(&self) -> bool;
-
-        /// Convert action to a boxed representation
-        fn into_boxed(self) -> Action<TriggeringFilterBox, Self::Executable>;
-
-        /// Same as [`into_boxed()`](ActionTrait::into_boxed) but clones `self`
-        fn clone_and_box(&self) -> Action<TriggeringFilterBox, Self::Executable>;
-    }
-
-    #[cfg(feature = "transparent_api")]
-    impl<F: Filter + Into<TriggeringFilterBox> + Clone, E: Clone> ActionTrait for Action<F, E> {
-        type Executable = E;
-
-        fn executable(&self) -> &Self::Executable {
-            &self.executable
-        }
-
-        fn repeats(&self) -> &Repeats {
-            &self.repeats
-        }
-
-        fn set_repeats(&mut self, repeats: Repeats) {
-            self.repeats = repeats;
-        }
-
-        fn authority(&self) -> &AccountId {
-            &self.authority
-        }
-
-        fn metadata(&self) -> &Metadata {
-            &self.metadata
-        }
-
-        fn mintable(&self) -> bool {
-            self.filter.mintable()
-        }
-
-        fn into_boxed(self) -> Action<TriggeringFilterBox, Self::Executable> {
-            Action::<TriggeringFilterBox, Self::Executable> {
-                executable: self.executable,
-                repeats: self.repeats,
-                authority: self.authority,
-                filter: self.filter.into(),
-                metadata: self.metadata,
-            }
-        }
-
-        fn clone_and_box(&self) -> Action<TriggeringFilterBox, Self::Executable> {
-            Action::<TriggeringFilterBox, Self::Executable> {
-                executable: self.executable.clone(),
-                repeats: self.repeats.clone(),
-                authority: self.authority.clone(),
-                filter: self.filter.clone().into(),
-                metadata: self.metadata.clone(),
-            }
         }
     }
 
@@ -425,8 +321,6 @@ pub mod action {
 pub mod prelude {
     //! Re-exports of commonly used types.
 
-    #[cfg(feature = "transparent_api")]
-    pub use super::action::ActionTrait;
     pub use super::{action::prelude::*, Trigger, TriggerId};
 }
 
@@ -438,25 +332,19 @@ mod tests {
     fn trigger_with_filterbox_can_be_unboxed() {
         /// Should fail to compile if a new variant will be added to `TriggeringFilterBox`
         #[allow(dead_code)]
-        fn compile_time_check(boxed: Trigger<TriggeringFilterBox, Executable>) {
+        fn compile_time_check(boxed: Trigger<TriggeringFilterBox>) {
             match &boxed.action.filter {
-                TriggeringFilterBox::Data(_) => {
-                    Trigger::<DataEventFilter, Executable>::try_from(boxed)
-                        .map(|_| ())
-                        .unwrap()
-                }
-                TriggeringFilterBox::Pipeline(_) => {
-                    Trigger::<PipelineEventFilter, Executable>::try_from(boxed)
-                        .map(|_| ())
-                        .unwrap()
-                }
-                TriggeringFilterBox::Time(_) => {
-                    Trigger::<TimeEventFilter, Executable>::try_from(boxed)
-                        .map(|_| ())
-                        .unwrap()
-                }
+                TriggeringFilterBox::Data(_) => Trigger::<DataEventFilter>::try_from(boxed)
+                    .map(|_| ())
+                    .unwrap(),
+                TriggeringFilterBox::Pipeline(_) => Trigger::<PipelineEventFilter>::try_from(boxed)
+                    .map(|_| ())
+                    .unwrap(),
+                TriggeringFilterBox::Time(_) => Trigger::<TimeEventFilter>::try_from(boxed)
+                    .map(|_| ())
+                    .unwrap(),
                 TriggeringFilterBox::ExecuteTrigger(_) => {
-                    Trigger::<ExecuteTriggerEventFilter, Executable>::try_from(boxed)
+                    Trigger::<ExecuteTriggerEventFilter>::try_from(boxed)
                         .map(|_| ())
                         .unwrap()
                 }

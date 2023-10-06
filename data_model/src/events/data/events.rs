@@ -502,7 +502,7 @@ mod trigger {
     use super::*;
 
     data_event! {
-        #[has_origin(origin = Trigger<FilterBox, Executable>)]
+        #[has_origin(origin = Trigger<FilterBox>)]
         pub enum TriggerEvent {
             Created(TriggerId),
             Deleted(TriggerId),

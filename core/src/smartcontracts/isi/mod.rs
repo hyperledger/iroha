@@ -83,8 +83,7 @@ impl Execute for RegisterExpr {
             }
             RegistrableBox::Asset(object) => Register::<Asset> { object }.execute(authority, wsv),
             RegistrableBox::Trigger(object) => {
-                Register::<Trigger<TriggeringFilterBox, Executable>> { object }
-                    .execute(authority, wsv)
+                Register::<Trigger<TriggeringFilterBox>> { object }.execute(authority, wsv)
             }
             RegistrableBox::Role(object) => Register::<Role> { object }.execute(authority, wsv),
         }
@@ -110,8 +109,7 @@ impl Execute for UnregisterExpr {
             IdBox::PeerId(object_id) => Unregister::<Peer> { object_id }.execute(authority, wsv),
             IdBox::RoleId(object_id) => Unregister::<Role> { object_id }.execute(authority, wsv),
             IdBox::TriggerId(object_id) => {
-                Unregister::<Trigger<TriggeringFilterBox, Executable>> { object_id }
-                    .execute(authority, wsv)
+                Unregister::<Trigger<TriggeringFilterBox>> { object_id }.execute(authority, wsv)
             }
             IdBox::PermissionTokenId(_) | IdBox::ParameterId(_) => {
                 Err(Error::Evaluate(InstructionType::Unregister.into()))
@@ -164,7 +162,7 @@ impl Execute for MintExpr {
                 .execute(authority, wsv)
             }
             (IdBox::TriggerId(destination_id), Value::Numeric(NumericValue::U32(object))) => {
-                Mint::<u32, Trigger<TriggeringFilterBox, Executable>> {
+                Mint::<u32, Trigger<TriggeringFilterBox>> {
                     object,
                     destination_id,
                 }
@@ -206,7 +204,7 @@ impl Execute for BurnExpr {
             }
             .execute(authority, wsv),
             (IdBox::TriggerId(destination_id), Value::Numeric(NumericValue::U32(object))) => {
-                Burn::<u32, Trigger<TriggeringFilterBox, Executable>> {
+                Burn::<u32, Trigger<TriggeringFilterBox>> {
                     object,
                     destination_id,
                 }
