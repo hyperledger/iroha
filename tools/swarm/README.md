@@ -21,7 +21,7 @@ iroha_swarm <options>
 
 ## Examples
 
-Generate `docker-compose.dev.yml` with 5 peers, using `iroha` utf-8 bytes as a cryptographic seed, using `./configs/peer` as a directory with configuration, and using `.` as a directory with `Dockerfile` of Iroha: 
+Generate `docker-compose.yml` with 5 peers, using `iroha` utf-8 bytes as a cryptographic seed, using `./configs/peer` as a directory with configuration, and using `.` as a directory with `Dockerfile` of Iroha: 
 
 ```bash
 iroha_swarm \
@@ -29,7 +29,7 @@ iroha_swarm \
     --peers 5 \
     --seed iroha \
     --config-dir ./configs/peer \
-    --outfile docker-compose.dev.yml
+    --outfile docker-compose.yml
 ```
 
 Same, but using an existing Docker image instead:
@@ -40,5 +40,5 @@ iroha_swarm \
     --peers 5 \
     --seed iroha \
     --config-dir ./configs/peer \
-    --outfile docker-compose.dev.yml
+    --outfile docker-compose.yml
 ```
