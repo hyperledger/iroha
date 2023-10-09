@@ -144,10 +144,11 @@ pub trait Reload<T> {
 pub mod handle {
     use std::{
         fmt::{Debug, Formatter},
-        sync::{Arc, Mutex},
+        sync::Arc,
     };
 
     use crossbeam::atomic::AtomicCell;
+    use parking_lot::Mutex;
     use serde::{Deserialize, Serialize};
 
     use super::{Reload, ReloadError, ReloadMut, Result};
@@ -179,10 +180,7 @@ pub mod handle {
         /// # Errors
         /// [`ReloadError::Poisoned`] When the [`Mutex`] storing the reload handle is poisoned.
         pub fn set(&self, handle: impl ReloadMut<T> + Send + Sync + 'static) {
-            *self
-                .inner
-                .lock()
-                .expect("Mutex in `Singleton::set` got poisoned") = Some(Box::new(handle));
+            *self.inner.lock() = Some(Box::new(handle));
         }
     }
 
@@ -194,7 +192,7 @@ pub mod handle {
 
     impl<T: Send + Sync + Debug> Reload<T> for Singleton<T> {
         fn reload(&self, item: T) -> Result<()> {
-            match &mut *self.inner.lock().expect("Valid") {
+            match &mut *self.inner.lock() {
                 Some(handle) => {
                     handle.reload(item)?;
                     Ok(())

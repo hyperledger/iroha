@@ -1,0 +1,69 @@
+//! Module with [`derive_token`](crate::derive_token) macro implementation
+
+#![allow(clippy::arithmetic_side_effects)] // Triggers on quote! side
+
+use super::*;
+
+/// [`derive_token`](crate::derive_token()) macro implementation
+pub fn impl_derive_token(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let generics = &input.generics;
+    let ident = &input.ident;
+
+    let impl_token = impl_token(ident, generics);
+    let impl_try_from_permission_token = impl_try_from_permission_token(ident, generics);
+
+    quote! {
+        #impl_token
+        #impl_try_from_permission_token
+    }
+    .into()
+}
+
+fn impl_token(ident: &syn::Ident, generics: &syn::Generics) -> proc_macro2::TokenStream {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    quote! {
+        impl #impl_generics ::iroha_validator::permission::Token for #ident #ty_generics #where_clause {
+            fn is_owned_by(&self, account_id: &::iroha_validator::data_model::account::AccountId) -> bool {
+                let all_account_tokens: Vec<iroha_validator::data_model::permission::PermissionToken> = ::iroha_validator::smart_contract::debug::DebugExpectExt::dbg_expect(
+                    ::iroha_validator::smart_contract::QueryHost::execute(
+                        &::iroha_validator::data_model::query::permission::FindPermissionTokensByAccountId::new(
+                            account_id.clone(),
+                        )
+                    ),
+                    "Failed to execute `FindPermissionTokensByAccountId` query"
+                ).try_into().unwrap();
+
+                all_account_tokens
+                    .into_iter()
+                    .filter_map(|token| Self::try_from(token).ok())
+                    .any(|token| self == &token)
+            }
+        }
+    }
+}
+
+fn impl_try_from_permission_token(
+    ident: &syn::Ident,
+    generics: &syn::Generics,
+) -> proc_macro2::TokenStream {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let token_id = quote! { <Self as ::iroha_validator::permission::Token>::name() };
+
+    quote! {
+        impl #impl_generics ::core::convert::TryFrom<::iroha_validator::data_model::permission::PermissionToken> for #ident #ty_generics #where_clause {
+            type Error = ::iroha_validator::permission::PermissionTokenConversionError;
+
+            fn try_from(token: ::iroha_validator::data_model::permission::PermissionToken) -> ::core::result::Result<Self, Self::Error> {
+                if #token_id != *token.definition_id() {
+                    return Err(::iroha_validator::permission::PermissionTokenConversionError::Id(
+                        ToOwned::to_owned(token.definition_id())
+                    ));
+                }
+                ::serde_json::from_str::<Self>(token.payload())
+                    .map_err(::iroha_validator::permission::PermissionTokenConversionError::Deserialize)
+            }
+        }
+    }
+}

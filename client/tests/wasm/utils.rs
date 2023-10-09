@@ -41,8 +41,8 @@ pub fn wasm_template(hex_val: &str) -> String {
            nop)
         "#,
         memory_name = "memory",
-        alloc_fn_name = "_iroha_wasm_alloc",
-        dealloc_fn_name = "_iroha_wasm_dealloc",
+        alloc_fn_name = "_iroha_smart_contract_alloc",
+        dealloc_fn_name = "_iroha_smart_contract_dealloc",
         execute_instruction = "execute_instruction",
         execute_query = "execute_query",
         hex_val = escape_hex(hex_val),

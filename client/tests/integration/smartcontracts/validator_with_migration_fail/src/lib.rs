@@ -15,14 +15,19 @@ use iroha_validator::{
         evaluate::{EvaluationError, ExpressionEvaluator},
         ValidationFail,
     },
-    iroha_wasm, parse,
+    parse,
     prelude::*,
+    smart_contract,
 };
+use lol_alloc::{FreeListAllocator, LockedAllocator};
+
+#[global_allocator]
+static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
 struct Validator {
     verdict: Result,
     block_height: u64,
-    host: iroha_wasm::Host,
+    host: smart_contract::Host,
 }
 
 impl Validator {
@@ -31,7 +36,7 @@ impl Validator {
         Self {
             verdict: Ok(()),
             block_height,
-            host: iroha_wasm::Host,
+            host: smart_contract::Host,
         }
     }
 }

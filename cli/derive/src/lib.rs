@@ -133,7 +133,7 @@ impl Parse for EndpointList {
     fn parse(input: ParseStream) -> SynResult<Self> {
         let items = Punctuated::<EndpointItem, Token![,]>::parse_terminated(input)?;
         let mut seen_arg_counts = Vec::new();
-        for item in items.iter() {
+        for item in &items {
             match item {
                 EndpointItem::NameAndArgCount { arg_count, .. }
                 | EndpointItem::ArgCount(arg_count) => {

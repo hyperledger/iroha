@@ -18,15 +18,14 @@ iroha = { path = "cli" }
 iroha_dsl = { version = "=2.0.0-pre-rc.19", path = "dsl" }
 iroha_cli_derive = { version = "=2.0.0-pre-rc.19", path = "cli/derive" }
 iroha_macro_utils = { version = "=2.0.0-pre-rc.19", path = "macro/utils" }
-iroha_wasm_builder = { version = "=2.0.0-pre-rc.19", path = "wasm_builder" }
 iroha_telemetry = { version = "=2.0.0-pre-rc.19", path = "telemetry" }
 iroha_telemetry_derive = { version = "=2.0.0-pre-rc.19", path = "telemetry/derive" }
 iroha_p2p = { version = "=2.0.0-pre-rc.19", path = "p2p" }
-iroha_data_model_derive = { version = "=2.0.0-pre-rc.19", path = "data_model/derive" }
 iroha_core = { version = "=2.0.0-pre-rc.19 ", path = "core" }
 iroha_primitives = { version = "=2.0.0-pre-rc.19", path = "primitives", default-features = false }
 iroha_primitives_derive = { version = "=2.0.0-pre-rc.19", path = "primitives/derive" }
-iroha_data_model = { version = "=2.0.0-pre-rc.19", path = "data_model" }
+iroha_data_model = { version = "=2.0.0-pre-rc.19", path = "data_model", default-features = false }
+iroha_data_model_derive = { version = "=2.0.0-pre-rc.19", path = "data_model/derive" }
 iroha_client = { version = "=2.0.0-pre-rc.19", path = "client" }
 iroha_config = { version = "=2.0.0-pre-rc.19", path = "config" }
 iroha_config_base = { version = "=2.0.0-pre-rc.19", path = "config/base" }
@@ -46,6 +45,16 @@ iroha_ffi_derive = { version = "=2.0.0-pre-rc.19", path = "ffi/derive" }
 iroha_version = { version = "=2.0.0-pre-rc.19", path = "version", default-features = false }
 iroha_version_derive = { version = "=2.0.0-pre-rc.19", path = "version/derive", default-features = false }
 iroha_wasm_codec = { version = "=2.0.0-pre-rc.19", path = "wasm_codec" }
+iroha_wasm_builder = { version = "=2.0.0-pre-rc.19", path = "wasm_builder" }
+
+iroha_smart_contract = { version = "=2.0.0-pre-rc.19", path = "smart_contract" }
+iroha_smart_contract_derive = { version = "=2.0.0-pre-rc.19", path = "smart_contract/derive" }
+iroha_smart_contract_utils = { version = "=2.0.0-pre-rc.19", path = "smart_contract/utils" }
+iroha_validator = { version = "=2.0.0-pre-rc.19", path = "smart_contract/validator" }
+iroha_validator_derive = { version = "=2.0.0-pre-rc.19", path = "smart_contract/validator/derive" }
+iroha_trigger = { version = "=2.0.0-pre-rc.19", path = "smart_contract/trigger" }
+iroha_trigger_derive = { version = "=2.0.0-pre-rc.19", path = "smart_contract/trigger/derive" }
+
 test_network = { version = "=2.0.0-pre-rc.19", path = "core/test_network" }
 
 proc-macro-error = "1.0.4"
@@ -312,6 +321,13 @@ members = [
   "schema",
   "schema/derive",
   "schema/gen",
+  "smart_contract",
+  "smart_contract/derive",
+  "smart_contract/trigger",
+  "smart_contract/trigger/derive",
+  "smart_contract/utils",
+  "smart_contract/validator",
+  "smart_contract/validator/derive",
   "substrate",
   "telemetry",
   "tools/kagami",
