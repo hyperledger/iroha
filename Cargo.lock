@@ -3218,6 +3218,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroha_executor"
+version = "2.0.0-pre-rc.19"
+dependencies = [
+ "iroha_data_model",
+ "iroha_executor_derive",
+ "iroha_schema",
+ "iroha_smart_contract",
+ "iroha_smart_contract_utils",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "iroha_executor_derive"
+version = "2.0.0-pre-rc.19"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "iroha_ffi"
 version = "2.0.0-pre-rc.19"
 dependencies = [
@@ -3520,28 +3542,6 @@ dependencies = [
 
 [[package]]
 name = "iroha_trigger_derive"
-version = "2.0.0-pre-rc.19"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "iroha_validator"
-version = "2.0.0-pre-rc.19"
-dependencies = [
- "iroha_data_model",
- "iroha_schema",
- "iroha_smart_contract",
- "iroha_smart_contract_utils",
- "iroha_validator_derive",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "iroha_validator_derive"
 version = "2.0.0-pre-rc.19"
 dependencies = [
  "proc-macro2",

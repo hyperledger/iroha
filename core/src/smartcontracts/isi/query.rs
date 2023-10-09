@@ -79,7 +79,7 @@ impl ValidQueryRequest {
             ))
             .into());
         }
-        wsv.validator()
+        wsv.executor()
             .validate_query(wsv, query.authority(), query.query().clone())?;
         Ok(Self(query))
     }
@@ -420,7 +420,7 @@ mod tests {
             .with_instructions(instructions)
             .sign(ALICE_KEYS.clone())?;
 
-        let tx_limits = &wsv.transaction_validator().transaction_limits;
+        let tx_limits = &wsv.transaction_executor().transaction_limits;
         let va_tx = AcceptedTransaction::accept(tx, tx_limits)?;
 
         let topology = Topology::new(UniqueVec::new());

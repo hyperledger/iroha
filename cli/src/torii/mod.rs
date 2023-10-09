@@ -131,7 +131,7 @@ fn query_status_code(validation_error: &iroha_data_model::ValidationFail) -> Sta
         InstructionFailed(error) => {
             iroha_logger::error!(
                 ?error,
-                "Query validation failed with unexpected error. This means a bug inside Runtime Validator",
+                "Query validation failed with unexpected error. This means a bug inside Runtime Executor",
             );
             StatusCode::INTERNAL_SERVER_ERROR
         }

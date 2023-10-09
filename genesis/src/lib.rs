@@ -21,8 +21,8 @@ use iroha_config::genesis::Configuration;
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     asset::AssetDefinition,
+    executor::Executor,
     prelude::{Metadata, *},
-    validator::Validator,
 };
 use iroha_schema::IntoSchema;
 use once_cell::sync::Lazy;
@@ -66,10 +66,10 @@ impl GenesisNetwork {
                 .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
         )?;
         #[cfg(not(test))]
-        // First instruction should be Validator upgrade.
+        // First instruction should be Executor upgrade.
         // This makes possible to grant permissions to users in genesis.
         let transactions_iter = std::iter::once(GenesisTransactionBuilder {
-            isi: vec![UpgradeExpr::new(Validator::try_from(raw_block.validator)?).into()],
+            isi: vec![UpgradeExpr::new(Executor::try_from(raw_block.executor)?).into()],
         })
         .chain(raw_block.transactions.into_iter());
 
@@ -101,8 +101,8 @@ impl GenesisNetwork {
 pub struct RawGenesisBlock {
     /// Transactions
     transactions: Vec<GenesisTransactionBuilder>,
-    /// Runtime Validator
-    validator: ValidatorMode,
+    /// Runtime Executor
+    executor: ExecutorMode,
 }
 
 impl RawGenesisBlock {
@@ -127,7 +127,7 @@ impl RawGenesisBlock {
             "Failed to deserialize raw genesis block from {:?}",
             &path
         ))?;
-        raw_genesis_block.validator.set_genesis_path(path);
+        raw_genesis_block.executor.set_genesis_path(path);
         Ok(raw_genesis_block)
     }
 
@@ -137,18 +137,18 @@ impl RawGenesisBlock {
     }
 }
 
-/// Ways to provide validator either directly as base64 encoded string or as path to wasm file
+/// Ways to provide executor either directly as base64 encoded string or as path to wasm file
 #[derive(Debug, Clone, From, Deserialize, Serialize, IntoSchema)]
 #[serde(untagged)]
-pub enum ValidatorMode {
-    /// Path to validator wasm file
+pub enum ExecutorMode {
+    /// Path to executor wasm file
     // In the first place to initially try to parse path
-    Path(ValidatorPath),
-    /// Validator encoded as base64 string
-    Inline(Validator),
+    Path(ExecutorPath),
+    /// Executor encoded as base64 string
+    Inline(Executor),
 }
 
-impl ValidatorMode {
+impl ExecutorMode {
     fn set_genesis_path(&mut self, genesis_path: impl AsRef<Path>) {
         if let Self::Path(path) = self {
             path.set_genesis_path(genesis_path);
@@ -156,38 +156,38 @@ impl ValidatorMode {
     }
 }
 
-impl TryFrom<ValidatorMode> for Validator {
+impl TryFrom<ExecutorMode> for Executor {
     type Error = ErrReport;
 
-    fn try_from(value: ValidatorMode) -> Result<Self> {
+    fn try_from(value: ExecutorMode) -> Result<Self> {
         match value {
-            ValidatorMode::Inline(validator) => Ok(validator),
-            ValidatorMode::Path(ValidatorPath(relative_validator_path)) => {
-                let wasm = fs::read(&relative_validator_path)
-                    .wrap_err(format!("Failed to open {:?}", &relative_validator_path))?;
-                Ok(Validator::new(WasmSmartContract::from_compiled(wasm)))
+            ExecutorMode::Inline(executor) => Ok(executor),
+            ExecutorMode::Path(ExecutorPath(relative_executor_path)) => {
+                let wasm = fs::read(&relative_executor_path)
+                    .wrap_err(format!("Failed to open {:?}", &relative_executor_path))?;
+                Ok(Executor::new(WasmSmartContract::from_compiled(wasm)))
             }
         }
     }
 }
 
-/// Path to the validator relative to genesis location
+/// Path to the executor relative to genesis location
 ///
 /// If path is absolute it will be used directly otherwise it will be treated as relative to genesis location.
 #[derive(Debug, Clone, Deserialize, Serialize, IntoSchema)]
 #[schema(transparent = "String")]
 #[serde(transparent)]
 #[repr(transparent)]
-pub struct ValidatorPath(pub PathBuf);
+pub struct ExecutorPath(pub PathBuf);
 
-impl ValidatorPath {
+impl ExecutorPath {
     fn set_genesis_path(&mut self, genesis_path: impl AsRef<Path>) {
-        let path_to_validator = genesis_path
+        let path_to_executor = genesis_path
             .as_ref()
             .parent()
             .expect("Genesis must be in some directory")
             .join(&self.0);
-        self.0 = path_to_validator;
+        self.0 = path_to_executor;
     }
 }
 
@@ -241,17 +241,17 @@ pub struct RawGenesisDomainBuilder<S> {
     state: S,
 }
 
-mod validator_state {
-    use super::ValidatorMode;
+mod executor_state {
+    use super::ExecutorMode;
 
     #[cfg_attr(test, derive(Clone))]
-    pub struct Set(pub ValidatorMode);
+    pub struct Set(pub ExecutorMode);
 
     #[derive(Clone, Copy)]
     pub struct Unset;
 }
 
-impl RawGenesisBlockBuilder<validator_state::Unset> {
+impl RawGenesisBlockBuilder<executor_state::Unset> {
     /// Initiate the building process.
     pub fn new() -> Self {
         // Do not add `impl Default`. While it can technically be
@@ -260,18 +260,18 @@ impl RawGenesisBlockBuilder<validator_state::Unset> {
         // be called.
         Self {
             transaction: GenesisTransactionBuilder { isi: Vec::new() },
-            state: validator_state::Unset,
+            state: executor_state::Unset,
         }
     }
 
-    /// Set the validator.
-    pub fn validator(
+    /// Set the executor.
+    pub fn executor(
         self,
-        validator: impl Into<ValidatorMode>,
-    ) -> RawGenesisBlockBuilder<validator_state::Set> {
+        executor: impl Into<ExecutorMode>,
+    ) -> RawGenesisBlockBuilder<executor_state::Set> {
         RawGenesisBlockBuilder {
             transaction: self.transaction,
-            state: validator_state::Set(validator.into()),
+            state: executor_state::Set(executor.into()),
         }
     }
 }
@@ -303,12 +303,12 @@ impl<S> RawGenesisBlockBuilder<S> {
     }
 }
 
-impl RawGenesisBlockBuilder<validator_state::Set> {
+impl RawGenesisBlockBuilder<executor_state::Set> {
     /// Finish building and produce a `RawGenesisBlock`.
     pub fn build(self) -> RawGenesisBlock {
         RawGenesisBlock {
             transactions: vec![self.transaction],
-            validator: self.state.0,
+            executor: self.state.0,
         }
     }
 }
@@ -374,8 +374,8 @@ mod tests {
 
     use super::*;
 
-    fn dummy_validator() -> ValidatorMode {
-        ValidatorMode::Path(ValidatorPath("./validator.wasm".into()))
+    fn dummy_executor() -> ExecutorMode {
+        ExecutorMode::Path(ExecutorPath("./executor.wasm".into()))
     }
 
     #[test]
@@ -388,7 +388,7 @@ mod tests {
                 .domain("wonderland".parse()?)
                 .account("alice".parse()?, alice_public_key)
                 .finish_domain()
-                .validator(dummy_validator())
+                .executor(dummy_executor())
                 .build(),
             Some(
                 &ConfigurationProxy {
@@ -421,8 +421,8 @@ mod tests {
             .asset("hats".parse().unwrap(), AssetValueType::BigQuantity)
             .finish_domain();
 
-        // In real cases validator should be constructed from a wasm blob
-        let finished_genesis_block = genesis_builder.validator(dummy_validator()).build();
+        // In real cases executor should be constructed from a wasm blob
+        let finished_genesis_block = genesis_builder.executor(dummy_executor()).build();
         {
             let domain_id: DomainId = "wonderland".parse().unwrap();
             assert_eq!(

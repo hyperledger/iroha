@@ -77,7 +77,7 @@ impl iroha_data_model::evaluate::Context for Context<'_> {
             .map(|value| match value {
                 LazyValue::Value(value) => value,
                 // NOTE: This will only be executed when evaluating an expression for an
-                // instruction, i.e. it will only be executed from the validator/executor.
+                // instruction, i.e. it will only be executed from the executor.
                 LazyValue::Iter(iter) => Value::Vec(iter.collect()),
             })
             .map_err(Into::into)

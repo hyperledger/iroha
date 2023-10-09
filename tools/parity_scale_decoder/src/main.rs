@@ -28,6 +28,7 @@ use iroha_data_model::{
         BlockHeader, SignedBlock, SignedBlockV1,
     },
     domain::NewDomain,
+    executor::Executor,
     http::{BatchedResponse, BatchedResponseV1},
     ipfs::IpfsPath,
     predicate::{
@@ -43,7 +44,6 @@ use iroha_data_model::{
         ForwardCursor,
     },
     transaction::{error::TransactionLimitError, SignedTransactionV1, TransactionLimits},
-    validator::Validator,
     SignedBlockWrapper,
 };
 use iroha_primitives::{

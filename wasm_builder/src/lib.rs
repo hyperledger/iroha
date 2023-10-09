@@ -1,4 +1,4 @@
-//! Crate with helper tool to build smartcontracts (e.g. triggers and validators) for Iroha 2.
+//! Crate with helper tool to build smartcontracts (e.g. triggers and executors) for Iroha 2.
 //!
 //! See [`Builder`] for more details.
 
@@ -16,7 +16,7 @@ use path_absolutize::Absolutize;
 /// Current toolchain used to build smartcontracts
 const TOOLCHAIN: &str = "+nightly-2023-06-25";
 
-/// WASM Builder for smartcontracts (e.g. triggers and validators).
+/// WASM Builder for smartcontracts (e.g. triggers and executors).
 ///
 /// # Example
 ///

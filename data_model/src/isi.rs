@@ -147,7 +147,7 @@ mod transparent {
     // because they are never shared between client and server(http)/host(wasm)
 
     use super::*;
-    use crate::validator::Validator;
+    use crate::executor::Executor;
 
     /// Generic instruction to set key value at the object.
     #[derive(Debug, Clone)]
@@ -337,8 +337,8 @@ mod transparent {
         }
     }
 
-    impl From<Upgrade<Validator>> for UpgradeExpr {
-        fn from(source: Upgrade<Validator>) -> Self {
+    impl From<Upgrade<Executor>> for UpgradeExpr {
+        fn from(source: Upgrade<Executor>) -> Self {
             Self::new(source.object)
         }
     }

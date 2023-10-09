@@ -316,13 +316,13 @@ impl From<AcceptedTransaction> for (AccountId, Executable) {
 ///
 /// Validation is skipped for genesis.
 #[derive(Clone, Copy)]
-pub struct TransactionValidator {
+pub struct TransactionExecutor {
     /// [`TransactionLimits`] field
     pub transaction_limits: TransactionLimits,
 }
 
-impl TransactionValidator {
-    /// Construct [`TransactionValidator`]
+impl TransactionExecutor {
+    /// Construct [`TransactionExecutor`]
     pub fn new(transaction_limits: TransactionLimits) -> Self {
         Self { transaction_limits }
     }
@@ -372,7 +372,7 @@ impl TransactionValidator {
         let mut wsv_for_validation = wsv.clone();
 
         debug!("Validating transaction: {:?}", tx);
-        Self::validate_with_runtime_validator(tx.clone(), &mut wsv_for_validation)?;
+        Self::validate_with_runtime_executor(tx.clone(), &mut wsv_for_validation)?;
 
         if let (authority, Executable::Wasm(bytes)) = tx.into() {
             self.validate_wasm(authority, &mut wsv_for_validation, bytes)?
@@ -409,25 +409,25 @@ impl TransactionValidator {
             .map_err(TransactionRejectionReason::WasmExecution)
     }
 
-    /// Validate transaction with runtime validators.
+    /// Validate transaction with runtime executors.
     ///
     /// Note: transaction instructions will be executed on the given `wsv`.
-    fn validate_with_runtime_validator(
+    fn validate_with_runtime_executor(
         tx: AcceptedTransaction,
         wsv: &mut WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         let tx: SignedTransaction = tx.into();
         let authority = tx.payload().authority.clone();
 
-        wsv.validator()
-            .clone() // Cloning validator is a cheap operation
+        wsv.executor()
+            .clone() // Cloning executor is a cheap operation
             .validate_transaction(wsv, &authority, tx)
             .map_err(|error| {
                 if let ValidationFail::InternalError(msg) = &error {
                     error!(
                         error = msg,
                         "Internal error occurred during transaction validation, \
-                         is Runtime Validator correct?"
+                         is Runtime Executor correct?"
                     )
                 }
                 error.into()
