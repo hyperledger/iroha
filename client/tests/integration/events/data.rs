@@ -82,7 +82,7 @@ fn wasm_execution_should_produce_events() -> Result<()> {
             (func (export "{main_fn_name}") (param)
                 {isi_calls}))
         "#,
-        main_fn_name = iroha_data_model::wasm::export::fn_names::SMART_CONTRACT_MAIN,
+        main_fn_name = "_iroha_smart_contract_main",
         wasm_template = wasm_template(&isi_hex.concat()),
         isi_calls = isi_calls
     );

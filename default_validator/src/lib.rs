@@ -11,8 +11,12 @@ use alloc::borrow::ToOwned as _;
 
 use iroha_validator::{
     data_model::evaluate::ExpressionEvaluator, default::default_permission_token_schema,
-    iroha_wasm, prelude::*,
+    prelude::*, smart_contract,
 };
+use lol_alloc::{FreeListAllocator, LockedAllocator};
+
+#[global_allocator]
+static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
 /// Validator that replaces some of [`Validate`]'s methods with sensible defaults
 ///
@@ -23,7 +27,7 @@ use iroha_validator::{
 pub struct Validator {
     verdict: Result,
     block_height: u64,
-    host: iroha_wasm::Host,
+    host: smart_contract::Host,
 }
 
 impl Validator {
@@ -32,7 +36,7 @@ impl Validator {
         Self {
             verdict: Ok(()),
             block_height,
-            host: iroha_wasm::Host,
+            host: smart_contract::Host,
         }
     }
 
@@ -139,7 +143,8 @@ impl ExpressionEvaluator for Validator {
     fn evaluate<E: Evaluate>(
         &self,
         expression: &E,
-    ) -> core::result::Result<E::Value, iroha_wasm::data_model::evaluate::EvaluationError> {
+    ) -> core::result::Result<E::Value, iroha_validator::data_model::evaluate::EvaluationError>
+    {
         self.host.evaluate(expression)
     }
 }
@@ -159,7 +164,7 @@ pub fn migrate(block_height: u64) -> MigrationResult {
 
     let schema = default_permission_token_schema();
     let (token_ids, schema_str) = schema.serialize();
-    iroha_validator::iroha_wasm::set_permission_token_schema(
+    iroha_validator::set_permission_token_schema(
         &iroha_validator::data_model::permission::PermissionTokenSchema::new(token_ids, schema_str),
     );
 
