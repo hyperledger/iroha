@@ -16,8 +16,9 @@ use iroha_data_model::{
     isi::InstructionExpr,
     permission::PermissionTokenSchema,
     prelude::*,
+    query::QueryBox,
+    smart_contract::payloads::{self, Validate},
     validator::{self, MigrationResult},
-    wasm::{export, import, payloads},
     Level as LogLevel, ValidationFail,
 };
 use iroha_logger::debug;
@@ -36,8 +37,42 @@ use crate::{
     wsv::WorldStateView,
 };
 
+/// Name of the exported memory
+const WASM_MEMORY: &str = "memory";
+const WASM_MODULE: &str = "iroha";
+
+mod export {
+    pub const EXECUTE_ISI: &str = "execute_instruction";
+    pub const EXECUTE_QUERY: &str = "execute_query";
+    pub const GET_SMART_CONTRACT_PAYLOAD: &str = "get_smart_contract_payload";
+    pub const GET_TRIGGER_PAYLOAD: &str = "get_trigger_payload";
+    pub const GET_MIGRATE_PAYLOAD: &str = "get_migrate_payload";
+    pub const GET_VALIDATE_TRANSACTION_PAYLOAD: &str = "get_validate_transaction_payload";
+    pub const GET_VALIDATE_INSTRUCTION_PAYLOAD: &str = "get_validate_instruction_payload";
+    pub const GET_VALIDATE_QUERY_PAYLOAD: &str = "get_validate_query_payload";
+    pub const SET_PERMISSION_TOKEN_SCHEMA: &str = "set_permission_token_schema";
+
+    pub const DBG: &str = "dbg";
+    pub const LOG: &str = "log";
+}
+
+mod import {
+    pub const SMART_CONTRACT_MAIN: &str = "_iroha_smart_contract_main";
+    pub const SMART_CONTRACT_ALLOC: &str = "_iroha_smart_contract_alloc";
+    pub const SMART_CONTRACT_DEALLOC: &str = "_iroha_smart_contract_dealloc";
+
+    pub const TRIGGER_MAIN: &str = "_iroha_trigger_main";
+
+    pub const VALIDATOR_VALIDATE_TRANSACTION: &str = "_iroha_validator_validate_transaction";
+    pub const VALIDATOR_VALIDATE_INSTRUCTION: &str = "_iroha_validator_validate_instruction";
+    pub const VALIDATOR_VALIDATE_QUERY: &str = "_iroha_validator_validate_query";
+    pub const VALIDATOR_MIGRATE: &str = "_iroha_validator_migrate";
+}
+
 mod import_traits {
     //! Traits which some [Runtime]s should implement to import functions from Iroha to WASM
+
+    use iroha_data_model::{query::QueryBox, smart_contract::payloads::Validate};
 
     use super::*;
 
@@ -59,13 +94,13 @@ mod import_traits {
         fn get_migrate_payload(state: &S) -> payloads::Migrate;
 
         #[codec::wrap_trait_fn]
-        fn get_validate_transaction_payload(state: &S) -> payloads::ValidateTransaction;
+        fn get_validate_transaction_payload(state: &S) -> Validate<SignedTransaction>;
 
         #[codec::wrap_trait_fn]
-        fn get_validate_instruction_payload(state: &S) -> payloads::ValidateInstruction;
+        fn get_validate_instruction_payload(state: &S) -> Validate<InstructionExpr>;
 
         #[codec::wrap_trait_fn]
-        fn get_validate_query_payload(state: &S) -> payloads::ValidateQuery;
+        fn get_validate_query_payload(state: &S) -> Validate<QueryBox>;
     }
 
     pub trait SetPermissionTokenSchema<S> {
@@ -556,23 +591,23 @@ pub struct Runtime<S> {
 impl<S> Runtime<S> {
     fn get_memory(caller: &mut impl GetExport) -> Result<wasmtime::Memory, ExportError> {
         caller
-            .get_export(export::WASM_MEMORY)
-            .ok_or_else(|| ExportError::not_found(export::WASM_MEMORY))?
+            .get_export(WASM_MEMORY)
+            .ok_or_else(|| ExportError::not_found(WASM_MEMORY))?
             .into_memory()
-            .ok_or_else(|| ExportError::not_a_memory(export::WASM_MEMORY))
+            .ok_or_else(|| ExportError::not_a_memory(WASM_MEMORY))
     }
 
     fn get_alloc_fn(
         caller: &mut Caller<S>,
     ) -> Result<TypedFunc<WasmUsize, WasmUsize>, ExportError> {
         caller
-            .get_export(export::fn_names::WASM_ALLOC)
-            .ok_or_else(|| ExportError::not_found(export::fn_names::WASM_ALLOC))?
+            .get_export(import::SMART_CONTRACT_ALLOC)
+            .ok_or_else(|| ExportError::not_found(import::SMART_CONTRACT_ALLOC))?
             .into_func()
-            .ok_or_else(|| ExportError::not_a_function(export::fn_names::WASM_ALLOC))?
+            .ok_or_else(|| ExportError::not_a_function(import::SMART_CONTRACT_ALLOC))?
             .typed::<WasmUsize, WasmUsize>(caller)
             .map_err(|_error| {
-                ExportError::wrong_signature::<WasmUsize, WasmUsize>(export::fn_names::WASM_ALLOC)
+                ExportError::wrong_signature::<WasmUsize, WasmUsize>(import::SMART_CONTRACT_ALLOC)
             })
     }
 
@@ -620,12 +655,12 @@ impl<S> Runtime<S> {
         let _ = Self::get_typed_func::<WasmUsize, WasmUsize>(
             instance,
             store,
-            export::fn_names::WASM_ALLOC,
+            import::SMART_CONTRACT_ALLOC,
         )?;
         let _ = Self::get_typed_func::<(WasmUsize, WasmUsize), ()>(
             instance,
             store,
-            export::fn_names::WASM_DEALLOC,
+            import::SMART_CONTRACT_DEALLOC,
         )?;
 
         Ok(())
@@ -723,7 +758,7 @@ impl<S: state::LimitsMut> Runtime<S> {
         let memory =
             Self::get_memory(&mut (&instance, &mut store)).expect("Checked at instantiation step");
         let dealloc_fn =
-            Self::get_typed_func(&instance, &mut store, export::fn_names::WASM_DEALLOC)
+            Self::get_typed_func(&instance, &mut store, import::SMART_CONTRACT_DEALLOC)
                 .expect("Checked at instantiation step");
         codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
             .map_err(Error::Decode)
@@ -826,11 +861,8 @@ impl<'wrld> Runtime<state::SmartContract<'wrld>> {
         let mut store = self.create_store(state);
         let smart_contract = self.create_smart_contract(&mut store, bytes)?;
 
-        let main_fn = Self::get_typed_func(
-            &smart_contract,
-            &mut store,
-            export::fn_names::SMART_CONTRACT_MAIN,
-        )?;
+        let main_fn =
+            Self::get_typed_func(&smart_contract, &mut store, import::SMART_CONTRACT_MAIN)?;
 
         // NOTE: This function takes ownership of the pointer
         main_fn
@@ -895,7 +927,7 @@ impl<'wrld> Runtime<state::Trigger<'wrld>> {
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
 
-        let main_fn = Self::get_typed_func(&instance, &mut store, export::fn_names::TRIGGER_MAIN)?;
+        let main_fn = Self::get_typed_func(&instance, &mut store, import::TRIGGER_MAIN)?;
 
         // NOTE: This function takes ownership of the pointer
         main_fn
@@ -1016,7 +1048,7 @@ impl<'wrld> Runtime<state::validator::ValidateTransaction<'wrld>> {
                 common: state::Common::new(wsv, authority.clone(), self.config, span),
                 to_validate: transaction,
             },
-            export::fn_names::VALIDATOR_VALIDATE_TRANSACTION,
+            import::VALIDATOR_VALIDATE_TRANSACTION,
         )
     }
 }
@@ -1039,8 +1071,8 @@ impl<'wrld> import_traits::GetValidatorPayloads<state::validator::ValidateTransa
     #[codec::wrap]
     fn get_validate_transaction_payload(
         state: &state::validator::ValidateTransaction<'wrld>,
-    ) -> payloads::ValidateTransaction {
-        payloads::ValidateTransaction {
+    ) -> Validate<SignedTransaction> {
+        Validate {
             authority: state.authority().clone(),
             block_height: state.wsv().height(),
             to_validate: state.to_validate.clone(),
@@ -1050,14 +1082,14 @@ impl<'wrld> import_traits::GetValidatorPayloads<state::validator::ValidateTransa
     #[codec::wrap]
     fn get_validate_instruction_payload(
         _state: &state::validator::ValidateTransaction<'wrld>,
-    ) -> payloads::ValidateInstruction {
+    ) -> Validate<InstructionExpr> {
         panic!("Validator `validate_transaction()` entrypoint should not query payload for `validate_instruction()` entrypoint")
     }
 
     #[codec::wrap]
     fn get_validate_query_payload(
         _state: &state::validator::ValidateTransaction<'wrld>,
-    ) -> payloads::ValidateQuery {
+    ) -> Validate<QueryBox> {
         panic!("Validator `validate_transaction()` entrypoint should not query payload for `validate_query()` entrypoint")
     }
 }
@@ -1092,7 +1124,7 @@ impl<'wrld> Runtime<state::validator::ValidateInstruction<'wrld>> {
                 common: state::Common::new(wsv, authority.clone(), self.config, span),
                 to_validate: instruction,
             },
-            export::fn_names::VALIDATOR_VALIDATE_INSTRUCTION,
+            import::VALIDATOR_VALIDATE_INSTRUCTION,
         )
     }
 }
@@ -1115,15 +1147,15 @@ impl<'wrld> import_traits::GetValidatorPayloads<state::validator::ValidateInstru
     #[codec::wrap]
     fn get_validate_transaction_payload(
         _state: &state::validator::ValidateInstruction<'wrld>,
-    ) -> payloads::ValidateTransaction {
+    ) -> Validate<SignedTransaction> {
         panic!("Validator `validate_instruction()` entrypoint should not query payload for `validate_transaction()` entrypoint")
     }
 
     #[codec::wrap]
     fn get_validate_instruction_payload(
         state: &state::validator::ValidateInstruction<'wrld>,
-    ) -> payloads::ValidateInstruction {
-        payloads::ValidateInstruction {
+    ) -> Validate<InstructionExpr> {
+        Validate {
             authority: state.authority().clone(),
             block_height: state.wsv().height(),
             to_validate: state.to_validate.clone(),
@@ -1133,7 +1165,7 @@ impl<'wrld> import_traits::GetValidatorPayloads<state::validator::ValidateInstru
     #[codec::wrap]
     fn get_validate_query_payload(
         _state: &state::validator::ValidateInstruction<'wrld>,
-    ) -> payloads::ValidateQuery {
+    ) -> Validate<QueryBox> {
         panic!("Validator `validate_instruction()` entrypoint should not query payload for `validate_query()` entrypoint")
     }
 }
@@ -1171,7 +1203,7 @@ impl<'wrld> Runtime<state::validator::ValidateQuery<'wrld>> {
                 log_span: span,
                 query,
             },
-            export::fn_names::VALIDATOR_VALIDATE_QUERY,
+            import::VALIDATOR_VALIDATE_QUERY,
         )
     }
 }
@@ -1215,22 +1247,22 @@ impl<'wrld> import_traits::GetValidatorPayloads<state::validator::ValidateQuery<
     #[codec::wrap]
     fn get_validate_transaction_payload(
         _state: &state::validator::ValidateQuery<'wrld>,
-    ) -> payloads::ValidateTransaction {
+    ) -> Validate<SignedTransaction> {
         panic!("Validator `validate_query()` entrypoint should not query payload for `validate_transaction()` entrypoint")
     }
 
     #[codec::wrap]
     fn get_validate_instruction_payload(
         _state: &state::validator::ValidateQuery<'wrld>,
-    ) -> payloads::ValidateInstruction {
+    ) -> Validate<InstructionExpr> {
         panic!("Validator `validate_query()` entrypoint should not query payload for `validate_instruction()` entrypoint")
     }
 
     #[codec::wrap]
     fn get_validate_query_payload(
         state: &state::validator::ValidateQuery<'wrld>,
-    ) -> payloads::ValidateQuery {
-        payloads::ValidateQuery {
+    ) -> Validate<QueryBox> {
+        Validate {
             authority: state.authority().clone(),
             block_height: state.wsv().height(),
             to_validate: state.query.clone(),
@@ -1270,8 +1302,7 @@ impl<'wrld> Runtime<state::validator::Migrate<'wrld>> {
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
 
-        let migrate_fn =
-            Self::get_typed_func(&instance, &mut store, export::fn_names::VALIDATOR_MIGRATE)?;
+        let migrate_fn = Self::get_typed_func(&instance, &mut store, import::VALIDATOR_MIGRATE)?;
 
         let offset = migrate_fn
             .call(&mut store, ())
@@ -1280,7 +1311,7 @@ impl<'wrld> Runtime<state::validator::Migrate<'wrld>> {
         let memory =
             Self::get_memory(&mut (&instance, &mut store)).expect("Checked at instantiation step");
         let dealloc_fn =
-            Self::get_typed_func(&instance, &mut store, export::fn_names::WASM_DEALLOC)
+            Self::get_typed_func(&instance, &mut store, import::SMART_CONTRACT_DEALLOC)
                 .expect("Checked at instantiation step");
         codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
             .map_err(Error::Decode)
@@ -1314,21 +1345,19 @@ impl<'wrld> import_traits::GetValidatorPayloads<state::validator::Migrate<'wrld>
     #[codec::wrap]
     fn get_validate_transaction_payload(
         _state: &state::validator::Migrate<'wrld>,
-    ) -> payloads::ValidateTransaction {
+    ) -> Validate<SignedTransaction> {
         panic!("Validator `migrate()` entrypoint should not query payload for `validate_transaction()` entrypoint")
     }
 
     #[codec::wrap]
     fn get_validate_instruction_payload(
         _state: &state::validator::Migrate<'wrld>,
-    ) -> payloads::ValidateInstruction {
+    ) -> Validate<InstructionExpr> {
         panic!("Validator `migrate()` entrypoint should not query payload for `validate_instruction()` entrypoint")
     }
 
     #[codec::wrap]
-    fn get_validate_query_payload(
-        _state: &state::validator::Migrate<'wrld>,
-    ) -> payloads::ValidateQuery {
+    fn get_validate_query_payload(_state: &state::validator::Migrate<'wrld>) -> Validate<QueryBox> {
         panic!("Validator `migrate()` entrypoint should not query payload for `validate_query()` entrypoint")
     }
 }
@@ -1405,24 +1434,24 @@ impl<S> RuntimeBuilder<S> {
 macro_rules! create_imports {
     (
         $linker:ident,
-        $(import::fn_names:: $name:ident => $fn_path:path),* $(,)?
+        $(export::$name:ident => $fn_path:path),* $(,)?
     ) => {
         $linker.func_wrap(
-                import::MODULE,
-                import::fn_names::LOG,
+                WASM_MODULE,
+                export::LOG,
                 Runtime::log,
             )
             .and_then(|l| {
                 l.func_wrap(
-                    import::MODULE,
-                    import::fn_names::DBG,
+                    WASM_MODULE,
+                    export::DBG,
                     Runtime::dbg,
                 )
             })
             $(.and_then(|l| {
                 l.func_wrap(
-                    import::MODULE,
-                    import::fn_names::$name,
+                    WASM_MODULE,
+                    export::$name,
                     $fn_path,
                 )
             }))*
@@ -1441,9 +1470,9 @@ impl<'wrld> RuntimeBuilder<state::SmartContract<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::fn_names::EXECUTE_ISI => Runtime::<state::SmartContract<'_>>::execute_instruction,
-                import::fn_names::EXECUTE_QUERY => Runtime::<state::SmartContract<'_>>::execute_query,
-                import::fn_names::GET_SMART_CONTRACT_PAYLOAD => Runtime::get_smart_contract_payload,
+                export::EXECUTE_ISI => Runtime::<state::SmartContract<'_>>::execute_instruction,
+                export::EXECUTE_QUERY => Runtime::<state::SmartContract<'_>>::execute_query,
+                export::GET_SMART_CONTRACT_PAYLOAD => Runtime::get_smart_contract_payload,
             )?;
             Ok(linker)
         })
@@ -1461,9 +1490,9 @@ impl<'wrld> RuntimeBuilder<state::Trigger<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::fn_names::EXECUTE_ISI => Runtime::<state::Trigger<'_>>::execute_instruction,
-                import::fn_names::EXECUTE_QUERY => Runtime::<state::Trigger<'_>>::execute_query,
-                import::fn_names::GET_TRIGGER_PAYLOAD => Runtime::get_trigger_payload,
+                export::EXECUTE_ISI => Runtime::<state::Trigger<'_>>::execute_instruction,
+                export::EXECUTE_QUERY => Runtime::<state::Trigger<'_>>::execute_query,
+                export::GET_TRIGGER_PAYLOAD => Runtime::get_trigger_payload,
             )?;
             Ok(linker)
         })
@@ -1481,13 +1510,13 @@ impl<'wrld> RuntimeBuilder<state::validator::ValidateTransaction<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::fn_names::EXECUTE_ISI => Runtime::<state::validator::ValidateTransaction<'_>>::execute_instruction,
-                import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::ValidateTransaction<'_>>::execute_query,
-                import::fn_names::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
-                import::fn_names::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
-                import::fn_names::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
-                import::fn_names::GET_VALIDATE_QUERY_PAYLOAD => Runtime::get_validate_query_payload,
-                import::fn_names::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
+                export::EXECUTE_ISI => Runtime::<state::validator::ValidateTransaction<'_>>::execute_instruction,
+                export::EXECUTE_QUERY => Runtime::<state::validator::ValidateTransaction<'_>>::execute_query,
+                export::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
+                export::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
+                export::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
+                export::GET_VALIDATE_QUERY_PAYLOAD => Runtime::get_validate_query_payload,
+                export::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
         })
@@ -1505,13 +1534,13 @@ impl<'wrld> RuntimeBuilder<state::validator::ValidateInstruction<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::fn_names::EXECUTE_ISI => Runtime::<state::validator::ValidateInstruction<'_>>::execute_instruction,
-                import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::ValidateInstruction<'_>>::execute_query,
-                import::fn_names::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
-                import::fn_names::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
-                import::fn_names::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
-                import::fn_names::GET_VALIDATE_QUERY_PAYLOAD => Runtime::get_validate_query_payload,
-                import::fn_names::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
+                export::EXECUTE_ISI => Runtime::<state::validator::ValidateInstruction<'_>>::execute_instruction,
+                export::EXECUTE_QUERY => Runtime::<state::validator::ValidateInstruction<'_>>::execute_query,
+                export::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
+                export::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
+                export::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
+                export::GET_VALIDATE_QUERY_PAYLOAD => Runtime::get_validate_query_payload,
+                export::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
         })
@@ -1529,13 +1558,13 @@ impl<'wrld> RuntimeBuilder<state::validator::ValidateQuery<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::fn_names::EXECUTE_ISI => Runtime::<state::validator::ValidateQuery<'_>>::execute_instruction,
-                import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::ValidateQuery<'_>>::execute_query,
-                import::fn_names::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
-                import::fn_names::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
-                import::fn_names::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
-                import::fn_names::GET_VALIDATE_QUERY_PAYLOAD => Runtime::get_validate_query_payload,
-                import::fn_names::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
+                export::EXECUTE_ISI => Runtime::<state::validator::ValidateQuery<'_>>::execute_instruction,
+                export::EXECUTE_QUERY => Runtime::<state::validator::ValidateQuery<'_>>::execute_query,
+                export::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
+                export::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
+                export::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
+                export::GET_VALIDATE_QUERY_PAYLOAD => Runtime::get_validate_query_payload,
+                export::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
         })
@@ -1553,13 +1582,13 @@ impl<'wrld> RuntimeBuilder<state::validator::Migrate<'wrld>> {
             let mut linker = Linker::new(engine);
 
             create_imports!(linker,
-                import::fn_names::EXECUTE_ISI => Runtime::<state::validator::Migrate<'_>>::execute_instruction,
-                import::fn_names::EXECUTE_QUERY => Runtime::<state::validator::Migrate<'_>>::execute_query,
-                import::fn_names::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
-                import::fn_names::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
-                import::fn_names::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
-                import::fn_names::GET_VALIDATE_QUERY_PAYLOAD => Runtime::get_validate_query_payload,
-                import::fn_names::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
+                export::EXECUTE_ISI => Runtime::<state::validator::Migrate<'_>>::execute_instruction,
+                export::EXECUTE_QUERY => Runtime::<state::validator::Migrate<'_>>::execute_query,
+                export::GET_MIGRATE_PAYLOAD => Runtime::get_migrate_payload,
+                export::GET_VALIDATE_TRANSACTION_PAYLOAD => Runtime::get_validate_transaction_payload,
+                export::GET_VALIDATE_INSTRUCTION_PAYLOAD => Runtime::get_validate_instruction_payload,
+                export::GET_VALIDATE_QUERY_PAYLOAD => Runtime::get_validate_query_payload,
+                export::SET_PERMISSION_TOKEN_SCHEMA => Runtime::set_permission_token_schema,
             )?;
             Ok(linker)
         })
@@ -1626,9 +1655,9 @@ mod tests {
             (func (export "{dealloc_fn_name}") (param $size i32) (param $len i32)
                 nop)
             "#,
-            memory_name = export::WASM_MEMORY,
-            alloc_fn_name = export::fn_names::WASM_ALLOC,
-            dealloc_fn_name = export::fn_names::WASM_DEALLOC,
+            memory_name = WASM_MEMORY,
+            alloc_fn_name = import::SMART_CONTRACT_ALLOC,
+            dealloc_fn_name = import::SMART_CONTRACT_DEALLOC,
             isi_len = isi_hex.len() / 3,
             isi_hex = isi_hex,
         )
@@ -1677,8 +1706,8 @@ mod tests {
                     ;; No use of return values
                     drop))
             "#,
-            main_fn_name = export::fn_names::SMART_CONTRACT_MAIN,
-            execute_fn_name = import::fn_names::EXECUTE_ISI,
+            main_fn_name = import::SMART_CONTRACT_MAIN,
+            execute_fn_name = export::EXECUTE_ISI,
             memory_and_alloc = memory_and_alloc(&isi_hex),
             isi_len = isi_hex.len() / 3,
         );
@@ -1713,8 +1742,8 @@ mod tests {
                     ;; No use of return values
                     drop))
             "#,
-            main_fn_name = export::fn_names::SMART_CONTRACT_MAIN,
-            execute_fn_name = import::fn_names::EXECUTE_QUERY,
+            main_fn_name = import::SMART_CONTRACT_MAIN,
+            execute_fn_name = export::EXECUTE_QUERY,
             memory_and_alloc = memory_and_alloc(&query_hex),
             isi_len = query_hex.len() / 3,
         );
@@ -1754,8 +1783,8 @@ mod tests {
                     (call $exec_fn (i32.const 0) (i32.const {isi1_end}))
                     (call $exec_fn (i32.const {isi1_end}) (i32.const {isi2_end}))))
             "#,
-            main_fn_name = export::fn_names::SMART_CONTRACT_MAIN,
-            execute_fn_name = import::fn_names::EXECUTE_ISI,
+            main_fn_name = import::SMART_CONTRACT_MAIN,
+            execute_fn_name = export::EXECUTE_ISI,
             // Store two instructions into adjacent memory and execute them
             memory_and_alloc = memory_and_alloc(&isi_hex.repeat(2)),
             isi1_end = isi_hex.len() / 3,
@@ -1804,8 +1833,8 @@ mod tests {
                 )
             )
             "#,
-            main_fn_name = export::fn_names::SMART_CONTRACT_MAIN,
-            execute_fn_name = import::fn_names::EXECUTE_ISI,
+            main_fn_name = import::SMART_CONTRACT_MAIN,
+            execute_fn_name = export::EXECUTE_ISI,
             memory_and_alloc = memory_and_alloc(&isi_hex),
             isi_len = isi_hex.len() / 3,
         );
@@ -1847,8 +1876,8 @@ mod tests {
                     ;; No use of return value
                     drop))
             "#,
-            main_fn_name = export::fn_names::SMART_CONTRACT_MAIN,
-            execute_fn_name = import::fn_names::EXECUTE_QUERY,
+            main_fn_name = import::SMART_CONTRACT_MAIN,
+            execute_fn_name = export::EXECUTE_QUERY,
             memory_and_alloc = memory_and_alloc(&query_hex),
             isi_len = query_hex.len() / 3,
         );
@@ -1888,8 +1917,8 @@ mod tests {
                     ;; No use of return values
                     drop))
             "#,
-            main_fn_name = export::fn_names::SMART_CONTRACT_MAIN,
-            get_trigger_payload_fn_name = import::fn_names::GET_TRIGGER_PAYLOAD,
+            main_fn_name = import::SMART_CONTRACT_MAIN,
+            get_trigger_payload_fn_name = export::GET_TRIGGER_PAYLOAD,
             memory_and_alloc = memory_and_alloc(&query_hex),
         );
 

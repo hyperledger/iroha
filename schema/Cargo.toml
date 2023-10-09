@@ -18,5 +18,5 @@ fixnum = { workspace = true, features = ["i64"] }
 
 [dev-dependencies]
 parity-scale-codec = { workspace = true, default-features = false, features = ["derive", "full"] }
+serde_json = { workspace = true, features = ["alloc"] }
 impls = { workspace = true }
-serde_json = { workspace = true, features = ["std"] }

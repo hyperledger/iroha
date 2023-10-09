@@ -3054,6 +3054,7 @@ dependencies = [
  "iroha_config_derive",
  "iroha_crypto",
  "json5",
+ "parking_lot",
  "serde",
  "serde_json",
  "thiserror",
@@ -3419,6 +3420,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroha_smart_contract"
+version = "2.0.0-pre-rc.19"
+dependencies = [
+ "iroha_data_model",
+ "iroha_smart_contract_derive",
+ "iroha_smart_contract_utils",
+ "parity-scale-codec",
+ "webassembly-test",
+]
+
+[[package]]
+name = "iroha_smart_contract_derive"
+version = "2.0.0-pre-rc.19"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "iroha_smart_contract_utils"
+version = "2.0.0-pre-rc.19"
+dependencies = [
+ "iroha_data_model",
+ "parity-scale-codec",
+ "webassembly-test",
+]
+
+[[package]]
 name = "iroha_substrate"
 version = "2.0.0-pre-rc.19"
 
@@ -3476,6 +3506,47 @@ dependencies = [
  "quote",
  "syn 1.0.109",
  "trybuild",
+]
+
+[[package]]
+name = "iroha_trigger"
+version = "2.0.0-pre-rc.19"
+dependencies = [
+ "iroha_data_model",
+ "iroha_smart_contract",
+ "iroha_smart_contract_utils",
+ "iroha_trigger_derive",
+]
+
+[[package]]
+name = "iroha_trigger_derive"
+version = "2.0.0-pre-rc.19"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "iroha_validator"
+version = "2.0.0-pre-rc.19"
+dependencies = [
+ "iroha_data_model",
+ "iroha_schema",
+ "iroha_smart_contract",
+ "iroha_smart_contract_utils",
+ "iroha_validator_derive",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "iroha_validator_derive"
+version = "2.0.0-pre-rc.19"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]

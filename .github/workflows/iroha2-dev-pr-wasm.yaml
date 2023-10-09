@@ -1,19 +1,18 @@
 name: I2::Dev::Wasm
 
-defaults:
-  run:
-    working-directory: wasm
-
 on:
   pull_request:
     branches: [iroha2-dev]
     paths:
-      - 'wasm/**.rs'
-      - 'wasm/**.json'
-      - 'wasm/**.toml'
-      - 'wasm/**.yml'
       - 'data_model/**.rs'
+      - 'data_model/**.yml'
+      - 'data_model/**.json'
       - 'data_model/**.toml'
+
+      - 'smart_contract/**.rs'
+      - 'smart_contract/**.yml'
+      - 'smart_contract/**.json'
+      - 'smart_contract/**.toml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -23,23 +22,6 @@ env:
   RUSTUP_TOOLCHAIN: nightly-2023-06-25
 
 jobs:
-  static-analysis:
-    runs-on: ubuntu-latest
-    container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
-    steps:
-      - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Format
-        run: cargo fmt --all -- --check
-      - name: Lints
-        if: always()
-        run: cargo clippy -Zlints --workspace --benches --tests --examples --quiet
-      - name: Documentation
-        if: always()
-        run: cargo doc --no-deps --quiet
-
   tests:
     runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
@@ -48,6 +30,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
       - name: Install iroha_wasm_test_runner
-        run: cd .. && cargo install --path tools/wasm_test_runner
-      - name: Run tests
-        run: mold --run cargo test --tests --no-fail-fast --quiet
+        run: cargo install --path tools/wasm_test_runner
+      - name: Run smart contract tests on WebAssembly VM
+        working-directory: smart_contract
+        run: mold --run cargo test --tests --target wasm32-unknown-unknown --no-fail-fast --quiet
