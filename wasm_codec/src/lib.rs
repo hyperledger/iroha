@@ -53,7 +53,8 @@ pub fn decode_from_memory<C: wasmtime::AsContext, T: DecodeAll>(
 ///
 /// - Failed to decode object
 /// - Failed to call `dealloc_fn`
-#[allow(clippy::expect_used, clippy::unwrap_in_result)]
+// NOTE: Panic is predicated by implementation not user input
+#[allow(clippy::missing_panics_doc)]
 pub fn decode_with_length_prefix_from_memory<
     C: wasmtime::AsContextMut,
     T: DecodeAll + std::fmt::Debug,
@@ -92,6 +93,8 @@ pub fn decode_with_length_prefix_from_memory<
 ///
 /// - If failed to call `alloc_fn`
 /// - If failed to write into the `memory`
+// NOTE: Panic is predicated by implementation not user input
+#[allow(clippy::missing_panics_doc)]
 pub fn encode_into_memory<T: Encode>(
     obj: &T,
     memory: &wasmtime::Memory,
@@ -123,10 +126,12 @@ pub fn encode_into_memory<T: Encode>(
 /// `WebAssembly` it's not possible to return two values from a wasm function without some
 /// shenanignas. In those cases, only one value is sent which is pointer to the allocation
 /// with the first element being the length of the encoded object following it.
+// NOTE: Panic is predicated by implementation not user input
+#[allow(clippy::missing_panics_doc)]
 pub fn encode_with_length_prefix<T: Encode>(obj: &T) -> Vec<u8> {
     // Compile-time size check
     #[allow(clippy::let_unit_value)]
-    let _ = SizeChecker::<T>::RESULT;
+    let () = SizeChecker::<T>::RESULT;
 
     let len_size_bytes = core::mem::size_of::<WasmUsize>();
 

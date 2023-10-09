@@ -1,0 +1,2 @@
+[target.wasm32-unknown-unknown]
+runner = "iroha_wasm_test_runner"

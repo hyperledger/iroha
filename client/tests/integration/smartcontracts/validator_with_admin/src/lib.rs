@@ -4,19 +4,24 @@
 #![no_std]
 #![allow(missing_docs, clippy::missing_errors_doc)]
 
-use iroha_validator::{
-    data_model::evaluate::{EvaluationError, ExpressionEvaluator},
-    iroha_wasm, parse,
-    prelude::*,
-};
-
 #[cfg(not(test))]
 extern crate panic_halt;
+
+use iroha_validator::{
+    data_model::evaluate::{EvaluationError, ExpressionEvaluator},
+    parse,
+    prelude::*,
+    smart_contract,
+};
+use lol_alloc::{FreeListAllocator, LockedAllocator};
+
+#[global_allocator]
+static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
 struct Validator {
     verdict: Result,
     block_height: u64,
-    host: iroha_wasm::Host,
+    host: smart_contract::Host,
 }
 
 impl Validator {
@@ -25,7 +30,7 @@ impl Validator {
         Self {
             verdict: Ok(()),
             block_height,
-            host: iroha_wasm::Host,
+            host: smart_contract::Host,
         }
     }
 }

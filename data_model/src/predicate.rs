@@ -1335,7 +1335,7 @@ pub mod ip_addr {
             self.0
                 .iter()
                 .copied()
-                .zip(input.into_iter())
+                .zip(input)
                 .all(|(myself, other)| myself.applies(other))
         }
     }

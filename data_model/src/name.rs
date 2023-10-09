@@ -106,7 +106,8 @@ impl FromStr for Name {
     type Err = ParseError;
 
     fn from_str(candidate: &str) -> Result<Self, Self::Err> {
-        Self::validate_str(candidate).map(|_| Self(ConstString::from(candidate)))
+        Self::validate_str(candidate)?;
+        Ok(Self(ConstString::from(candidate)))
     }
 }
 
@@ -114,7 +115,8 @@ impl TryFrom<String> for Name {
     type Error = ParseError;
 
     fn try_from(candidate: String) -> Result<Self, Self::Error> {
-        Self::validate_str(&candidate).map(|_| Self(ConstString::from(candidate)))
+        Self::validate_str(&candidate)?;
+        Ok(Self(ConstString::from(candidate)))
     }
 }
 
@@ -125,17 +127,17 @@ impl<'de> Deserialize<'de> for Name {
     {
         use serde::de::Error as _;
 
-        let name = ConstString::deserialize(deserializer)?;
-        Self::validate_str(&name)
-            .map(|_| Self(name))
-            .map_err(D::Error::custom)
+        let candidate = ConstString::deserialize(deserializer)?;
+        Self::validate_str(&candidate).map_err(D::Error::custom)?;
+
+        Ok(Self(candidate))
     }
 }
 impl Decode for Name {
     fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
         let name = ConstString::decode(input)?;
         Self::validate_str(&name)
-            .map(|_| Self(name))
+            .map(|()| Self(name))
             .map_err(|error| error.reason.into())
     }
 }

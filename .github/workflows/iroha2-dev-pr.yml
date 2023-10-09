@@ -9,9 +9,6 @@ on:
       - '**.toml'
       - '.github/workflows/**.yml'
 
-      # Not part of the workspace
-      - '!wasm/**'
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -45,10 +42,6 @@ jobs:
       - name: Check Docker Compose configurations
         if: always()
         run: ./scripts/tests/consistency.sh docker-compose
-      - name: Wasm build check
-        if: always()
-        working-directory: wasm
-        run: mold --run cargo build --target wasm32-unknown-unknown --quiet
 
   with_coverage:
     runs-on: [self-hosted, Linux, iroha2ci]
@@ -159,7 +152,7 @@ jobs:
 
       - name: Run Iroha 2 on bare metal
         run: |
-          ./scripts/test_env.py setup   
+          ./scripts/test_env.py setup
 
       - name: Copy Iroha 2 client config
         run: |

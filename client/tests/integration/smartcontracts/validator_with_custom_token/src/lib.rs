@@ -14,24 +14,27 @@
 #![allow(missing_docs, clippy::missing_errors_doc)]
 
 extern crate alloc;
+#[cfg(not(test))]
+extern crate panic_halt;
 
-use alloc::string::String;
+use alloc::{borrow::ToOwned, string::String};
 
 use anyhow::anyhow;
 use iroha_schema::IntoSchema;
 use iroha_validator::{
     data_model::evaluate::{EvaluationError, ExpressionEvaluator},
     default::default_permission_token_schema,
-    iroha_wasm,
     permission::Token as _,
     prelude::*,
+    smart_contract,
 };
+use lol_alloc::{FreeListAllocator, LockedAllocator};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-#[cfg(not(test))]
-extern crate panic_halt;
+#[global_allocator]
+static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
 use alloc::format;
 
@@ -59,7 +62,7 @@ mod token {
 struct Validator {
     verdict: Result,
     block_height: u64,
-    host: iroha_wasm::Host,
+    host: smart_contract::Host,
 }
 
 impl Validator {
@@ -68,7 +71,7 @@ impl Validator {
         Self {
             verdict: Ok(()),
             block_height,
-            host: iroha_wasm::Host,
+            host: smart_contract::Host,
         }
     }
 
@@ -157,7 +160,7 @@ impl Validator {
                 })
             })
             .map_err(|error| {
-                iroha_validator::iroha_wasm::error!(&error);
+                iroha_validator::log::error!(&error);
                 format!(
                     "{:?}",
                     anyhow!(error).context(format!(
@@ -293,7 +296,7 @@ pub fn migrate(_block_height: u64) -> MigrationResult {
     schema.insert::<token::CanControlDomainLives>();
 
     let (token_ids, schema_str) = schema.serialize();
-    iroha_validator::iroha_wasm::set_permission_token_schema(
+    iroha_validator::set_permission_token_schema(
         &iroha_validator::data_model::permission::PermissionTokenSchema::new(token_ids, schema_str),
     );
 

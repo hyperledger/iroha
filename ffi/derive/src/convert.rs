@@ -465,7 +465,7 @@ fn derive_ffi_type_for_data_carrying_enum(
     local: bool,
 ) -> TokenStream {
     let (repr_c_enum_name, repr_c_enum) =
-        gen_data_carrying_repr_c_enum(emitter, enum_name, &mut generics, variants);
+        gen_data_carrying_repr_c_enum(emitter, enum_name, &generics, variants);
 
     generics.make_where_clause();
     let lifetime = quote! {'__iroha_ffi_itm};
@@ -681,7 +681,7 @@ fn derive_ffi_type_for_repr_c(emitter: &mut Emitter, input: &FfiTypeInput) -> To
 fn gen_data_carrying_repr_c_enum(
     emitter: &mut Emitter,
     enum_name: &Ident,
-    generics: &mut syn2::Generics,
+    generics: &syn2::Generics,
     variants: &[SpannedValue<FfiTypeVariant>],
 ) -> (Ident, TokenStream) {
     let (payload_name, payload) =
@@ -712,7 +712,7 @@ fn gen_data_carrying_repr_c_enum(
 fn gen_data_carrying_enum_payload(
     emitter: &mut Emitter,
     enum_name: &Ident,
-    generics: &mut syn2::Generics,
+    generics: &syn2::Generics,
     variants: &[SpannedValue<FfiTypeVariant>],
 ) -> (Ident, TokenStream) {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();

@@ -1,5 +1,4 @@
 //! Smartcontract which creates new nft for every user
-
 #![no_std]
 
 extern crate alloc;
@@ -9,13 +8,15 @@ extern crate panic_halt;
 use alloc::{format, string::ToString};
 
 use iroha_trigger::prelude::*;
+use lol_alloc::{FreeListAllocator, LockedAllocator};
+
+#[global_allocator]
+static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
 #[iroha_trigger::main]
 fn main(_owner: AccountId, _event: Event) {
-    iroha_trigger::info!("Executing trigger");
-
+    iroha_trigger::log::info!("Executing trigger");
     let accounts = FindAllAccounts.execute().dbg_unwrap();
-
     let limits = MetadataLimits::new(256, 256);
 
     for account in accounts {
@@ -42,7 +43,7 @@ fn main(_owner: AccountId, _event: Event) {
         RegisterExpr::new(account_nft).execute().dbg_unwrap();
     }
 
-    iroha_trigger::info!("Smart contract executed successfully");
+    iroha_trigger::log::info!("Smart contract executed successfully");
 }
 
 fn generate_new_nft_id(account_id: &AccountId) -> AssetDefinitionId {
@@ -56,7 +57,7 @@ fn generate_new_nft_id(account_id: &AccountId) -> AssetDefinitionId {
         .count()
         .checked_add(1)
         .dbg_unwrap();
-    iroha_trigger::debug!(&format!("New number: {}", new_number));
+    iroha_trigger::log::debug!(&format!("New number: {}", new_number));
 
     format!(
         "nft_number_{}_for_{}#{}",
