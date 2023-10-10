@@ -70,13 +70,15 @@ impl FromAttributes for DeriveAttrs {
 
         for attr in attrs {
             if attr.path().is_ident("derive") {
-                let Some(list) = accumulator.handle(attr.meta.require_list().map_err(Into::into)) else {
-                    continue
+                let Some(list) = accumulator.handle(attr.meta.require_list().map_err(Into::into))
+                else {
+                    continue;
                 };
                 let Some(paths) = accumulator.handle(
-                    list.parse_args_with(Punctuated::<syn2::Path, Token![,]>::parse_terminated).map_err(Into::into)
+                    list.parse_args_with(Punctuated::<syn2::Path, Token![,]>::parse_terminated)
+                        .map_err(Into::into),
                 ) else {
-                    continue
+                    continue;
                 };
 
                 for path in paths {

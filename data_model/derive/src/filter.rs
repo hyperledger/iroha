@@ -35,7 +35,10 @@ enum EventVariant {
 impl FromVariant for EventVariant {
     fn from_variant(variant: &Variant) -> darling::Result<Self> {
         let syn2::Fields::Unnamed(fields) = &variant.fields else {
-            return Err(darling::Error::custom("Expected an enum with unnamed fields").with_span(&variant.fields));
+            return Err(
+                darling::Error::custom("Expected an enum with unnamed fields")
+                    .with_span(&variant.fields),
+            );
         };
         // note: actually, we have only one field in the event variants
         // this is not enforced by this macro, but by `IntoSchema`
@@ -43,10 +46,16 @@ impl FromVariant for EventVariant {
             return Err(darling::Error::custom("Expected at least one field").with_span(&fields));
         };
         let syn2::Type::Path(path) = first_field_ty else {
-            return Err(darling::Error::custom("Only identifiers supported as event types").with_span(first_field_ty));
+            return Err(
+                darling::Error::custom("Only identifiers supported as event types")
+                    .with_span(first_field_ty),
+            );
         };
         let Some(first_field_ty_name) = path.path.get_ident() else {
-            return Err(darling::Error::custom("Only identifiers supported as event types").with_span(first_field_ty));
+            return Err(
+                darling::Error::custom("Only identifiers supported as event types")
+                    .with_span(first_field_ty),
+            );
         };
 
         // What clippy suggests is much less readable in this case

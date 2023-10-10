@@ -137,7 +137,7 @@ impl FromAttributes for Repr {
                     ),
                     Meta::List(list) => {
                         let Some(tokens) = accumulator.handle(
-                            syn2::parse2::<ReprTokens>(list.tokens.clone()).map_err(Into::into)
+                            syn2::parse2::<ReprTokens>(list.tokens.clone()).map_err(Into::into),
                         ) else {
                             continue;
                         };
