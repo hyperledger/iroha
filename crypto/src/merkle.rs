@@ -186,7 +186,7 @@ impl<T> MerkleTree<T> {
         }
 
         self.0.push(Some(hash));
-        self.update(self.len().saturating_sub(1))
+        self.update(self.len().saturating_sub(1));
     }
 
     #[cfg(feature = "std")]
@@ -299,7 +299,7 @@ mod tests {
         let tree = hashes.clone().into_iter().collect::<MerkleTree<_>>();
 
         for i in 0..N_LEAVES as usize * 2 {
-            assert_eq!(tree.get_leaf_hash(i).as_ref(), hashes.get(i))
+            assert_eq!(tree.get_leaf_hash(i).as_ref(), hashes.get(i));
         }
         for (testee_hash, tester_hash) in tree.into_iter().zip(hashes) {
             assert_eq!(testee_hash, tester_hash);

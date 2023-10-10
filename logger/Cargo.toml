@@ -22,7 +22,7 @@ tracing-futures = { workspace = true, features = ["std-future", "std"] }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
 tracing-bunyan-formatter = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
-console-subscriber =  { version = "0.1.8", optional = true }
+console-subscriber =  { version = "0.2.0", optional = true }
 once_cell = { workspace = true }
 derive_more = { workspace = true }
 tracing-error = "0.2.0"
@@ -32,7 +32,7 @@ tokio = { workspace = true, features = ["macros", "time", "rt"] }
 
 
 [features]
-default = []
+default = ["tokio-console"]
 tokio-console = ["dep:console-subscriber", "tokio/tracing", "iroha_config/tokio-console"]
 # Workaround to avoid activating `tokio-console` with `--all-features` flag, because `tokio-console` require `tokio_unstable` rustc flag
 no-tokio-console = []

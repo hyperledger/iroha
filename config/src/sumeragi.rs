@@ -171,10 +171,10 @@ pub mod tests {
                 block_time_ms,
                 trusted_peers,
                 commit_time_limit_ms,
+                max_transactions_in_block,
                 actor_channel_capacity,
                 gossip_batch_size,
                 gossip_period_ms,
-                max_transactions_in_block,
                 #[cfg(debug_assertions)]
                 debug_force_soft_fork
             }

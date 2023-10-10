@@ -641,7 +641,7 @@ impl<R: ReprC> COutPtr<Robust> for R {
 }
 impl<R: ReprC> COutPtrWrite<Robust> for R {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        write_non_local::<_, Robust>(self, out_ptr)
+        write_non_local::<_, Robust>(self, out_ptr);
     }
 }
 impl<R: ReprC> COutPtrRead<Robust> for R {
@@ -713,7 +713,7 @@ impl<R: ReprC> COutPtr<&[Robust]> for &[R] {
 }
 impl<R: ReprC> COutPtrWrite<&[Robust]> for &[R] {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        write_non_local::<_, &[Robust]>(self, out_ptr)
+        write_non_local::<_, &[Robust]>(self, out_ptr);
     }
 }
 impl<R: ReprC> COutPtrRead<&[Robust]> for &[R] {
@@ -747,7 +747,7 @@ impl<R: ReprC> COutPtr<&mut [Robust]> for &mut [R] {
 }
 impl<R: ReprC> COutPtrWrite<&mut [Robust]> for &mut [R] {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        write_non_local::<_, &mut [Robust]>(self, out_ptr)
+        write_non_local::<_, &mut [Robust]>(self, out_ptr);
     }
 }
 impl<R: ReprC> COutPtrRead<&mut [Robust]> for &mut [R] {
@@ -836,7 +836,7 @@ impl<R> COutPtr<Opaque> for R {
 }
 impl<R> COutPtrWrite<Opaque> for R {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        write_non_local::<_, Opaque>(self, out_ptr)
+        write_non_local::<_, Opaque>(self, out_ptr);
     }
 }
 
@@ -865,7 +865,7 @@ impl<R> COutPtr<Box<Opaque>> for Box<R> {
 }
 impl<R> COutPtrWrite<Box<Opaque>> for Box<R> {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        write_non_local::<_, Box<Opaque>>(self, out_ptr)
+        write_non_local::<_, Box<Opaque>>(self, out_ptr);
     }
 }
 
@@ -1057,7 +1057,7 @@ impl<R, const N: usize> COutPtr<[Opaque; N]> for [R; N] {
 }
 impl<R, const N: usize> COutPtrWrite<[Opaque; N]> for [R; N] {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        write_non_local::<_, [Opaque; N]>(self, out_ptr)
+        write_non_local::<_, [Opaque; N]>(self, out_ptr);
     }
 }
 

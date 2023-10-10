@@ -424,7 +424,8 @@ impl Client {
     ) -> Result<Self> {
         if let Some(basic_auth) = &configuration.basic_auth {
             let credentials = format!("{}:{}", basic_auth.web_login, basic_auth.password);
-            let encoded = base64::encode(credentials);
+            let engine = base64::engine::general_purpose::STANDARD;
+            let encoded = base64::engine::Engine::encode(&engine, credentials);
             headers.insert(String::from("Authorization"), format!("Basic {encoded}"));
         }
 
@@ -1264,7 +1265,7 @@ pub mod stream_api {
             } = Init::<http_default::DefaultWebSocketRequestBuilder>::init(handler);
 
             let mut stream = req.build()?.connect()?;
-            stream.write_message(WebSocketMessage::Binary(first_message))?;
+            stream.send(WebSocketMessage::Binary(first_message))?;
 
             trace!("`SyncIterator` created successfully");
             Ok(SyncIterator {
@@ -1279,7 +1280,7 @@ pub mod stream_api {
 
         fn next(&mut self) -> Option<Self::Item> {
             loop {
-                match self.stream.read_message() {
+                match self.stream.read() {
                     Ok(WebSocketMessage::Binary(message)) => {
                         return Some(self.handler.message(message))
                     }
@@ -1297,7 +1298,7 @@ pub mod stream_api {
         fn drop(&mut self) {
             let mut close = || -> eyre::Result<()> {
                 self.stream.close(None)?;
-                let msg = self.stream.read_message()?;
+                let msg = self.stream.read()?;
                 if !msg.is_close() {
                     return Err(eyre!(
                         "Server hasn't sent `Close` message for websocket handshake"

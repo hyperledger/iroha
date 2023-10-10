@@ -71,18 +71,16 @@ fn partially_tagged_serde() {
 
     for (value, serialized_value) in values.iter().zip(serialized_values.iter()) {
         let serialized = serde_json::to_string(value)
-            .unwrap_or_else(|e| panic!("Failed to serialize `{:?}`: {:?}", value, e));
+            .unwrap_or_else(|e| panic!("Failed to serialize `{value:?}`: {e:?}"));
         assert_eq!(
             serialized, *serialized_value,
-            "Serialized form of `{:?}` does not match the expected value",
-            value
+            "Serialized form of `{value:?}` does not match the expected value",
         );
         let deserialized: Value = serde_json::from_str(serialized_value)
-            .unwrap_or_else(|e| panic!("Failed to deserialize `{:?}`: {:?}", serialized_value, e));
+            .unwrap_or_else(|e| panic!("Failed to deserialize `{serialized_value:?}`: {e:?}"));
         assert_eq!(
             *value, deserialized,
-            "Deserialized form of `{:?}` does not match the expected value",
-            value
+            "Deserialized form of `{value:?}` does not match the expected value",
         );
     }
 }

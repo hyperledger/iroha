@@ -1,4 +1,3 @@
-#![allow(clippy::std_instead_of_core)]
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, collections::btree_set, format, string::String, vec, vec::Vec};
 use core::marker::PhantomData;
@@ -184,7 +183,7 @@ impl<T> Ord for SignatureOf<T> {
 #[cfg(not(feature = "ffi_import"))]
 impl<T> core::hash::Hash for SignatureOf<T> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state)
+        self.0.hash(state);
     }
 }
 
@@ -555,7 +554,7 @@ mod tests {
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
         assert!(*signature.public_key() == *key_pair.public_key());
-        assert!(signature.verify(message).is_ok())
+        assert!(signature.verify(message).is_ok());
     }
 
     #[test]
@@ -569,7 +568,7 @@ mod tests {
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
         assert!(*signature.public_key() == *key_pair.public_key());
-        assert!(signature.verify(message).is_ok())
+        assert!(signature.verify(message).is_ok());
     }
 
     #[test]
@@ -583,7 +582,7 @@ mod tests {
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
         assert!(*signature.public_key() == *key_pair.public_key());
-        assert!(signature.verify(message).is_ok())
+        assert!(signature.verify(message).is_ok());
     }
 
     #[test]
@@ -597,7 +596,7 @@ mod tests {
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
         assert!(*signature.public_key() == *key_pair.public_key());
-        assert!(signature.verify(message).is_ok())
+        assert!(signature.verify(message).is_ok());
     }
 
     #[test]

@@ -402,8 +402,8 @@ impl VotingBlock {
         voted_at: Instant,
     ) -> VotingBlock {
         VotingBlock {
-            block,
             voted_at,
+            block,
             new_wsv,
         }
     }

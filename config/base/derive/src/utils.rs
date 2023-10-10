@@ -270,7 +270,7 @@ pub fn is_option_type(ty: &Type) -> bool {
 pub fn remove_attr_from_struct(ast: &mut StructWithFields, attr_ident: &str) {
     let StructWithFields { attrs, fields, .. } = ast;
     for field in fields {
-        remove_attr(&mut field.attrs, attr_ident)
+        remove_attr(&mut field.attrs, attr_ident);
     }
     remove_attr(attrs, attr_ident);
 }
@@ -299,7 +299,7 @@ pub fn keep_derive_attr(ast: &mut StructWithFields, kept_attrs: &[&str]) {
                     .collect();
                 *attr = syn::parse_quote!(
                     #[derive(#(#items),*)]
-                )
+                );
             }
         });
 }

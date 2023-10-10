@@ -134,8 +134,8 @@ mod pending {
             assert!(!transactions.is_empty(), "Empty block created");
 
             Self(Pending {
-                transactions,
                 commit_topology,
+                transactions,
                 event_recommendations,
             })
         }

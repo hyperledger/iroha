@@ -216,7 +216,7 @@ mod run {
 
         iroha_logger::debug!("Peer is terminated.");
         let _ = service_message_sender
-            .send(ServiceMessage::Terminated(Terminated { conn_id, peer_id }))
+            .send(ServiceMessage::Terminated(Terminated { peer_id, conn_id }))
             .await;
     }
 
@@ -718,8 +718,8 @@ mod cryptographer {
                 GenericArray::from_slice(shared_key.as_ref()),
             ));
             Self {
-                encryptor,
                 shared_key,
+                encryptor,
             }
         }
     }

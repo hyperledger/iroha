@@ -160,7 +160,7 @@ pub fn impl_partially_tagged_deserialize(input: &syn2::DeriveInput) -> Result<To
     let internal_repr_ident = format_ident!("{}InternalRepr", enum_ident);
     let deser_helper = format_ident!("{}DeserializeHelper", enum_ident);
     let no_successful_untagged_variant_match =
-        format!("Data did not match any variant of enum {}", deser_helper);
+        format!("Data did not match any variant of enum {deser_helper}");
     let self_ty = enum_.self_ty();
     let (variants_ident, variants_ty, variants_attrs) =
         variants_to_tuple(&self_ty, enum_.variants());

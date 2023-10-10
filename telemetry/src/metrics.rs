@@ -165,7 +165,6 @@ impl Default for Metrics {
             block_height,
             connected_peers,
             uptime_since_genesis_ms,
-            registry,
             domains,
             accounts,
             tx_amounts,
@@ -174,6 +173,7 @@ impl Default for Metrics {
             view_changes,
             queue_size,
             dropped_messages,
+            registry,
         }
     }
 }

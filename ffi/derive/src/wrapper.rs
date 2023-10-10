@@ -143,7 +143,7 @@ fn gen_shared_fns(emitter: &mut Emitter, input: &FfiTypeInput) -> Vec<TokenStrea
                         emitter,
                         name,
                         "Opaque type should not implement `Copy` trait"
-                    )
+                    );
                 }
                 RustcDerive::Clone => {
                     shared_fn_impls.push(impl_clone_for_opaque(name, &input.generics));
@@ -169,7 +169,7 @@ fn gen_shared_fns(emitter: &mut Emitter, input: &FfiTypeInput) -> Vec<TokenStrea
                         name,
                         "Opaque type should not implement `{:?}` trait",
                         derive
-                    )
+                    );
                 }
             },
             Derive::GetSet(_) => {
@@ -181,7 +181,7 @@ fn gen_shared_fns(emitter: &mut Emitter, input: &FfiTypeInput) -> Vec<TokenStrea
                     name,
                     "Opaque type should not implement `{}` trait",
                     derive
-                )
+                );
             }
         }
     }

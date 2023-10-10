@@ -120,7 +120,7 @@ pub mod error {
     impl warp::Reply for &Error {
         fn into_response(self) -> warp::reply::Response {
             warp::reply::with_status(
-                format!("Transaction Rejected (Malformed), Reason : '{}'", self),
+                format!("Transaction Rejected (Malformed), Reason : '{self}'"),
                 self.status_code(),
             )
             .into_response()

@@ -1730,7 +1730,7 @@ where
             assert!(
                 eq(&a().not().not(), &a()),
                 "Double negation elimination doesn't hold for {typ}",
-            )
+            );
         }
 
         for a in &values {

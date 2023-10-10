@@ -14,7 +14,7 @@ async fn telemetry_separation_custom() {
         compact_mode: true,
         log_file_path: Some("/dev/stdout".into()),
         terminal_colors: true,
-        #[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
+        #[cfg(feature = "tokio-console")]
         tokio_console_addr: "127.0.0.1:5555".into(),
     };
     let (mut receiver, _) = init(&config).unwrap().unwrap();

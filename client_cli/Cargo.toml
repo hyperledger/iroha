@@ -31,13 +31,13 @@ iroha_config = { workspace = true }
 
 color-eyre = { workspace = true }
 # TODO: migrate to clap v4 (and use the workspace dependency)
-clap = { version = "3.2.23", features = ["derive"] }
-dialoguer = { version = "0.10.2", default-features = false }
+clap = { version = "3.2.25", features = ["derive"] }
+dialoguer = { version = "0.11.0", default-features = false }
 json5 = { workspace = true }
 once_cell = { workspace = true }
 serde_json = { workspace = true }
-erased-serde = "0.3.24"
+erased-serde = "0.3.31"
 
 [build-dependencies]
-vergen = { version = "8.1.1", default-features = false }
+vergen = { version = "8.2.5", default-features = false }
 color-eyre = "0.6.2"

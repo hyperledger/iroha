@@ -267,8 +267,8 @@ impl World {
             .map(|domain| (domain.id().clone(), domain))
             .collect();
         World {
-            domains,
             trusted_peers_ids,
+            domains,
             ..World::new()
         }
     }

@@ -23,13 +23,13 @@ mod nontrivial {
         /// Extend the sequence with elements of another non-empty sequence
         #[inline]
         pub fn extend(&mut self, other: Self) {
-            self.0.extend(other.0)
+            self.0.extend(other.0);
         }
 
         /// Append `value` to the end of the sequence
         #[inline]
         pub fn push(&mut self, value: T) {
-            self.0.push(value)
+            self.0.push(value);
         }
 
         /// Apply the provided function to every element of the sequence

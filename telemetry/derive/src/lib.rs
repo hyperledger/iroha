@@ -114,7 +114,7 @@ impl Parse for MetricSpec {
 
 impl ToTokens for MetricSpec {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        self.metric_name.to_tokens(tokens)
+        self.metric_name.to_tokens(tokens);
     }
 }
 

@@ -58,7 +58,6 @@ impl Config {
         serde_json::from_reader(reader).wrap_err("Failed to deserialize json from reader")
     }
 
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     pub fn measure(self) -> Result<Tps> {
         // READY
         let (_rt, network, client) = <Network>::start_test_with_runtime(self.peers, None);
@@ -169,7 +168,6 @@ impl MeasurerUnit {
     const PREPARATION_BLOCKS_NUMBER: u32 = 3;
 
     /// Submit initial transactions for measurement
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn ready(self) -> Result<Self> {
         let keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
 
@@ -208,7 +206,6 @@ impl MeasurerUnit {
     }
 
     /// Spawn who checks if all the expected blocks are committed
-    #[allow(clippy::expect_used)]
     fn spawn_event_counter(&self) -> thread::JoinHandle<Result<()>> {
         let listener = self.client.clone();
         let (init_sender, init_receiver) = mpsc::channel();
@@ -273,7 +270,6 @@ impl MeasurerUnit {
         })
     }
 
-    #[allow(clippy::expect_used)]
     fn instructions(&self) -> impl Iterator<Item = InstructionExpr> {
         [self.mint_or_burn(), self.relay_a_rose()]
             .into_iter()
@@ -313,7 +309,6 @@ impl MeasurerUnit {
     }
 }
 
-#[allow(clippy::expect_used)]
 fn asset_id(account_name: UnitName) -> AssetId {
     AssetId::new(
         "rose#wonderland".parse().expect("Valid"),
@@ -321,7 +316,6 @@ fn asset_id(account_name: UnitName) -> AssetId {
     )
 }
 
-#[allow(clippy::expect_used)]
 fn account_id(name: UnitName) -> AccountId {
     format!("{name}@wonderland").parse().expect("Valid")
 }

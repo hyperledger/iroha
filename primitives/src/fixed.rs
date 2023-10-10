@@ -287,7 +287,7 @@ mod tests {
         assert_eq!(
             result.unwrap_err().to_string(),
             "`-1.0`: negative value not allowed"
-        )
+        );
     }
 
     #[test]

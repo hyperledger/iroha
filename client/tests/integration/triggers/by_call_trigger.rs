@@ -337,7 +337,8 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
 
     info!("WASM size is {} bytes", wasm.len());
 
-    let wasm_base64 = serde_json::json!(base64::encode(&wasm)).to_string();
+    let engine = base64::engine::general_purpose::STANDARD;
+    let wasm_base64 = serde_json::json!(base64::engine::Engine::encode(&engine, wasm)).to_string();
     let account_id = AccountId::from_str("alice@wonderland")?;
     let trigger_id = TriggerId::from_str("genesis_trigger")?;
 

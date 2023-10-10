@@ -189,7 +189,7 @@ fn gen_input_conversion_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
     let mut stmts = quote! {};
 
     if let Some(arg) = &fn_descriptor.receiver {
-        stmts = gen_arg_ffi_to_src(arg)
+        stmts = gen_arg_ffi_to_src(arg);
     }
 
     for arg in &fn_descriptor.input_args {

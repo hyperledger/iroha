@@ -259,7 +259,7 @@ mod tests {
         ];
 
         for value in values {
-            assert_eq!(value, FfiU128::from(value).into())
+            assert_eq!(value, FfiU128::from(value).into());
         }
     }
 
@@ -280,7 +280,7 @@ mod tests {
         ];
 
         for value in values {
-            assert_eq!(value, FfiI128::from(value).into())
+            assert_eq!(value, FfiI128::from(value).into());
         }
     }
 }

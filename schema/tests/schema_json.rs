@@ -194,7 +194,7 @@ fn test_enum() {
             {"discriminant": 0, "tag": "Variant1", "type": "u32"},
             {"discriminant": 1, "tag": "Variant3", "type": "String"}
         ]}
-    )
+    );
 }
 
 #[test]
@@ -231,5 +231,5 @@ fn test_enum_codec_attr() {
         {"Enum": [
             {"discriminant": 42, "tag": "Variant2", "type": "u32"}
         ]}
-    )
+    );
 }

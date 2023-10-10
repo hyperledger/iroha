@@ -300,7 +300,7 @@ pub mod handle {
         /// # Errors
         /// If [`Singleton::set`] fails.
         pub fn set_handle(&self, other: impl ReloadMut<T> + Send + Sync + 'static) {
-            self.1.set(other)
+            self.1.set(other);
         }
     }
 

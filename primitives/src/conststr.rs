@@ -140,7 +140,7 @@ impl Borrow<str> for ConstString {
 impl Hash for ConstString {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
-        (**self).hash(state)
+        (**self).hash(state);
     }
 }
 
@@ -688,6 +688,6 @@ mod tests {
         ]
         .into_iter()
         .map(str::to_owned)
-        .for_each(f)
+        .for_each(f);
     }
 }
