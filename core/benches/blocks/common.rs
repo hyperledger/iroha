@@ -32,7 +32,7 @@ pub fn create_block(
         .with_instructions(instructions)
         .sign(key_pair.clone())
         .unwrap();
-    let limits = wsv.transaction_validator().transaction_limits;
+    let limits = wsv.transaction_executor().transaction_limits;
 
     let topology = Topology::new(UniqueVec::new());
     let block = BlockBuilder::new(
@@ -192,14 +192,14 @@ pub fn build_wsv(account_id: &AccountId, key_pair: &KeyPair) -> WorldStateView {
     }
 
     {
-        let path_to_validator = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../configs/peer/validator.wasm");
-        let wasm = std::fs::read(&path_to_validator)
-            .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_validator.display()));
-        let validator = Validator::new(WasmSmartContract::from_compiled(wasm));
-        UpgradeExpr::new(validator)
+        let path_to_executor = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../configs/peer/executor.wasm");
+        let wasm = std::fs::read(&path_to_executor)
+            .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_executor.display()));
+        let executor = Executor::new(WasmSmartContract::from_compiled(wasm));
+        UpgradeExpr::new(executor)
             .execute(account_id, &mut wsv)
-            .expect("Failed to load validator");
+            .expect("Failed to load executor");
     }
 
     wsv

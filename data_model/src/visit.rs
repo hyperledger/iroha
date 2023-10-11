@@ -163,7 +163,7 @@ pub trait Visit: ExpressionEvaluator {
         visit_revoke_account_role(Revoke<RoleId>),
 
         // Visit UpgradeExpr
-        visit_upgrade_validator(Upgrade<Validator>),
+        visit_upgrade_executor(Upgrade<Executor>),
     }
 }
 
@@ -653,8 +653,8 @@ pub fn visit_upgrade<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, 
     let object = evaluate_expr!(visitor, authority, <isi as Upgrade>::object());
 
     match object {
-        UpgradableBox::Validator(object) => {
-            visitor.visit_upgrade_validator(authority, Upgrade { object })
+        UpgradableBox::Executor(object) => {
+            visitor.visit_upgrade_executor(authority, Upgrade { object })
         }
     }
 }
@@ -662,7 +662,7 @@ pub fn visit_upgrade<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, 
 pub fn visit_if<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, isi: &ConditionalExpr) {
     let condition = evaluate_expr!(visitor, authority, <isi as ConditionalExpr>::condition());
 
-    // TODO: Should visit both by default or not? It will affect Validator behavior
+    // TODO: Should visit both by default or not? It will affect Executor behavior
     // because only one branch needs to be executed. IMO both should be validated
     if condition {
         visitor.visit_instruction(authority, isi.then());
@@ -732,7 +732,7 @@ leaf_visitors! {
     visit_unregister_trigger(Unregister<Trigger<TriggeringFilterBox, Executable>>),
     visit_mint_trigger_repetitions(Mint<u32, Trigger<TriggeringFilterBox, Executable>>),
     visit_burn_trigger_repetitions(Burn<u32, Trigger<TriggeringFilterBox, Executable>>),
-    visit_upgrade_validator(Upgrade<Validator>),
+    visit_upgrade_executor(Upgrade<Executor>),
     visit_new_parameter(NewParameter),
     visit_set_parameter(SetParameter),
     visit_execute_trigger(ExecuteTrigger),

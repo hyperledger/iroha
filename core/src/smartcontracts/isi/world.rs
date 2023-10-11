@@ -214,16 +214,16 @@ pub mod isi {
         }
     }
 
-    impl Execute for Upgrade<Validator> {
-        #[metrics(+"upgrade_validator")]
+    impl Execute for Upgrade<Executor> {
+        #[metrics(+"upgrade_executor")]
         fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-            let raw_validator = self.object;
+            let raw_executor = self.object;
 
-            // Cloning validator to avoid multiple mutable borrows of `wsv`.
+            // Cloning executor to avoid multiple mutable borrows of `wsv`.
             // Also it's a cheap operation.
-            let mut upgraded_validator = wsv.validator().clone();
-            upgraded_validator
-                .migrate(raw_validator, wsv, authority)
+            let mut upgraded_executor = wsv.executor().clone();
+            upgraded_executor
+                .migrate(raw_executor, wsv, authority)
                 .map_err(|migration_error| {
                     InvalidParameterError::Wasm(format!(
                         "{:?}",
@@ -231,9 +231,9 @@ pub mod isi {
                     ))
                 })?;
 
-            wsv.world_mut().validator = upgraded_validator;
+            wsv.world_mut().executor = upgraded_executor;
 
-            wsv.emit_events(std::iter::once(ValidatorEvent::Upgraded));
+            wsv.emit_events(std::iter::once(ExecutorEvent::Upgraded));
 
             Ok(())
         }

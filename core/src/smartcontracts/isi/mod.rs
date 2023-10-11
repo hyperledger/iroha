@@ -450,8 +450,8 @@ impl Execute for UpgradeExpr {
     fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
         let object = wsv.evaluate(&self.object)?;
         match object {
-            UpgradableBox::Validator(object) => {
-                Upgrade::<Validator> { object }.execute(authority, wsv)
+            UpgradableBox::Executor(object) => {
+                Upgrade::<Executor> { object }.execute(authority, wsv)
             }
         }
     }

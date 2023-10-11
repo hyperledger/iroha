@@ -16,7 +16,7 @@ use iroha_data_model::{prelude::*, transaction::TransactionLimits};
 use iroha_primitives::unique_vec::UniqueVec;
 use tokio::{fs, runtime::Runtime};
 
-async fn measure_block_size_for_n_validators(n_validators: u32) {
+async fn measure_block_size_for_n_executors(n_executors: u32) {
     let alice_id = AccountId::from_str("alice@test").expect("tested");
     let bob_id = AccountId::from_str("bob@test").expect("tested");
     let xor_id = AssetDefinitionId::from_str("xor#test").expect("tested");
@@ -49,7 +49,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
         .sign(KeyPair::generate().unwrap())
         .unwrap();
 
-    for _ in 1..n_validators {
+    for _ in 1..n_executors {
         block = block
             .sign(KeyPair::generate().expect("Failed to generate KeyPair."))
             .unwrap();
@@ -60,14 +60,14 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
 
     let metadata = fs::metadata(dir.path().join("blocks.data")).await.unwrap();
     let file_size = Byte::from_bytes(u128::from(metadata.len())).get_appropriate_unit(false);
-    println!("For {n_validators} validators: {file_size}");
+    println!("For {n_executors} executors: {file_size}");
 }
 
 async fn measure_block_size_async() {
     println!("File size of a block with 1 transaction with 1 Transfer instruction is:",);
     for max_faults in 0_u32..5_u32 {
-        let n_validators = 3 * max_faults + 1;
-        measure_block_size_for_n_validators(n_validators).await;
+        let n_executors = 3 * max_faults + 1;
+        measure_block_size_for_n_executors(n_executors).await;
     }
 }
 

@@ -30,7 +30,7 @@ pub mod payloads {
         pub block_height: u64,
     }
 
-    /// Generic payload for `validate_*()` entrypoints of validator.
+    /// Generic payload for `validate_*()` entrypoints of executor.
     #[derive(Debug, Clone, Encode, Decode)]
     pub struct Validate<T> {
         /// Authority which executed the operation to be validated

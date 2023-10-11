@@ -2,6 +2,7 @@
 
 pub mod block;
 pub mod block_sync;
+pub mod executor;
 pub mod gossiper;
 pub mod kura;
 pub mod modules;
@@ -10,7 +11,6 @@ pub mod smartcontracts;
 pub mod snapshot;
 pub mod sumeragi;
 pub mod tx;
-pub mod validator;
 pub mod wsv;
 
 use core::time::Duration;

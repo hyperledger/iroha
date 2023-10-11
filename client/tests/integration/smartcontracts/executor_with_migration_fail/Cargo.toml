@@ -1,0 +1,18 @@
+[package]
+name = "executor_with_migration_fail"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+crate-type = ['cdylib']
+
+[dependencies]
+iroha_executor.workspace = true
+anyhow.workspace = true
+
+panic-halt.workspace = true
+lol_alloc.workspace = true

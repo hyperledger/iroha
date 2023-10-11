@@ -8,7 +8,7 @@ use iroha_core::{
     prelude::*,
     smartcontracts::{isi::Registrable as _, Execute},
     sumeragi::network_topology::Topology,
-    tx::TransactionValidator,
+    tx::TransactionExecutor,
     wsv::World,
 };
 use iroha_data_model::{prelude::*, transaction::TransactionLimits};
@@ -73,15 +73,15 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
     );
 
     {
-        let path_to_validator = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../configs/peer/validator.wasm");
-        let wasm = std::fs::read(&path_to_validator)
-            .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_validator.display()));
-        let validator = Validator::new(WasmSmartContract::from_compiled(wasm));
+        let path_to_executor = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../configs/peer/executor.wasm");
+        let wasm = std::fs::read(&path_to_executor)
+            .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_executor.display()));
+        let executor = Executor::new(WasmSmartContract::from_compiled(wasm));
         let authority = "genesis@genesis".parse().expect("Valid");
-        UpgradeExpr::new(validator)
+        UpgradeExpr::new(executor)
             .execute(&authority, &mut wsv)
-            .expect("Failed to load validator");
+            .expect("Failed to load executor");
     }
 
     wsv
@@ -127,10 +127,10 @@ fn validate_transaction(criterion: &mut Criterion) {
     let mut failure_count = 0;
     let wsv = build_test_and_transient_wsv(keys);
     let _ = criterion.bench_function("validate", move |b| {
-        let transaction_validator = TransactionValidator::new(TRANSACTION_LIMITS);
+        let transaction_executor = TransactionExecutor::new(TRANSACTION_LIMITS);
         b.iter(|| {
             let mut wsv = wsv.clone();
-            match transaction_validator.validate(transaction.clone(), &mut wsv) {
+            match transaction_executor.validate(transaction.clone(), &mut wsv) {
                 Ok(_) => success_count += 1,
                 Err(_) => failure_count += 1,
             }
