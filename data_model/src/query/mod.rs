@@ -1409,7 +1409,7 @@ pub mod error {
 
     pub use self::model::*;
     use super::*;
-    use crate::{block::SignedBlock, permission, prelude::*, validator};
+    use crate::{block::SignedBlock, executor, permission, prelude::*};
 
     #[model]
     pub mod model {

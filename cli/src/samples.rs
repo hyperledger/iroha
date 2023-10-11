@@ -100,16 +100,16 @@ pub fn get_config(trusted_peers: UniqueVec<PeerId>, key_pair: Option<KeyPair>) -
         .expect("Iroha config should build as all required fields were provided")
 }
 
-/// Construct validator from path.
+/// Construct executor from path.
 ///
 /// `relative_path` should be relative to `CARGO_MANIFEST_DIR`.
 ///
 /// # Errors
 ///
-/// - Failed to create temp dir for validator output
-/// - Failed to build validator
-/// - Failed to optimize validator
-pub fn construct_validator<P>(relative_path: &P) -> color_eyre::Result<Validator>
+/// - Failed to create temp dir for executor output
+/// - Failed to build executor
+/// - Failed to optimize executor
+pub fn construct_executor<P>(relative_path: &P) -> color_eyre::Result<Executor>
 where
     P: AsRef<Path> + ?Sized,
 {
@@ -118,5 +118,5 @@ where
         .optimize()?
         .into_bytes()?;
 
-    Ok(Validator::new(WasmSmartContract::from_compiled(wasm_blob)))
+    Ok(Executor::new(WasmSmartContract::from_compiled(wasm_blob)))
 }

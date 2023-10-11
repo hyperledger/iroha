@@ -2,7 +2,7 @@
 
 use std::{thread, time::Duration};
 
-use iroha::samples::{construct_validator, get_config};
+use iroha::samples::{construct_executor, get_config};
 use iroha_data_model::prelude::*;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
@@ -30,9 +30,7 @@ fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
     }
 
     builder
-        .validator(
-            construct_validator("../default_validator").expect("Failed to construct validator"),
-        )
+        .executor(construct_executor("../default_executor").expect("Failed to construct executor"))
         .build()
 }
 

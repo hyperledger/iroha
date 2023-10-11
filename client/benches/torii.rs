@@ -3,7 +3,7 @@
 use std::thread;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use iroha::samples::{construct_validator, get_config};
+use iroha::samples::{construct_executor, get_config};
 use iroha_client::client::{asset, Client};
 use iroha_config::base::runtime_upgrades::Reload;
 use iroha_crypto::KeyPair;
@@ -29,8 +29,8 @@ fn query_requests(criterion: &mut Criterion) {
                 get_key_pair().public_key().clone(),
             )
             .finish_domain()
-            .validator(
-                construct_validator("../default_validator").expect("Failed to construct validator"),
+            .executor(
+                construct_executor("../default_executor").expect("Failed to construct executor"),
             )
             .build(),
         Some(&configuration.genesis),
@@ -124,8 +124,8 @@ fn instruction_submits(criterion: &mut Criterion) {
                 configuration.public_key.clone(),
             )
             .finish_domain()
-            .validator(
-                construct_validator("../default_validator").expect("Failed to construct validator"),
+            .executor(
+                construct_executor("../default_executor").expect("Failed to construct executor"),
             )
             .build(),
         Some(&configuration.genesis),

@@ -11,9 +11,9 @@ resolver = "2"
 members = [
     "create_nft_for_every_user_trigger",
     "mint_rose_trigger",
-    "validator_with_admin",
-    "validator_with_custom_token",
-    "validator_with_migration_fail",
+    "executor_with_admin",
+    "executor_with_custom_token",
+    "executor_with_migration_fail",
 ]
 
 [profile.dev]
@@ -28,7 +28,7 @@ codegen-units = 1   # Further reduces binary size but increases compilation time
 
 [workspace.dependencies]
 iroha_trigger = { version = "=2.0.0-pre-rc.19", path = "../../../../smart_contract/trigger", features = ["debug"]}
-iroha_validator = { version = "=2.0.0-pre-rc.19", path = "../../../../smart_contract/validator" }
+iroha_executor = { version = "=2.0.0-pre-rc.19", path = "../../../../smart_contract/executor" }
 iroha_schema = { version = "=2.0.0-pre-rc.19", path = "../../../../schema" }
 
 parity-scale-codec = { version = "3.2.1", default-features = false }

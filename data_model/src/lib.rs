@@ -64,6 +64,7 @@ pub mod block;
 pub mod domain;
 pub mod evaluate;
 pub mod events;
+pub mod executor;
 pub mod expression;
 pub mod ipfs;
 pub mod isi;
@@ -79,7 +80,6 @@ pub mod role;
 pub mod smart_contract;
 pub mod transaction;
 pub mod trigger;
-pub mod validator;
 pub mod visit;
 
 mod seal {
@@ -730,14 +730,14 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
-    // SAFETY: `UpgradableBox` has no trap representations in `validator::Validator`
+    // SAFETY: `UpgradableBox` has no trap representations in `executor::Executor`
     #[ffi_type(unsafe {robust})]
     #[serde(untagged)] // Unaffected by #3330, because stores binary data with no `u128`
     #[repr(transparent)]
     pub enum UpgradableBox {
-        /// [`Validator`](`validator::Validator`) variant.
-        #[display(fmt = "Validator")]
-        Validator(validator::Validator),
+        /// [`Executor`](`executor::Executor`) variant.
+        #[display(fmt = "Executor")]
+        Executor(executor::Executor),
     }
 
     /// Sized container for all possible values.
@@ -787,7 +787,7 @@ pub mod model {
         #[serde_partially_tagged(untagged)]
         #[debug(fmt = "{_0:?}")]
         Numeric(NumericValue),
-        Validator(validator::Validator),
+        Executor(executor::Executor),
         LogLevel(Level),
     }
 
@@ -901,10 +901,10 @@ pub mod model {
     /// # Note
     ///
     /// Keep in mind that *Validation* is not the right term
-    /// (because *Runtime Validator* actually does execution too) and other names
+    /// (because *Runtime Executor* actually does execution too) and other names
     /// (like *Verification* or *Execution*) are being discussed.
     ///
-    /// TODO: Move to `validator` module
+    /// TODO: Move to `executor` module
     #[derive(
         Debug,
         displaydoc::Display,
@@ -941,11 +941,11 @@ pub mod model {
         /// For example it's a very big WASM binary.
         ///
         /// It's different from [`TransactionRejectionReason::LimitCheck`] because it depends on
-        /// validator.
+        /// executor.
         TooComplex,
         /// Internal error occurred, please contact the support or check the logs if you are the node owner
         ///
-        /// Usually means a bug inside **Runtime Validator** or **Iroha** implementation.
+        /// Usually means a bug inside **Runtime Executor** or **Iroha** implementation.
         InternalError(
             /// Contained error message if its used internally. Empty for external users.
             /// Never serialized to not to expose internal errors to the end user.
@@ -1094,7 +1094,7 @@ impl fmt::Display for Value {
             Value::MetadataLimits(v) => fmt::Display::fmt(&v, f),
             Value::TransactionLimits(v) => fmt::Display::fmt(&v, f),
             Value::LengthLimits(v) => fmt::Display::fmt(&v, f),
-            Value::Validator(v) => write!(f, "Validator({} bytes)", v.wasm.as_ref().len()),
+            Value::Executor(v) => write!(f, "Executor({} bytes)", v.wasm.as_ref().len()),
             Value::LogLevel(v) => fmt::Display::fmt(&v, f),
         }
     }
@@ -1125,7 +1125,7 @@ impl Value {
             | TransactionLimits(_)
             | LengthLimits(_)
             | Numeric(_)
-            | Validator(_)
+            | Executor(_)
             | LogLevel(_)
             | SignatureCheckCondition(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
@@ -1510,7 +1510,7 @@ impl TryFrom<Value> for UpgradableBox {
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            Value::Validator(validator) => Ok(Self::Validator(validator)),
+            Value::Executor(executor) => Ok(Self::Executor(executor)),
             _ => Err(Self::Error::default()),
         }
     }
@@ -1944,10 +1944,10 @@ pub mod prelude {
     pub use super::current_time;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, evaluate::prelude::*,
-        events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
-        name::prelude::*, parameter::prelude::*, peer::prelude::*, permission::prelude::*,
-        query::prelude::*, role::prelude::*, transaction::prelude::*, trigger::prelude::*,
-        validator::prelude::*, EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox,
+        events::prelude::*, executor::prelude::*, expression::prelude::*, isi::prelude::*,
+        metadata::prelude::*, name::prelude::*, parameter::prelude::*, peer::prelude::*,
+        permission::prelude::*, query::prelude::*, role::prelude::*, transaction::prelude::*,
+        trigger::prelude::*, EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox,
         LengthLimits, NumericValue, PredicateTrait, RegistrableBox, ToValue, TriggerBox, TryAsMut,
         TryAsRef, TryToValue, UpgradableBox, ValidationFail, Value,
     };

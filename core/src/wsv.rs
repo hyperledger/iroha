@@ -44,6 +44,7 @@ use serde::{
 
 use crate::{
     block::CommittedBlock,
+    executor::Executor,
     kura::Kura,
     smartcontracts::{
         triggers::{
@@ -52,8 +53,7 @@ use crate::{
         },
         wasm, Execute,
     },
-    tx::TransactionValidator,
-    validator::Validator,
+    tx::TransactionExecutor,
     DomainsMap, Parameters, PeersIds,
 };
 
@@ -77,8 +77,8 @@ pub struct World {
     pub(crate) permission_token_schema: PermissionTokenSchema,
     /// Triggers
     pub(crate) triggers: TriggerSet,
-    /// Runtime Validator
-    pub(crate) validator: Validator,
+    /// Runtime Executor
+    pub(crate) executor: Executor,
 }
 
 // Loader for [`Set`]
@@ -175,7 +175,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, World> {
                 let mut account_roles = None;
                 let mut permission_token_schema = None;
                 let mut triggers = None;
-                let mut validator = None;
+                let mut executor = None;
 
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
@@ -203,8 +203,8 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, World> {
                         "triggers" => {
                             triggers = Some(map.next_value_seed(self.loader.cast::<TriggerSet>())?);
                         }
-                        "validator" => {
-                            validator = Some(map.next_value_seed(self.loader.cast::<Validator>())?);
+                        "executor" => {
+                            executor = Some(map.next_value_seed(self.loader.cast::<Executor>())?);
                         }
                         _ => { /* Skip unknown fields */ }
                     }
@@ -227,8 +227,8 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, World> {
                     })?,
                     triggers: triggers
                         .ok_or_else(|| serde::de::Error::missing_field("triggers"))?,
-                    validator: validator
-                        .ok_or_else(|| serde::de::Error::missing_field("validator"))?,
+                    executor: executor
+                        .ok_or_else(|| serde::de::Error::missing_field("executor"))?,
                 })
             }
         }
@@ -244,7 +244,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, World> {
                 "account_roles",
                 "permission_token_schema",
                 "triggers",
-                "validator",
+                "executor",
             ],
             WorldVisitor { loader: &self },
         )
@@ -701,9 +701,9 @@ impl WorldStateView {
         }
     }
 
-    /// Get transaction validator
-    pub fn transaction_validator(&self) -> TransactionValidator {
-        TransactionValidator::new(self.config.transaction_limits)
+    /// Get transaction executor
+    pub fn transaction_executor(&self) -> TransactionExecutor {
+        TransactionExecutor::new(self.config.transaction_limits)
     }
 
     /// Get a reference to the latest block. Returns none if genesis is not committed.
@@ -1228,9 +1228,9 @@ impl WorldStateView {
         self.events_buffer.push(event.into());
     }
 
-    /// Get [`Validator`].
-    pub fn validator(&self) -> &Validator {
-        &self.world.validator
+    /// Get [`Executor`].
+    pub fn executor(&self) -> &Executor {
+        &self.world.executor
     }
 
     /// The function puts events produced by iterator into `events_buffer`.
