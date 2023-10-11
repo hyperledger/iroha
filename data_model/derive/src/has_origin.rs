@@ -31,7 +31,9 @@ impl FromDeriveInput for HasOriginEnum {
         let ident = input.ident.clone();
         let generics = input.generics.clone();
 
-        let Some(variants) = darling::ast::Data::<HasOriginVariant, ()>::try_from(&input.data)?.take_enum() else {
+        let Some(variants) =
+            darling::ast::Data::<HasOriginVariant, ()>::try_from(&input.data)?.take_enum()
+        else {
             return Err(darling::Error::custom("Expected enum"));
         };
 
