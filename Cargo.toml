@@ -50,8 +50,8 @@ iroha_wasm_builder = { version = "=2.0.0-pre-rc.19", path = "wasm_builder" }
 iroha_smart_contract = { version = "=2.0.0-pre-rc.19", path = "smart_contract" }
 iroha_smart_contract_derive = { version = "=2.0.0-pre-rc.19", path = "smart_contract/derive" }
 iroha_smart_contract_utils = { version = "=2.0.0-pre-rc.19", path = "smart_contract/utils" }
-iroha_validator = { version = "=2.0.0-pre-rc.19", path = "smart_contract/validator" }
-iroha_validator_derive = { version = "=2.0.0-pre-rc.19", path = "smart_contract/validator/derive" }
+iroha_executor = { version = "=2.0.0-pre-rc.19", path = "smart_contract/executor" }
+iroha_executor_derive = { version = "=2.0.0-pre-rc.19", path = "smart_contract/executor/derive" }
 iroha_trigger = { version = "=2.0.0-pre-rc.19", path = "smart_contract/trigger" }
 iroha_trigger_derive = { version = "=2.0.0-pre-rc.19", path = "smart_contract/trigger/derive" }
 
@@ -326,8 +326,8 @@ members = [
   "smart_contract/trigger",
   "smart_contract/trigger/derive",
   "smart_contract/utils",
-  "smart_contract/validator",
-  "smart_contract/validator/derive",
+  "smart_contract/executor",
+  "smart_contract/executor/derive",
   "substrate",
   "telemetry",
   "tools/kagami",

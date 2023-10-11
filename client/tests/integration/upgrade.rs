@@ -11,7 +11,7 @@ use serde_json::json;
 use test_network::*;
 
 #[test]
-fn validator_upgrade_should_work() -> Result<()> {
+fn executor_upgrade_should_work() -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_795).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
@@ -37,9 +37,9 @@ fn validator_upgrade_should_work() -> Result<()> {
         .submit_transaction_blocking(&transfer_rose_tx)
         .expect_err("Should fail");
 
-    upgrade_validator(
+    upgrade_executor(
         &client,
-        "tests/integration/smartcontracts/validator_with_admin",
+        "tests/integration/smartcontracts/executor_with_admin",
     )?;
 
     // Check that admin can transfer alice's rose now
@@ -55,7 +55,7 @@ fn validator_upgrade_should_work() -> Result<()> {
 }
 
 #[test]
-fn validator_upgrade_should_run_migration() -> Result<()> {
+fn executor_upgrade_should_run_migration() -> Result<()> {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_990).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
@@ -79,9 +79,9 @@ fn validator_upgrade_should_run_migration() -> Result<()> {
         &json!({ "domain_id": DomainId::from_str("wonderland").unwrap() }),
     )));
 
-    upgrade_validator(
+    upgrade_executor(
         &client,
-        "tests/integration/smartcontracts/validator_with_custom_token",
+        "tests/integration/smartcontracts/executor_with_custom_token",
     )?;
 
     // Check that `CanUnregisterDomain` doesn't exist
@@ -128,32 +128,31 @@ fn migration_fail_should_not_cause_any_effects() {
         "failed_migration_test_domain".parse().expect("Valid");
     assert_domain_does_not_exist(&client, &domain_registered_in_migration);
 
-    let _err = upgrade_validator(
+    let _err = upgrade_executor(
         &client,
-        "tests/integration/smartcontracts/validator_with_migration_fail",
+        "tests/integration/smartcontracts/executor_with_migration_fail",
     )
     .expect_err("Upgrade should fail due to migration failure");
 
     // Checking that things registered in migration does not exist after failed migration
     assert_domain_does_not_exist(&client, &domain_registered_in_migration);
 
-    // The fact that query in previous assertion does not fail means that validator haven't
-    // been changed, because `validator_with_migration_fail` does not allow any queries
+    // The fact that query in previous assertion does not fail means that executor haven't
+    // been changed, because `executor_with_migration_fail` does not allow any queries
 }
 
-fn upgrade_validator(client: &Client, validator: impl AsRef<Path>) -> Result<()> {
-    info!("Building validator");
+fn upgrade_executor(client: &Client, executor: impl AsRef<Path>) -> Result<()> {
+    info!("Building executor");
 
-    let wasm = iroha_wasm_builder::Builder::new(validator.as_ref())
+    let wasm = iroha_wasm_builder::Builder::new(executor.as_ref())
         .build()?
         .optimize()?
         .into_bytes()?;
 
     info!("WASM size is {} bytes", wasm.len());
 
-    let upgrade_validator =
-        UpgradeExpr::new(Validator::new(WasmSmartContract::from_compiled(wasm)));
-    client.submit_blocking(upgrade_validator)?;
+    let upgrade_executor = UpgradeExpr::new(Executor::new(WasmSmartContract::from_compiled(wasm)));
+    client.submit_blocking(upgrade_executor)?;
 
     Ok(())
 }

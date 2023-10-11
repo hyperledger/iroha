@@ -365,8 +365,8 @@ types!(
     UnregisterExpr,
     UpgradableBox,
     ValidationFail,
-    Validator,
-    ValidatorEvent,
+    Executor,
+    ExecutorEvent,
     Value,
     ValueOfKey,
     ValuePredicate,
@@ -412,6 +412,7 @@ mod tests {
             BlockHeader, SignedBlock, SignedBlockV1,
         },
         domain::NewDomain,
+        executor::Executor,
         http::{BatchedResponse, BatchedResponseV1},
         ipfs::IpfsPath,
         predicate::{
@@ -427,7 +428,6 @@ mod tests {
             ForwardCursor,
         },
         transaction::{error::TransactionLimitError, SignedTransactionV1, TransactionLimits},
-        validator::Validator,
         SignedBlockWrapper,
     };
     use iroha_genesis::RawGenesisBlock;

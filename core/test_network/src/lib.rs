@@ -105,8 +105,8 @@ impl TestGenesis for GenesisNetwork {
             "CanUnregisterDomain".parse().unwrap(),
             &json!({ "domain_id": DomainId::from_str("wonderland").unwrap() } ),
         );
-        let upgrade_validator_permission =
-            PermissionToken::new("CanUpgradeValidator".parse().unwrap(), &json!(null));
+        let upgrade_executor_permission =
+            PermissionToken::new("CanUpgradeExecutor".parse().unwrap(), &json!(null));
 
         let first_transaction = genesis
             .first_transaction_mut()
@@ -117,7 +117,7 @@ impl TestGenesis for GenesisNetwork {
             unregister_any_peer_permission,
             unregister_any_role_permission,
             unregister_wonderland_domain,
-            upgrade_validator_permission,
+            upgrade_executor_permission,
         ] {
             first_transaction
                 .append_instruction(GrantExpr::new(permission, alice_id.clone()).into());

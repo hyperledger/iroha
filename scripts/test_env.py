@@ -30,7 +30,7 @@ class Network:
         try:
             shutil.copy2(f"{args.root_dir}/configs/peer/config.json", peers_dir)
             shutil.copy2(f"{args.root_dir}/configs/peer/genesis.json", peers_dir)
-            shutil.copy2(f"{args.root_dir}/configs/peer/validator.wasm", peers_dir)
+            shutil.copy2(f"{args.root_dir}/configs/peer/executor.wasm", peers_dir)
         except FileNotFoundError:
             logging.error(f"Some of the config files are missing. \
                           Please provide them in the `{args.root_dir}/configs/peer` directory")

@@ -177,7 +177,7 @@ pub mod isi {
                     if allow_execute {
                         Ok(())
                     } else {
-                        // TODO: We should check authority on Runtime Validator level
+                        // TODO: We should check authority on Runtime Executor level
                         // so currently the error message is not exhaustive
                         Err(Error::InvariantViolation(String::from(
                             "Trigger can't be executed manually",
