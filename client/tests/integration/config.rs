@@ -22,6 +22,6 @@ fn get_config() {
     assert_eq!(cfg_proxy.network.unwrap().build().unwrap(), test.network);
     assert_eq!(
         cfg_proxy.telemetry.unwrap().build().unwrap(),
-        test.telemetry
+        *test.telemetry
     );
 }

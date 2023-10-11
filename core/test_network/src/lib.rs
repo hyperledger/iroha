@@ -386,19 +386,19 @@ impl Peer {
     /// Returns per peer config with all addresses, keys, and id set up.
     fn get_config(&self, configuration: Configuration) -> Configuration {
         Configuration {
-            sumeragi: SumeragiConfiguration {
+            sumeragi: Box::new(SumeragiConfiguration {
                 key_pair: self.key_pair.clone(),
                 peer_id: self.id.clone(),
-                ..configuration.sumeragi
-            },
-            torii: ToriiConfiguration {
+                ..*configuration.sumeragi
+            }),
+            torii: Box::new(ToriiConfiguration {
                 p2p_addr: self.p2p_address.clone(),
                 api_url: self.api_address.clone(),
-                ..configuration.torii
-            },
-            logger: LoggerConfiguration {
-                ..configuration.logger
-            },
+                ..*configuration.torii
+            }),
+            logger: Box::new(LoggerConfiguration {
+                ..*configuration.logger
+            }),
             public_key: self.key_pair.public_key().clone(),
             private_key: self.key_pair.private_key().clone(),
             disable_panic_terminal_colors: true,

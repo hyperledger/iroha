@@ -501,12 +501,44 @@ pub mod proxy {
         ) -> Result<Option<String>, Self::Error>;
     }
 
+    impl<T: Documented> Documented for Box<T> {
+        type Error = T::Error;
+
+        fn get_docs() -> Value {
+            T::get_docs()
+        }
+
+        fn get_inner_docs() -> String {
+            T::get_inner_docs()
+        }
+
+        fn get_recursive<'tl, U>(&self, inner_field: U) -> Result<Value, Self::Error>
+        where
+            U: AsRef<[&'tl str]> + Send + 'tl,
+        {
+            T::get_recursive(self, inner_field)
+        }
+
+        #[allow(single_use_lifetimes)] // False-positive
+        fn get_doc_recursive<'tl>(
+            field: impl AsRef<[&'tl str]>,
+        ) -> Result<Option<String>, Self::Error> {
+            T::get_doc_recursive(field)
+        }
+    }
+
     /// Trait for combining two configuration instances
     pub trait Override: Serialize + DeserializeOwned + Sized {
         /// If any of the fields in `other` are filled, they
         /// override the values of the fields in [`self`].
         #[must_use]
         fn override_with(self, other: Self) -> Self;
+    }
+
+    impl<T: Override> Override for Box<T> {
+        fn override_with(self, other: Self) -> Self {
+            Box::new(T::override_with(*self, *other))
+        }
     }
 
     /// Trait for configuration loading and deserialization from
@@ -537,6 +569,14 @@ pub mod proxy {
             }
 
             Self::from_env(&FetchStdEnv)
+        }
+    }
+
+    impl<T: LoadFromEnv> LoadFromEnv for Box<T> {
+        type ReturnValue = T::ReturnValue;
+
+        fn from_env<F: FetchEnv>(fetcher: &F) -> Self::ReturnValue {
+            T::from_env(fetcher)
         }
     }
 
@@ -574,6 +614,14 @@ pub mod proxy {
 
         /// Construct [`Self::ReturnValue`] from a proxy object.
         fn build(self) -> Self::ReturnValue;
+    }
+
+    impl<T: Builder> Builder for Box<T> {
+        type ReturnValue = T::ReturnValue;
+
+        fn build(self) -> Self::ReturnValue {
+            T::build(*self)
+        }
     }
 
     /// Deserialization helper for proxy fields that wrap an `Option`

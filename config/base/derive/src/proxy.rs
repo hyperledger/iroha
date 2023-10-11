@@ -121,8 +121,11 @@ pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
                     .transpose()?;
             };
             if field.has_inner {
+                let maybe_map_box = gen_maybe_map_box(inner_ty);
                 set_field.extend(quote! {
-                    let inner_proxy = <#inner_ty as #env_trait>::from_env(#env_fetcher_ident)?;
+                    let inner_proxy = <#inner_ty as #env_trait>::from_env(#env_fetcher_ident)
+                    #maybe_map_box
+                    ?;
                     let #ident = if let Some(old_inner) = #ident {
                         Some(<#inner_ty as ::iroha_config_base::proxy::Override>::override_with(old_inner, inner_proxy))
                     } else {
@@ -194,11 +197,7 @@ fn gen_proxy_struct(mut ast: StructWithFields) -> StructWithFields {
         // For fields of `Configuration` that have an inner config, the corresponding
         // proxy field should have a `..Proxy` type there as well
         if field.has_inner {
-            if let Type::Path(path) = &mut field.ty {
-                let old_ident = &path.path.segments.last().expect("Can't be empty").ident;
-                let new_ident = format_ident!("{}Proxy", old_ident);
-                path.path.segments.last_mut().expect("Can't be empty").ident = new_ident;
-            }
+            proxify_field_type(&mut field.ty);
         }
         let ty = &field.ty;
         field.ty = parse_quote! {
@@ -225,6 +224,22 @@ fn gen_proxy_struct(mut ast: StructWithFields) -> StructWithFields {
         attr.path.is_ident("config") || attr.path.is_ident("serde") || attr.path.is_ident("cfg")
     });
     ast
+}
+
+#[allow(clippy::expect_used)]
+pub fn proxify_field_type(field_ty: &mut syn::Type) {
+    if let Type::Path(path) = field_ty {
+        let last_segment = path.path.segments.last_mut().expect("Can't be empty");
+        if last_segment.ident == "Box" {
+            let box_generic = utils::extract_box_generic(last_segment);
+            // Recursion
+            proxify_field_type(box_generic)
+        } else {
+            // TODO: Wouldn't it be better to get it as an associated type?
+            let new_ident = format_ident!("{}Proxy", last_segment.ident);
+            last_segment.ident = new_ident;
+        }
+    }
 }
 
 pub fn impl_build(ast: &StructWithFields) -> TokenStream {
@@ -256,12 +271,17 @@ fn gen_none_fields_check(ast: &StructWithFields) -> proc_macro2::TokenStream {
         if field.has_inner {
             let inner_ty = get_inner_type("Option", &field.ty);
             let builder_trait = quote! { ::iroha_config_base::proxy::Builder };
+
+            let maybe_map_box = gen_maybe_map_box(inner_ty);
+
             quote! {
                 #ident: <#inner_ty as #builder_trait>::build(
                     self.#ident.ok_or(
                         #missing_field{field: stringify!(#ident), message: ""}
                     )?
-                )?
+                )
+                #maybe_map_box
+                ?
             }
         } else {
             quote! {
@@ -274,6 +294,18 @@ fn gen_none_fields_check(ast: &StructWithFields) -> proc_macro2::TokenStream {
     quote! {
         #(#checked_fields),*
     }
+}
+
+fn gen_maybe_map_box(inner_ty: &syn::Type) -> proc_macro2::TokenStream {
+    if let Type::Path(path) = &inner_ty {
+        let last_segment = path.path.segments.last().expect("Can't be empty");
+        if last_segment.ident == "Box" {
+            return quote! {
+                .map(Box::new)
+            };
+        }
+    }
+    quote! {}
 }
 
 /// Helper function to be used as an empty fallback for [`impl LoadFromEnv`] or [`impl LoadFromDisk`].

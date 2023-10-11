@@ -257,7 +257,7 @@ impl Iroha {
             |error| {
                 iroha_logger::warn!(%error, "Failed to load wsv from snapshot, creating empty wsv");
                 WorldStateView::from_configuration(
-                    config.wsv,
+                    *config.wsv,
                     world,
                     Arc::clone(&kura),
                     live_query_store_handle.clone(),
