@@ -47,7 +47,7 @@ impl syn2::parse::Parse for SpannedFfiTypeToken {
     fn parse(input: ParseStream) -> syn2::Result<Self> {
         let (span, token) = input.step(|cursor| {
             let Some((token, after_token)) = cursor.ident() else {
-                return Err(cursor.error("expected ffi type kind"))
+                return Err(cursor.error("expected ffi type kind"));
             };
 
             let mut span = token.span();
@@ -56,26 +56,35 @@ impl syn2::parse::Parse for SpannedFfiTypeToken {
                 "opaque" => Ok(((span, FfiTypeToken::Opaque), after_token)),
                 "local" => Ok(((span, FfiTypeToken::Local), after_token)),
                 "unsafe" => {
-                    let Some((inside_of_group, group_span, after_group)) = after_token.group(Delimiter::Brace) else {
-                        return Err(cursor.error("expected `{ ... }` after `unsafe`"))
+                    let Some((inside_of_group, group_span, after_group)) =
+                        after_token.group(Delimiter::Brace)
+                    else {
+                        return Err(cursor.error("expected `{ ... }` after `unsafe`"));
                     };
                     span = span.join(group_span.span()).unwrap_or(span);
 
                     let Some((token, after_token)) = inside_of_group.ident() else {
-                        return Err(cursor.error("expected ffi type kind"))
+                        return Err(cursor.error("expected ffi type kind"));
                     };
                     if !after_token.eof() {
-                        return Err(cursor.error("`unsafe { ... }` should only contain one identifier inside"))
+                        return Err(cursor
+                            .error("`unsafe { ... }` should only contain one identifier inside"));
                     }
 
                     let token = token.to_string();
                     match token.as_str() {
                         "robust" => Ok(((span, FfiTypeToken::UnsafeRobust), after_group)),
                         "non_owning" => Ok(((span, FfiTypeToken::UnsafeNonOwning), after_group)),
-                        other => Err(syn2::Error::new(token.span(), format!("unknown unsafe ffi type kind: {}", other))),
+                        other => Err(syn2::Error::new(
+                            token.span(),
+                            format!("unknown unsafe ffi type kind: {}", other),
+                        )),
                     }
                 }
-                other => Err(syn2::Error::new(span, format!("unknown unsafe ffi type kind: {}", other))),
+                other => Err(syn2::Error::new(
+                    span,
+                    format!("unknown unsafe ffi type kind: {}", other),
+                )),
             }
         })?;
 
@@ -581,12 +590,10 @@ fn derive_ffi_type_for_data_carrying_enum(
         let mut non_local_where_clause = where_clause.unwrap().clone();
 
         for variant in variants {
-            let Some(ty) = variant_mapper(
-                emitter, variant,
-                || None,
-                |field| Some(field.ty.clone())
-            ) else {
-                continue
+            let Some(ty) =
+                variant_mapper(emitter, variant, || None, |field| Some(field.ty.clone()))
+            else {
+                continue;
             };
 
             non_local_where_clause.predicates.push(
@@ -872,14 +879,22 @@ fn get_enum_repr_type(
         // it's an error to use an `#[derive(FfiType)]` on them
         // but we still want to generate a reasonable error message, so we check for it here
         if !is_empty {
-            emit!(emitter, enum_name, "Enum representation is not specified. Try adding `#[repr(u32)]` or similar");
+            emit!(
+                emitter,
+                enum_name,
+                "Enum representation is not specified. Try adding `#[repr(u32)]` or similar"
+            );
         }
-        return syn2::parse_quote! {u32}
+        return syn2::parse_quote! {u32};
     };
 
     let ReprKind::Primitive(primitive) = &*kind else {
-        emit!(emitter, &kind.span(), "Enum should have a primitive representation (like `#[repr(u32)]`)");
-        return syn2::parse_quote! {u32}
+        emit!(
+            emitter,
+            &kind.span(),
+            "Enum should have a primitive representation (like `#[repr(u32)]`)"
+        );
+        return syn2::parse_quote! {u32};
     };
 
     match primitive {
