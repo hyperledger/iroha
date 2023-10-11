@@ -46,7 +46,7 @@ pub mod model {
         pub payload: StringWithJson,
     }
 
-    /// Description of tokens defined in the validator
+    /// Description of tokens defined in the executor
     #[derive(
         Debug,
         Display,

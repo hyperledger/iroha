@@ -169,7 +169,7 @@ mod pending {
         ) -> Vec<TransactionValue> {
             transactions
                 .into_iter()
-                .map(|tx| match wsv.transaction_validator().validate(tx, wsv) {
+                .map(|tx| match wsv.transaction_executor().validate(tx, wsv) {
                     Ok(tx) => TransactionValue {
                         value: tx,
                         error: None,
@@ -358,8 +358,8 @@ mod valid {
                 // TODO: Unnecessary clone?
                 .cloned()
                 .try_for_each(|TransactionValue{value, error}| {
-                    let transaction_validator = wsv.transaction_validator();
-                    let limits = &transaction_validator.transaction_limits;
+                    let transaction_executor = wsv.transaction_executor();
+                    let limits = &transaction_executor.transaction_limits;
 
                     if error.is_none() {
                         let tx = if is_genesis {
@@ -368,7 +368,7 @@ mod valid {
                             AcceptedTransaction::accept(value, limits)?
                         };
 
-                        transaction_validator.validate(tx, wsv).map_err(|(_tx, error)| {
+                        transaction_executor.validate(tx, wsv).map_err(|(_tx, error)| {
                             TransactionValidationError::NotValid(error)
                         })?;
                     } else {
@@ -378,7 +378,7 @@ mod valid {
                             AcceptedTransaction::accept(value, limits)?
                         };
 
-                        match transaction_validator.validate(tx, wsv) {
+                        match transaction_executor.validate(tx, wsv) {
                             Err(rejected_transaction) => Ok(rejected_transaction),
                             Ok(_) => Err(TransactionValidationError::RejectedIsValid),
                         }?;
@@ -745,7 +745,7 @@ mod tests {
             RegisterExpr::new(AssetDefinition::quantity(asset_definition_id));
 
         // Making two transactions that have the same instruction
-        let transaction_limits = &wsv.transaction_validator().transaction_limits;
+        let transaction_limits = &wsv.transaction_executor().transaction_limits;
         let tx = TransactionBuilder::new(alice_id)
             .with_instructions([create_asset_definition])
             .sign(alice_keys.clone())
@@ -787,7 +787,7 @@ mod tests {
             RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
 
         // Making two transactions that have the same instruction
-        let transaction_limits = &wsv.transaction_validator().transaction_limits;
+        let transaction_limits = &wsv.transaction_executor().transaction_limits;
         let tx = TransactionBuilder::new(alice_id.clone())
             .with_instructions([create_asset_definition])
             .sign(alice_keys.clone())
@@ -850,7 +850,7 @@ mod tests {
         let world = World::with([domain], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = WorldStateView::new(world, kura);
-        let transaction_limits = &wsv.transaction_validator().transaction_limits;
+        let transaction_limits = &wsv.transaction_executor().transaction_limits;
 
         let domain_id = DomainId::from_str("domain").expect("Valid");
         let create_domain = RegisterExpr::new(Domain::new(domain_id));

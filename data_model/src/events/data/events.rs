@@ -74,7 +74,7 @@ pub mod model {
         Trigger(trigger::TriggerEvent),
         PermissionTokenSchemaUpdate(permission::PermissionTokenSchemaUpdateEvent),
         Configuration(config::ConfigurationEvent),
-        Validator(validator::ValidatorEvent),
+        Executor(executor::ExecutorEvent),
     }
 
     /// Event
@@ -112,8 +112,8 @@ pub mod model {
         PermissionToken(permission::PermissionTokenSchemaUpdateEvent),
         /// Configuration event
         Configuration(config::ConfigurationEvent),
-        /// Validator event
-        Validator(validator::ValidatorEvent),
+        /// Executor event
+        Executor(executor::ExecutorEvent),
     }
 }
 
@@ -315,7 +315,7 @@ mod permission {
         use super::*;
 
         /// Information about permission tokens update.
-        /// Only happens when registering new validator
+        /// Only happens when registering new executor
         #[derive(
             Debug,
             Clone,
@@ -554,7 +554,7 @@ mod config {
     }
 }
 
-mod validator {
+mod executor {
     use iroha_data_model_derive::model;
 
     pub use self::model::*;
@@ -581,19 +581,19 @@ mod validator {
         #[ffi_type]
         #[serde(untagged)] // Unaffected by #3330, as single unit variant
         #[repr(transparent)]
-        pub enum ValidatorEvent {
+        pub enum ExecutorEvent {
             Upgraded,
         }
 
-        /// Filter for [`ValidatorEvent`].
-        pub enum ValidatorFilter {
+        /// Filter for [`ExecutorEvent`].
+        pub enum ExecutorFilter {
             Upgraded,
         }
     }
 
     #[cfg(feature = "transparent_api")]
-    impl super::Filter for ValidatorFilter {
-        type Event = ValidatorEvent;
+    impl super::Filter for ExecutorFilter {
+        type Event = ExecutorEvent;
 
         fn matches(&self, event: &Self::Event) -> bool {
             match (self, event) {
@@ -648,8 +648,8 @@ impl WorldEvent {
             WorldEvent::Configuration(config_event) => {
                 events.push(DataEvent::Configuration(config_event));
             }
-            WorldEvent::Validator(validator_event) => {
-                events.push(DataEvent::Validator(validator_event));
+            WorldEvent::Executor(executor_event) => {
+                events.push(DataEvent::Executor(executor_event));
             }
         }
 
@@ -688,7 +688,7 @@ impl DataEvent {
             | Self::Configuration(_)
             | Self::Role(_)
             | Self::PermissionToken(_)
-            | Self::Validator(_) => None,
+            | Self::Executor(_) => None,
         }
     }
 }
@@ -706,13 +706,13 @@ pub mod prelude {
         },
         config::ConfigurationEvent,
         domain::{DomainEvent, DomainEventFilter, DomainFilter, DomainOwnerChanged},
+        executor::{ExecutorEvent, ExecutorFilter},
         peer::{PeerEvent, PeerEventFilter, PeerFilter},
         permission::PermissionTokenSchemaUpdateEvent,
         role::{PermissionRemoved, RoleEvent, RoleEventFilter, RoleFilter},
         trigger::{
             TriggerEvent, TriggerEventFilter, TriggerFilter, TriggerNumberOfExecutionsChanged,
         },
-        validator::{ValidatorEvent, ValidatorFilter},
         DataEvent, HasOrigin, MetadataChanged, WorldEvent,
     };
 }

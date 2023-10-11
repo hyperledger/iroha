@@ -1190,7 +1190,7 @@ mod tests {
             .with_instructions([fail_box])
             .sign(alice_keys.clone())
             .expect("Valid");
-        let tx = AcceptedTransaction::accept(tx, &wsv.transaction_validator().transaction_limits)
+        let tx = AcceptedTransaction::accept(tx, &wsv.transaction_executor().transaction_limits)
             .expect("Valid");
 
         // Creating a block of two identical transactions and validating it
@@ -1215,14 +1215,14 @@ mod tests {
             .with_instructions([create_asset_definition1])
             .sign(alice_keys.clone())
             .expect("Valid");
-        let tx1 = AcceptedTransaction::accept(tx1, &wsv.transaction_validator().transaction_limits)
+        let tx1 = AcceptedTransaction::accept(tx1, &wsv.transaction_executor().transaction_limits)
             .map(Into::into)
             .expect("Valid");
         let tx2 = TransactionBuilder::new(alice_id)
             .with_instructions([create_asset_definition2])
             .sign(alice_keys)
             .expect("Valid");
-        let tx2 = AcceptedTransaction::accept(tx2, &wsv.transaction_validator().transaction_limits)
+        let tx2 = AcceptedTransaction::accept(tx2, &wsv.transaction_executor().transaction_limits)
             .map(Into::into)
             .expect("Valid");
 

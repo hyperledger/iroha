@@ -65,7 +65,7 @@ for selecting a particular version as an LTS candidate
 
    This is different to point 1, because while RC10 and RC13 were free
    from major problems, they did not offer sufficiently full coverage
-   of the features required for the major project stakeholders. 
+   of the features required for the major project stakeholders.
 
 4. The release must be compatible with all SDKs.
 
@@ -73,7 +73,7 @@ for selecting a particular version as an LTS candidate
    candidates, creating a catch 22 situation, it is an exception. The
    two other major SDKs, namely Kotlin, and TypeScript must be
    compatible with LTS candidate. If the SDK cannot be made compatible
-   with the candidate, the candidate release is disqualified. 
+   with the candidate, the candidate release is disqualified.
 
 5. The release must be well-tested.
 
@@ -84,7 +84,7 @@ for selecting a particular version as an LTS candidate
    This generally applies to all releases after RC6 and until RC17, as
    the development team was told of a way of restructuring the
    integration tests, but the process only ended with RC17 and the
-   introduction of the =pytest= framework. 
+   introduction of the =pytest= framework.
 
    While passing integration tests is necessary it is not sufficient,
    the following minimal testing is required to qualify a release as
@@ -186,4 +186,4 @@ because rather than a misapplication of an existing term, this is an
 invention of a term that /could/ have subtle differences from a
 release candidate.  In reality these should have been called
 *development snapshots*.  But in order not to break continuity too
-much with the existing SDKs a compromise was chosen. 
+much with the existing SDKs a compromise was chosen.

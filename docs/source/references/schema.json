@@ -933,9 +933,9 @@
         "type": "ConfigurationEvent"
       },
       {
-        "tag": "Validator",
+        "tag": "Executor",
         "discriminant": 9,
-        "type": "ValidatorEvent"
+        "type": "ExecutorEvent"
       }
     ]
   },
@@ -1369,6 +1369,36 @@
         "tag": "Schedule",
         "discriminant": 1,
         "type": "Schedule"
+      }
+    ]
+  },
+  "Executor": {
+    "Struct": [
+      {
+        "name": "wasm",
+        "type": "WasmSmartContract"
+      }
+    ]
+  },
+  "ExecutorEvent": {
+    "Enum": [
+      {
+        "tag": "Upgraded",
+        "discriminant": 0
+      }
+    ]
+  },
+  "ExecutorMode": {
+    "Enum": [
+      {
+        "tag": "Path",
+        "discriminant": 0,
+        "type": "String"
+      },
+      {
+        "tag": "Inline",
+        "discriminant": 1,
+        "type": "Executor"
       }
     ]
   },
@@ -3671,8 +3701,8 @@
         "type": "Vec<Vec<InstructionExpr>>"
       },
       {
-        "name": "validator",
-        "type": "ValidatorMode"
+        "name": "executor",
+        "type": "ExecutorMode"
       }
     ]
   },
@@ -4567,9 +4597,9 @@
   "UpgradableBox": {
     "Enum": [
       {
-        "tag": "Validator",
+        "tag": "Executor",
         "discriminant": 0,
-        "type": "Validator"
+        "type": "Executor"
       }
     ]
   },
@@ -4605,36 +4635,6 @@
       {
         "tag": "InternalError",
         "discriminant": 4
-      }
-    ]
-  },
-  "Validator": {
-    "Struct": [
-      {
-        "name": "wasm",
-        "type": "WasmSmartContract"
-      }
-    ]
-  },
-  "ValidatorEvent": {
-    "Enum": [
-      {
-        "tag": "Upgraded",
-        "discriminant": 0
-      }
-    ]
-  },
-  "ValidatorMode": {
-    "Enum": [
-      {
-        "tag": "Path",
-        "discriminant": 0,
-        "type": "String"
-      },
-      {
-        "tag": "Inline",
-        "discriminant": 1,
-        "type": "Validator"
       }
     ]
   },
@@ -4746,9 +4746,9 @@
         "type": "NumericValue"
       },
       {
-        "tag": "Validator",
+        "tag": "Executor",
         "discriminant": 21,
-        "type": "Validator"
+        "type": "Executor"
       },
       {
         "tag": "LogLevel",

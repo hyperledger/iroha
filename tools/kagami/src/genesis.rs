@@ -10,31 +10,31 @@ use iroha_data_model::{
     prelude::AssetId,
     IdBox,
 };
-use iroha_genesis::{RawGenesisBlock, RawGenesisBlockBuilder, ValidatorMode, ValidatorPath};
+use iroha_genesis::{ExecutorMode, ExecutorPath, RawGenesisBlock, RawGenesisBlockBuilder};
 use serde_json::json;
 
 use super::*;
 
-const INLINED_VALIDATOR_WARNING: &str = r#"WARN: You're using genesis with inlined validator.
-Consider specifying a separate validator file using `--validator-path-in-genesis` instead.
+const INLINED_EXECUTOR_WARNING: &str = r#"WARN: You're using genesis with inlined executor.
+Consider specifying a separate executor file using `--executor-path-in-genesis` instead.
 Use `--help` for more information."#;
 
 #[derive(Parser, Debug, Clone)]
-#[clap(group = ArgGroup::new("validator").required(true))]
+#[clap(group = ArgGroup::new("executor").required(true))]
 pub struct Args {
-    /// Reads the validator from the file at <PATH> (relative to CWD)
+    /// Reads the executor from the file at <PATH> (relative to CWD)
     /// and includes the content into the genesis.
     ///
     /// WARN: This approach can lead to reproducibility issues, as WASM builds are currently not
-    /// guaranteed to be reproducible. Additionally, inlining the validator bloats the genesis JSON
-    /// and makes it less readable. Consider specifying a separate validator file
-    /// using `--validator-path-in-genesis` instead. For more details, refer to
+    /// guaranteed to be reproducible. Additionally, inlining the executor bloats the genesis JSON
+    /// and makes it less readable. Consider specifying a separate executor file
+    /// using `--executor-path-in-genesis` instead. For more details, refer to
     /// the related PR: https://github.com/hyperledger/iroha/pull/3434
-    #[clap(long, group = "validator", value_name = "PATH")]
-    inline_validator_from_file: Option<PathBuf>,
+    #[clap(long, group = "executor", value_name = "PATH")]
+    inline_executor_from_file: Option<PathBuf>,
     /// Specifies the <PATH> that will be directly inserted into the genesis JSON as-is.
-    #[clap(long, group = "validator", value_name = "PATH")]
-    validator_path_in_genesis: Option<PathBuf>,
+    #[clap(long, group = "executor", value_name = "PATH")]
+    executor_path_in_genesis: Option<PathBuf>,
     #[clap(subcommand)]
     mode: Option<Mode>,
 }
@@ -67,53 +67,52 @@ pub enum Mode {
 impl<T: Write> RunArgs<T> for Args {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome {
         let Self {
-            inline_validator_from_file,
-            validator_path_in_genesis,
+            inline_executor_from_file,
+            executor_path_in_genesis,
             mode,
         } = self;
 
-        let validator: ValidatorMode =
-            match (inline_validator_from_file, validator_path_in_genesis) {
-                (Some(path), None) => {
-                    eprintln!("{INLINED_VALIDATOR_WARNING}");
-                    ParsedValidatorArgs::Inline(path)
-                }
-                (None, Some(path)) => ParsedValidatorArgs::Path(path),
-                _ => unreachable!("clap invariant"),
+        let executor: ExecutorMode = match (inline_executor_from_file, executor_path_in_genesis) {
+            (Some(path), None) => {
+                eprintln!("{INLINED_EXECUTOR_WARNING}");
+                ParsedExecutorArgs::Inline(path)
             }
-            .try_into()?;
+            (None, Some(path)) => ParsedExecutorArgs::Path(path),
+            _ => unreachable!("clap invariant"),
+        }
+        .try_into()?;
 
         let genesis = match mode.unwrap_or_default() {
-            Mode::Default => generate_default(validator),
+            Mode::Default => generate_default(executor),
             Mode::Synthetic {
                 domains,
                 accounts_per_domain,
                 assets_per_domain,
-            } => generate_synthetic(validator, domains, accounts_per_domain, assets_per_domain),
+            } => generate_synthetic(executor, domains, accounts_per_domain, assets_per_domain),
         }?;
         writeln!(writer, "{}", serde_json::to_string_pretty(&genesis)?)
             .wrap_err("Failed to write serialized genesis to the buffer.")
     }
 }
 
-enum ParsedValidatorArgs {
+enum ParsedExecutorArgs {
     Inline(PathBuf),
     Path(PathBuf),
 }
 
-impl TryFrom<ParsedValidatorArgs> for ValidatorMode {
+impl TryFrom<ParsedExecutorArgs> for ExecutorMode {
     type Error = color_eyre::Report;
 
-    fn try_from(value: ParsedValidatorArgs) -> Result<Self, Self::Error> {
+    fn try_from(value: ParsedExecutorArgs) -> Result<Self, Self::Error> {
         let mode = match value {
-            ParsedValidatorArgs::Path(path) => ValidatorMode::Path(ValidatorPath(path)),
-            ParsedValidatorArgs::Inline(path) => {
-                let validator = ValidatorMode::Path(ValidatorPath(path.clone()))
+            ParsedExecutorArgs::Path(path) => ExecutorMode::Path(ExecutorPath(path)),
+            ParsedExecutorArgs::Inline(path) => {
+                let executor = ExecutorMode::Path(ExecutorPath(path.clone()))
                     .try_into()
                     .wrap_err_with(|| {
-                        format!("Failed to read the validator located at {}", path.display())
+                        format!("Failed to read the executor located at {}", path.display())
                     })?;
-                ValidatorMode::Inline(validator)
+                ExecutorMode::Inline(executor)
             }
         };
         Ok(mode)
@@ -121,7 +120,7 @@ impl TryFrom<ParsedValidatorArgs> for ValidatorMode {
 }
 
 #[allow(clippy::too_many_lines)]
-pub fn generate_default(validator: ValidatorMode) -> color_eyre::Result<RawGenesisBlock> {
+pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesisBlock> {
     let mut meta = Metadata::new();
     meta.insert_with_limits(
         "key".parse()?,
@@ -143,7 +142,7 @@ pub fn generate_default(validator: ValidatorMode) -> color_eyre::Result<RawGenes
             .account("carpenter".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
             .asset("cabbage".parse()?, AssetValueType::Quantity)
             .finish_domain()
-            .validator(validator)
+            .executor(executor)
             .build();
 
     let alice_id = AccountId::from_str("alice@wonderland")?;
@@ -209,7 +208,7 @@ pub fn generate_default(validator: ValidatorMode) -> color_eyre::Result<RawGenes
 }
 
 fn generate_synthetic(
-    validator: ValidatorMode,
+    executor: ExecutorMode,
     domains: u64,
     accounts_per_domain: u64,
     assets_per_domain: u64,
@@ -236,7 +235,7 @@ fn generate_synthetic(
 
         builder = domain_builder.finish_domain();
     }
-    let mut genesis = builder.validator(validator).build();
+    let mut genesis = builder.executor(executor).build();
 
     let first_transaction = genesis
         .first_transaction_mut()
