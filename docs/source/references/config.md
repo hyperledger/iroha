@@ -189,7 +189,7 @@ false
 
 `GenesisBlock` configuration
 
-Has type `Option<genesis::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_GENESIS`
+Has type `Option<Box<genesis::ConfigurationProxy>>`[^1]. Can be configured via environment variable `IROHA_GENESIS`
 
 ```json
 {
@@ -222,7 +222,7 @@ null
 
 `Kura` configuration
 
-Has type `Option<kura::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_KURA`
+Has type `Option<Box<kura::ConfigurationProxy>>`[^1]. Can be configured via environment variable `IROHA_KURA`
 
 ```json
 {
@@ -310,7 +310,7 @@ Has type `Option<NonZeroU64>`[^1]. Can be configured via environment variable `L
 
 `Logger` configuration
 
-Has type `Option<logger::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_LOGGER`
+Has type `Option<Box<logger::ConfigurationProxy>>`[^1]. Can be configured via environment variable `IROHA_LOGGER`
 
 ```json
 {
@@ -473,7 +473,7 @@ Has type `Option<u64>`[^1]. Can be configured via environment variable `QUEUE_TR
 
 SnapshotMaker configuration
 
-Has type `Option<snapshot::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_SNAPSHOT`
+Has type `Option<Box<snapshot::ConfigurationProxy>>`[^1]. Can be configured via environment variable `IROHA_SNAPSHOT`
 
 ```json
 {
@@ -517,7 +517,7 @@ Has type `Option<String>`[^1]. Can be configured via environment variable `SNAPS
 
 `Sumeragi` configuration
 
-Has type `Option<sumeragi::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_SUMERAGI`
+Has type `Option<Box<sumeragi::ConfigurationProxy>>`[^1]. Can be configured via environment variable `IROHA_SUMERAGI`
 
 ```json
 {
@@ -627,7 +627,7 @@ null
 
 Telemetry configuration
 
-Has type `Option<telemetry::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_TELEMETRY`
+Has type `Option<Box<telemetry::ConfigurationProxy>>`[^1]. Can be configured via environment variable `IROHA_TELEMETRY`
 
 ```json
 {
@@ -693,7 +693,7 @@ null
 
 `Torii` configuration
 
-Has type `Option<torii::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_TORII`
+Has type `Option<Box<torii::ConfigurationProxy>>`[^1]. Can be configured via environment variable `IROHA_TORII`
 
 ```json
 {
@@ -759,7 +759,7 @@ null
 
 `WorldStateView` configuration
 
-Has type `Option<wsv::ConfigurationProxy>`[^1]. Can be configured via environment variable `IROHA_WSV`
+Has type `Option<Box<wsv::ConfigurationProxy>>`[^1]. Can be configured via environment variable `IROHA_WSV`
 
 ```json
 {

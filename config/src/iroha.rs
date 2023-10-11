@@ -24,14 +24,14 @@ view! {
         pub disable_panic_terminal_colors: bool,
         /// `Kura` configuration
         #[config(inner)]
-        pub kura: kura::Configuration,
+        pub kura: Box<kura::Configuration>,
         /// `Sumeragi` configuration
         #[config(inner)]
-        #[view(into = sumeragi::ConfigurationView)]
-        pub sumeragi: sumeragi::Configuration,
+        #[view(into = Box<sumeragi::ConfigurationView>)]
+        pub sumeragi: Box<sumeragi::Configuration>,
         /// `Torii` configuration
         #[config(inner)]
-        pub torii: torii::Configuration,
+        pub torii: Box<torii::Configuration>,
         /// `BlockSynchronizer` configuration
         #[config(inner)]
         pub block_sync: block_sync::Configuration,
@@ -40,23 +40,23 @@ view! {
         pub queue: queue::Configuration,
         /// `Logger` configuration
         #[config(inner)]
-        pub logger: logger::Configuration,
+        pub logger: Box<logger::Configuration>,
         /// `GenesisBlock` configuration
         #[config(inner)]
-        #[view(into = genesis::ConfigurationView)]
-        pub genesis: genesis::Configuration,
+        #[view(into = Box<genesis::ConfigurationView>)]
+        pub genesis: Box<genesis::Configuration>,
         /// `WorldStateView` configuration
         #[config(inner)]
-        pub wsv: wsv::Configuration,
+        pub wsv: Box<wsv::Configuration>,
         /// Network configuration
         #[config(inner)]
         pub network: network::Configuration,
         /// Telemetry configuration
         #[config(inner)]
-        pub telemetry: telemetry::Configuration,
+        pub telemetry: Box<telemetry::Configuration>,
         /// SnapshotMaker configuration
         #[config(inner)]
-        pub snapshot: snapshot::Configuration,
+        pub snapshot: Box<snapshot::Configuration>,
         /// LiveQueryStore configuration
         #[config(inner)]
         pub live_query_store: live_query_store::Configuration,
@@ -69,17 +69,17 @@ impl Default for ConfigurationProxy {
             public_key: None,
             private_key: None,
             disable_panic_terminal_colors: Some(bool::default()),
-            kura: Some(kura::ConfigurationProxy::default()),
-            sumeragi: Some(sumeragi::ConfigurationProxy::default()),
-            torii: Some(torii::ConfigurationProxy::default()),
+            kura: Some(Box::default()),
+            sumeragi: Some(Box::default()),
+            torii: Some(Box::default()),
             block_sync: Some(block_sync::ConfigurationProxy::default()),
             queue: Some(queue::ConfigurationProxy::default()),
-            logger: Some(logger::ConfigurationProxy::default()),
-            genesis: Some(genesis::ConfigurationProxy::default()),
-            wsv: Some(wsv::ConfigurationProxy::default()),
+            logger: Some(Box::default()),
+            genesis: Some(Box::default()),
+            wsv: Some(Box::default()),
             network: Some(network::ConfigurationProxy::default()),
-            telemetry: Some(telemetry::ConfigurationProxy::default()),
-            snapshot: Some(snapshot::ConfigurationProxy::default()),
+            telemetry: Some(Box::default()),
+            snapshot: Some(Box::default()),
             live_query_store: Some(live_query_store::ConfigurationProxy::default()),
         }
     }
@@ -208,17 +208,17 @@ mod tests {
         fn arb_proxy()(
             (public_key, private_key) in arb_keys(),
             disable_panic_terminal_colors in prop::option::of(Just(true)),
-            kura in prop::option::of(kura::tests::arb_proxy()),
-            sumeragi in prop::option::of(sumeragi::tests::arb_proxy()),
-            torii in prop::option::of(torii::tests::arb_proxy()),
+            kura in prop::option::of(kura::tests::arb_proxy().prop_map(Box::new)),
+            sumeragi in (prop::option::of(sumeragi::tests::arb_proxy().prop_map(Box::new))),
+            torii in (prop::option::of(torii::tests::arb_proxy().prop_map(Box::new))),
             block_sync in prop::option::of(block_sync::tests::arb_proxy()),
             queue in prop::option::of(queue::tests::arb_proxy()),
-            logger in prop::option::of(logger::tests::arb_proxy()),
-            genesis in prop::option::of(genesis::tests::arb_proxy()),
-            wsv in prop::option::of(wsv::tests::arb_proxy()),
+            logger in prop::option::of(logger::tests::arb_proxy().prop_map(Box::new)),
+            genesis in prop::option::of(genesis::tests::arb_proxy().prop_map(Box::new)),
+            wsv in prop::option::of(wsv::tests::arb_proxy().prop_map(Box::new)),
             network in prop::option::of(network::tests::arb_proxy()),
-            telemetry in prop::option::of(telemetry::tests::arb_proxy()),
-            snapshot in prop::option::of(snapshot::tests::arb_proxy()),
+            telemetry in prop::option::of(telemetry::tests::arb_proxy().prop_map(Box::new)),
+            snapshot in prop::option::of(snapshot::tests::arb_proxy().prop_map(Box::new)),
             live_query_store in prop::option::of(live_query_store::tests::arb_proxy()),
             ) -> ConfigurationProxy {
             ConfigurationProxy { public_key, private_key, disable_panic_terminal_colors, kura, sumeragi, torii, block_sync, queue,
@@ -227,14 +227,20 @@ mod tests {
     }
 
     proptest! {
-        #[test]
-        fn iroha_proxy_build_fails_on_none(proxy in arb_proxy()) {
+        fn __iroha_proxy_build_fails_on_none(proxy in arb_proxy()) {
             let cfg = proxy.build();
             let example_cfg = ConfigurationProxy::from_path(CONFIGURATION_PATH).build().expect("Failed to build example Iroha config");
             if cfg.is_ok() {
                 assert_eq!(cfg.unwrap(), example_cfg)
             }
         }
+    }
+
+    #[test]
+    fn iroha_proxy_build_fails_on_none() {
+        // Using `stacker` because test generated by `proptest!` takes too much stack space.
+        // Allocating 3MB.
+        stacker::grow(3 * 1024 * 1024, __iroha_proxy_build_fails_on_none)
     }
 
     #[test]

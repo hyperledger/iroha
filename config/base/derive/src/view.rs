@@ -86,6 +86,24 @@ mod gen {
             })
             .collect::<Vec<_>>();
 
+        let field_froms: Vec<_> = fields
+            .iter()
+            .map(|field| {
+                let field_ident = &field.ident;
+                if let syn::Type::Path(syn::TypePath { path, .. }) = &field.ty {
+                    let last_segment = path.segments.last().expect("Not empty");
+                    if last_segment.ident == "Box" {
+                        return quote! {
+                            #field_ident: Box::new(core::convert::From::<_>::from(*#field_ident)),
+                        };
+                    }
+                }
+                quote! {
+                    #field_ident: core::convert::From::<_>::from(#field_ident),
+                }
+            })
+            .collect();
+
         quote! {
             impl #impl_generics core::convert::From<#original_ident> for #view_ident #ty_generics #where_clause {
                 fn from(config: #original_ident) -> Self {
@@ -99,7 +117,7 @@ mod gen {
                     Self {
                         #(
                             #(#field_cfg_attrs)*
-                            #field_idents: core::convert::From::<_>::from(#field_idents),
+                            #field_froms
                         )*
                     }
                 }

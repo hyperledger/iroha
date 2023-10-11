@@ -347,3 +347,19 @@ pub fn get_parent_ty(ast: &StructWithFields) -> Type {
         .map(|builder| builder.parent)
         .expect("Should not be called on structs with no `#[builder(..)]` attribute")
 }
+
+pub fn extract_box_generic(box_seg: &mut syn::PathSegment) -> &mut syn::Type {
+    let syn::PathArguments::AngleBracketed(generics) = &mut box_seg.arguments else {
+        panic!("`Box` should have explicit generic");
+    };
+
+    assert!(
+        generics.args.len() == 1,
+        "`Box` should have exactly one generic argument"
+    );
+    let syn::GenericArgument::Type(generic_type) = generics.args.first_mut().expect("Can't be empty") else {
+        panic!("`Box` should have type as a generic argument")
+    };
+
+    generic_type
+}

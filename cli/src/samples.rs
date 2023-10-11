@@ -60,16 +60,16 @@ pub fn get_config_proxy(peers: UniqueVec<PeerId>, key_pair: Option<KeyPair>) -> 
     ConfigurationProxy {
         public_key: Some(public_key.clone()),
         private_key: Some(private_key.clone()),
-        sumeragi: Some(iroha_config::sumeragi::ConfigurationProxy {
+        sumeragi: Some(Box::new(iroha_config::sumeragi::ConfigurationProxy {
             max_transactions_in_block: Some(2),
             trusted_peers: Some(TrustedPeers { peers }),
             ..iroha_config::sumeragi::ConfigurationProxy::default()
-        }),
-        torii: Some(iroha_config::torii::ConfigurationProxy {
+        })),
+        torii: Some(Box::new(iroha_config::torii::ConfigurationProxy {
             p2p_addr: Some(DEFAULT_TORII_P2P_ADDR.clone()),
             api_url: Some(DEFAULT_API_ADDR.clone()),
             ..iroha_config::torii::ConfigurationProxy::default()
-        }),
+        })),
         block_sync: Some(iroha_config::block_sync::ConfigurationProxy {
             block_batch_size: Some(1),
             gossip_period_ms: Some(500),
@@ -78,10 +78,10 @@ pub fn get_config_proxy(peers: UniqueVec<PeerId>, key_pair: Option<KeyPair>) -> 
         queue: Some(iroha_config::queue::ConfigurationProxy {
             ..iroha_config::queue::ConfigurationProxy::default()
         }),
-        genesis: Some(iroha_config::genesis::ConfigurationProxy {
+        genesis: Some(Box::new(iroha_config::genesis::ConfigurationProxy {
             account_private_key: Some(Some(private_key)),
             account_public_key: Some(public_key),
-        }),
+        })),
         ..ConfigurationProxy::default()
     }
 }
