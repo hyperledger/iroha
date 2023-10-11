@@ -211,10 +211,17 @@ impl GetSetRawFieldAttr {
             // iroha doesn't use the latter form, so it is not supported by `iroha_ffi_derive`
             if attr.path().is_ident("getset") {
                 let Some(list) = accumulator.handle(attr.meta.require_list().map_err(Into::into))
-                    else { continue };
-                let Some(tokens): Option<Punctuated<SpannedGetSetAttrToken, Token![,]>>
-                    = accumulator.handle(list.parse_args_with(Punctuated::parse_terminated).map_err(Into::into))
-                    else { continue };
+                else {
+                    continue;
+                };
+                let Some(tokens): Option<Punctuated<SpannedGetSetAttrToken, Token![,]>> =
+                    accumulator.handle(
+                        list.parse_args_with(Punctuated::parse_terminated)
+                            .map_err(Into::into),
+                    )
+                else {
+                    continue;
+                };
 
                 for token in tokens {
                     match token.token {
