@@ -161,8 +161,11 @@
       inherit mkIroha;
 
       packages.default = mkIroha {};
-      
-      packages.appimage = nix-appimage.mkappimage.${system} { drv = mkIroha {}; name="iroha"; };
+
+      packages.appimage = nix-appimage.mkappimage.${system} {
+        drv = mkIroha {};
+        name = "iroha";
+      };
 
       packages.targets = builtins.listToAttrs (map (target: {
           name = target;
@@ -193,16 +196,27 @@
 
       formatter = alejandra.packages.${system}.default;
 
-      devShells.default = pkgs.mkShell {
-        nativeBuildInputs = with pkgs; [
-          pkg-config
-          openssl.dev
-          libiconvReal
-          zlib
-          (fenix'.toolchainOf toolchainSpec).completeToolchain
+      devShells.default = let
+        toolchainPkgs = fenix'.toolchainOf toolchainSpec;
+        toolchain = fenix'.combine [
+          toolchainPkgs.rustc
+          toolchainPkgs.cargo
+          toolchainPkgs.clippy
+          toolchainPkgs.rustfmt
+          toolchainPkgs.rust-std
         ];
+      in
+        pkgs.mkShell {
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+            openssl.dev
+            libiconvReal
+            zlib
+            toolchain
+            fenix'.rust-analyzer
+          ];
 
-        IROHA_SKIP_WASM_CHECKS = true;
-      };
+          IROHA_SKIP_WASM_CHECKS = true;
+        };
     });
 }
