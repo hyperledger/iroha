@@ -62,7 +62,7 @@ macro_rules! queries {
 /// Trait for typesafe query output
 pub trait Query: Into<QueryBox> + seal::Sealed {
     /// Output type of query
-    type Output: Into<Value> + TryFrom<Value>;
+    type Output: TryFrom<Value> + Encode;
 }
 
 #[model]

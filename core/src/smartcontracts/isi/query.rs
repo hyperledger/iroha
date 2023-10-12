@@ -5,8 +5,15 @@
     clippy::std_instead_of_core,
     clippy::std_instead_of_alloc
 )]
+
+use std::fmt::Debug;
+
 use eyre::Result;
-use iroha_data_model::{prelude::*, query::error::QueryExecutionFail as Error};
+use iroha_data_model::{
+    prelude::*,
+    query::{error::QueryExecutionFail as Error, Query},
+};
+use iroha_primitives::const_vec::ConstVec;
 use parity_scale_codec::{Decode, Encode};
 
 use crate::{prelude::ValidQuery, WorldStateView};
@@ -55,6 +62,72 @@ impl_lazy! {
     iroha_data_model::trigger::Trigger<iroha_data_model::events::TriggeringFilterBox, iroha_data_model::trigger::OptimizedExecutable>,
 }
 
+/// A type-erased encoder for [`Value`]s.
+pub struct QueryEncoder(Box<dyn Fn(Value) -> EncodedValue + Send + Sync>);
+
+impl QueryEncoder {
+    fn new_for_type<T>() -> Self
+    where
+        T: Encode + TryFrom<Value>,
+    {
+        Self(Box::new(|value| {
+            EncodedValue::new(
+                T::try_from(value)
+                    .ok() // erasing the error, because Value does not require TryInto::Error to implement Debug 
+                    .expect("BUG: the query result type does not match the expected type"),
+            )
+        }))
+    }
+
+    pub fn new_non_iterable<Q: Query>(_q: &Q) -> Self {
+        QueryEncoder::new_for_type::<Q::Output>()
+    }
+
+    pub fn new_iterable<Q, T>(_q: &Q) -> Self
+    where
+        Q: Query<Output = Vec<T>>,
+        T: Encode + TryFrom<Value>,
+    {
+        QueryEncoder::new_for_type::<T>()
+    }
+
+    pub fn encode(&self, value: Value) -> EncodedValue {
+        (self.0)(value)
+    }
+
+    pub fn encode_vec(&self, values: Vec<Value>) -> EncodedValue {
+        EncodedValue::new(
+            values
+                .into_iter()
+                .map(|v| self.encode(v))
+                .collect::<Vec<_>>(),
+        )
+    }
+}
+
+/// A type-erased encoded [`Value`]. The user needs to know the type of the value to decode it.d
+pub struct EncodedValue(ConstVec<u8>);
+
+impl EncodedValue {
+    pub fn new<T: Encode>(value: T) -> Self {
+        Self(value.encode().into())
+    }
+}
+
+impl Encode for EncodedValue {
+    fn size_hint(&self) -> usize {
+        self.0.len()
+    }
+
+    fn using_encoded<R, F: FnOnce(&[u8]) -> R>(&self, f: F) -> R {
+        f(self.0.as_ref())
+    }
+
+    fn encoded_size(&self) -> usize {
+        self.0.len()
+    }
+}
+
 /// Query Request statefully validated on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
 #[repr(transparent)]
@@ -88,14 +161,20 @@ impl ValidQueryRequest {
     ///
     /// # Errors
     /// Forwards `self.query.execute` error.
-    pub fn execute<'wsv>(&'wsv self, wsv: &'wsv WorldStateView) -> Result<LazyValue<'wsv>, Error> {
-        let value = self.0.query().execute(wsv)?;
+    pub fn execute<'wsv>(
+        &'wsv self,
+        wsv: &'wsv WorldStateView,
+    ) -> Result<(LazyValue<'wsv>, QueryEncoder), Error> {
+        let (value, encoder) = execute_and_make_encoder(self.0.query(), wsv)?;
 
-        Ok(if let LazyValue::Iter(iter) = value {
-            LazyValue::Iter(Box::new(iter.filter(|val| self.0.filter().applies(val))))
-        } else {
-            value
-        })
+        Ok((
+            if let LazyValue::Iter(iter) = value {
+                LazyValue::Iter(Box::new(iter.filter(|val| self.0.filter().applies(val))))
+            } else {
+                value
+            },
+            encoder,
+        ))
 
         // We're not handling the LimitedMetadata case, because
         // the predicate when applied to it is ambiguous. We could
@@ -108,63 +187,83 @@ impl ValidQueryRequest {
 }
 
 impl ValidQuery for QueryBox {
-    fn execute<'wsv>(&self, wsv: &'wsv WorldStateView) -> Result<LazyValue<'wsv>, Error> {
-        iroha_logger::debug!(query=%self, "Executing");
+    fn execute<'wsv>(
+        &self,
+        wsv: &'wsv WorldStateView,
+    ) -> std::result::Result<LazyValue<'wsv>, Error> {
+        // drop the [`QueryEncoder`], to provide queries for the executor
+        execute_and_make_encoder(self, wsv).map(|(result, _)| result)
+    }
+}
 
-        macro_rules! match_all {
-            ( non_iter: {$( $non_iter_query:ident ),+ $(,)?} $( $query:ident, )+ ) => {
-                match self { $(
-                    QueryBox::$non_iter_query(query) => query.execute(wsv).map(Value::from).map(LazyValue::Value), )+ $(
-                    QueryBox::$query(query) => query.execute(wsv).map(|i| i.map(Value::from)).map(|iter| LazyValue::Iter(Box::new(iter))), )+
-                }
-            };
+/// In addition to executing the query, this function also returns a [`QueryEncoder`] for the query result type.
+///
+/// It provides a type-erased way to encode the data on-the-wire without wrapping it into a [`Value`] enum.
+fn execute_and_make_encoder<'wsv>(
+    query: &QueryBox,
+    wsv: &'wsv WorldStateView,
+) -> Result<(LazyValue<'wsv>, QueryEncoder), Error> {
+    iroha_logger::debug!(query=%query, "Executing");
+
+    macro_rules! match_all {
+        ( non_iter: {$( $non_iter_query:ident ),+ $(,)?} $( $query:ident, )+ ) => {
+            Ok(match query { $(
+                QueryBox::$non_iter_query(query) => (
+                    query.execute(wsv).map(Value::from).map(LazyValue::Value)?,
+                    QueryEncoder::new_non_iterable(query),
+                ), )+ $(
+                QueryBox::$query(query) => (
+                    query.execute(wsv).map(|i| i.map(Value::from)).map(|iter| LazyValue::Iter(Box::new(iter)))?,
+                    QueryEncoder::new_iterable(query),
+                ), )+
+            })
+        };
+    }
+
+    match_all! {
+        non_iter: {
+            FindAccountById,
+            FindAssetById,
+            FindAssetDefinitionById,
+            FindAssetQuantityById,
+            FindTotalAssetQuantityByAssetDefinitionId,
+            FindDomainById,
+            FindBlockHeaderByHash,
+            FindTransactionByHash,
+            FindTriggerById,
+            FindRoleByRoleId,
+            FindDomainKeyValueByIdAndKey,
+            FindAssetKeyValueByIdAndKey,
+            FindAccountKeyValueByIdAndKey,
+            FindAssetDefinitionKeyValueByIdAndKey,
+            FindTriggerKeyValueByIdAndKey,
+            FindPermissionTokenSchema,
         }
 
-        match_all! {
-            non_iter: {
-                FindAccountById,
-                FindAssetById,
-                FindAssetDefinitionById,
-                FindAssetQuantityById,
-                FindTotalAssetQuantityByAssetDefinitionId,
-                FindDomainById,
-                FindBlockHeaderByHash,
-                FindTransactionByHash,
-                FindTriggerById,
-                FindRoleByRoleId,
-                FindDomainKeyValueByIdAndKey,
-                FindAssetKeyValueByIdAndKey,
-                FindAccountKeyValueByIdAndKey,
-                FindAssetDefinitionKeyValueByIdAndKey,
-                FindTriggerKeyValueByIdAndKey,
-                FindPermissionTokenSchema,
-            }
-
-            FindAllAccounts,
-            FindAccountsByName,
-            FindAccountsByDomainId,
-            FindAccountsWithAsset,
-            FindAllAssets,
-            FindAllAssetsDefinitions,
-            FindAssetsByName,
-            FindAssetsByAccountId,
-            FindAssetsByAssetDefinitionId,
-            FindAssetsByDomainId,
-            FindAssetsByDomainIdAndAssetDefinitionId,
-            FindAllDomains,
-            FindAllPeers,
-            FindAllBlocks,
-            FindAllBlockHeaders,
-            FindAllTransactions,
-            FindTransactionsByAccountId,
-            FindPermissionTokensByAccountId,
-            FindAllActiveTriggerIds,
-            FindTriggersByDomainId,
-            FindAllRoles,
-            FindAllRoleIds,
-            FindRolesByAccountId,
-            FindAllParameters,
-        }
+        FindAllAccounts,
+        FindAccountsByName,
+        FindAccountsByDomainId,
+        FindAccountsWithAsset,
+        FindAllAssets,
+        FindAllAssetsDefinitions,
+        FindAssetsByName,
+        FindAssetsByAccountId,
+        FindAssetsByAssetDefinitionId,
+        FindAssetsByDomainId,
+        FindAssetsByDomainIdAndAssetDefinitionId,
+        FindAllDomains,
+        FindAllPeers,
+        FindAllBlocks,
+        FindAllBlockHeaders,
+        FindAllTransactions,
+        FindTransactionsByAccountId,
+        FindPermissionTokensByAccountId,
+        FindAllActiveTriggerIds,
+        FindTriggersByDomainId,
+        FindAllRoles,
+        FindAllRoleIds,
+        FindRolesByAccountId,
+        FindAllParameters,
     }
 }
 

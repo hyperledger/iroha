@@ -16,6 +16,7 @@ use iroha_core::{
     kura::Kura,
     prelude::*,
     queue::{self, Queue},
+    smartcontracts::query::QueryEncoder,
     sumeragi::SumeragiHandle,
     EventsSender,
 };
@@ -38,7 +39,10 @@ mod cursor;
 mod pagination;
 mod routing;
 
-type LiveQuery = Batched<Vec<Value>>;
+struct LiveQuery {
+    pub results: Batched<Vec<Value>>,
+    pub encoder: QueryEncoder,
+}
 
 #[derive(Default)]
 struct LiveQueryStore {

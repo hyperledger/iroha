@@ -97,15 +97,14 @@ impl Sign for SignedTransaction {
     }
 }
 
-impl<R: QueryOutput> QueryResponseHandler<R>
-where
-    <R as TryFrom<Value>>::Error: Into<eyre::Error>,
-{
+impl<R: QueryOutput> QueryResponseHandler<R> {
     fn handle(&mut self, resp: &Response<Vec<u8>>) -> QueryResult<R> {
         // Separate-compilation friendly response handling
-        fn _handle_query_response_base(
+        // TODO: using of a generic here will lead to code bloat, which the original function tried to avoid
+        // this code needs to be refactored to pull the generic out of the inner function
+        fn _handle_query_response_base<R: Decode>(
             resp: &Response<Vec<u8>>,
-        ) -> QueryResult<BatchedResponse<Value>> {
+        ) -> QueryResult<BatchedResponse<R>> {
             match resp.status() {
                 StatusCode::OK => {
                     let res = BatchedResponse::decode_all_versioned(resp.body());
@@ -146,11 +145,7 @@ where
         let response =
             _handle_query_response_base(resp).map(|BatchedResponse::V1(response)| response)?;
 
-        let (batch, cursor) = response.into();
-
-        let value = R::try_from(batch)
-            .map_err(Into::into)
-            .wrap_err("Unexpected type")?;
+        let (value, cursor) = response.into();
 
         self.query_request.query_cursor = cursor;
         Ok(value)
@@ -236,7 +231,7 @@ impl From<ResponseReport> for eyre::Report {
 }
 
 /// Output of a query
-pub trait QueryOutput: Into<Value> + TryFrom<Value> {
+pub trait QueryOutput: Decode {
     /// Type of the query output
     type Target: Clone;
 
@@ -256,7 +251,6 @@ pub struct ResultSet<T> {
 impl<T: Clone> Iterator for ResultSet<T>
 where
     Vec<T>: QueryOutput,
-    <Vec<T> as TryFrom<Value>>::Error: Into<eyre::Error>,
 {
     type Item = QueryResult<T>;
 
@@ -295,10 +289,7 @@ where
     }
 }
 
-impl<T: Debug + Clone> QueryOutput for Vec<T>
-where
-    Self: Into<Value> + TryFrom<Value>,
-{
+impl<T: Debug + Clone + Decode> QueryOutput for Vec<T> {
     type Target = ResultSet<T>;
 
     fn new(value: Self, query_handler: QueryResponseHandler<Self>) -> Self::Target {

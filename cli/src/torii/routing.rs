@@ -20,7 +20,10 @@ use iroha_config::{
     GetConfiguration, PostConfiguration,
 };
 use iroha_core::{
-    smartcontracts::{isi::query::ValidQueryRequest, query::LazyValue},
+    smartcontracts::{
+        isi::query::ValidQueryRequest,
+        query::{EncodedValue, LazyValue},
+    },
     sumeragi::SumeragiHandle,
 };
 use iroha_data_model::{
@@ -90,7 +93,7 @@ async fn handle_queries(
     pagination: Pagination,
 
     cursor: ForwardCursor,
-) -> Result<Scale<BatchedResponse<Value>>> {
+) -> Result<Scale<BatchedResponse<EncodedValue>>> {
     let valid_request = sumeragi.apply_wsv(|wsv| ValidQueryRequest::validate(request, wsv))?;
     let request_id = (&valid_request, &sorting, &pagination);
 
@@ -109,26 +112,27 @@ async fn handle_queries(
     }
 
     sumeragi.apply_wsv(|wsv| {
-        let res = valid_request.execute(wsv).map_err(ValidationFail::from)?;
+        let (value, encoder) = valid_request.execute(wsv).map_err(ValidationFail::from)?;
 
-        match res {
+        match value {
             LazyValue::Value(batch) => {
+                let batch = encoder.encode(batch);
                 let cursor = ForwardCursor::default();
                 let result = BatchedResponseV1 { batch, cursor };
                 Ok(Scale(result.into()))
             }
             LazyValue::Iter(iter) => {
-                let live_query = apply_sorting_and_pagination(iter, &sorting, pagination);
+                let results = apply_sorting_and_pagination(iter, &sorting, pagination);
                 let query_id = uuid::Uuid::new_v4().to_string();
 
                 let curr_cursor = Some(0);
-                let live_query = live_query.batched(fetch_size);
+                let results = results.batched(fetch_size);
                 construct_query_response(
                     request_id,
                     &query_store,
                     query_id,
                     curr_cursor,
-                    live_query,
+                    LiveQuery { results, encoder },
                 )
             }
         }
@@ -140,21 +144,21 @@ fn construct_query_response(
     query_store: &LiveQueryStore,
     query_id: String,
     curr_cursor: Option<u64>,
-    mut live_query: Batched<Vec<Value>>,
-) -> Result<Scale<BatchedResponse<Value>>> {
-    let (batch, next_cursor) = live_query.next_batch(curr_cursor)?;
-
-    if !live_query.is_depleted() {
-        query_store.insert(query_id.clone(), request_id, live_query);
-    }
+    mut live_query: LiveQuery,
+) -> Result<Scale<BatchedResponse<EncodedValue>>> {
+    let (batch, next_cursor) = live_query.results.next_batch(curr_cursor)?;
 
     let query_response = BatchedResponseV1 {
-        batch: Value::Vec(batch),
+        batch: live_query.encoder.encode_vec(batch),
         cursor: ForwardCursor {
-            query_id: Some(query_id),
+            query_id: Some(query_id.clone()),
             cursor: next_cursor,
         },
     };
+
+    if !live_query.results.is_depleted() {
+        query_store.insert(query_id, request_id, live_query);
+    }
 
     Ok(Scale(query_response.into()))
 }
