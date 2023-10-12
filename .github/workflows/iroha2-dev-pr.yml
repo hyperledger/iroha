@@ -15,6 +15,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CLIENT_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/target/debug"
+  ALLURE_RESULTS: "${{ github.workspace }}/allure-results"
+  ALLURE_JOB_RUN_ID: ${{ github.event.inputs.ALLURE_JOB_RUN_ID }}
 
 jobs:
   consistency:
@@ -136,40 +139,42 @@ jobs:
     container:
       image: hyperledger/iroha2-ci:nightly-2023-06-25
     timeout-minutes: 60
-
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
+      - name: Install and configure allurectl
+        uses: allure-framework/setup-allurectl@v1
+        with:
+          allure-endpoint: https://soramitsu.testops.cloud
+          allure-token: ${{ secrets.ALLURE_TOKEN }}
+          allure-project-id: 1
       - name: Build binaries
         run: |
           cargo build --bin iroha_client_cli
           cargo build --bin kagami
           cargo build --bin iroha
-
       - name: Mark binaries as executable
         run: |
-          chmod +x $CLIENT_CLI_DIR/
-
+          chmod +x ${{ env.CLIENT_CLI_DIR }}/
       - name: Run Iroha 2 on bare metal
         run: |
           ./scripts/test_env.py setup
-
       - name: Copy Iroha 2 client config
         run: |
-          cp ./configs/client/config.json $CLIENT_CLI_DIR/
-
+          cp ./configs/client/config.json ${{ env.CLIENT_CLI_DIR }}/
       - name: Set up .env for client_cli tests
         run: |
-          echo "CLIENT_CLI_DIR=$CLIENT_CLI_DIR" >> ./client_cli/pytests/.env
+          echo "CLIENT_CLI_DIR=${{ env.CLIENT_CLI_DIR }}" >> ./client_cli/pytests/.env
           echo "TORII_API_PORT_MIN=8080" >> ./client_cli/pytests/.env
           echo "TORII_API_PORT_MAX=8083" >> ./client_cli/pytests/.env
-
       - name: Install dependencies using Poetry
         working-directory: client_cli/pytests
         run: |
           poetry install
-
-      - name: Run client cli tests
+      - name: Run client cli tests and upload results to Allure Test Ops
         working-directory: client_cli/pytests
         run: |
-          poetry run pytest
+          allurectl watch -- poetry run pytest --alluredir=${ALLURE_RESULTS}
+          printenv | grep GITHUB_TESTS_
+        env:
+          GITHUB_TESTS_REF_NAME: ${{ github.ref_name }}
