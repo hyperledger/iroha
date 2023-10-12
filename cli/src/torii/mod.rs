@@ -61,7 +61,7 @@ pub enum Error {
     /// Internal error while getting status
     StatusFailure(#[source] eyre::Report),
     /// Cannot find status segment by provided path
-    StatusBadSegment(#[source] eyre::Report),
+    StatusSegmentNotFound(#[source] eyre::Report),
 }
 
 impl Reply for Error {

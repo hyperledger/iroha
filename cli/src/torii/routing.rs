@@ -399,7 +399,7 @@ async fn handle_status_precise(sumeragi: SumeragiHandle, path: warp::path::Tail)
         .try_fold(&value, |value, path| value.get(path))
         .wrap_err_with(|| eyre!("Path not found: \"{}\"", path.as_str()))
         .map(reply::json)
-        .map_err(Error::StatusBadSegment)?;
+        .map_err(Error::StatusSegmentNotFound)?;
 
     Ok(reply)
 }
