@@ -1,5 +1,3 @@
-#![allow(clippy::restriction, clippy::pedantic)]
-
 use std::{
     collections::HashSet,
     num::{NonZeroU32, NonZeroU64},
@@ -126,6 +124,7 @@ fn correct_pagination_assets_after_creating_new_one() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn correct_sorting_of_entities() {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_640).start_with_runtime();
 
@@ -134,7 +133,7 @@ fn correct_sorting_of_entities() {
     // Test sorting asset definitions
 
     let mut asset_definitions = vec![];
-    let mut assets_metadata = vec![];
+    let mut metadata_of_assets = vec![];
     let mut instructions = vec![];
     let n = 10u128;
     for i in 0..n {
@@ -151,7 +150,7 @@ fn correct_sorting_of_entities() {
         let asset_definition = AssetDefinition::quantity(asset_definition_id.clone())
             .with_metadata(asset_metadata.clone());
 
-        assets_metadata.push(asset_metadata);
+        metadata_of_assets.push(asset_metadata);
         asset_definitions.push(asset_definition_id);
 
         let create_asset_definition = RegisterExpr::new(asset_definition);
@@ -180,13 +179,13 @@ fn correct_sorting_of_entities() {
         .eq(asset_definitions.iter().rev()));
     assert!(res
         .iter()
-        .map(|asset_definition| asset_definition.metadata())
-        .eq(assets_metadata.iter().rev()));
+        .map(AssetDefinition::metadata)
+        .eq(metadata_of_assets.iter().rev()));
 
     // Test sorting accounts
 
     let mut accounts = vec![];
-    let mut accounts_metadata = vec![];
+    let mut metadata_of_accounts = vec![];
     let mut instructions = vec![];
 
     let n = 10u32;
@@ -203,7 +202,7 @@ fn correct_sorting_of_entities() {
         let account = Account::new(account_id.clone(), []).with_metadata(account_metadata.clone());
 
         accounts.push(account_id);
-        accounts_metadata.push(account_metadata);
+        metadata_of_accounts.push(account_metadata);
 
         let create_account = RegisterExpr::new(account);
         instructions.push(create_account);
@@ -228,13 +227,13 @@ fn correct_sorting_of_entities() {
     assert!(res.iter().map(Identifiable::id).eq(accounts.iter().rev()));
     assert!(res
         .iter()
-        .map(|account| account.metadata())
-        .eq(accounts_metadata.iter().rev()));
+        .map(Account::metadata)
+        .eq(metadata_of_accounts.iter().rev()));
 
     // Test sorting domains
 
     let mut domains = vec![];
-    let mut domains_metadata = vec![];
+    let mut metadata_of_domains = vec![];
     let mut instructions = vec![];
     let n = 10u32;
     for i in 0..n {
@@ -250,7 +249,7 @@ fn correct_sorting_of_entities() {
         let domain = Domain::new(domain_id.clone()).with_metadata(domain_metadata.clone());
 
         domains.push(domain_id);
-        domains_metadata.push(domain_metadata);
+        metadata_of_domains.push(domain_metadata);
 
         let create_account = RegisterExpr::new(domain);
         instructions.push(create_account);
@@ -276,13 +275,13 @@ fn correct_sorting_of_entities() {
     assert!(res.iter().map(Identifiable::id).eq(domains.iter().rev()));
     assert!(res
         .iter()
-        .map(|domain| domain.metadata())
-        .eq(domains_metadata.iter().rev()));
+        .map(Domain::metadata)
+        .eq(metadata_of_domains.iter().rev()));
 
     // Naive test sorting of domains
     let input = [(0i32, 1u128), (2, 0), (1, 2)];
     let mut domains = vec![];
-    let mut domains_metadata = vec![];
+    let mut metadata_of_domains = vec![];
     let mut instructions = vec![];
     for (idx, val) in input {
         let domain_id = DomainId::from_str(&format!("neverland_{idx}")).expect("Valid");
@@ -297,7 +296,7 @@ fn correct_sorting_of_entities() {
         let domain = Domain::new(domain_id.clone()).with_metadata(domain_metadata.clone());
 
         domains.push(domain_id);
-        domains_metadata.push(domain_metadata);
+        metadata_of_domains.push(domain_metadata);
 
         let create_account = RegisterExpr::new(domain);
         instructions.push(create_account);
@@ -323,9 +322,9 @@ fn correct_sorting_of_entities() {
     assert_eq!(res[0].id(), &domains[1]);
     assert_eq!(res[1].id(), &domains[0]);
     assert_eq!(res[2].id(), &domains[2]);
-    assert_eq!(res[0].metadata(), &domains_metadata[1]);
-    assert_eq!(res[1].metadata(), &domains_metadata[0]);
-    assert_eq!(res[2].metadata(), &domains_metadata[2]);
+    assert_eq!(res[0].metadata(), &metadata_of_domains[1]);
+    assert_eq!(res[1].metadata(), &metadata_of_domains[0]);
+    assert_eq!(res[2].metadata(), &metadata_of_domains[2]);
 }
 
 #[test]
@@ -345,7 +344,11 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
     let n = 10u32;
     for i in 0..n {
         let account_id = AccountId::from_str(&format!("charlie{i}@wonderland")).expect("Valid");
-        let account = if !skip_set.contains(&i) {
+        let account = if skip_set.contains(&i) {
+            let account = Account::new(account_id.clone(), []);
+            accounts_b.push(account_id);
+            account
+        } else {
             let mut account_metadata = Metadata::new();
             account_metadata
                 .insert_with_limits(
@@ -356,10 +359,6 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
                 .expect("Valid");
             let account = Account::new(account_id.clone(), []).with_metadata(account_metadata);
             accounts_a.push(account_id);
-            account
-        } else {
-            let account = Account::new(account_id.clone(), []);
-            accounts_b.push(account_id);
             account
         };
 

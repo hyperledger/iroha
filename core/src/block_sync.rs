@@ -1,9 +1,4 @@
 //! This module contains structures and messages for synchronization of blocks between peers.
-#![allow(
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    clippy::arithmetic_side_effects
-)]
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use iroha_config::block_sync::Configuration;

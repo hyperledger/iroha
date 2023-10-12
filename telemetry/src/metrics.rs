@@ -1,5 +1,4 @@
 //! [`Metrics`] and [`Status`]-related logic and functions.
-#![allow(clippy::std_instead_of_core, clippy::arithmetic_side_effects)]
 
 use std::{
     ops::Deref,
@@ -206,7 +205,6 @@ impl Metrics {
 
 #[cfg(test)]
 mod test {
-    #![allow(clippy::restriction)]
     use super::*;
 
     #[test]

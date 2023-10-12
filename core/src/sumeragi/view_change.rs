@@ -1,11 +1,5 @@
 //! Structures related to proofs and reasons of view changes.
 //! Where view change is a process of changing topology due to some faulty network behavior.
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    single_use_lifetimes
-)]
 use std::collections::HashSet;
 
 use derive_more::{Deref, DerefMut};
@@ -142,7 +136,6 @@ impl ProofChain {
     /// # Errors
     /// - If proof latest block hash doesn't match peer latest block hash
     /// - If proof view change number differs from view change number
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     pub fn insert_proof(
         &mut self,
         peers: &[PeerId],

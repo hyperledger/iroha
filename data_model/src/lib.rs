@@ -1,15 +1,8 @@
 //! Iroha Data Model contains structures for Domains, Peers, Accounts and Assets with simple,
 //! non-specific functions like serialization.
 
-#![allow(
-    clippy::module_name_repetitions,
-    clippy::unwrap_in_result,
-    clippy::std_instead_of_alloc,
-    clippy::arithmetic_side_effects,
-    clippy::trait_duplication_in_bounds,
-    clippy::extra_unused_lifetimes, // Thanks to `EnumKind` not knowing how to write a derive macro.
-    clippy::items_after_test_module, // Clippy bug
-)]
+// Clippy bug
+#![allow(clippy::items_after_test_module)]
 // in no_std some code gets cfg-ed out, so we silence the warnings
 #![cfg_attr(not(feature = "std"), allow(unused, unused_tuple_struct_fields))]
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -203,7 +196,6 @@ pub struct EnumTryAsError<EXPECTED, GOT> {
 }
 
 // Manual implementation because this allow annotation does not affect `Display` derive
-#[allow(clippy::use_debug)]
 impl<EXPECTED, GOT: Debug> fmt::Display for EnumTryAsError<EXPECTED, GOT> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -1068,7 +1060,6 @@ impl fmt::Display for Value {
             Value::Bool(v) => fmt::Display::fmt(&v, f),
             Value::String(v) => fmt::Display::fmt(&v, f),
             Value::Name(v) => fmt::Display::fmt(&v, f),
-            #[allow(clippy::use_debug)]
             Value::Vec(v) => {
                 // TODO: Remove so we can derive.
                 let list_of_display: Vec<_> = v.iter().map(ToString::to_string).collect();
@@ -1837,7 +1828,6 @@ pub trait PredicateTrait<T: ?Sized + Copy> {
 pub fn current_time() -> core::time::Duration {
     use std::time::SystemTime;
 
-    #[allow(clippy::expect_used)]
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .expect("Failed to get the current system time")

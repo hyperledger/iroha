@@ -1,5 +1,3 @@
-#![allow(clippy::restriction)]
-
 use std::{collections::HashMap, env::VarError, ffi::OsStr};
 
 use iroha_config_base::{
@@ -180,11 +178,8 @@ fn test_can_load_inner_without_the_wrapping_config() {
 #[test]
 fn test_proxy_combine_does_not_overload_with_none() {
     let config = ConfigurationProxy::new_with_none();
-    dbg!(&config);
     let env_config = ConfigurationProxy::from_env(&test_env_factory()).expect("valid env");
-    dbg!(&env_config);
     let combine_config = env_config.clone().override_with(config);
-    dbg!(&combine_config);
     assert_eq!(&env_config.optional_data, &combine_config.optional_data);
 }
 
@@ -210,5 +205,5 @@ fn configuration_proxy_from_env_returns_err_on_parsing_error() {
 
     let err = Target::from_env(&Env).expect_err("Must not be parsed");
     let err = eyre::Report::new(err);
-    assert_eq!(format!("{err:?}"), "Failed to deserialize the field `FOO`\n\nCaused by:\n    JSON5:  --> 1:1\n      |\n    1 | not u64 for sure\n      | ^---\n      |\n      = expected array, boolean, null, number, object, or string\n\nLocation:\n    config/base/tests/simple.rs:212:15");
+    assert_eq!(format!("{err:?}"), "Failed to deserialize the field `FOO`\n\nCaused by:\n    JSON5:  --> 1:1\n      |\n    1 | not u64 for sure\n      | ^---\n      |\n      = expected array, boolean, null, number, object, or string\n\nLocation:\n    config/base/tests/simple.rs:207:15");
 }

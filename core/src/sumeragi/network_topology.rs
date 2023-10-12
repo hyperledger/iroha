@@ -1,11 +1,4 @@
 //! Structures formalising the peer topology (e.g. which peers have which predefined roles).
-#![allow(
-    clippy::new_without_default,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    clippy::arithmetic_side_effects
-)]
-
 use std::collections::HashSet;
 
 use derive_more::Display;

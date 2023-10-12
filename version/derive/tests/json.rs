@@ -1,11 +1,5 @@
 #[cfg(test)]
 mod tests {
-    #![allow(
-        clippy::items_after_statements,
-        clippy::wildcard_imports,
-        clippy::restriction
-    )]
-
     use iroha_version::{
         error::{Error, Result},
         json::*,
@@ -74,6 +68,8 @@ mod tests {
 
     #[test]
     fn unsupported_version() -> Result<(), String> {
+        use model_1::*;
+
         let json = {
             use model_2::*;
 
@@ -82,8 +78,6 @@ mod tests {
                 .to_versioned_json_str()
                 .map_err(|e| e.to_string())?
         };
-
-        use model_1::*;
 
         let raw_string = "{\"version\":\"3\",\"content\":\"test string\"}";
         let decoded_message = VersionedMessage::from_versioned_json_str(&json);

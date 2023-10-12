@@ -1,7 +1,6 @@
 //! This module provides a network layer for holding of persistent
 //! connections between blockchain nodes. Sane defaults for secure
 //! Cryptography are chosen in this module, and encapsulated.
-#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::{io, net::AddrParseError};
 
 use iroha_crypto::ursa::{

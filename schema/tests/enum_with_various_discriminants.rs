@@ -1,10 +1,4 @@
 // Lint triggers somewhere in Encode/Decode
-#![allow(
-    trivial_numeric_casts,
-    clippy::unnecessary_cast,
-    clippy::std_instead_of_alloc
-)]
-
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 

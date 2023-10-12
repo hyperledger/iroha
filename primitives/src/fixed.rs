@@ -1,6 +1,4 @@
 //! Types used for Fixed-point operations. Uses [`fixnum::FixedPoint`].
-#![allow(clippy::std_instead_of_core)]
-
 #[cfg(not(feature = "std"))]
 use alloc::{
     format,
@@ -59,7 +57,6 @@ impl Fixed {
     #[inline]
     #[cfg(test)]
     pub fn negative_one() -> Self {
-        #[allow(clippy::unwrap_used)]
         Self("-1".parse().unwrap())
     }
 
@@ -245,7 +242,6 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction, clippy::panic)]
     use parity_scale_codec::DecodeAll;
 
     use super::*;

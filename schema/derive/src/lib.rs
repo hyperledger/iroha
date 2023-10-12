@@ -1,6 +1,5 @@
 //! Crate with derive `IntoSchema` macro
 
-#![allow(clippy::arithmetic_side_effects)]
 // darling-generated code triggers this lint
 #![allow(clippy::option_if_let_else)]
 

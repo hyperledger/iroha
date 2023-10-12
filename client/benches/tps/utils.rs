@@ -1,8 +1,3 @@
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
 use std::{
     fmt,
     fs::File,

@@ -230,8 +230,6 @@ impl Default for PredicateBox {
 
 #[cfg(test)]
 pub mod test {
-    #![allow(clippy::print_stdout, clippy::use_debug)]
-
     use super::{value, PredicateBox};
     use crate::{PredicateSymbol, PredicateTrait as _, ToValue};
 
@@ -841,7 +839,6 @@ pub mod numerical {
         }
 
         #[test]
-        #[allow(clippy::panic_in_result_fn)] // ? for syntax simplicity.
         fn semi_interval_semantics_fixed() -> Result<(), fixed::FixedPointOperationError> {
             let pred =
                 SemiRange::Fixed((Fixed::try_from(1_f64)?, Fixed::try_from(100_f64)?).into());
@@ -903,7 +900,6 @@ pub mod numerical {
         }
 
         #[test]
-        #[allow(clippy::panic_in_result_fn)] // ? for syntax simplicity.
         fn interval_semantics_fixed() -> Result<(), fixed::FixedPointOperationError> {
             let pred = Range::Fixed((Fixed::try_from(1_f64)?, Fixed::try_from(100_f64)?).into());
 
@@ -1158,7 +1154,6 @@ pub mod value {
     }
 
     #[cfg(test)]
-    #[allow(clippy::print_stdout, clippy::use_debug)]
     mod test {
         use peer::Peer;
         use prelude::Metadata;
@@ -1371,7 +1366,6 @@ pub mod ip_addr {
 
     #[cfg(test)]
     mod test {
-        #![allow(clippy::restriction)]
         use super::*;
 
         #[test]

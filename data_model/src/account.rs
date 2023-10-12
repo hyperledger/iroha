@@ -1,6 +1,4 @@
 //! Structures, traits and impls related to `Account`s.
-#![allow(clippy::std_instead_of_alloc)]
-
 #[cfg(not(feature = "std"))]
 use alloc::{
     collections::{btree_map, btree_set},

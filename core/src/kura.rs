@@ -2,7 +2,6 @@
 //! logic.  [`Kura`] is the main entity which should be used to store
 //! new [`Block`](`crate::block::SignedBlock`)s on the
 //! blockchain.
-#![allow(clippy::std_instead_of_alloc, clippy::arithmetic_side_effects)]
 use std::{
     fmt::Debug,
     fs,
@@ -194,7 +193,6 @@ impl Kura {
         Ok(block_hashes)
     }
 
-    #[allow(clippy::expect_used, clippy::cognitive_complexity, clippy::panic)]
     #[iroha_logger::log(skip_all)]
     fn kura_receive_blocks_loop(
         kura: &Kura,
@@ -278,7 +276,6 @@ impl Kura {
     }
 
     /// Get the hash of the block at the provided height.
-    #[allow(clippy::expect_used)]
     pub fn get_block_hash(&self, block_height: u64) -> Option<HashOf<SignedBlock>> {
         let hash_data_guard = self.block_data.lock();
         if block_height == 0 || block_height > hash_data_guard.len() as u64 {
@@ -300,7 +297,6 @@ impl Kura {
     }
 
     /// Get a reference to block by height, loading it from disk if needed.
-    #[allow(clippy::expect_used)]
     // The below lint suggests changing the code into something that does not compile due
     // to the borrow checker.
     pub fn get_block_by_height(&self, block_height: u64) -> Option<Arc<SignedBlock>> {
@@ -850,7 +846,6 @@ impl<T> AddErrContextExt<T> for Result<T, std::io::Error> {
     }
 }
 
-#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod tests {
 

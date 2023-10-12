@@ -1,7 +1,5 @@
 //! Macro for writing smart contract entrypoint
 
-#![allow(clippy::str_to_string)]
-
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, parse_quote};

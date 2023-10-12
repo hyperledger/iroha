@@ -32,7 +32,6 @@ mod gen {
         ast
     }
 
-    #[allow(clippy::str_to_string, clippy::expect_used)]
     pub fn view_struct(mut ast: StructWithFields) -> StructWithFields {
         // Remove fields with #[view(ignore)]
         ast.fields.retain(is_view_field_ignored);

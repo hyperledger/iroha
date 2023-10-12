@@ -1,5 +1,3 @@
-#![allow(clippy::pedantic, clippy::restriction)]
-
 use iroha_client::client::{account, transaction, Client};
 use iroha_crypto::{HashOf, KeyPair, PublicKey};
 use iroha_data_model::{isi::Instruction, prelude::*, transaction::TransactionPayload};

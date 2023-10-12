@@ -1,7 +1,5 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
 #![cfg_attr(not(feature = "std"), no_std)]
-// in no_std some code gets cfg-ed out, so we silence the warnings
-#![allow(clippy::arithmetic_side_effects)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
@@ -616,8 +614,6 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     use parity_scale_codec::{Decode, Encode};
     #[cfg(all(feature = "std", not(feature = "ffi_import")))]
     use serde::Deserialize;

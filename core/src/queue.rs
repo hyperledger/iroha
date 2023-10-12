@@ -1,11 +1,4 @@
 //! Module with queue actor
-#![allow(
-    clippy::module_name_repetitions,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    clippy::arithmetic_side_effects
-)]
-
 use core::time::Duration;
 use std::collections::HashSet;
 
@@ -382,8 +375,6 @@ impl Queue {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction, clippy::all, clippy::pedantic)]
-
     use std::{str::FromStr, sync::Arc, thread, time::Duration};
 
     use iroha_config::{base::proxy::Builder, queue::ConfigurationProxy};
@@ -427,7 +418,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([key_pair.public_key().clone()]),
-            kura.clone(),
+            kura,
         ));
 
         let queue = Queue::from_configuration(&Configuration {
@@ -451,7 +442,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([key_pair.public_key().clone()]),
-            kura.clone(),
+            kura,
         ));
 
         let queue = Queue::from_configuration(&Configuration {
@@ -486,7 +477,7 @@ mod tests {
         let wsv = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
             let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
-            let mut domain = Domain::new(domain_id.clone()).build(&account_id);
+            let mut domain = Domain::new(domain_id).build(&account_id);
             let mut account = Account::new(
                 account_id.clone(),
                 key_pairs.iter().map(KeyPair::public_key).cloned(),
@@ -496,7 +487,7 @@ mod tests {
             assert!(domain.add_account(account).is_none());
             Arc::new(WorldStateView::new(
                 World::with([domain], PeersIds::new()),
-                kura.clone(),
+                kura,
             ))
         };
 
@@ -517,7 +508,7 @@ mod tests {
         let fully_signed_tx: AcceptedTransaction = {
             let mut signed_tx = tx
                 .clone()
-                .sign((&key_pairs[0]).clone())
+                .sign(key_pairs[0].clone())
                 .expect("Failed to sign.");
             for key_pair in &key_pairs[1..] {
                 signed_tx = signed_tx.sign(key_pair.clone()).expect("Failed to sign");
@@ -570,7 +561,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
+            kura,
         ));
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
@@ -596,7 +587,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
+            kura,
         );
         let tx = accepted_tx("alice@wonderland", alice_key);
         wsv.transactions.insert(tx.hash(), 1);
@@ -624,7 +615,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let mut wsv = WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
+            kura,
         );
         let tx = accepted_tx("alice@wonderland", alice_key);
         let queue = Queue::from_configuration(&Configuration {
@@ -652,7 +643,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
+            kura,
         ));
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 200,
@@ -700,7 +691,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
+            kura,
         ));
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
@@ -734,7 +725,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
+            kura,
         ));
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
@@ -775,7 +766,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
+            kura,
         );
 
         let queue = Arc::new(Queue::from_configuration(&Configuration {
@@ -798,12 +789,9 @@ mod tests {
                 while start_time.elapsed() < run_for {
                     let tx = accepted_tx("alice@wonderland", alice_key.clone());
                     match queue_arc_clone.push(tx, &wsv_clone) {
-                        Ok(()) => (),
-                        Err(Failure {
-                            err: Error::Full, ..
-                        }) => (),
-                        Err(Failure {
-                            err: Error::MaximumTransactionsPerUser,
+                        Ok(())
+                        | Err(Failure {
+                            err: Error::Full | Error::MaximumTransactionsPerUser,
                             ..
                         }) => (),
                         Err(Failure { err, .. }) => panic!("{err}"),
@@ -815,7 +803,7 @@ mod tests {
         // Spawn a thread where we get_transactions_for_block and add them to WSV
         let get_txs_handle = {
             let queue_arc_clone = Arc::clone(&queue);
-            let mut wsv_clone = wsv.clone();
+            let mut wsv_clone = wsv;
 
             thread::spawn(move || {
                 while start_time.elapsed() < run_for {
@@ -850,7 +838,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let wsv = Arc::new(WorldStateView::new(
             world_with_test_domains([alice_key.public_key().clone()]),
-            kura.clone(),
+            kura,
         ));
 
         let queue = Queue::from_configuration(&Configuration {
@@ -897,7 +885,7 @@ mod tests {
             assert!(domain.add_account(bob_account).is_none());
             World::with([domain], PeersIds::new())
         };
-        let mut wsv = WorldStateView::new(world, kura.clone());
+        let mut wsv = WorldStateView::new(world, kura);
 
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
@@ -929,8 +917,7 @@ mod tests {
                     err: Error::MaximumTransactionsPerUser
                 }),
             ),
-            "Failed to match: {:?}",
-            result,
+            "Failed to match: {result:?}",
         );
 
         // First push by Bob should be fine despite previous Alice error
@@ -950,14 +937,11 @@ mod tests {
 
         // After cleanup Alice and Bob pushes should work fine
         queue
-            .push(
-                accepted_tx("alice@wonderland", alice_key_pair.clone()),
-                &wsv,
-            )
+            .push(accepted_tx("alice@wonderland", alice_key_pair), &wsv)
             .expect("Failed to push tx into queue");
 
         queue
-            .push(accepted_tx("bob@wonderland", bob_key_pair.clone()), &wsv)
+            .push(accepted_tx("bob@wonderland", bob_key_pair), &wsv)
             .expect("Failed to push tx into queue");
     }
 }

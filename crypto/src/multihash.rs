@@ -1,6 +1,4 @@
 //! Module with multihash implementation
-#![allow(clippy::std_instead_of_core)]
-
 #[cfg(not(feature = "std"))]
 use alloc::{
     string::{String, ToString as _},
@@ -215,8 +213,6 @@ impl From<NoSuchAlgorithm> for MultihashConvertError {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     use super::*;
     use crate::hex_decode;
 

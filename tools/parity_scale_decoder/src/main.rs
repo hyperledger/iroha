@@ -1,11 +1,4 @@
 //! Parity Scale decoder tool for Iroha data types. For usage run with `--help`
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
-#![allow(clippy::print_stdout, clippy::use_debug, clippy::unnecessary_wraps)]
-
 use core::num::NonZeroU64;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -115,7 +108,6 @@ pub trait DumpDecoded: Debug + DecodeAll {
     /// - If writing into `w` fails
     fn dump_decoded(mut input: &[u8], w: &mut dyn io::Write) -> Result<()> {
         let obj = <Self as DecodeAll>::decode_all(&mut input)?;
-        #[allow(clippy::use_debug)]
         writeln!(w, "{obj:#?}")?;
         Ok(())
     }

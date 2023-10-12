@@ -536,8 +536,6 @@ impl<T> std::error::Error for SignatureVerificationFail<T> {}
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     #[cfg(feature = "std")]
     use super::*;
     #[cfg(any(feature = "std", feature = "ffi_import"))]

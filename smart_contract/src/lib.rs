@@ -193,9 +193,6 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-    #![allow(clippy::pedantic)]
-
     use core::{mem::ManuallyDrop, slice};
 
     use iroha_smart_contract_utils::encode_with_length_prefix;

@@ -1,7 +1,5 @@
 //! Build script that auto-updates sample binaries from sources.
 
-#![allow(clippy::restriction)]
-
 use std::{fs, io::Result, path::PathBuf};
 
 use iroha_data_model::{account::NewAccount, domain::NewDomain, prelude::*};

@@ -1,10 +1,5 @@
 //! Contains the end-point querying logic.  This is where you need to
 //! add any custom end-point related logic.
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -1730,7 +1725,6 @@ pub mod parameter {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
     use std::str::FromStr;
 
     use iroha_config::{

@@ -1,5 +1,4 @@
 //! [`Transaction`] structures and related implementations.
-#![allow(clippy::std_instead_of_core)]
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{
@@ -766,8 +765,6 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::pedantic, clippy::restriction)]
-
     use super::*;
 
     #[test]

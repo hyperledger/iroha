@@ -1,5 +1,3 @@
-#![allow(clippy::restriction)]
-
 use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 
 use eyre::{eyre, Result, WrapErr};

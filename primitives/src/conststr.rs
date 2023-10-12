@@ -1,10 +1,4 @@
 //! Const-string related implementation and structs.
-#![allow(
-    clippy::std_instead_of_core,
-    clippy::undocumented_unsafe_blocks,
-    clippy::arithmetic_side_effects
-)]
-
 #[cfg(not(feature = "std"))]
 use alloc::{
     borrow::ToOwned as _,
@@ -478,7 +472,6 @@ impl TryFrom<String> for InlinedString {
     }
 }
 
-#[allow(clippy::restriction)]
 #[cfg(test)]
 mod tests {
     use super::*;

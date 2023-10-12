@@ -21,7 +21,6 @@ fn main() {
             .expect("Default logger config should always build")
     };
     // Can't use logger because it's failed to initialize.
-    #[allow(clippy::print_stderr)]
     if let Err(err) = iroha_logger::init(&log_config) {
         eprintln!("Failed to initialize logger: {err}");
     }

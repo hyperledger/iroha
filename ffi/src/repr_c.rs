@@ -285,7 +285,6 @@ impl<'itm, R: NonLocal<S> + CTypeConvert<'itm, S, R::ReprC> + Clone + 'itm, S: C
         CTypeConvert::<Box<S>, _>::into_repr_c(self, store_borrow);
 
         // NOTE: None value indicates a bug in the implementation
-        #[allow(clippy::expect_used)]
         out_ptr.write(store.0.expect("Store must be initialized"));
     }
 }

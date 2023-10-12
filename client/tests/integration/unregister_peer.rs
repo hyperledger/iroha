@@ -1,4 +1,3 @@
-#![allow(clippy::restriction)]
 use std::thread;
 
 use eyre::Result;
@@ -51,7 +50,6 @@ fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
     Ok(())
 }
 
-#[allow(clippy::expect_used)]
 fn check_assets(
     iroha_client: &client::Client,
     account_id: &AccountId,
@@ -95,7 +93,6 @@ fn mint(
     Ok(quantity)
 }
 
-#[allow(clippy::expect_used)]
 fn init() -> Result<(
     tokio::runtime::Runtime,
     test_network::Network,

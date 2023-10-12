@@ -167,9 +167,6 @@ rust.unused_lifetimes = "warn"
 # lower the priority to allow overriding later
 clippy.all = { level = "deny", priority = -1 }
 
-# restrict
-clippy.dbg_macro = "deny"
-
 # pedantic
 clippy.pedantic = { level = "warn", priority = -1 }
 clippy.match_wildcard_for_single_variants = "allow"
@@ -179,6 +176,9 @@ clippy.manual_let_else = "allow"
 clippy.enum_glob_use = "allow"
 clippy.module_name_repetitions = "allow"
 clippy.must_use_candidate = "allow"
+
+# restriction
+clippy.dbg_macro = "deny"
 
 # nursery
 clippy.debug_assert_with_mut_call = "deny"

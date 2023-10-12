@@ -1,6 +1,5 @@
 //! Module containing logic related to spawning a logger from the
 //! configuration, as well as run-time reloading of the log-level.
-#![allow(clippy::std_instead_of_core)]
 use core::fmt::Debug;
 
 use derive_more::{Deref, DerefMut, From};

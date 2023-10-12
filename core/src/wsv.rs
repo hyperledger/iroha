@@ -1,12 +1,5 @@
 //! This module provides the [`WorldStateView`] — an in-memory representation of the current blockchain
 //! state.
-#![allow(
-    clippy::new_without_default,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    clippy::arithmetic_side_effects
-)]
-
 use std::{
     borrow::Borrow,
     collections::{BTreeSet, HashMap},
@@ -889,7 +882,6 @@ impl WorldStateView {
     ///
     /// # Errors
     /// Fails if there is no domain
-    #[allow(clippy::panic_in_result_fn)]
     pub fn map_domain<'wsv, T>(
         &'wsv self,
         id: &DomainId,
@@ -1330,8 +1322,6 @@ mod range_bounds {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     use iroha_primitives::unique_vec::UniqueVec;
 
     use super::*;

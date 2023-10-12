@@ -1,5 +1,3 @@
-#![allow(clippy::restriction)]
-
 use eyre::Result;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{account::SignatureCheckCondition, prelude::*};

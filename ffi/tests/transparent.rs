@@ -1,4 +1,4 @@
-#![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
+#![allow(unsafe_code)]
 
 use std::{alloc, marker::PhantomData, mem::MaybeUninit};
 
@@ -69,6 +69,7 @@ impl TransparentStruct {
         }
     }
 
+    #[must_use]
     pub fn with_payload(mut self, payload: GenericTransparentStruct<()>) -> Self {
         self.payload = payload;
         self
@@ -167,7 +168,7 @@ fn transparent_vec_to_vec() {
         TransparentStruct::new(GenericTransparentStruct::new(3)),
     ];
 
-    let mut store = Default::default();
+    let mut store = Vec::default();
     let mut output = MaybeUninit::new(OutBoxedSlice::from_raw_parts(core::ptr::null_mut(), 0));
 
     unsafe {

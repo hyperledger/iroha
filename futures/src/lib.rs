@@ -1,5 +1,4 @@
 //! Crate with various iroha futures
-#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::{
     future::Future,
     pin::Pin,
@@ -50,7 +49,6 @@ pub struct TelemetryConversionError;
 impl TryFrom<&Telemetry> for FuturePollTelemetry {
     type Error = TelemetryConversionError;
 
-    #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
     fn try_from(
         Telemetry { target, fields }: &Telemetry,
     ) -> Result<Self, TelemetryConversionError> {
@@ -85,7 +83,6 @@ impl TryFrom<&Telemetry> for FuturePollTelemetry {
 impl TryFrom<Telemetry> for FuturePollTelemetry {
     type Error = TelemetryConversionError;
 
-    #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
     fn try_from(Telemetry { target, fields }: Telemetry) -> Result<Self, TelemetryConversionError> {
         if target != "iroha_futures" && fields.len() != 3 {
             return Err(TelemetryConversionError);

@@ -1,5 +1,4 @@
 //! Tokio actor Peer
-#![allow(clippy::arithmetic_side_effects)]
 
 use bytes::{Buf, BufMut, BytesMut};
 use iroha_data_model::prelude::PeerId;

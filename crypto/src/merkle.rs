@@ -1,10 +1,4 @@
 //! Merkle tree implementation.
-#![allow(
-    clippy::std_instead_of_alloc,
-    clippy::std_instead_of_core,
-    clippy::arithmetic_side_effects
-)]
-
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 #[cfg(feature = "std")]

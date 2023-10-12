@@ -1,5 +1,4 @@
 //! Crate with a proc macro for torii endpoint generation
-#![allow(clippy::arithmetic_side_effects)] // We should remove `clippy::restriction`.
 
 use proc_macro::TokenStream;
 use proc_macro2::Span;

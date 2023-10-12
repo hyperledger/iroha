@@ -1,7 +1,5 @@
 //! This module contains [`Asset`] structure, it's implementation and related traits and
 //! instructions implementations.
-#![allow(clippy::std_instead_of_alloc)]
-
 #[cfg(not(feature = "std"))]
 use alloc::{collections::btree_map, format, string::String, vec::Vec};
 use core::{fmt, str::FromStr};

@@ -1,9 +1,4 @@
 //! Defaults for various items used in communication over http(s).
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
 use std::{net::TcpStream, str::FromStr};
 
 use attohttpc::{

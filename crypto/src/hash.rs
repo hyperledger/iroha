@@ -320,8 +320,6 @@ mod ffi {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     #[cfg(feature = "std")]
     #[cfg(not(feature = "ffi_import"))]
     use super::*;

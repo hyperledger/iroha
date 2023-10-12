@@ -1,5 +1,4 @@
 //! Iroha peer command-line interface.
-#![allow(clippy::print_stdout)]
 use std::env;
 
 use color_eyre::eyre::WrapErr as _;
@@ -148,13 +147,11 @@ async fn main() -> Result<(), color_eyre::Report> {
     Ok(())
 }
 
-#[allow(clippy::print_stdout)]
 fn print_help(styling: &Styling) -> Result<(), std::io::Error> {
     use std::io::Write;
 
     let stdout = std::io::stdout();
     let lock = stdout.lock();
-    #[allow(clippy::arithmetic_side_effects)] // No overflow
     let mut buffer = std::io::BufWriter::with_capacity(1024 * REQUIRED_ENV_VARS.len(), lock);
     writeln!(buffer, "{}", "Iroha 2".bold().green())?;
     writeln!(buffer, "pass {} for this message", styling.or(&HELP_ARG))?;
@@ -206,7 +203,6 @@ as follows:",
     Ok(())
 }
 
-#[allow(clippy::print_stdout)]
 fn print_version(styling: &Styling) {
     println!(
         "{} {} (git hash {}) \n {}: {}",

@@ -107,7 +107,6 @@ pub struct StructField {
 
 impl StructField {
     fn from_ast(field: syn::Field, env_prefix: &str) -> Self {
-        #[allow(clippy::expect_used)]
         let field_ident = field
             .ident
             .expect("Already checked for named fields at parsing");
@@ -277,7 +276,6 @@ pub fn remove_attr_from_struct(ast: &mut StructWithFields, attr_ident: &str) {
 
 /// Keep only derive attributes passed as a second argument in struct attributes and field attributes
 pub fn keep_derive_attr(ast: &mut StructWithFields, kept_attrs: &[&str]) {
-    #[allow(clippy::expect_used)]
     ast.attrs
         .iter_mut()
         .filter(|attr| attr.path.is_ident("derive"))
@@ -343,7 +341,6 @@ pub fn gen_lvalue(field_ty: &Type, field_ident: &Ident) -> (TokenStream, TokenSt
 
 /// Check if [`StructWithFields`] has `#[builder(parent = ..)]`
 pub fn get_parent_ty(ast: &StructWithFields) -> Type {
-    #[allow(clippy::expect_used)]
     ast.attrs
         .iter()
         .find_map(|attr| Builder::<BuilderParent>::parse(attr).ok())

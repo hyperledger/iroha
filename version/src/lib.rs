@@ -1,10 +1,7 @@
 //! Structures, traits and impls related to versioning.
 //!
 //! For usage examples see [`iroha_version_derive::declare_versioned`].
-
-#![allow(clippy::module_name_repetitions)]
 #![cfg_attr(not(feature = "std"), no_std)]
-#![allow(clippy::std_instead_of_core)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
@@ -262,7 +259,6 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
     use super::*;
 
     pub struct VersionedContainer(pub u8);

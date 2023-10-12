@@ -205,11 +205,8 @@ macro_rules! int128_derive {
 int128_derive! { u128 => FfiU128, i128 => FfiI128 }
 
 impl From<u128> for FfiU128 {
-    #[allow(
-        clippy::cast_possible_truncation, // Truncation is done on purpose
-        clippy::arithmetic_side_effects
-    )]
-    #[inline]
+    // Truncation is done on purpose
+    #[allow(clippy::cast_possible_truncation)]
     fn from(value: u128) -> Self {
         let lo = value as u64;
         let hi = (value >> 64) as u64;
@@ -218,14 +215,10 @@ impl From<u128> for FfiU128 {
 }
 
 impl From<FfiU128> for u128 {
-    #[allow(
-        clippy::cast_lossless,
-        clippy::cast_possible_truncation, // Truncation is done on purpose
-        clippy::arithmetic_side_effects
-    )]
-    #[inline]
+    // Truncation is done on purpose
+    #[allow(clippy::cast_possible_truncation)]
     fn from(FfiU128(FfiTuple2(hi, lo)): FfiU128) -> Self {
-        ((hi as u128) << 64) | (lo as u128)
+        (u128::from(hi) << 64) | u128::from(lo)
     }
 }
 

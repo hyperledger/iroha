@@ -1,5 +1,3 @@
-#![allow(clippy::restriction)]
-
 use std::num::{NonZeroU32, NonZeroU64};
 
 use eyre::Result;

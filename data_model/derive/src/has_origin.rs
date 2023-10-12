@@ -1,9 +1,3 @@
-#![allow(
-    clippy::str_to_string,
-    clippy::mixed_read_write_in_expression,
-    clippy::unwrap_in_result
-)]
-
 use darling::{FromDeriveInput, FromVariant};
 use iroha_macro_utils::{
     attr_struct2, parse_single_list_attr, parse_single_list_attr_opt, Emitter,
