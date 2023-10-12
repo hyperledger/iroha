@@ -67,4 +67,4 @@ COPY --from=builder $TARGET_DIR/iroha $BIN_PATH
 COPY --from=builder $TARGET_DIR/iroha_client_cli $BIN_PATH
 COPY --from=builder $TARGET_DIR/kagami $BIN_PATH
 USER $USER
-CMD ["${BIN_PATH}/iroha"]
+CMD $BIN_PATH/iroha
