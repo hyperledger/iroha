@@ -5,6 +5,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use parity_scale_codec::{Compact, Encode};
 use prometheus::{
     core::{AtomicU64, GenericGauge, GenericGaugeVec},
     Encoder, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, Opts, Registry,
@@ -21,22 +22,36 @@ impl Default for Uptime {
     }
 }
 
+impl Encode for Uptime {
+    fn encode(&self) -> Vec<u8> {
+        let secs = self.0.as_secs();
+        let nanos = self.0.subsec_nanos();
+        (Compact(secs), Compact(nanos)).encode()
+    }
+}
+
 /// Response body for GET status request
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Encode)]
 pub struct Status {
     /// Number of connected peers, except for the reporting peer itself
+    #[codec(compact)]
     pub peers: u64,
     /// Number of committed blocks
+    #[codec(compact)]
     pub blocks: u64,
     /// Number of accepted transactions
+    #[codec(compact)]
     pub txs_accepted: u64,
     /// Number of rejected transactions
+    #[codec(compact)]
     pub txs_rejected: u64,
     /// Uptime since genesis block creation
     pub uptime: Uptime,
     /// Number of view changes in the current round
+    #[codec(compact)]
     pub view_changes: u64,
     /// Number of the transactions in the queue
+    #[codec(compact)]
     pub queue_size: u64,
 }
 
@@ -205,6 +220,8 @@ impl Metrics {
 
 #[cfg(test)]
 mod test {
+    #![allow(clippy::restriction)]
+
     use super::*;
 
     #[test]
@@ -218,5 +235,52 @@ mod test {
         );
         println!("{:?}", Status::from(&Box::new(metrics)));
         println!("{:?}", Status::default());
+    }
+
+    fn sample_status() -> Status {
+        Status {
+            peers: 4,
+            blocks: 5,
+            txs_accepted: 31,
+            txs_rejected: 3,
+            uptime: Uptime(Duration::new(5, 937000000)),
+            view_changes: 2,
+            queue_size: 18,
+        }
+    }
+
+    #[test]
+    fn serialize_status_json() {
+        let value = sample_status();
+
+        let actual = serde_json::to_string_pretty(&value).expect("Sample is valid");
+        // CAUTION: if this is outdated, make sure to update the documentation:
+        // https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints#status
+        let expected = expect_test::expect![[r#"
+            {
+              "peers": 4,
+              "blocks": 5,
+              "txs_accepted": 31,
+              "txs_rejected": 3,
+              "uptime": {
+                "secs": 5,
+                "nanos": 937000000
+              },
+              "view_changes": 2,
+              "queue_size": 18
+            }"#]];
+        expected.assert_eq(&actual);
+    }
+
+    #[test]
+    fn serialize_status_scale() {
+        let value = sample_status();
+        let bytes = value.encode();
+
+        let actual = hex::encode(&bytes);
+        // CAUTION: if this is outdated, make sure to update the documentation:
+        // https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints#status
+        let expected = expect_test::expect!["10147c0c1402f165df0848"];
+        expected.assert_eq(&actual);
     }
 }

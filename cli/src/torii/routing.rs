@@ -7,7 +7,7 @@
 
 use std::num::NonZeroUsize;
 
-use eyre::WrapErr;
+use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
 use iroha_config::{
     base::proxy::Documented,
@@ -349,37 +349,59 @@ fn handle_metrics(sumeragi: &SumeragiHandle) -> Result<String> {
         .map_err(Error::Prometheus)
 }
 
-#[cfg(feature = "telemetry")]
-#[allow(clippy::unnecessary_wraps)]
-fn handle_status(sumeragi: &SumeragiHandle) -> Result<warp::reply::Json, Infallible> {
+fn update_metrics_gracefully(sumeragi: &SumeragiHandle) {
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
     }
+}
+
+#[cfg(feature = "telemetry")]
+#[allow(clippy::unnecessary_wraps)]
+fn handle_status(sumeragi: SumeragiHandle, accept: String) -> Result<reply::Response> {
+    const PARITY_SCALE_MIME: &'_ str = "application/x-parity-scale";
+
+    update_metrics_gracefully(&sumeragi);
     let status = Status::from(&sumeragi.metrics());
-    Ok(reply::json(&status))
+
+    if accept == PARITY_SCALE_MIME {
+        let body: hyper::Body = status.encode().into();
+
+        warp::http::Response::builder()
+            .status(StatusCode::OK)
+            .header(warp::http::header::CONTENT_TYPE, PARITY_SCALE_MIME)
+            .body(body)
+            .wrap_err("Failed to build response body")
+            .map_err(Error::StatusFailure)
+    } else {
+        Ok(reply::json(&status).into_response())
+    }
 }
 
 #[cfg(feature = "telemetry")]
 #[allow(clippy::unused_async)]
-async fn handle_status_precise(sumeragi: SumeragiHandle, segment: String) -> Result<Json> {
-    if let Err(error) = sumeragi.update_metrics() {
-        iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
-    }
+async fn handle_status_precise(sumeragi: SumeragiHandle, path: warp::path::Tail) -> Result<Json> {
+    use eyre::ContextCompat;
+
+    update_metrics_gracefully(&sumeragi);
+
     // TODO: This probably can be optimised to elide the full
     // structure. Ideally there should remain a list of fields and
     // field aliases somewhere in `serde` macro output, which can
     // elide the creation of the value, and directly read the value
     // behind the mutex.
-    let status = Status::from(&sumeragi.metrics());
-    match serde_json::to_value(status) {
-        Ok(value) => Ok(value
-            .get(segment)
-            .map_or_else(|| reply::json(&value), reply::json)),
-        Err(err) => {
-            iroha_logger::error!(%err, "Error while converting to JSON value");
-            Ok(reply::json(&None::<String>))
-        }
-    }
+    let value = serde_json::to_value(Status::from(&sumeragi.metrics()))
+        .wrap_err("Failed to serialize JSON")
+        .map_err(Error::StatusFailure)?;
+
+    let reply = path
+        .as_str()
+        .split("/")
+        .try_fold(&value, |value, path| value.get(path))
+        .wrap_err_with(|| eyre!("Path not found: \"{}\"", path.as_str()))
+        .map(reply::json)
+        .map_err(Error::StatusBadSegment)?;
+
+    Ok(reply)
 }
 
 impl Torii {
@@ -432,14 +454,14 @@ impl Torii {
             handle_status_precise,
             status_path
                 .and(add_state!(self.sumeragi.clone()))
-                .and(warp::path::param()),
+                .and(warp::path::tail()),
         );
-        let get_router_status_bare =
-            status_path
-                .and(add_state!(self.sumeragi.clone()))
-                .and_then(|sumeragi| async move {
-                    Ok::<_, Infallible>(WarpResult(handle_status(&sumeragi)))
-                });
+        let get_router_status_bare = status_path
+            .and(add_state!(self.sumeragi.clone()))
+            .and(warp::header(warp::http::header::ACCEPT.as_str()))
+            .and_then(|sumeragi, accept| async move {
+                Ok::<_, Infallible>(WarpResult(handle_status(sumeragi, accept)))
+            });
         let get_router_metrics = warp::path(uri::METRICS)
             .and(add_state!(self.sumeragi))
             .and_then(|sumeragi| async move {

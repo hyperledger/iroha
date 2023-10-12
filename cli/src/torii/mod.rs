@@ -58,6 +58,10 @@ pub enum Error {
     #[cfg(feature = "telemetry")]
     /// Error while getting Prometheus metrics
     Prometheus(#[source] eyre::Report),
+    /// Internal error while getting status
+    StatusFailure(#[source] eyre::Report),
+    /// Cannot find status segment by provided path
+    StatusBadSegment(#[source] eyre::Report),
 }
 
 impl Reply for Error {
