@@ -358,18 +358,18 @@ fn update_metrics_gracefully(sumeragi: &SumeragiHandle) {
 #[cfg(feature = "telemetry")]
 #[allow(clippy::unnecessary_wraps)]
 fn handle_status(
-    sumeragi: SumeragiHandle,
-    accept: String,
-    subpath: warp::path::Tail,
+    sumeragi: &SumeragiHandle,
+    accept: &str,
+    subpath: &warp::path::Tail,
 ) -> Result<reply::Response> {
     use eyre::ContextCompat;
     const PARITY_SCALE_MIME: &'_ str = "application/x-parity-scale";
 
-    update_metrics_gracefully(&sumeragi);
+    update_metrics_gracefully(sumeragi);
     let status = Status::from(&sumeragi.metrics());
 
     let subpath = subpath.as_str();
-    if subpath == "" {
+    if subpath.is_empty() {
         if accept == PARITY_SCALE_MIME {
             let body: hyper::Body = status.encode().into();
 
@@ -393,8 +393,8 @@ fn handle_status(
             .map_err(Error::StatusFailure)?;
 
         let reply = subpath
-            .split("/")
-            .try_fold(&value, |value, path| value.get(path))
+            .split('/')
+            .try_fold(&value, serde_json::Value::get)
             .wrap_err_with(|| eyre!("Path not found: \"{}\"", subpath))
             .map(|segment| reply::json(segment).into_response())
             .map_err(Error::StatusSegmentNotFound)?;
@@ -452,8 +452,8 @@ impl Torii {
             .and(add_state!(self.sumeragi.clone()))
             .and(warp::header(warp::http::header::ACCEPT.as_str()))
             .and(warp::path::tail())
-            .and_then(|sumeragi, accept, tail| async move {
-                Ok::<_, Infallible>(WarpResult(handle_status(sumeragi, accept, tail)))
+            .and_then(|sumeragi, accept: String, tail| async move {
+                Ok::<_, Infallible>(WarpResult(handle_status(&sumeragi, &accept, &tail)))
             });
         let get_router_metrics = warp::path(uri::METRICS)
             .and(add_state!(self.sumeragi))

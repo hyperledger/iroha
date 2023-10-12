@@ -243,7 +243,7 @@ mod test {
             blocks: 5,
             txs_accepted: 31,
             txs_rejected: 3,
-            uptime: Uptime(Duration::new(5, 937000000)),
+            uptime: Uptime(Duration::new(5, 937_000_000)),
             view_changes: 2,
             queue_size: 18,
         }
@@ -277,7 +277,7 @@ mod test {
         let value = sample_status();
         let bytes = value.encode();
 
-        let actual = hex::encode(&bytes);
+        let actual = hex::encode(bytes);
         // CAUTION: if this is outdated, make sure to update the documentation:
         // https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints#status
         let expected = expect_test::expect!["10147c0c1402f165df0848"];
