@@ -359,7 +359,7 @@ fn update_metrics_gracefully(sumeragi: &SumeragiHandle) {
 #[allow(clippy::unnecessary_wraps)]
 fn handle_status(
     sumeragi: &SumeragiHandle,
-    accept: &str,
+    accept: Option<impl AsRef<str>>,
     subpath: &warp::path::Tail,
 ) -> Result<reply::Response> {
     use eyre::ContextCompat;
@@ -370,7 +370,7 @@ fn handle_status(
 
     let subpath = subpath.as_str();
     if subpath.is_empty() {
-        if accept == PARITY_SCALE_MIME {
+        if accept.is_some_and(|x| x.as_ref() == PARITY_SCALE_MIME) {
             let body: hyper::Body = status.encode().into();
 
             warp::http::Response::builder()
@@ -450,10 +450,10 @@ impl Torii {
 
         let get_router_status = warp::path(uri::STATUS)
             .and(add_state!(self.sumeragi.clone()))
-            .and(warp::header(warp::http::header::ACCEPT.as_str()))
+            .and(warp::header::optional(warp::http::header::ACCEPT.as_str()))
             .and(warp::path::tail())
-            .and_then(|sumeragi, accept: String, tail| async move {
-                Ok::<_, Infallible>(WarpResult(handle_status(&sumeragi, &accept, &tail)))
+            .and_then(|sumeragi, accept: Option<String>, tail| async move {
+                Ok::<_, Infallible>(WarpResult(handle_status(&sumeragi, accept.as_ref(), &tail)))
             });
         let get_router_metrics = warp::path(uri::METRICS)
             .and(add_state!(self.sumeragi))
