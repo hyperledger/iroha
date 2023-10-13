@@ -76,7 +76,6 @@ impl TransactionGossiper {
 
     async fn run(mut self, mut message_receiver: mpsc::Receiver<TransactionGossip>) {
         let mut gossip_period = tokio::time::interval(self.gossip_period);
-        #[allow(clippy::arithmetic_side_effects)]
         loop {
             tokio::select! {
                 _ = gossip_period.tick() => self.gossip_transactions(),

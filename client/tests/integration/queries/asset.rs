@@ -1,4 +1,3 @@
-#![allow(clippy::restriction)]
 use eyre::Result;
 use iroha_client::client::ClientQueryError;
 use iroha_crypto::KeyPair;

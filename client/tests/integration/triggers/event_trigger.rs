@@ -1,5 +1,3 @@
-#![allow(clippy::restriction)]
-
 use std::str::FromStr;
 
 use eyre::Result;

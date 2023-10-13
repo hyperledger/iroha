@@ -1,6 +1,5 @@
 //! Module containing logic related to spawning a logger from the
 //! configuration, as well as run-time reloading of the log-level.
-#![allow(clippy::std_instead_of_core)]
 use core::fmt::Debug;
 
 use derive_more::{Deref, DerefMut, From};
@@ -16,7 +15,7 @@ use tracing_subscriber::{filter::LevelFilter, reload::Handle};
 const TELEMETRY_CAPACITY: u32 = 1000;
 const DEFAULT_COMPACT_MODE: bool = false;
 const DEFAULT_TERMINAL_COLORS: bool = true;
-#[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
+#[cfg(feature = "tokio-console")]
 const DEFAULT_TOKIO_CONSOLE_ADDR: &str = "127.0.0.1:5555";
 
 /// Convert [`Level`] into [`tracing::Level`]
@@ -86,7 +85,7 @@ pub struct Configuration {
     pub log_file_path: Option<std::path::PathBuf>,
     /// Enable ANSI terminal colors for formatted output.
     pub terminal_colors: bool,
-    #[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
+    #[cfg(feature = "tokio-console")]
     /// Address of tokio console (only available under "tokio-console" feature)
     pub tokio_console_addr: String,
 }
@@ -99,7 +98,7 @@ impl Default for ConfigurationProxy {
             compact_mode: Some(DEFAULT_COMPACT_MODE),
             log_file_path: Some(None),
             terminal_colors: Some(DEFAULT_TERMINAL_COLORS),
-            #[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
+            #[cfg(feature = "tokio-console")]
             tokio_console_addr: Some(DEFAULT_TOKIO_CONSOLE_ADDR.into()),
         }
     }
@@ -119,7 +118,7 @@ pub mod tests {
             (prop::option::of(Just(DEFAULT_COMPACT_MODE))),
             (prop::option::of(Just(None))),
             (prop::option::of(Just(DEFAULT_TERMINAL_COLORS))),
-            #[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
+            #[cfg(feature = "tokio-console")]
             (prop::option::of(Just(DEFAULT_TOKIO_CONSOLE_ADDR.to_string()))),
         );
         proptest::strategy::Strategy::prop_map(strat, move |strat| ConfigurationProxy {
@@ -128,7 +127,7 @@ pub mod tests {
             compact_mode: strat.2,
             log_file_path: strat.3,
             terminal_colors: strat.4,
-            #[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
+            #[cfg(feature = "tokio-console")]
             tokio_console_addr: strat.5,
         })
     }

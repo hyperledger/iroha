@@ -1,5 +1,3 @@
-#![allow(missing_docs, clippy::restriction)]
-
 use eyre::Result;
 use iroha_core::{block::CommittedBlock, prelude::*};
 use iroha_data_model::prelude::*;

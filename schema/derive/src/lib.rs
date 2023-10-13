@@ -1,6 +1,5 @@
 //! Crate with derive `IntoSchema` macro
 
-#![allow(clippy::arithmetic_side_effects)]
 // darling-generated code triggers this lint
 #![allow(clippy::option_if_let_else)]
 
@@ -26,7 +25,7 @@ fn impl_type_id(input: &mut syn2::DeriveInput) -> TokenStream {
     input.generics.type_params_mut().for_each(|ty_param| {
         ty_param
             .bounds
-            .push(syn2::parse_quote! {iroha_schema::TypeId})
+            .push(syn2::parse_quote! {iroha_schema::TypeId});
     });
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -177,7 +176,7 @@ pub fn schema_derive(input: TokenStream) -> Result<TokenStream> {
     input.generics.type_params_mut().for_each(|ty_param| {
         ty_param
             .bounds
-            .push(parse_quote! {iroha_schema::IntoSchema})
+            .push(parse_quote! {iroha_schema::IntoSchema});
     });
 
     let mut emitter = Emitter::new();

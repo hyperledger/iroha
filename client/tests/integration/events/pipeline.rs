@@ -1,5 +1,3 @@
-#![allow(clippy::restriction)]
-
 use std::thread::{self, JoinHandle};
 
 use eyre::Result;

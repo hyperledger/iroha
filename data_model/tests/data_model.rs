@@ -1,5 +1,3 @@
-#![allow(clippy::too_many_lines, clippy::restriction)]
-
 use std::str::FromStr as _;
 
 use iroha_data_model::{prelude::*, ParseError};

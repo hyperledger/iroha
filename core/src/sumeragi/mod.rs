@@ -1,11 +1,6 @@
 //! Translates to Emperor. Consensus-related logic of Iroha.
 //!
 //! `Consensus` trait is now implemented only by `Sumeragi` for now.
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
 use std::{
     fmt::{self, Debug, Formatter},
     sync::{mpsc, Arc},
@@ -402,8 +397,8 @@ impl VotingBlock {
         voted_at: Instant,
     ) -> VotingBlock {
         VotingBlock {
-            block,
             voted_at,
+            block,
             new_wsv,
         }
     }

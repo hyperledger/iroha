@@ -42,7 +42,6 @@ pub fn dbg<T: Debug + ?Sized>(_obj: &T) {
 ///
 /// # Panics
 /// Always
-#[allow(clippy::panic)]
 pub fn dbg_panic(msg: &str) -> ! {
     dbg(msg);
     panic!()
@@ -63,10 +62,8 @@ pub trait DebugUnwrapExt {
 impl<T, E: Debug> DebugUnwrapExt for Result<T, E> {
     type Output = T;
 
-    #[allow(clippy::panic)]
     fn dbg_unwrap(self) -> Self::Output {
         #[cfg(not(feature = "debug"))]
-        #[allow(clippy::unwrap_used)]
         return self.unwrap();
 
         #[cfg(feature = "debug")]
@@ -87,10 +84,8 @@ impl<T, E: Debug> DebugUnwrapExt for Result<T, E> {
 impl<T> DebugUnwrapExt for Option<T> {
     type Output = T;
 
-    #[allow(clippy::panic, clippy::single_match_else, clippy::option_if_let_else)]
     fn dbg_unwrap(self) -> Self::Output {
         #[cfg(not(feature = "debug"))]
-        #[allow(clippy::unwrap_used)]
         return self.unwrap();
 
         #[cfg(feature = "debug")]

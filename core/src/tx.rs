@@ -7,14 +7,6 @@
 //!
 //! This is also where the actual execution of instructions, as well
 //! as various forms of validation are performed.
-// TODO: Add full lifecycle docs.
-#![allow(
-    clippy::new_without_default,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    clippy::arithmetic_side_effects
-)]
-
 use eyre::Result;
 use iroha_crypto::{HashOf, SignatureVerificationFail, SignaturesOf};
 pub use iroha_data_model::prelude::*;

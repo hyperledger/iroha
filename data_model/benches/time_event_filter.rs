@@ -1,4 +1,4 @@
-#![allow(missing_docs, clippy::restriction)]
+#![allow(missing_docs)]
 
 use std::time::Duration;
 

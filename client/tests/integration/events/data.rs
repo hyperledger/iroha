@@ -1,4 +1,3 @@
-#![allow(clippy::restriction)]
 use std::{fmt::Write as _, str::FromStr, sync::mpsc, thread};
 
 use eyre::Result;

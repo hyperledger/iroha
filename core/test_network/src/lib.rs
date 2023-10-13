@@ -1,6 +1,4 @@
 //! Module for starting peers and networks. Used only for tests
-#![allow(clippy::restriction, clippy::future_not_send)]
-
 use core::{fmt::Debug, str::FromStr as _, time::Duration};
 #[cfg(debug_assertions)]
 use std::sync::atomic::AtomicBool;
@@ -239,7 +237,6 @@ impl Network {
         offline_peers: u32,
         start_port: Option<u16>,
     ) -> Result<Self> {
-        #[allow(clippy::expect_used)]
         let mut builders = core::iter::repeat_with(PeerBuilder::new)
             .enumerate()
             .map(|(n, builder)| {

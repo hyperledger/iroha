@@ -1,7 +1,5 @@
 //! Crate with various derive macros
 
-#![allow(clippy::restriction)]
-
 use darling::{util::SpannedValue, FromDeriveInput};
 use manyhow::{manyhow, Result};
 use proc_macro2::{Span, TokenStream};

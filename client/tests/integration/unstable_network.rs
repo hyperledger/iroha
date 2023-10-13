@@ -1,5 +1,3 @@
-#![allow(clippy::restriction)]
-
 use core::sync::atomic::Ordering;
 use std::thread;
 

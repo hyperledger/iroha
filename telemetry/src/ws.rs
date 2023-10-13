@@ -1,5 +1,4 @@
 //! Telemetry sent to a server
-#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use std::time::Duration;
 
 use chrono::Local;
@@ -85,7 +84,6 @@ where
     ) {
         let mut stream = ReceiverStream::new(receiver).fuse();
         let mut internal_stream = ReceiverStream::new(internal_receiver).fuse();
-        #[allow(clippy::restriction)]
         loop {
             tokio::select! {
                 msg = stream.next() => {
@@ -260,7 +258,6 @@ impl SinkFactory for WebsocketSinkFactory {
     }
 }
 
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[cfg(test)]
 mod tests {
     use std::{

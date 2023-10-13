@@ -261,10 +261,10 @@ mod transparent {
     /// Generic instruction for logging messages
     #[derive(Debug, Clone)]
     pub struct Log {
-        /// Message to be logged
-        pub msg: String,
         /// Log level of the message
         pub level: Level,
+        /// Message to be logged
+        pub msg: String,
     }
 
     impl<O: Identifiable> From<SetKeyValue<O>> for SetKeyValueExpr {

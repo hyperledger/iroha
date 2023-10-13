@@ -1,5 +1,4 @@
 //! Module for kura-related configuration and structs
-#![allow(clippy::std_instead_of_core)]
 use std::{num::NonZeroU64, path::Path};
 
 use eyre::{eyre, Result};
@@ -28,7 +27,6 @@ pub struct Configuration {
 }
 
 impl Default for ConfigurationProxy {
-    #[allow(clippy::expect_used)]
     fn default() -> Self {
         Self {
             init_mode: Some(Mode::default()),
@@ -75,7 +73,6 @@ pub mod tests {
     use super::*;
 
     prop_compose! {
-        #[allow(clippy::expect_used)]
         pub fn arb_proxy()
             (
                 init_mode in prop::option::of(Just(Mode::default())),

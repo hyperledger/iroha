@@ -25,5 +25,5 @@ rand = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 unique_port = "0.2.1"
-parity-scale-codec = { version = "3.1.5", default-features = false }
+parity-scale-codec = { version = "3.6.5", default-features = false }
 serde_json = { workspace = true }

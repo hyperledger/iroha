@@ -142,10 +142,10 @@ pub mod model {
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct TransactionQueryOutput {
-        /// Transaction
-        pub transaction: TransactionValue,
         /// The hash of the block to which `tx` belongs to
         pub block_hash: HashOf<SignedBlock>,
+        /// Transaction
+        pub transaction: TransactionValue,
     }
 
     /// Type returned from [`Metadata`] queries

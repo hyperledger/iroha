@@ -41,7 +41,6 @@ pub mod isi {
     use super::*;
     use crate::role::{AsRoleIdWithOwnerRef, RoleIdWithOwner, RoleIdWithOwnerRef};
 
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     impl Execute for Register<Asset> {
         #[metrics(+"register_asset")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {

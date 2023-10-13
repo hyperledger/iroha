@@ -306,7 +306,6 @@ pub mod action {
         }
     }
 
-    #[allow(clippy::expect_used)]
     impl<F: Eq, E: Eq> Ord for Action<F, E> {
         fn cmp(&self, other: &Self) -> cmp::Ordering {
             self.partial_cmp(other)
@@ -438,7 +437,7 @@ mod tests {
     #[test]
     fn trigger_with_filterbox_can_be_unboxed() {
         /// Should fail to compile if a new variant will be added to `TriggeringFilterBox`
-        #[allow(dead_code, clippy::unwrap_used)]
+        #[allow(dead_code)]
         fn compile_time_check(boxed: Trigger<TriggeringFilterBox, Executable>) {
             match &boxed.action.filter {
                 TriggeringFilterBox::Data(_) => {

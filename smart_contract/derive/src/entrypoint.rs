@@ -1,7 +1,5 @@
 //! Macro for writing smart contract entrypoint
 
-#![allow(clippy::str_to_string)]
-
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, parse_quote};
@@ -29,7 +27,9 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
     block.stmts.insert(
         0,
         parse_quote!(
-            use ::iroha_wasm::{debug::DebugExpectExt as _, ExecuteOnHost as _, QueryHost as _};
+            use ::iroha_smart_contract::{
+                debug::DebugExpectExt as _, ExecuteOnHost as _, QueryHost as _,
+            };
         ),
     );
 
@@ -40,7 +40,7 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #[no_mangle]
         #[doc(hidden)]
         unsafe extern "C" fn #main_fn_name() {
-            let payload = ::iroha_wasm::get_smart_contract_payload();
+            let payload = ::iroha_smart_contract::get_smart_contract_payload();
             #fn_name(payload.owner)
         }
 
