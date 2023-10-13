@@ -1,12 +1,6 @@
 //! CLI for generating iroha sample configuration, genesis and
 //! cryptographic key pairs. To be used with all compliant Iroha
 //! installations.
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    missing_docs
-)]
 use std::{
     io::{stdout, BufWriter, Write},
     str::FromStr as _,

@@ -1,7 +1,5 @@
 //! Contains various configuration related macro definitions.
 
-#![allow(clippy::arithmetic_side_effects, clippy::std_instead_of_core)]
-
 use proc_macro::TokenStream;
 
 pub(crate) mod documented;

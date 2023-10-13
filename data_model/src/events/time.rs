@@ -1,6 +1,4 @@
 //! Time event and filter
-#![allow(clippy::arithmetic_side_effects)]
-
 use core::{ops::Range, time::Duration};
 
 use derive_more::Constructor;

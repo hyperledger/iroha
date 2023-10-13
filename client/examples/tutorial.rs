@@ -1,7 +1,5 @@
 //! This file contains examples from the Rust tutorial.
 //! <https://hyperledger.github.io/iroha-2-docs/guide/rust.html#_2-configuring-iroha-2>
-#![allow(clippy::restriction, clippy::needless_borrow)]
-
 use std::fs::File;
 
 use eyre::{Error, WrapErr};
@@ -42,7 +40,7 @@ fn json_config_client_test(config: &Configuration) -> Result<(), Error> {
     use iroha_client::client::Client;
 
     // Initialise a client with a provided config
-    let _current_client: Client = Client::new(&config)?;
+    let _current_client: Client = Client::new(config)?;
 
     Ok(())
 }
@@ -68,7 +66,7 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
 
     // #region rust_client_create
     // Create an Iroha client
-    let iroha_client: Client = Client::new(&config)?;
+    let iroha_client: Client = Client::new(config)?;
     // #endregion rust_client_create
 
     // #region domain_register_example_prepare_tx
@@ -122,7 +120,7 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     // #endregion register_account_crates
 
     // Create an Iroha client
-    let iroha_client: Client = Client::new(&config)?;
+    let iroha_client: Client = Client::new(config)?;
 
     // #region register_account_create
     // Create an AccountId instance by providing the account and domain name
@@ -170,7 +168,7 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
     // #endregion register_asset_crates
 
     // Create an Iroha client
-    let iroha_client: Client = Client::new(&config)?;
+    let iroha_client: Client = Client::new(config)?;
 
     // #region register_asset_create_asset
     // Create an asset
@@ -219,7 +217,7 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
     // #endregion mint_asset_crates
 
     // Create an Iroha client
-    let iroha_client: Client = Client::new(&config)?;
+    let iroha_client: Client = Client::new(config)?;
 
     // Define the instances of an Asset and Account
     // #region mint_asset_define_asset_account
@@ -277,7 +275,7 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
     // #endregion burn_asset_crates
 
     // Create an Iroha client
-    let iroha_client: Client = Client::new(&config)?;
+    let iroha_client: Client = Client::new(config)?;
 
     // #region burn_asset_define_asset_account
     // Define the instances of an Asset and Account

@@ -2,11 +2,6 @@
 //! using [criterion](https://github.com/bheisler/criterion.rs)
 //! for performance check during development
 #![allow(missing_docs)]
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
 
 use criterion::{
     black_box, criterion_group, criterion_main,
@@ -18,9 +13,7 @@ use crate::utils::Config;
 
 mod utils;
 
-#[allow(clippy::multiple_inherent_impl)]
 impl Config {
-    #[allow(clippy::expect_used)]
     fn bench(self, c: &mut Criterion<Tps>) {
         let mut group = c.benchmark_group("tps");
 
@@ -34,7 +27,6 @@ impl Config {
     }
 }
 
-#[allow(clippy::expect_used)]
 fn bench_tps_with_config(c: &mut Criterion<Tps>) {
     let config = Config::from_path("benches/tps/config.json").expect("Failed to configure");
     iroha_logger::info!(?config);

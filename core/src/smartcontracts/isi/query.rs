@@ -1,10 +1,5 @@
 //! Query functionality. The common error type is also defined here,
 //! alongside functions for converting them into HTTP responses.
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
 use eyre::Result;
 use iroha_data_model::{prelude::*, query::error::QueryExecutionFail as Error};
 use parity_scale_codec::{Decode, Encode};
@@ -170,8 +165,6 @@ impl ValidQuery for QueryBox {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     use std::str::FromStr as _;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};

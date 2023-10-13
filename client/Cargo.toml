@@ -31,9 +31,9 @@ iroha_logger = { workspace = true }
 iroha_telemetry = { workspace = true }
 iroha_version = { workspace = true, features = ["http"] }
 
-attohttpc = "0.18.0"
+attohttpc = "0.26.1"
 eyre = { workspace = true }
-http = "0.2.8"
+http = "0.2.9"
 url = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -44,10 +44,8 @@ displaydoc = { workspace = true }
 derive_more = { workspace = true }
 parity-scale-codec = { workspace = true, default-features = false, features = ["derive"] }
 tokio = { workspace = true, features = ["rt"] }
-# TODO: migrate to tokio-tungstenite 0.17 (or newer) and use the workspace dependency
-tokio-tungstenite = { version = "0.16.1", features = ["native-tls"] }
-tungstenite = { version = "0.16", features = ["native-tls"] }
-futures-util = "0.3.25"
+tokio-tungstenite = { workspace = true, features = ["native-tls"] }
+futures-util = "0.3.28"
 
 [dev-dependencies]
 iroha_wasm_builder = { workspace = true }

@@ -1,5 +1,4 @@
 //! `Torii` configuration as well as the default values for the URLs used for the main endpoints: `p2p`, `telemetry`, but not `api`.
-#![allow(clippy::std_instead_of_core, clippy::arithmetic_side_effects)]
 use std::num::NonZeroU64;
 
 use iroha_config_base::derive::{Documented, Proxy};

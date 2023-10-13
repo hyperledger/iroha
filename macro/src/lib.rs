@@ -1,6 +1,4 @@
 //! Crate containing iroha macros
-
-#![allow(clippy::module_name_repetitions, clippy::std_instead_of_core)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub use iroha_derive::*;

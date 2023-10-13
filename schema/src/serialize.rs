@@ -72,7 +72,7 @@ impl Serialize for WithContext<'_, '_, NamedFieldsMeta> {
         let mut seq = serializer.serialize_seq(Some(self.data.declarations.len()))?;
 
         for declaration in &self.data.declarations {
-            seq.serialize_element(&declaration.add_ctx(self.context))?
+            seq.serialize_element(&declaration.add_ctx(self.context))?;
         }
 
         seq.end()
@@ -116,7 +116,7 @@ impl Serialize for WithContext<'_, '_, EnumMeta> {
         let mut seq = serializer.serialize_seq(Some(self.data.variants.len()))?;
 
         for variant in &self.data.variants {
-            seq.serialize_element(&variant.add_ctx(self.context))?
+            seq.serialize_element(&variant.add_ctx(self.context))?;
         }
 
         seq.end()

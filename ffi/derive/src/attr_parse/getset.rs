@@ -78,14 +78,11 @@ impl syn2::parse::Parse for SpannedGetSetOptions {
                 } else {
                     errors.push(syn2::Error::new(
                         lit.span(),
-                        format!(
-                            "Failed to parse getset options at {}: duplicate visibility",
-                            part
-                        ),
+                        format!("Failed to parse getset options at {part}: duplicate visibility",),
                     ));
                 }
             } else {
-                errors.push(syn2::Error::new(lit.span(), format!("Failed to parse getset options at `{}`: expected visibility or `with_prefix`", part)));
+                errors.push(syn2::Error::new(lit.span(), format!("Failed to parse getset options at `{part}`: expected visibility or `with_prefix`")));
             }
         }
 
@@ -183,7 +180,7 @@ fn insert_gen_request(
 
     match gen_map.entry(mode) {
         Entry::Occupied(_) => accumulator.push(
-            darling::Error::custom(format!("duplicate `getset({})` attribute", mode))
+            darling::Error::custom(format!("duplicate `getset({mode})` attribute"))
                 .with_span(&span),
         ),
         Entry::Vacant(v) => {
@@ -255,7 +252,7 @@ impl GetSetRawFieldAttr {
                         "getset attributes without `getset` prefix are not supported by iroha_ffi_derive",
                     )
                         .with_span(attr),
-                )
+                );
             }
         }
 
@@ -718,7 +715,7 @@ mod test {
                     (GetSetGenMode::Get, GetSetOptions::default()),
                     (GetSetGenMode::Set, GetSetOptions::default()),
                 ])
-            )
+            );
         }
 
         #[test]
@@ -737,7 +734,7 @@ mod test {
                         ..Default::default()
                     }),
                 ])
-            )
+            );
         }
 
         #[test]
@@ -756,7 +753,7 @@ mod test {
                         with_prefix: true,
                     }),
                 ])
-            )
+            );
         }
     }
 }

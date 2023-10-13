@@ -120,7 +120,7 @@ mod tests {
         let values = [u64::MIN, u64::MAX];
 
         for value in values {
-            assert!(MinMaxExt::Min < value.into())
+            assert!(MinMaxExt::Min < value.into());
         }
     }
 
@@ -129,7 +129,7 @@ mod tests {
         let values = [u64::MIN, u64::MAX];
 
         for value in values {
-            assert!(MinMaxExt::Max > value.into())
+            assert!(MinMaxExt::Max > value.into());
         }
     }
 
@@ -138,7 +138,7 @@ mod tests {
         let values = [u64::MIN, u64::MAX];
 
         for value in values {
-            assert!(MinMaxExt::from(value) == MinMaxExt::from(value))
+            assert!(MinMaxExt::from(value) == MinMaxExt::from(value));
         }
     }
 }

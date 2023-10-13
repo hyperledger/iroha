@@ -1,8 +1,6 @@
 //! This module contains logic related to executing smartcontracts via
 //! `WebAssembly` VM Smartcontracts can be written in Rust, compiled
 //! to wasm format and submitted in a transaction
-#![allow(clippy::doc_link_with_quotes, clippy::arithmetic_side_effects)]
-
 use error::*;
 use import_traits::{
     ExecuteOperations as _, GetExecutorPayloads as _, SetPermissionTokenSchema as _,
@@ -678,7 +676,7 @@ impl<S> Runtime<S> {
     /// # Errors
     ///
     /// If string decoding fails
-    #[allow(clippy::print_stdout, clippy::needless_pass_by_value)]
+    #[allow(clippy::needless_pass_by_value)]
     #[codec::wrap(state = "S")]
     fn dbg(msg: String) {
         println!("{msg}");
@@ -836,7 +834,7 @@ impl<'wrld> Runtime<state::SmartContract<'wrld>> {
     ///
     /// - if instructions failed to validate, but queries are permitted
     /// - if instruction limits are not obeyed
-    /// - if execution of the smartcontract fails (check ['execute'])
+    /// - if execution of the smartcontract fails (check [`Self::execute`])
     pub fn validate(
         &mut self,
         wsv: &'wrld mut WorldStateView,
@@ -1614,8 +1612,6 @@ impl<C: wasmtime::AsContextMut> GetExport for (&wasmtime::Instance, C) {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     use std::str::FromStr as _;
 
     use iroha_crypto::KeyPair;

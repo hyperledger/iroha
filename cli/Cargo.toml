@@ -81,7 +81,7 @@ thread-local-panic-hook = { version = "0.1.0", optional = true }
 uuid = { version = "1.4.1", features = ["v4"] }
 
 [dev-dependencies]
-serial_test = "0.8.0"
+serial_test = "2.0.0"
 
 [build-dependencies]
 iroha_wasm_builder = { workspace = true }

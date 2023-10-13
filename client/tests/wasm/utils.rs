@@ -1,9 +1,3 @@
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
-
 /// Return string containing exported memory, dummy allocator, and
 /// host function imports which you can embed into your wasm module.
 ///

@@ -227,8 +227,6 @@ pub mod prelude {
 #[cfg(test)]
 #[cfg(feature = "transparent_api")]
 mod tests {
-    #![allow(clippy::restriction)]
-
     #[cfg(not(feature = "std"))]
     use alloc::{string::ToString as _, vec, vec::Vec};
 

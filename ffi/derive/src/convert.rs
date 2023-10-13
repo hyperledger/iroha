@@ -33,7 +33,7 @@ impl Display for FfiTypeToken {
             FfiTypeToken::UnsafeNonOwning => "#[ffi_type(unsafe {non_owning})]",
             FfiTypeToken::Local => "#[ffi_type(local)]",
         };
-        write!(f, "{}", text)
+        write!(f, "{text}")
     }
 }
 
@@ -286,7 +286,7 @@ pub fn derive_ffi_type(emitter: &mut Emitter, input: &syn2::DeriveInput) -> Toke
                         emitter,
                         &variant.span(),
                         "Fieldless enums with explicit discriminants are prohibited",
-                    )
+                    );
                 }
 
                 derive_ffi_type_for_fieldless_enum(

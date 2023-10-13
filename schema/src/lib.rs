@@ -40,6 +40,7 @@ impl MetaMap {
     }
 
     /// Create new [`Self`]
+    #[must_use]
     pub const fn new() -> MetaMap {
         Self(btree_map::BTreeMap::new())
     }
@@ -103,6 +104,7 @@ pub trait IntoSchema: TypeId {
     }
 
     /// Return schema map of types referenced by [`Self`]
+    #[must_use]
     fn schema() -> MetaMap {
         let mut map = MetaMap::new();
         Self::update_schema_map(&mut map);

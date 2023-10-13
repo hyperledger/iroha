@@ -1,7 +1,5 @@
 //! Crate with trigger procedural macros.
 
-#![allow(clippy::panic)]
-
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, parse_quote};

@@ -33,10 +33,7 @@ path-absolutize = { workspace = true }
 once_cell = { workspace = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest = "1.3.1"
 
 [features]
-default = []
 tokio-console = []
-# Workaround to avoid activating `tokio-console` with `--all-features` flag, because `tokio-console` require `tokio_unstable` rustc flag
-no-tokio-console = []

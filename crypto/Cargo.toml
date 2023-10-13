@@ -34,7 +34,7 @@ parity-scale-codec = { workspace = true, features = ["derive", "full"] }
 serde = { workspace = true, features = ["derive"] }
 serde_with = { workspace = true, features = ["macros"] }
 hex = { workspace = true, features = ["alloc", "serde"] }
-openssl-sys = { version = "0.9.80", features = ["vendored"], optional = true }
+openssl-sys = { version = "0.9.93", features = ["vendored"], optional = true }
 ursa = { workspace = true, optional = true }
 getset = { workspace = true }
 

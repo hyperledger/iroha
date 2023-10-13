@@ -1,4 +1,4 @@
-#![allow(unsafe_code, clippy::restriction)]
+#![allow(unsafe_code)]
 
 use std::{cmp::Ordering, mem::MaybeUninit};
 

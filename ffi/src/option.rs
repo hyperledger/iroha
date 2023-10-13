@@ -168,7 +168,7 @@ impl<R: FfiOutPtrWrite> COutPtrWrite<Option<WithoutNiche>> for Option<R> {
                 // TODO: No need to zero the memory because it must never be read
                 out_ptr.write(FfiTuple2(discriminant_out_ptr, unsafe {
                     core::mem::zeroed()
-                }))
+                }));
             }
             Some(value) => {
                 let mut discriminant_out_ptr = MaybeUninit::uninit();

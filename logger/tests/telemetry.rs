@@ -1,5 +1,3 @@
-#![allow(clippy::restriction)]
-
 use std::time::Duration;
 
 use iroha_config::base::proxy::Builder;

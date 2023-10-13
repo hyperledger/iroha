@@ -1,11 +1,4 @@
 //! Crate with derive macros for futures
-
-#![allow(
-    clippy::expect_used,
-    clippy::str_to_string,
-    clippy::std_instead_of_core
-)]
-
 use iroha_macro_utils::Emitter;
 use manyhow::{emit, manyhow};
 use proc_macro2::TokenStream;
@@ -65,7 +58,7 @@ pub fn telemetry_future(args: TokenStream, input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
     if !args.is_empty() {
-        emit!(emitter, args, "Unexpected arguments")
+        emit!(emitter, args, "Unexpected arguments");
     }
 
     let Some(input) = emitter.handle(syn2::parse2(input)) else {

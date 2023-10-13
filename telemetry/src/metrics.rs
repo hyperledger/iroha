@@ -1,5 +1,4 @@
 //! [`Metrics`] and [`Status`]-related logic and functions.
-#![allow(clippy::std_instead_of_core, clippy::arithmetic_side_effects)]
 
 use std::{
     ops::Deref,
@@ -165,7 +164,6 @@ impl Default for Metrics {
             block_height,
             connected_peers,
             uptime_since_genesis_ms,
-            registry,
             domains,
             accounts,
             tx_amounts,
@@ -174,6 +172,7 @@ impl Default for Metrics {
             view_changes,
             queue_size,
             dropped_messages,
+            registry,
         }
     }
 }
@@ -206,7 +205,6 @@ impl Metrics {
 
 #[cfg(test)]
 mod test {
-    #![allow(clippy::restriction)]
     use super::*;
 
     #[test]
