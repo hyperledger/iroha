@@ -1,11 +1,6 @@
 //! This module contains enumeration of all possible Iroha Special
 //! Instructions [`InstructionExpr`], generic instruction types and related
 //! implementations.
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
 pub mod account;
 pub mod asset;
 pub mod block;
@@ -473,8 +468,6 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     use core::str::FromStr as _;
     use std::sync::Arc;
 

@@ -39,8 +39,6 @@ impl RetryPeriod {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     #[test]
     fn increase_exponent_saturates() {
         let mut period = super::RetryPeriod {

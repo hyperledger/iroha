@@ -136,15 +136,14 @@ impl ValidateAttribute {
 fn gen_validate_impls(
     attributes: &[Attribute],
 ) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
-    use ValidateAttribute::*;
-
     let validate_attribute = ValidateAttribute::from_attributes(attributes);
+
     match validate_attribute {
-        General(pass_condition) => (
+        ValidateAttribute::General(pass_condition) => (
             gen_validate_impl(IsiName::Grant, &pass_condition),
             gen_validate_impl(IsiName::Revoke, &pass_condition),
         ),
-        Separate {
+        ValidateAttribute::Separate {
             grant_condition,
             revoke_condition,
         } => (

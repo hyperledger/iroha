@@ -1,6 +1,4 @@
 //! Module for `WorldStateView`-related configuration and structs.
-#![allow(clippy::std_instead_of_core)]
-
 use default::*;
 use iroha_config_base::derive::{Documented, Proxy};
 use iroha_data_model::{prelude::*, transaction::TransactionLimits};

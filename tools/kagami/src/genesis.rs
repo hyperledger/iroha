@@ -128,7 +128,7 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
         Limits::new(1024, 1024),
     )?;
 
-    let mut genesis = RawGenesisBlockBuilder::new()
+    let mut genesis = RawGenesisBlockBuilder::default()
             .domain_with_metadata("wonderland".parse()?, meta.clone())
             .account_with_metadata(
                 "alice".parse()?,
@@ -214,7 +214,7 @@ fn generate_synthetic(
     assets_per_domain: u64,
 ) -> color_eyre::Result<RawGenesisBlock> {
     // Add default `Domain` and `Account` to still be able to query
-    let mut builder = RawGenesisBlockBuilder::new()
+    let mut builder = RawGenesisBlockBuilder::default()
         .domain("wonderland".parse()?)
         .account("alice".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
         .finish_domain();

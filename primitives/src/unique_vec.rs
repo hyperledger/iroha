@@ -64,7 +64,7 @@ impl<T> UniqueVec<T> {
 
     /// Clears the [`UniqueVec`], removing all values.
     pub fn clear(&mut self) {
-        self.0.clear()
+        self.0.clear();
     }
 }
 

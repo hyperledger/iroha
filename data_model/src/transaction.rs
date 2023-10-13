@@ -1,5 +1,4 @@
 //! [`Transaction`] structures and related implementations.
-#![allow(clippy::std_instead_of_core)]
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{
@@ -443,10 +442,8 @@ mod base64 {
 
     /// Serialize bytes using `base64`
     pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_str(&base64::display::Base64Display::with_config(
-            bytes,
-            base64::STANDARD,
-        ))
+        let engine = base64::engine::general_purpose::STANDARD;
+        serializer.collect_str(&base64::display::Base64Display::new(bytes, &engine))
     }
 
     /// Deserialize bytes using `base64`
@@ -461,7 +458,8 @@ mod base64 {
             }
 
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                base64::decode(v).map_err(serde::de::Error::custom)
+                let engine = base64::engine::general_purpose::STANDARD;
+                base64::engine::Engine::decode(&engine, v).map_err(serde::de::Error::custom)
             }
         }
         deserializer.deserialize_str(Visitor)
@@ -767,8 +765,6 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::pedantic, clippy::restriction)]
-
     use super::*;
 
     #[test]

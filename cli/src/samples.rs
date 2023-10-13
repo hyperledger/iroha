@@ -1,4 +1,3 @@
-#![allow(clippy::restriction)]
 //! This module contains the sample configurations used for testing and benchmarking throghout Iroha.
 use std::{collections::HashSet, path::Path, str::FromStr};
 

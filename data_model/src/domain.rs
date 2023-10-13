@@ -1,7 +1,5 @@
 //! This module contains [`Domain`](`crate::domain::Domain`) structure
 //! and related implementations and trait implementations.
-#![allow(clippy::std_instead_of_alloc)]
-
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 

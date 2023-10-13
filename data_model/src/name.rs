@@ -149,8 +149,6 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     use parity_scale_codec::DecodeAll;
 
     use super::*;

@@ -1,4 +1,4 @@
-#![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
+#![allow(unsafe_code, clippy::pedantic)]
 
 use std::{alloc, collections::BTreeMap, mem::MaybeUninit};
 
@@ -55,7 +55,7 @@ pub enum DataCarryingEnum {
     D,
 }
 
-/// ReprC struct
+/// `ReprC` struct
 #[derive(Clone, Copy, PartialEq, Eq, FfiType)]
 #[repr(C)]
 pub struct RobustReprCStruct<T, U> {
@@ -344,7 +344,7 @@ fn into_iter_item_impl_into() {
     ];
 
     let mut ffi_struct = get_new_struct();
-    let mut tokens_store = Default::default();
+    let mut tokens_store = Vec::default();
     let tokens_ffi = tokens.clone().into_ffi(&mut tokens_store);
 
     let mut output = MaybeUninit::new(core::ptr::null_mut());
@@ -550,7 +550,7 @@ fn return_empty_tuple_result() {
 #[webassembly_test::webassembly_test]
 fn array_to_pointer() {
     let array = [1_u8];
-    let mut store = Default::default();
+    let mut store = Option::default();
     let ptr: *mut [u8; 1] = array.into_ffi(&mut store);
     let mut output = MaybeUninit::new([0_u8]);
 
@@ -767,7 +767,7 @@ fn return_vec_of_boxed_opaques() {
 fn array_of_opaques() {
     let input = [OpaqueStruct::default(), OpaqueStruct::default()];
     let mut output = MaybeUninit::new([core::ptr::null_mut(), core::ptr::null_mut()]);
-    let mut store = Default::default();
+    let mut store = Option::default();
 
     unsafe {
         assert_eq!(

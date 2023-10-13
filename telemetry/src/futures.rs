@@ -1,5 +1,4 @@
 //! Module with telemetry future telemetry processing
-#![allow(clippy::std_instead_of_core)]
 use std::{collections::HashMap, marker::Unpin, time::Duration};
 
 use iroha_futures::FuturePollTelemetry;
@@ -10,8 +9,6 @@ use tokio_stream::{Stream, StreamExt};
 
 pub mod post_process {
     //! Module with telemetry post processing
-
-    #![allow(clippy::unwrap_used, clippy::fallible_impl_from)]
 
     use super::*;
 
@@ -34,6 +31,7 @@ pub mod post_process {
         pub max: f64,
     }
 
+    #[allow(clippy::fallible_impl_from)]
     impl From<(String, HashMap<u64, Vec<Duration>>)> for PostProcessedInfo {
         fn from((name, entries): (String, HashMap<u64, Vec<Duration>>)) -> Self {
             let iter = entries

@@ -135,7 +135,6 @@ impl Sumeragi {
         }
     }
 
-    #[allow(clippy::panic)]
     fn receive_network_packet(
         &self,
         view_change_proof_chain: &mut ProofChain,
@@ -183,7 +182,6 @@ impl Sumeragi {
         })
     }
 
-    #[allow(clippy::panic, clippy::panic_in_result_fn)]
     fn init_listen_for_genesis(
         &mut self,
         shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>,

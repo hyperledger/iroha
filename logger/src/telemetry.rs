@@ -1,11 +1,5 @@
 //! Module with telemetry layer for tracing
 
-#![allow(
-    clippy::module_name_repetitions,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
-
 use std::{error::Error, fmt::Debug};
 
 use derive_more::{Deref, DerefMut};

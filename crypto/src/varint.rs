@@ -119,8 +119,6 @@ impl VarUint {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     #[cfg(not(feature = "std"))]
     use alloc::vec;
 

@@ -1,5 +1,4 @@
 //! Tokio actor Peer
-#![allow(clippy::arithmetic_side_effects)]
 
 use bytes::{Buf, BufMut, BytesMut};
 use iroha_data_model::prelude::PeerId;
@@ -216,7 +215,7 @@ mod run {
 
         iroha_logger::debug!("Peer is terminated.");
         let _ = service_message_sender
-            .send(ServiceMessage::Terminated(Terminated { conn_id, peer_id }))
+            .send(ServiceMessage::Terminated(Terminated { peer_id, conn_id }))
             .await;
     }
 
@@ -718,8 +717,8 @@ mod cryptographer {
                 GenericArray::from_slice(shared_key.as_ref()),
             ));
             Self {
-                encryptor,
                 shared_key,
+                encryptor,
             }
         }
     }

@@ -7,7 +7,6 @@ use std::{fs::File, io::BufWriter};
 use tracing_flame::{FlameLayer, FlushGuard};
 use tracing_subscriber::prelude::*;
 
-#[allow(clippy::expect_used, clippy::print_stdout, clippy::use_debug)]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut flush_guard: Option<FlushGuard<BufWriter<File>>> = None;

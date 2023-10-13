@@ -18,7 +18,7 @@ mod entrypoint;
 //
 /// Using without parameters:
 /// ```ignore
-/// #[iroha_wasm::main]
+/// #[iroha_smart_contract::main]
 /// fn main(owner: AccountId) {
 ///    todo!()
 /// }

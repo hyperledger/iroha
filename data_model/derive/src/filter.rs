@@ -1,8 +1,3 @@
-#![allow(
-    clippy::mixed_read_write_in_expression,
-    clippy::arithmetic_side_effects
-)]
-
 use darling::{FromDeriveInput, FromVariant};
 use iroha_macro_utils::Emitter;
 use manyhow::emit;

@@ -1,5 +1,3 @@
-#![allow(clippy::restriction)]
-
 use std::str::FromStr;
 
 use iroha_client::client::{self, ClientQueryError};

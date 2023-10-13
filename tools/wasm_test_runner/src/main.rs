@@ -37,7 +37,7 @@ fn main() -> Result<ExitCode> {
     }
     let total = tests.len();
 
-    eprintln!("\nrunning {} tests", total);
+    eprintln!("\nrunning {total} tests");
     let mut store = Store::new(&engine, ());
     let mut instance = Instance::new(&mut store, &module, &[])?;
     let mut passed = 0;
@@ -47,14 +47,14 @@ fn main() -> Result<ExitCode> {
         eprint!("test {} ...", meta.name);
         if meta.ignore {
             ignored += 1;
-            eprintln!(" ignored")
+            eprintln!(" ignored");
         } else {
             let f = instance.get_typed_func::<(), ()>(&mut store, export.name())?;
 
             let pass = f.call(&mut store, ()).is_ok();
             if pass {
                 passed += 1;
-                eprintln!(" ok")
+                eprintln!(" ok");
             } else {
                 // Reset instance on test failure. WASM uses `panic=abort`, so
                 // `Drop`s are not called after test failures, and a failed test
@@ -63,7 +63,7 @@ fn main() -> Result<ExitCode> {
                 instance = Instance::new(&mut store, &module, &[])?;
 
                 failed += 1;
-                eprintln!(" FAILED")
+                eprintln!(" FAILED");
             }
         }
     }

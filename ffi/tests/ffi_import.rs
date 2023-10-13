@@ -1,4 +1,4 @@
-#![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
+#![allow(unsafe_code)]
 
 use iroha_ffi::{ffi, ffi_import, LocalRef, LocalSlice};
 
@@ -147,7 +147,7 @@ mod ffi {
         input: SliceRef<FfiTuple2<u32, u32>>,
         output: *mut OutBoxedSlice<FfiTuple2<u32, u32>>,
     ) -> FfiReturn {
-        let input = input.into_rust().map(|slice| slice.to_vec());
+        let input = input.into_rust().map(<[_]>::to_vec);
         output.write(OutBoxedSlice::from_vec(input));
         FfiReturn::Ok
     }

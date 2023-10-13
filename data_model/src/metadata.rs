@@ -306,8 +306,6 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     #[cfg(not(feature = "std"))]
     use alloc::{borrow::ToOwned as _, vec};
     use core::str::FromStr as _;

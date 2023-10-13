@@ -4,13 +4,6 @@
 //! 2. If a block is received, i.e. deserialized:
 //!     `SignedBlock` -> `ValidBlock` -> `CommittedBlock`
 //! [`Block`]s are organised into a linear sequence over time (also known as the block chain).
-#![allow(
-    clippy::module_name_repetitions,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    clippy::arithmetic_side_effects
-)]
-
 use std::error::Error as _;
 
 use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
@@ -134,8 +127,8 @@ mod pending {
             assert!(!transactions.is_empty(), "Empty block created");
 
             Self(Pending {
-                transactions,
                 commit_topology,
+                transactions,
                 event_recommendations,
             })
         }
@@ -704,8 +697,6 @@ mod commit {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     use std::str::FromStr as _;
 
     use iroha_data_model::prelude::*;

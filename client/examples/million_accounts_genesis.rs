@@ -1,5 +1,4 @@
-#![allow(missing_docs, clippy::pedantic, clippy::restriction)]
-
+//! This file contains examples from the Rust tutorial.
 use std::{thread, time::Duration};
 
 use iroha::samples::{construct_executor, get_config};
@@ -12,7 +11,7 @@ use test_network::{
 use tokio::runtime::Runtime;
 
 fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
-    let mut builder = RawGenesisBlockBuilder::new();
+    let mut builder = RawGenesisBlockBuilder::default();
 
     let key_pair = get_key_pair();
     for i in 0_u32..num_domains {

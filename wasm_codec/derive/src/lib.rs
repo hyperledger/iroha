@@ -203,7 +203,7 @@ impl<F: FnOnce() -> TokenStream2> LazyTokenStream<F> {
 impl<F: FnOnce() -> TokenStream2> quote::ToTokens for LazyTokenStream<F> {
     fn to_tokens(&self, tokens: &mut TokenStream2) {
         let inner = &*self.0;
-        inner.to_tokens(tokens)
+        inner.to_tokens(tokens);
     }
 }
 

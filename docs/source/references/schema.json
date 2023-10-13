@@ -4305,12 +4305,12 @@
   "TransactionQueryOutput": {
     "Struct": [
       {
-        "name": "transaction",
-        "type": "TransactionValue"
-      },
-      {
         "name": "block_hash",
         "type": "HashOf<SignedBlock>"
+      },
+      {
+        "name": "transaction",
+        "type": "TransactionValue"
       }
     ]
   },

@@ -27,7 +27,7 @@ iroha_genesis = { workspace = true }
 clap = { workspace = true, features = ["derive", "cargo"] }
 eyre = { workspace = true }
 parity-scale-codec = { workspace = true }
-colored = "2.0.0"
+colored = "2.0.4"
 
 [build-dependencies]
 iroha_data_model = { workspace = true }

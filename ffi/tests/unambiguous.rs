@@ -1,4 +1,4 @@
-#![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
+#![allow(unsafe_code)]
 
 use std::mem::MaybeUninit;
 
@@ -13,7 +13,7 @@ pub enum Ambiguous {
     None,
 }
 
-/// FfiStruct
+/// `FfiStruct`
 #[derive(Clone, Copy, FfiType)]
 pub struct FfiStruct;
 

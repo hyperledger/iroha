@@ -24,7 +24,7 @@ iroha_futures = { workspace = true, features = ["telemetry"] }
 iroha_telemetry_derive = { workspace = true }
 
 async-trait = { workspace = true }
-chrono = "0.4.23"
+chrono = "0.4.31"
 eyre = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 serde_json = { workspace = true }

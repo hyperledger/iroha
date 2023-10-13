@@ -46,8 +46,7 @@ fn has_origin() {
         assert_eq!(
             event.origin_id(),
             &expected_id,
-            "mismatched origin id for event {:?}",
-            event
+            "mismatched origin id for event {event:?}",
         );
     }
 }

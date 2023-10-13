@@ -56,7 +56,7 @@ fn main() -> color_eyre::Result<()> {
             let builder = if format { builder.format() } else { builder };
 
             let output = {
-                let sp = spinoff::Spinner::new_with_stream(
+                let mut sp = spinoff::Spinner::new_with_stream(
                     spinoff::spinners::Dots12,
                     "Building the smartcontract",
                     None,
@@ -76,7 +76,7 @@ fn main() -> color_eyre::Result<()> {
             };
 
             let output = if optimize {
-                let sp = spinoff::Spinner::new_with_stream(
+                let mut sp = spinoff::Spinner::new_with_stream(
                     spinoff::spinners::Binary,
                     "Optimizing the output",
                     None,

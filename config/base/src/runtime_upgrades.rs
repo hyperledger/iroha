@@ -1,6 +1,4 @@
 //! Module handling runtime upgrade logic.
-#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
-
 pub use serde::{Deserialize, Serialize};
 use thiserror::*;
 
@@ -300,7 +298,7 @@ pub mod handle {
         /// # Errors
         /// If [`Singleton::set`] fails.
         pub fn set_handle(&self, other: impl ReloadMut<T> + Send + Sync + 'static) {
-            self.1.set(other)
+            self.1.set(other);
         }
     }
 
