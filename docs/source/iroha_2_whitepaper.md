@@ -339,7 +339,7 @@ To retrieve information about World State View of the Peer clients will use Iroh
 
 ### 2.14 Client API
 
-Client libraries interact with Iroha over the HTTP and WebSocket. Check the up-to-date [API Reference](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints).
+Client libraries interact with Iroha over the HTTP and WebSocket. For details about the available endpoints, see [API Reference > Torii Endpoints](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints).
 
 ### 2.15 Versioning
 

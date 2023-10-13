@@ -163,7 +163,7 @@ Configuration example you may use as a reference point: [cli/src/samples.rs](./c
 
 ### Endpoints
 
-You can find the detailed list of all available endpoints in the [API Reference](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints).
+For a list of all endpoints, available operations, and ways to customize them with parameters, see [API Reference > Torii Endpoints](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints)
 
 ### Logging
 
@@ -192,7 +192,7 @@ To enable it, provide the [logging file](./docs/source/references/config.md#logg
 
 ### Monitoring
 
-The details of the `Health` endpoint can be found in the [API Reference](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints#health).
+The details of the `Health` endpoint can be found in the [API Reference > Torii Endpoints](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints#health).
 
 Iroha can produce both JSON-formatted as well as `prometheus`-readable metrics at the `status` and `metrics` endpoints respectively.
 
