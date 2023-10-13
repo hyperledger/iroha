@@ -1,6 +1,4 @@
 //! This module contains [`struct@Configuration`] structure and related implementation.
-#![allow(clippy::std_instead_of_core)]
-
 use std::fmt::Debug;
 
 use iroha_config_base::derive::{view, Documented, Error as ConfigError, Proxy};
@@ -91,7 +89,6 @@ impl ConfigurationProxy {
     ///
     /// # Errors
     /// - If the relevant uppermost Iroha config fields were not provided.
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     pub fn finish(&mut self) -> Result<(), ConfigError> {
         if let Some(sumeragi_proxy) = &mut self.sumeragi {
             // First, iroha public/private key and sumeragi keypair are interchangeable, but
@@ -171,8 +168,6 @@ impl ConfigurationProxy {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     use proptest::prelude::*;
 
     use super::*;
@@ -181,7 +176,6 @@ mod tests {
     const CONFIGURATION_PATH: &str = "./iroha_test_config.json";
 
     /// Key-pair used for proptests generation
-    #[allow(clippy::expect_used)]
     pub fn placeholder_keypair() -> KeyPair {
         let private_key = PrivateKey::from_hex(
             Algorithm::Ed25519,

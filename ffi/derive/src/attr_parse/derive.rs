@@ -147,7 +147,7 @@ mod test {
                     RustcDerive::Debug,
                 ].into_iter().map(Derive::Rustc).collect(),
             }
-        )
+        );
     }
 
     #[test]
@@ -162,7 +162,7 @@ mod test {
                     GetSetDerive::CopyGetters,
                 ].into_iter().map(Derive::GetSet).collect(),
             }
-        )
+        );
     }
 
     #[test]
@@ -175,6 +175,6 @@ mod test {
                     "Kek".to_string(),
                 ].into_iter().map(Derive::Other).collect(),
             }
-        )
+        );
     }
 }

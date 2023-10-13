@@ -1,4 +1,4 @@
-#![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
+#![allow(unsafe_code)]
 
 use std::mem::MaybeUninit;
 

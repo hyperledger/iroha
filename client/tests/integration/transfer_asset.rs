@@ -1,5 +1,3 @@
-#![allow(clippy::restriction, clippy::pedantic)]
-
 use iroha_client::client::{self, QueryResult};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{prelude::*, Registered};
@@ -8,19 +6,19 @@ use test_network::*;
 
 #[test]
 fn simulate_transfer_quantity() {
-    simulate_transfer(200_u32, 20_u32, AssetDefinition::quantity, 10_710)
+    simulate_transfer(200_u32, &20_u32, AssetDefinition::quantity, 10_710)
 }
 
 #[test]
 fn simulate_transfer_big_quantity() {
-    simulate_transfer(200_u128, 20_u128, AssetDefinition::big_quantity, 10_785)
+    simulate_transfer(200_u128, &20_u128, AssetDefinition::big_quantity, 10_785)
 }
 
 #[test]
 fn simulate_transfer_fixed() {
     simulate_transfer(
         Fixed::try_from(200_f64).expect("Valid"),
-        Fixed::try_from(20_f64).expect("Valid"),
+        &Fixed::try_from(20_f64).expect("Valid"),
         AssetDefinition::fixed,
         10_790,
     )
@@ -32,7 +30,7 @@ fn simulate_transfer_fixed() {
 fn simulate_insufficient_funds() {
     simulate_transfer(
         Fixed::try_from(20_f64).expect("Valid"),
-        Fixed::try_from(200_f64).expect("Valid"),
+        &Fixed::try_from(200_f64).expect("Valid"),
         AssetDefinition::fixed,
         10_800,
     )
@@ -45,7 +43,7 @@ fn simulate_transfer<
     D: FnOnce(AssetDefinitionId) -> <AssetDefinition as Registered>::With,
 >(
     starting_amount: T,
-    amount_to_transfer: T,
+    amount_to_transfer: &T,
     value_type: D,
     port_number: u16,
 ) where

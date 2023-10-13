@@ -1,11 +1,5 @@
 #[cfg(test)]
 mod tests {
-    #![allow(
-        clippy::items_after_statements,
-        clippy::wildcard_imports,
-        clippy::restriction
-    )]
-
     use iroha_version::{
         error::{Error, Result},
         scale::*,
@@ -73,6 +67,8 @@ mod tests {
 
     #[test]
     fn unsupported_version() -> Result<(), String> {
+        use model_1::*;
+
         let bytes = {
             use model_2::*;
 
@@ -80,7 +76,6 @@ mod tests {
             versioned_message.encode_versioned()
         };
 
-        use model_1::*;
         let raw_string = "test string".encode();
         let decoded_message = VersionedMessage::decode_all_versioned(&bytes);
         match decoded_message {

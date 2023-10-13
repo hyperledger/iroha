@@ -386,6 +386,7 @@ impl Output {
     }
 
     /// Get the file path of the underlying WASM
+    #[must_use]
     pub fn wasm_file_path(&self) -> &PathBuf {
         &self.wasm_file
     }

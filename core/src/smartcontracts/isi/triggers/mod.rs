@@ -24,7 +24,6 @@ pub mod isi {
 
     impl Execute for Register<Trigger<TriggeringFilterBox, Executable>> {
         #[metrics(+"register_trigger")]
-        #[allow(clippy::expect_used)]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let new_trigger = self.object;
 

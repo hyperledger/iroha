@@ -1,7 +1,5 @@
 //! This crate provides utils for encoding/decoding objects between Iroha host and Wasm smart contracts.
 
-#![allow(clippy::arithmetic_side_effects)]
-
 pub use iroha_core_wasm_codec_derive::{wrap, wrap_trait_fn};
 use parity_scale_codec::{DecodeAll, Encode, Error as ParityError};
 use wasmtime::Result;
@@ -29,7 +27,6 @@ pub enum Error {
 /// # Errors
 ///
 /// Fails with [`Error`] which will be converted into [`wasmtime::Error`] if decoding fails.
-#[allow(clippy::arithmetic_side_effects)]
 pub fn decode_from_memory<C: wasmtime::AsContext, T: DecodeAll>(
     memory: &wasmtime::Memory,
     context: &C,

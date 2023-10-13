@@ -1,6 +1,4 @@
 //! A crate containing various derive macros for `data_model`
-#![allow(clippy::std_instead_of_core)]
-
 mod filter;
 mod has_origin;
 mod id;

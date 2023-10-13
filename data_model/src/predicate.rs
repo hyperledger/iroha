@@ -23,13 +23,13 @@ mod nontrivial {
         /// Extend the sequence with elements of another non-empty sequence
         #[inline]
         pub fn extend(&mut self, other: Self) {
-            self.0.extend(other.0)
+            self.0.extend(other.0);
         }
 
         /// Append `value` to the end of the sequence
         #[inline]
         pub fn push(&mut self, value: T) {
-            self.0.push(value)
+            self.0.push(value);
         }
 
         /// Apply the provided function to every element of the sequence
@@ -230,8 +230,6 @@ impl Default for PredicateBox {
 
 #[cfg(test)]
 pub mod test {
-    #![allow(clippy::print_stdout, clippy::use_debug)]
-
     use super::{value, PredicateBox};
     use crate::{PredicateSymbol, PredicateTrait as _, ToValue};
 
@@ -841,7 +839,6 @@ pub mod numerical {
         }
 
         #[test]
-        #[allow(clippy::panic_in_result_fn)] // ? for syntax simplicity.
         fn semi_interval_semantics_fixed() -> Result<(), fixed::FixedPointOperationError> {
             let pred =
                 SemiRange::Fixed((Fixed::try_from(1_f64)?, Fixed::try_from(100_f64)?).into());
@@ -903,7 +900,6 @@ pub mod numerical {
         }
 
         #[test]
-        #[allow(clippy::panic_in_result_fn)] // ? for syntax simplicity.
         fn interval_semantics_fixed() -> Result<(), fixed::FixedPointOperationError> {
             let pred = Range::Fixed((Fixed::try_from(1_f64)?, Fixed::try_from(100_f64)?).into());
 
@@ -1158,7 +1154,6 @@ pub mod value {
     }
 
     #[cfg(test)]
-    #[allow(clippy::print_stdout, clippy::use_debug)]
     mod test {
         use peer::Peer;
         use prelude::Metadata;
@@ -1371,7 +1366,6 @@ pub mod ip_addr {
 
     #[cfg(test)]
     mod test {
-        #![allow(clippy::restriction)]
         use super::*;
 
         #[test]

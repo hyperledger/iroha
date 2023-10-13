@@ -1,8 +1,6 @@
 //! Iroha schema generation support library. Contains the
 //! `build_schemas` `fn`, which is the function which decides which
 //! types are included in the schema.
-#![allow(clippy::arithmetic_side_effects)]
-
 use iroha_crypto::MerkleTree;
 use iroha_data_model::{
     block::stream::{BlockMessage, BlockSubscriptionRequest},

@@ -157,7 +157,6 @@ fn process_pub_item(input: syn2::DeriveInput) -> TokenStream {
             expose_ffi(attrs, &item)
         }
         // Triggers in `quote!` side, see https://github.com/rust-lang/rust-clippy/issues/10417
-        #[allow(clippy::arithmetic_side_effects)]
         syn2::Data::Union(item) => {
             let fields = item.fields.named.iter().map(|field| {
                 let field_attrs = &field.attrs;
@@ -180,7 +179,6 @@ fn process_pub_item(input: syn2::DeriveInput) -> TokenStream {
             });
 
             // See https://github.com/rust-lang/rust-clippy/issues/10417
-            #[allow(clippy::arithmetic_side_effects)]
             let item = quote! {
                 pub union #ident #impl_generics #where_clause {
                     #(#fields),*

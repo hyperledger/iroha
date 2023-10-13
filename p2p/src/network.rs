@@ -1,5 +1,4 @@
 //! Network formed out of Iroha peers.
-#![allow(clippy::std_instead_of_core)]
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
@@ -204,7 +203,6 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
     async fn run(mut self) {
         // TODO: probably should be configuration parameter
         let mut update_topology_interval = tokio::time::interval(Duration::from_millis(100));
-        #[allow(clippy::arithmetic_side_effects)]
         loop {
             tokio::select! {
                 // Select is biased because we want to service messages to take priority over data messages.

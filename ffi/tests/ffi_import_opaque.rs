@@ -1,4 +1,4 @@
-#![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
+#![allow(unsafe_code)]
 
 use std::collections::BTreeMap;
 
@@ -130,10 +130,12 @@ fn fallible_output() {
     //assert!(OpaqueStruct::fallible_int_output(false).is_err());
 }
 
+#[allow(trivial_casts)]
 fn compare_opaque_eq<T, U: PartialEq + core::fmt::Debug>(opaque1: &T, opaque2: &T) {
     unsafe {
-        let opaque1: &*const U = core::mem::transmute(opaque1);
-        let opaque2: &*const U = core::mem::transmute(opaque2);
+        let opaque1: &*const U = &*(opaque1 as *const T).cast::<*const U>();
+        let opaque2: &*const U = &*(opaque2 as *const T).cast::<*const U>();
+
         assert_eq!(**opaque1, **opaque2)
     }
 }
@@ -203,7 +205,7 @@ mod ffi {
         output: *mut *mut ExternOpaqueStruct,
     ) -> iroha_ffi::FfiReturn {
         let mut handle = *Box::from_raw(handle);
-        let mut store = Default::default();
+        let mut store = Vec::default();
         let params: Vec<(u8, ExternValue)> =
             FfiConvert::try_from_ffi(params, &mut store).expect("Valid");
         handle.params = params.into_iter().collect();

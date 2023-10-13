@@ -1,5 +1,4 @@
 //! Crate containing schema related macro functionality
-#![allow(clippy::arithmetic_side_effects)]
 
 use std::ops::Range;
 

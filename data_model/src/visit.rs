@@ -341,19 +341,19 @@ pub fn visit_expression<V: Visit + ?Sized, X>(
         Expression::If(expr) => {
             visitor.visit_expression(authority, expr.condition());
             visitor.visit_expression(authority, expr.then());
-            visitor.visit_expression(authority, expr.otherwise())
+            visitor.visit_expression(authority, expr.otherwise());
         }
         Expression::Contains(expr) => {
             visitor.visit_expression(authority, expr.collection());
-            visitor.visit_expression(authority, expr.element())
+            visitor.visit_expression(authority, expr.element());
         }
         Expression::ContainsAll(expr) => {
             visitor.visit_expression(authority, expr.collection());
-            visitor.visit_expression(authority, expr.elements())
+            visitor.visit_expression(authority, expr.elements());
         }
         Expression::ContainsAny(expr) => {
             visitor.visit_expression(authority, expr.collection());
-            visitor.visit_expression(authority, expr.elements())
+            visitor.visit_expression(authority, expr.elements());
         }
         Expression::Where(expr) => visitor.visit_expression(authority, expr.expression()),
         Expression::Query(query) => visitor.visit_query(authority, query),
@@ -503,7 +503,7 @@ pub fn visit_transfer<V: Visit + ?Sized>(
                     object,
                     destination_id,
                 },
-            )
+            );
         }
         (
             IdBox::AccountId(source_id),
@@ -589,15 +589,15 @@ pub fn visit_remove_key_value<V: Visit + ?Sized>(
 
     match object_id {
         IdBox::AssetId(object_id) => {
-            visitor.visit_remove_asset_key_value(authority, RemoveKeyValue { object_id, key })
+            visitor.visit_remove_asset_key_value(authority, RemoveKeyValue { object_id, key });
         }
         IdBox::AssetDefinitionId(object_id) => visitor
             .visit_remove_asset_definition_key_value(authority, RemoveKeyValue { object_id, key }),
         IdBox::AccountId(object_id) => {
-            visitor.visit_remove_account_key_value(authority, RemoveKeyValue { object_id, key })
+            visitor.visit_remove_account_key_value(authority, RemoveKeyValue { object_id, key });
         }
         IdBox::DomainId(object_id) => {
-            visitor.visit_remove_domain_key_value(authority, RemoveKeyValue { object_id, key })
+            visitor.visit_remove_domain_key_value(authority, RemoveKeyValue { object_id, key });
         }
         _ => visitor.visit_unsupported(authority, isi),
     }
@@ -654,7 +654,7 @@ pub fn visit_upgrade<V: Visit + ?Sized>(visitor: &mut V, authority: &AccountId, 
 
     match object {
         UpgradableBox::Executor(object) => {
-            visitor.visit_upgrade_executor(authority, Upgrade { object })
+            visitor.visit_upgrade_executor(authority, Upgrade { object });
         }
     }
 }

@@ -1,9 +1,4 @@
 //! Kura inspector binary. For usage run with `--help`.
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
@@ -36,7 +31,6 @@ enum Command {
     },
 }
 
-#[allow(clippy::use_debug, clippy::print_stderr, clippy::panic)]
 fn main() {
     let args = Args::parse();
 
@@ -55,12 +49,6 @@ fn main() {
     }
 }
 
-#[allow(
-    clippy::print_stdout,
-    clippy::use_debug,
-    clippy::expect_used,
-    clippy::expect_fun_call
-)]
 fn print_blockchain(block_store_path: &Path, from_height: u64, block_count: u64) {
     let mut block_store_path: std::borrow::Cow<'_, Path> = block_store_path.into();
 
@@ -135,9 +123,9 @@ fn print_blockchain(block_store_path: &Path, from_height: u64, block_count: u64)
             vec![0_u8; usize::try_from(idx.length).expect("index_len didn't fit in 32-bits")];
         block_store
             .read_block_data(idx.start, &mut block_buf)
-            .expect(&format!("Failed to read block № {} data.", meta_index + 1));
+            .unwrap_or_else(|_| panic!("Failed to read block № {} data.", meta_index + 1));
         let block = SignedBlock::decode_all_versioned(&block_buf)
-            .expect(&format!("Failed to decode block № {}", meta_index + 1));
+            .unwrap_or_else(|_| panic!("Failed to decode block № {}", meta_index + 1));
         println!("Block#{} :", meta_index + 1);
         println!("{block:#?}");
     }

@@ -406,14 +406,14 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast, '_> {
                 self.emitter,
                 node.abi,
                 "Extern fn declarations not supported"
-            )
+            );
         }
         if node.variadic.is_some() {
             emit!(
                 self.emitter,
                 node.variadic,
                 "Variadic arguments not supported"
-            )
+            );
         }
 
         visit_signature(self, node);

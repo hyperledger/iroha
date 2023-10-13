@@ -107,9 +107,7 @@ impl Decode for IpfsPath {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
-    use parity_scale_codec::DecodeAll;
+    use parity_scale_codec::DecodeAll as _;
 
     use super::*;
 

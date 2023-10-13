@@ -4,11 +4,6 @@
 //!
 //! `Iroha` is the main instance of the peer program. `Arguments`
 //! should be constructed externally: (see `main.rs`).
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
 #[cfg(debug_assertions)]
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -495,7 +490,6 @@ mod tests {
 
     use super::*;
 
-    #[allow(clippy::panic, clippy::print_stdout)]
     #[tokio::test]
     #[serial]
     async fn iroha_should_notify_on_panic() {

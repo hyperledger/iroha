@@ -1,6 +1,4 @@
 //! Module with genesis configuration logic.
-#![allow(clippy::std_instead_of_core)]
-
 use iroha_config_base::derive::{view, Documented, Proxy};
 use iroha_crypto::{PrivateKey, PublicKey};
 use serde::{Deserialize, Serialize};
@@ -38,7 +36,6 @@ pub mod tests {
     use super::*;
 
     /// Key-pair used by default for test purposes
-    #[allow(clippy::expect_used)]
     fn placeholder_keypair() -> KeyPair {
         let public_key = "ed01204CFFD0EE429B1BDD36B3910EC570852B8BB63F18750341772FB46BC856C5CAAF"
             .parse()

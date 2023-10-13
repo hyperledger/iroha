@@ -1,11 +1,4 @@
 //! Contains message structures for p2p communication during consensus.
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    clippy::module_name_repetitions
-)]
-
 use iroha_crypto::{HashOf, SignaturesOf};
 use iroha_data_model::block::{BlockPayload, SignedBlock};
 use iroha_macro::*;
