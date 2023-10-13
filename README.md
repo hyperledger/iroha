@@ -36,7 +36,7 @@ Engage with the community:
 - [Contribute](./CONTRIBUTING.md) to the repository
 - [Contact us](./CONTRIBUTING.md#contact) to get help
 
-# System Requirements
+## System Requirements
 
 RAM and storage requirements depend on your use case: whether you need to build or deploy a network, how big it is, and so on. This table summarises the requirements:
 
@@ -60,7 +60,7 @@ CPU considerations:
 * Rust compilation highly favours multi-core CPUs such as Apple M1™, AMD Ryzen™/Threadripper™/Epyc™, and Intel Alder Lake™.
 * On systems with restricted memory and many CPU cores, Iroha compilation may sometimes fail with `SIGKILL`. To avoid it, restrict the number of CPU cores using `cargo build -j <number>`, where `<number>` (without the angle brackets) is half of your RAM capacity rounded down.
 
-# Build, Test, and Run Iroha
+## Build, Test, and Run Iroha
 
 Prerequisites:
 
@@ -90,7 +90,7 @@ bash ./scripts/test_env.sh cleanup
 
 </details>
 
-## Build Iroha
+### Build Iroha
 
 - Build Iroha and accompanying binaries:
 
@@ -106,7 +106,7 @@ bash ./scripts/test_env.sh cleanup
 
   If you skip this step, the Iroha container will be built using the latest available image.
 
-## Run Iroha
+### Run Iroha
 
 Once you have built Iroha, you can instantiate the minimum viable network:
 
@@ -122,7 +122,7 @@ cd target/debug
 ./iroha_client_cli --help
 ```
 
-# Integration
+## Integration
 
 Iroha project mainly consists of the following crates:
 
@@ -144,7 +144,7 @@ Iroha project mainly consists of the following crates:
 * [`iroha_telemetry`](telemetry) is used for monitoring and analysis of telemetry data.
 * [`iroha_version`](version) provides message versioning for non-simultaneous system updates.
 
-# Maintenance
+## Maintenance
 
 A brief overview on how to configure and maintain an Iroha instance:
 
@@ -155,17 +155,17 @@ A brief overview on how to configure and maintain an Iroha instance:
 - [Storage](#storage)
 - [Scalability](#scalability)
 
-## Configuration
+### Configuration
 
 You can provide configuration parameters either as a `config.json` or using environment variables. Refer to the [detailed list](./docs/source/references/config.md) of all available configuration parameters.
 
 Configuration example you may use as a reference point: [cli/src/samples.rs](./cli/src/samples.rs)
 
-## Endpoints
+### Endpoints
 
-You can find the detailed list of all available endpoints in the [API specifications](./docs/source/references/api_spec.md#endpoints).
+For a list of all endpoints, available operations, and ways to customize them with parameters, see [API Reference > Torii Endpoints](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints)
 
-## Logging
+### Logging
 
 By default, Iroha provides logs in a human-readable format and prints them out to `stdout`.
 
@@ -182,7 +182,7 @@ curl -X POST \
 ```
 </details>
 
-### JSON Logging Mode
+#### JSON Logging Mode
 
 Additionally, Iroha supports a JSON logging mode.
 
@@ -190,9 +190,9 @@ To enable it, provide the [logging file](./docs/source/references/config.md#logg
 
 [Log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the responsibility of the peer administrator.
 
-## Monitoring
+### Monitoring
 
-The details of the `Health` endpoint can be found in the [API specifications](./docs/source/references/api_spec.md#health).
+The details of the `Health` endpoint can be found in the [API Reference > Torii Endpoints](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints#health).
 
 Iroha can produce both JSON-formatted as well as `prometheus`-readable metrics at the `status` and `metrics` endpoints respectively.
 
@@ -202,28 +202,28 @@ The [`prometheus`](https://prometheus.io/docs/introduction/overview/) monitoring
 prometheus --config.file=configs/prometheus.yml
 ```
 
-## Storage
+### Storage
 
 The blocks are written to the `blocks` sub-folder, which is created automatically by Iroha in the working directory of the peer. Additionally, if specified, the logging file must also be stored in a user-specified directory.
 
 No additional storage is necessary.
 
-## Scalability
+### Scalability
 
 Multiple instances of Iroha peer and client binaries can be run on the same physical machine and in the same working directory. However, we recommend to give each instance a clean new working directory.
 
 The provided `docker-compose` file showcases a minimum viable network and the general methods of using the `hyperledger/iroha2:dev` docker image for deploying a network of peers.
 
-# Further Reading
+## Further Reading
 
 We encourage you to check out our [Iroha 2 Tutorial](https://hyperledger.github.io/iroha-2-docs/) first. It is suitable for both experienced developers and prospective users of Iroha 2, and it provides language-specific guides for Bash, Python, Rust, Kotlin/Java, and Javascript/TypeScript.
 
-* [Iroha 2 Tutorial](https://hyperledger.github.io/iroha-2-docs/)
+* [Iroha 2 Documentation](https://hyperledger.github.io/iroha-2-docs/)
+  * [Glossary](https://hyperledger.github.io/iroha-2-docs/guide/glossary)
+  * [Iroha Special Instructions](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/instructions)
+  * [API Reference](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints)
+* [Configuration Reference](./docs/source/references/config.md)
 * [Iroha 2 Whitepaper](./docs/source/iroha_2_whitepaper.md)
-* [Glossary](https://hyperledger.github.io/iroha-2-docs/guide/glossary.html)
-* [Configuration](./docs/source/references/config.md)
-* [Iroha Special Instructions](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/instructions.html)
-* [API specification](./docs/source/references/api_spec.md)
 
 Iroha SDKs:
 
@@ -232,17 +232,17 @@ Iroha SDKs:
 * [Iroha Javascript](https://github.com/hyperledger/iroha-javascript)
 * [Iroha iOS Swift](https://github.com/hyperledger/iroha-ios)
 
-# How to Contribute
+## How to Contribute
 
 We welcome community contributions! Report bugs and suggest improvements via GitHub issues and pull requests.
 
 Check out our [contributing guide](./CONTRIBUTING.md) to learn more.
 
-# Get Help
+## Get Help
 
 Check out the channels you could use to [get help or engage with the community](./CONTRIBUTING.md#contact).
 
-# License
+## License
 
 Iroha codebase is licensed under the Apache License,
 Version 2.0 (the "License"); you may not use this file except
