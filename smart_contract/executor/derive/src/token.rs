@@ -1,7 +1,5 @@
 //! Module with [`derive_token`](crate::derive_token) macro implementation
 
-#![allow(clippy::arithmetic_side_effects)] // Triggers on quote! side
-
 use super::*;
 
 /// [`derive_token`](crate::derive_token()) macro implementation

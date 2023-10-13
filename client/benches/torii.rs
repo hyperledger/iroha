@@ -1,4 +1,4 @@
-#![allow(missing_docs, clippy::pedantic, clippy::restriction)]
+#![allow(missing_docs, clippy::pedantic)]
 
 use std::thread;
 
@@ -22,7 +22,7 @@ fn query_requests(criterion: &mut Criterion) {
 
     let rt = Runtime::test();
     let genesis = GenesisNetwork::from_configuration(
-        RawGenesisBlockBuilder::new()
+        RawGenesisBlockBuilder::default()
             .domain("wonderland".parse().expect("Valid"))
             .account(
                 "alice".parse().expect("Valid"),
@@ -86,10 +86,11 @@ fn query_requests(criterion: &mut Criterion) {
     let _dropable = group.throughput(Throughput::Bytes(request.encode().len() as u64));
     let _dropable2 = group.bench_function("query", |b| {
         b.iter(|| {
-            match iroha_client
+            let iter: Result<Vec<_>, _> = iroha_client
                 .request(request.clone())
-                .and_then(|iter| iter.collect::<Result<Vec<_>, _>>())
-            {
+                .and_then(Iterator::collect);
+
+            match iter {
                 Ok(assets) => {
                     assert!(!assets.is_empty());
                     success_count += 1;
@@ -117,7 +118,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
     let configuration = get_config(unique_vec![peer.id.clone()], Some(get_key_pair()));
     let genesis = GenesisNetwork::from_configuration(
-        RawGenesisBlockBuilder::new()
+        RawGenesisBlockBuilder::default()
             .domain("wonderland".parse().expect("Valid"))
             .account(
                 "alice".parse().expect("Valid"),

@@ -1,7 +1,5 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
 #![cfg_attr(not(feature = "std"), no_std)]
-// in no_std some code gets cfg-ed out, so we silence the warnings
-#![allow(clippy::arithmetic_side_effects)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
@@ -616,8 +614,6 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     use parity_scale_codec::{Decode, Encode};
     #[cfg(all(feature = "std", not(feature = "ffi_import")))]
     use serde::Deserialize;
@@ -641,7 +637,7 @@ mod tests {
                 serde_json::to_string(&algorithm)
                     .and_then(|algorithm| serde_json::from_str(&algorithm))
                     .unwrap_or_else(|_| panic!("Failed to de/serialize key {:?}", &algorithm))
-            )
+            );
         }
     }
     #[test]
@@ -663,7 +659,7 @@ mod tests {
                 serde_json::to_string(&key_pair)
                     .and_then(|key_pair| serde_json::from_str(&key_pair))
                     .unwrap_or_else(|_| panic!("Failed to de/serialize key {:?}", &key_pair))
-            )
+            );
         }
     }
 
@@ -683,7 +679,7 @@ mod tests {
                 algorithm, decoded_algorithm,
                 "Failed to decode encoded {:?}",
                 &algorithm
-            )
+            );
         }
     }
 
@@ -730,7 +726,7 @@ mod tests {
                 public_key, decoded_public_key,
                 "Failed to decode encoded Public Key{:?}",
                 &public_key
-            )
+            );
         }
     }
 
@@ -819,7 +815,7 @@ mod tests {
                 }
             ),
             "eb01c1040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
-        )
+        );
     }
     #[cfg(all(feature = "std", not(feature = "ffi_import")))]
     #[derive(Debug, PartialEq, Deserialize, Serialize)]
@@ -925,7 +921,7 @@ mod tests {
                         "0000000000000000000000000000000060F3C1AC9ADDBBED8DB83BC1B2EF22139FB049EECB723A557A41CA1A4B1FED63"),
                 }
             }
-        )
+        );
     }
 
     #[test]
@@ -944,6 +940,6 @@ mod tests {
             Err(Error::KeyGen(
                 "secp256k1 seed for must be at least 32 bytes long".to_owned()
             ))
-        )
+        );
     }
 }

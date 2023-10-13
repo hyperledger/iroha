@@ -1,5 +1,3 @@
-#![allow(clippy::restriction, clippy::all)]
-
 use std::time::Duration;
 
 use iroha_logger::{
@@ -16,6 +14,7 @@ struct SenderFilter<S> {
 }
 
 impl<S: Subscriber> SenderFilter<S> {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(sub: S) -> (impl Subscriber, mpsc::UnboundedReceiver<()>) {
         let (sender, receiver) = mpsc::unbounded_channel();
         (EventSubscriber(Self { sender, sub }), receiver)

@@ -124,7 +124,7 @@ impl Encode for Hash {
 
     #[inline]
     fn encode_to<T: parity_scale_codec::Output + ?Sized>(&self, dest: &mut T) {
-        self.as_ref().encode_to(dest)
+        self.as_ref().encode_to(dest);
     }
 
     #[inline]
@@ -243,7 +243,7 @@ impl<T> Ord for HashOf<T> {
 
 impl<T> hash::Hash for HashOf<T> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state)
+        self.0.hash(state);
     }
 }
 
@@ -320,8 +320,6 @@ mod ffi {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     #[cfg(feature = "std")]
     #[cfg(not(feature = "ffi_import"))]
     use super::*;
@@ -339,6 +337,6 @@ mod tests {
                     "BA67336EFD6A3DF3A70EEB757860763036785C182FF4CF587541A0068D09F5B2"
                 )[..]
             );
-        })
+        });
     }
 }

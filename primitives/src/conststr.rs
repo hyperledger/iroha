@@ -1,10 +1,4 @@
 //! Const-string related implementation and structs.
-#![allow(
-    clippy::std_instead_of_core,
-    clippy::undocumented_unsafe_blocks,
-    clippy::arithmetic_side_effects
-)]
-
 #[cfg(not(feature = "std"))]
 use alloc::{
     borrow::ToOwned as _,
@@ -140,7 +134,7 @@ impl Borrow<str> for ConstString {
 impl Hash for ConstString {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
-        (**self).hash(state)
+        (**self).hash(state);
     }
 }
 
@@ -478,7 +472,6 @@ impl TryFrom<String> for InlinedString {
     }
 }
 
-#[allow(clippy::restriction)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -688,6 +681,6 @@ mod tests {
         ]
         .into_iter()
         .map(str::to_owned)
-        .for_each(f)
+        .for_each(f);
     }
 }

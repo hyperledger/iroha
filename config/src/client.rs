@@ -1,5 +1,4 @@
 //! Module for client-related configuration and structs
-#![allow(clippy::std_instead_of_core, clippy::std_instead_of_alloc)]
 use core::str::FromStr;
 use std::num::NonZeroU64;
 
@@ -186,7 +185,6 @@ mod tests {
 
     prop_compose! {
         // TODO: make tests to check generated key validity
-        #[allow(clippy::expect_used)]
         fn arb_keys_from_seed()
             (seed in prop::collection::vec(any::<u8>(), 33..64)) -> (PublicKey, PrivateKey) {
                 let (public_key, private_key) = KeyPair::generate_with_configuration(KeyGenConfiguration::default().use_seed(seed)).expect("Seed was invalid").into();
@@ -195,7 +193,6 @@ mod tests {
     }
 
     prop_compose! {
-        #[allow(clippy::expect_used)]
         fn arb_keys_with_option()
             (keys in arb_keys_from_seed())
             ((a, b) in (prop::option::of(Just(keys.0)), prop::option::of(Just(keys.1))))
@@ -204,7 +201,6 @@ mod tests {
             }
     }
 
-    #[allow(clippy::expect_used)]
     fn placeholder_account() -> AccountId {
         AccountId::from_str("alice@wonderland").expect("Invalid account Id ")
     }
@@ -228,7 +224,6 @@ mod tests {
 
     proptest! {
         #[test]
-        #[allow(clippy::expect_used)]
         fn client_proxy_build_fails_on_none(proxy in arb_proxy()) {
             let cfg = proxy.build();
             if cfg.is_ok() {

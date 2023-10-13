@@ -1,6 +1,4 @@
 //! Crate containing FFI related macro functionality
-#![allow(clippy::arithmetic_side_effects)]
-
 use darling::FromDeriveInput;
 use impl_visitor::{FnDescriptor, ImplDescriptor};
 use iroha_macro_utils::Emitter;

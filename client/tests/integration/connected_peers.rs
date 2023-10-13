@@ -1,5 +1,3 @@
-#![allow(clippy::pedantic, clippy::restriction)]
-
 use std::thread;
 
 use eyre::{Context, Result};
@@ -28,7 +26,6 @@ fn connected_peers_with_f_1_0_1() -> Result<()> {
 fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
     let n_peers = 3 * faults + 1;
 
-    #[allow(clippy::expect_used)]
     let (_rt, network, client) = <Network>::start_test_with_runtime(
         (n_peers)
             .try_into()

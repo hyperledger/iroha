@@ -1,5 +1,3 @@
-#![allow(clippy::restriction)]
-
 use eyre::Result;
 use iroha_client::client::{self, QueryResult};
 use iroha_data_model::{

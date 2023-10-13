@@ -1,5 +1,3 @@
-#![allow(clippy::str_to_string, clippy::mixed_read_write_in_expression)]
-
 use darling::{FromAttributes, FromDeriveInput, FromField};
 use iroha_macro_utils::{find_single_attr_opt, Emitter};
 use manyhow::emit;

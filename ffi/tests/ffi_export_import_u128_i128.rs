@@ -130,7 +130,7 @@ fn i128_slice_conversion() {
 fn u128_vec_conversion() {
     let values = u128_values().to_vec();
 
-    assert_eq!(values, freestanding_u128_vec(values.clone()))
+    assert_eq!(values, freestanding_u128_vec(values.clone()));
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn u128_vec_conversion() {
 fn i128_vec_conversion() {
     let values = i128_values().to_vec();
 
-    assert_eq!(values, freestanding_i128_vec(values.clone()))
+    assert_eq!(values, freestanding_i128_vec(values.clone()));
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn u128_box_conversion() {
     let values = u128_values();
     for value in values {
         let value = Box::new(value);
-        assert_eq!(value, freestanding_u128_box(value.clone()))
+        assert_eq!(value, freestanding_u128_box(value.clone()));
     }
 }
 
@@ -158,7 +158,7 @@ fn i128_box_conversion() {
 
     for value in values {
         let value = Box::new(value);
-        assert_eq!(value, freestanding_i128_box(value.clone()))
+        assert_eq!(value, freestanding_i128_box(value.clone()));
     }
 }
 
@@ -167,7 +167,7 @@ fn i128_box_conversion() {
 fn u128_array_conversion() {
     let values = u128_values();
 
-    assert_eq!(values, freestanding_u128_array(values))
+    assert_eq!(values, freestanding_u128_array(values));
 }
 
 #[test]
@@ -175,5 +175,5 @@ fn u128_array_conversion() {
 fn i128_array_conversion() {
     let values = i128_values();
 
-    assert_eq!(values, freestanding_i128_array(values))
+    assert_eq!(values, freestanding_i128_array(values));
 }

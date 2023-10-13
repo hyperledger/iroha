@@ -172,7 +172,7 @@ mod small_vector {
         /// Append an item to the vector.
         #[inline]
         pub fn push(&mut self, value: A::Item) {
-            self.0.push(value)
+            self.0.push(value);
         }
 
         /// Remove and return the element at position `index`, shifting all elements after it to the
@@ -243,7 +243,7 @@ mod small_vector {
 
     impl<A: smallvec::Array> Extend<A::Item> for SmallVec<A> {
         fn extend<T: IntoIterator<Item = A::Item>>(&mut self, iter: T) {
-            self.0.extend(iter)
+            self.0.extend(iter);
         }
     }
 

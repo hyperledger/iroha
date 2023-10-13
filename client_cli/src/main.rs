@@ -1,16 +1,4 @@
 //! iroha client command line
-#![allow(
-    clippy::arithmetic_side_effects,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc
-)]
-#![allow(
-    missing_docs,
-    clippy::print_stdout,
-    clippy::use_debug,
-    clippy::print_stderr
-)]
-
 use std::{
     fmt,
     fs::{self, read as read_file},
@@ -196,7 +184,6 @@ fn main() -> Result<()> {
         config
     } else {
         let config_path = ConfigPath::default(&DEFAULT_CONFIG_PATH);
-        #[allow(clippy::expect_used)]
         Configuration::from_str(
             config_path
                 .first_existing_path()

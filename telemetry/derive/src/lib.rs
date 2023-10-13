@@ -1,8 +1,6 @@
 //! Attribute-like macro for instrumenting `isi` for `prometheus`
 //! metrics. See [`macro@metrics`] for more details.
 
-#![allow(clippy::std_instead_of_core)]
-
 use proc_macro::TokenStream;
 #[cfg(feature = "metric-instrumentation")]
 use proc_macro2::TokenStream as TokenStream2;
@@ -30,7 +28,6 @@ fn type_has_metrics_field(ty: &Type) -> bool {
         // more than one way.
         Type::Path(pth) => {
             let Path { segments, .. } = pth.path.clone();
-            #[allow(clippy::expect_used)]
             let type_name = &segments
                 .last()
                 .expect("Should have at least one segment")
@@ -114,7 +111,7 @@ impl Parse for MetricSpec {
 
 impl ToTokens for MetricSpec {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        self.metric_name.to_tokens(tokens)
+        self.metric_name.to_tokens(tokens);
     }
 }
 
@@ -150,7 +147,6 @@ impl ToTokens for MetricSpec {
 /// ```
 #[proc_macro_error]
 #[proc_macro_attribute]
-#[allow(clippy::str_to_string)]
 pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
     let ItemFn {
         attrs,
@@ -172,7 +168,6 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
         syn::ReturnType::Type(_, typ) => match *typ {
             Type::Path(pth) => {
                 let Path { segments, .. } = pth.path;
-                #[allow(clippy::expect_used)]
                 let type_name = &segments.last().expect("non-empty path").ident;
                 if *type_name != "Result" {
                     abort!(

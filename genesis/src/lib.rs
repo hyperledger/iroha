@@ -1,13 +1,5 @@
 //! Genesis-related logic and constructs. Contains the `GenesisBlock`,
 //! `RawGenesisBlock` and the `RawGenesisBlockBuilder` structures.
-#![allow(
-    clippy::module_name_repetitions,
-    clippy::new_without_default,
-    clippy::std_instead_of_core,
-    clippy::std_instead_of_alloc,
-    clippy::arithmetic_side_effects
-)]
-
 use std::{
     fmt::Debug,
     fs::{self, File},
@@ -251,9 +243,8 @@ mod executor_state {
     pub struct Unset;
 }
 
-impl RawGenesisBlockBuilder<executor_state::Unset> {
-    /// Initiate the building process.
-    pub fn new() -> Self {
+impl Default for RawGenesisBlockBuilder<executor_state::Unset> {
+    fn default() -> Self {
         // Do not add `impl Default`. While it can technically be
         // regarded as a default constructor, this builder should not
         // be used in contexts where `Default::default()` is likely to
@@ -263,7 +254,9 @@ impl RawGenesisBlockBuilder<executor_state::Unset> {
             state: executor_state::Unset,
         }
     }
+}
 
+impl RawGenesisBlockBuilder<executor_state::Unset> {
     /// Set the executor.
     pub fn executor(
         self,
@@ -379,12 +372,11 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::expect_used)]
     fn load_new_genesis_block() -> Result<()> {
         let (genesis_public_key, genesis_private_key) = KeyPair::generate()?.into();
         let (alice_public_key, _) = KeyPair::generate()?.into();
         let _genesis_block = GenesisNetwork::from_configuration(
-            RawGenesisBlockBuilder::new()
+            RawGenesisBlockBuilder::default()
                 .domain("wonderland".parse()?)
                 .account("alice".parse()?, alice_public_key)
                 .finish_domain()
@@ -402,11 +394,10 @@ mod tests {
         Ok(())
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
     fn genesis_block_builder_example() {
         let public_key = "ed0120204E9593C3FFAF4464A6189233811C297DD4CE73ABA167867E4FBD4F8C450ACB";
-        let mut genesis_builder = RawGenesisBlockBuilder::new();
+        let mut genesis_builder = RawGenesisBlockBuilder::default();
 
         genesis_builder = genesis_builder
             .domain("wonderland".parse().unwrap())

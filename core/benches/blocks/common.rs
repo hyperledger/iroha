@@ -1,5 +1,3 @@
-#![allow(missing_docs, clippy::restriction)]
-
 use std::str::FromStr as _;
 
 use eyre::Result;

@@ -1,5 +1,3 @@
-#![allow(clippy::restriction)]
-
 use std::collections::HashSet;
 
 use eyre::Result;

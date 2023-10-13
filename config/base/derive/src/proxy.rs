@@ -68,7 +68,6 @@ pub fn impl_override(ast: &StructWithFields) -> TokenStream {
     .into()
 }
 
-#[allow(clippy::str_to_string)]
 pub fn impl_load_from_env(ast: &StructWithFields) -> TokenStream {
     let env_fetcher_ident = quote! { env_fetcher };
     let fetch_env_trait = quote! { ::iroha_config_base::proxy::FetchEnv };
@@ -195,7 +194,6 @@ fn gen_proxy_struct(mut ast: StructWithFields) -> StructWithFields {
         // For fields of `Configuration` that have an inner config, the corresponding
         // proxy field should have a `..Proxy` type there as well
         if field.has_inner {
-            #[allow(clippy::expect_used)]
             if let Type::Path(path) = &mut field.ty {
                 let old_ident = &path.path.segments.last().expect("Can't be empty").ident;
                 let new_ident = format_ident!("{}Proxy", old_ident);

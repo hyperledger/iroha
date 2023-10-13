@@ -66,7 +66,6 @@ impl Path {
     /// # Panics
     ///
     /// Panics if `path` contains an extension.
-    #[allow(clippy::panic)]
     pub fn default(path: &'static std::path::Path) -> Self {
         assert!(
             path.extension().is_none(),

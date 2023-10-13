@@ -531,8 +531,6 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::restriction)]
-
     use core::{fmt::Debug, str::FromStr as _};
 
     use iroha_crypto::KeyPair;

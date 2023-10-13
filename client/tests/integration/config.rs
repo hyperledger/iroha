@@ -1,5 +1,3 @@
-#![allow(clippy::restriction)]
-
 use test_network::*;
 
 use super::{Builder, Configuration, ConfigurationProxy};
