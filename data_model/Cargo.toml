@@ -21,7 +21,7 @@ default = ["std"]
 # Enable static linkage of the rust standard library.
 # Disabled for WASM interoperability, to reduce the binary size.
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
-std = ["iroha_macro/std", "iroha_version/std", "iroha_crypto/std", "iroha_primitives/std", "thiserror", "displaydoc/std", "strum/std", "dashmap", "tokio"]
+std = ["iroha_macro/std", "iroha_version/std", "iroha_crypto/std", "iroha_primitives/std", "thiserror", "displaydoc/std", "strum/std"]
 # Enable API for HTTP requests. Should be activated for HTTP clients
 http = ["std", "warp", "iroha_version/http"]
 # Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
@@ -41,8 +41,6 @@ iroha_version = { workspace = true, features = ["derive", "json", "scale"] }
 iroha_schema = { workspace = true }
 iroha_ffi = { workspace = true, optional = true }
 
-dashmap = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true, features = ["sync", "rt-multi-thread"] }
 parity-scale-codec = { workspace = true, features = ["derive"] }
 derive_more = { workspace = true, features = ["as_ref", "display", "constructor", "from_str", "from", "into"] }
 serde = { workspace = true, features = ["derive"] }
