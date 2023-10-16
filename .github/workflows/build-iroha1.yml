@@ -227,7 +227,7 @@ jobs:
                                 else
                                   echo here4
                                   #echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
-                                  echo  >/tmp/comment_body "/build ubuntu debug release normal gcc-10"$'\n' "/build macos debug" ;;
+                                  echo  >/tmp/comment_body "/build ubuntu debug release normal gcc-10"$'\n' "/build macos debug"
                                 fi ;;
             push)               commit_message_body_build_spec >/tmp/comment_body || {
                                   echo "/build macos ubuntu debug release normal gcc-10"
