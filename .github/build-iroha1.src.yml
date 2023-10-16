@@ -225,6 +225,7 @@ jobs:
         id: matrixes
         run: |
           set -x
+          cat /tmp/comment_body
           cat /tmp/comment_body | .github/chatops-gen-matrix.sh
           echo "::set-output name=matrix_ubuntu::$(cat matrix_ubuntu)"
           echo "::set-output name=matrix_ubuntu_release::$(cat matrix_ubuntu_release)"
