@@ -203,10 +203,14 @@ jobs:
             pull_request)       if   commit_message_body_build_spec FETCH_HEAD >/tmp/comment_body ;then
                                   if git_is_merge_commit FETCH_HEAD ;then
                                     echo ::warning::'/build directive in merge commit overrides default "/build before-merge"'
+                                    echo here2
                                   fi
+                                  echo here1
                                 elif commit_was_merged_build_spec   FETCH_HEAD >/tmp/comment_body ;then
+                                  echo here3
                                   true
                                 else
+                                  echo here4
                                   #echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
                                   echo  >/tmp/comment_body "/build macos ubuntu debug release normal gcc-10"
                                 fi ;;
