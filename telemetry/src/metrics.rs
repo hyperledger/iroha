@@ -26,7 +26,9 @@ impl Encode for Uptime {
     fn encode(&self) -> Vec<u8> {
         let secs = self.0.as_secs();
         let nanos = self.0.subsec_nanos();
-        (Compact(secs), Compact(nanos)).encode()
+        // While seconds are rarely very large, nanos could be anywhere between zero and one billion,
+        // eliminating the profit of Compact
+        (Compact(secs), nanos).encode()
     }
 }
 
@@ -277,10 +279,10 @@ mod test {
         let value = sample_status();
         let bytes = value.encode();
 
-        let actual = hex::encode(bytes);
+        let actual = hex::encode_upper(bytes);
         // CAUTION: if this is outdated, make sure to update the documentation:
         // https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints#status
-        let expected = expect_test::expect!["10147c0c1402f165df0848"];
+        let expected = expect_test::expect!["10147C0C14407CD9370848"];
         expected.assert_eq(&actual);
     }
 }
