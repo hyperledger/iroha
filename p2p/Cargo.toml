@@ -21,7 +21,6 @@ iroha_data_model_derive = { workspace = true }
 
 rand = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-util", "net", "time"] }
-async-stream = { workspace = true }
 futures = { workspace = true, features = ["alloc"] }
 async-trait = { workspace = true }
 parity-scale-codec = { workspace = true, features = ["derive"] }

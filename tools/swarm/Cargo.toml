@@ -13,9 +13,7 @@ workspace = true
 iroha_crypto.workspace = true
 iroha_data_model.workspace = true
 iroha_primitives.workspace = true
-iroha_config.workspace = true
 color-eyre.workspace = true
-expect-test.workspace = true
 path-absolutize.workspace = true
 pathdiff.workspace = true
 owo-colors = { workspace = true, features = ["supports-colors"] }
@@ -26,3 +24,7 @@ serde_json.workspace = true
 derive_more.workspace = true
 inquire.workspace = true
 
+[dev-dependencies]
+iroha_config.workspace = true
+
+expect-test = "1.4.1"
