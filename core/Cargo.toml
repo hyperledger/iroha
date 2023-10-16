@@ -68,7 +68,6 @@ displaydoc = { workspace = true }
 wasmtime = { workspace = true }
 parking_lot = { workspace = true, features = ["deadlock_detection"] }
 derive_more = { workspace = true }
-itertools = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
