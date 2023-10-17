@@ -208,7 +208,7 @@ jobs:
                                   true
                                 else
                                   #echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
-                                  echo  >/tmp/comment_body "/build ubuntu debug release normal gcc-10"$'\n' "/build macos debug"
+                                  echo  >/tmp/comment_body "/build ubuntu debug release normal gcc-10"$'\n' "/build macos gcc-10 debug normal"
                                 fi ;;
             push)               commit_message_body_build_spec >/tmp/comment_body || {
                                   echo "/build ubuntu debug release normal gcc-10"
@@ -696,8 +696,6 @@ jobs:
       - *step_show_context
 
   build-M:
-    env:
-      CC_NAME: gcc-10
     needs:
       - prepare-macos-env
       - generate_matrixes
