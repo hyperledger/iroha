@@ -696,6 +696,8 @@ jobs:
       - *step_show_context
 
   build-M:
+    env:
+      CC_NAME: gcc-10
     needs:
       - prepare-macos-env
       - generate_matrixes
