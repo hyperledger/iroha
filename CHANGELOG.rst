@@ -1,6 +1,103 @@
 Changelog
 =========
 
+2.0.0-pre-rc.20
+---------------
+
+Features
+~~~~~~~~
+* make FindTrigger queries return original WASM
+* Transfer `Domain` ownership
+* `Domain` owner permissions
+* Add `owned_by` field to `Domain`
+* parse filter as JSON5 in `iroha_client_cli` (#3923)
+* Add support for usage of Self type in serde partially tagged enums
+* Standardize block API (#3884)
+* Implement `Fast` kura init mode
+* Add iroha_swarm disclaimer header
+* initial support for WSV snapshots
+
+Bugfixes
+~~~~~~~~
+* Fix executor downloading in update_configs.sh (#3990)
+* proper rustc in devShell
+* Fix burn `Trigger` reprtitions
+* Fix transfer `AssetDefinition`
+* Fix `RemoveKeyValue` for `Domain`
+* Fix double free in wasm tests
+* Fix the usage of `Span::join`
+* Fix topology mismatch bug (#3903)
+* Fix `apply_blocks` and `validate_blocks` benchmark
+* Fix wasm memory leak
+* `mkdir -r` with store path, not lock path (#3908)
+* Don't fail if dir exists in test_env.py
+* Fix authentication/authorization docstring (#3876)
+* Better error message for query find error
+* Add genesis account public key to dev docker compose
+* Compare permission token payload as JSON (#3855)
+* Fix `irrefutable_let_patterns` in the `#[model]` macro
+* Allow genesis to execute any ISI (#3850)
+* Fix genesis validation (#3844)
+* Fix topology for 3 or less peers
+* Correct how tx_amounts histogram is calculated.
+* `genesis_transactions_are_validated()` test flakiness
+* Default validator generation
+* Fix iroha graceful shutdown
+
+Refactor
+~~~~~
+* remove unused dependencies (#3992)
+* remove optimized WASM from data_model
+* bump dependencies (#3981)
+* Rename validator to executor (#3976)
+* Remove `IsAssetDefinitionOwner` (#3979)
+* Include smart contract code into the workspace (#3944)
+* Merge API and Telemetry endpoints into a single server
+* move expression len out of public API into core (#3949)
+* Avoid clone in roles lookup
+* Range queries for roles
+* Move account roles to `WSV`
+* Rename ISI from *Box to *Expr (#3930)
+* Remove 'Versioned' prefix from versioned containers (#3913)
+* move `commit_topology` into block payload (#3916)
+* Migrate iroha_futures_derive to syn 2.0
+* Registered with Identifiable in ISI bounds (#3925)
+* Add basic generics support to `derive(HasOrigin)`
+* Clean up Emitter APIs documentation to make clippy happy
+* Add tests for derive(HasOrigin) macro, reduce repetition in derive(IdEqOrdHash), fix error reporting on stable
+* Improve naming, simplify repeated .filter_maps & get rid of unnecessary .except in derive(Filter)
+* Make PartiallyTaggedSerialize/Deserialize use darling
+* Make derive(IdEqOrdHash) use darling, add tests
+* Make derive(Filter) use darling
+* Update iroha_data_model_derive to use syn 2.0
+* Add signature check condition unit tests
+* Allow only a fixed set of signature verification conditions
+* Generalize ConstBytes into a ConstVec that holds any const sequence
+* Use a more efficient representation for bytes values that are not changing
+* Store finalized wsv in snapshot
+* Add `SnapshotMaker` actor
+* document limitation of parsing derives in proc macros
+* clean up comments
+* extract a common test utility for parsing attributes to lib.rs
+* use parse_display & update Attr -> Attrs naming
+* allow usage of pattern matching in ffi function args
+* reduce repetition in getset attrs parsing
+* rename Emitter::into_token_stream into Emitter::finish_token_stream
+* Use parse_display to parse getset tokens
+* Fix typos and improve error messages
+* iroha_ffi_derive: use darling to parse attributes and use syn 2.0
+* iroha_ffi_derive: replace proc-macro-error with manyhow
+* Simplify kura lock file code
+* make all numeric values serialize as string literals
+* Split off Kagami (#3841)
+* Rewrite `scripts/test-env.sh`
+* Differentiate between smart contract and trigger entrypoints
+* Elide `.cloned()` in `data_model/src/block.rs`
+* Wasm entrypoint payloads
+* Make wasm entrypoint names to be public constants
+* update `iroha_schema_derive` to use syn 2.0
+* store original contract WASM in TriggerSet
+
 2.0.0-pre-rc.19
 ---------------
 
