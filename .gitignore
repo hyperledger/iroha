@@ -38,6 +38,7 @@ include/generated/*
 peers.list
 cmake-build*
 result
+.obsidian/
 
 .gtm
 /.gtm/

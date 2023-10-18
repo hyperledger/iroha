@@ -1,22 +1,56 @@
 //! Defaults for various items used in communication over http(s).
 use std::{net::TcpStream, str::FromStr};
 
-use attohttpc::{
-    body as atto_body, RequestBuilder as AttoHttpRequestBuilder, Response as AttoHttpResponse,
-};
+use attohttpc::{RequestBuilder as AttoHttpRequestBuilder, Response as AttoHttpResponse};
 use eyre::{eyre, Error, Result, WrapErr};
 use http::header::HeaderName;
 use tokio_tungstenite::tungstenite::{stream::MaybeTlsStream, WebSocket};
 pub use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
 use url::Url;
 
-use crate::http::{Method, RequestBuilder, Response};
+use crate::http::{Method, RequestBuilder, Response, SyncRequestManager, SyncSendRequest};
 
 type Bytes = Vec<u8>;
-type AttoHttpRequestBuilderWithBytes = AttoHttpRequestBuilder<atto_body::Bytes<Bytes>>;
 
 fn header_name_from_str(str: &str) -> Result<HeaderName> {
     HeaderName::from_str(str).wrap_err_with(|| format!("Failed to parse header name {str}"))
+}
+
+#[derive(Debug, Clone)]
+pub struct DefaultSendRequest;
+
+impl Default for DefaultSendRequest {
+    fn default() -> Self {
+        Self
+    }
+}
+
+impl SyncSendRequest for DefaultSendRequest {
+    type RequestBuilder = DefaultRequestBuilder;
+
+    fn send(&self, rb: Self::RequestBuilder) -> Result<http::Response<Vec<u8>>> {
+        let mut atto_http_req_builder = rb
+            .inner
+            .map(|b| b.bytes(rb.body.map_or_else(Vec::new, |vec| vec)))?;
+        let (method, url) = {
+            let inspect = atto_http_req_builder.inspect();
+            (inspect.method().clone(), inspect.url().clone())
+        };
+
+        let response = atto_http_req_builder
+            .send()
+            .wrap_err_with(|| format!("Failed to send http {method} request to {url}"))?;
+
+        ClientResponse(response).try_into()
+    }
+}
+
+impl Default for SyncRequestManager<DefaultSendRequest> {
+    fn default() -> Self {
+        Self {
+            inner: DefaultSendRequest::default(),
+        }
+    }
 }
 
 /// Default request builder implemented on top of `attohttpc` crate.
@@ -27,45 +61,14 @@ pub struct DefaultRequestBuilder {
 }
 
 impl DefaultRequestBuilder {
-    /// Apply `.and_then()` semantics to the inner `Result` with underlying request builder.
-    fn and_then<F>(self, fun: F) -> Self
+    fn and_then<F>(self, f: F) -> Self
     where
         F: FnOnce(AttoHttpRequestBuilder) -> Result<AttoHttpRequestBuilder>,
     {
         Self {
-            inner: self.inner.and_then(fun),
+            inner: self.inner.and_then(f),
             ..self
         }
-    }
-
-    /// Build request by consuming self.
-    pub fn build(self) -> Result<DefaultRequest> {
-        self.inner
-            .map(|b| DefaultRequest(b.bytes(self.body.map_or_else(Vec::new, |vec| vec))))
-    }
-}
-
-/// Request built by [`DefaultRequestBuilder`].
-#[derive(Debug)]
-pub struct DefaultRequest(AttoHttpRequestBuilderWithBytes);
-
-impl DefaultRequest {
-    /// Sends itself and returns byte response
-    ///
-    /// # Errors
-    /// Fails if request building and sending fails or response transformation fails
-    pub fn send(mut self) -> Result<Response<Bytes>> {
-        let (method, url) = {
-            let inspect = self.0.inspect();
-            (inspect.method().clone(), inspect.url().clone())
-        };
-
-        let response = self
-            .0
-            .send()
-            .wrap_err_with(|| format!("Failed to send http {method} request to {url}"))?;
-
-        ClientResponse(response).try_into()
     }
 }
 
@@ -135,23 +138,6 @@ impl DefaultWebSocketRequestBuilder {
     }
 }
 
-/// `WebSocket` request built by [`DefaultWebSocketRequestBuilder`]
-pub struct DefaultWebSocketStreamRequest(http::Request<()>);
-
-impl DefaultWebSocketStreamRequest {
-    /// Open [`WebSocketStream`] synchronously.
-    pub fn connect(self) -> Result<WebSocketStream> {
-        let (stream, _) = tokio_tungstenite::tungstenite::connect(self.0)?;
-        Ok(stream)
-    }
-
-    /// Open [`AsyncWebSocketStream`].
-    pub async fn connect_async(self) -> Result<AsyncWebSocketStream> {
-        let (stream, _) = tokio_tungstenite::connect_async(self.0).await?;
-        Ok(stream)
-    }
-}
-
 impl RequestBuilder for DefaultWebSocketRequestBuilder {
     fn new(method: Method, url: Url) -> Self {
         Self(Ok(http::Request::builder()
@@ -182,10 +168,6 @@ impl RequestBuilder for DefaultWebSocketRequestBuilder {
     }
 }
 
-pub type WebSocketStream = WebSocket<MaybeTlsStream<TcpStream>>;
-pub type AsyncWebSocketStream =
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
-
 struct ClientResponse(AttoHttpResponse);
 
 impl TryFrom<ClientResponse> for Response<Bytes> {
@@ -210,3 +192,24 @@ impl TryFrom<ClientResponse> for Response<Bytes> {
             })
     }
 }
+
+/// `WebSocket` request built by [`DefaultWebSocketRequestBuilder`]
+pub struct DefaultWebSocketStreamRequest(http::Request<()>);
+
+impl DefaultWebSocketStreamRequest {
+    /// Open [`WebSocketStream`] synchronously.
+    pub fn connect(self) -> Result<WebSocketStream> {
+        let (stream, _) = tokio_tungstenite::tungstenite::connect(self.0)?;
+        Ok(stream)
+    }
+
+    /// Open [`AsyncWebSocketStream`].
+    pub async fn connect_async(self) -> Result<AsyncWebSocketStream> {
+        let (stream, _) = tokio_tungstenite::connect_async(self.0).await?;
+        Ok(stream)
+    }
+}
+
+pub type WebSocketStream = WebSocket<MaybeTlsStream<TcpStream>>;
+pub type AsyncWebSocketStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;

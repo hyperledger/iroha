@@ -1,7 +1,10 @@
 use std::{str::FromStr as _, time::Duration};
 
 use eyre::Result;
-use iroha_client::client::{self, Client, QueryResult};
+use iroha_client::{
+    client::{self, QueryResult},
+    DefaultSyncClient,
+};
 use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
 use iroha_logger::info;
@@ -242,7 +245,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
         let start_pattern = "nft_number_";
         let end_pattern = format!("_for_{}#{}", account_id.name, account_id.domain_id);
         let assets = test_client
-            .request(client::asset::by_account_id(account_id.clone()))?
+            .seek(test_client.request(client::asset::by_account_id(account_id.clone()))?)
             .collect::<QueryResult<Vec<_>>>()?;
         let count: u64 = assets
             .into_iter()
@@ -265,7 +268,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
 
 /// Get block committed event listener
 fn get_block_committed_event_listener(
-    client: &Client,
+    client: &DefaultSyncClient,
 ) -> Result<impl Iterator<Item = Result<Event>>> {
     let block_filter = FilterBox::Pipeline(
         PipelineEventFilter::new()
@@ -276,7 +279,7 @@ fn get_block_committed_event_listener(
 }
 
 /// Get asset numeric value
-fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
+fn get_asset_value(client: &mut DefaultSyncClient, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
     Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
 }
@@ -284,7 +287,7 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
 /// Submit some sample ISIs to create new blocks
 fn submit_sample_isi_on_every_block_commit(
     block_committed_event_listener: impl Iterator<Item = Result<Event>>,
-    test_client: &mut Client,
+    test_client: &mut DefaultSyncClient,
     account_id: &AccountId,
     timeout: Duration,
     times: usize,

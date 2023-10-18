@@ -32,7 +32,10 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     // We can register and mint the non-mintable token
     test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
-        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+        let assets = test_client
+            .seek(result)
+            .collect::<QueryResult<Vec<_>>>()
+            .expect("Valid");
         assets.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
                 && *asset.value() == AssetValue::Quantity(200_u32)
@@ -45,7 +48,10 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     // However, this will fail
     assert!(test_client
         .poll_request(client::asset::by_account_id(account_id), |result| {
-            let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+            let assets = test_client
+                .seek(result)
+                .collect::<QueryResult<Vec<_>>>()
+                .expect("Valid");
             assets.iter().any(|asset| {
                 asset.id().definition_id == asset_definition_id
                     && *asset.value() == AssetValue::Quantity(400_u32)
@@ -72,7 +78,10 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
     // We can register the non-mintable token
     test_client.submit_all([create_asset, register_asset.clone()])?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
-        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+        let assets = test_client
+            .seek(result)
+            .collect::<QueryResult<Vec<_>>>()
+            .expect("Valid");
         assets.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
                 && *asset.value() == AssetValue::Quantity(1_u32)
@@ -109,7 +118,10 @@ fn non_mintable_asset_can_be_minted_if_registered_with_zero_value() -> Result<()
         [create_asset.into(), register_asset.into(), mint.into()];
     test_client.submit_all(instructions)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
-        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+        let assets = test_client
+            .seek(result)
+            .collect::<QueryResult<Vec<_>>>()
+            .expect("Valid");
         assets.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
                 && *asset.value() == AssetValue::Quantity(1_u32)

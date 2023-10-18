@@ -12,7 +12,6 @@ use std::{
 use derive_more::{DebugCustom, Display};
 use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
-use http_default::{AsyncWebSocketStream, WebSocketStream};
 use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
@@ -35,8 +34,11 @@ use url::Url;
 
 use self::{blocks_api::AsyncBlockStream, events_api::AsyncEventStream};
 use crate::{
-    http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
-    http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
+    http::{
+        Method as HttpMethod, RequestBuilder, RequestManager, Response, StatusCode,
+        SyncRequestManager, SyncSendRequest,
+    },
+    http_default::{DefaultSendRequest, WebSocketError, WebSocketMessage},
 };
 
 const APPLICATION_JSON: &str = "application/json";
@@ -248,16 +250,41 @@ pub struct ResultSet<T> {
     client_cursor: usize,
 }
 
-impl<T: Clone> Iterator for ResultSet<T>
+pub struct SeekResultSet<'a, T, R>
 where
+    R: Clone,
+{
+    req_manager: &'a SyncRequestManager<R>,
+    result_set: ResultSet<T>,
+}
+
+impl<T> Client<SyncRequestManager<T>>
+where
+    T: SyncSendRequest + Clone,
+    T::RequestBuilder: RequestBuilder,
+{
+    pub fn seek<'a, I>(&'a self, result_set: ResultSet<I>) -> SeekResultSet<'a, I, T> {
+        SeekResultSet {
+            req_manager: &self.req_manager,
+            result_set,
+        }
+    }
+}
+
+impl<'a, T, R> Iterator for SeekResultSet<'a, T, R>
+where
+    T: Clone,
+    R: SyncSendRequest,
+    R::RequestBuilder: RequestBuilder,
     Vec<T>: QueryOutput,
     <Vec<T> as TryFrom<Value>>::Error: Into<eyre::Error>,
 {
     type Item = QueryResult<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.client_cursor >= self.iter.len() {
+        if self.result_set.client_cursor >= self.result_set.iter.len() {
             if self
+                .result_set
                 .query_handler
                 .query_request
                 .query_cursor
@@ -266,26 +293,30 @@ where
             {
                 return None;
             }
-
-            let request = match self.query_handler.query_request.clone().assemble().build() {
+            let rb = self
+                .result_set
+                .query_handler
+                .query_request
+                .clone()
+                .assemble::<R::RequestBuilder>();
+            let response = match self.req_manager.inner.send(rb) {
                 Err(err) => return Some(Err(ClientQueryError::Other(err))),
                 Ok(ok) => ok,
             };
-
-            let response = match request.send() {
-                Err(err) => return Some(Err(ClientQueryError::Other(err))),
-                Ok(ok) => ok,
-            };
-            let value = match self.query_handler.handle(&response) {
+            let value = match self.result_set.query_handler.handle(&response) {
                 Err(err) => return Some(Err(err)),
                 Ok(ok) => ok,
             };
-            self.iter = value;
-            self.client_cursor = 0;
+            self.result_set.iter = value;
+            self.result_set.client_cursor = 0;
         }
 
-        let item = Ok(self.iter.get(self.client_cursor).cloned());
-        self.client_cursor += 1;
+        let item = Ok(self
+            .result_set
+            .iter
+            .get(self.result_set.client_cursor)
+            .cloned());
+        self.result_set.client_cursor += 1;
         item.transpose()
     }
 }
@@ -339,7 +370,10 @@ impl_query_result! {
     "key_pair.public_key()"
 )]
 #[display(fmt = "{}@{torii_url}", "key_pair.public_key()")]
-pub struct Client {
+pub struct Client<T>
+where
+    T: RequestManager,
+{
     /// Url for accessing iroha node
     torii_url: Url,
     /// Accounts keypair
@@ -355,6 +389,8 @@ pub struct Client {
     /// If `true` add nonce, which makes different hashes for
     /// transactions which occur repeatedly and/or simultaneously
     add_transaction_nonce: bool,
+    /// A generic request manager
+    req_manager: T,
 }
 
 /// Query request
@@ -382,8 +418,12 @@ impl QueryRequest {
             query_cursor: ForwardCursor::default(),
         }
     }
-    fn assemble(self) -> DefaultRequestBuilder {
-        DefaultRequestBuilder::new(
+
+    fn assemble<T>(self) -> T
+    where
+        T: RequestBuilder,
+    {
+        T::new(
             HttpMethod::POST,
             self.torii_url.join(uri::QUERY).expect("Valid URI"),
         )
@@ -395,17 +435,14 @@ impl QueryRequest {
     }
 }
 
-/// Representation of `Iroha` client.
-impl Client {
-    /// Constructor for client from configuration
-    ///
-    /// # Errors
-    /// If configuration isn't valid (e.g public/private keys don't match)
-    #[inline]
-    pub fn new(configuration: &Configuration) -> Result<Self> {
-        Self::with_headers(configuration, HashMap::new())
-    }
+impl<T> Client<T> where T: RequestManager {}
 
+/// Representation of `Iroha` client.
+impl<T> Client<SyncRequestManager<T>>
+where
+    T: SyncSendRequest + Sync,
+    T::RequestBuilder: RequestBuilder,
+{
     /// Constructor for client from configuration and headers
     ///
     /// *Authorization* header will be added, if `login` and `password` fields are presented
@@ -414,9 +451,10 @@ impl Client {
     /// If configuration isn't valid (e.g public/private keys don't match)
     #[inline]
     pub fn with_headers(
+        req_manager: SyncRequestManager<T>,
         configuration: &Configuration,
         mut headers: HashMap<String, String>,
-    ) -> Result<Self> {
+    ) -> Result<Client<SyncRequestManager<T>>> {
         if let Some(basic_auth) = &configuration.basic_auth {
             let credentials = format!("{}:{}", basic_auth.web_login, basic_auth.password);
             let engine = base64::engine::general_purpose::STANDARD;
@@ -424,7 +462,7 @@ impl Client {
             headers.insert(String::from("Authorization"), format!("Basic {encoded}"));
         }
 
-        Ok(Self {
+        Ok(Client {
             torii_url: configuration.torii_api_url.clone(),
             key_pair: KeyPair::new(
                 configuration.public_key.clone(),
@@ -439,6 +477,7 @@ impl Client {
             account_id: configuration.account_id.clone(),
             headers,
             add_transaction_nonce: configuration.add_transaction_nonce,
+            req_manager,
         })
     }
 
@@ -552,10 +591,11 @@ impl Client {
         transaction: &SignedTransaction,
     ) -> Result<HashOf<TransactionPayload>> {
         iroha_logger::trace!(tx=?transaction, "Submitting");
-        let (req, hash) = self.prepare_transaction_request::<DefaultRequestBuilder>(transaction);
-        let response = req
-            .build()?
-            .send()
+        let (req, hash) = self.prepare_transaction_request::<T::RequestBuilder>(transaction);
+        let response = self
+            .req_manager
+            .inner
+            .send(req)
             .wrap_err_with(|| format!("Failed to send transaction with hash {hash:?}"))?;
         TransactionResponseHandler::handle(&response)?;
         Ok(hash)
@@ -796,7 +836,7 @@ impl Client {
         filter: PredicateBox,
         pagination: Pagination,
         sorting: Sorting,
-    ) -> Result<(DefaultRequestBuilder, QueryResponseHandler<R::Output>)>
+    ) -> Result<(T::RequestBuilder, QueryResponseHandler<R::Output>)>
     where
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
@@ -806,14 +846,14 @@ impl Client {
         let query_request = QueryRequest {
             torii_url: self.torii_url.clone(),
             headers: self.headers.clone(),
-            request,
-            sorting,
+            request: request.clone(),
+            sorting: sorting.clone(),
             pagination,
             query_cursor: ForwardCursor::default(),
         };
 
         Ok((
-            query_request.clone().assemble(),
+            query_request.clone().assemble::<T::RequestBuilder>(),
             QueryResponseHandler::new(query_request),
         ))
     }
@@ -837,7 +877,7 @@ impl Client {
         let (req, mut resp_handler) =
             self.prepare_query_request::<R>(request, filter, pagination, sorting)?;
 
-        let response = req.build()?.send()?;
+        let response = self.req_manager.inner.send(req)?;
         let value = resp_handler.handle(&response)?;
         let output = QueryOutput::new(value, resp_handler);
 
@@ -1078,16 +1118,16 @@ impl Client {
     ) -> Result<Option<SignedTransaction>> {
         let pagination: Vec<_> = pagination.into();
         for _ in 0..retry_count {
-            let response = DefaultRequestBuilder::new(
+            let rb = T::RequestBuilder::new(
                 HttpMethod::GET,
                 self.torii_url
                     .join(uri::PENDING_TRANSACTIONS)
                     .expect("Valid URI"),
             )
             .params(pagination.clone())
-            .headers(self.headers.clone())
-            .build()?
-            .send()?;
+            .headers(self.headers.clone());
+
+            let response = self.req_manager.inner.send(rb)?;
 
             if response.status() == StatusCode::OK {
                 let pending_transactions: Vec<SignedTransaction> =
@@ -1135,15 +1175,15 @@ impl Client {
         )
     }
 
-    fn get_config<T: DeserializeOwned>(&self, get_config: &GetConfiguration) -> Result<T> {
-        let resp = DefaultRequestBuilder::new(
+    fn get_config<D: DeserializeOwned>(&self, get_config: &GetConfiguration) -> Result<D> {
+        let rb = T::RequestBuilder::new(
             HttpMethod::GET,
             self.torii_url.join(uri::CONFIGURATION).expect("Valid URI"),
         )
         .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
-        .body(serde_json::to_vec(get_config).wrap_err("Failed to serialize")?)
-        .build()?
-        .send()?;
+        .body(serde_json::to_vec(get_config).wrap_err("Failed to serialize")?);
+
+        let resp = self.req_manager.inner.send(rb)?;
 
         if resp.status() != StatusCode::OK {
             return Err(eyre!(
@@ -1163,11 +1203,10 @@ impl Client {
         let body = serde_json::to_vec(&post_config)
             .wrap_err(format!("Failed to serialize {post_config:?}"))?;
         let url = self.torii_url.join(uri::CONFIGURATION).expect("Valid URI");
-        let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
+        let rb = T::RequestBuilder::new(HttpMethod::POST, url)
             .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
-            .body(body)
-            .build()?
-            .send()?;
+            .body(body);
+        let resp = self.req_manager.inner.send(rb)?;
 
         if resp.status() != StatusCode::OK {
             return Err(eyre!(
@@ -1204,8 +1243,8 @@ impl Client {
     /// # Errors
     /// Fails if sending request or decoding fails
     pub fn get_status(&self) -> Result<Status> {
-        let req = self.prepare_status_request::<DefaultRequestBuilder>();
-        let resp = req.build()?.send()?;
+        let req = self.prepare_status_request::<T::RequestBuilder>();
+        let resp = self.req_manager.inner.send(req)?;
         StatusResponseHandler::handle(&resp)
     }
 
@@ -1224,6 +1263,21 @@ impl Client {
     }
 }
 
+impl Client<SyncRequestManager<DefaultSendRequest>> {
+    /// Constructor for client from configuration
+    ///
+    /// # Errors
+    /// If configuration isn't valid (e.g public/private keys don't match)
+    #[inline]
+    pub fn new(configuration: &Configuration) -> Result<Self> {
+        Self::with_headers(
+            SyncRequestManager::<DefaultSendRequest>::default(),
+            configuration,
+            HashMap::new(),
+        )
+    }
+}
+
 /// Logic for `sync` and `async` Iroha websocket streams
 pub mod stream_api {
     use futures_util::{SinkExt, Stream, StreamExt};
@@ -1231,7 +1285,7 @@ pub mod stream_api {
     use super::*;
     use crate::{
         http::ws::conn_flow::{Events, Init, InitData},
-        http_default::DefaultWebSocketRequestBuilder,
+        http_default::{AsyncWebSocketStream, DefaultWebSocketRequestBuilder, WebSocketStream},
     };
 
     /// Iterator for getting messages from the `WebSocket` stream.
@@ -1257,7 +1311,7 @@ pub mod stream_api {
                 first_message,
                 req,
                 next: next_handler,
-            } = Init::<http_default::DefaultWebSocketRequestBuilder>::init(handler);
+            } = Init::<DefaultWebSocketRequestBuilder>::init(handler);
 
             let mut stream = req.build()?.connect()?;
             stream.send(WebSocketMessage::Binary(first_message))?;
@@ -1332,7 +1386,7 @@ pub mod stream_api {
                 first_message,
                 req,
                 next: next_handler,
-            } = Init::<http_default::DefaultWebSocketRequestBuilder>::init(handler);
+            } = Init::<DefaultWebSocketRequestBuilder>::init(handler);
 
             let mut stream = req.build()?.connect_async().await?;
             stream.send(WebSocketMessage::Binary(first_message)).await?;

@@ -63,7 +63,7 @@ fn find_accounts_with_asset() -> Result<()> {
     );
 
     let found_accounts = test_client
-        .request(client::account::all_with_asset(definition_id))?
+        .seek(test_client.request(client::account::all_with_asset(definition_id))?)
         .collect::<QueryResult<Vec<_>>>()?;
     let found_ids = found_accounts
         .into_iter()

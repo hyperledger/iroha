@@ -1,5 +1,5 @@
 use eyre::Result;
-use iroha_client::client;
+use iroha_client::{client, DefaultSyncClient};
 use iroha_data_model::prelude::*;
 use test_network::*;
 
@@ -109,7 +109,7 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
     Ok(())
 }
 
-fn get_asset_value(client: &client::Client, asset_id: AssetId) -> Result<u32> {
+fn get_asset_value(client: &DefaultSyncClient, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
     Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
 }

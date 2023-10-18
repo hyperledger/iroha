@@ -6,6 +6,9 @@ pub mod client;
 pub mod http;
 mod http_default;
 
+pub type DefaultSyncClient =
+    client::Client<http::SyncRequestManager<http_default::DefaultSendRequest>>;
+
 /// Module containing sample configurations for tests and benchmarks.
 pub mod samples {
     use iroha_config::{

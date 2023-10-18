@@ -69,6 +69,59 @@ pub trait RequestBuilder {
     fn body(self, data: Vec<u8>) -> Self;
 }
 
+pub trait RequestManager: Clone {}
+
+#[derive(Clone)]
+pub struct SyncRequestManager<T>
+where
+    T: Clone,
+{
+    pub(crate) inner: T,
+}
+
+impl<T> RequestManager for SyncRequestManager<T>
+where
+    T: SyncSendRequest,
+    T::RequestBuilder: RequestBuilder,
+{
+}
+
+pub trait SyncSendRequest: Clone {
+    type RequestBuilder;
+
+    fn send(&self, rb: Self::RequestBuilder) -> Result<http::Response<Vec<u8>>>;
+}
+
+#[derive(Clone)]
+pub struct AsyncRequestManager<T>
+where
+    T: Clone,
+{
+    inner: T,
+}
+
+impl<T> RequestManager for AsyncRequestManager<T>
+where
+    T: AsyncSendRequest + Clone,
+    T::RequestBuilder: RequestBuilder,
+{
+}
+
+pub trait AsyncSendRequest {
+    type RequestBuilder;
+
+    fn send<'async_trait>(
+        &'async_trait self,
+        rb: Self::RequestBuilder,
+    ) -> ::std::pin::Pin<
+        Box<
+            dyn ::std::future::Future<Output = Result<http::Response<Vec<u8>>>>
+                + Send
+                + 'async_trait,
+        >,
+    >;
+}
+
 /// Generalization of `WebSocket` client's functionality
 pub mod ws {
     use url::Url;

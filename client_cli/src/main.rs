@@ -406,7 +406,7 @@ mod domain {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = Client::new(context.configuration())?;
 
-            let vec = match self {
+            let result_set = match self {
                 Self::All => client
                     .request(client::domain::all())
                     .wrap_err("Failed to get all domains"),
@@ -414,7 +414,7 @@ mod domain {
                     .request_with_filter(client::domain::all(), filter.predicate)
                     .wrap_err("Failed to get filtered domains"),
             }?;
-            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+            context.print_data(&client.seek(result_set).collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
         }
     }
@@ -554,7 +554,7 @@ mod account {
                     .request_with_filter(client::account::all(), filter.predicate)
                     .wrap_err("Failed to get filtered accounts"),
             }?;
-            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+            context.print_data(&client.seek(vec).collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
         }
     }
@@ -618,14 +618,17 @@ mod account {
             let permissions = client
                 .request(find_all_permissions)
                 .wrap_err("Failed to get all account permissions")?;
-            context.print_data(&permissions.collect::<QueryResult<Vec<_>>>()?)?;
+            context.print_data(&client.seek(permissions).collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
         }
     }
 }
 
 mod asset {
-    use iroha_client::client::{self, asset, Client};
+    use iroha_client::{
+        client::{self, asset, Client},
+        DefaultSyncClient,
+    };
 
     use super::*;
 
@@ -816,7 +819,7 @@ mod asset {
     impl RunArgs for Get {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { account, asset } = self;
-            let iroha_client = Client::new(context.configuration())?;
+            let iroha_client: DefaultSyncClient = Client::new(context.configuration())?;
             let asset_id = AssetId::new(asset, account);
             let asset = iroha_client
                 .request(asset::by_id(asset_id))
@@ -847,7 +850,7 @@ mod asset {
                     .request_with_filter(client::asset::all(), filter.predicate)
                     .wrap_err("Failed to get filtered assets"),
             }?;
-            context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+            context.print_data(&client.seek(vec).collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
         }
     }

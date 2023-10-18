@@ -88,7 +88,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
 
     // Making request to find Alice's roles
     let found_role_ids = test_client
-        .request(client::role::by_account_id(alice_id))?
+        .seek(test_client.request(client::role::by_account_id(alice_id))?)
         .collect::<QueryResult<Vec<_>>>()?;
     assert!(found_role_ids.contains(&role_id));
 
@@ -123,7 +123,7 @@ fn unregistered_role_removed_from_account() -> Result<()> {
 
     // Check that Mouse has root role
     let found_mouse_roles = test_client
-        .request(client::role::by_account_id(mouse_id.clone()))?
+        .seek(test_client.request(client::role::by_account_id(mouse_id.clone()))?)
         .collect::<QueryResult<Vec<_>>>()?;
     assert!(found_mouse_roles.contains(&role_id));
 
@@ -133,7 +133,7 @@ fn unregistered_role_removed_from_account() -> Result<()> {
 
     // Check that Mouse doesn't have the root role
     let found_mouse_roles = test_client
-        .request(client::role::by_account_id(mouse_id))?
+        .seek(test_client.request(client::role::by_account_id(mouse_id))?)
         .collect::<QueryResult<Vec<_>>>()?;
     assert!(!found_mouse_roles.contains(&role_id));
 

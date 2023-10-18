@@ -58,15 +58,18 @@ fn correct_pagination_assets_after_creating_new_one() {
     let sorting = Sorting::by_metadata_key(sort_by_metadata_key.clone());
 
     let res = test_client
-        .request_with_pagination_and_sorting(
-            client::asset::by_account_id(account_id.clone()),
-            Pagination {
-                limit: NonZeroU32::new(5),
-                start: None,
-            },
-            sorting.clone(),
+        .seek(
+            test_client
+                .request_with_pagination_and_sorting(
+                    client::asset::by_account_id(account_id.clone()),
+                    Pagination {
+                        limit: NonZeroU32::new(5),
+                        start: None,
+                    },
+                    sorting.clone(),
+                )
+                .expect("Valid"),
         )
-        .expect("Valid")
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
 
@@ -101,15 +104,18 @@ fn correct_pagination_assets_after_creating_new_one() {
         .expect("Valid");
 
     let res = test_client
-        .request_with_pagination_and_sorting(
-            client::asset::by_account_id(account_id),
-            Pagination {
-                limit: NonZeroU32::new(13),
-                start: NonZeroU64::new(8),
-            },
-            sorting,
+        .seek(
+            test_client
+                .request_with_pagination_and_sorting(
+                    client::asset::by_account_id(account_id),
+                    Pagination {
+                        limit: NonZeroU32::new(13),
+                        start: NonZeroU64::new(8),
+                    },
+                    sorting,
+                )
+                .expect("Valid"),
         )
-        .expect("Valid")
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
 
@@ -162,14 +168,17 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .request_with_filter_and_sorting(
-            client::asset::all_definitions(),
-            Sorting::by_metadata_key(sort_by_metadata_key.clone()),
-            PredicateBox::new(value::ValuePredicate::Identifiable(
-                string::StringPredicate::starts_with("xor_"),
-            )),
+        .seek(
+            test_client
+                .request_with_filter_and_sorting(
+                    client::asset::all_definitions(),
+                    Sorting::by_metadata_key(sort_by_metadata_key.clone()),
+                    PredicateBox::new(value::ValuePredicate::Identifiable(
+                        string::StringPredicate::starts_with("xor_"),
+                    )),
+                )
+                .expect("Valid"),
         )
-        .expect("Valid")
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
 
@@ -213,14 +222,17 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .request_with_filter_and_sorting(
-            client::account::all(),
-            Sorting::by_metadata_key(sort_by_metadata_key.clone()),
-            PredicateBox::new(value::ValuePredicate::Identifiable(
-                string::StringPredicate::starts_with("charlie"),
-            )),
+        .seek(
+            test_client
+                .request_with_filter_and_sorting(
+                    client::account::all(),
+                    Sorting::by_metadata_key(sort_by_metadata_key.clone()),
+                    PredicateBox::new(value::ValuePredicate::Identifiable(
+                        string::StringPredicate::starts_with("charlie"),
+                    )),
+                )
+                .expect("Valid"),
         )
-        .expect("Valid")
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
 
@@ -260,15 +272,18 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .request_with_filter_and_pagination_and_sorting(
-            client::domain::all(),
-            Pagination::default(),
-            Sorting::by_metadata_key(sort_by_metadata_key.clone()),
-            PredicateBox::new(value::ValuePredicate::Identifiable(
-                string::StringPredicate::starts_with("neverland"),
-            )),
+        .seek(
+            test_client
+                .request_with_filter_and_pagination_and_sorting(
+                    client::domain::all(),
+                    Pagination::default(),
+                    Sorting::by_metadata_key(sort_by_metadata_key.clone()),
+                    PredicateBox::new(value::ValuePredicate::Identifiable(
+                        string::StringPredicate::starts_with("neverland"),
+                    )),
+                )
+                .expect("Valid"),
         )
-        .expect("Valid")
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
 
@@ -309,13 +324,16 @@ fn correct_sorting_of_entities() {
         string::StringPredicate::starts_with("neverland_"),
     ));
     let res = test_client
-        .request_with_filter_and_pagination_and_sorting(
-            client::domain::all(),
-            Pagination::default(),
-            Sorting::by_metadata_key(sort_by_metadata_key),
-            filter,
+        .seek(
+            test_client
+                .request_with_filter_and_pagination_and_sorting(
+                    client::domain::all(),
+                    Pagination::default(),
+                    Sorting::by_metadata_key(sort_by_metadata_key),
+                    filter,
+                )
+                .expect("Valid"),
         )
-        .expect("Valid")
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
 
@@ -371,14 +389,17 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
         .wrap_err("Failed to register accounts")?;
 
     let res = test_client
-        .request_with_filter_and_sorting(
-            client::account::all(),
-            Sorting::by_metadata_key(sort_by_metadata_key),
-            PredicateBox::new(value::ValuePredicate::Identifiable(
-                string::StringPredicate::starts_with("charlie"),
-            )),
+        .seek(
+            test_client
+                .request_with_filter_and_sorting(
+                    client::account::all(),
+                    Sorting::by_metadata_key(sort_by_metadata_key),
+                    PredicateBox::new(value::ValuePredicate::Identifiable(
+                        string::StringPredicate::starts_with("charlie"),
+                    )),
+                )
+                .wrap_err("Failed to submit request")?,
         )
-        .wrap_err("Failed to submit request")?
         .collect::<QueryResult<Vec<_>>>()?;
 
     let accounts = accounts_a.iter().rev().chain(accounts_b.iter());

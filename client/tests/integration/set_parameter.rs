@@ -15,7 +15,7 @@ fn can_change_parameter_value() -> Result<()> {
     let param_box = SetParameterExpr::new(parameter);
 
     let old_params = test_client
-        .request(client::parameter::all())?
+        .seek(test_client.request(client::parameter::all())?)
         .collect::<QueryResult<Vec<_>>>()?;
     let param_val_old = old_params
         .iter()
@@ -26,7 +26,7 @@ fn can_change_parameter_value() -> Result<()> {
     test_client.submit_blocking(param_box)?;
 
     let new_params = test_client
-        .request(client::parameter::all())?
+        .seek(test_client.request(client::parameter::all())?)
         .collect::<QueryResult<Vec<_>>>()?;
     let param_val_new = new_params
         .iter()

@@ -46,7 +46,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         iroha_client.submit_blocking(mint_asset)?;
 
         let assets = iroha_client
-            .request(client::asset::by_account_id(account_id.clone()))?
+            .seek(iroha_client.request(client::asset::by_account_id(account_id.clone()))?)
             .collect::<QueryResult<Vec<_>>>()?;
         let asset = assets
             .into_iter()
@@ -67,7 +67,10 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
         iroha_client.poll_request(client::asset::by_account_id(account_id), |result| {
-            let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+            let assets = iroha_client
+                .seek(result)
+                .collect::<QueryResult<Vec<_>>>()
+                .expect("Valid");
             iroha_logger::error!(?assets);
 
             let account_asset = assets

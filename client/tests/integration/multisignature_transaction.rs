@@ -67,7 +67,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     let client_1 = Client::new(&client_configuration).expect("Invalid client configuration");
     let request = client::asset::by_account_id(alice_id);
     let assets = client_1
-        .request(request.clone())?
+        .seek(client_1.request(request.clone())?)
         .collect::<QueryResult<Vec<_>>>()?;
     assert_eq!(
         assets.len(),
@@ -86,7 +86,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     client_2.submit_transaction(&client_2.sign_transaction(transaction)?)?;
     thread::sleep(pipeline_time);
     let assets = client_1
-        .request(request)?
+        .seek(client_1.request(request)?)
         .collect::<QueryResult<Vec<_>>>()?;
     assert!(!assets.is_empty());
     let camomile_asset = assets

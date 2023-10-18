@@ -116,7 +116,10 @@ fn unstable_network(
                 Configuration::pipeline_time(),
                 4,
                 |result| {
-                    let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+                    let assets = iroha_client
+                        .seek(result)
+                        .collect::<QueryResult<Vec<_>>>()
+                        .expect("Valid");
 
                     assets.iter().any(|asset| {
                         asset.id().definition_id == asset_definition_id

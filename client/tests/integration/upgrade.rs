@@ -1,7 +1,10 @@
 use std::{path::Path, str::FromStr as _};
 
 use eyre::Result;
-use iroha_client::client::{self, Client, QueryResult};
+use iroha_client::{
+    client::{self, QueryResult},
+    DefaultSyncClient,
+};
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
 use iroha_logger::info;
@@ -68,8 +71,9 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
 
     // Check that Alice has permission to unregister Wonderland
     let alice_id: AccountId = "alice@wonderland".parse().unwrap();
+    let result_set = client.request(FindPermissionTokensByAccountId::new(alice_id.clone()))?;
     let alice_tokens = client
-        .request(FindPermissionTokensByAccountId::new(alice_id.clone()))?
+        .seek(result_set)
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
     assert!(alice_tokens.contains(&PermissionToken::new(
@@ -97,8 +101,9 @@ fn executor_upgrade_should_run_migration() -> Result<()> {
         .any(|id| id == &can_control_domain_lives_token_id));
 
     // Check that Alice has `can_control_domain_lives` permission
+    let result_set = client.request(FindPermissionTokensByAccountId::new(alice_id))?;
     let alice_tokens = client
-        .request(FindPermissionTokensByAccountId::new(alice_id))?
+        .seek(result_set)
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
     assert!(alice_tokens.contains(&PermissionToken::new(
@@ -114,7 +119,7 @@ fn migration_fail_should_not_cause_any_effects() {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_995).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
-    let assert_domain_does_not_exist = |client: &Client, domain_id: &DomainId| {
+    let assert_domain_does_not_exist = |client: &DefaultSyncClient, domain_id: &DomainId| {
         client
             .request(client::domain::by_id(domain_id.clone()))
             .expect_err(&format!("There should be no `{domain_id}` domain"));
@@ -139,7 +144,7 @@ fn migration_fail_should_not_cause_any_effects() {
     // been changed, because `executor_with_migration_fail` does not allow any queries
 }
 
-fn upgrade_executor(client: &Client, executor: impl AsRef<Path>) -> Result<()> {
+fn upgrade_executor(client: &DefaultSyncClient, executor: impl AsRef<Path>) -> Result<()> {
     info!("Building executor");
 
     let wasm = iroha_wasm_builder::Builder::new(executor.as_ref())

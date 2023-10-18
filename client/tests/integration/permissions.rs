@@ -1,7 +1,10 @@
 use std::{str::FromStr as _, thread, time::Duration};
 
 use eyre::Result;
-use iroha_client::client::{self, Client, QueryResult};
+use iroha_client::{
+    client::{self, QueryResult},
+    DefaultSyncClient,
+};
 use iroha_data_model::prelude::*;
 use iroha_genesis::GenesisNetwork;
 use serde_json::json;
@@ -57,10 +60,13 @@ fn genesis_transactions_are_validated() {
     }
 }
 
-fn get_assets(iroha_client: &Client, id: &AccountId) -> Vec<Asset> {
+fn get_assets(iroha_client: &DefaultSyncClient, id: &AccountId) -> Vec<Asset> {
     iroha_client
-        .request(client::asset::by_account_id(id.clone()))
-        .expect("Failed to execute request.")
+        .seek(
+            iroha_client
+                .request(client::asset::by_account_id(id.clone()))
+                .expect("Failed to execute request."),
+        )
         .collect::<QueryResult<Vec<_>>>()
         .expect("Failed to execute request.")
 }

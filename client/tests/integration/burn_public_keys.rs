@@ -1,10 +1,13 @@
-use iroha_client::client::{account, transaction, Client};
+use iroha_client::{
+    client::{account, transaction, Client},
+    DefaultSyncClient,
+};
 use iroha_crypto::{HashOf, KeyPair, PublicKey};
 use iroha_data_model::{isi::Instruction, prelude::*, transaction::TransactionPayload};
 use test_network::*;
 
 fn submit(
-    client: &Client,
+    client: &DefaultSyncClient,
     instructions: impl IntoIterator<Item = impl Instruction>,
     submitter: Option<(AccountId, KeyPair)>,
 ) -> (
@@ -26,14 +29,14 @@ fn submit(
     (tx.hash(), client.submit_transaction_blocking(&tx))
 }
 
-fn get(client: &Client, hash: HashOf<SignedTransaction>) -> TransactionValue {
+fn get(client: &DefaultSyncClient, hash: HashOf<SignedTransaction>) -> TransactionValue {
     client
         .request(transaction::by_hash(hash))
         .unwrap()
         .transaction
 }
 
-fn account_keys_count(client: &Client, account_id: AccountId) -> usize {
+fn account_keys_count(client: &DefaultSyncClient, account_id: AccountId) -> usize {
     let account = client.request(account::by_id(account_id)).unwrap();
     let signatories = account.signatories();
     signatories.len()
@@ -43,7 +46,8 @@ fn account_keys_count(client: &Client, account_id: AccountId) -> usize {
 fn public_keys_cannot_be_burned_to_nothing() {
     const KEYS_COUNT: usize = 3;
     let charlie_id: AccountId = "charlie@wonderland".parse().expect("Valid");
-    let charlie_keys_count = |client: &Client| account_keys_count(client, charlie_id.clone());
+    let charlie_keys_count =
+        |client: &DefaultSyncClient| account_keys_count(client, charlie_id.clone());
 
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_045).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);

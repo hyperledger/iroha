@@ -1,7 +1,10 @@
 use std::thread;
 
 use eyre::Result;
-use iroha_client::client::{self, QueryResult};
+use iroha_client::{
+    client::{self, QueryResult},
+    DefaultSyncClient,
+};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{
     parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
@@ -51,7 +54,7 @@ fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
 }
 
 fn check_assets(
-    iroha_client: &client::Client,
+    iroha_client: &DefaultSyncClient,
     account_id: &AccountId,
     asset_definition_id: &AssetDefinitionId,
     quantity: u32,
@@ -62,7 +65,10 @@ fn check_assets(
             Configuration::block_sync_gossip_time(),
             15,
             |result| {
-                let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+                let assets = iroha_client
+                    .seek(result)
+                    .collect::<QueryResult<Vec<_>>>()
+                    .expect("Valid");
 
                 assets.iter().any(|asset| {
                     asset.id().definition_id == *asset_definition_id
@@ -76,7 +82,7 @@ fn check_assets(
 fn mint(
     asset_definition_id: &AssetDefinitionId,
     account_id: &AccountId,
-    client: &client::Client,
+    client: &DefaultSyncClient,
     pipeline_time: std::time::Duration,
     quantity: u32,
 ) -> Result<u32, color_eyre::Report> {
@@ -96,7 +102,7 @@ fn mint(
 fn init() -> Result<(
     tokio::runtime::Runtime,
     test_network::Network,
-    iroha_client::client::Client,
+    iroha_client::DefaultSyncClient,
     std::time::Duration,
     AccountId,
     AssetDefinitionId,

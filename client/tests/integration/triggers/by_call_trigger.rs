@@ -1,7 +1,7 @@
 use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 
 use eyre::{eyre, Result, WrapErr};
-use iroha_client::client::{self, Client};
+use iroha_client::{client, DefaultSyncClient};
 use iroha_data_model::{
     prelude::*,
     query::error::{FindError, QueryExecutionFail},
@@ -484,7 +484,7 @@ fn trigger_burn_repetitions() -> Result<()> {
     Ok(())
 }
 
-fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
+fn get_asset_value(client: &mut DefaultSyncClient, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
     Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
 }

@@ -32,7 +32,7 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
 
     //Then
     let assets = client
-        .request(client::asset::by_account_id(alice_id))?
+        .seek(client.request(client::asset::by_account_id(alice_id))?)
         .collect::<QueryResult<Vec<_>>>()?;
     let asset = assets
         .iter()

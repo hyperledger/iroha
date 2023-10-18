@@ -7,7 +7,10 @@ use std::{collections::BTreeMap, path::Path, sync::Arc, thread};
 use eyre::Result;
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha::Iroha;
-use iroha_client::client::{Client, QueryOutput};
+use iroha_client::{
+    client::{Client, QueryOutput},
+    DefaultSyncClient,
+};
 use iroha_config::{
     base::proxy::{LoadFromEnv, Override},
     client::Configuration as ClientConfiguration,
@@ -148,7 +151,7 @@ impl Network {
     pub fn start_test_with_runtime(
         n_peers: u32,
         start_port: Option<u16>,
-    ) -> (Runtime, Self, Client) {
+    ) -> (Runtime, Self, DefaultSyncClient) {
         let rt = Runtime::test();
         let (network, client) = rt.block_on(Self::start_test(n_peers, start_port));
         (rt, network, client)
@@ -157,7 +160,7 @@ impl Network {
     /// Starts network with peers with default configuration and
     /// specified options.  Returns its info and client for connecting
     /// to it.
-    pub async fn start_test(n_peers: u32, start_port: Option<u16>) -> (Self, Client) {
+    pub async fn start_test(n_peers: u32, start_port: Option<u16>) -> (Self, DefaultSyncClient) {
         Self::start_test_with_offline(n_peers, 0, start_port).await
     }
 
@@ -168,7 +171,7 @@ impl Network {
         n_peers: u32,
         offline_peers: u32,
         start_port: Option<u16>,
-    ) -> (Self, Client) {
+    ) -> (Self, DefaultSyncClient) {
         let mut configuration = Configuration::test();
         configuration.logger.max_log_level = Level::INFO.into();
         let network = Network::new_with_offline_peers(
@@ -190,13 +193,13 @@ impl Network {
         n_peers: u32,
         offline_peers: u32,
         start_port: Option<u16>,
-    ) -> (Self, Client) {
+    ) -> (Self, DefaultSyncClient) {
         Self::start_test_with_offline_and_set_n_shifts(n_peers, offline_peers, start_port).await
     }
 
     /// Adds peer to network and waits for it to start block
     /// synchronization.
-    pub async fn add_peer(&self) -> (Peer, Client) {
+    pub async fn add_peer(&self) -> (Peer, DefaultSyncClient) {
         let genesis_client = Client::test(&self.genesis.api_address);
 
         let mut config = Configuration::test();
@@ -301,7 +304,7 @@ impl Network {
     }
 
     /// Get active clients
-    pub fn clients(&self) -> Vec<Client> {
+    pub fn clients(&self) -> Vec<DefaultSyncClient> {
         self.peers()
             .map(|peer| Client::test(&peer.api_address))
             .collect()
@@ -321,7 +324,7 @@ impl Network {
 ///
 /// # Panics
 /// When unsuccessful after `MAX_RETRIES`.
-pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
+pub fn wait_for_genesis_committed(clients: &[DefaultSyncClient], offline_peers: u32) {
     const POLL_PERIOD: Duration = Duration::from_millis(1000);
     const MAX_RETRIES: u32 = 30;
 
@@ -619,7 +622,7 @@ impl PeerBuilder {
     }
 
     /// Create and start a peer, create a client and connect it to the peer and return both.
-    pub async fn start_with_client(self) -> (Peer, Client) {
+    pub async fn start_with_client(self) -> (Peer, DefaultSyncClient) {
         let configuration = self
             .configuration
             .clone()
@@ -645,7 +648,7 @@ impl PeerBuilder {
     }
 }
 
-type PeerWithRuntimeAndClient = (Runtime, Peer, Client);
+type PeerWithRuntimeAndClient = (Runtime, Peer, DefaultSyncClient);
 
 fn local_unique_port() -> Result<SocketAddr> {
     Ok(socket_addr!(127.0.0.1: unique_port::get_unique_free_port().map_err(eyre::Error::msg)?))
@@ -791,7 +794,7 @@ impl TestClientConfiguration for ClientConfiguration {
     }
 }
 
-impl TestClient for Client {
+impl TestClient for DefaultSyncClient {
     fn test(api_url: &SocketAddr) -> Self {
         Client::new(&ClientConfiguration::test(api_url)).expect("Invalid client configuration")
     }

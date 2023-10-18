@@ -74,7 +74,7 @@ fn test_with_instruction_and_status_and_port(
 
 #[derive(Clone)]
 struct Checker {
-    listener: iroha_client::client::Client,
+    listener: iroha_client::DefaultSyncClient,
     hash: iroha_crypto::HashOf<TransactionPayload>,
 }
 

@@ -11,7 +11,7 @@ use std::{
 };
 
 use eyre::{Result, WrapErr};
-use iroha_client::client::Client;
+use iroha_client::DefaultSyncClient;
 use iroha_data_model::{
     parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
     prelude::*,
@@ -151,7 +151,7 @@ impl Config {
 
 struct MeasurerUnit {
     pub config: Config,
-    pub client: Client,
+    pub client: DefaultSyncClient,
     pub name: UnitName,
     pub next_name: UnitName,
 }

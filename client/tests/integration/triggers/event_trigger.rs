@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use eyre::Result;
-use iroha_client::client::{self, Client};
+use iroha_client::{client, DefaultSyncClient};
 use iroha_data_model::prelude::*;
 use test_network::*;
 
@@ -42,7 +42,7 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
     Ok(())
 }
 
-fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
+fn get_asset_value(client: &mut DefaultSyncClient, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
     Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
 }

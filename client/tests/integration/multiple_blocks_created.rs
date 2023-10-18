@@ -58,16 +58,17 @@ fn long_multiple_blocks_created() -> Result<()> {
 
     //Then
     let peer = network.peers().last().unwrap();
-    Client::test(&peer.api_address).poll_request(
-        client::asset::by_account_id(account_id),
-        |result| {
-            let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+    let test_client = Client::test(&peer.api_address);
+    test_client.poll_request(client::asset::by_account_id(account_id), |result| {
+        let assets = test_client
+            .seek(result)
+            .collect::<QueryResult<Vec<_>>>()
+            .expect("Valid");
 
-            assets.iter().any(|asset| {
-                asset.id().definition_id == asset_definition_id
-                    && *asset.value() == AssetValue::Quantity(account_has_quantity)
-            })
-        },
-    )?;
+        assets.iter().any(|asset| {
+            asset.id().definition_id == asset_definition_id
+                && *asset.value() == AssetValue::Quantity(account_has_quantity)
+        })
+    })?;
     Ok(())
 }

@@ -35,7 +35,7 @@ fn find_roles() -> Result<()> {
 
     // Checking results
     let found_role_ids = test_client
-        .request(client::role::all())?
+        .seek(test_client.request(client::role::all())?)
         .collect::<QueryResult<Vec<_>>>()?
         .into_iter();
 
@@ -67,7 +67,7 @@ fn find_role_ids() -> Result<()> {
 
     // Checking results
     let found_role_ids = test_client
-        .request(client::role::all_ids())?
+        .seek(test_client.request(client::role::all_ids())?)
         .collect::<QueryResult<Vec<_>>>()?;
     let found_role_ids = found_role_ids.into_iter().collect::<HashSet<_>>();
 
@@ -148,7 +148,7 @@ fn find_roles_by_account_id() -> Result<()> {
 
     // Checking results
     let found_role_ids = test_client
-        .request(client::role::by_account_id(alice_id))?
+        .seek(test_client.request(client::role::by_account_id(alice_id))?)
         .collect::<QueryResult<Vec<_>>>()?;
     let found_role_ids = found_role_ids.into_iter().collect::<HashSet<_>>();
 

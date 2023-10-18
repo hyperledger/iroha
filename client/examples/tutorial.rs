@@ -3,6 +3,7 @@
 use std::fs::File;
 
 use eyre::{Error, WrapErr};
+use iroha_client::DefaultSyncClient;
 // #region rust_config_crates
 use iroha_config::client::Configuration;
 use iroha_data_model::TryToValue;
@@ -37,17 +38,14 @@ fn main() {
 }
 
 fn json_config_client_test(config: &Configuration) -> Result<(), Error> {
-    use iroha_client::client::Client;
-
     // Initialise a client with a provided config
-    let _current_client: Client = Client::new(config)?;
+    let _current_client = DefaultSyncClient::new(config)?;
 
     Ok(())
 }
 
 fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region domain_register_example_crates
-    use iroha_client::client::Client;
     use iroha_data_model::{
         metadata::UnlimitedMetadata,
         prelude::{Domain, DomainId, InstructionExpr, RegisterExpr},
@@ -66,7 +64,7 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
 
     // #region rust_client_create
     // Create an Iroha client
-    let iroha_client: Client = Client::new(config)?;
+    let iroha_client = DefaultSyncClient::new(config)?;
     // #endregion rust_client_create
 
     // #region domain_register_example_prepare_tx
@@ -111,7 +109,6 @@ fn account_definition_test() -> Result<(), Error> {
 
 fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region register_account_crates
-    use iroha_client::client::Client;
     use iroha_crypto::KeyPair;
     use iroha_data_model::{
         metadata::UnlimitedMetadata,
@@ -120,7 +117,7 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     // #endregion register_account_crates
 
     // Create an Iroha client
-    let iroha_client: Client = Client::new(config)?;
+    let iroha_client = DefaultSyncClient::new(config)?;
 
     // #region register_account_create
     // Create an AccountId instance by providing the account and domain name
@@ -161,14 +158,13 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region register_asset_crates
     use std::str::FromStr as _;
 
-    use iroha_client::client::Client;
     use iroha_data_model::prelude::{
         AccountId, AssetDefinition, AssetDefinitionId, AssetId, IdBox, MintExpr, RegisterExpr,
     };
     // #endregion register_asset_crates
 
     // Create an Iroha client
-    let iroha_client: Client = Client::new(config)?;
+    let iroha_client = DefaultSyncClient::new(config)?;
 
     // #region register_asset_create_asset
     // Create an asset
@@ -209,7 +205,6 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
     // #region mint_asset_crates
     use std::str::FromStr;
 
-    use iroha_client::client::Client;
     use iroha_data_model::{
         prelude::{AccountId, AssetDefinitionId, AssetId, MintExpr, ToValue},
         IdBox,
@@ -217,7 +212,7 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
     // #endregion mint_asset_crates
 
     // Create an Iroha client
-    let iroha_client: Client = Client::new(config)?;
+    let iroha_client = DefaultSyncClient::new(config)?;
 
     // Define the instances of an Asset and Account
     // #region mint_asset_define_asset_account
@@ -267,7 +262,6 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
     // #region burn_asset_crates
     use std::str::FromStr;
 
-    use iroha_client::client::Client;
     use iroha_data_model::{
         prelude::{AccountId, AssetDefinitionId, AssetId, BurnExpr, ToValue},
         IdBox,
@@ -275,7 +269,7 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
     // #endregion burn_asset_crates
 
     // Create an Iroha client
-    let iroha_client: Client = Client::new(config)?;
+    let iroha_client = DefaultSyncClient::new(config)?;
 
     // #region burn_asset_define_asset_account
     // Define the instances of an Asset and Account

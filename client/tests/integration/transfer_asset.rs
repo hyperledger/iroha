@@ -88,7 +88,10 @@ fn simulate_transfer<
             transfer_asset,
             client::asset::by_account_id(mouse_id.clone()),
             |result| {
-                let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+                let assets = iroha_client
+                    .seek(result)
+                    .collect::<QueryResult<Vec<_>>>()
+                    .expect("Valid");
 
                 assets.iter().any(|asset| {
                     asset.id().definition_id == asset_definition_id

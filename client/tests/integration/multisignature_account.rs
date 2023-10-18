@@ -1,7 +1,10 @@
 use std::thread;
 
 use eyre::Result;
-use iroha_client::client::{self, Client, QueryResult};
+use iroha_client::{
+    client::{self, QueryResult},
+    DefaultSyncClient,
+};
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
 use test_network::*;
@@ -36,11 +39,15 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
             account_id.clone(),
         )),
     );
-    Client::test_with_key(&peer.api_address, key_pair).submit_till(
+    let test_client = DefaultSyncClient::test_with_key(&peer.api_address, key_pair);
+    test_client.submit_till(
         mint_asset,
         client::asset::by_account_id(account_id),
         |result| {
-            let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+            let assets = test_client
+                .seek(result)
+                .collect::<QueryResult<Vec<_>>>()
+                .expect("Valid");
 
             assets.iter().any(|asset| {
                 asset.id().definition_id == asset_definition_id
