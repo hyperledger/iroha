@@ -46,6 +46,8 @@ pub struct Builder<'path, 'out_dir> {
     out_dir: Option<&'out_dir Path>,
     /// Flag to enable smartcontract formatting
     format: bool,
+    /// Flag controlling whether to show output of the build process
+    show_output: bool,
 }
 
 impl<'path, 'out_dir> Builder<'path, 'out_dir> {
@@ -60,6 +62,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
             path: relative_path.as_ref(),
             out_dir: None,
             format: false,
+            show_output: false,
         }
     }
 
@@ -81,6 +84,14 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
     /// Disabled by default.
     pub fn format(mut self) -> Self {
         self.format = true;
+        self
+    }
+
+    /// Enable showing output of the build process.
+    ///
+    /// Disabled by default.
+    pub fn show_output(mut self) -> Self {
+        self.show_output = true;
         self
     }
 
@@ -116,6 +127,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
                 |out_dir| Ok(Cow::Borrowed(out_dir)),
             )?,
             format: self.format,
+            show_output: self.show_output,
         })
     }
 
@@ -169,6 +181,7 @@ mod internal {
         pub absolute_path: PathBuf,
         pub out_dir: Cow<'out_dir, Path>,
         pub format: bool,
+        pub show_output: bool,
     }
 
     impl Builder<'_> {
@@ -223,13 +236,11 @@ mod internal {
         }
 
         fn format_smartcontract(&self) -> Result<()> {
-            let command_output = cargo_command()
-                .current_dir(&self.absolute_path)
-                .arg("fmt")
-                .output()
-                .wrap_err("Failed to run `cargo fmt`")?;
-
-            check_command_output(&command_output, "cargo fmt")
+            check_command(
+                self.show_output,
+                cargo_command().current_dir(&self.absolute_path).arg("fmt"),
+                "cargo fmt",
+            )
         }
 
         fn get_base_command(&self, cmd: &'static str) -> std::process::Command {
@@ -243,12 +254,9 @@ mod internal {
         }
 
         fn check_smartcontract(&self) -> Result<()> {
-            let command_output = self
-                .get_base_command("check")
-                .output()
-                .wrap_err("Failed to run `cargo check`")?;
+            let command = &mut self.get_base_command("check");
 
-            check_command_output(&command_output, "cargo check")
+            check_command(self.show_output, command, "cargo check")
         }
 
         fn build_smartcontract(self) -> Result<Output> {
@@ -271,13 +279,12 @@ mod internal {
                 None
             };
 
-            let command_output = self
-                .get_base_command("build")
-                .env("CARGO_TARGET_DIR", self.out_dir.as_ref())
-                .output()
-                .wrap_err("Failed to run `cargo build`")?;
-
-            check_command_output(&command_output, "cargo build")?;
+            check_command(
+                self.show_output,
+                self.get_base_command("build")
+                    .env("CARGO_TARGET_DIR", self.out_dir.as_ref()),
+                "cargo build",
+            )?;
 
             Ok(Output {
                 wasm_file,
@@ -410,15 +417,35 @@ fn cargo_command() -> Command {
     cargo
 }
 
-fn check_command_output(command_output: &std::process::Output, command_name: &str) -> Result<()> {
-    if !command_output.status.success() {
+fn check_command_output(output: &std::process::Output, command_name: &str) -> Result<()> {
+    if output.status.success() {
+        Ok(())
+    } else {
         bail!(
             "`{}` returned non zero exit code ({}). Stderr:\n{}",
             command_name,
-            command_output.status,
-            String::from_utf8_lossy(&command_output.stderr)
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
         );
     }
+}
 
-    Ok(())
+fn check_command(show_output: bool, command: &mut Command, command_name: &str) -> Result<()> {
+    if show_output {
+        let status = command
+            .status()
+            .wrap_err(format!("Failed to run `{command_name}`"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            bail!(
+                "`{command_name}` returned non zero exit code ({status}). See messages above for the probable error",
+            );
+        }
+    } else {
+        let output = command
+            .output()
+            .wrap_err(format!("Failed to run `{command_name}`"))?;
+        check_command_output(&output, command_name)
+    }
 }

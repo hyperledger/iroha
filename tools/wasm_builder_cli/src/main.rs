@@ -43,7 +43,7 @@ fn main() -> color_eyre::Result<()> {
         Cli::Check {
             common: CommonArgs { path },
         } => {
-            let builder = Builder::new(&path);
+            let builder = Builder::new(&path).show_output();
             builder.check()?;
         }
         Cli::Build {
@@ -52,26 +52,15 @@ fn main() -> color_eyre::Result<()> {
             optimize,
             outfile,
         } => {
-            let builder = Builder::new(&path);
+            let builder = Builder::new(&path).show_output();
             let builder = if format { builder.format() } else { builder };
 
             let output = {
-                let mut sp = spinoff::Spinner::new_with_stream(
-                    spinoff::spinners::Dots12,
-                    "Building the smartcontract",
-                    None,
-                    spinoff::Streams::Stderr,
-                );
+                // not showing the spinner here, cargo does a progress bar for us
 
                 match builder.build() {
-                    Ok(output) => {
-                        sp.success("Smartcontract is built");
-                        output
-                    }
-                    err => {
-                        sp.fail("Building failed");
-                        err?
-                    }
+                    Ok(output) => output,
+                    err => err?,
                 }
             };
 
