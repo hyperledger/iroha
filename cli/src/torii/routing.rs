@@ -360,25 +360,17 @@ fn update_metrics_gracefully(sumeragi: &SumeragiHandle) {
 fn handle_status(
     sumeragi: &SumeragiHandle,
     accept: Option<impl AsRef<str>>,
-    subpath: &warp::path::Tail,
-) -> Result<reply::Response> {
+    tail: &warp::path::Tail,
+) -> Result<Response> {
     use eyre::ContextCompat;
-    const PARITY_SCALE_MIME: &'_ str = "application/x-parity-scale";
 
     update_metrics_gracefully(sumeragi);
     let status = Status::from(&sumeragi.metrics());
 
-    let subpath = subpath.as_str();
-    if subpath.is_empty() {
-        if accept.is_some_and(|x| x.as_ref() == PARITY_SCALE_MIME) {
-            let body: hyper::Body = status.encode().into();
-
-            warp::http::Response::builder()
-                .status(StatusCode::OK)
-                .header(warp::http::header::CONTENT_TYPE, PARITY_SCALE_MIME)
-                .body(body)
-                .wrap_err("Failed to build response body")
-                .map_err(Error::StatusFailure)
+    let tail = tail.as_str();
+    if tail.is_empty() {
+        if accept.is_some_and(|x| x.as_ref() == PARITY_SCALE_MIME_TYPE) {
+            Ok(Scale(status).into_response())
         } else {
             Ok(reply::json(&status).into_response())
         }
@@ -392,12 +384,12 @@ fn handle_status(
             .wrap_err("Failed to serialize JSON")
             .map_err(Error::StatusFailure)?;
 
-        let reply = subpath
+        let reply = tail
             .split('/')
             .try_fold(&value, serde_json::Value::get)
-            .wrap_err_with(|| eyre!("Path not found: \"{}\"", subpath))
-            .map(|segment| reply::json(segment).into_response())
-            .map_err(Error::StatusSegmentNotFound)?;
+            .wrap_err_with(|| eyre!("Path not found: \"{}\"", tail))
+            .map_err(Error::StatusSegmentNotFound)
+            .map(|segment| reply::json(segment).into_response())?;
 
         Ok(reply)
     }

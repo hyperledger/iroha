@@ -1,7 +1,12 @@
 use std::convert::Infallible;
 
 use iroha_version::prelude::*;
-use warp::{hyper::body::Bytes, reply::Response, Filter, Rejection, Reply};
+use warp::{
+    http::{header::CONTENT_TYPE, HeaderValue},
+    hyper::body::Bytes,
+    reply::Response,
+    Filter, Rejection, Reply,
+};
 
 /// Structure for empty response body
 #[derive(Clone, Copy)]
@@ -13,13 +18,22 @@ impl Reply for Empty {
     }
 }
 
-/// Structure for response in scale codec in body
+/// MIME used in Torii for SCALE encoding
+// note: no elegant way to associate it with generic `Scale<T>`
+pub const PARITY_SCALE_MIME_TYPE: &'_ str = "application/x-parity-scale";
+
+/// Structure to reply using SCALE encoding
 #[derive(Debug)]
 pub struct Scale<T>(pub T);
 
 impl<T: Encode + Send> Reply for Scale<T> {
     fn into_response(self) -> Response {
-        Response::new(self.0.encode().into())
+        let mut res = Response::new(self.0.encode().into());
+        res.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static(PARITY_SCALE_MIME_TYPE),
+        );
+        res
     }
 }
 
