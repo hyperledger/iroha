@@ -259,11 +259,11 @@ impl SumeragiHandle {
             }
             height => {
                 let block_ref = kura.get_block_by_height(height).expect("Sumeragi could not load block that was reported as present. Please check that the block storage was not disconnected.");
-                let mut topology = Topology {
-                    sorted_peers: block_ref.as_v1().header.committed_with_topology.clone(),
-                };
-                topology.rotate_set_a();
-                topology
+                Topology::recreate_topology(
+                    &block_ref,
+                    0,
+                    wsv.peers_ids().iter().cloned().collect(),
+                )
             }
         };
 
