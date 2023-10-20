@@ -25,6 +25,8 @@ class Network:
     """
     def __init__(self, args: argparse.Namespace):
         logging.info("Setting up test environment...")
+
+        self.out_dir = args.out_dir
         peers_dir = args.out_dir.joinpath("peers")
         os.makedirs(peers_dir, exist_ok=True)
         try:
@@ -67,6 +69,7 @@ class Network:
                 logging.info(f"Error connecting to genesis peer: {e}. Sleeping 1 second...")
                 time.sleep(1)
         logging.critical(f"Genesis block wasn't created within {n_tries} seconds. Aborting...")
+        cleanup(self.out_dir)
         sys.exit(2)
 
     def run(self):
@@ -157,7 +160,7 @@ def copy_or_prompt_build_bin(bin_name: str, root_dir: pathlib.Path, target_dir: 
             else:
                 logging.error("Please answer with either `y[es]` or `n[o])")
 
-def main(args):
+def main(args: argparse.Namespace):
     # Bold ASCII escape sequence
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
         style="{",
@@ -173,9 +176,9 @@ def main(args):
     if args.command == "setup":
         setup(args)
     elif args.command == "cleanup":
-        cleanup(args)
+        cleanup(args.out_dir)
 
-def setup(args):
+def setup(args: argparse.Namespace):
     logging.info(f"Starting iroha network with {args.n_peers} peers...")
     os.makedirs(args.out_dir, exist_ok=True)
     copy_or_prompt_build_bin("iroha_client_cli", args.root_dir, args.out_dir)
@@ -186,12 +189,11 @@ def setup(args):
 
     Network(args).run()
 
-def cleanup(args):
-    setup_dir = args.out_dir
+def cleanup(out_dir: pathlib.Path):
     logging.info("Killing peer processes...")
     subprocess.run(["pkill", "-9", "iroha"])
-    logging.info(f"Cleaning up test directory `{setup_dir}`...")
-    shutil.rmtree(setup_dir)
+    logging.info(f"Cleaning up test directory `{out_dir}`...")
+    shutil.rmtree(out_dir)
 
 
 
