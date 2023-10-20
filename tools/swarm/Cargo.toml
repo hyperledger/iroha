@@ -27,4 +27,4 @@ inquire.workspace = true
 [dev-dependencies]
 iroha_config.workspace = true
 
-expect-test = "1.4.1"
+expect-test.workspace = true
