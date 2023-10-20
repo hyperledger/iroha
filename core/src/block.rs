@@ -693,6 +693,13 @@ mod commit {
             source.0
         }
     }
+
+    // Invariants of [`CommittedBlock`] can't be violated through immutable reference
+    impl AsRef<SignedBlock> for CommittedBlock {
+        fn as_ref(&self) -> &SignedBlock {
+            &self.0
+        }
+    }
 }
 
 #[cfg(test)]
