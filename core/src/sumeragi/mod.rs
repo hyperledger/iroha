@@ -261,9 +261,11 @@ impl SumeragiHandle {
                     "Sumeragi could not load block that was reported as present. \
                      Please check that the block storage was not disconnected.",
                 );
-                let mut topology = Topology::new(block_ref.payload().commit_topology.clone());
-                topology.rotate_set_a();
-                topology
+                Topology::recreate_topology(
+                    &block_ref,
+                    0,
+                    wsv.peers_ids().iter().cloned().collect(),
+                )
             }
         };
 

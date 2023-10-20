@@ -6,7 +6,6 @@ use iroha_data_model::{
     transaction::error::TransactionRejectionReason,
 };
 use iroha_p2p::UpdateTopology;
-use iroha_primitives::unique_vec::UniqueVec;
 use tracing::{span, Level};
 
 use super::{view_change::ProofBuilder, *};
@@ -287,15 +286,6 @@ impl Sumeragi {
         self.update_state::<ReplaceTopBlockStrategy>(block, new_wsv);
     }
 
-    fn update_topology(&mut self, block_signees: &[PublicKey], peers: UniqueVec<PeerId>) {
-        let mut topology = Topology::new(peers);
-
-        topology.update_topology(block_signees, self.wsv.peers_ids().clone());
-
-        self.current_topology = topology;
-        self.connect_peers(&self.current_topology);
-    }
-
     fn update_state<Strategy: ApplyBlockStrategy>(
         &mut self,
         block: CommittedBlock,
@@ -322,13 +312,11 @@ impl Sumeragi {
         // Parameters are updated before updating public copy of sumeragi
         self.update_params();
 
-        let block_topology = block.payload().commit_topology.clone();
-        let block_signees = block
-            .signatures()
-            .into_iter()
-            .map(|s| s.public_key())
-            .cloned()
-            .collect::<Vec<PublicKey>>();
+        let new_topology = Topology::recreate_topology(
+            block.as_ref(),
+            0,
+            self.wsv.peers_ids().iter().cloned().collect(),
+        );
         let events = block.produce_events();
 
         // https://github.com/hyperledger/iroha/issues/3396
@@ -352,7 +340,9 @@ impl Sumeragi {
         // NOTE: This sends "Block committed" event,
         // so it should be done AFTER public facing WSV update
         self.send_events(events);
-        self.update_topology(&block_signees, block_topology);
+        self.current_topology = new_topology;
+        self.connect_peers(&self.current_topology);
+
         self.cache_transaction();
     }
 
@@ -728,6 +718,7 @@ fn reset_state(
     old_view_change_index: &mut u64,
     current_latest_block_height: u64,
     old_latest_block_height: &mut u64,
+    latest_block: &SignedBlock,
     // below is the state that gets reset.
     current_topology: &mut Topology,
     voting_block: &mut Option<VotingBlock>,
@@ -745,17 +736,21 @@ fn reset_state(
         *old_view_change_index = 0;
     }
 
-    while *old_view_change_index < current_view_change_index {
+    if *old_view_change_index < current_view_change_index {
         error!(addr=%peer_id.address, "Rotating the entire topology.");
-
-        *old_view_change_index += 1;
-        current_topology.rotate_all();
+        *old_view_change_index = current_view_change_index;
         was_commit_or_view_change = true;
     }
 
     // Reset state for the next round.
     if was_commit_or_view_change {
         *old_latest_block_height = current_latest_block_height;
+
+        *current_topology = Topology::recreate_topology(
+            latest_block,
+            current_view_change_index,
+            current_topology.ordered_peers.iter().cloned().collect(),
+        );
 
         *voting_block = None;
         voting_signatures.clear();
@@ -870,6 +865,10 @@ pub(crate) fn run(
             &mut old_view_change_index,
             sumeragi.wsv.height(),
             &mut old_latest_block_height,
+            &sumeragi
+                .wsv
+                .latest_block_ref()
+                .expect("WSV must have blocks"),
             &mut sumeragi.current_topology,
             &mut voting_block,
             &mut voting_signatures,
@@ -922,6 +921,31 @@ pub(crate) fn run(
                     );
                 },
             );
+
+        // State could be changed after handling message so it is necessary to reset state before handling message independent step
+        let current_view_change_index = prune_view_change_proofs_and_calculate_current_index(
+            &sumeragi,
+            &mut view_change_proof_chain,
+        );
+
+        reset_state(
+            &sumeragi.peer_id,
+            sumeragi.pipeline_time(),
+            current_view_change_index,
+            &mut old_view_change_index,
+            sumeragi.wsv.height(),
+            &mut old_latest_block_height,
+            &sumeragi
+                .wsv
+                .latest_block_ref()
+                .expect("WSV must have blocks"),
+            &mut sumeragi.current_topology,
+            &mut voting_block,
+            &mut voting_signatures,
+            &mut round_start_time,
+            &mut last_view_change_time,
+            &mut view_change_time,
+        );
 
         process_message_independent(
             &mut sumeragi,
@@ -1158,7 +1182,7 @@ fn handle_block_sync(
 
 #[cfg(test)]
 mod tests {
-    use iroha_primitives::unique_vec;
+    use iroha_primitives::{unique_vec, unique_vec::UniqueVec};
 
     use super::*;
     use crate::smartcontracts::Registrable;
