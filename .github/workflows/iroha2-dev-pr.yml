@@ -15,6 +15,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CLIENT_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
 
 jobs:
   consistency:
@@ -131,46 +132,33 @@ jobs:
           # This context specification is required
           context: .
 
-  client-cli-test:
+  client-cli-tests:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: alexstrokelive/iroha2-ci:pytest-nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2023-06-25
     timeout-minutes: 60
-
     steps:
-
-      - name: Maximize build space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
-
       - name: Build binaries
         run: |
           cargo build --bin iroha_client_cli
           cargo build --bin kagami
           cargo build --bin iroha
-
       - name: Setup test Iroha 2 environment on the bare metal
         run: |
           ./scripts/test_env.py setup
-
       - name: Mark binaries as executable
         run: |
-          chmod +x $CLIENT_CLI_DIR
-
+          chmod +x ${{ env.CLIENT_CLI_DIR }}
       - name: Install dependencies using Poetry
         working-directory: client_cli/pytests
         run: |
           poetry install
-
       - name: Run client cli tests
         working-directory: client_cli/pytests
         run: |
           poetry run pytest
-
       - name: Cleanup test environment
         run: |
           ./scripts/test_env.py cleanup

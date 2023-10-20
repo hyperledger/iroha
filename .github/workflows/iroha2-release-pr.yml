@@ -10,52 +10,50 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CLIENT_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
+  ALLURE_RESULTS: "${{ github.workspace }}/allure-results"
+  ALLURE_JOB_RUN_ID: ${{ github.event.inputs.ALLURE_JOB_RUN_ID }}
 
 jobs:
-  client-cli-test:
+  client-cli-tests:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
       image: hyperledger/iroha2-ci:nightly-2023-06-25
     timeout-minutes: 60
-
     steps:
-
-      - name: Maximize build space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
-
+      - name: Install and configure allurectl
+        uses: allure-framework/setup-allurectl@v1
+        with:
+          allure-endpoint: https://soramitsu.testops.cloud
+          allure-token: ${{ secrets.ALLURE_TOKEN }}
+          allure-project-id: 1
       - name: Build binaries
         run: |
           cargo build --bin iroha_client_cli
           cargo build --bin kagami
           cargo build --bin iroha
-
       - name: Setup test Iroha 2 environment on bare metal
         run: |
           ./scripts/test_env.py setup
-
       - name: Mark binaries as executable
         run: |
-          chmod +x $CLIENT_CLI_DIR
-
+          chmod +x ${{ env.CLIENT_CLI_DIR }}
       - name: Install dependencies using Poetry
         working-directory: client_cli/pytests
         run: |
           poetry install
-
-      - name: Run client cli tests
+      - name: Run client cli tests and upload results to Allure Test Ops
         working-directory: client_cli/pytests
         run: |
-          poetry run pytest
-
+          allurectl watch -- poetry run pytest --alluredir=${ALLURE_RESULTS}
+          printenv | grep GITHUB_TESTS_
+        env:
+          GITHUB_TESTS_REF_NAME: ${{ github.ref_name }}
       - name: Cleanup test environment
         run: |
           ./scripts/test_env.py cleanup
-
       - name: Panic on invalid genesis test
         run: bash -c './scripts/tests/panic_on_invalid_genesis.sh'
 

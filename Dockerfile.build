@@ -4,7 +4,6 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
     POETRY_HOME=/opt/poetry \
-    CLIENT_CLI_DIR=/__w/iroha/iroha/test \
     TORII_API_PORT_MIN=8080 \
     TORII_API_PORT_MAX=8083
 
