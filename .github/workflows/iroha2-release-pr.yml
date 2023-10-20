@@ -12,40 +12,50 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  cli:
-    runs-on: ubuntu-latest #[self-hosted, Linux]
+  client-cli-test:
+    runs-on: [self-hosted, Linux, iroha2ci]
     container:
       image: hyperledger/iroha2-ci:nightly-2023-06-25
+    timeout-minutes: 60
+
     steps:
+
       - name: Maximize build space
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
-      - name: Build iroha
-        working-directory: cli
-        run: mold --run cargo build
-      - name: Build iroha_client_cli
-        working-directory: client_cli
-        run: mold --run cargo build
-      - name: Build kagami
-        working-directory: tools/kagami
-        run: mold --run cargo build
+
+      - name: Build binaries
+        run: |
+          cargo build --bin iroha_client_cli
+          cargo build --bin kagami
+          cargo build --bin iroha
+
+      - name: Setup test Iroha 2 environment on bare metal
+        run: |
+          ./scripts/test_env.py setup
+
       - name: Mark binaries as executable
         run: |
-          chmod +x target/debug/iroha
-          chmod +x target/debug/iroha_client_cli
-          chmod +x target/debug/kagami
-      - name: Setup test environment
-        run: python3 './scripts/test_env.py setup'
-      - name: Genesis test
-        run: bash -c './scripts/tests/genesis.sh || (cat test/peers/iroha0/.log; false )'
-      - name: Basic register and mint
-        if: always()
-        run: bash -c './scripts/tests/register_mint_quantity.sh || (cat test/peers/iroha0/.log; false )'
+          chmod +x $CLIENT_CLI_DIR
+
+      - name: Install dependencies using Poetry
+        working-directory: client_cli/pytests
+        run: |
+          poetry install
+
+      - name: Run client cli tests
+        working-directory: client_cli/pytests
+        run: |
+          poetry run pytest
+
       - name: Cleanup test environment
-        run: python3 './scripts/test_env.py cleanup'
+        run: |
+          ./scripts/test_env.py cleanup
+
       - name: Panic on invalid genesis test
         run: bash -c './scripts/tests/panic_on_invalid_genesis.sh'
 
