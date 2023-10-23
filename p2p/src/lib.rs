@@ -3,14 +3,12 @@
 //! Cryptography are chosen in this module, and encapsulated.
 use std::{io, net::AddrParseError};
 
-use iroha_crypto::ursa::{
+use iroha_crypto::{
     blake2::{
         digest::{Update, VariableOutput},
-        VarBlake2b,
+        Blake2bVar,
     },
-    encryption::symm::prelude::ChaCha20Poly1305,
-    kex::x25519::X25519Sha256,
-    CryptoError,
+    ursa::{encryption::symm::prelude::ChaCha20Poly1305, kex::x25519::X25519Sha256, CryptoError},
 };
 pub use network::message::*;
 use parity_scale_codec::{Decode, Encode};
@@ -157,7 +155,7 @@ pub(crate) mod unbounded_with_len {
 /// Create Blake2b hash as u64 value
 pub fn blake2b_hash(slice: impl AsRef<[u8]>) -> u64 {
     const U64_SIZE: usize = core::mem::size_of::<u64>();
-    let hash = VarBlake2b::new(U64_SIZE)
+    let hash = Blake2bVar::new(U64_SIZE)
         .expect("Failed to create hash with given length")
         .chain(&slice)
         .finalize_boxed();

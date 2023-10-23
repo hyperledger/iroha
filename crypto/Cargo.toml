@@ -35,8 +35,10 @@ serde = { workspace = true, features = ["derive"] }
 serde_with = { workspace = true, features = ["macros"] }
 hex = { workspace = true, features = ["alloc", "serde"] }
 openssl-sys = { version = "0.9.93", features = ["vendored"], optional = true }
-ursa = { workspace = true, optional = true }
 getset = { workspace = true }
+
+ursa = { workspace = true, optional = true }
+blake2 = "0.10.6"
 
 [dev-dependencies]
 hex-literal = { workspace = true }
