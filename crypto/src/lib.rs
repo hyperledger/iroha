@@ -22,6 +22,9 @@ use core::{fmt, str::FromStr};
 
 #[cfg(feature = "base64")]
 pub use base64;
+#[cfg(feature = "std")]
+#[cfg(not(feature = "ffi_import"))]
+pub use blake2;
 use derive_more::{DebugCustom, Display};
 use error::{Error, NoSuchAlgorithm};
 use getset::{CopyGetters, Getters};

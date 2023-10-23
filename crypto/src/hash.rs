@@ -2,6 +2,11 @@
 use alloc::{borrow::ToOwned as _, format, string::String, vec, vec::Vec};
 use core::{hash, marker::PhantomData, num::NonZeroU8, str::FromStr};
 
+#[cfg(all(feature = "std", not(feature = "ffi_import")))]
+use blake2::{
+    digest::{Update, VariableOutput},
+    Blake2bVar,
+};
 use derive_more::{DebugCustom, Deref, DerefMut, Display};
 #[cfg(any(feature = "std", feature = "ffi_import"))]
 use iroha_macro::ffi_impl_opaque;
@@ -9,11 +14,6 @@ use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::DeserializeFromStr;
-#[cfg(all(feature = "std", not(feature = "ffi_import")))]
-use ursa::blake2::{
-    digest::{Update, VariableOutput},
-    VarBlake2b,
-};
 
 use crate::{error::Error, hex_decode};
 
@@ -46,7 +46,7 @@ impl Hash {
     /// Length of hash
     pub const LENGTH: usize = 32;
 
-    /// Wrap the given bytes; they must be prehashed with `VarBlake2b`
+    /// Wrap the given bytes; they must be prehashed with `Blake2bVar`
     pub fn prehashed(mut hash: [u8; Self::LENGTH]) -> Self {
         hash[Self::LENGTH - 1] |= 1;
         // SAFETY:
@@ -72,7 +72,7 @@ impl Hash {
     // NOTE: Panic is predicated by implementation not user input
     #[allow(clippy::missing_panics_doc)]
     pub fn new(bytes: impl AsRef<[u8]>) -> Self {
-        let vec_hash = VarBlake2b::new(Self::LENGTH)
+        let vec_hash = Blake2bVar::new(Self::LENGTH)
             .expect("Failed to initialize variable size hash")
             .chain(bytes)
             .finalize_boxed();
@@ -328,7 +328,7 @@ mod tests {
     #[cfg(feature = "std")]
     #[cfg(not(feature = "ffi_import"))]
     fn blake2_32b() {
-        let mut hasher = VarBlake2b::new(32).unwrap();
+        let mut hasher = Blake2bVar::new(32).unwrap();
         hasher.update(hex_literal::hex!("6920616d2064617461"));
         hasher.finalize_variable(|res| {
             assert_eq!(
