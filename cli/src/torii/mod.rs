@@ -83,14 +83,14 @@ impl Error {
         match self {
             Query(e) => Self::query_status_code(e),
             AcceptTransaction(_) | ConfigurationReload(_) => StatusCode::BAD_REQUEST,
-            Config(_) => StatusCode::NOT_FOUND,
+            Config(_) | StatusSegmentNotFound(_) => StatusCode::NOT_FOUND,
             PushIntoQueue(err) => match **err {
                 queue::Error::Full => StatusCode::INTERNAL_SERVER_ERROR,
                 queue::Error::SignatureCondition { .. } => StatusCode::UNAUTHORIZED,
                 _ => StatusCode::BAD_REQUEST,
             },
             #[cfg(feature = "telemetry")]
-            Prometheus(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Prometheus(_) | StatusFailure(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
