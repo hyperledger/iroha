@@ -15,6 +15,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CLIENT_CLI_DIR: "/__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/test"
 
 jobs:
   consistency:
@@ -131,12 +132,11 @@ jobs:
           # This context specification is required
           context: .
 
-  client-cli-test:
+  client-cli-tests:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
       image: hyperledger/iroha2-ci:nightly-2023-06-25
     timeout-minutes: 60
-
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
@@ -145,31 +145,20 @@ jobs:
           cargo build --bin iroha_client_cli
           cargo build --bin kagami
           cargo build --bin iroha
-
-      - name: Mark binaries as executable
-        run: |
-          chmod +x $CLIENT_CLI_DIR/
-
-      - name: Run Iroha 2 on bare metal
+      - name: Setup test Iroha 2 environment on the bare metal
         run: |
           ./scripts/test_env.py setup
-
-      - name: Copy Iroha 2 client config
+      - name: Mark binaries as executable
         run: |
-          cp ./configs/client/config.json $CLIENT_CLI_DIR/
-
-      - name: Set up .env for client_cli tests
-        run: |
-          echo "CLIENT_CLI_DIR=$CLIENT_CLI_DIR" >> ./client_cli/pytests/.env
-          echo "TORII_API_PORT_MIN=8080" >> ./client_cli/pytests/.env
-          echo "TORII_API_PORT_MAX=8083" >> ./client_cli/pytests/.env
-
+          chmod +x ${{ env.CLIENT_CLI_DIR }}
       - name: Install dependencies using Poetry
         working-directory: client_cli/pytests
         run: |
           poetry install
-
       - name: Run client cli tests
         working-directory: client_cli/pytests
         run: |
           poetry run pytest
+      - name: Cleanup test environment
+        run: |
+          ./scripts/test_env.py cleanup
