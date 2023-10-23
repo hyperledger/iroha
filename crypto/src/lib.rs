@@ -70,7 +70,7 @@ pub const BLS_NORMAL: &str = "bls_normal";
 pub const BLS_SMALL: &str = "bls_small";
 
 ffi::ffi_item! {
-    /// Algorithm for hashing
+    /// Algorithm for hashing & signing
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, DeserializeFromStr, SerializeDisplay, Decode, Encode, IntoSchema)]
     #[repr(u8)]
     pub enum Algorithm {

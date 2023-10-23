@@ -39,6 +39,11 @@ getset = { workspace = true }
 
 ursa = { workspace = true, optional = true }
 blake2 = "0.10.6"
+# TODO: update after ursa is ditched
+sha2 = "0.10.8"
+# TODO: update after ursa is ditched
+hkdf = "0.12.3"
+amcl_wrapper = "0.4.0"
 
 [dev-dependencies]
 hex-literal = { workspace = true }
