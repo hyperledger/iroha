@@ -135,6 +135,16 @@ Query& Query::getRolePermissions(
     return *this;
 }
 
+Query& Query::getPeers(const std::string& account_id)
+{
+    protobuf_query_ = *query_generator_.generateGetPeers(
+                account_id,
+                counter_,
+                created_time_);
+    return *this;
+}
+
+
 const iroha::protocol::Query Query::signAndAddSignature()
 {
     auto signature = iroha::sign(

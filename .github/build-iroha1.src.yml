@@ -208,10 +208,10 @@ jobs:
                                   true
                                 else
                                   #echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
-                                  echo  >/tmp/comment_body "/build ubuntu debug release normal gcc-10"
+                                  echo  >/tmp/comment_body "/build ubuntu debug release normal gcc-10"$'\n' "/build macos debug clang"
                                 fi ;;
             push)               commit_message_body_build_spec >/tmp/comment_body || {
-                                  echo "/build macos ubuntu debug release normal gcc-10"
+                                  echo "/build ubuntu debug release normal gcc-10"
                                 } >/tmp/comment_body ;;
             workflow_dispatch)  echo >/tmp/comment_body "${{github.event.inputs.build_spec}}" ;;
             *)                  echo >&2 "::error::Unexpected event"; false ;;
@@ -221,6 +221,7 @@ jobs:
         id: matrixes
         run: |
           set -x
+          cat /tmp/comment_body
           cat /tmp/comment_body | .github/chatops-gen-matrix.sh
           echo "::set-output name=matrix_ubuntu::$(cat matrix_ubuntu)"
           echo "::set-output name=matrix_ubuntu_release::$(cat matrix_ubuntu_release)"
