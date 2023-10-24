@@ -782,29 +782,44 @@ impl WorldStateView {
     #[allow(clippy::missing_panics_doc)]
     pub fn asset_or_insert(
         &mut self,
-        id: &AssetId,
+        asset_id: AssetId,
         default_asset_value: impl Into<AssetValue>,
-    ) -> Result<Asset, Error> {
-        if let Ok(asset) = self.asset(id) {
-            return Ok(asset);
+    ) -> Result<&mut Asset, Error> {
+        // Check that asset definition exists
+        {
+            let asset_definition_id = &asset_id.definition_id;
+            let asset_definition_domain_id = &asset_id.definition_id.domain_id;
+            let asset_definition_domain = self
+                .world
+                .domains
+                .get(asset_definition_domain_id)
+                .ok_or(FindError::Domain(asset_definition_domain_id.clone()))?;
+            asset_definition_domain
+                .asset_definitions
+                .get(asset_definition_id)
+                .ok_or(FindError::AssetDefinition(asset_definition_id.clone()))?;
         }
 
-        // This function is strictly infallible.
-        let asset = self
-            .account_mut(&id.account_id)
-            .map(|account| {
-                let asset = Asset::new(id.clone(), default_asset_value.into());
-                assert!(account.add_asset(asset.clone()).is_none());
-                asset
-            })
-            .map_err(|err| {
-                iroha_logger::warn!(?err);
-                err
-            })?;
+        let account_id = &asset_id.account_id;
+        let account_domain = self
+            .world
+            .domains
+            .get_mut(&asset_id.account_id.domain_id)
+            .ok_or(FindError::Domain(asset_id.account_id.domain_id.clone()))?;
+        let account = account_domain
+            .accounts
+            .get_mut(account_id)
+            .ok_or(FindError::Account(account_id.clone()))?;
 
-        self.emit_events(Some(AccountEvent::Asset(AssetEvent::Created(asset))));
-
-        self.asset(id).map_err(Into::into)
+        Ok(account.assets.entry(asset_id.clone()).or_insert_with(|| {
+            let asset = Asset::new(asset_id, default_asset_value.into());
+            Self::emit_events_impl(
+                &mut self.world.triggers,
+                &mut self.events_buffer,
+                Some(AccountEvent::Asset(AssetEvent::Created(asset.clone()))),
+            );
+            asset
+        }))
     }
 
     /// Load all blocks in the block chain from disc
@@ -1244,6 +1259,21 @@ impl WorldStateView {
     /// Events should be produced in the order of expanding scope: from specific to general.
     /// Example: account events before domain events.
     pub fn emit_events<I: IntoIterator<Item = T>, T: Into<WorldEvent>>(&mut self, world_events: I) {
+        Self::emit_events_impl(
+            &mut self.world.triggers,
+            &mut self.events_buffer,
+            world_events,
+        )
+    }
+
+    /// Implementation of [`Self::emit_events()`].
+    ///
+    /// Usable when you can't call [`Self::emit_events()`] due to mutable reference to self.
+    fn emit_events_impl<I: IntoIterator<Item = T>, T: Into<WorldEvent>>(
+        triggers: &mut TriggerSet,
+        events_buffer: &mut Vec<Event>,
+        world_events: I,
+    ) {
         let data_events: SmallVec<[DataEvent; 3]> = world_events
             .into_iter()
             .map(Into::into)
@@ -1251,10 +1281,9 @@ impl WorldStateView {
             .collect();
 
         for event in data_events.iter() {
-            self.world.triggers.handle_data_event(event.clone());
+            triggers.handle_data_event(event.clone());
         }
-        self.events_buffer
-            .extend(data_events.into_iter().map(Into::into));
+        events_buffer.extend(data_events.into_iter().map(Into::into));
     }
 
     /// Set new permission token schema.

@@ -53,7 +53,7 @@ pub mod isi {
                     {
                         assert_can_register(&asset_id.definition_id, wsv, &self.object.value)?;
                         let asset = wsv
-                            .asset_or_insert(&asset_id, self.object.value)
+                            .asset_or_insert(asset_id.clone(), self.object.value)
                             .expect("Account exists");
 
                         match asset.value {

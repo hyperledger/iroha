@@ -109,14 +109,14 @@ impl LiveQueryStore {
                     },
                     to_insert = insert_receiver.recv() => {
                         let Some((query_id, live_query)) = to_insert else {
-                            iroha_logger::info!(ALL_HANDLERS_DROPPED);
+                            iroha_logger::info!("{ALL_HANDLERS_DROPPED}");
                             break;
                         };
                         self.insert(query_id, live_query)
                     }
                     to_remove = remove_receiver.recv() => {
                         let Some((query_id, response_sender)) = to_remove else {
-                            iroha_logger::info!(ALL_HANDLERS_DROPPED);
+                            iroha_logger::info!("{ALL_HANDLERS_DROPPED}");
                             break;
                         };
                         let live_query_opt = self.remove(&query_id);

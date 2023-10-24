@@ -179,6 +179,7 @@ pub fn validate_transaction(
 ) -> Result {
     let mut executor = Executor::new(block_height);
     executor.visit_transaction(&authority, &transaction);
+    core::mem::forget(transaction);
     executor.verdict
 }
 
@@ -190,6 +191,7 @@ pub fn validate_instruction(
 ) -> Result {
     let mut executor = Executor::new(block_height);
     executor.visit_instruction(&authority, &instruction);
+    core::mem::forget(instruction);
     executor.verdict
 }
 
@@ -197,5 +199,6 @@ pub fn validate_instruction(
 pub fn validate_query(authority: AccountId, query: QueryBox, block_height: u64) -> Result {
     let mut executor = Executor::new(block_height);
     executor.visit_query(&authority, &query);
+    core::mem::forget(query);
     executor.verdict
 }
