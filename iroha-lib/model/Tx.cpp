@@ -143,6 +143,17 @@ Tx& Tx::removePeer(const std::string& pubkey)
     return *this;
 }
 
+Tx& Tx::removeSignatory(
+        const std::string& account_id,
+        const std::string& pubkey)
+{
+    auto cmd = cmd_generator_.generateRemoveSignatory(
+                account_id,
+                pubkey);
+    addCommand(*cmd);
+    return *this;
+}
+
 Tx& Tx::revokePermission(
         const std::string& account_id,
         const iroha::protocol::GrantablePermission permission)

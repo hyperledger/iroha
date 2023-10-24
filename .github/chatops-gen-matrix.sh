@@ -19,7 +19,7 @@ echoerr(){
 readonly ALL_oses="ubuntu macos windows" ALL_build_types="Debug Release" ALL_cmake_opts="normal burrow ursa" ALL_compilers="gcc-9 gcc-10 clang-10 clang llvm msvc"
 readonly DEFAULT_oses="ubuntu macos windows" DEFAULT_build_types="Debug" DEFAULT_cmake_opts="normal burrow ursa"
 readonly DEFAULT_ubuntu_compilers="gcc-9" AVAILABLE_ubuntu_compilers="gcc-9 gcc-10 clang-10"
-readonly DEFAULT_macos_compilers="clang"  AVAILABLE_macos_compilers="clang" ## Also "llvm gcc-10" but they fail
+readonly DEFAULT_macos_compilers="clang"  AVAILABLE_macos_compilers="clang gcc-10" ## Also "llvm gcc-10" but they fail
 readonly DEFAULT_windows_compilers="msvc" AVAILABLE_windows_compilers="msvc" ## Also "clang mingw cygwin" but they are redundant
 
 --help-buildspec(){
