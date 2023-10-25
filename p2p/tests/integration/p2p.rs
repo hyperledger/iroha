@@ -354,7 +354,7 @@ async fn start_network(
 
 #[test]
 fn test_encryption() {
-    use iroha_crypto::ursa::encryption::symm::prelude::*;
+    use iroha_crypto::encryption::{ChaCha20Poly1305, SymmetricEncryptor};
 
     const TEST_KEY: [u8; 32] = [
         5, 87, 82, 183, 220, 57, 107, 49, 227, 4, 96, 231, 198, 88, 153, 11, 22, 65, 56, 45, 237,

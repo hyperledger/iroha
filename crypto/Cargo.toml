@@ -14,7 +14,24 @@ workspace = true
 default = ["std"]
 # Enable static linkage of the rust standard library.
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
-std = ["ursa"]
+std = [
+    "ursa",
+    "blake2",
+    "sha2",
+    "hkdf",
+    "amcl_wrapper",
+    "ed25519-dalek",
+    "curve25519-dalek",
+    "x25519-dalek",
+    "rand",
+    "rand_chacha",
+    "secp256k1",
+    "zeroize",
+    "arrayref",
+    "aead",
+    "chacha20poly1305",
+    "k256",
+]
 # Force static linking
 vendored = ["openssl-sys"]
 # Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
@@ -38,28 +55,35 @@ openssl-sys = { version = "0.9.93", features = ["vendored"], optional = true }
 getset = { workspace = true }
 
 ursa = { workspace = true, optional = true }
-blake2 = "0.10.6"
-sha2 = "0.10.8"
-hkdf = "0.12.3"
-amcl_wrapper = "0.4.0"
+blake2 = { version = "0.10.6", optional = true }
+sha2 = { version = "0.10.8", optional = true }
+hkdf = { version = "0.12.3", optional = true }
+amcl_wrapper = { version = "0.4.0", optional = true }
 
 # TODO: bump these
-ed25519-dalek = "1.0.1"
-curve25519-dalek = "3.2.1"
-x25519-dalek = "1.2.0"
+ed25519-dalek = { version = "1.0.1", optional = true }
+curve25519-dalek = { version = "3.2.1", optional = true }
+x25519-dalek = { version = "1.2.0", optional = true }
 
 # TODO: bump me
-rand = "0.7"
+rand = { version = "0.7", optional = true }
 # TODO: bump me
-rand_chacha = "0.2"
+rand_chacha = { version = "0.2", optional = true }
 
 # TODO: bump me
-secp256k1 = { version = "0.19", features = ["rand", "serde"] }
+secp256k1 = { version = "0.19", features = ["rand", "serde"], optional = true }
 
 # TODO: bump me
-zeroize = "1.1"
-arrayref = "0.3.7"
+zeroize = { version = "1.1", optional = true }
+arrayref = { version = "0.3.7", optional = true }
 
+# TODO: bump me
+aead = { version = "0.3", optional = true }
+# TODO: bump me
+chacha20poly1305 = { version = "0.7", optional = true }
+
+# TODO: bump me
+k256 = { version = "0.9.6", optional = true, features = ["ecdh", "ecdsa", "sha256"]}
 
 [dev-dependencies]
 hex-literal = { workspace = true }

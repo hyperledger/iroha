@@ -4,7 +4,13 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
+#[cfg(feature = "std")]
+#[cfg(not(feature = "ffi_import"))]
+pub mod encryption;
 mod hash;
+#[cfg(feature = "std")]
+#[cfg(not(feature = "ffi_import"))]
+pub mod kex;
 mod merkle;
 #[cfg(not(feature = "ffi_import"))]
 mod multihash;
@@ -28,6 +34,7 @@ pub use blake2;
 use derive_more::{DebugCustom, Display};
 use error::{Error, NoSuchAlgorithm};
 use getset::{CopyGetters, Getters};
+// TODO: do not spill the hashes to the crate root
 pub use hash::*;
 use iroha_macro::ffi_impl_opaque;
 use iroha_primitives::const_vec::ConstVec;
@@ -39,10 +46,8 @@ use parity_scale_codec::{Decode, Encode};
 use serde::Deserialize;
 use serde::Serialize;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
+// TODO: do not spill the signatures to the crate root
 pub use signature::*;
-#[cfg(feature = "std")]
-#[cfg(not(feature = "ffi_import"))]
-pub use ursa;
 #[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
 use ursa::{
@@ -125,7 +130,7 @@ impl FromStr for Algorithm {
     allow(unused_tuple_struct_fields)
 )]
 #[derive(Debug, Clone)]
-enum KeyGenOption {
+pub enum KeyGenOption {
     /// Use seed
     UseSeed(Vec<u8>),
     /// Derive from private key
@@ -328,6 +333,19 @@ ffi::ffi_item! {
 
 #[ffi_impl_opaque]
 impl PublicKey {
+    /// Creates a new public key from raw bytes received from elsewhere
+    pub fn from_raw(algorithm: Algorithm, payload: ConstVec<u8>) -> Self {
+        Self {
+            digest_function: algorithm,
+            payload,
+        }
+    }
+
+    /// Extracts the raw bytes from public key
+    pub fn into_raw(self) -> (Algorithm, ConstVec<u8>) {
+        (self.digest_function, self.payload)
+    }
+
     /// Key payload
     // TODO: Derive with getset once FFI impl is fixed
     pub fn payload(&self) -> &[u8] {
@@ -477,6 +495,17 @@ impl<'de> Deserialize<'de> for PrivateKey {
         let private_key = PrivateKeyCandidate::deserialize(deserializer)?;
         Self::from_hex(private_key.digest_function, private_key.payload.as_ref())
             .map_err(D::Error::custom)
+    }
+}
+
+/// A session key derived from a key exchange. Will usually be used for a symmetric encryption afterwards
+#[allow(unused_tuple_struct_fields)]
+pub struct SessionKey(ConstVec<u8>);
+
+impl SessionKey {
+    /// Expose the raw bytes of the session key
+    pub fn payload(&self) -> &[u8] {
+        self.0.as_ref()
     }
 }
 

@@ -93,7 +93,7 @@ mod run {
         state::{ConnectedFrom, Connecting, Ready},
         *,
     };
-    use crate::{blake2b_hash, unbounded_with_len};
+    use crate::unbounded_with_len;
 
     /// Peer task.
     #[allow(clippy::too_many_lines)]
@@ -132,7 +132,7 @@ mod run {
             } = peer;
             peer_id = new_peer_id;
 
-            let disambiguator = blake2b_hash(&cryptographer.shared_key);
+            let disambiguator = cryptographer.disambiguator;
 
             tracing::Span::current().record("peer", &peer_id.to_string());
             tracing::Span::current().record("disambiguator", disambiguator);
@@ -374,7 +374,8 @@ mod run {
 mod state {
     //! Module for peer stages.
 
-    use iroha_crypto::ursa::keys::PublicKey;
+    use iroha_crypto::PublicKey;
+    use iroha_primitives::const_vec::ConstVec;
 
     use super::{cryptographer::Cryptographer, *};
 
@@ -416,9 +417,10 @@ mod state {
         ) -> Result<SendKey<E>, crate::Error> {
             let key_exchange = K::new();
             let (local_public_key, local_private_key) = key_exchange.keypair(None)?;
+            let (algorithm, local_public_key_raw) = local_public_key.into_raw();
             let write_half = &mut connection.write;
             garbage::write(write_half).await?;
-            write_half.write_all(local_public_key.as_ref()).await?;
+            write_half.write_all(&local_public_key_raw).await?;
             // Read server hello with node's public key
             let read_half = &mut connection.read;
             let remote_public_key = {
@@ -426,7 +428,7 @@ mod state {
                 // Then we have servers public key
                 let mut key = vec![0_u8; 32];
                 let _ = read_half.read_exact(&mut key).await?;
-                PublicKey(key)
+                PublicKey::from_raw(algorithm, ConstVec::new(key))
             };
             let shared_key =
                 key_exchange.compute_shared_secret(&local_private_key, &remote_public_key)?;
@@ -455,17 +457,18 @@ mod state {
         ) -> Result<SendKey<E>, crate::Error> {
             let key_exchange = K::new();
             let (local_public_key, local_private_key) = key_exchange.keypair(None)?;
+            let (algorithm, local_public_key_raw) = local_public_key.into_raw();
             let read_half = &mut connection.read;
             let remote_public_key = {
                 garbage::read(read_half).await?;
                 // And then we have clients public key
                 let mut key = vec![0_u8; 32];
                 let _ = read_half.read_exact(&mut key).await?;
-                PublicKey(key)
+                PublicKey::from_raw(algorithm, ConstVec::new(key))
             };
             let write_half = &mut connection.write;
             garbage::write(write_half).await?;
-            write_half.write_all(local_public_key.as_ref()).await?;
+            write_half.write_all(&local_public_key_raw).await?;
             let shared_key =
                 key_exchange.compute_shared_secret(&local_private_key, &remote_public_key)?;
             let cryptographer = Cryptographer::new(shared_key);
@@ -675,15 +678,16 @@ pub mod message {
 }
 
 mod cryptographer {
-    use aead::{generic_array::GenericArray, NewAead};
-    use iroha_crypto::ursa::{encryption::symm::SymmetricEncryptor, keys::SessionKey};
+    use iroha_crypto::{encryption::SymmetricEncryptor, SessionKey};
 
     use super::*;
+    use crate::blake2b_hash;
 
     /// Peer's cryptographic primitives
+    #[derive(Clone)]
     pub struct Cryptographer<E: Enc> {
-        /// Shared key
-        pub shared_key: SessionKey,
+        /// Blake2b hash of the session key, used for ¿disambiguation?
+        pub disambiguator: u64,
         /// Encryptor created from session key, that we got by Diffie-Hellman scheme
         pub encryptor: SymmetricEncryptor<E>,
     }
@@ -713,19 +717,13 @@ mod cryptographer {
 
         /// Derives shared key from local private key and remote public key.
         pub fn new(shared_key: SessionKey) -> Self {
-            let encryptor = SymmetricEncryptor::<E>::new(<E as NewAead>::new(
-                GenericArray::from_slice(shared_key.as_ref()),
-            ));
+            let disambiguator = blake2b_hash(shared_key.payload());
+
+            let encryptor = SymmetricEncryptor::<E>::new_from_session_key(shared_key);
             Self {
-                shared_key,
+                disambiguator,
                 encryptor,
             }
-        }
-    }
-
-    impl<E: Enc> Clone for Cryptographer<E> {
-        fn clone(&self) -> Self {
-            Self::new(self.shared_key.clone())
         }
     }
 }

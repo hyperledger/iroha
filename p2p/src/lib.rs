@@ -8,7 +8,9 @@ use iroha_crypto::{
         digest::{Update, VariableOutput},
         Blake2bVar,
     },
-    ursa::{encryption::symm::prelude::ChaCha20Poly1305, kex::x25519::X25519Sha256, CryptoError},
+    encryption::ChaCha20Poly1305,
+    error::Error as CryptoError,
+    kex::X25519Sha256,
 };
 pub use network::message::*;
 use parity_scale_codec::{Decode, Encode};
@@ -24,7 +26,7 @@ pub mod boilerplate {
     //! Module containing trait shorthands. Remove when trait aliases
     //! are stable <https://github.com/rust-lang/rust/issues/41517>
 
-    use iroha_crypto::ursa::{encryption::symm::Encryptor, kex::KeyExchangeScheme};
+    use iroha_crypto::{encryption::Encryptor, kex::KeyExchangeScheme};
 
     use super::*;
 
@@ -37,8 +39,8 @@ pub mod boilerplate {
     impl<T> Kex for T where T: KeyExchangeScheme + Send + 'static {}
 
     /// Shorthand for traits required for encryptor
-    pub trait Enc: Encryptor + Send + 'static {}
-    impl<T> Enc for T where T: Encryptor + Send + 'static {}
+    pub trait Enc: Encryptor + Clone + Send + 'static {}
+    impl<T> Enc for T where T: Encryptor + Clone + Send + 'static {}
 }
 
 /// Errors used in [`crate`].
