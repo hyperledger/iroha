@@ -3,9 +3,12 @@
 use parity_scale_codec::{Decode, Encode};
 
 pub use self::model::*;
-use crate::query::{
-    cursor::ForwardCursor, sorting::Sorting, Pagination, QueryBox, QueryRequest,
-    QueryWithParameters,
+use crate::{
+    prelude::FetchSize,
+    query::{
+        cursor::ForwardCursor, sorting::Sorting, Pagination, QueryBox, QueryRequest,
+        QueryWithParameters,
+    },
 };
 
 pub mod payloads {
@@ -61,9 +64,14 @@ pub mod model {
 
 impl SmartContractQueryRequest {
     /// Construct a new request containing query.
-    pub fn query(query: QueryBox, sorting: Sorting, pagination: Pagination) -> Self {
+    pub fn query(
+        query: QueryBox,
+        sorting: Sorting,
+        pagination: Pagination,
+        fetch_size: FetchSize,
+    ) -> Self {
         Self(QueryRequest::Query(QueryWithParameters::new(
-            query, sorting, pagination,
+            query, sorting, pagination, fetch_size,
         )))
     }
 

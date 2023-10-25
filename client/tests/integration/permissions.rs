@@ -32,7 +32,7 @@ fn genesis_transactions_are_validated() {
     // Starting peer
     let (_rt, _peer, test_client) = <PeerBuilder>::new()
         .with_genesis(genesis)
-        .with_port(11_100)
+        .with_port(11_110)
         .start_with_runtime();
 
     // Checking that peer contains no blocks multiple times

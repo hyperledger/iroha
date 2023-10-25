@@ -3628,6 +3628,10 @@
       {
         "tag": "UnknownCursor",
         "discriminant": 4
+      },
+      {
+        "tag": "FetchSizeTooBig",
+        "discriminant": 5
       }
     ]
   },
