@@ -1,9 +1,9 @@
-//! This module contains [`QueryService`] actor.
+//! This module contains [`LiveQueryStore`] actor.
 
 use std::{
     cmp::Ordering,
     collections::HashMap,
-    num::{NonZeroU64, NonZeroUsize},
+    num::NonZeroU64,
     time::{Duration, Instant},
 };
 
@@ -12,6 +12,7 @@ use iroha_data_model::{
     asset::AssetValue,
     query::{
         cursor::ForwardCursor, error::QueryExecutionFail, pagination::Pagination, sorting::Sorting,
+        FetchSize, DEFAULT_FETCH_SIZE, MAX_FETCH_SIZE,
     },
     BatchedResponse, BatchedResponseV1, HasMetadata, IdentifiableBox, ValidationFail, Value,
 };
@@ -31,9 +32,12 @@ pub enum Error {
     /// Unknown cursor error.
     #[error(transparent)]
     UnknownCursor(#[from] UnknownCursor),
-    /// Connection with QueryService is closed.
-    #[error("Connection with QueryService is closed")]
+    /// Connection with LiveQueryStore is closed.
+    #[error("Connection with LiveQueryStore is closed")]
     ConnectionClosed,
+    /// Fetch size is too big.
+    #[error("Fetch size is too big")]
+    FetchSizeTooBig,
 }
 
 #[allow(clippy::fallible_impl_from)]
@@ -46,11 +50,14 @@ impl From<Error> for ValidationFail {
             Error::ConnectionClosed => {
                 panic!("Connection to `LiveQueryStore` was unexpectedly closed, this is a bug")
             }
+            Error::FetchSizeTooBig => {
+                ValidationFail::QueryFailed(QueryExecutionFail::FetchSizeTooBig)
+            }
         }
     }
 }
 
-/// Result type for [`QueryService`] methods.
+/// Result type for [`LiveQueryStore`] methods.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 type LiveQuery = Batched<Vec<Value>>;
@@ -65,7 +72,7 @@ pub struct LiveQueryStore {
 }
 
 impl LiveQueryStore {
-    /// Construct [`QueryService`] from configuration.
+    /// Construct [`LiveQueryStore`] from configuration.
     pub fn from_configuration(cfg: Configuration) -> Self {
         Self {
             queries: HashMap::default(),
@@ -73,7 +80,7 @@ impl LiveQueryStore {
         }
     }
 
-    /// Construct [`QueryService`] for tests.
+    /// Construct [`LiveQueryStore`] for tests.
     /// Default configuration will be used.
     ///
     /// Not marked as `#[cfg(test)]` because it is used in benches as well.
@@ -87,7 +94,7 @@ impl LiveQueryStore {
         )
     }
 
-    /// Start [`QueryService`]. Requires a [`tokio::runtime::Runtime`] being run
+    /// Start [`LiveQueryStore`]. Requires a [`tokio::runtime::Runtime`] being run
     /// as it will create new [`tokio::task`] and detach it.
     ///
     /// Returns a handle to interact with the service.
@@ -158,14 +165,14 @@ impl LiveQueryStoreHandle {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::ConnectionClosed`] if [`QueryService`] is dropped,
+    /// - Returns [`Error::ConnectionClosed`] if [`LiveQueryStore`] is dropped,
     /// - Otherwise throws up query output handling errors.
     pub fn handle_query_output(
         &self,
         query_output: LazyValue<'_>,
-        fetch_size: NonZeroUsize,
         sorting: &Sorting,
         pagination: Pagination,
+        fetch_size: FetchSize,
     ) -> Result<BatchedResponse<Value>> {
         match query_output {
             LazyValue::Value(batch) => {
@@ -174,6 +181,11 @@ impl LiveQueryStoreHandle {
                 Ok(result.into())
             }
             LazyValue::Iter(iter) => {
+                let fetch_size = fetch_size.fetch_size.unwrap_or(DEFAULT_FETCH_SIZE);
+                if fetch_size > MAX_FETCH_SIZE {
+                    return Err(Error::FetchSizeTooBig);
+                }
+
                 let live_query = Self::apply_sorting_and_pagination(iter, sorting, pagination);
                 let query_id = uuid::Uuid::new_v4().to_string();
 
@@ -188,7 +200,7 @@ impl LiveQueryStoreHandle {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::ConnectionClosed`] if [`QueryService`] is dropped,
+    /// - Returns [`Error::ConnectionClosed`] if [`LiveQueryStore`] is dropped,
     /// - Otherwise throws up query output handling errors.
     pub fn handle_query_cursor(&self, cursor: ForwardCursor) -> Result<BatchedResponse<Value>> {
         let query_id = cursor.query_id.ok_or(UnknownCursor)?;

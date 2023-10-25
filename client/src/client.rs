@@ -245,6 +245,15 @@ pub struct ResultSet<T> {
     client_cursor: usize,
 }
 
+impl<T> ResultSet<T> {
+    /// Get the length of the batch returned by Iroha.
+    ///
+    /// This is controlled by `fetch_size` parameter of the query.
+    pub fn batch_len(&self) -> usize {
+        self.iter.len()
+    }
+}
+
 impl<T: Clone> Iterator for ResultSet<T>
 where
     Vec<T>: QueryOutput,
@@ -374,6 +383,7 @@ impl QueryRequest {
                     query: Vec::default(),
                     sorting: Sorting::default(),
                     pagination: Pagination::default(),
+                    fetch_size: FetchSize::default(),
                 },
             ),
         }
@@ -389,6 +399,7 @@ impl QueryRequest {
             iroha_data_model::query::QueryRequest::Query(query_with_params) => builder
                 .params(query_with_params.sorting().clone().into_query_parameters())
                 .params(query_with_params.pagination().into_query_parameters())
+                .params(query_with_params.fetch_size().into_query_parameters())
                 .body(query_with_params.query().clone()),
             iroha_data_model::query::QueryRequest::Cursor(cursor) => {
                 builder.params(Vec::from(cursor))
@@ -798,6 +809,7 @@ impl Client {
         filter: PredicateBox,
         pagination: Pagination,
         sorting: Sorting,
+        fetch_size: FetchSize,
     ) -> Result<(DefaultRequestBuilder, QueryResponseHandler<R::Output>)>
     where
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
@@ -809,7 +821,9 @@ impl Client {
             torii_url: self.torii_url.clone(),
             headers: self.headers.clone(),
             request: iroha_data_model::query::QueryRequest::Query(
-                iroha_data_model::query::QueryWithParameters::new(request, sorting, pagination),
+                iroha_data_model::query::QueryWithParameters::new(
+                    request, sorting, pagination, fetch_size,
+                ),
             ),
         };
 
@@ -827,6 +841,7 @@ impl Client {
         &self,
         request: R,
         pagination: Pagination,
+        fetch_size: FetchSize,
         sorting: Sorting,
         filter: PredicateBox,
     ) -> QueryResult<<R::Output as QueryOutput>::Target>
@@ -836,7 +851,7 @@ impl Client {
     {
         iroha_logger::trace!(?request, %pagination, ?sorting, ?filter);
         let (req, mut resp_handler) =
-            self.prepare_query_request::<R>(request, filter, pagination, sorting)?;
+            self.prepare_query_request::<R>(request, filter, pagination, sorting, fetch_size)?;
 
         let response = req.build()?.send()?;
         let value = resp_handler.handle(&response)?;

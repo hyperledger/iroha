@@ -2,8 +2,6 @@
 //! `WebAssembly` VM Smartcontracts can be written in Rust, compiled
 //! to wasm format and submitted in a transaction
 
-use std::num::NonZeroUsize;
-
 use error::*;
 use import_traits::{
     ExecuteOperations as _, GetExecutorPayloads as _, SetPermissionTokenSchema as _,
@@ -783,17 +781,14 @@ impl<S: state::Authority + state::Wsv + state::WsvMut> Runtime<S> {
                 query,
                 sorting,
                 pagination,
+                fetch_size,
             }) => {
                 wsv.executor()
                     .validate_query(wsv, state.authority(), query.clone())?;
                 let output = query.execute(wsv)?;
 
-                wsv.query_handle().handle_query_output(
-                    output,
-                    NonZeroUsize::new(30_000).expect("30 000 is not zero"),
-                    &sorting,
-                    pagination,
-                )
+                wsv.query_handle()
+                    .handle_query_output(output, &sorting, pagination, fetch_size)
             }
             QueryRequest::Cursor(cursor) => wsv.query_handle().handle_query_cursor(cursor),
         }
@@ -1001,15 +996,12 @@ where
                 query,
                 sorting,
                 pagination,
+                fetch_size,
             }) => {
                 let output = query.execute(wsv)?;
 
-                wsv.query_handle().handle_query_output(
-                    output,
-                    NonZeroUsize::new(30_000).expect("30 000 is not zero"),
-                    &sorting,
-                    pagination,
-                )
+                wsv.query_handle()
+                    .handle_query_output(output, &sorting, pagination, fetch_size)
             }
             QueryRequest::Cursor(cursor) => wsv.query_handle().handle_query_cursor(cursor),
         }
@@ -1252,15 +1244,12 @@ impl<'wrld> import_traits::ExecuteOperations<state::executor::ValidateQuery<'wrl
                 query,
                 sorting,
                 pagination,
+                fetch_size,
             }) => {
                 let output = query.execute(wsv)?;
 
-                wsv.query_handle().handle_query_output(
-                    output,
-                    NonZeroUsize::new(30_000).expect("30 000 is not zero"),
-                    &sorting,
-                    pagination,
-                )
+                wsv.query_handle()
+                    .handle_query_output(output, &sorting, pagination, fetch_size)
             }
             QueryRequest::Cursor(cursor) => wsv.query_handle().handle_query_cursor(cursor),
         }
@@ -1773,6 +1762,7 @@ mod tests {
             QueryBox::from(FindAccountById::new(authority.clone())),
             Sorting::default(),
             Pagination::default(),
+            FetchSize::default(),
         ));
 
         let wat = format!(

@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use iroha_data_model::{
     predicate::PredicateBox,
-    query::{sorting::Sorting, Pagination, Query},
+    query::{sorting::Sorting, FetchSize, Pagination, Query},
     Value,
 };
 
@@ -14,6 +14,7 @@ pub struct QueryRequestBuilder<'a, R> {
     pagination: Pagination,
     filter: PredicateBox,
     sorting: Sorting,
+    fetch_size: FetchSize,
 }
 
 impl<'a, R> QueryRequestBuilder<'a, R>
@@ -29,6 +30,7 @@ where
             pagination: Pagination::default(),
             sorting: Sorting::default(),
             filter: PredicateBox::default(),
+            fetch_size: FetchSize::default(),
         }
     }
 
@@ -47,10 +49,16 @@ where
         self
     }
 
+    pub fn with_fetch_size(mut self, fetch_size: FetchSize) -> Self {
+        self.fetch_size = fetch_size;
+        self
+    }
+
     pub fn execute(self) -> QueryResult<<R::Output as QueryOutput>::Target> {
         self.client.request_with_filter_and_pagination_and_sorting(
             self.request,
             self.pagination,
+            self.fetch_size,
             self.sorting,
             self.filter,
         )

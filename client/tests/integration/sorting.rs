@@ -256,14 +256,12 @@ fn correct_sorting_of_entities() {
         .expect("Valid");
 
     let res = test_client
-        .request_with_filter_and_pagination_and_sorting(
-            client::domain::all(),
-            Pagination::default(),
-            Sorting::by_metadata_key(sort_by_metadata_key.clone()),
-            PredicateBox::new(value::ValuePredicate::Identifiable(
-                string::StringPredicate::starts_with("neverland"),
-            )),
-        )
+        .build_query(client::domain::all())
+        .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
+        .with_filter(PredicateBox::new(value::ValuePredicate::Identifiable(
+            string::StringPredicate::starts_with("neverland"),
+        )))
+        .execute()
         .expect("Valid")
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");
@@ -305,12 +303,10 @@ fn correct_sorting_of_entities() {
         string::StringPredicate::starts_with("neverland_"),
     ));
     let res = test_client
-        .request_with_filter_and_pagination_and_sorting(
-            client::domain::all(),
-            Pagination::default(),
-            Sorting::by_metadata_key(sort_by_metadata_key),
-            filter,
-        )
+        .build_query(client::domain::all())
+        .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key))
+        .with_filter(filter)
+        .execute()
         .expect("Valid")
         .collect::<QueryResult<Vec<_>>>()
         .expect("Valid");

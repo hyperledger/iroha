@@ -55,8 +55,7 @@ The following is the default configuration used by Iroha.
     "P2P_ADDR": null,
     "API_URL": null,
     "MAX_TRANSACTION_SIZE": 32768,
-    "MAX_CONTENT_LEN": 16384000,
-    "FETCH_SIZE": 10
+    "MAX_CONTENT_LEN": 16384000
   },
   "BLOCK_SYNC": {
     "GOSSIP_PERIOD_MS": 10000,
@@ -698,7 +697,6 @@ Has type `Option<Box<torii::ConfigurationProxy>>`[^1]. Can be configured via env
 ```json
 {
   "API_URL": null,
-  "FETCH_SIZE": 10,
   "MAX_CONTENT_LEN": 16384000,
   "MAX_TRANSACTION_SIZE": 32768,
   "P2P_ADDR": null
@@ -713,16 +711,6 @@ Has type `Option<SocketAddr>`[^1]. Can be configured via environment variable `T
 
 ```json
 null
-```
-
-### `torii.fetch_size`
-
-How many query results are returned in one batch
-
-Has type `Option<NonZeroU64>`[^1]. Can be configured via environment variable `TORII_FETCH_SIZE`
-
-```json
-10
 ```
 
 ### `torii.max_content_len`
