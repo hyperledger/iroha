@@ -39,12 +39,34 @@ getset = { workspace = true }
 
 ursa = { workspace = true, optional = true }
 blake2 = "0.10.6"
-# TODO: update after ursa is ditched
 sha2 = "0.10.8"
-# TODO: update after ursa is ditched
 hkdf = "0.12.3"
 amcl_wrapper = "0.4.0"
+
+# TODO: bump these
+ed25519-dalek = "1.0.1"
+curve25519-dalek = "3.2.1"
+x25519-dalek = "1.2.0"
+
+# TODO: bump me
+rand = "0.7"
+# TODO: bump me
+rand_chacha = "0.2"
+
+# TODO: bump me
+secp256k1 = { version = "0.19", features = ["rand", "serde"] }
+
+# TODO: bump me
+zeroize = "1.1"
+arrayref = "0.3.7"
+
 
 [dev-dependencies]
 hex-literal = { workspace = true }
 serde_json = { workspace = true }
+
+# these crypto libraries are not used to implement actual crypto algorithms
+# but to test some of the primitives against them
+secp256k1 = { version = "0.28.0", features = ["rand", "serde"] }
+libsodium-sys-stable = "1.20.3"
+openssl = "0.10.59"

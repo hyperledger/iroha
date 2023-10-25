@@ -12,13 +12,12 @@ use amcl_wrapper::{
     group_elem_g2::G2,
     types_g2::GroupG2_SIZE,
 };
-use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
-use crate::Error;
-// use keys::{KeyGenOption, PrivateKey as UrsaPrivateKey, PublicKey as UrsaPublicKey};
-// use crate::{PublicKey, PrivateKey};
-use crate::KeyGenOption;
+use crate::{
+    Algorithm, ConstVec, Error, KeyGenOption, PrivateKey as IrohaPrivateKey,
+    PublicKey as IrohaPublicKey,
+};
 
 pub const PRIVATE_KEY_SIZE: usize = MODBYTES;
 /// This is a simple alias so the consumer can just use PrivateKey::random() to generate a new one
@@ -26,7 +25,7 @@ pub const PRIVATE_KEY_SIZE: usize = MODBYTES;
 pub type PrivateKey = FieldElement;
 
 macro_rules! bls_impl {
-    ($pk_size:expr, $sig_size:expr, $pk_group:ident, $sig_group:ident, $ate_2_pairing_is_one:ident, $set_pairs:ident) => {
+    ($pk_size:expr, $sig_size:expr, $pk_group:ident, $sig_group:ident, $ate_2_pairing_is_one:ident, $set_pairs:ident, $algo:expr) => {
         pub const PUBLIC_KEY_SIZE: usize = $pk_size;
         pub const SIGNATURE_SIZE: usize = $sig_size;
 
@@ -70,7 +69,7 @@ macro_rules! bls_impl {
             fn keypair(
                 &self,
                 options: Option<KeyGenOption>,
-            ) -> Result<(PublicKey, PrivateKey), Error> {
+            ) -> Result<(IrohaPublicKey, IrohaPrivateKey), Error> {
                 let (public_key, private_key) = match options {
                     Some(option) => match option {
                         // Follows https://datatracker.ietf.org/doc/draft-irtf-cfrg-bls-signature/?include_text=1
@@ -82,7 +81,7 @@ macro_rules! bls_impl {
                             let mut okm = [0u8; PRIVATE_KEY_SIZE];
                             let h = hkdf::Hkdf::<Sha256>::new(Some(&salt[..]), &ikm);
                             h.expand(&info[..], &mut okm).map_err(|err| {
-                                Error::KeyGenError(format!("Failed to generate keypair: {}", err))
+                                Error::KeyGen(format!("Failed to generate keypair: {}", err))
                             })?;
                             let private_key: PrivateKey = PrivateKey::from(&okm);
                             (
@@ -97,7 +96,7 @@ macro_rules! bls_impl {
 
                             // let private_key =
                             //     PrivateKey::from_bytes(key.as_ref()).map_err(|_| {
-                            //         Error::ParseError(
+                            //         Error::Parse(
                             //             "Failed to parse private key.".to_string(),
                             //         )
                             //     })?;
@@ -109,7 +108,16 @@ macro_rules! bls_impl {
                     },
                     None => generate(&Generator::generator()),
                 };
-                Ok((public_key, private_key))
+                Ok((
+                    IrohaPublicKey {
+                        digest_function: $algo,
+                        payload: ConstVec::new(public_key.to_bytes()),
+                    },
+                    IrohaPrivateKey {
+                        digest_function: $algo,
+                        payload: ConstVec::new(private_key.to_bytes()),
+                    },
+                ))
             }
 
             fn sign(&self, message: &[u8], sk: &PrivateKey) -> Result<Vec<u8>, Error> {
@@ -123,7 +131,7 @@ macro_rules! bls_impl {
                 pk: &PublicKey,
             ) -> Result<bool, Error> {
                 Ok(Signature::from_bytes(signature)
-                    .map_err(|_| Error::ParseError("Failed to parse signature.".to_string()))?
+                    .map_err(|_| Error::Parse("Failed to parse signature.".to_string()))?
                     .verify(message, None, pk, &Generator::generator()))
             }
 
@@ -140,7 +148,7 @@ macro_rules! bls_impl {
             }
         }
 
-        #[derive(Debug, Clone, Serialize, Deserialize)]
+        #[derive(Debug, Clone)]
         pub struct PublicKey(Generator);
 
         impl PublicKey {
@@ -161,15 +169,14 @@ macro_rules! bls_impl {
 
             pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
                 Ok(PublicKey(
-                    Generator::from_bytes(bytes)
-                        .map_err(|e| Error::ParseError(format!("{:?}", e)))?,
+                    Generator::from_bytes(bytes).map_err(|e| Error::Parse(format!("{:?}", e)))?,
                 ))
             }
         }
 
         /// Represents an aggregated BLS public key that mitigates the rogue key attack
         /// for verifying aggregated signatures.
-        #[derive(Debug, Clone, Serialize, Deserialize)]
+        #[derive(Debug, Clone)]
         pub struct AggregatedPublicKey(Generator);
 
         impl From<&[PublicKey]> for AggregatedPublicKey {
@@ -204,8 +211,7 @@ macro_rules! bls_impl {
 
             pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
                 Ok(AggregatedPublicKey(
-                    Generator::from_bytes(bytes)
-                        .map_err(|e| Error::ParseError(format!("{:?}", e)))?,
+                    Generator::from_bytes(bytes).map_err(|e| Error::Parse(format!("{:?}", e)))?,
                 ))
             }
         }
@@ -223,7 +229,7 @@ macro_rules! bls_impl {
         ///
         /// To make messages distinct, use `new_with_rk_mitigation`. If using
         /// proof of possession mitigation, use `new`.
-        #[derive(Debug, Clone, Serialize, Deserialize)]
+        #[derive(Debug, Clone)]
         pub struct Signature(SignatureGroup);
 
         impl Signature {
@@ -334,7 +340,7 @@ macro_rules! bls_impl {
             pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
                 Ok(Signature(
                     SignatureGroup::from_bytes(bytes)
-                        .map_err(|e| Error::ParseError(format!("{:?}", e)))?,
+                        .map_err(|e| Error::Parse(format!("{:?}", e)))?,
                 ))
             }
         }
@@ -344,7 +350,7 @@ macro_rules! bls_impl {
         /// where signers are known entities in a group.
         /// Virtually identical to a signature but should
         /// use a different domain separation than `Signature`.
-        #[derive(Debug, Clone, Serialize, Deserialize)]
+        #[derive(Debug, Clone)]
         pub struct ProofOfPossession(SignatureGroup);
 
         impl ProofOfPossession {
@@ -359,7 +365,7 @@ macro_rules! bls_impl {
             pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
                 Ok(ProofOfPossession(
                     SignatureGroup::from_bytes(bytes)
-                        .map_err(|e| Error::ParseError(format!("{:?}", e)))?,
+                        .map_err(|e| Error::Parse(format!("{:?}", e)))?,
                 ))
             }
 
@@ -374,7 +380,7 @@ macro_rules! bls_impl {
             }
         }
 
-        #[derive(Debug, Clone, Serialize, Deserialize)]
+        #[derive(Debug, Clone)]
         pub struct AggregatedSignature(SignatureGroup);
 
         impl AggregatedSignature {
@@ -452,7 +458,7 @@ macro_rules! bls_impl {
             pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
                 Ok(AggregatedSignature(
                     SignatureGroup::from_bytes(bytes)
-                        .map_err(|e| Error::ParseError(format!("{:?}", e)))?,
+                        .map_err(|e| Error::Parse(format!("{:?}", e)))?,
                 ))
             }
         }
@@ -741,7 +747,8 @@ pub mod normal {
         G1,
         G2,
         ate_2_pairing_g1_g2_is_one,
-        set_pairs_g1_g2
+        set_pairs_g1_g2,
+        Algorithm::BlsNormal
     );
 
     bls_tests_impl!();
@@ -762,7 +769,8 @@ pub mod small {
         G2,
         G1,
         ate_2_pairing_g2_g1_is_one,
-        set_pairs_g2_g1
+        set_pairs_g2_g1,
+        Algorithm::BlsSmall
     );
 
     bls_tests_impl!();
