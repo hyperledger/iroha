@@ -22,7 +22,7 @@ pub(crate) type Outcome = color_eyre::Result<()>;
 // The reason for hard-coding this default is to ensure that the
 // algorithm is matched to the public key in Ed25519 format. If
 // you need to change either, you should definitely change both.
-pub const DEFAULT_PUBLIC_KEY: &str =
+const DEFAULT_PUBLIC_KEY: &str =
     "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0";
 
 fn main() -> Outcome {
@@ -33,7 +33,7 @@ fn main() -> Outcome {
 }
 
 /// Trait to encapsulate common attributes of the commands and sub-commands.
-pub trait RunArgs<T: Write> {
+trait RunArgs<T: Write> {
     /// Run the given command.
     ///
     /// # Errors
@@ -45,7 +45,7 @@ pub trait RunArgs<T: Write> {
 /// shipped with Iroha.
 #[derive(Parser, Debug)]
 #[command(name = "kagami", version, author)]
-pub enum Args {
+enum Args {
     /// Generate cryptographic key pairs using the given algorithm and either private key or seed
     Crypto(Box<crypto::Args>),
     /// Generate the schema used for code generation in Iroha SDKs
