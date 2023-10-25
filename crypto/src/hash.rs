@@ -329,14 +329,11 @@ mod tests {
     #[cfg(not(feature = "ffi_import"))]
     fn blake2_32b() {
         let mut hasher = Blake2bVar::new(32).unwrap();
-        hasher.update(hex_literal::hex!("6920616d2064617461"));
-        hasher.finalize_variable(|res| {
-            assert_eq!(
-                res[..],
-                hex_literal::hex!(
-                    "BA67336EFD6A3DF3A70EEB757860763036785C182FF4CF587541A0068D09F5B2"
-                )[..]
-            );
-        });
+        hasher.update(&hex_literal::hex!("6920616d2064617461"));
+        assert_eq!(
+            hasher.finalize_boxed().as_ref(),
+            &hex_literal::hex!("BA67336EFD6A3DF3A70EEB757860763036785C182FF4CF587541A0068D09F5B2")
+                [..]
+        );
     }
 }

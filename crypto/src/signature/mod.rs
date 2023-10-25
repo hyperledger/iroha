@@ -2,6 +2,14 @@
 #[cfg(not(feature = "ffi_import"))]
 mod bls;
 
+#[cfg(feature = "std")]
+#[cfg(not(feature = "ffi_import"))]
+mod ed25519;
+
+#[cfg(feature = "std")]
+#[cfg(not(feature = "ffi_import"))]
+mod secp256k1;
+
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, collections::btree_set, format, string::String, vec, vec::Vec};
 use core::marker::PhantomData;
