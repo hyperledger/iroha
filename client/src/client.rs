@@ -256,7 +256,9 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.client_cursor >= self.iter.len() {
-            let iroha_data_model::query::QueryRequest::Cursor(cursor) = &self.query_handler.query_request.request else {
+            let iroha_data_model::query::QueryRequest::Cursor(cursor) =
+                &self.query_handler.query_request.request
+            else {
                 return None;
             };
             if cursor.cursor().is_none() {
@@ -387,9 +389,9 @@ impl QueryRequest {
 
         match self.request {
             iroha_data_model::query::QueryRequest::Query(query_with_params) => builder
-                .params(Vec::from(query_with_params.sorting))
-                .params(Vec::from(query_with_params.pagination))
-                .body(query_with_params.query),
+                .params(Vec::from(query_with_params.sorting().clone()))
+                .params(Vec::from(*query_with_params.pagination()))
+                .body(query_with_params.query().clone()),
             iroha_data_model::query::QueryRequest::Cursor(cursor) => {
                 builder.params(Vec::from(cursor))
             }
@@ -809,11 +811,7 @@ impl Client {
             torii_url: self.torii_url.clone(),
             headers: self.headers.clone(),
             request: iroha_data_model::query::QueryRequest::Query(
-                iroha_data_model::query::QueryWithParameters {
-                    query: request,
-                    pagination,
-                    sorting,
-                },
+                iroha_data_model::query::QueryWithParameters::new(request, sorting, pagination),
             ),
         };
 

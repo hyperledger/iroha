@@ -176,7 +176,7 @@ pub mod model {
 
     /// Query with parameters client can specify.
     #[derive(
-        Debug, Constructor, Getters, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize,
+        Clone, Debug, PartialEq, Eq, Constructor, Getters, Encode, Decode, Serialize, Deserialize,
     )]
     #[getset(get = "pub")]
     pub struct QueryWithParameters<Q> {

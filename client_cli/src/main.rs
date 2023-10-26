@@ -46,7 +46,7 @@ impl FromStr for Metadata {
 
 /// Client configuration wrapper. Allows getting itself from arguments from cli (from user supplied file).
 #[derive(Debug, Clone)]
-pub struct Configuration(pub ClientConfiguration);
+struct Configuration(pub ClientConfiguration);
 
 impl FromStr for Configuration {
     type Err = Error;
@@ -62,7 +62,7 @@ impl FromStr for Configuration {
 /// Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.
 #[derive(StructOpt, Debug)]
 #[structopt(name = "iroha_client_cli", version = concat!(env!("CARGO_PKG_VERSION")), author)]
-pub struct Args {
+struct Args {
     /// Sets a config file path
     #[structopt(short, long)]
     config: Option<Configuration>,
@@ -80,7 +80,7 @@ pub struct Args {
 }
 
 #[derive(StructOpt, Debug)]
-pub enum Subcommand {
+enum Subcommand {
     /// The subcommand related to domains
     #[clap(subcommand)]
     Domain(domain::Args),
@@ -105,7 +105,7 @@ pub enum Subcommand {
 }
 
 /// Context inside which command is executed
-pub trait RunContext {
+trait RunContext {
     /// Get access to configuration
     fn configuration(&self) -> &ClientConfiguration;
 
@@ -142,7 +142,7 @@ impl<W: std::io::Write> RunContext for PrintJsonContext<W> {
 }
 
 /// Runs subcommand
-pub trait RunArgs {
+trait RunArgs {
     /// Runs command
     ///
     /// # Errors
@@ -218,7 +218,7 @@ fn main() -> Result<()> {
 /// # Errors
 /// Fails if submitting over network fails
 #[allow(clippy::shadow_unrelated)]
-pub fn submit(
+fn submit(
     instructions: impl Into<Executable>,
     metadata: UnlimitedMetadata,
     context: &mut dyn RunContext,
@@ -307,7 +307,7 @@ mod events {
         }
     }
 
-    pub fn listen(filter: FilterBox, context: &mut dyn RunContext) -> Result<()> {
+    fn listen(filter: FilterBox, context: &mut dyn RunContext) -> Result<()> {
         let iroha_client = Client::new(context.configuration())?;
         eprintln!("Listening to events with filter: {filter:?}");
         iroha_client
@@ -339,7 +339,7 @@ mod blocks {
         }
     }
 
-    pub fn listen(height: NonZeroU64, context: &mut dyn RunContext) -> Result<()> {
+    fn listen(height: NonZeroU64, context: &mut dyn RunContext) -> Result<()> {
         let iroha_client = Client::new(context.configuration())?;
         eprintln!("Listening to blocks from height: {height}");
         iroha_client
