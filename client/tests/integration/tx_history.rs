@@ -52,13 +52,12 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
     thread::sleep(pipeline_time * 5);
 
     let transactions = client
-        .request_with_pagination(
-            transaction::by_account_id(account_id.clone()),
-            Pagination {
-                limit: NonZeroU32::new(50),
-                start: NonZeroU64::new(1),
-            },
-        )?
+        .build_query(transaction::by_account_id(account_id.clone()))
+        .with_pagination(Pagination {
+            limit: NonZeroU32::new(50),
+            start: NonZeroU64::new(1),
+        })
+        .execute()?
         .collect::<QueryResult<Vec<_>>>()?;
     assert_eq!(transactions.len(), 50);
 

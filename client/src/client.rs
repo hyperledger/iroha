@@ -36,6 +36,7 @@ use self::{blocks_api::AsyncBlockStream, events_api::AsyncEventStream};
 use crate::{
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
+    query_builder::QueryRequestBuilder,
 };
 
 const APPLICATION_JSON: &str = "application/json";
@@ -847,139 +848,31 @@ impl Client {
         Ok(output)
     }
 
-    /// Create a request with pagination and sorting.
+    /// Query API entry point. Shorthand for `self.build_query(r).execute()`.
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request_with_pagination_and_sorting<R: Query + Debug>(
-        &self,
-        request: R,
-        pagination: Pagination,
-        sorting: Sorting,
-    ) -> QueryResult<<R::Output as QueryOutput>::Target>
+    pub fn request<R>(&self, request: R) -> QueryResult<<R::Output as QueryOutput>::Target>
     where
+        R: Query + Debug,
         R::Output: QueryOutput,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        self.request_with_filter_and_pagination_and_sorting(
-            request,
-            pagination,
-            sorting,
-            PredicateBox::default(),
-        )
+        self.build_query(request).execute()
     }
 
-    /// Create a request with pagination, sorting, and the given filter.
+    /// Query API entry point.
+    /// Creates a [`QueryRequestBuilder`] which can be used to configure requests queries from `Iroha` peers.
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request_with_filter_and_pagination<R: Query + Debug>(
-        &self,
-        request: R,
-        pagination: Pagination,
-        filter: PredicateBox,
-    ) -> QueryResult<<R::Output as QueryOutput>::Target>
+    pub fn build_query<R>(&self, request: R) -> QueryRequestBuilder<'_, R>
     where
+        R: Query + Debug,
         R::Output: QueryOutput,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        self.request_with_filter_and_pagination_and_sorting(
-            request,
-            pagination,
-            Sorting::default(),
-            filter,
-        )
-    }
-
-    /// Create a request with sorting and the given filter.
-    ///
-    /// # Errors
-    /// Fails if sending request fails
-    pub fn request_with_filter_and_sorting<R: Query + Debug>(
-        &self,
-        request: R,
-        sorting: Sorting,
-        filter: PredicateBox,
-    ) -> QueryResult<<R::Output as QueryOutput>::Target>
-    where
-        R::Output: QueryOutput,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
-    {
-        self.request_with_filter_and_pagination_and_sorting(
-            request,
-            Pagination::default(),
-            sorting,
-            filter,
-        )
-    }
-
-    /// Query API entry point. Requests quieries from `Iroha` peers with filter.
-    ///
-    /// Uses default blocking http-client. If you need some custom integration, look at
-    /// [`Self::prepare_query_request`].
-    ///
-    /// # Errors
-    /// Fails if sending request fails
-    pub fn request_with_filter<R: Query + Debug>(
-        &self,
-        request: R,
-        filter: PredicateBox,
-    ) -> QueryResult<<R::Output as QueryOutput>::Target>
-    where
-        R::Output: QueryOutput,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
-    {
-        self.request_with_filter_and_pagination(request, Pagination::default(), filter)
-    }
-
-    /// Query API entry point. Requests queries from `Iroha` peers with pagination.
-    ///
-    /// Uses default blocking http-client. If you need some custom integration, look at
-    /// [`Self::prepare_query_request`].
-    ///
-    /// # Errors
-    /// Fails if sending request fails
-    pub fn request_with_pagination<R: Query + Debug>(
-        &self,
-        request: R,
-        pagination: Pagination,
-    ) -> QueryResult<<R::Output as QueryOutput>::Target>
-    where
-        R::Output: QueryOutput,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
-    {
-        self.request_with_filter_and_pagination(request, pagination, PredicateBox::default())
-    }
-
-    /// Query API entry point. Requests queries from `Iroha` peers with sorting.
-    ///
-    /// # Errors
-    /// Fails if sending request fails
-    pub fn request_with_sorting<R: Query + Debug>(
-        &self,
-        request: R,
-        sorting: Sorting,
-    ) -> QueryResult<<R::Output as QueryOutput>::Target>
-    where
-        R::Output: QueryOutput,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
-    {
-        self.request_with_pagination_and_sorting(request, Pagination::default(), sorting)
-    }
-
-    /// Query API entry point. Requests queries from `Iroha` peers.
-    ///
-    /// # Errors
-    /// Fails if sending request fails
-    pub fn request<R: Query + Debug>(
-        &self,
-        request: R,
-    ) -> QueryResult<<R::Output as QueryOutput>::Target>
-    where
-        R::Output: QueryOutput,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
-    {
-        self.request_with_pagination(request, Pagination::default())
+        QueryRequestBuilder::new(self, request)
     }
 
     /// Connect (through `WebSocket`) to listen for `Iroha` `pipeline` and `data` events.
