@@ -18,6 +18,7 @@ pub use iroha_smart_contract as smart_contract;
 pub use iroha_smart_contract_utils::{debug, encode_with_length_prefix};
 #[cfg(not(test))]
 use iroha_smart_contract_utils::{decode_with_length_prefix_from_raw, encode_and_execute};
+pub use smart_contract::parse;
 
 pub mod default;
 pub mod permission;
@@ -169,32 +170,6 @@ macro_rules! deny {
         $executor.deny($e);
         return;
     }};
-}
-
-/// Macro to parse literal as a type. Panics if failed.
-///
-/// # Example
-///
-/// ```no_run
-/// use iroha_executor::parse;
-/// use iroha_data_model::prelude::*;
-///
-/// let account_id = parse!("alice@wonderland" as AccountId);
-/// ```
-#[macro_export]
-macro_rules! parse {
-    ($l:literal as _) => {
-        compile_error!(
-            "Don't use `_` as a type in this macro, \
-                 otherwise panic message would be less informative"
-        )
-    };
-    ($l:literal as $t:ty) => {
-        $crate::debug::DebugExpectExt::dbg_expect(
-            $l.parse::<$t>(),
-            concat!("Failed to parse `", $l, "` as `", stringify!($t), "`"),
-        )
-    };
 }
 
 /// Collection of all permission tokens defined by the executor

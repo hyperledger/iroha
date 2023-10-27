@@ -3,7 +3,7 @@
 //! to wasm format and submitted in a transaction
 
 use error::*;
-use import_traits::{
+use import::traits::{
     ExecuteOperations as _, GetExecutorPayloads as _, SetPermissionTokenSchema as _,
 };
 use iroha_config::{
@@ -16,7 +16,7 @@ use iroha_data_model::{
     isi::InstructionExpr,
     permission::PermissionTokenSchema,
     prelude::*,
-    query::{QueryBox, QueryRequest, QueryWithParameters},
+    query::{QueryBox, QueryId, QueryRequest, QueryWithParameters},
     smart_contract::{
         payloads::{self, Validate},
         SmartContractQueryRequest,
@@ -27,13 +27,16 @@ use iroha_logger::debug;
 // NOTE: Using error_span so that span info is logged on every event
 use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span};
 use iroha_wasm_codec::{self as codec, WasmUsize};
-use state::{Wsv as _, WsvMut as _};
 use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, TypedFunc,
 };
 
-use self::state::Authority;
-use crate::{smartcontracts::Execute, wsv::WorldStateView, ValidQuery as _};
+use crate::{
+    query::store::LiveQueryStoreHandle,
+    smartcontracts::{wasm::state::ValidateQueryOperation, Execute},
+    wsv::WorldStateView,
+    ValidQuery as _,
+};
 
 /// Name of the exported memory
 const WASM_MEMORY: &str = "memory";
@@ -65,48 +68,48 @@ mod import {
     pub const EXECUTOR_VALIDATE_INSTRUCTION: &str = "_iroha_executor_validate_instruction";
     pub const EXECUTOR_VALIDATE_QUERY: &str = "_iroha_executor_validate_query";
     pub const EXECUTOR_MIGRATE: &str = "_iroha_executor_migrate";
-}
 
-mod import_traits {
-    //! Traits which some [Runtime]s should implement to import functions from Iroha to WASM
+    pub mod traits {
+        //! Traits which some [Runtime]s should implement to import functions from Iroha to WASM
 
-    use iroha_data_model::{query::QueryBox, smart_contract::payloads::Validate};
+        use iroha_data_model::{query::QueryBox, smart_contract::payloads::Validate};
 
-    use super::*;
+        use super::super::*;
 
-    pub trait ExecuteOperations<S> {
-        /// Execute `query` on host
-        #[codec::wrap_trait_fn]
-        fn execute_query(
-            query_request: SmartContractQueryRequest,
-            state: &S,
-        ) -> Result<BatchedResponse<Value>, ValidationFail>;
+        pub trait ExecuteOperations<S> {
+            /// Execute `query` on host
+            #[codec::wrap_trait_fn]
+            fn execute_query(
+                query_request: SmartContractQueryRequest,
+                state: &mut S,
+            ) -> Result<BatchedResponse<Value>, ValidationFail>;
 
-        /// Execute `instruction` on host
-        #[codec::wrap_trait_fn]
-        fn execute_instruction(
-            instruction: InstructionExpr,
-            state: &mut S,
-        ) -> Result<(), ValidationFail>;
-    }
+            /// Execute `instruction` on host
+            #[codec::wrap_trait_fn]
+            fn execute_instruction(
+                instruction: InstructionExpr,
+                state: &mut S,
+            ) -> Result<(), ValidationFail>;
+        }
 
-    pub trait GetExecutorPayloads<S> {
-        #[codec::wrap_trait_fn]
-        fn get_migrate_payload(state: &S) -> payloads::Migrate;
+        pub trait GetExecutorPayloads<S> {
+            #[codec::wrap_trait_fn]
+            fn get_migrate_payload(state: &S) -> payloads::Migrate;
 
-        #[codec::wrap_trait_fn]
-        fn get_validate_transaction_payload(state: &S) -> Validate<SignedTransaction>;
+            #[codec::wrap_trait_fn]
+            fn get_validate_transaction_payload(state: &S) -> Validate<SignedTransaction>;
 
-        #[codec::wrap_trait_fn]
-        fn get_validate_instruction_payload(state: &S) -> Validate<InstructionExpr>;
+            #[codec::wrap_trait_fn]
+            fn get_validate_instruction_payload(state: &S) -> Validate<InstructionExpr>;
 
-        #[codec::wrap_trait_fn]
-        fn get_validate_query_payload(state: &S) -> Validate<QueryBox>;
-    }
+            #[codec::wrap_trait_fn]
+            fn get_validate_query_payload(state: &S) -> Validate<QueryBox>;
+        }
 
-    pub trait SetPermissionTokenSchema<S> {
-        #[codec::wrap_trait_fn]
-        fn set_permission_token_schema(schema: PermissionTokenSchema, state: &mut S);
+        pub trait SetPermissionTokenSchema<S> {
+            #[codec::wrap_trait_fn]
+            fn set_permission_token_schema(schema: PermissionTokenSchema, state: &mut S);
+        }
     }
 }
 
@@ -117,9 +120,15 @@ pub mod error {
 
     /// `WebAssembly` execution error type
     #[derive(Debug, thiserror::Error, displaydoc::Display)]
+    #[ignore_extra_doc_attributes]
     pub enum Error {
         /// Runtime initialization failure
         Initialization(#[source] WasmtimeError),
+        /// Runtime finalization failure.
+        ///
+        /// Currently only [`crate::query::store::Error`] might fail in this case.
+        /// [`From`] is not implemented to force users to explicitly wrap this error.
+        Finalization(#[source] crate::query::store::Error),
         /// Failed to load module
         ModuleLoading(#[source] WasmtimeError),
         /// Module could not be instantiated
@@ -268,6 +277,19 @@ fn create_config() -> Result<Config> {
     Ok(config)
 }
 
+/// Remove all executed queries from the query storage.
+fn forget_all_executed_queries(
+    query_handle: &LiveQueryStoreHandle,
+    executed_queries: impl IntoIterator<Item = QueryId>,
+) -> Result<()> {
+    for query_id in executed_queries {
+        let _ = query_handle
+            .drop_query(query_id)
+            .map_err(Error::Finalization)?;
+    }
+    Ok(())
+}
+
 /// Limits checker for smartcontracts.
 #[derive(Copy, Clone)]
 struct LimitsExecutor {
@@ -306,6 +328,10 @@ impl LimitsExecutor {
 pub mod state {
     //! All supported states for [`Runtime`](super::Runtime)
 
+    use std::collections::HashSet;
+
+    use derive_more::Constructor;
+
     use super::*;
 
     /// Construct [`StoreLimits`] from [`Configuration`]
@@ -327,258 +353,210 @@ pub mod state {
             .build()
     }
 
-    /// Common data for states
-    pub struct Common<'wrld> {
+    /// State for most common operations.
+    /// Generic over borrowed [`WorldStateView`] type and specific executable state.
+    pub struct CommonState<W, S> {
         pub(super) authority: AccountId,
         pub(super) store_limits: StoreLimits,
-        pub(super) wsv: &'wrld mut WorldStateView,
         /// Span inside of which all logs are recorded for this smart contract
         pub(super) log_span: Span,
+        pub(super) executed_queries: HashSet<QueryId>,
+        /// Borrowed [`WorldStateView`] kind
+        pub(super) wsv: W,
+        /// Concrete state for specific executable
+        pub(super) specific_state: S,
     }
 
-    impl<'wrld> Common<'wrld> {
-        /// Create new [`Common`]
+    impl<W, S> CommonState<W, S> {
+        /// Create new [`OrdinaryState`]
         pub fn new(
-            wsv: &'wrld mut WorldStateView,
             authority: AccountId,
             config: Configuration,
             log_span: Span,
+            wsv: W,
+            specific_state: S,
         ) -> Self {
             Self {
-                wsv,
                 authority,
                 store_limits: store_limits_from_config(&config),
                 log_span,
+                executed_queries: HashSet::new(),
+                wsv,
+                specific_state,
+            }
+        }
+
+        /// Take executed queries leaving an empty set
+        pub fn take_executed_queries(&mut self) -> HashSet<QueryId> {
+            std::mem::take(&mut self.executed_queries)
+        }
+    }
+
+    /// Trait to validate queries and instructions before execution.
+    pub trait ValidateQueryOperation {
+        /// Validate `query`.
+        ///
+        /// # Errors
+        ///
+        /// Returns error if query validation failed.
+        fn validate_query(
+            &self,
+            authority: &AccountId,
+            query: QueryBox,
+        ) -> Result<(), ValidationFail>;
+    }
+
+    pub mod wsv {
+        //! Strongly typed kinds of borrowed [`WorldStateView`]
+
+        use super::*;
+
+        /// Const reference to [`WorldStateView`].
+        pub struct WithConst<'wrld>(pub(in super::super) &'wrld WorldStateView);
+
+        /// Mutable reference to [`WorldStateView`].
+        pub struct WithMut<'wrld>(pub(in super::super) &'wrld mut WorldStateView);
+
+        /// Trait to get immutable [`WorldStateView`]
+        ///
+        /// Exists to write generic code for [`WithWsv`] and [`WithMutWsv`.
+        pub trait Wsv {
+            /// Get immutable [`WorldStateView`]
+            fn wsv(&self) -> &WorldStateView;
+        }
+
+        impl Wsv for WithConst<'_> {
+            fn wsv(&self) -> &WorldStateView {
+                self.0
+            }
+        }
+
+        impl Wsv for WithMut<'_> {
+            fn wsv(&self) -> &WorldStateView {
+                self.0
             }
         }
     }
 
-    /// Trait to get span for logs.
-    ///
-    /// Used to implement [`log()`](Runtime::log) export.
-    pub trait LogSpan {
-        /// Get log span
-        fn log_span(&self) -> &Span;
-    }
+    pub mod specific {
+        //! States for concrete executable entrypoints.
 
-    /// Trait to get mutable reference to limits
-    ///
-    /// Used to implement [`Runtime::create_store()`].
-    pub trait LimitsMut {
-        /// Get mutable reference to store limits
-        fn limits_mut(&mut self) -> &mut StoreLimits;
-    }
+        use super::*;
 
-    /// Trait to get authority account id
-    pub trait Authority {
-        /// Get authority account id
-        fn authority(&self) -> &AccountId;
-    }
+        /// Smart Contract execution state
+        #[derive(Copy, Clone)]
+        pub struct SmartContract {
+            pub(in super::super) limits_executor: Option<LimitsExecutor>,
+        }
 
-    /// Trait to get an immutable reference to [`WorldStateView`]
-    pub trait Wsv {
-        /// Get immutable [`WorldStateView`]
-        fn wsv(&self) -> &WorldStateView;
-    }
+        impl SmartContract {
+            /// Create new [`SmartContract`]
+            pub(in super::super) fn new(limits_executor: Option<LimitsExecutor>) -> Self {
+                Self { limits_executor }
+            }
+        }
 
-    /// Trait to get mutable reference to [`WorldStateView`]
-    pub trait WsvMut {
-        /// Get mutable [`WorldStateView`]
-        fn wsv_mut(&mut self) -> &mut WorldStateView;
-    }
+        /// Trigger execution state
+        #[derive(Constructor)]
+        pub struct Trigger {
+            /// Event which activated this trigger
+            pub(in super::super) triggering_event: Event,
+        }
 
-    /// Smart Contract execution state
-    pub struct SmartContract<'wrld> {
-        pub(super) common: Common<'wrld>,
-        /// Should be set for smart contract validation only.
-        pub(super) limits_executor: Option<LimitsExecutor>,
-    }
+        pub mod executor {
+            //! States related to *Executor* execution.
 
-    impl LogSpan for SmartContract<'_> {
-        fn log_span(&self) -> &Span {
-            &self.common.log_span
+            use super::*;
+
+            /// Struct to encapsulate common state kinds for `validate_*` entrypoints
+            #[derive(Constructor)]
+            pub struct Validate<T> {
+                pub(in super::super::super::super) to_validate: T,
+            }
+
+            /// State kind for executing `validate_transaction()` entrypoint of executor
+            pub type ValidateTransaction = Validate<SignedTransaction>;
+
+            /// State kind for executing `validate_query()` entrypoint of executor
+            pub type ValidateQuery = Validate<QueryBox>;
+
+            /// State kind for executing `validate_instruction()` entrypoint of executor
+            pub type ValidateInstruction = Validate<InstructionExpr>;
+
+            /// State kind for executing `migrate()` entrypoint of executor
+            #[derive(Copy, Clone)]
+            pub struct Migrate;
         }
     }
 
-    impl LimitsMut for SmartContract<'_> {
-        fn limits_mut(&mut self) -> &mut StoreLimits {
-            &mut self.common.store_limits
+    /// State for smart contract execution
+    pub type SmartContract<'wrld> = CommonState<wsv::WithMut<'wrld>, specific::SmartContract>;
+
+    /// State for trigger execution
+    pub type Trigger<'wrld> = CommonState<wsv::WithMut<'wrld>, specific::Trigger>;
+
+    impl ValidateQueryOperation for SmartContract<'_> {
+        fn validate_query(
+            &self,
+            authority: &AccountId,
+            query: QueryBox,
+        ) -> Result<(), ValidationFail> {
+            let wsv: &WorldStateView = self.wsv.0;
+            wsv.executor().validate_query(wsv, authority, query)
         }
     }
 
-    impl Authority for SmartContract<'_> {
-        fn authority(&self) -> &AccountId {
-            &self.common.authority
-        }
-    }
-
-    impl Wsv for SmartContract<'_> {
-        fn wsv(&self) -> &WorldStateView {
-            self.common.wsv
-        }
-    }
-
-    impl WsvMut for SmartContract<'_> {
-        fn wsv_mut(&mut self) -> &mut WorldStateView {
-            self.common.wsv
-        }
-    }
-
-    /// Trigger execution state
-    pub struct Trigger<'wrld> {
-        pub(super) common: Common<'wrld>,
-        /// Event which activated this trigger
-        pub(super) triggering_event: Event,
-    }
-
-    impl LogSpan for Trigger<'_> {
-        fn log_span(&self) -> &Span {
-            &self.common.log_span
-        }
-    }
-
-    impl LimitsMut for Trigger<'_> {
-        fn limits_mut(&mut self) -> &mut StoreLimits {
-            &mut self.common.store_limits
-        }
-    }
-
-    impl Authority for Trigger<'_> {
-        fn authority(&self) -> &AccountId {
-            &self.common.authority
-        }
-    }
-
-    impl Wsv for Trigger<'_> {
-        fn wsv(&self) -> &WorldStateView {
-            self.common.wsv
-        }
-    }
-
-    impl WsvMut for Trigger<'_> {
-        fn wsv_mut(&mut self) -> &mut WorldStateView {
-            self.common.wsv
+    impl ValidateQueryOperation for Trigger<'_> {
+        fn validate_query(
+            &self,
+            authority: &AccountId,
+            query: QueryBox,
+        ) -> Result<(), ValidationFail> {
+            let wsv: &WorldStateView = self.wsv.0;
+            wsv.executor().validate_query(wsv, authority, query)
         }
     }
 
     pub mod executor {
-        //! States related to *Executor* execution.
+        //! States for different executor entrypoints
 
         use super::*;
 
-        /// Struct to encapsulate common state for `validate_transaction()` and
-        /// `validate_instruction()` entrypoints.
-        ///
-        /// *Mut* means that [`WorldStateView`] will be mutated.
-        pub struct ValidateMut<'wrld, T> {
-            pub(in super::super) common: Common<'wrld>,
-            pub(in super::super) to_validate: T,
+        /// State for executing `validate_transaction()` entrypoint
+        pub type ValidateTransaction<'wrld> =
+            CommonState<wsv::WithMut<'wrld>, specific::executor::ValidateTransaction>;
+
+        /// State for executing `validate_query()` entrypoint
+        pub type ValidateQuery<'wrld> =
+            CommonState<wsv::WithConst<'wrld>, specific::executor::ValidateQuery>;
+
+        /// State for executing `validate_instruction()` entrypoint
+        pub type ValidateInstruction<'wrld> =
+            CommonState<wsv::WithMut<'wrld>, specific::executor::ValidateInstruction>;
+
+        /// State for executing `migrate()` entrypoint
+        pub type Migrate<'wrld> = CommonState<wsv::WithMut<'wrld>, specific::executor::Migrate>;
+
+        macro_rules! impl_blank_validate_operations {
+            ($($t:ident),+ $(,)?) => { $(
+                impl ValidateQueryOperation for $t <'_> {
+                    fn validate_query(
+                        &self,
+                        _authority: &AccountId,
+                        _query: QueryBox,
+                    ) -> Result<(), ValidationFail> {
+                        Ok(())
+                    }
+                }
+            )+ };
         }
 
-        impl<T> LogSpan for ValidateMut<'_, T> {
-            fn log_span(&self) -> &Span {
-                &self.common.log_span
-            }
-        }
-
-        impl<T> LimitsMut for ValidateMut<'_, T> {
-            fn limits_mut(&mut self) -> &mut StoreLimits {
-                &mut self.common.store_limits
-            }
-        }
-
-        impl<T> Authority for ValidateMut<'_, T> {
-            fn authority(&self) -> &AccountId {
-                &self.common.authority
-            }
-        }
-
-        impl<T> Wsv for ValidateMut<'_, T> {
-            fn wsv(&self) -> &WorldStateView {
-                self.common.wsv
-            }
-        }
-
-        impl<T> WsvMut for ValidateMut<'_, T> {
-            fn wsv_mut(&mut self) -> &mut WorldStateView {
-                self.common.wsv
-            }
-        }
-
-        /// State for executing `validate_transaction()` entrypoint of executor
-        pub type ValidateTransaction<'wrld> = ValidateMut<'wrld, SignedTransaction>;
-
-        /// State for executing `validate_instruction()` entrypoint of executor
-        pub type ValidateInstruction<'wrld> = ValidateMut<'wrld, InstructionExpr>;
-
-        /// State for executing `validate_query()` entrypoint of executor
-        ///
-        /// Does not implement [`WsvMut`] because it contains immutable reference to
-        /// [`WorldStateView`] since it shouldn't be changed during *query* validation.
-        pub struct ValidateQuery<'wrld> {
-            pub(in super::super) authority: AccountId,
-            pub(in super::super) store_limits: StoreLimits,
-            pub(in super::super) wsv: &'wrld WorldStateView,
-            pub(in super::super) log_span: Span,
-            pub(in super::super) query: QueryBox,
-        }
-
-        impl LogSpan for ValidateQuery<'_> {
-            fn log_span(&self) -> &Span {
-                &self.log_span
-            }
-        }
-
-        impl LimitsMut for ValidateQuery<'_> {
-            fn limits_mut(&mut self) -> &mut StoreLimits {
-                &mut self.store_limits
-            }
-        }
-
-        impl Authority for ValidateQuery<'_> {
-            fn authority(&self) -> &AccountId {
-                &self.authority
-            }
-        }
-
-        impl Wsv for ValidateQuery<'_> {
-            fn wsv(&self) -> &WorldStateView {
-                self.wsv
-            }
-        }
-
-        /// State for executing `migrate()` entrypoint of executor
-        pub struct Migrate<'wrld>(pub(in super::super) Common<'wrld>);
-
-        impl LimitsMut for Migrate<'_> {
-            fn limits_mut(&mut self) -> &mut StoreLimits {
-                &mut self.0.store_limits
-            }
-        }
-
-        impl LogSpan for Migrate<'_> {
-            fn log_span(&self) -> &Span {
-                &self.0.log_span
-            }
-        }
-
-        impl Authority for Migrate<'_> {
-            fn authority(&self) -> &AccountId {
-                &self.0.authority
-            }
-        }
-
-        impl Wsv for Migrate<'_> {
-            fn wsv(&self) -> &WorldStateView {
-                self.0.wsv
-            }
-        }
-
-        impl WsvMut for Migrate<'_> {
-            fn wsv_mut(&mut self) -> &mut WorldStateView {
-                self.0.wsv
-            }
-        }
+        impl_blank_validate_operations!(
+            ValidateTransaction,
+            ValidateInstruction,
+            ValidateQuery,
+            Migrate,
+        );
     }
 }
 
@@ -693,17 +671,20 @@ struct LogError(u8);
 /// It's required by `#[codec::wrap]` to parse well
 type WasmtimeError = wasmtime::Error;
 
-impl<S: state::LogSpan> Runtime<S> {
+impl<W, S> Runtime<state::CommonState<W, S>> {
     /// Log the given string at the given log level
     ///
     /// # Errors
     ///
     /// If log level or string decoding fails
     #[codec::wrap]
-    pub fn log((log_level, msg): (u8, String), state: &S) -> Result<(), WasmtimeError> {
+    pub fn log(
+        (log_level, msg): (u8, String),
+        state: &state::CommonState<W, S>,
+    ) -> Result<(), WasmtimeError> {
         const TARGET: &str = "WASM";
 
-        let _span = state.log_span().enter();
+        let _span = state.log_span.enter();
         match LogLevel::from_repr(log_level)
             .ok_or(LogError(log_level))
             .map_err(wasmtime::Error::from)?
@@ -726,24 +707,24 @@ impl<S: state::LogSpan> Runtime<S> {
         }
         Ok(())
     }
-}
 
-impl<S: state::LimitsMut> Runtime<S> {
-    fn create_store(&self, state: S) -> Store<S> {
+    fn create_store(&self, state: state::CommonState<W, S>) -> Store<state::CommonState<W, S>> {
         let mut store = Store::new(&self.engine, state);
 
-        store.limiter(|s| s.limits_mut());
+        store.limiter(|s| &mut s.store_limits);
         store
             .add_fuel(self.config.fuel_limit)
             .expect("Wasm Runtime config is malformed, this is a bug");
 
         store
     }
+}
 
+impl<W: state::wsv::Wsv, S> Runtime<state::CommonState<W, S>> {
     fn execute_executor_validate_internal(
         &self,
         module: &wasmtime::Module,
-        state: S,
+        state: state::CommonState<W, S>,
         validate_fn_name: &'static str,
     ) -> Result<executor::Result> {
         let mut store = self.create_store(state);
@@ -761,20 +742,27 @@ impl<S: state::LimitsMut> Runtime<S> {
         let dealloc_fn =
             Self::get_typed_func(&instance, &mut store, import::SMART_CONTRACT_DEALLOC)
                 .expect("Checked at instantiation step");
-        codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
-            .map_err(Error::Decode)
+        let validation_res =
+            codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
+                .map_err(Error::Decode)?;
+
+        let mut state = store.into_data();
+        let executed_queries = state.take_executed_queries();
+        forget_all_executed_queries(state.wsv.wsv().query_handle(), executed_queries)?;
+        Ok(validation_res)
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
-impl<S: state::Authority + state::Wsv + state::WsvMut> Runtime<S> {
+impl<W, S> Runtime<state::CommonState<W, S>>
+where
+    W: state::wsv::Wsv,
+    state::CommonState<W, S>: state::ValidateQueryOperation,
+{
     fn default_execute_query(
         query_request: SmartContractQueryRequest,
-        state: &S,
+        state: &mut state::CommonState<W, S>,
     ) -> Result<BatchedResponse<Value>, ValidationFail> {
         iroha_logger::debug!(%query_request, "Executing");
-
-        let wsv = state.wsv();
 
         match query_request.0 {
             QueryRequest::Query(QueryWithParameters {
@@ -783,21 +771,40 @@ impl<S: state::Authority + state::Wsv + state::WsvMut> Runtime<S> {
                 pagination,
                 fetch_size,
             }) => {
-                wsv.executor()
-                    .validate_query(wsv, state.authority(), query.clone())?;
-                let output = query.execute(wsv)?;
+                let batched = {
+                    let wsv = &state.wsv.wsv();
+                    state.validate_query(&state.authority, query.clone())?;
+                    let output = query.execute(wsv)?;
 
-                wsv.query_handle()
-                    .handle_query_output(output, &sorting, pagination, fetch_size)
+                    wsv.query_handle()
+                        .handle_query_output(output, &sorting, pagination, fetch_size)
+                }?;
+                match &batched {
+                    BatchedResponse::V1(batched) => {
+                        if let Some(query_id) = &batched.cursor.query_id {
+                            state.executed_queries.insert(query_id.clone());
+                        }
+                    }
+                }
+                Ok(batched)
             }
-            QueryRequest::Cursor(cursor) => wsv.query_handle().handle_query_cursor(cursor),
+            QueryRequest::Cursor(cursor) => {
+                // In a normal situation we already have this `query_id` stored,
+                // so that's a protection from malicious smart contract
+                if let Some(query_id) = &cursor.query_id {
+                    state.executed_queries.insert(query_id.clone());
+                }
+                state.wsv.wsv().query_handle().handle_query_cursor(cursor)
+            }
         }
         .map_err(Into::into)
     }
+}
 
+impl<'wrld, S> Runtime<state::CommonState<state::wsv::WithMut<'wrld>, S>> {
     fn default_execute_instruction(
         instruction: InstructionExpr,
-        state: &mut S,
+        state: &mut state::CommonState<state::wsv::WithMut<'wrld>, S>,
     ) -> Result<(), ValidationFail> {
         debug!(%instruction, "Executing");
 
@@ -805,8 +812,8 @@ impl<S: state::Authority + state::Wsv + state::WsvMut> Runtime<S> {
         // There should be two steps validation and execution. First smart contract
         // is validated and then it's executed. Here it's validating in both steps.
         // Add a flag indicating whether smart contract is being validated or executed
-        let authority = state.authority().clone();
-        let wsv = state.wsv_mut();
+        let authority = state.authority.clone();
+        let wsv: &mut WorldStateView = state.wsv.0;
         wsv.executor()
                 .clone() // Cloning executor is a cheap operation
                 .validate_instruction(wsv, &authority, instruction)
@@ -828,10 +835,13 @@ impl<'wrld> Runtime<state::SmartContract<'wrld>> {
         bytes: impl AsRef<[u8]>,
     ) -> Result<()> {
         let span = wasm_log_span!("Smart contract execution", %authority);
-        let state = state::SmartContract {
-            common: state::Common::new(wsv, authority, self.config, span),
-            limits_executor: None,
-        };
+        let state = state::SmartContract::new(
+            authority,
+            self.config,
+            span,
+            state::wsv::WithMut(wsv),
+            state::specific::SmartContract::new(None),
+        );
 
         self.execute_smart_contract_with_state(bytes, state)
     }
@@ -851,10 +861,13 @@ impl<'wrld> Runtime<state::SmartContract<'wrld>> {
         max_instruction_count: u64,
     ) -> Result<()> {
         let span = wasm_log_span!("Smart contract validation", %authority);
-        let state = state::SmartContract {
-            common: state::Common::new(wsv, authority, self.config, span),
-            limits_executor: Some(LimitsExecutor::new(max_instruction_count)),
-        };
+        let state = state::SmartContract::new(
+            authority,
+            self.config,
+            span,
+            state::wsv::WithMut(wsv),
+            state::specific::SmartContract::new(Some(LimitsExecutor::new(max_instruction_count))),
+        );
 
         self.execute_smart_contract_with_state(bytes, state)
     }
@@ -872,26 +885,28 @@ impl<'wrld> Runtime<state::SmartContract<'wrld>> {
 
         // NOTE: This function takes ownership of the pointer
         main_fn
-            .call(store, ())
-            .map_err(ExportFnCallError::from)
-            .map_err(Into::into)
+            .call(&mut store, ())
+            .map_err(ExportFnCallError::from)?;
+        let mut state = store.into_data();
+        let executed_queries = state.take_executed_queries();
+        forget_all_executed_queries(state.wsv.0.query_handle(), executed_queries)
     }
 
     #[codec::wrap]
     fn get_smart_contract_payload(state: &state::SmartContract) -> payloads::SmartContract {
         payloads::SmartContract {
-            owner: state.authority().clone(),
+            owner: state.authority.clone(),
         }
     }
 }
 
-impl<'wrld> import_traits::ExecuteOperations<state::SmartContract<'wrld>>
+impl<'wrld> import::traits::ExecuteOperations<state::SmartContract<'wrld>>
     for Runtime<state::SmartContract<'wrld>>
 {
     #[codec::wrap]
     fn execute_query(
         query_request: SmartContractQueryRequest,
-        state: &state::SmartContract<'wrld>,
+        state: &mut state::SmartContract<'wrld>,
     ) -> Result<BatchedResponse<Value>, ValidationFail> {
         Self::default_execute_query(query_request, state)
     }
@@ -901,7 +916,7 @@ impl<'wrld> import_traits::ExecuteOperations<state::SmartContract<'wrld>>
         instruction: InstructionExpr,
         state: &mut state::SmartContract<'wrld>,
     ) -> Result<(), ValidationFail> {
-        if let Some(limits_executor) = state.limits_executor.as_mut() {
+        if let Some(limits_executor) = state.specific_state.limits_executor.as_mut() {
             limits_executor.check_instruction_limits()?;
         }
 
@@ -925,10 +940,13 @@ impl<'wrld> Runtime<state::Trigger<'wrld>> {
         event: Event,
     ) -> Result<()> {
         let span = wasm_log_span!("Trigger execution", %id, %authority);
-        let state = state::Trigger {
-            common: state::Common::new(wsv, authority, self.config, span),
-            triggering_event: event,
-        };
+        let state = state::Trigger::new(
+            authority,
+            self.config,
+            span,
+            state::wsv::WithMut(wsv),
+            state::specific::Trigger::new(event),
+        );
 
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
@@ -937,27 +955,30 @@ impl<'wrld> Runtime<state::Trigger<'wrld>> {
 
         // NOTE: This function takes ownership of the pointer
         main_fn
-            .call(store, ())
-            .map_err(ExportFnCallError::from)
-            .map_err(Into::into)
+            .call(&mut store, ())
+            .map_err(ExportFnCallError::from)?;
+
+        let mut state = store.into_data();
+        let executed_queries = state.take_executed_queries();
+        forget_all_executed_queries(state.wsv.0.query_handle(), executed_queries)
     }
 
     #[codec::wrap]
     fn get_trigger_payload(state: &state::Trigger) -> payloads::Trigger {
         payloads::Trigger {
-            owner: state.authority().clone(),
-            event: state.triggering_event.clone(),
+            owner: state.authority.clone(),
+            event: state.specific_state.triggering_event.clone(),
         }
     }
 }
 
-impl<'wrld> import_traits::ExecuteOperations<state::Trigger<'wrld>>
+impl<'wrld> import::traits::ExecuteOperations<state::Trigger<'wrld>>
     for Runtime<state::Trigger<'wrld>>
 {
     #[codec::wrap]
     fn execute_query(
         query_request: SmartContractQueryRequest,
-        state: &state::Trigger<'wrld>,
+        state: &mut state::Trigger<'wrld>,
     ) -> Result<BatchedResponse<Value>, ValidationFail> {
         Self::default_execute_query(query_request, state)
     }
@@ -977,46 +998,31 @@ impl<'wrld> import_traits::ExecuteOperations<state::Trigger<'wrld>>
 /// *Mut* means that [`WorldStateView`] will be mutated.
 trait ExecuteOperationsAsExecutorMut<S> {}
 
-impl<R, S> import_traits::ExecuteOperations<S> for R
+impl<'wrld, R, S>
+    import::traits::ExecuteOperations<state::CommonState<state::wsv::WithMut<'wrld>, S>> for R
 where
-    R: ExecuteOperationsAsExecutorMut<S>,
-    S: state::Wsv + state::WsvMut + state::Authority,
+    R: ExecuteOperationsAsExecutorMut<state::CommonState<state::wsv::WithMut<'wrld>, S>>,
+    state::CommonState<state::wsv::WithMut<'wrld>, S>: state::ValidateQueryOperation,
 {
     #[codec::wrap]
     fn execute_query(
         query_request: SmartContractQueryRequest,
-        state: &S,
+        state: &mut state::CommonState<state::wsv::WithMut<'wrld>, S>,
     ) -> Result<BatchedResponse<Value>, ValidationFail> {
         debug!(%query_request, "Executing as executor");
 
-        let wsv = state.wsv();
-
-        match query_request.0 {
-            QueryRequest::Query(QueryWithParameters {
-                query,
-                sorting,
-                pagination,
-                fetch_size,
-            }) => {
-                let output = query.execute(wsv)?;
-
-                wsv.query_handle()
-                    .handle_query_output(output, &sorting, pagination, fetch_size)
-            }
-            QueryRequest::Cursor(cursor) => wsv.query_handle().handle_query_cursor(cursor),
-        }
-        .map_err(Into::into)
+        Runtime::default_execute_query(query_request, state)
     }
 
     #[codec::wrap]
     fn execute_instruction(
         instruction: InstructionExpr,
-        state: &mut S,
+        state: &mut state::CommonState<state::wsv::WithMut<'wrld>, S>,
     ) -> Result<(), ValidationFail> {
         debug!(%instruction, "Executing as executor");
 
         instruction
-            .execute(&state.authority().clone(), state.wsv_mut())
+            .execute(&state.authority.clone(), state.wsv.0)
             .map_err(Into::into)
     }
 }
@@ -1030,7 +1036,7 @@ trait FakeSetPermissionTokenSchema<S> {
     const ENTRYPOINT_FN_NAME: &'static str;
 }
 
-impl<R, S> import_traits::SetPermissionTokenSchema<S> for R
+impl<R, S> import::traits::SetPermissionTokenSchema<S> for R
 where
     R: FakeSetPermissionTokenSchema<S>,
 {
@@ -1063,10 +1069,13 @@ impl<'wrld> Runtime<state::executor::ValidateTransaction<'wrld>> {
 
         self.execute_executor_validate_internal(
             module,
-            state::executor::ValidateTransaction {
-                common: state::Common::new(wsv, authority.clone(), self.config, span),
-                to_validate: transaction,
-            },
+            state::executor::ValidateTransaction::new(
+                authority.clone(),
+                self.config,
+                span,
+                state::wsv::WithMut(wsv),
+                state::specific::executor::ValidateTransaction::new(transaction),
+            ),
             import::EXECUTOR_VALIDATE_TRANSACTION,
         )
     }
@@ -1077,7 +1086,7 @@ impl<'wrld> ExecuteOperationsAsExecutorMut<state::executor::ValidateTransaction<
 {
 }
 
-impl<'wrld> import_traits::GetExecutorPayloads<state::executor::ValidateTransaction<'wrld>>
+impl<'wrld> import::traits::GetExecutorPayloads<state::executor::ValidateTransaction<'wrld>>
     for Runtime<state::executor::ValidateTransaction<'wrld>>
 {
     #[codec::wrap]
@@ -1092,9 +1101,9 @@ impl<'wrld> import_traits::GetExecutorPayloads<state::executor::ValidateTransact
         state: &state::executor::ValidateTransaction<'wrld>,
     ) -> Validate<SignedTransaction> {
         Validate {
-            authority: state.authority().clone(),
-            block_height: state.wsv().height(),
-            to_validate: state.to_validate.clone(),
+            authority: state.authority.clone(),
+            block_height: state.wsv.0.height(),
+            to_validate: state.specific_state.to_validate.clone(),
         }
     }
 
@@ -1139,10 +1148,13 @@ impl<'wrld> Runtime<state::executor::ValidateInstruction<'wrld>> {
 
         self.execute_executor_validate_internal(
             module,
-            state::executor::ValidateInstruction {
-                common: state::Common::new(wsv, authority.clone(), self.config, span),
-                to_validate: instruction,
-            },
+            state::executor::ValidateInstruction::new(
+                authority.clone(),
+                self.config,
+                span,
+                state::wsv::WithMut(wsv),
+                state::specific::executor::ValidateInstruction::new(instruction),
+            ),
             import::EXECUTOR_VALIDATE_INSTRUCTION,
         )
     }
@@ -1153,7 +1165,7 @@ impl<'wrld> ExecuteOperationsAsExecutorMut<state::executor::ValidateInstruction<
 {
 }
 
-impl<'wrld> import_traits::GetExecutorPayloads<state::executor::ValidateInstruction<'wrld>>
+impl<'wrld> import::traits::GetExecutorPayloads<state::executor::ValidateInstruction<'wrld>>
     for Runtime<state::executor::ValidateInstruction<'wrld>>
 {
     #[codec::wrap]
@@ -1175,9 +1187,9 @@ impl<'wrld> import_traits::GetExecutorPayloads<state::executor::ValidateInstruct
         state: &state::executor::ValidateInstruction<'wrld>,
     ) -> Validate<InstructionExpr> {
         Validate {
-            authority: state.authority().clone(),
-            block_height: state.wsv().height(),
-            to_validate: state.to_validate.clone(),
+            authority: state.authority.clone(),
+            block_height: state.wsv.0.height(),
+            to_validate: state.specific_state.to_validate.clone(),
         }
     }
 
@@ -1215,45 +1227,29 @@ impl<'wrld> Runtime<state::executor::ValidateQuery<'wrld>> {
 
         self.execute_executor_validate_internal(
             module,
-            state::executor::ValidateQuery {
-                wsv,
-                authority: authority.clone(),
-                store_limits: state::store_limits_from_config(&self.config),
-                log_span: span,
-                query,
-            },
+            state::executor::ValidateQuery::new(
+                authority.clone(),
+                self.config,
+                span,
+                state::wsv::WithConst(wsv),
+                state::specific::executor::ValidateQuery::new(query),
+            ),
             import::EXECUTOR_VALIDATE_QUERY,
         )
     }
 }
 
-impl<'wrld> import_traits::ExecuteOperations<state::executor::ValidateQuery<'wrld>>
+impl<'wrld> import::traits::ExecuteOperations<state::executor::ValidateQuery<'wrld>>
     for Runtime<state::executor::ValidateQuery<'wrld>>
 {
     #[codec::wrap]
     fn execute_query(
         query_request: SmartContractQueryRequest,
-        state: &state::executor::ValidateQuery<'wrld>,
+        state: &mut state::executor::ValidateQuery<'wrld>,
     ) -> Result<BatchedResponse<Value>, ValidationFail> {
         debug!(%query_request, "Executing as executor");
 
-        let wsv = state.wsv();
-
-        match query_request.0 {
-            QueryRequest::Query(QueryWithParameters {
-                query,
-                sorting,
-                pagination,
-                fetch_size,
-            }) => {
-                let output = query.execute(wsv)?;
-
-                wsv.query_handle()
-                    .handle_query_output(output, &sorting, pagination, fetch_size)
-            }
-            QueryRequest::Cursor(cursor) => wsv.query_handle().handle_query_cursor(cursor),
-        }
-        .map_err(Into::into)
+        Runtime::default_execute_query(query_request, state)
     }
 
     #[codec::wrap]
@@ -1265,7 +1261,7 @@ impl<'wrld> import_traits::ExecuteOperations<state::executor::ValidateQuery<'wrl
     }
 }
 
-impl<'wrld> import_traits::GetExecutorPayloads<state::executor::ValidateQuery<'wrld>>
+impl<'wrld> import::traits::GetExecutorPayloads<state::executor::ValidateQuery<'wrld>>
     for Runtime<state::executor::ValidateQuery<'wrld>>
 {
     #[codec::wrap]
@@ -1292,9 +1288,9 @@ impl<'wrld> import_traits::GetExecutorPayloads<state::executor::ValidateQuery<'w
         state: &state::executor::ValidateQuery<'wrld>,
     ) -> Validate<QueryBox> {
         Validate {
-            authority: state.authority().clone(),
-            block_height: state.wsv().height(),
-            to_validate: state.query.clone(),
+            authority: state.authority.clone(),
+            block_height: state.wsv.0.height(),
+            to_validate: state.specific_state.to_validate.clone(),
         }
     }
 }
@@ -1321,12 +1317,13 @@ impl<'wrld> Runtime<state::executor::Migrate<'wrld>> {
         module: &wasmtime::Module,
     ) -> Result<MigrationResult> {
         let span = wasm_log_span!("Running migration");
-        let state = state::executor::Migrate(state::Common::new(
-            wsv,
+        let state = state::executor::Migrate::new(
             authority.clone(),
             self.config,
             span,
-        ));
+            state::wsv::WithMut(wsv),
+            state::specific::executor::Migrate,
+        );
 
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
@@ -1361,13 +1358,13 @@ impl<'wrld> ExecuteOperationsAsExecutorMut<state::executor::Migrate<'wrld>>
 ///
 /// Panics with error message if called, because it should never be called from
 /// `migrate()` entrypoint.
-impl<'wrld> import_traits::GetExecutorPayloads<state::executor::Migrate<'wrld>>
+impl<'wrld> import::traits::GetExecutorPayloads<state::executor::Migrate<'wrld>>
     for Runtime<state::executor::Migrate<'wrld>>
 {
     #[codec::wrap]
     fn get_migrate_payload(state: &state::executor::Migrate<'wrld>) -> payloads::Migrate {
         payloads::Migrate {
-            block_height: state.wsv().height(),
+            block_height: state.wsv.0.height(),
         }
     }
 
@@ -1391,7 +1388,7 @@ impl<'wrld> import_traits::GetExecutorPayloads<state::executor::Migrate<'wrld>>
     }
 }
 
-impl<'wrld> import_traits::SetPermissionTokenSchema<state::executor::Migrate<'wrld>>
+impl<'wrld> import::traits::SetPermissionTokenSchema<state::executor::Migrate<'wrld>>
     for Runtime<state::executor::Migrate<'wrld>>
 {
     #[codec::wrap]
@@ -1401,7 +1398,7 @@ impl<'wrld> import_traits::SetPermissionTokenSchema<state::executor::Migrate<'wr
     ) {
         debug!(%schema, "Setting permission token schema");
 
-        state.wsv_mut().set_permission_token_schema(schema)
+        state.wsv.0.set_permission_token_schema(schema)
     }
 }
 

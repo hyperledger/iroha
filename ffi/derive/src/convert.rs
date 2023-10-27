@@ -77,13 +77,13 @@ impl syn2::parse::Parse for SpannedFfiTypeToken {
                         "non_owning" => Ok(((span, FfiTypeToken::UnsafeNonOwning), after_group)),
                         other => Err(syn2::Error::new(
                             token.span(),
-                            format!("unknown unsafe ffi type kind: {}", other),
+                            format!("unknown unsafe ffi type kind: {other}"),
                         )),
                     }
                 }
                 other => Err(syn2::Error::new(
                     span,
-                    format!("unknown unsafe ffi type kind: {}", other),
+                    format!("unknown unsafe ffi type kind: {other}"),
                 )),
             }
         })?;
@@ -110,7 +110,7 @@ impl syn2::parse::Parse for FfiTypeKindAttribute {
                 other => {
                     return Err(syn2::Error::new(
                         token.span,
-                        format!("`{}` cannot be used on a type", other),
+                        format!("`{other}` cannot be used on a type"),
                     ))
                 }
             })
@@ -132,7 +132,7 @@ impl syn2::parse::Parse for FfiTypeKindFieldAttribute {
                 other => {
                     return Err(syn2::Error::new(
                         token.span,
-                        format!("`{}` cannot be used on a field", other),
+                        format!("`{other}` cannot be used on a field"),
                     ))
                 }
             })

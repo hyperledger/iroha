@@ -204,6 +204,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     let wasm = iroha_wasm_builder::Builder::new(
         "tests/integration/smartcontracts/create_nft_for_every_user_trigger",
     )
+    .show_output()
     .build()?
     .optimize()?
     .into_bytes()?;

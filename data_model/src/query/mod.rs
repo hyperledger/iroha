@@ -95,6 +95,9 @@ macro_rules! queries {
     };
 }
 
+/// Unique id of a query.
+pub type QueryId = String;
+
 /// Trait for typesafe query output
 pub trait Query: Into<QueryBox> + seal::Sealed {
     /// Output type of query
@@ -1613,6 +1616,6 @@ pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
         peer::prelude::*, permission::prelude::*, role::prelude::*, transaction::*,
-        trigger::prelude::*, FetchSize, QueryBox, TransactionQueryOutput,
+        trigger::prelude::*, FetchSize, QueryBox, QueryId, TransactionQueryOutput,
     };
 }

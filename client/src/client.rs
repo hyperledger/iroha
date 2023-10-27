@@ -346,20 +346,20 @@ impl_query_output! {
 #[display(fmt = "{}@{torii_url}", "key_pair.public_key()")]
 pub struct Client {
     /// Url for accessing iroha node
-    torii_url: Url,
+    pub torii_url: Url,
     /// Accounts keypair
-    key_pair: KeyPair,
+    pub key_pair: KeyPair,
     /// Transaction time to live in milliseconds
-    transaction_ttl: Option<Duration>,
+    pub transaction_ttl: Option<Duration>,
     /// Transaction status timeout
-    transaction_status_timeout: Duration,
+    pub transaction_status_timeout: Duration,
     /// Current account
-    account_id: AccountId,
+    pub account_id: AccountId,
     /// Http headers which will be appended to each request
-    headers: HashMap<String, String>,
+    pub headers: HashMap<String, String>,
     /// If `true` add nonce, which makes different hashes for
     /// transactions which occur repeatedly and/or simultaneously
-    add_transaction_nonce: bool,
+    pub add_transaction_nonce: bool,
 }
 
 /// Query request
@@ -388,6 +388,7 @@ impl QueryRequest {
             ),
         }
     }
+
     fn assemble(self) -> DefaultRequestBuilder {
         let builder = DefaultRequestBuilder::new(
             HttpMethod::POST,
@@ -837,7 +838,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending request fails
-    pub fn request_with_filter_and_pagination_and_sorting<R: Query + Debug>(
+    pub(crate) fn request_with_filter_and_pagination_and_sorting<R: Query + Debug>(
         &self,
         request: R,
         pagination: Pagination,
@@ -871,6 +872,35 @@ impl Client {
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.build_query(request).execute()
+    }
+
+    /// Query API entry point using cursor.
+    ///
+    /// You should probably not use this function directly.
+    ///
+    /// # Errors
+    /// Fails if sending request fails
+    #[cfg(debug_assertions)]
+    pub fn request_with_cursor<O>(
+        &self,
+        cursor: iroha_data_model::query::cursor::ForwardCursor,
+    ) -> QueryResult<O::Target>
+    where
+        O: QueryOutput,
+        <O as TryFrom<Value>>::Error: Into<eyre::Error>,
+    {
+        let request = QueryRequest {
+            torii_url: self.torii_url.clone(),
+            headers: self.headers.clone(),
+            request: iroha_data_model::query::QueryRequest::Cursor(cursor),
+        };
+        let response = request.clone().assemble().build()?.send()?;
+
+        let mut resp_handler = QueryResponseHandler::<O>::new(request);
+        let value = resp_handler.handle(&response)?;
+        let output = O::new(value, resp_handler);
+
+        Ok(output)
     }
 
     /// Query API entry point.
