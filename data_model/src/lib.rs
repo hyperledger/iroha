@@ -1774,11 +1774,10 @@ pub fn current_time() -> core::time::Duration {
 
 declare_versioned_with_scale!(BatchedResponse<T> 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
-impl<T> From<BatchedResponseV1<T>> for (T, crate::query::cursor::ForwardCursor) {
-    fn from(source: BatchedResponseV1<T>) -> Self {
-        let BatchedResponseV1 { batch, cursor } = source;
-
-        (batch, cursor)
+impl<T> From<BatchedResponse<T>> for (T, crate::query::cursor::ForwardCursor) {
+    fn from(source: BatchedResponse<T>) -> Self {
+        let BatchedResponse::V1(batch) = source;
+        (batch.batch, batch.cursor)
     }
 }
 

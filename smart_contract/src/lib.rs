@@ -186,10 +186,8 @@ where
                 host_execute_query,
             ))
         };
-        let BatchedResponse::V1(response) = res? else {
-            panic!("Unsupported response version")
-        };
-        let (value, cursor) = response.into();
+
+        let (value, cursor) = res?.into();
         let typed_value = Self::Output::try_from(value).expect("Query output has incorrect type");
         Ok(QueryOutputCursor {
             batch: typed_value,
@@ -286,10 +284,7 @@ impl<T: TryFrom<Value>> QueryOutputCursorIterator<T> {
                 host_execute_query,
             ))
         };
-        let BatchedResponse::V1(response) = res? else {
-            panic!("Unsupported response version")
-        };
-        let (value, cursor) = response.into();
+        let (value, cursor) = res?.into();
         let vec = Vec::<T>::try_from(value)?;
         Ok(Self {
             iter: vec.into_iter(),

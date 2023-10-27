@@ -138,10 +138,7 @@ where
             }
         }
 
-        let response =
-            _handle_query_response_base(resp).map(|BatchedResponse::V1(response)| response)?;
-
-        let (batch, cursor) = response.into();
+        let (batch, cursor) = _handle_query_response_base(resp)?.into();
 
         let value = R::try_from(batch)
             .map_err(Into::into)
@@ -1665,14 +1662,13 @@ mod tests {
         let mut tx2 = build_transaction();
         assert_ne!(tx1.payload().hash(), tx2.payload().hash());
 
-        let SignedTransaction::V1(tx2_ref) = &mut tx2;
-        tx2_ref.payload.creation_time_ms = tx1
+        tx2.payload_mut().creation_time_ms = tx1
             .payload()
             .creation_time()
             .as_millis()
             .try_into()
             .expect("Valid");
-        tx2_ref.payload.nonce = tx1.payload().nonce;
+        tx2.payload_mut().nonce = tx1.payload().nonce;
         assert_eq!(tx1.payload().hash(), tx2.payload().hash());
     }
 

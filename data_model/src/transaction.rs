@@ -264,6 +264,21 @@ impl SignedTransaction {
         &tx.payload
     }
 
+    /// Used to inject faulty payload for testing
+    #[cfg(feature = "transparent_api")]
+    pub fn payload_mut(&mut self) -> &mut TransactionPayload {
+        let SignedTransaction::V1(tx) = self;
+        &mut tx.payload
+    }
+
+    /// Used to inject faulty payload for testing
+    #[cfg(debug_assertions)]
+    #[cfg(not(feature = "transparent_api"))]
+    pub fn payload_mut(&mut self) -> &mut TransactionPayload {
+        let SignedTransaction::V1(tx) = self;
+        &mut tx.payload
+    }
+
     /// Return transaction signatures
     pub fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
         let SignedTransaction::V1(tx) = self;
