@@ -19,14 +19,13 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
         .collect();
     client.submit_all_blocking(register)?;
 
-    let vec = client
-        .request_with_pagination(
-            asset::all_definitions(),
-            Pagination {
-                limit: NonZeroU32::new(5),
-                start: NonZeroU64::new(5),
-            },
-        )?
+    let vec = &client
+        .build_query(asset::all_definitions())
+        .with_pagination(Pagination {
+            limit: NonZeroU32::new(5),
+            start: NonZeroU64::new(5),
+        })
+        .execute()?
         .collect::<QueryResult<Vec<_>>>()?;
     assert_eq!(vec.len(), 5);
     Ok(())

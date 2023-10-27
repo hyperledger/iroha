@@ -411,7 +411,9 @@ mod domain {
                     .request(client::domain::all())
                     .wrap_err("Failed to get all domains"),
                 Self::Filter(filter) => client
-                    .request_with_filter(client::domain::all(), filter.predicate)
+                    .build_query(client::domain::all())
+                    .with_filter(filter.predicate)
+                    .execute()
                     .wrap_err("Failed to get filtered domains"),
             }?;
             context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
@@ -551,7 +553,9 @@ mod account {
                     .request(client::account::all())
                     .wrap_err("Failed to get all accounts"),
                 Self::Filter(filter) => client
-                    .request_with_filter(client::account::all(), filter.predicate)
+                    .build_query(client::account::all())
+                    .with_filter(filter.predicate)
+                    .execute()
                     .wrap_err("Failed to get filtered accounts"),
             }?;
             context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
@@ -844,7 +848,9 @@ mod asset {
                     .request(client::asset::all())
                     .wrap_err("Failed to get all assets"),
                 Self::Filter(filter) => client
-                    .request_with_filter(client::asset::all(), filter.predicate)
+                    .build_query(client::asset::all())
+                    .with_filter(filter.predicate)
+                    .execute()
                     .wrap_err("Failed to get filtered assets"),
             }?;
             context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
