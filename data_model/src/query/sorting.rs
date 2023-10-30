@@ -38,13 +38,13 @@ impl Sorting {
     }
 }
 
-impl From<Sorting> for Vec<(&'static str, Name)> {
-    fn from(sorting: Sorting) -> Self {
-        if let Some(key) = sorting.sort_by_metadata_key {
-            return vec![(SORT_BY_KEY, key)];
-        }
-
-        Vec::new()
+impl Sorting {
+    /// Converts self to Vec of tuples to be used in queries
+    ///
+    /// The length of the output Vec is not constant and it's in (0..3)
+    pub fn into_query_parameters(self) -> Vec<(&'static str, Name)> {
+        self.sort_by_metadata_key
+            .map_or(Vec::new(), |key| vec![(SORT_BY_KEY, key)])
     }
 }
 

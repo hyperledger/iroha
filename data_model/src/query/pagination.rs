@@ -38,9 +38,12 @@ pub struct Pagination {
     pub start: Option<NonZeroU64>,
 }
 
-impl From<Pagination> for Vec<(&'static str, NonZeroU64)> {
-    fn from(pagination: Pagination) -> Self {
-        match (pagination.start, pagination.limit) {
+impl Pagination {
+    /// Converts self to Vec of tuples to be used in queries
+    ///
+    /// The length of the output Vec is not constant and it's in (0..3)
+    pub fn into_query_parameters(self) -> Vec<(&'static str, NonZeroU64)> {
+        match (self.start, self.limit) {
             (Some(start), Some(limit)) => {
                 vec![(PAGINATION_LIMIT, limit.into()), (PAGINATION_START, start)]
             }

@@ -387,8 +387,8 @@ impl QueryRequest {
 
         match self.request {
             iroha_data_model::query::QueryRequest::Query(query_with_params) => builder
-                .params(Vec::from(query_with_params.sorting().clone()))
-                .params(Vec::from(*query_with_params.pagination()))
+                .params(query_with_params.sorting().clone().into_query_parameters())
+                .params(query_with_params.pagination().into_query_parameters())
                 .body(query_with_params.query().clone()),
             iroha_data_model::query::QueryRequest::Cursor(cursor) => {
                 builder.params(Vec::from(cursor))
@@ -969,7 +969,7 @@ impl Client {
         retry_in: Duration,
         pagination: Pagination,
     ) -> Result<Option<SignedTransaction>> {
-        let pagination: Vec<_> = pagination.into();
+        let pagination = pagination.into_query_parameters();
         for _ in 0..retry_count {
             let response = DefaultRequestBuilder::new(
                 HttpMethod::GET,
@@ -977,7 +977,7 @@ impl Client {
                     .join(uri::PENDING_TRANSACTIONS)
                     .expect("Valid URI"),
             )
-            .params(pagination.clone())
+            .params(&pagination)
             .headers(self.headers.clone())
             .build()?
             .send()?;
