@@ -1,4 +1,5 @@
-#![allow(unused)]
+// TODO: clean up & remove
+#![allow(unused, missing_docs)]
 
 /// Implements
 /// https://eprint.iacr.org/2018/483 and
@@ -59,95 +60,6 @@ macro_rules! bls_impl {
             SignatureGroup::from_msg_hash(value.as_slice())
         }
 
-        pub struct Bls;
-
-        impl Bls {
-            fn new() -> Self {
-                Bls
-            }
-
-            fn keypair(
-                &self,
-                options: Option<KeyGenOption>,
-            ) -> Result<(IrohaPublicKey, IrohaPrivateKey), Error> {
-                let (public_key, private_key) = match options {
-                    Some(option) => match option {
-                        // Follows https://datatracker.ietf.org/doc/draft-irtf-cfrg-bls-signature/?include_text=1
-                        KeyGenOption::UseSeed(ref seed) => {
-                            let salt = b"BLS-SIG-KEYGEN-SALT-";
-                            let info = [0u8, PRIVATE_KEY_SIZE as u8]; // key_info || I2OSP(L, 2)
-                            let mut ikm = vec![0u8; seed.len() + 1];
-                            ikm[..seed.len()].copy_from_slice(seed); // IKM || I2OSP(0, 1)
-                            let mut okm = [0u8; PRIVATE_KEY_SIZE];
-                            let h = hkdf::Hkdf::<Sha256>::new(Some(&salt[..]), &ikm);
-                            h.expand(&info[..], &mut okm).map_err(|err| {
-                                Error::KeyGen(format!("Failed to generate keypair: {}", err))
-                            })?;
-                            let private_key: PrivateKey = PrivateKey::from(&okm);
-                            (
-                                PublicKey::new(&private_key, &Generator::generator()),
-                                private_key,
-                            )
-                        }
-                        KeyGenOption::FromPrivateKey(ref key) => {
-                            // iroha_crypto doesn't use this I think?
-                            // also, we probably have to assert that the key type is BLS I think?
-                            todo!()
-
-                            // let private_key =
-                            //     PrivateKey::from_bytes(key.as_ref()).map_err(|_| {
-                            //         Error::Parse(
-                            //             "Failed to parse private key.".to_string(),
-                            //         )
-                            //     })?;
-                            // (
-                            //     PublicKey::new(&private_key, &Generator::generator()),
-                            //     private_key,
-                            // )
-                        }
-                    },
-                    None => generate(&Generator::generator()),
-                };
-                Ok((
-                    IrohaPublicKey {
-                        digest_function: $algo,
-                        payload: ConstVec::new(public_key.to_bytes()),
-                    },
-                    IrohaPrivateKey {
-                        digest_function: $algo,
-                        payload: ConstVec::new(private_key.to_bytes()),
-                    },
-                ))
-            }
-
-            fn sign(&self, message: &[u8], sk: &PrivateKey) -> Result<Vec<u8>, Error> {
-                Ok(Signature::new(message, None, sk).to_bytes())
-            }
-
-            fn verify(
-                &self,
-                message: &[u8],
-                signature: &[u8],
-                pk: &PublicKey,
-            ) -> Result<bool, Error> {
-                Ok(Signature::from_bytes(signature)
-                    .map_err(|_| Error::Parse("Failed to parse signature.".to_string()))?
-                    .verify(message, None, pk, &Generator::generator()))
-            }
-
-            fn signature_size() -> usize {
-                SIGNATURE_SIZE
-            }
-
-            fn private_key_size() -> usize {
-                PRIVATE_KEY_SIZE
-            }
-
-            fn public_key_size() -> usize {
-                PUBLIC_KEY_SIZE
-            }
-        }
-
         #[derive(Debug, Clone)]
         pub struct PublicKey(Generator);
 
@@ -171,6 +83,97 @@ macro_rules! bls_impl {
                 Ok(PublicKey(
                     Generator::from_bytes(bytes).map_err(|e| Error::Parse(format!("{:?}", e)))?,
                 ))
+            }
+        }
+
+        #[derive(Debug, Clone, Copy)]
+        pub struct Bls;
+
+        impl Bls {
+            pub fn new() -> Self {
+                Bls
+            }
+
+            pub fn keypair(
+                &self,
+                options: Option<KeyGenOption>,
+            ) -> Result<(IrohaPublicKey, IrohaPrivateKey), Error> {
+                let (public_key, private_key) = match options {
+                    Some(option) => match option {
+                        // Follows https://datatracker.ietf.org/doc/draft-irtf-cfrg-bls-signature/?include_text=1
+                        KeyGenOption::UseSeed(ref seed) => {
+                            let salt = b"BLS-SIG-KEYGEN-SALT-";
+                            let info = [0u8, PRIVATE_KEY_SIZE as u8]; // key_info || I2OSP(L, 2)
+                            let mut ikm = vec![0u8; seed.len() + 1];
+                            ikm[..seed.len()].copy_from_slice(seed); // IKM || I2OSP(0, 1)
+                            let mut okm = [0u8; PRIVATE_KEY_SIZE];
+                            let h = hkdf::Hkdf::<Sha256>::new(Some(&salt[..]), &ikm);
+                            h.expand(&info[..], &mut okm).map_err(|err| {
+                                Error::KeyGen(format!("Failed to generate keypair: {}", err))
+                            })?;
+                            let private_key: PrivateKey = PrivateKey::from(&okm);
+                            (
+                                PublicKey::new(&private_key, &Generator::generator()),
+                                private_key,
+                            )
+                        }
+                        KeyGenOption::FromPrivateKey(ref key) => {
+                            assert_eq!(key.digest_function, $algo);
+
+                            let private_key =
+                                PrivateKey::from_bytes(&key.payload).map_err(|_| {
+                                    Error::Parse("Failed to parse private key.".to_string())
+                                })?;
+                            (
+                                PublicKey::new(&private_key, &Generator::generator()),
+                                private_key,
+                            )
+                        }
+                    },
+                    None => generate(&Generator::generator()),
+                };
+                Ok((
+                    IrohaPublicKey {
+                        digest_function: $algo,
+                        payload: ConstVec::new(public_key.to_bytes()),
+                    },
+                    IrohaPrivateKey {
+                        digest_function: $algo,
+                        payload: ConstVec::new(private_key.to_bytes()),
+                    },
+                ))
+            }
+
+            pub fn sign(&self, message: &[u8], sk: &IrohaPrivateKey) -> Result<Vec<u8>, Error> {
+                let sk = PrivateKey::from_bytes(&sk.payload)
+                    .map_err(|_| Error::Parse("Failed to parse private key.".to_string()))?;
+
+                Ok(Signature::new(message, None, &sk).to_bytes())
+            }
+
+            pub fn verify(
+                &self,
+                message: &[u8],
+                signature: &[u8],
+                pk: &IrohaPublicKey,
+            ) -> Result<bool, Error> {
+                let pk = PublicKey::from_bytes(&pk.payload)?;
+
+                Ok(Signature::from_bytes(signature)
+                    .map_err(|_| Error::Parse("Failed to parse signature.".to_string()))?
+                    .verify(message, None, &pk, &Generator::generator()))
+            }
+
+            pub const fn signature_size() -> usize {
+                SIGNATURE_SIZE
+            }
+
+            pub const fn private_key_size() -> usize {
+                PRIVATE_KEY_SIZE
+            }
+
+            pub const fn public_key_size() -> usize {
+                PUBLIC_KEY_SIZE
             }
         }
 

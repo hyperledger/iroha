@@ -24,18 +24,13 @@ use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
 #[cfg(not(feature = "ffi_import"))]
 use serde::{Deserialize, Serialize};
+
 #[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
-use ursa::{
-    keys::{PrivateKey as UrsaPrivateKey, PublicKey as UrsaPublicKey},
-    signatures::{
-        bls::{normal::Bls as BlsNormal, small::Bls as BlsSmall},
-        ed25519::Ed25519Sha512,
-        secp256k1::EcdsaSecp256k1Sha256,
-        SignatureScheme,
-    },
+pub use self::{
+    bls::normal::Bls as BlsNormal, bls::small::Bls as BlsSmall, ed25519::Ed25519Sha512,
+    secp256k1::EcdsaSecp256k1Sha256,
 };
-
 #[cfg(any(feature = "std", feature = "import_ffi"))]
 use crate::Error;
 use crate::{ffi, PublicKey};
@@ -76,7 +71,6 @@ impl Signature {
         let (public_key, private_key) = key_pair.into();
 
         let algorithm: crate::Algorithm = private_key.digest_function();
-        let private_key = UrsaPrivateKey(private_key.payload.into_vec());
 
         let signature = match algorithm {
             crate::Algorithm::Ed25519 => Ed25519Sha512::new().sign(payload, &private_key),
@@ -97,20 +91,19 @@ impl Signature {
     #[cfg(any(feature = "std", feature = "import_ffi"))]
     pub fn verify(&self, payload: &[u8]) -> Result<(), Error> {
         let algorithm: crate::Algorithm = self.public_key.digest_function();
-        let public_key = UrsaPublicKey(self.public_key.payload().to_owned());
 
         match algorithm {
             crate::Algorithm::Ed25519 => {
-                Ed25519Sha512::new().verify(payload, self.payload(), &public_key)
+                Ed25519Sha512::new().verify(payload, self.payload(), &self.public_key)
             }
             crate::Algorithm::Secp256k1 => {
-                EcdsaSecp256k1Sha256::new().verify(payload, self.payload(), &public_key)
+                EcdsaSecp256k1Sha256::new().verify(payload, self.payload(), &self.public_key)
             }
             crate::Algorithm::BlsSmall => {
-                BlsSmall::new().verify(payload, self.payload(), &public_key)
+                BlsSmall::new().verify(payload, self.payload(), &self.public_key)
             }
             crate::Algorithm::BlsNormal => {
-                BlsNormal::new().verify(payload, self.payload(), &public_key)
+                BlsNormal::new().verify(payload, self.payload(), &self.public_key)
             }
         }?;
 

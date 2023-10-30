@@ -1,7 +1,7 @@
-#![allow(unused)]
+// TODO: clean up & remove
+#![allow(missing_docs, unused)]
 
 use rand::rngs::OsRng;
-use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use sha2::digest::generic_array::typenum::U32;
 
 use crate::{Algorithm, Error, KeyGenOption, PrivateKey, PublicKey};
@@ -24,25 +24,25 @@ impl EcdsaSecp256k1Sha256 {
 }
 
 impl EcdsaSecp256k1Sha256 {
-    fn new() -> Self {
+    pub fn new() -> Self {
         EcdsaSecp256k1Sha256(ecdsa_secp256k1::EcdsaSecp256k1Impl::new())
     }
-    fn keypair(&self, option: Option<KeyGenOption>) -> Result<(PublicKey, PrivateKey), Error> {
+    pub fn keypair(&self, option: Option<KeyGenOption>) -> Result<(PublicKey, PrivateKey), Error> {
         self.0.keypair::<sha2::Sha256>(option)
     }
-    fn sign(&self, message: &[u8], sk: &PrivateKey) -> Result<Vec<u8>, Error> {
+    pub fn sign(&self, message: &[u8], sk: &PrivateKey) -> Result<Vec<u8>, Error> {
         self.0.sign::<sha2::Sha256>(message, sk)
     }
-    fn verify(&self, message: &[u8], signature: &[u8], pk: &PublicKey) -> Result<bool, Error> {
+    pub fn verify(&self, message: &[u8], signature: &[u8], pk: &PublicKey) -> Result<bool, Error> {
         self.0.verify::<sha2::Sha256>(message, signature, pk)
     }
-    fn signature_size() -> usize {
+    pub const fn signature_size() -> usize {
         SIGNATURE_SIZE
     }
-    fn private_key_size() -> usize {
+    pub const fn private_key_size() -> usize {
         PRIVATE_KEY_SIZE
     }
-    fn public_key_size() -> usize {
+    pub const fn public_key_size() -> usize {
         PUBLIC_KEY_SIZE
     }
 }
