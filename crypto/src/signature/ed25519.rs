@@ -1,4 +1,5 @@
-#![allow(unused)]
+// TODO: clean up & remove
+#![allow(missing_docs)]
 
 use std::convert::TryFrom;
 
@@ -18,13 +19,14 @@ const ALGORITHM: Algorithm = Algorithm::Ed25519;
 
 use crate::{Algorithm, Error, KeyGenOption, PrivateKey, PublicKey};
 
+#[derive(Debug, Clone, Copy)]
 pub struct Ed25519Sha512;
 
 impl Ed25519Sha512 {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self
     }
-    fn keypair(&self, option: Option<KeyGenOption>) -> Result<(PublicKey, PrivateKey), Error> {
+    pub fn keypair(&self, option: Option<KeyGenOption>) -> Result<(PublicKey, PrivateKey), Error> {
         let kp = match option {
             Some(mut o) => match o {
                 KeyGenOption::UseSeed(ref mut s) => {
@@ -54,12 +56,12 @@ impl Ed25519Sha512 {
             },
         ))
     }
-    fn sign(&self, message: &[u8], sk: &PrivateKey) -> Result<Vec<u8>, Error> {
+    pub fn sign(&self, message: &[u8], sk: &PrivateKey) -> Result<Vec<u8>, Error> {
         assert_eq!(sk.digest_function, ALGORITHM);
         let kp = Keypair::from_bytes(&sk.payload).map_err(|e| Error::KeyGen(e.to_string()))?;
         Ok(kp.sign(message).to_bytes().to_vec())
     }
-    fn verify(&self, message: &[u8], signature: &[u8], pk: &PublicKey) -> Result<bool, Error> {
+    pub fn verify(&self, message: &[u8], signature: &[u8], pk: &PublicKey) -> Result<bool, Error> {
         assert_eq!(pk.digest_function, ALGORITHM);
         let p = PK::from_bytes(&pk.payload).map_err(|e| Error::Parse(e.to_string()))?;
         let s = Signature::try_from(signature).map_err(|e| Error::Parse(e.to_string()))?;
@@ -67,13 +69,13 @@ impl Ed25519Sha512 {
             .map_err(|e| Error::Signing(e.to_string()))?;
         Ok(true)
     }
-    fn signature_size() -> usize {
+    pub const fn signature_size() -> usize {
         SIGNATURE_SIZE
     }
-    fn private_key_size() -> usize {
+    pub const fn private_key_size() -> usize {
         PRIVATE_KEY_SIZE
     }
-    fn public_key_size() -> usize {
+    pub const fn public_key_size() -> usize {
         PUBLIC_KEY_SIZE
     }
 }

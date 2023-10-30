@@ -15,25 +15,24 @@ default = ["std"]
 # Enable static linkage of the rust standard library.
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
 std = [
-    "ursa",
-    "blake2",
-    "sha2",
-    "hkdf",
-    "amcl_wrapper",
-    "ed25519-dalek",
-    "curve25519-dalek",
-    "x25519-dalek",
-    "rand",
-    "rand_chacha",
-    "secp256k1",
-    "zeroize",
-    "arrayref",
-    "aead",
-    "chacha20poly1305",
-    "k256",
+    "dep:blake2",
+    "dep:sha2",
+    "dep:hkdf",
+    "dep:amcl_wrapper",
+    "dep:ed25519-dalek",
+    "dep:curve25519-dalek",
+    "dep:x25519-dalek",
+    "dep:rand",
+    "dep:rand_chacha",
+    "dep:secp256k1",
+    "dep:zeroize",
+    "dep:arrayref",
+    "dep:aead",
+    "dep:chacha20poly1305",
+    "dep:k256",
 ]
 # Force static linking
-vendored = ["openssl-sys"]
+vendored = ["dep:openssl-sys"]
 # Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
 #ffi_import = ["iroha_ffi", "iroha_primitives/ffi_import"]
 
@@ -54,7 +53,6 @@ hex = { workspace = true, features = ["alloc", "serde"] }
 openssl-sys = { version = "0.9.93", features = ["vendored"], optional = true }
 getset = { workspace = true }
 
-ursa = { workspace = true, optional = true }
 blake2 = { version = "0.10.6", optional = true }
 sha2 = { version = "0.10.8", optional = true }
 hkdf = { version = "0.12.3", optional = true }

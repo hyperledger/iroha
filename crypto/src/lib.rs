@@ -48,17 +48,6 @@ use serde::Serialize;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 // TODO: do not spill the signatures to the crate root
 pub use signature::*;
-#[cfg(feature = "std")]
-#[cfg(not(feature = "ffi_import"))]
-use ursa::{
-    keys::{KeyGenOption as UrsaKeyGenOption, PrivateKey as UrsaPrivateKey},
-    signatures::{
-        bls::{normal::Bls as BlsNormal, small::Bls as BlsSmall},
-        ed25519::Ed25519Sha512,
-        secp256k1::EcdsaSecp256k1Sha256,
-        SignatureScheme,
-    },
-};
 
 // Hiding constants is a bad idea. For one, you're forcing the user to
 // create temporaries, but also you're not actually hiding any
@@ -135,28 +124,6 @@ pub enum KeyGenOption {
     UseSeed(Vec<u8>),
     /// Derive from private key
     FromPrivateKey(PrivateKey),
-}
-
-#[cfg(feature = "std")]
-#[cfg(not(feature = "ffi_import"))]
-impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
-    type Error = NoSuchAlgorithm;
-
-    fn try_from(key_gen_option: KeyGenOption) -> Result<Self, Self::Error> {
-        match key_gen_option {
-            KeyGenOption::UseSeed(seed) => Ok(Self::UseSeed(seed)),
-            KeyGenOption::FromPrivateKey(key) => {
-                let algorithm = key.digest_function();
-
-                match algorithm {
-                    Algorithm::Ed25519 | Algorithm::Secp256k1 => {
-                        Ok(Self::FromSecretKey(UrsaPrivateKey(key.payload.into_vec())))
-                    }
-                    _ => Err(Self::Error {}),
-                }
-            }
-        }
-    }
 }
 
 ffi::ffi_item! {
@@ -256,18 +223,16 @@ impl KeyPair {
     /// Fails if decoding fails
     #[cfg(any(feature = "std", feature = "ffi_import"))]
     pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, Error> {
-        let key_gen_option: Option<UrsaKeyGenOption> =
-            match (configuration.algorithm, configuration.key_gen_option) {
-                (Algorithm::Secp256k1, Some(KeyGenOption::UseSeed(seed))) if seed.len() < 32 => {
-                    return Err(Error::KeyGen(
-                        "secp256k1 seed for must be at least 32 bytes long".to_owned(),
-                    ))
-                }
-                (_, key_gen_option) => key_gen_option,
+        let key_gen_option = match (configuration.algorithm, configuration.key_gen_option) {
+            (Algorithm::Secp256k1, Some(KeyGenOption::UseSeed(seed))) if seed.len() < 32 => {
+                return Err(Error::KeyGen(
+                    "secp256k1 seed for must be at least 32 bytes long".to_owned(),
+                ))
             }
-            .map(TryInto::try_into)
-            .transpose()?;
-        let (mut public_key, mut private_key) = match configuration.algorithm {
+            (_, key_gen_option) => key_gen_option,
+        };
+
+        let (public_key, private_key) = match configuration.algorithm {
             Algorithm::Ed25519 => Ed25519Sha512.keypair(key_gen_option),
             Algorithm::Secp256k1 => EcdsaSecp256k1Sha256::new().keypair(key_gen_option),
             Algorithm::BlsNormal => BlsNormal::new().keypair(key_gen_option),
@@ -275,14 +240,8 @@ impl KeyPair {
         }?;
 
         Ok(Self {
-            public_key: PublicKey {
-                digest_function: configuration.algorithm,
-                payload: ConstVec::new(core::mem::take(&mut public_key.0)),
-            },
-            private_key: PrivateKey {
-                digest_function: configuration.algorithm,
-                payload: ConstVec::new(core::mem::take(&mut private_key.0)),
-            },
+            public_key,
+            private_key,
         })
     }
 }
@@ -355,21 +314,16 @@ impl PublicKey {
     #[cfg(feature = "std")]
     fn try_from_private(private_key: PrivateKey) -> Result<PublicKey, Error> {
         let digest_function = private_key.digest_function();
-        let key_gen_option = Some(UrsaKeyGenOption::FromSecretKey(UrsaPrivateKey(
-            private_key.payload.into_vec(),
-        )));
+        let key_gen_option = Some(KeyGenOption::FromPrivateKey(private_key));
 
-        let (mut public_key, _) = match digest_function {
+        let (public_key, _) = match digest_function {
             Algorithm::Ed25519 => Ed25519Sha512.keypair(key_gen_option),
             Algorithm::Secp256k1 => EcdsaSecp256k1Sha256::new().keypair(key_gen_option),
             Algorithm::BlsNormal => BlsNormal::new().keypair(key_gen_option),
             Algorithm::BlsSmall => BlsSmall::new().keypair(key_gen_option),
         }?;
 
-        Ok(PublicKey {
-            digest_function: private_key.digest_function,
-            payload: ConstVec::new(core::mem::take(&mut public_key.0)),
-        })
+        Ok(public_key)
     }
 }
 
@@ -550,21 +504,6 @@ pub mod error {
         /// A General purpose error message that doesn't fit in any category
         #[display(fmt = "General error. {_0}")] // This is going to cause a headache
         Other(String),
-    }
-
-    #[cfg(feature = "std")]
-    #[cfg(not(feature = "ffi_import"))]
-    impl From<ursa::CryptoError> for Error {
-        fn from(source: ursa::CryptoError) -> Self {
-            match source {
-                ursa::CryptoError::NoSuchAlgorithm(source) => Self::NoSuchAlgorithm(source),
-                ursa::CryptoError::ParseError(source) => Self::Parse(source),
-                ursa::CryptoError::SigningError(source) => Self::Signing(source),
-                ursa::CryptoError::KeyGenError(source) => Self::KeyGen(source),
-                ursa::CryptoError::DigestGenError(source) => Self::DigestGen(source),
-                ursa::CryptoError::GeneralError(source) => Self::Other(source),
-            }
-        }
     }
 
     #[cfg(feature = "std")]
