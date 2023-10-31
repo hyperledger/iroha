@@ -32,9 +32,7 @@ impl WsvApplyBlocks {
             populate_wsv(domains, accounts_per_domain, assets_per_domain, &account_id),
             delete_every_nth(domains, accounts_per_domain, assets_per_domain, nth),
             restore_every_nth(domains, accounts_per_domain, assets_per_domain, nth),
-        ]
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
+        ];
 
         let blocks = {
             // Clone wsv because it will be changed during creation of block

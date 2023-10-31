@@ -12,7 +12,8 @@ use iroha_config::base::proxy::Builder;
 use iroha_data_model::Level;
 use iroha_logger::{Configuration, ConfigurationProxy};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let log_config = Configuration {
         max_log_level: Level::INFO.into(),
         compact_mode: false,
@@ -26,5 +27,5 @@ fn main() {
     }
     iroha_logger::info!("Starting...");
     let bench = WsvApplyBlocks::setup().expect("Failed to setup benchmark");
-    WsvApplyBlocks::measure(&bench).expect("Failed to execute bnechmark");
+    WsvApplyBlocks::measure(&bench).expect("Failed to execute benchmark");
 }

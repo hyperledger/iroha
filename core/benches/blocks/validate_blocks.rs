@@ -37,7 +37,7 @@ impl WsvValidateBlocks {
             restore_every_nth(domains, accounts_per_domain, assets_per_domain, nth),
         ]
         .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Vec<_>>();
 
         Ok(Self {
             wsv,

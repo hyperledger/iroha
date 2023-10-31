@@ -50,11 +50,10 @@ pub mod isi {
                 wsv.increase_asset_total_amount(&asset_id.definition_id, 1_u32)?;
             }
 
-            wsv.asset_or_insert(&asset_id, Metadata::new())?;
             let asset_metadata_limits = wsv.config.asset_metadata_limits;
+            let asset = wsv.asset_or_insert(asset_id.clone(), Metadata::new())?;
 
             {
-                let asset = wsv.asset_mut(&asset_id)?;
                 let store: &mut Metadata = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -67,7 +66,7 @@ pub mod isi {
             }
 
             wsv.emit_events(Some(AssetEvent::MetadataInserted(MetadataChanged {
-                target_id: asset_id.clone(),
+                target_id: asset_id,
                 key: self.key,
                 value: Box::new(self.value),
             })));
@@ -95,7 +94,7 @@ pub mod isi {
             };
 
             wsv.emit_events(Some(AssetEvent::MetadataRemoved(MetadataChanged {
-                target_id: asset_id.clone(),
+                target_id: asset_id,
                 key: self.key,
                 value: Box::new(value),
             })));
@@ -194,12 +193,11 @@ pub mod isi {
                 wsv,
                 <Self as AssetInstructionInfo>::EXPECTED_VALUE_TYPE,
             )?;
-            wsv.asset_or_insert(
-                &asset_id,
+            let asset = wsv.asset_or_insert(
+                asset_id.clone(),
                 <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE,
             )?;
             let new_quantity = {
-                let asset = wsv.asset_mut(&asset_id)?;
                 let quantity: &mut Self = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -217,7 +215,7 @@ pub mod isi {
             }
 
             wsv.emit_events(Some(AssetEvent::Added(AssetChanged {
-                asset_id: asset_id.clone(),
+                asset_id,
                 amount: mint.object.into(),
             })));
 
@@ -294,21 +292,17 @@ pub mod isi {
             eyre::Error: From<<AssetValue as TryAsMut<Self>>::Error>,
             Value: From<Self>,
         {
-            let source_id = &transfer.source_id;
+            let source_id = transfer.source_id;
             let destination_id = AssetId::new(
                 source_id.definition_id.clone(),
                 transfer.destination_id.clone(),
             );
 
-            wsv.asset_or_insert(
-                &destination_id,
-                <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE,
-            )?;
             {
                 let account = wsv.account_mut(&source_id.account_id)?;
                 let asset = account
                     .assets
-                    .get_mut(source_id)
+                    .get_mut(&source_id)
                     .ok_or_else(|| FindError::Asset(source_id.clone()))?;
                 let quantity: &mut Self = asset
                     .try_as_mut()
@@ -318,13 +312,16 @@ pub mod isi {
                     .checked_sub(transfer.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
                 if asset.value.is_zero_value() {
-                    assert!(account.remove_asset(source_id).is_some());
+                    assert!(account.remove_asset(&source_id).is_some());
                 }
             }
 
+            let destination_asset = wsv.asset_or_insert(
+                destination_id.clone(),
+                <Self as AssetInstructionInfo>::DEFAULT_ASSET_VALUE,
+            )?;
             let transfer_quantity = {
-                let asset = wsv.asset_mut(&destination_id)?;
-                let quantity: &mut Self = asset
+                let quantity: &mut Self = destination_asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
                     .map_err(|e| Error::Conversion(e.to_string()))?;
@@ -343,11 +340,11 @@ pub mod isi {
 
             wsv.emit_events([
                 AssetEvent::Removed(AssetChanged {
-                    asset_id: source_id.clone(),
+                    asset_id: source_id,
                     amount: transfer.object.into(),
                 }),
                 AssetEvent::Added(AssetChanged {
-                    asset_id: destination_id.clone(),
+                    asset_id: destination_id,
                     amount: transfer.object.into(),
                 }),
             ]);

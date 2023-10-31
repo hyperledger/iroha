@@ -121,6 +121,7 @@ fn impl_validate_entrypoint(
         // NOTE: Host objects are always passed by value to wasm
         #[allow(clippy::needless_pass_by_value)]
         #(#attrs)*
+        #[inline]
         #vis #sig
         #block
     }
@@ -162,6 +163,7 @@ fn impl_migrate_entrypoint(fn_item: syn::ItemFn) -> TokenStream {
         // NOTE: False positive
         #[allow(clippy::unnecessary_wraps)]
         #(#attrs)*
+        #[inline]
         #vis #sig
         #block
     }
