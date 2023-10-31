@@ -58,6 +58,10 @@ pub enum Error {
     #[cfg(feature = "telemetry")]
     /// Error while getting Prometheus metrics
     Prometheus(#[source] eyre::Report),
+    /// Internal error while getting status
+    StatusFailure(#[source] eyre::Report),
+    /// Cannot find status segment by provided path
+    StatusSegmentNotFound(#[source] eyre::Report),
 }
 
 impl Reply for Error {
@@ -79,14 +83,14 @@ impl Error {
         match self {
             Query(e) => Self::query_status_code(e),
             AcceptTransaction(_) | ConfigurationReload(_) => StatusCode::BAD_REQUEST,
-            Config(_) => StatusCode::NOT_FOUND,
+            Config(_) | StatusSegmentNotFound(_) => StatusCode::NOT_FOUND,
             PushIntoQueue(err) => match **err {
                 queue::Error::Full => StatusCode::INTERNAL_SERVER_ERROR,
                 queue::Error::SignatureCondition { .. } => StatusCode::UNAUTHORIZED,
                 _ => StatusCode::BAD_REQUEST,
             },
             #[cfg(feature = "telemetry")]
-            Prometheus(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Prometheus(_) | StatusFailure(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 

@@ -7,7 +7,7 @@
 
 use std::num::NonZeroUsize;
 
-use eyre::WrapErr;
+use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
 use iroha_config::{
     base::proxy::Documented,
@@ -349,36 +349,49 @@ fn handle_metrics(sumeragi: &SumeragiHandle) -> Result<String> {
         .map_err(Error::Prometheus)
 }
 
-#[cfg(feature = "telemetry")]
-#[allow(clippy::unnecessary_wraps)]
-fn handle_status(sumeragi: &SumeragiHandle) -> Result<warp::reply::Json, Infallible> {
+fn update_metrics_gracefully(sumeragi: &SumeragiHandle) {
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
     }
-    let status = Status::from(&sumeragi.metrics());
-    Ok(reply::json(&status))
 }
 
 #[cfg(feature = "telemetry")]
-#[allow(clippy::unused_async)]
-async fn handle_status_precise(sumeragi: SumeragiHandle, segment: String) -> Result<Json> {
-    if let Err(error) = sumeragi.update_metrics() {
-        iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
-    }
-    // TODO: This probably can be optimised to elide the full
-    // structure. Ideally there should remain a list of fields and
-    // field aliases somewhere in `serde` macro output, which can
-    // elide the creation of the value, and directly read the value
-    // behind the mutex.
+#[allow(clippy::unnecessary_wraps)]
+fn handle_status(
+    sumeragi: &SumeragiHandle,
+    accept: Option<impl AsRef<str>>,
+    tail: &warp::path::Tail,
+) -> Result<Response> {
+    use eyre::ContextCompat;
+
+    update_metrics_gracefully(sumeragi);
     let status = Status::from(&sumeragi.metrics());
-    match serde_json::to_value(status) {
-        Ok(value) => Ok(value
-            .get(segment)
-            .map_or_else(|| reply::json(&value), reply::json)),
-        Err(err) => {
-            iroha_logger::error!(%err, "Error while converting to JSON value");
-            Ok(reply::json(&None::<String>))
+
+    let tail = tail.as_str();
+    if tail.is_empty() {
+        if accept.is_some_and(|x| x.as_ref() == PARITY_SCALE_MIME_TYPE) {
+            Ok(Scale(status).into_response())
+        } else {
+            Ok(reply::json(&status).into_response())
         }
+    } else {
+        // TODO: This probably can be optimised to elide the full
+        // structure. Ideally there should remain a list of fields and
+        // field aliases somewhere in `serde` macro output, which can
+        // elide the creation of the value, and directly read the value
+        // behind the mutex.
+        let value = serde_json::to_value(status)
+            .wrap_err("Failed to serialize JSON")
+            .map_err(Error::StatusFailure)?;
+
+        let reply = tail
+            .split('/')
+            .try_fold(&value, serde_json::Value::get)
+            .wrap_err_with(|| eyre!("Path not found: \"{}\"", tail))
+            .map_err(Error::StatusSegmentNotFound)
+            .map(|segment| reply::json(segment).into_response())?;
+
+        Ok(reply)
     }
 }
 
@@ -427,19 +440,13 @@ impl Torii {
             )),
         );
 
-        let status_path = warp::path(uri::STATUS);
-        let get_router_status_precise = endpoint2(
-            handle_status_precise,
-            status_path
-                .and(add_state!(self.sumeragi.clone()))
-                .and(warp::path::param()),
-        );
-        let get_router_status_bare =
-            status_path
-                .and(add_state!(self.sumeragi.clone()))
-                .and_then(|sumeragi| async move {
-                    Ok::<_, Infallible>(WarpResult(handle_status(&sumeragi)))
-                });
+        let get_router_status = warp::path(uri::STATUS)
+            .and(add_state!(self.sumeragi.clone()))
+            .and(warp::header::optional(warp::http::header::ACCEPT.as_str()))
+            .and(warp::path::tail())
+            .and_then(|sumeragi, accept: Option<String>, tail| async move {
+                Ok::<_, Infallible>(WarpResult(handle_status(&sumeragi, accept.as_ref(), &tail)))
+            });
         let get_router_metrics = warp::path(uri::METRICS)
             .and(add_state!(self.sumeragi))
             .and_then(|sumeragi| async move {
@@ -451,7 +458,7 @@ impl Torii {
 
         #[cfg(feature = "telemetry")]
         let get_router = get_router.or(warp::any()
-            .and(get_router_status_precise.or(get_router_status_bare))
+            .and(get_router_status)
             .or(get_router_metrics)
             .or(get_api_version));
 

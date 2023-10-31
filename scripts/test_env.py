@@ -158,7 +158,7 @@ def copy_or_prompt_build_bin(bin_name: str, root_dir: pathlib.Path, target_dir: 
                 logging.critical("Can't launch the network without the binary. Aborting...")
                 sys.exit(4)
             else:
-                logging.error("Please answer with either `y[es]` or `n[o])")
+                logging.error("Please answer with either `y[es]` or `n[o]`")
 
 def main(args: argparse.Namespace):
     # Bold ASCII escape sequence
