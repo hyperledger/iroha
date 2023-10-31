@@ -2727,7 +2727,6 @@ dependencies = [
  "displaydoc",
  "eyre",
  "futures",
- "hyper",
  "iroha_cli_derive",
  "iroha_config",
  "iroha_core",
