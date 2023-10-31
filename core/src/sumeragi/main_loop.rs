@@ -1,6 +1,7 @@
 //! The main event loop that powers sumeragi.
 use std::sync::mpsc;
 
+use iroha_crypto::HashOf;
 use iroha_data_model::{
     block::*, events::pipeline::PipelineEvent, peer::PeerId,
     transaction::error::TransactionRejectionReason,
@@ -716,8 +717,7 @@ fn reset_state(
     pipeline_time: Duration,
     current_view_change_index: u64,
     old_view_change_index: &mut u64,
-    current_latest_block_height: u64,
-    old_latest_block_height: &mut u64,
+    old_latest_block_hash: &mut HashOf<SignedBlock>,
     latest_block: &SignedBlock,
     // below is the state that gets reset.
     current_topology: &mut Topology,
@@ -728,7 +728,8 @@ fn reset_state(
     view_change_time: &mut Duration,
 ) {
     let mut was_commit_or_view_change = false;
-    if current_latest_block_height != *old_latest_block_height {
+    let current_latest_block_hash = latest_block.hash();
+    if current_latest_block_hash != *old_latest_block_hash {
         // Round is only restarted on a block commit, so that in the case of
         // a view change a new block is immediately created by the leader
         *round_start_time = Instant::now();
@@ -744,7 +745,7 @@ fn reset_state(
 
     // Reset state for the next round.
     if was_commit_or_view_change {
-        *old_latest_block_height = current_latest_block_height;
+        *old_latest_block_hash = current_latest_block_hash;
 
         *current_topology = Topology::recreate_topology(
             latest_block,
@@ -812,7 +813,11 @@ pub(crate) fn run(
     let mut should_sleep = false;
     let mut view_change_proof_chain = ProofChain::default();
     let mut old_view_change_index = 0;
-    let mut old_latest_block_height = 0;
+    let mut old_latest_block_hash = sumeragi
+        .wsv
+        .latest_block_ref()
+        .expect("WSV must have blocks")
+        .hash();
     // Duration after which a view change is suggested
     let mut view_change_time = sumeragi.pipeline_time();
     // Instant when the current round started
@@ -863,8 +868,7 @@ pub(crate) fn run(
             sumeragi.pipeline_time(),
             current_view_change_index,
             &mut old_view_change_index,
-            sumeragi.wsv.height(),
-            &mut old_latest_block_height,
+            &mut old_latest_block_hash,
             &sumeragi
                 .wsv
                 .latest_block_ref()
@@ -933,8 +937,7 @@ pub(crate) fn run(
             sumeragi.pipeline_time(),
             current_view_change_index,
             &mut old_view_change_index,
-            sumeragi.wsv.height(),
-            &mut old_latest_block_height,
+            &mut old_latest_block_hash,
             &sumeragi
                 .wsv
                 .latest_block_ref()
