@@ -977,7 +977,7 @@ impl Client {
                     .join(uri::PENDING_TRANSACTIONS)
                     .expect("Valid URI"),
             )
-            .params(&pagination)
+            .params(pagination.clone())
             .headers(self.headers.clone())
             .build()?
             .send()?;

@@ -39,18 +39,21 @@ pub struct Pagination {
 }
 
 impl Pagination {
-    /// Converts self to Vec of tuples to be used in queries
+    /// Converts self to iterator of tuples to be used in queries
     ///
-    /// The length of the output Vec is not constant and it's in (0..3)
-    pub fn into_query_parameters(self) -> Vec<(&'static str, NonZeroU64)> {
-        match (self.start, self.limit) {
+    /// The length of the output iterator is not constant and it's in (0..3)
+    pub fn into_query_parameters(
+        self,
+    ) -> impl IntoIterator<Item = (&'static str, NonZeroU64)> + Clone {
+        let result_vec = match (self.start, self.limit) {
             (Some(start), Some(limit)) => {
                 vec![(PAGINATION_LIMIT, limit.into()), (PAGINATION_START, start)]
             }
             (Some(start), None) => vec![(PAGINATION_START, start)],
             (None, Some(limit)) => vec![(PAGINATION_LIMIT, limit.into())],
             (None, None) => Vec::new(),
-        }
+        };
+        result_vec.into_iter()
     }
 }
 

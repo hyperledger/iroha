@@ -39,12 +39,13 @@ impl Sorting {
 }
 
 impl Sorting {
-    /// Converts self to Vec of tuples to be used in queries
+    /// Converts self to iterator of tuples to be used in queries
     ///
-    /// The length of the output Vec is not constant and it's in (0..3)
-    pub fn into_query_parameters(self) -> Vec<(&'static str, Name)> {
+    /// The length of the output iterator is not constant and has either 0 or 1 value
+    pub fn into_query_parameters(self) -> impl IntoIterator<Item = (&'static str, Name)> + Clone {
         self.sort_by_metadata_key
-            .map_or(Vec::new(), |key| vec![(SORT_BY_KEY, key)])
+            .map(|key| (SORT_BY_KEY, key))
+            .into_iter()
     }
 }
 
