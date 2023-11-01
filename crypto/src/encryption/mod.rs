@@ -7,7 +7,7 @@ use std::io::{Read, Write};
 
 use aead::{
     generic_array::{typenum::Unsigned, ArrayLength, GenericArray},
-    Aead, Error, NewAead, Payload,
+    Aead, Error, KeyInit, Payload,
 };
 use rand::{rngs::OsRng, RngCore};
 
@@ -64,12 +64,12 @@ impl<E: Encryptor> SymmetricEncryptor<E> {
     }
 
     pub fn new_from_session_key(key: SessionKey) -> Self {
-        Self::new(<E as NewAead>::new(GenericArray::from_slice(&key.0)))
+        Self::new(<E as KeyInit>::new(GenericArray::from_slice(&key.0)))
     }
 
     pub fn new_with_key<A: AsRef<[u8]>>(key: A) -> Result<Self, Error> {
         Ok(Self {
-            encryptor: <E as NewAead>::new(GenericArray::from_slice(key.as_ref())),
+            encryptor: <E as KeyInit>::new(GenericArray::from_slice(key.as_ref())),
         })
     }
 
@@ -151,7 +151,7 @@ impl<E: Encryptor + Default> Default for SymmetricEncryptor<E> {
 }
 
 /// Generic encryptor trait that all ciphers should extend.
-pub trait Encryptor: Aead + NewAead {
+pub trait Encryptor: Aead + KeyInit {
     /// The minimum size that the ciphertext will yield from plaintext
     type MinSize: ArrayLength<u8>;
 

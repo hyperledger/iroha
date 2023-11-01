@@ -26,7 +26,7 @@ impl KeyExchangeScheme for X25519Sha256 {
                     let hash = sha2::Sha256::digest(s.as_slice());
                     s.zeroize();
                     let mut rng = ChaChaRng::from_seed(*array_ref!(hash.as_slice(), 0, 32));
-                    let sk = StaticSecret::new(&mut rng);
+                    let sk = StaticSecret::random_from_rng(&mut rng);
                     let pk = X25519PublicKey::from(&sk);
                     (pk, sk)
                 }
@@ -39,7 +39,7 @@ impl KeyExchangeScheme for X25519Sha256 {
             },
             None => {
                 let mut rng = OsRng::default();
-                let sk = StaticSecret::new(&mut rng);
+                let sk = StaticSecret::random_from_rng(&mut rng);
                 let pk = X25519PublicKey::from(&sk);
                 (pk, sk)
             }

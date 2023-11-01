@@ -3,7 +3,7 @@ use aead::{
         typenum::{U0, U12, U16, U32, U36},
         GenericArray,
     },
-    Aead, Error, NewAead, Payload,
+    Aead, AeadCore, Error, KeyInit, KeySizeUser, Payload,
 };
 use chacha20poly1305::ChaCha20Poly1305 as SysChaCha20Poly1305;
 
@@ -19,19 +19,23 @@ impl Encryptor for ChaCha20Poly1305 {
     type MinSize = U36;
 }
 
-impl NewAead for ChaCha20Poly1305 {
+impl KeySizeUser for ChaCha20Poly1305 {
     type KeySize = U32;
+}
 
+impl KeyInit for ChaCha20Poly1305 {
     fn new(key: &GenericArray<u8, Self::KeySize>) -> Self {
         Self { key: *key }
     }
 }
 
-impl Aead for ChaCha20Poly1305 {
+impl AeadCore for ChaCha20Poly1305 {
     type NonceSize = U12;
     type TagSize = U16;
     type CiphertextOverhead = U0;
+}
 
+impl Aead for ChaCha20Poly1305 {
     fn encrypt<'msg, 'aad>(
         &self,
         nonce: &GenericArray<u8, Self::NonceSize>,

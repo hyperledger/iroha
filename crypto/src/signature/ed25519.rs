@@ -4,7 +4,7 @@
 use std::convert::TryFrom;
 
 use arrayref::array_ref;
-use ed25519_dalek::{Keypair, PublicKey as PK, Signature, Signer, Verifier};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey as PK};
 pub use ed25519_dalek::{
     EXPANDED_SECRET_KEY_LENGTH as PRIVATE_KEY_SIZE, PUBLIC_KEY_LENGTH as PUBLIC_KEY_SIZE,
     SIGNATURE_LENGTH as SIGNATURE_SIZE,
@@ -18,6 +18,19 @@ use zeroize::Zeroize;
 const ALGORITHM: Algorithm = Algorithm::Ed25519;
 
 use crate::{Algorithm, Error, KeyGenOption, PrivateKey, PublicKey};
+
+fn parse_private_key(sk: &PrivateKey) -> Result<SigningKey, Error> {
+    assert_eq!(sk.digest_function, ALGORITHM);
+    SigningKey::from_keypair_bytes(
+        &<[u8; 64]>::try_from(&sk.payload[..]).map_err(|e| Error::Parse(e.to_string()))?,
+    )
+    .map_err(|e| Error::Parse(e.to_string()))
+}
+
+fn parse_public_key(pk: &PublicKey) -> Result<PK, Error> {
+    assert_eq!(pk.digest_function, ALGORITHM);
+    PK::try_from(&pk.payload[..]).map_err(|e| Error::Parse(e.to_string()))
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Ed25519Sha512;
@@ -33,37 +46,32 @@ impl Ed25519Sha512 {
                     let hash = sha2::Sha256::digest(s.as_slice());
                     s.zeroize();
                     let mut rng = ChaChaRng::from_seed(*array_ref!(hash.as_slice(), 0, 32));
-                    Keypair::generate(&mut rng)
+                    SigningKey::generate(&mut rng)
                 }
-                KeyGenOption::FromPrivateKey(ref s) => {
-                    assert_eq!(s.digest_function, ALGORITHM);
-                    Keypair::from_bytes(&s.payload[..]).map_err(|e| Error::KeyGen(e.to_string()))?
-                }
+                KeyGenOption::FromPrivateKey(ref s) => parse_private_key(s)?,
             },
             None => {
                 let mut rng = OsRng::default();
-                Keypair::generate(&mut rng)
+                SigningKey::generate(&mut rng)
             }
         };
         Ok((
             PublicKey {
                 digest_function: ALGORITHM,
-                payload: ConstVec::new(kp.public.to_bytes().to_vec()),
+                payload: ConstVec::new(kp.verifying_key().to_bytes().to_vec()),
             },
             PrivateKey {
                 digest_function: ALGORITHM,
-                payload: ConstVec::new(kp.to_bytes().to_vec()),
+                payload: ConstVec::new(kp.to_keypair_bytes().to_vec()),
             },
         ))
     }
     pub fn sign(&self, message: &[u8], sk: &PrivateKey) -> Result<Vec<u8>, Error> {
-        assert_eq!(sk.digest_function, ALGORITHM);
-        let kp = Keypair::from_bytes(&sk.payload).map_err(|e| Error::KeyGen(e.to_string()))?;
+        let kp = parse_private_key(sk)?;
         Ok(kp.sign(message).to_bytes().to_vec())
     }
     pub fn verify(&self, message: &[u8], signature: &[u8], pk: &PublicKey) -> Result<bool, Error> {
-        assert_eq!(pk.digest_function, ALGORITHM);
-        let p = PK::from_bytes(&pk.payload).map_err(|e| Error::Parse(e.to_string()))?;
+        let p = parse_public_key(pk)?;
         let s = Signature::try_from(signature).map_err(|e| Error::Parse(e.to_string()))?;
         p.verify(message, &s)
             .map_err(|e| Error::Signing(e.to_string()))?;
