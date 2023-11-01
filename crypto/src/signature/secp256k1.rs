@@ -1,5 +1,5 @@
 // TODO: clean up & remove
-#![allow(missing_docs, unused)]
+#![allow(missing_docs)]
 
 use rand::rngs::OsRng;
 use sha2::digest::generic_array::typenum::U32;
@@ -8,10 +8,7 @@ use crate::{Algorithm, Error, KeyGenOption, PrivateKey, PublicKey};
 
 pub const PRIVATE_KEY_SIZE: usize = 32;
 pub const PUBLIC_KEY_SIZE: usize = 33;
-pub const PUBLIC_UNCOMPRESSED_KEY_SIZE: usize = 65;
-pub const SIGNATURE_POINT_SIZE: usize = 32;
 pub const SIGNATURE_SIZE: usize = 64;
-pub const ALGORITHM_NAME: &str = "ECDSA_SECP256K1_SHA256";
 
 const ALGORITHM: Algorithm = Algorithm::Secp256k1;
 
@@ -47,24 +44,6 @@ impl EcdsaSecp256k1Sha256 {
     }
 }
 
-impl EcdsaSecp256k1Sha256 {
-    /// Returns the compressed bytes
-    fn public_key_compressed(&self, pk: &PublicKey) -> Vec<u8> {
-        self.0.public_key_compressed(pk)
-    }
-    /// Returns the uncompressed bytes
-    fn public_key_uncompressed(&self, pk: &PublicKey) -> Vec<u8> {
-        self.0.public_key_uncompressed(pk)
-    }
-    /// Read raw bytes into key struct. Can be either compressed or uncompressed
-    fn parse(&self, data: &[u8]) -> Result<PublicKey, Error> {
-        self.0.parse(data)
-    }
-    fn public_key_uncompressed_size() -> usize {
-        PUBLIC_UNCOMPRESSED_KEY_SIZE
-    }
-}
-
 mod ecdsa_secp256k1 {
     use arrayref::array_ref;
     use iroha_primitives::const_vec::ConstVec;
@@ -79,24 +58,6 @@ mod ecdsa_secp256k1 {
     pub struct EcdsaSecp256k1Impl(secp256k1::Secp256k1<secp256k1::All>);
 
     impl EcdsaSecp256k1Impl {
-        pub fn public_key_compressed(&self, pk: &PublicKey) -> Vec<u8> {
-            assert_eq!(pk.digest_function, ALGORITHM);
-            let pk = secp256k1::PublicKey::from_slice(&pk.payload[..]).unwrap();
-            pk.serialize().to_vec()
-        }
-        pub fn public_key_uncompressed(&self, pk: &PublicKey) -> Vec<u8> {
-            assert_eq!(pk.digest_function, ALGORITHM);
-            let pk = secp256k1::PublicKey::from_slice(&pk.payload[..]).unwrap();
-            pk.serialize_uncompressed().to_vec()
-        }
-        pub fn parse(&self, data: &[u8]) -> Result<PublicKey, Error> {
-            let res = secp256k1::PublicKey::from_slice(data)?;
-            let pk = PublicKey {
-                digest_function: ALGORITHM,
-                payload: ConstVec::new(res.serialize().to_vec()),
-            };
-            Ok(pk)
-        }
         pub fn new() -> Self {
             Self(secp256k1::Secp256k1::new())
         }
