@@ -28,8 +28,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
 pub use self::{
-    bls::normal::Bls as BlsNormal, bls::small::Bls as BlsSmall, ed25519::Ed25519Sha512,
-    secp256k1::EcdsaSecp256k1Sha256,
+    bls::BlsNormal, bls::BlsSmall, ed25519::Ed25519Sha512, secp256k1::EcdsaSecp256k1Sha256,
 };
 #[cfg(any(feature = "std", feature = "import_ffi"))]
 use crate::Error;
