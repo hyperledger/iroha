@@ -10,16 +10,15 @@ pub mod query;
 pub mod queue;
 pub mod smartcontracts;
 pub mod snapshot;
+pub mod state;
 pub mod sumeragi;
 pub mod tx;
-pub mod wsv;
 
 use core::time::Duration;
-use std::collections::BTreeSet;
 
 use gossiper::TransactionGossip;
-use indexmap::{IndexMap, IndexSet};
-use iroha_data_model::{permission::Permissions, prelude::*};
+use indexmap::IndexSet;
+use iroha_data_model::prelude::*;
 use iroha_primitives::unique_vec::UniqueVec;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::broadcast;
@@ -41,18 +40,6 @@ pub type PeersIds = UniqueVec<PeerId>;
 
 /// Parameters set.
 pub type Parameters = IndexSet<Parameter>;
-
-/// API to work with collections of [`DomainId`] : [`Domain`] mappings.
-pub type DomainsMap = IndexMap<DomainId, Domain>;
-
-/// API to work with a collections of [`RoleId`]: [`Role`] mappings.
-pub type RolesMap = IndexMap<RoleId, Role>;
-
-/// API to work with a collections of [`AccountId`] [`Permissions`] mappings.
-pub type PermissionTokensMap = IndexMap<AccountId, Permissions>;
-
-/// API to work with a collections of [`AccountId`] to [`RoleId`] mappings.
-pub type AccountRolesSet = BTreeSet<role::RoleIdWithOwner>;
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
 pub type EventsSender = broadcast::Sender<Event>;
@@ -110,7 +97,7 @@ pub mod handler {
 }
 
 pub mod role {
-    //! Module with extension for [`RoleId`] to be stored inside wsv.
+    //! Module with extension for [`RoleId`] to be stored inside state.
 
     use derive_more::Constructor;
     use iroha_primitives::impl_as_dyn_key;
@@ -174,8 +161,8 @@ pub mod prelude {
     #[doc(inline)]
     pub use crate::{
         smartcontracts::ValidQuery,
+        state::{StateView, World},
         tx::AcceptedTransaction,
-        wsv::{World, WorldStateView},
     };
 }
 

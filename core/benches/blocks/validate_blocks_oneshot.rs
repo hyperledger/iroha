@@ -7,7 +7,7 @@
 
 mod validate_blocks;
 
-use validate_blocks::WsvValidateBlocks;
+use validate_blocks::StateValidateBlocks;
 
 fn main() {
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -20,6 +20,6 @@ fn main() {
     }
     iroha_logger::test_logger();
     iroha_logger::info!("Starting...");
-    let bench = WsvValidateBlocks::setup(rt.handle()).expect("Failed to setup benchmark");
-    WsvValidateBlocks::measure(bench).expect("Failed to execute bnechmark");
+    let bench = StateValidateBlocks::setup(rt.handle()).expect("Failed to setup benchmark");
+    StateValidateBlocks::measure(bench).expect("Failed to execute bnechmark");
 }

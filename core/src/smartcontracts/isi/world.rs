@@ -29,10 +29,14 @@ pub mod isi {
 
     impl Execute for Register<Peer> {
         #[metrics(+"register_peer")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let peer_id = self.object.id;
 
-            let world = wsv.world_mut();
+            let world = &mut state_transaction.world;
             if !world.trusted_peers_ids.push(peer_id.clone()) {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
@@ -41,7 +45,7 @@ pub mod isi {
                 .into());
             }
 
-            wsv.emit_events(Some(PeerEvent::Added(peer_id)));
+            world.emit_events(Some(PeerEvent::Added(peer_id)));
 
             Ok(())
         }
@@ -49,16 +53,20 @@ pub mod isi {
 
     impl Execute for Unregister<Peer> {
         #[metrics(+"unregister_peer")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let peer_id = self.object_id;
-            let world = wsv.world_mut();
+            let world = &mut state_transaction.world;
             let Some(index) = world.trusted_peers_ids.iter().position(|id| id == &peer_id) else {
                 return Err(FindError::Peer(peer_id).into());
             };
 
             world.trusted_peers_ids.remove(index);
 
-            wsv.emit_events(Some(PeerEvent::Removed(peer_id)));
+            world.emit_events(Some(PeerEvent::Removed(peer_id)));
 
             Ok(())
         }
@@ -66,17 +74,21 @@ pub mod isi {
 
     impl Execute for Register<Domain> {
         #[metrics("register_domain")]
-        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let domain: Domain = self.object.build(authority);
             let domain_id = domain.id().clone();
 
             domain_id
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(state_transaction.config.ident_length_limits)
                 .map_err(Error::from)?;
 
-            let world = wsv.world_mut();
-            if world.domains.contains_key(&domain_id) {
+            let world = &mut state_transaction.world;
+            if world.domains.get(&domain_id).is_some() {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
                     id: IdBox::DomainId(domain_id),
@@ -86,7 +98,7 @@ pub mod isi {
 
             world.domains.insert(domain_id, domain.clone());
 
-            wsv.emit_events(Some(DomainEvent::Created(domain)));
+            world.emit_events(Some(DomainEvent::Created(domain)));
 
             Ok(())
         }
@@ -94,15 +106,19 @@ pub mod isi {
 
     impl Execute for Unregister<Domain> {
         #[metrics("unregister_domain")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let domain_id = self.object_id;
 
-            let world = wsv.world_mut();
-            if world.domains.remove(&domain_id).is_none() {
+            let world = &mut state_transaction.world;
+            if world.domains.remove(domain_id.clone()).is_none() {
                 return Err(FindError::Domain(domain_id).into());
             }
 
-            wsv.emit_events(Some(DomainEvent::Deleted(domain_id)));
+            world.emit_events(Some(DomainEvent::Deleted(domain_id)));
 
             Ok(())
         }
@@ -110,10 +126,14 @@ pub mod isi {
 
     impl Execute for Register<Role> {
         #[metrics(+"register_role")]
-        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let role = self.object.build(authority);
 
-            if wsv.roles().contains_key(role.id()) {
+            if state_transaction.world.roles.get(role.id()).is_some() {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
                     id: IdBox::RoleId(role.id),
@@ -122,8 +142,9 @@ pub mod isi {
             }
 
             for permission in &role.permissions {
-                if !wsv
-                    .permission_token_schema()
+                if !state_transaction
+                    .world
+                    .permission_token_schema
                     .token_ids
                     .contains(&permission.definition_id)
                 {
@@ -131,11 +152,11 @@ pub mod isi {
                 }
             }
 
-            let world = wsv.world_mut();
+            let world = &mut state_transaction.world;
             let role_id = role.id().clone();
             world.roles.insert(role_id, role.clone());
 
-            wsv.emit_events(Some(RoleEvent::Created(role)));
+            world.emit_events(Some(RoleEvent::Created(role)));
 
             Ok(())
         }
@@ -143,13 +164,18 @@ pub mod isi {
 
     impl Execute for Unregister<Role> {
         #[metrics("unregister_role")]
-        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let role_id = self.object_id;
 
-            let accounts_with_role = wsv
+            let accounts_with_role = state_transaction
                 .world
                 .account_roles
                 .iter()
+                .map(|(role, ())| role)
                 .filter(|role| role.role_id.eq(&role_id))
                 .map(|role| &role.account_id)
                 .cloned()
@@ -160,15 +186,15 @@ pub mod isi {
                     object: role_id.clone(),
                     destination_id: account_id,
                 };
-                revoke.execute(authority, wsv)?
+                revoke.execute(authority, state_transaction)?
             }
 
-            let world = wsv.world_mut();
-            if world.roles.remove(&role_id).is_none() {
+            let world = &mut state_transaction.world;
+            if world.roles.remove(role_id.clone()).is_none() {
                 return Err(FindError::Role(role_id).into());
             }
 
-            wsv.emit_events(Some(RoleEvent::Deleted(role_id)));
+            world.emit_events(Some(RoleEvent::Deleted(role_id)));
 
             Ok(())
         }
@@ -176,20 +202,25 @@ pub mod isi {
 
     impl Execute for Grant<PermissionToken, Role> {
         #[metrics(+"grant_role_permission")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let role_id = self.destination_id;
             let permission_token = self.object;
             let permission_token_id = permission_token.definition_id.clone();
 
-            if !wsv
-                .permission_token_schema()
+            if !state_transaction
+                .world
+                .permission_token_schema
                 .token_ids
                 .contains(&permission_token_id)
             {
                 return Err(FindError::PermissionToken(permission_token_id).into());
             }
 
-            let Some(role) = wsv.world.roles.get_mut(&role_id) else {
+            let Some(role) = state_transaction.world.roles.get_mut(&role_id) else {
                 return Err(FindError::Role(role_id).into());
             };
 
@@ -201,10 +232,12 @@ pub mod isi {
                 .into());
             }
 
-            wsv.emit_events(Some(RoleEvent::PermissionAdded(RolePermissionChanged {
-                role_id,
-                permission_token_id,
-            })));
+            state_transaction
+                .world
+                .emit_events(Some(RoleEvent::PermissionAdded(RolePermissionChanged {
+                    role_id,
+                    permission_token_id,
+                })));
 
             Ok(())
         }
@@ -212,12 +245,16 @@ pub mod isi {
 
     impl Execute for Revoke<PermissionToken, Role> {
         #[metrics(+"grant_role_permission")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let role_id = self.destination_id;
             let permission_token = self.object;
             let permission_token_id = permission_token.definition_id.clone();
 
-            let Some(role) = wsv.world.roles.get_mut(&role_id) else {
+            let Some(role) = state_transaction.world.roles.get_mut(&role_id) else {
                 return Err(FindError::Role(role_id).into());
             };
 
@@ -225,10 +262,12 @@ pub mod isi {
                 return Err(FindError::PermissionToken(permission_token_id).into());
             }
 
-            wsv.emit_events(Some(RoleEvent::PermissionRemoved(RolePermissionChanged {
-                role_id,
-                permission_token_id,
-            })));
+            state_transaction
+                .world
+                .emit_events(Some(RoleEvent::PermissionRemoved(RolePermissionChanged {
+                    role_id,
+                    permission_token_id,
+                })));
 
             Ok(())
         }
@@ -236,18 +275,22 @@ pub mod isi {
 
     impl Execute for SetParameter {
         #[metrics(+"set_parameter")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let parameter = self.parameter;
             let parameter_id = parameter.id.clone();
 
-            let world = wsv.world_mut();
+            let world = &mut state_transaction.world;
             if !world.parameters.remove(&parameter) {
                 return Err(FindError::Parameter(parameter_id).into());
             }
 
             world.parameters.insert(parameter);
 
-            wsv.emit_events(Some(ConfigurationEvent::Changed(parameter_id)));
+            world.emit_events(Some(ConfigurationEvent::Changed(parameter_id)));
 
             Ok(())
         }
@@ -255,11 +298,15 @@ pub mod isi {
 
     impl Execute for NewParameter {
         #[metrics(+"new_parameter")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let parameter = self.parameter;
             let parameter_id = parameter.id.clone();
 
-            let world = wsv.world_mut();
+            let world = &mut state_transaction.world;
             if !world.parameters.insert(parameter) {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::NewParameter,
@@ -268,7 +315,7 @@ pub mod isi {
                 .into());
             }
 
-            wsv.emit_events(Some(ConfigurationEvent::Created(parameter_id)));
+            world.emit_events(Some(ConfigurationEvent::Created(parameter_id)));
 
             Ok(())
         }
@@ -276,14 +323,18 @@ pub mod isi {
 
     impl Execute for Upgrade {
         #[metrics(+"upgrade_executor")]
-        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let raw_executor = self.executor;
 
-            // Cloning executor to avoid multiple mutable borrows of `wsv`.
+            // Cloning executor to avoid multiple mutable borrows of `state_transaction`.
             // Also it's a cheap operation.
-            let mut upgraded_executor = wsv.executor().clone();
+            let mut upgraded_executor = state_transaction.world.executor.clone();
             upgraded_executor
-                .migrate(raw_executor, wsv, authority)
+                .migrate(raw_executor, state_transaction, authority)
                 .map_err(|migration_error| {
                     InvalidParameterError::Wasm(format!(
                         "{:?}",
@@ -291,9 +342,11 @@ pub mod isi {
                     ))
                 })?;
 
-            wsv.world_mut().executor = upgraded_executor;
+            *state_transaction.world.executor.get_mut() = upgraded_executor;
 
-            wsv.emit_events(std::iter::once(ExecutorEvent::Upgraded));
+            state_transaction
+                .world
+                .emit_events(std::iter::once(ExecutorEvent::Upgraded));
 
             Ok(())
         }
@@ -303,7 +356,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: &AccountId,
-            _wsv: &mut WorldStateView,
+            _state_transaction: &mut StateTransaction<'_, '_>,
         ) -> std::result::Result<(), Error> {
             const TARGET: &str = "log_isi";
             let Self { level, msg } = self;
@@ -333,40 +386,51 @@ pub mod query {
     };
 
     use super::*;
+    use crate::state::StateSnapshot;
 
     impl ValidQuery for FindAllRoles {
         #[metrics(+"find_all_roles")]
-        fn execute<'wsv>(
+        fn execute<'state>(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<Box<dyn Iterator<Item = Role> + 'wsv>, Error> {
-            Ok(Box::new(wsv.world.roles.values().cloned()))
+            state_snapshot: &'state StateSnapshot<'state>,
+        ) -> Result<Box<dyn Iterator<Item = Role> + 'state>, Error> {
+            Ok(Box::new(
+                state_snapshot
+                    .world
+                    .roles
+                    .iter()
+                    .map(|(_, role)| role)
+                    .cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindAllRoleIds {
         #[metrics(+"find_all_role_ids")]
-        fn execute<'wsv>(
+        fn execute<'state>(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<Box<dyn Iterator<Item = RoleId> + 'wsv>, Error> {
-            Ok(Box::new(wsv
+            state_snapshot: &'state StateSnapshot<'state>,
+        ) -> Result<Box<dyn Iterator<Item = RoleId> + 'state>, Error> {
+            Ok(Box::new(
+                state_snapshot
                .world
                .roles
-               .values()
+               .iter()
+               .map(|(_, role)| role)
                // To me, this should probably be a method, not a field.
                .map(Role::id)
-               .cloned()))
+               .cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindRoleByRoleId {
         #[metrics(+"find_role_by_role_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Role, Error> {
+        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<Role, Error> {
             let role_id = &self.id;
             iroha_logger::trace!(%role_id);
 
-            wsv.world.roles.get(role_id).map_or_else(
+            state_snapshot.world.roles.get(role_id).map_or_else(
                 || Err(Error::Find(FindError::Role(role_id.clone()))),
                 |role_ref| Ok(role_ref.clone()),
             )
@@ -375,28 +439,33 @@ pub mod query {
 
     impl ValidQuery for FindAllPeers {
         #[metrics("find_all_peers")]
-        fn execute<'wsv>(
+        fn execute<'state>(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<Box<dyn Iterator<Item = Peer> + 'wsv>, Error> {
-            Ok(Box::new(wsv.peers().cloned().map(Peer::new)))
+            state_snapshot: &'state StateSnapshot<'state>,
+        ) -> Result<Box<dyn Iterator<Item = Peer> + 'state>, Error> {
+            Ok(Box::new(
+                state_snapshot.world.peers().cloned().map(Peer::new),
+            ))
         }
     }
 
     impl ValidQuery for FindPermissionTokenSchema {
         #[metrics("find_permission_token_schema")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<PermissionTokenSchema, Error> {
-            Ok(wsv.permission_token_schema().clone())
+        fn execute(
+            &self,
+            state_snapshot: &StateSnapshot<'_>,
+        ) -> Result<PermissionTokenSchema, Error> {
+            Ok(state_snapshot.world.permission_token_schema.clone())
         }
     }
 
     impl ValidQuery for FindAllParameters {
         #[metrics("find_all_parameters")]
-        fn execute<'wsv>(
+        fn execute<'state>(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<Box<dyn Iterator<Item = Parameter> + 'wsv>, Error> {
-            Ok(Box::new(wsv.parameters().cloned()))
+            state_snapshot: &'state StateSnapshot<'state>,
+        ) -> Result<Box<dyn Iterator<Item = Parameter> + 'state>, Error> {
+            Ok(Box::new(state_snapshot.world.parameters().cloned()))
         }
     }
 }

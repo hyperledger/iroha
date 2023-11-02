@@ -34,7 +34,7 @@ use crate::{
         },
         wasm,
     },
-    wsv::WasmSeed,
+    state::deserialize::WasmSeed,
 };
 
 /// Error type for [`Set`] operations.

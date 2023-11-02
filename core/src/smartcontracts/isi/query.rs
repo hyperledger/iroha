@@ -7,7 +7,7 @@ use iroha_data_model::{
 };
 use parity_scale_codec::{Decode, Encode};
 
-use crate::{prelude::ValidQuery, WorldStateView};
+use crate::{prelude::ValidQuery, state::StateSnapshot};
 
 /// Represents lazy evaluated query output
 pub trait Lazy {
@@ -65,8 +65,12 @@ impl ValidQueryRequest {
     /// - Account doesn't exist
     /// - Account doesn't have the correct public key
     /// - Account has incorrect permissions
-    pub fn validate(query: SignedQuery, wsv: &WorldStateView) -> Result<Self, ValidationFail> {
-        let account_has_public_key = wsv
+    pub fn validate(
+        query: SignedQuery,
+        state_snapshot: &StateSnapshot<'_>,
+    ) -> Result<Self, ValidationFail> {
+        let account_has_public_key = state_snapshot
+            .world
             .map_account(query.authority(), |account| {
                 account.contains_signatory(query.signature().public_key())
             })
@@ -77,20 +81,23 @@ impl ValidQueryRequest {
             ))
             .into());
         }
-        wsv.executor()
-            .validate_query(wsv, query.authority(), query.query().clone())?;
+        state_snapshot.world.executor.validate_query(
+            state_snapshot,
+            query.authority(),
+            query.query().clone(),
+        )?;
         Ok(Self(query))
     }
 
-    /// Execute contained query on the [`WorldStateView`].
+    /// Execute contained query on the [`StateSnapshot`].
     ///
     /// # Errors
     /// Forwards `self.query.execute` error.
-    pub fn execute<'wsv>(
-        &'wsv self,
-        wsv: &'wsv WorldStateView,
-    ) -> Result<LazyQueryOutput<'wsv>, Error> {
-        let output = self.0.query().execute(wsv)?;
+    pub fn execute<'state>(
+        &'state self,
+        state_snapshot: &'state StateSnapshot<'state>,
+    ) -> Result<LazyQueryOutput<'state>, Error> {
+        let output = self.0.query().execute(state_snapshot)?;
 
         Ok(if let LazyQueryOutput::Iter(iter) = output {
             LazyQueryOutput::Iter(Box::new(iter.filter(|val| self.0.filter().applies(val))))
@@ -109,14 +116,17 @@ impl ValidQueryRequest {
 }
 
 impl ValidQuery for QueryBox {
-    fn execute<'wsv>(&self, wsv: &'wsv WorldStateView) -> Result<LazyQueryOutput<'wsv>, Error> {
+    fn execute<'state>(
+        &self,
+        state_snapshot: &'state StateSnapshot<'state>,
+    ) -> Result<LazyQueryOutput<'state>, Error> {
         iroha_logger::debug!(query=%self, "Executing");
 
         macro_rules! match_all {
             ( non_iter: {$( $non_iter_query:ident ),+ $(,)?} $( $query:ident, )+ ) => {
                 match self { $(
-                    QueryBox::$non_iter_query(query) => query.execute(wsv).map(QueryOutputBox::from).map(LazyQueryOutput::QueryOutput), )+ $(
-                    QueryBox::$query(query) => query.execute(wsv).map(|i| i.map(QueryOutputBox::from)).map(|iter| LazyQueryOutput::Iter(Box::new(iter))), )+
+                    QueryBox::$non_iter_query(query) => query.execute(state_snapshot).map(QueryOutputBox::from).map(LazyQueryOutput::QueryOutput), )+ $(
+                    QueryBox::$query(query) => query.execute(state_snapshot).map(|i| i.map(QueryOutputBox::from)).map(|iter| LazyQueryOutput::Iter(Box::new(iter))), )+
                 }
             };
         }
@@ -183,8 +193,14 @@ mod tests {
 
     use super::*;
     use crate::{
-        block::*, kura::Kura, query::store::LiveQueryStore, smartcontracts::isi::Registrable as _,
-        sumeragi::network_topology::Topology, tx::AcceptedTransaction, wsv::World, PeersIds,
+        block::*,
+        kura::Kura,
+        query::store::LiveQueryStore,
+        smartcontracts::isi::Registrable as _,
+        state::{State, World},
+        sumeragi::network_topology::Topology,
+        tx::AcceptedTransaction,
+        PeersIds,
     };
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(KeyPair::random);
@@ -252,80 +268,83 @@ mod tests {
         Ok(World::with([domain], PeersIds::new()))
     }
 
-    fn wsv_with_test_blocks_and_transactions(
+    fn state_with_test_blocks_and_transactions(
         blocks: u64,
         valid_tx_per_block: usize,
         invalid_tx_per_block: usize,
-    ) -> Result<WorldStateView> {
+    ) -> Result<State> {
         let chain_id = ChainId::from("0");
 
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let mut wsv = WorldStateView::new(world_with_test_domains(), kura.clone(), query_handle);
+        let state = State::new(world_with_test_domains(), kura.clone(), query_handle);
+        {
+            let mut state_block = state.block(false);
+            let limits = TransactionLimits {
+                max_instruction_number: 1,
+                max_wasm_size_bytes: 0,
+            };
+            let huge_limits = TransactionLimits {
+                max_instruction_number: 1000,
+                max_wasm_size_bytes: 0,
+            };
 
-        let limits = TransactionLimits {
-            max_instruction_number: 1,
-            max_wasm_size_bytes: 0,
-        };
-        let huge_limits = TransactionLimits {
-            max_instruction_number: 1000,
-            max_wasm_size_bytes: 0,
-        };
+            state_block.config.transaction_limits = limits;
 
-        wsv.config.transaction_limits = limits;
+            let valid_tx = {
+                let instructions: [InstructionBox; 0] = [];
+                let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
+                    .with_instructions(instructions)
+                    .sign(&ALICE_KEYS);
+                AcceptedTransaction::accept(tx, &chain_id, &limits)?
+            };
+            let invalid_tx = {
+                let isi = Fail::new("fail".to_owned());
+                let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
+                    .with_instructions([isi.clone(), isi])
+                    .sign(&ALICE_KEYS);
+                AcceptedTransaction::accept(tx, &chain_id, &huge_limits)?
+            };
 
-        let valid_tx = {
-            let instructions: [InstructionBox; 0] = [];
-            let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
-                .with_instructions(instructions)
-                .sign(&ALICE_KEYS);
-            AcceptedTransaction::accept(tx, &chain_id, &limits)?
-        };
-        let invalid_tx = {
-            let isi = Fail::new("fail".to_owned());
-            let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
-                .with_instructions([isi.clone(), isi])
-                .sign(&ALICE_KEYS);
-            AcceptedTransaction::accept(tx, &chain_id, &huge_limits)?
-        };
+            let mut transactions = vec![valid_tx; valid_tx_per_block];
+            transactions.append(&mut vec![invalid_tx; invalid_tx_per_block]);
 
-        let mut transactions = vec![valid_tx; valid_tx_per_block];
-        transactions.append(&mut vec![invalid_tx; invalid_tx_per_block]);
-
-        let topology = Topology::new(UniqueVec::new());
-        let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
-            .chain(0, &mut wsv)
-            .sign(&ALICE_KEYS)
-            .commit(&topology)
-            .expect("Block is valid");
-
-        wsv.apply(&first_block)?;
-        kura.store_block(first_block);
-
-        for _ in 1u64..blocks {
-            let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
-                .chain(0, &mut wsv)
+            let topology = Topology::new(UniqueVec::new());
+            let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
+                .chain(0, &mut state_block)
                 .sign(&ALICE_KEYS)
                 .commit(&topology)
                 .expect("Block is valid");
 
-            wsv.apply(&block)?;
-            kura.store_block(block);
+            state_block.apply(&first_block)?;
+            kura.store_block(first_block);
+
+            for _ in 1u64..blocks {
+                let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
+                    .chain(0, &mut state_block)
+                    .sign(&ALICE_KEYS)
+                    .commit(&topology)
+                    .expect("Block is valid");
+
+                state_block.apply(&block)?;
+                kura.store_block(block);
+            }
+            state_block.commit();
         }
 
-        Ok(wsv)
+        Ok(state)
     }
 
     #[test]
     async fn asset_store() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let wsv = WorldStateView::new(world_with_test_asset_with_metadata(), kura, query_handle);
+        let state = State::new(world_with_test_asset_with_metadata(), kura, query_handle);
 
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
-        let bytes =
-            FindAssetKeyValueByIdAndKey::new(asset_id, Name::from_str("Bytes")?).execute(&wsv)?;
+        let bytes = FindAssetKeyValueByIdAndKey::new(asset_id, Name::from_str("Bytes")?)
+            .execute(&state.view().to_snapshot())?;
         assert_eq!(
             MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
             bytes,
@@ -337,10 +356,10 @@ mod tests {
     async fn account_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let wsv = WorldStateView::new(world_with_test_account_with_metadata()?, kura, query_handle);
+        let state = State::new(world_with_test_account_with_metadata()?, kura, query_handle);
 
         let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::from_str("Bytes")?)
-            .execute(&wsv)?;
+            .execute(&state.view().to_snapshot())?;
         assert_eq!(
             MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
             bytes,
@@ -352,8 +371,10 @@ mod tests {
     async fn find_all_blocks() -> Result<()> {
         let num_blocks = 100;
 
-        let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-        let blocks = FindAllBlocks.execute(&wsv)?.collect::<Vec<_>>();
+        let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
+        let blocks = FindAllBlocks
+            .execute(&state.view().to_snapshot())?
+            .collect::<Vec<_>>();
 
         assert_eq!(blocks.len() as u64, num_blocks);
         assert!(blocks.windows(2).all(|wnd| wnd[0] >= wnd[1]));
@@ -365,8 +386,10 @@ mod tests {
     async fn find_all_block_headers() -> Result<()> {
         let num_blocks = 100;
 
-        let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-        let block_headers = FindAllBlockHeaders.execute(&wsv)?.collect::<Vec<_>>();
+        let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
+        let block_headers = FindAllBlockHeaders
+            .execute(&state.view().to_snapshot())?
+            .collect::<Vec<_>>();
 
         assert_eq!(block_headers.len() as u64, num_blocks);
         assert!(block_headers.windows(2).all(|wnd| wnd[0] >= wnd[1]));
@@ -376,17 +399,19 @@ mod tests {
 
     #[test]
     async fn find_block_header_by_hash() -> Result<()> {
-        let wsv = wsv_with_test_blocks_and_transactions(1, 1, 1)?;
-        let block = wsv.all_blocks().last().expect("WSV is empty");
+        let state = state_with_test_blocks_and_transactions(1, 1, 1)?;
+        let state_view = state.view();
+        let state_snapshot = state_view.to_snapshot();
+        let block = state_snapshot.all_blocks().last().expect("state is empty");
 
         assert_eq!(
-            FindBlockHeaderByHash::new(block.hash()).execute(&wsv)?,
+            FindBlockHeaderByHash::new(block.hash()).execute(&state_snapshot)?,
             *block.header()
         );
 
         assert!(
             FindBlockHeaderByHash::new(HashOf::from_untyped_unchecked(Hash::new([42])))
-                .execute(&wsv)
+                .execute(&state_snapshot)
                 .is_err()
         );
 
@@ -397,8 +422,12 @@ mod tests {
     async fn find_all_transactions() -> Result<()> {
         let num_blocks = 100;
 
-        let wsv = wsv_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
-        let txs = FindAllTransactions.execute(&wsv)?.collect::<Vec<_>>();
+        let state = state_with_test_blocks_and_transactions(num_blocks, 1, 1)?;
+        let state_view = state.view();
+        let state_snapshot = state_view.to_snapshot();
+        let txs = FindAllTransactions
+            .execute(&state_snapshot)?
+            .collect::<Vec<_>>();
 
         assert_eq!(txs.len() as u64, num_blocks * 2);
         assert_eq!(
@@ -423,37 +452,43 @@ mod tests {
 
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let mut wsv = WorldStateView::new(world_with_test_domains(), kura.clone(), query_handle);
+        let state = State::new(world_with_test_domains(), kura.clone(), query_handle);
 
+        let mut state_block = state.block(false);
         let instructions: [InstructionBox; 0] = [];
         let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
             .with_instructions(instructions)
             .sign(&ALICE_KEYS);
 
-        let tx_limits = &wsv.transaction_executor().transaction_limits;
+        let tx_limits = &state_block.transaction_executor().transaction_limits;
         let va_tx = AcceptedTransaction::accept(tx, &chain_id, tx_limits)?;
 
         let topology = Topology::new(UniqueVec::new());
         let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
-            .chain(0, &mut wsv)
+            .chain(0, &mut state_block)
             .sign(&ALICE_KEYS)
             .commit(&topology)
             .expect("Block is valid");
 
-        wsv.apply(&vcb)?;
+        state_block.apply(&vcb)?;
         kura.store_block(vcb);
+        state_block.commit();
+
+        let state_view = state.view();
+        let state_snapshot = state_view.to_snapshot();
 
         let unapplied_tx = TransactionBuilder::new(chain_id, ALICE_ID.clone())
             .with_instructions([Unregister::account("account@domain".parse().unwrap())])
             .sign(&ALICE_KEYS);
         let wrong_hash = unapplied_tx.hash();
-        let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);
+        let not_found = FindTransactionByHash::new(wrong_hash).execute(&state_snapshot);
         assert!(matches!(
             not_found,
             Err(Error::Find(FindError::Transaction(_)))
         ));
 
-        let found_accepted = FindTransactionByHash::new(va_tx.as_ref().hash()).execute(&wsv)?;
+        let found_accepted =
+            FindTransactionByHash::new(va_tx.as_ref().hash()).execute(&state_snapshot)?;
         if found_accepted.transaction.error.is_none() {
             assert_eq!(
                 va_tx.as_ref().hash(),
@@ -466,7 +501,7 @@ mod tests {
     #[test]
     async fn domain_metadata() -> Result<()> {
         let kura = Kura::blank_kura_for_testing();
-        let wsv = {
+        let state = {
             let mut metadata = Metadata::new();
             metadata.insert_with_limits(
                 Name::from_str("Bytes")?,
@@ -486,12 +521,13 @@ mod tests {
                 )
                 .is_none());
             let query_handle = LiveQueryStore::test().start();
-            WorldStateView::new(World::with([domain], PeersIds::new()), kura, query_handle)
+            State::new(World::with([domain], PeersIds::new()), kura, query_handle)
         };
 
         let domain_id = DomainId::from_str("wonderland")?;
         let key = Name::from_str("Bytes")?;
-        let bytes = FindDomainKeyValueByIdAndKey::new(domain_id, key).execute(&wsv)?;
+        let bytes = FindDomainKeyValueByIdAndKey::new(domain_id, key)
+            .execute(&state.view().to_snapshot())?;
         assert_eq!(
             MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
             bytes,

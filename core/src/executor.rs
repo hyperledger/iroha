@@ -17,7 +17,7 @@ use serde::{
 
 use crate::{
     smartcontracts::{wasm, Execute as _},
-    wsv::{WasmSeed, WorldStateView},
+    state::{deserialize::WasmSeed, StateSnapshot, StateTransaction},
 };
 
 impl From<wasm::error::Error> for ValidationFail {
@@ -136,7 +136,7 @@ impl Executor {
     /// - Executor denied the operation.
     pub fn validate_transaction(
         &self,
-        wsv: &mut WorldStateView,
+        state_transaction: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
         transaction: SignedTransaction,
     ) -> Result<(), ValidationFail> {
@@ -149,19 +149,19 @@ impl Executor {
                     return Ok(());
                 };
                 for isi in instructions {
-                    isi.execute(authority, wsv)?
+                    isi.execute(authority, state_transaction)?
                 }
                 Ok(())
             }
             Self::UserProvided(UserProvidedExecutor(loaded_executor)) => {
                 let runtime =
                     wasm::RuntimeBuilder::<wasm::state::executor::ValidateTransaction>::new()
-                    .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                    .with_config(wsv.config.executor_runtime)
+                    .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+                    .with_config(state_transaction.config.executor_runtime)
                     .build()?;
 
                 runtime.execute_executor_validate_transaction(
-                    wsv,
+                    state_transaction,
                     authority,
                     &loaded_executor.module,
                     transaction,
@@ -179,23 +179,25 @@ impl Executor {
     /// - Executor denied the operation.
     pub fn validate_instruction(
         &self,
-        wsv: &mut WorldStateView,
+        state_transaction: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
         instruction: InstructionBox,
     ) -> Result<(), ValidationFail> {
         trace!("Running instruction validation");
 
         match self {
-            Self::Initial => instruction.execute(authority, wsv).map_err(Into::into),
+            Self::Initial => instruction
+                .execute(authority, state_transaction)
+                .map_err(Into::into),
             Self::UserProvided(UserProvidedExecutor(loaded_executor)) => {
                 let runtime =
                     wasm::RuntimeBuilder::<wasm::state::executor::ValidateInstruction>::new()
-                    .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                    .with_config(wsv.config.executor_runtime)
+                    .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+                    .with_config(state_transaction.config.executor_runtime)
                     .build()?;
 
                 runtime.execute_executor_validate_instruction(
-                    wsv,
+                    state_transaction,
                     authority,
                     &loaded_executor.module,
                     instruction,
@@ -213,7 +215,7 @@ impl Executor {
     /// - Executor denied the operation.
     pub fn validate_query(
         &self,
-        wsv: &WorldStateView,
+        state_snapshot: &StateSnapshot<'_>,
         authority: &AccountId,
         query: QueryBox,
     ) -> Result<(), ValidationFail> {
@@ -223,12 +225,12 @@ impl Executor {
             Self::Initial => Ok(()),
             Self::UserProvided(UserProvidedExecutor(loaded_executor)) => {
                 let runtime = wasm::RuntimeBuilder::<wasm::state::executor::ValidateQuery>::new()
-                    .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                    .with_config(wsv.config.executor_runtime)
+                    .with_engine(state_snapshot.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+                    .with_config(state_snapshot.config.executor_runtime)
                     .build()?;
 
                 runtime.execute_executor_validate_query(
-                    wsv,
+                    state_snapshot,
                     authority,
                     &loaded_executor.module,
                     query,
@@ -250,20 +252,20 @@ impl Executor {
     pub fn migrate(
         &mut self,
         raw_executor: data_model_executor::Executor,
-        wsv: &mut WorldStateView,
+        state_transaction: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
     ) -> Result<(), MigrationError> {
         trace!("Running executor migration");
 
-        let loaded_executor = LoadedExecutor::load(&wsv.engine, raw_executor)?;
+        let loaded_executor = LoadedExecutor::load(state_transaction.engine, raw_executor)?;
 
         let runtime = wasm::RuntimeBuilder::<wasm::state::executor::Migrate>::new()
-            .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-            .with_config(wsv.config.executor_runtime)
+            .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
+            .with_config(state_transaction.config.executor_runtime)
             .build()?;
 
         runtime
-            .execute_executor_migration(wsv, authority, &loaded_executor.module)?
+            .execute_executor_migration(state_transaction, authority, &loaded_executor.module)?
             .map_err(MigrationError::EntrypointExecution)?;
 
         *self = Self::UserProvided(UserProvidedExecutor(loaded_executor));

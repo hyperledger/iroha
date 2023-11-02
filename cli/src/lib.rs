@@ -16,13 +16,13 @@ use iroha_core::{
     handler::ThreadHandler,
     kiso::KisoHandle,
     kura::Kura,
-    prelude::{World, WorldStateView},
     query::store::LiveQueryStore,
     queue::Queue,
     smartcontracts::isi::Registrable as _,
     snapshot::{
         try_read_snapshot, SnapshotMaker, SnapshotMakerHandle, TryReadError as TryReadSnapshotError,
     },
+    state::{State, World},
     sumeragi::{SumeragiHandle, SumeragiStartArgs},
     IrohaNetwork,
 };
@@ -61,6 +61,8 @@ pub struct Iroha {
     pub torii: Option<Torii>,
     /// Snapshot service. Might be not started depending on the config.
     pub snapshot_maker: Option<SnapshotMakerHandle>,
+    /// State of blockchain
+    pub state: Arc<State>,
     /// Thread handlers
     thread_handlers: Vec<ThreadHandler>,
 
@@ -218,36 +220,36 @@ impl Iroha {
 
         let block_count = kura.init()?;
 
-        let wsv = match try_read_snapshot(
+        let state = match try_read_snapshot(
             &config.snapshot.store_dir,
             &kura,
             live_query_store_handle.clone(),
             block_count,
         ) {
-            Ok(wsv) => {
+            Ok(state) => {
                 iroha_logger::info!(
-                    at_height = wsv.height(),
-                    "Successfully loaded WSV from a snapshot"
+                    at_height = state.view().height(),
+                    "Successfully loaded state from a snapshot"
                 );
-                Some(wsv)
+                Some(state)
             }
             Err(TryReadSnapshotError::NotFound) => {
-                iroha_logger::info!("Didn't find a snapshot of WSV, creating an empty one");
+                iroha_logger::info!("Didn't find a snapshot of state, creating an empty one");
                 None
             }
             Err(error) => {
-                iroha_logger::warn!(%error, "Failed to load WSV from a snapshot, creating an empty one");
+                iroha_logger::warn!(%error, "Failed to load state from a snapshot, creating an empty one");
                 None
             }
         }.unwrap_or_else(|| {
-            WorldStateView::from_config(
+            State::from_config(
                 config.chain_wide,
                 world,
                 Arc::clone(&kura),
                 live_query_store_handle.clone(),
             )
-
         });
+        let state = Arc::new(state);
 
         let queue = Arc::new(Queue::from_config(config.queue));
         match Self::start_telemetry(&logger, &config).await? {
@@ -261,7 +263,7 @@ impl Iroha {
             sumeragi_config: config.sumeragi.clone(),
             common_config: config.common.clone(),
             events_sender: events_sender.clone(),
-            wsv,
+            state: Arc::clone(&state),
             queue: Arc::clone(&queue),
             kura: Arc::clone(&kura),
             network: network.clone(),
@@ -279,6 +281,7 @@ impl Iroha {
             Arc::clone(&kura),
             config.common.peer_id(),
             network.clone(),
+            Arc::clone(&state),
         )
         .start();
 
@@ -287,7 +290,7 @@ impl Iroha {
             config.transaction_gossiper,
             network.clone(),
             Arc::clone(&queue),
-            sumeragi.clone(),
+            Arc::clone(&state),
         )
         .start();
 
@@ -307,8 +310,8 @@ impl Iroha {
         }
         .start();
 
-        let snapshot_maker =
-            SnapshotMaker::from_config(&config.snapshot, &sumeragi).map(SnapshotMaker::start);
+        let snapshot_maker = SnapshotMaker::from_config(&config.snapshot, Arc::clone(&state))
+            .map(SnapshotMaker::start);
 
         let kiso = KisoHandle::new(config.clone());
 
@@ -322,6 +325,7 @@ impl Iroha {
             sumeragi.clone(),
             live_query_store_handle,
             Arc::clone(&kura),
+            Arc::clone(&state),
         );
 
         Self::spawn_config_updates_broadcasting(kiso.clone(), logger.clone());
@@ -338,6 +342,7 @@ impl Iroha {
             kura,
             torii,
             snapshot_maker,
+            state,
             thread_handlers: vec![kura_thread_handler],
             #[cfg(debug_assertions)]
             freeze_status,

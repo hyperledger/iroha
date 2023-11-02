@@ -16,6 +16,7 @@ use iroha_data_model::{
 use iroha_telemetry::metrics;
 
 use super::*;
+use crate::state::StateSnapshot;
 
 pub(crate) struct BlockTransactionIter(Arc<SignedBlock>, usize);
 pub(crate) struct BlockTransactionRef(Arc<SignedBlock>, usize);
@@ -65,12 +66,13 @@ impl BlockTransactionRef {
 
 impl ValidQuery for FindAllTransactions {
     #[metrics(+"find_all_transactions")]
-    fn execute<'wsv>(
+    fn execute<'state>(
         &self,
-        wsv: &'wsv WorldStateView,
-    ) -> Result<Box<dyn Iterator<Item = TransactionQueryOutput> + 'wsv>, QueryExecutionFail> {
+        state_snapshot: &'state StateSnapshot<'state>,
+    ) -> Result<Box<dyn Iterator<Item = TransactionQueryOutput> + 'state>, QueryExecutionFail> {
         Ok(Box::new(
-            wsv.all_blocks()
+            state_snapshot
+                .all_blocks()
                 .flat_map(BlockTransactionIter::new)
                 .map(|tx| TransactionQueryOutput {
                     block_hash: tx.block_hash(),
@@ -82,14 +84,15 @@ impl ValidQuery for FindAllTransactions {
 
 impl ValidQuery for FindTransactionsByAccountId {
     #[metrics(+"find_transactions_by_account_id")]
-    fn execute<'wsv>(
+    fn execute<'state>(
         &self,
-        wsv: &'wsv WorldStateView,
-    ) -> Result<Box<dyn Iterator<Item = TransactionQueryOutput> + 'wsv>, QueryExecutionFail> {
+        state_snapshot: &'state StateSnapshot<'state>,
+    ) -> Result<Box<dyn Iterator<Item = TransactionQueryOutput> + 'state>, QueryExecutionFail> {
         let account_id = self.account_id.clone();
 
         Ok(Box::new(
-            wsv.all_blocks()
+            state_snapshot
+                .all_blocks()
                 .flat_map(BlockTransactionIter::new)
                 .filter(move |tx| *tx.authority() == account_id)
                 .map(|tx| TransactionQueryOutput {
@@ -102,13 +105,17 @@ impl ValidQuery for FindTransactionsByAccountId {
 
 impl ValidQuery for FindTransactionByHash {
     #[metrics(+"find_transaction_by_hash")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<TransactionQueryOutput, QueryExecutionFail> {
+    fn execute(
+        &self,
+        state_snapshot: &StateSnapshot<'_>,
+    ) -> Result<TransactionQueryOutput, QueryExecutionFail> {
         let tx_hash = self.hash;
+
         iroha_logger::trace!(%tx_hash);
-        if !wsv.has_transaction(tx_hash) {
+        if !state_snapshot.has_transaction(tx_hash) {
             return Err(FindError::Transaction(tx_hash).into());
         };
-        let block = wsv
+        let block = state_snapshot
             .block_with_tx(&tx_hash)
             .ok_or_else(|| FindError::Transaction(tx_hash))?;
 

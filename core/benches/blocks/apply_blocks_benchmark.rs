@@ -2,7 +2,7 @@
 
 mod apply_blocks;
 
-use apply_blocks::WsvApplyBlocks;
+use apply_blocks::StateApplyBlocks;
 use criterion::{criterion_group, criterion_main, Criterion};
 
 fn apply_blocks(c: &mut Criterion) {
@@ -14,9 +14,9 @@ fn apply_blocks(c: &mut Criterion) {
     group.significance_level(0.1).sample_size(10);
     group.bench_function("apply_blocks", |b| {
         b.iter_batched_ref(
-            || WsvApplyBlocks::setup(rt.handle()).expect("Failed to setup benchmark"),
+            || StateApplyBlocks::setup(rt.handle()).expect("Failed to setup benchmark"),
             |bench| {
-                WsvApplyBlocks::measure(bench).expect("Failed to execute benchmark");
+                StateApplyBlocks::measure(bench).expect("Failed to execute benchmark");
             },
             criterion::BatchSize::SmallInput,
         );
@@ -24,5 +24,5 @@ fn apply_blocks(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(wsv, apply_blocks);
-criterion_main!(wsv);
+criterion_group!(state, apply_blocks);
+criterion_main!(state);

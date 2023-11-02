@@ -688,6 +688,7 @@ impl EventFilter for DataEventFilter {
     fn matches(&self, event: &DataEvent) -> bool {
         use DataEventFilter::*;
 
+        #[allow(clippy::match_same_arms)]
         match (event, self) {
             (
                 DataEvent::Domain(DomainEvent::Account(AccountEvent::Asset(event))),

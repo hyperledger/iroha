@@ -96,6 +96,7 @@ mod pending {
     use iroha_data_model::transaction::TransactionValue;
 
     use super::*;
+    use crate::state::StateBlock;
 
     /// First stage in the life-cycle of a [`Block`].
     /// In the beginning the block is assumed to be verified and to contain only accepted transactions.
@@ -161,27 +162,29 @@ mod pending {
 
         fn categorize_transactions(
             transactions: Vec<AcceptedTransaction>,
-            wsv: &mut WorldStateView,
+            state_block: &mut StateBlock<'_>,
         ) -> Vec<TransactionValue> {
             transactions
                 .into_iter()
-                .map(|tx| match wsv.transaction_executor().validate(tx, wsv) {
-                    Ok(tx) => TransactionValue {
-                        value: tx,
-                        error: None,
-                    },
-                    Err((tx, error)) => {
-                        iroha_logger::warn!(
-                            reason = %error,
-                            caused_by = ?error.source(),
-                            "Transaction validation failed",
-                        );
-                        TransactionValue {
+                .map(
+                    |tx| match state_block.transaction_executor().validate(tx, state_block) {
+                        Ok(tx) => TransactionValue {
                             value: tx,
-                            error: Some(error),
+                            error: None,
+                        },
+                        Err((tx, error)) => {
+                            iroha_logger::warn!(
+                                reason = %error,
+                                caused_by = ?error.source(),
+                                "Transaction validation failed",
+                            );
+                            TransactionValue {
+                                value: tx,
+                                error: Some(error),
+                            }
                         }
-                    }
-                })
+                    },
+                )
                 .collect()
         }
 
@@ -191,14 +194,14 @@ mod pending {
         pub fn chain(
             self,
             view_change_index: u64,
-            wsv: &mut WorldStateView,
+            state: &mut StateBlock<'_>,
         ) -> BlockBuilder<Chained> {
-            let transactions = Self::categorize_transactions(self.0.transactions, wsv);
+            let transactions = Self::categorize_transactions(self.0.transactions, state);
 
             BlockBuilder(Chained(BlockPayload {
                 header: Self::make_header(
-                    wsv.height(),
-                    wsv.latest_block_hash(),
+                    state.height(),
+                    state.latest_block_hash(),
                     view_change_index,
                     &transactions,
                 ),
@@ -237,7 +240,7 @@ mod valid {
     use iroha_data_model::ChainId;
 
     use super::*;
-    use crate::sumeragi::network_topology::Role;
+    use crate::{state::StateBlock, sumeragi::network_topology::Role};
 
     /// Block that was validated and accepted
     #[derive(Debug, Clone)]
@@ -260,7 +263,7 @@ mod valid {
             block: SignedBlock,
             topology: &Topology,
             expected_chain_id: &ChainId,
-            wsv: &mut WorldStateView,
+            state_block: &mut StateBlock<'_>,
         ) -> Result<ValidBlock, (SignedBlock, BlockValidationError)> {
             if !block.header().is_genesis() {
                 let actual_commit_topology = block.commit_topology();
@@ -286,7 +289,7 @@ mod valid {
                 }
             }
 
-            let expected_block_height = wsv.height() + 1;
+            let expected_block_height = state_block.height() + 1;
             let actual_height = block.header().height;
 
             if expected_block_height != actual_height {
@@ -299,7 +302,7 @@ mod valid {
                 ));
             }
 
-            let expected_previous_block_hash = wsv.latest_block_hash();
+            let expected_previous_block_hash = state_block.latest_block_hash();
             let actual_block_hash = block.header().previous_block_hash;
 
             if expected_previous_block_hash != actual_block_hash {
@@ -314,12 +317,13 @@ mod valid {
 
             if block
                 .transactions()
-                .any(|tx| wsv.has_transaction(tx.as_ref().hash()))
+                .any(|tx| state_block.has_transaction(tx.as_ref().hash()))
             {
                 return Err((block, BlockValidationError::HasCommittedTransactions));
             }
 
-            if let Err(error) = Self::validate_transactions(&block, expected_chain_id, wsv) {
+            if let Err(error) = Self::validate_transactions(&block, expected_chain_id, state_block)
+            {
                 return Err((block, error.into()));
             }
 
@@ -336,7 +340,7 @@ mod valid {
         fn validate_transactions(
             block: &SignedBlock,
             expected_chain_id: &ChainId,
-            wsv: &mut WorldStateView,
+            state_block: &mut StateBlock<'_>,
         ) -> Result<(), TransactionValidationError> {
             let is_genesis = block.header().is_genesis();
 
@@ -344,7 +348,7 @@ mod valid {
                 // TODO: Unnecessary clone?
                 .cloned()
                 .try_for_each(|TransactionValue{value, error}| {
-                    let transaction_executor = wsv.transaction_executor();
+                    let transaction_executor = state_block.transaction_executor();
                     let limits = &transaction_executor.transaction_limits;
 
                     let tx = if is_genesis {
@@ -354,12 +358,12 @@ mod valid {
                     }?;
 
                     if error.is_some() {
-                        match transaction_executor.validate(tx, wsv) {
+                        match transaction_executor.validate(tx, state_block) {
                             Err(rejected_transaction) => Ok(rejected_transaction),
                             Ok(_) => Err(TransactionValidationError::RejectedIsValid),
                         }?;
                     } else {
-                        transaction_executor.validate(tx, wsv).map_err(|(_tx, error)| {
+                        transaction_executor.validate(tx, state_block).map_err(|(_tx, error)| {
                             TransactionValidationError::NotValid(error)
                         })?;
                     }
@@ -677,7 +681,10 @@ mod tests {
     use iroha_data_model::prelude::*;
 
     use super::*;
-    use crate::{kura::Kura, query::store::LiveQueryStore, smartcontracts::isi::Registrable as _};
+    use crate::{
+        kura::Kura, query::store::LiveQueryStore, smartcontracts::isi::Registrable as _,
+        state::State,
+    };
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
@@ -706,7 +713,8 @@ mod tests {
         let world = World::with([domain], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let mut wsv = WorldStateView::new(world, kura, query_handle);
+        let state = State::new(world, kura, query_handle);
+        let mut state_block = state.block(false);
 
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
@@ -714,7 +722,7 @@ mod tests {
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id));
 
         // Making two transactions that have the same instruction
-        let transaction_limits = &wsv.transaction_executor().transaction_limits;
+        let transaction_limits = &state_block.transaction_executor().transaction_limits;
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions([create_asset_definition])
             .sign(&alice_keys);
@@ -724,7 +732,7 @@ mod tests {
         let transactions = vec![tx.clone(), tx];
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
-            .chain(0, &mut wsv)
+            .chain(0, &mut state_block)
             .sign(&alice_keys);
 
         // The first transaction should be confirmed
@@ -749,7 +757,8 @@ mod tests {
         let world = World::with([domain], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let mut wsv = WorldStateView::new(world, kura, query_handle);
+        let state = State::new(world, kura, query_handle);
+        let mut state_block = state.block(false);
 
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
@@ -757,7 +766,7 @@ mod tests {
             Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
 
         // Making two transactions that have the same instruction
-        let transaction_limits = &wsv.transaction_executor().transaction_limits;
+        let transaction_limits = &state_block.transaction_executor().transaction_limits;
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([create_asset_definition])
             .sign(&alice_keys);
@@ -785,7 +794,7 @@ mod tests {
         let transactions = vec![tx0, tx, tx2];
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
-            .chain(0, &mut wsv)
+            .chain(0, &mut state_block)
             .sign(&alice_keys);
 
         // The first transaction should fail
@@ -813,8 +822,9 @@ mod tests {
         let world = World::with([domain], UniqueVec::new());
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let mut wsv = WorldStateView::new(world, kura, query_handle);
-        let transaction_limits = &wsv.transaction_executor().transaction_limits;
+        let state = State::new(world, kura, query_handle);
+        let mut state_block = state.block(false);
+        let transaction_limits = &state_block.transaction_executor().transaction_limits;
 
         let domain_id = DomainId::from_str("domain").expect("Valid");
         let create_domain = Register::domain(Domain::new(domain_id));
@@ -841,7 +851,7 @@ mod tests {
         let transactions = vec![tx_fail, tx_accept];
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
-            .chain(0, &mut wsv)
+            .chain(0, &mut state_block)
             .sign(&alice_keys);
 
         // The first transaction should be rejected

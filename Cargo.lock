@@ -40,6 +40,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91429305e9f0a25f6205c5b8e0d2db09e0708a7a6df0f42212bb56c32c8ac97a"
 dependencies = [
  "cfg-if",
+ "getrandom",
  "once_cell",
  "version_check",
  "zerocopy",
@@ -53,6 +54,12 @@ checksum = "b2969dcb958b36655471fc61f7e416fa76033bdd4bfed0678d8fee1e2d07a1f0"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "allocator-api2"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0942ffc6dcaadf03badf6e6a2d0228460359d5e34b57ccdc720b7382dfbd5ec5"
 
 [[package]]
 name = "amcl"
@@ -762,6 +769,23 @@ checksum = "cbf2150cce219b664a8a70df7a1f933836724b503f8a413af9365b4dcc4d90b8"
 dependencies = [
  "lazy_static",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "concread"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d12e4b28df8cea511676b6edbc9ea833e4a4c7b2cccfbe9e905ac11e0bc0794c"
+dependencies = [
+ "ahash",
+ "crossbeam-epoch",
+ "crossbeam-queue",
+ "crossbeam-utils",
+ "lru",
+ "smallvec",
+ "sptr",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2346,6 +2370,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "290f1a1d9242c78d09ce40a5e87e7554ee637af1351968159f4952f028f75604"
 dependencies = [
  "ahash",
+ "allocator-api2",
 ]
 
 [[package]]
@@ -2817,6 +2842,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_json",
+ "storage",
  "tempfile",
  "thiserror",
  "tokio",
@@ -3655,6 +3681,15 @@ name = "log"
 version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
+
+[[package]]
+name = "lru"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3262e75e648fce39813cb56ac41f3c3e3f65217ebf3844d818d1f9398cfb0dc"
+dependencies = [
+ "hashbrown 0.14.3",
+]
 
 [[package]]
 name = "mach"
@@ -5264,6 +5299,15 @@ dependencies = [
  "libc",
  "psm",
  "winapi",
+]
+
+[[package]]
+name = "storage"
+version = "0.1.0"
+source = "git+https://github.com/Erigara/storage.git?rev=232843aab94770089ecbffe8c8e8cb24c9cedb62#232843aab94770089ecbffe8c8e8cb24c9cedb62"
+dependencies = [
+ "concread",
+ "serde",
 ]
 
 [[package]]

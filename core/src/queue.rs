@@ -18,7 +18,7 @@ use crate::prelude::*;
 
 impl AcceptedTransaction {
     // TODO: We should have another type of transaction like `CheckedTransaction` in the type system?
-    fn check_signature_condition(&self, wsv: &WorldStateView) -> MustUse<bool> {
+    fn check_signature_condition(&self, state_view: &StateView<'_>) -> MustUse<bool> {
         let authority = self.as_ref().authority();
 
         let transaction_signatories = self
@@ -29,15 +29,17 @@ impl AcceptedTransaction {
             .cloned()
             .collect();
 
-        wsv.map_account(authority, |account| {
-            account.check_signature_check_condition(&transaction_signatories)
-        })
-        .unwrap_or(MustUse(false))
+        state_view
+            .world
+            .map_account(authority, |account| {
+                account.check_signature_check_condition(&transaction_signatories)
+            })
+            .unwrap_or(MustUse(false))
     }
 
     /// Check if [`self`] is committed or rejected.
-    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
-        wsv.has_transaction(self.as_ref().hash())
+    fn is_in_blockchain(&self, state_view: &StateView<'_>) -> bool {
+        state_view.has_transaction(self.as_ref().hash())
     }
 }
 
@@ -106,8 +108,8 @@ impl Queue {
         }
     }
 
-    fn is_pending(&self, tx: &AcceptedTransaction, wsv: &WorldStateView) -> bool {
-        !self.is_expired(tx) && !tx.is_in_blockchain(wsv)
+    fn is_pending(&self, tx: &AcceptedTransaction, state_view: &StateView) -> bool {
+        !self.is_expired(tx) && !tx.is_in_blockchain(state_view)
     }
 
     /// Checks if the transaction is waiting longer than its TTL or than the TTL from [`Config`].
@@ -129,12 +131,12 @@ impl Queue {
     }
 
     /// Returns all pending transactions.
-    pub fn all_transactions<'wsv>(
-        &'wsv self,
-        wsv: &'wsv WorldStateView,
-    ) -> impl Iterator<Item = AcceptedTransaction> + 'wsv {
+    pub fn all_transactions<'state>(
+        &'state self,
+        state_view: &'state StateView,
+    ) -> impl Iterator<Item = AcceptedTransaction> + 'state {
         self.accepted_txs.iter().filter_map(|tx| {
-            if self.is_pending(tx.value(), wsv) {
+            if self.is_pending(tx.value(), state_view) {
                 return Some(tx.value().clone());
             }
 
@@ -143,10 +145,14 @@ impl Queue {
     }
 
     /// Returns `n` randomly selected transaction from the queue.
-    pub fn n_random_transactions(&self, n: u32, wsv: &WorldStateView) -> Vec<AcceptedTransaction> {
+    pub fn n_random_transactions(
+        &self,
+        n: u32,
+        state_view: &StateView,
+    ) -> Vec<AcceptedTransaction> {
         self.accepted_txs
             .iter()
-            .filter(|e| self.is_pending(e.value(), wsv))
+            .filter(|e| self.is_pending(e.value(), state_view))
             .map(|e| e.value().clone())
             .choose_multiple(
                 &mut rand::thread_rng(),
@@ -154,14 +160,14 @@ impl Queue {
             )
     }
 
-    fn check_tx(&self, tx: &AcceptedTransaction, wsv: &WorldStateView) -> Result<(), Error> {
+    fn check_tx(&self, tx: &AcceptedTransaction, state_view: &StateView) -> Result<(), Error> {
         if self.is_in_future(tx) {
             Err(Error::InFuture)
         } else if self.is_expired(tx) {
             Err(Error::Expired)
-        } else if tx.is_in_blockchain(wsv) {
+        } else if tx.is_in_blockchain(state_view) {
             Err(Error::InBlockchain)
-        } else if !tx.check_signature_condition(wsv).into_inner() {
+        } else if !tx.check_signature_condition(state_view).into_inner() {
             Err(Error::SignatureCondition)
         } else {
             Ok(())
@@ -172,9 +178,9 @@ impl Queue {
     ///
     /// # Errors
     /// See [`enum@Error`]
-    pub fn push(&self, tx: AcceptedTransaction, wsv: &WorldStateView) -> Result<(), Failure> {
+    pub fn push(&self, tx: AcceptedTransaction, state_view: &StateView) -> Result<(), Failure> {
         trace!(?tx, "Pushing to the queue");
-        if let Err(err) = self.check_tx(&tx, wsv) {
+        if let Err(err) = self.check_tx(&tx, state_view) {
             return Err(Failure { tx, err });
         }
 
@@ -228,7 +234,7 @@ impl Queue {
     fn pop_from_queue(
         &self,
         seen: &mut Vec<HashOf<SignedTransaction>>,
-        wsv: &WorldStateView,
+        state_view: &StateView,
         expired_transactions: &mut Vec<AcceptedTransaction>,
     ) -> Option<AcceptedTransaction> {
         loop {
@@ -246,7 +252,7 @@ impl Queue {
             };
 
             let tx = entry.get();
-            if let Err(e) = self.check_tx(tx, wsv) {
+            if let Err(e) = self.check_tx(tx, state_view) {
                 let (_, tx) = entry.remove_entry();
                 self.decrease_per_user_tx_count(tx.as_ref().authority());
                 if let Error::Expired = e {
@@ -271,11 +277,16 @@ impl Queue {
     #[cfg(test)]
     fn collect_transactions_for_block(
         &self,
-        wsv: &WorldStateView,
+        state_view: &StateView,
         max_txs_in_block: usize,
     ) -> Vec<AcceptedTransaction> {
         let mut transactions = Vec::with_capacity(max_txs_in_block);
-        self.get_transactions_for_block(wsv, max_txs_in_block, &mut transactions, &mut Vec::new());
+        self.get_transactions_for_block(
+            state_view,
+            max_txs_in_block,
+            &mut transactions,
+            &mut Vec::new(),
+        );
         transactions
     }
 
@@ -284,7 +295,7 @@ impl Queue {
     /// BEWARE: Shouldn't be called in parallel with itself.
     pub fn get_transactions_for_block(
         &self,
-        wsv: &WorldStateView,
+        state_view: &StateView,
         max_txs_in_block: usize,
         transactions: &mut Vec<AcceptedTransaction>,
         expired_transactions: &mut Vec<AcceptedTransaction>,
@@ -297,7 +308,7 @@ impl Queue {
         let mut expired_transactions_queue = Vec::new();
 
         let txs_from_queue = core::iter::from_fn(|| {
-            self.pop_from_queue(&mut seen_queue, wsv, &mut expired_transactions_queue)
+            self.pop_from_queue(&mut seen_queue, state_view, &mut expired_transactions_queue)
         });
 
         let transactions_hashes: IndexSet<HashOf<SignedTransaction>> =
@@ -363,8 +374,11 @@ pub mod tests {
 
     use super::*;
     use crate::{
-        kura::Kura, query::store::LiveQueryStore, smartcontracts::isi::Registrable as _,
-        wsv::World, PeersIds,
+        kura::Kura,
+        query::store::LiveQueryStore,
+        smartcontracts::isi::Registrable as _,
+        state::{State, World},
+        PeersIds,
     };
 
     fn accepted_tx(account_id: &str, key: &KeyPair) -> AcceptedTransaction {
@@ -416,16 +430,17 @@ pub mod tests {
         let key_pair = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let wsv = Arc::new(WorldStateView::new(
+        let state = Arc::new(State::new(
             world_with_test_domains([key_pair.public_key().clone()]),
             kura,
             query_handle,
         ));
+        let state_view = state.view();
 
         let queue = Queue::from_config(config_factory());
 
         queue
-            .push(accepted_tx("alice@wonderland", &key_pair), &wsv)
+            .push(accepted_tx("alice@wonderland", &key_pair), &state_view)
             .expect("Failed to push tx into queue");
     }
 
@@ -436,11 +451,12 @@ pub mod tests {
         let key_pair = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let wsv = Arc::new(WorldStateView::new(
+        let state = Arc::new(State::new(
             world_with_test_domains([key_pair.public_key().clone()]),
             kura,
             query_handle,
         ));
+        let state_view = state.view();
 
         let queue = Queue::from_config(Config {
             transaction_time_to_live: Duration::from_secs(100),
@@ -450,13 +466,13 @@ pub mod tests {
 
         for _ in 0..capacity.get() {
             queue
-                .push(accepted_tx("alice@wonderland", &key_pair), &wsv)
+                .push(accepted_tx("alice@wonderland", &key_pair), &state_view)
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
         assert!(matches!(
-            queue.push(accepted_tx("alice@wonderland", &key_pair), &wsv),
+            queue.push(accepted_tx("alice@wonderland", &key_pair), &state_view),
             Err(Failure {
                 err: Error::Full,
                 ..
@@ -470,7 +486,7 @@ pub mod tests {
 
         let key_pairs = [KeyPair::random(), KeyPair::random()];
         let kura = Kura::blank_kura_for_testing();
-        let wsv = {
+        let state = {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
             let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
             let mut domain = Domain::new(domain_id).build(&account_id);
@@ -480,12 +496,13 @@ pub mod tests {
             account.signature_check_condition = SignatureCheckCondition::all_account_signatures();
             assert!(domain.add_account(account).is_none());
             let query_handle = LiveQueryStore::test().start();
-            Arc::new(WorldStateView::new(
+            Arc::new(State::new(
                 World::with([domain], PeersIds::new()),
                 kura,
                 query_handle,
             ))
         };
+        let state_view = state.view();
 
         let queue = Queue::from_config(config_factory());
         let instructions: [InstructionBox; 0] = [];
@@ -506,7 +523,7 @@ pub mod tests {
         };
         // Check that fully signed transaction passes signature check
         assert!(matches!(
-            fully_signed_tx.check_signature_condition(&wsv),
+            fully_signed_tx.check_signature_condition(&state_view),
             MustUse(true)
         ));
 
@@ -518,11 +535,14 @@ pub mod tests {
             let partially_signed_tx: AcceptedTransaction = get_tx(key_pair);
             // Check that none of partially signed txs passes signature check
             assert_eq!(
-                partially_signed_tx.check_signature_condition(&wsv),
+                partially_signed_tx.check_signature_condition(&state_view),
                 MustUse(false)
             );
             assert!(matches!(
-                queue.push(partially_signed_tx, &wsv).unwrap_err().err,
+                queue
+                    .push(partially_signed_tx, &state_view)
+                    .unwrap_err()
+                    .err,
                 Error::SignatureCondition
             ))
         }
@@ -534,23 +554,24 @@ pub mod tests {
         let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let wsv = Arc::new(WorldStateView::new(
+        let state = Arc::new(State::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
             query_handle,
         ));
+        let state_view = state.view();
         let queue = Queue::from_config(Config {
             transaction_time_to_live: Duration::from_secs(100),
             ..config_factory()
         });
         for _ in 0..5 {
             queue
-                .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
+                .push(accepted_tx("alice@wonderland", &alice_key), &state_view)
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
-        let available = queue.collect_transactions_for_block(&wsv, max_txs_in_block);
+        let available = queue.collect_transactions_for_block(&state_view, max_txs_in_block);
         assert_eq!(available.len(), max_txs_in_block);
     }
 
@@ -559,16 +580,19 @@ pub mod tests {
         let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let mut wsv = WorldStateView::new(
+        let state = State::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
             query_handle,
         );
         let tx = accepted_tx("alice@wonderland", &alice_key);
-        wsv.transactions.insert(tx.as_ref().hash(), 1);
+        let mut state_block = state.block(false);
+        state_block.transactions.insert(tx.as_ref().hash(), 1);
+        state_block.commit();
+        let state_view = state.view();
         let queue = Queue::from_config(config_factory());
         assert!(matches!(
-            queue.push(tx, &wsv),
+            queue.push(tx, &state_view),
             Err(Failure {
                 err: Error::InBlockchain,
                 ..
@@ -583,18 +607,20 @@ pub mod tests {
         let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let mut wsv = WorldStateView::new(
+        let state = State::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
             query_handle,
         );
         let tx = accepted_tx("alice@wonderland", &alice_key);
         let queue = Queue::from_config(config_factory());
-        queue.push(tx.clone(), &wsv).unwrap();
-        wsv.transactions.insert(tx.as_ref().hash(), 1);
+        queue.push(tx.clone(), &state.view()).unwrap();
+        let mut state_block = state.block(false);
+        state_block.transactions.insert(tx.as_ref().hash(), 1);
+        state_block.commit();
         assert_eq!(
             queue
-                .collect_transactions_for_block(&wsv, max_txs_in_block)
+                .collect_transactions_for_block(&state.view(), max_txs_in_block)
                 .len(),
             0
         );
@@ -607,40 +633,41 @@ pub mod tests {
         let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let wsv = Arc::new(WorldStateView::new(
+        let state = Arc::new(State::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
             query_handle,
         ));
+        let state_view = state.view();
         let queue = Queue::from_config(Config {
             transaction_time_to_live: Duration::from_millis(300),
             ..config_factory()
         });
         for _ in 0..(max_txs_in_block - 1) {
             queue
-                .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
+                .push(accepted_tx("alice@wonderland", &alice_key), &state_view)
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(100));
         }
 
         queue
-            .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
+            .push(accepted_tx("alice@wonderland", &alice_key), &state_view)
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(201));
         assert_eq!(
             queue
-                .collect_transactions_for_block(&wsv, max_txs_in_block)
+                .collect_transactions_for_block(&state_view, max_txs_in_block)
                 .len(),
             1
         );
 
         queue
-            .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
+            .push(accepted_tx("alice@wonderland", &alice_key), &state_view)
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(310));
         assert_eq!(
             queue
-                .collect_transactions_for_block(&wsv, max_txs_in_block)
+                .collect_transactions_for_block(&state_view, max_txs_in_block)
                 .len(),
             0
         );
@@ -654,23 +681,24 @@ pub mod tests {
         let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let wsv = Arc::new(WorldStateView::new(
+        let state = Arc::new(State::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
             query_handle,
         ));
+        let state_view = state.view();
         let queue = Queue::from_config(config_factory());
         queue
-            .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
+            .push(accepted_tx("alice@wonderland", &alice_key), &state_view)
             .expect("Failed to push tx into queue");
 
         let a = queue
-            .collect_transactions_for_block(&wsv, max_txs_in_block)
+            .collect_transactions_for_block(&state_view, max_txs_in_block)
             .into_iter()
             .map(|tx| tx.as_ref().hash())
             .collect::<Vec<_>>();
         let b = queue
-            .collect_transactions_for_block(&wsv, max_txs_in_block)
+            .collect_transactions_for_block(&state_view, max_txs_in_block)
             .into_iter()
             .map(|tx| tx.as_ref().hash())
             .collect::<Vec<_>>();
@@ -688,11 +716,12 @@ pub mod tests {
         let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let wsv = Arc::new(WorldStateView::new(
+        let state = Arc::new(State::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
             query_handle,
         ));
+        let state_view = state.view();
         let queue = Queue::from_config(config_factory());
         let instructions = [Fail {
             message: "expired".to_owned(),
@@ -711,12 +740,12 @@ pub mod tests {
         let tx = AcceptedTransaction::accept(tx, &chain_id, &limits)
             .expect("Failed to accept Transaction.");
         queue
-            .push(tx.clone(), &wsv)
+            .push(tx.clone(), &state_view)
             .expect("Failed to push tx into queue");
         let mut txs = Vec::new();
         let mut expired_txs = Vec::new();
         thread::sleep(Duration::from_millis(TTL_MS));
-        queue.get_transactions_for_block(&wsv, max_txs_in_block, &mut txs, &mut expired_txs);
+        queue.get_transactions_for_block(&state_view, max_txs_in_block, &mut txs, &mut expired_txs);
         assert!(txs.is_empty());
         assert_eq!(expired_txs.len(), 1);
         assert_eq!(expired_txs[0], tx);
@@ -728,11 +757,11 @@ pub mod tests {
         let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let wsv = WorldStateView::new(
+        let state = Arc::new(State::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
             query_handle,
-        );
+        ));
 
         let queue = Arc::new(Queue::from_config(Config {
             transaction_time_to_live: Duration::from_secs(100),
@@ -745,13 +774,13 @@ pub mod tests {
 
         let push_txs_handle = {
             let queue_arc_clone = Arc::clone(&queue);
-            let wsv_clone = wsv.clone();
+            let state = state.clone();
 
             // Spawn a thread where we push transactions
             thread::spawn(move || {
                 while start_time.elapsed() < run_for {
                     let tx = accepted_tx("alice@wonderland", &alice_key);
-                    match queue_arc_clone.push(tx, &wsv_clone) {
+                    match queue_arc_clone.push(tx, &state.view()) {
                         Ok(())
                         | Err(Failure {
                             err: Error::Full | Error::MaximumTransactionsPerUser,
@@ -763,17 +792,17 @@ pub mod tests {
             })
         };
 
-        // Spawn a thread where we get_transactions_for_block and add them to WSV
+        // Spawn a thread where we get_transactions_for_block and add them to state
         let get_txs_handle = {
-            let queue_arc_clone = Arc::clone(&queue);
-            let mut wsv_clone = wsv;
+            let queue = Arc::clone(&queue);
 
             thread::spawn(move || {
                 while start_time.elapsed() < run_for {
-                    for tx in
-                        queue_arc_clone.collect_transactions_for_block(&wsv_clone, max_txs_in_block)
+                    for tx in queue.collect_transactions_for_block(&state.view(), max_txs_in_block)
                     {
-                        wsv_clone.transactions.insert(tx.as_ref().hash(), 1);
+                        let mut state_block = state.block(false);
+                        state_block.transactions.insert(tx.as_ref().hash(), 1);
+                        state_block.commit();
                     }
                     // Simulate random small delays
                     thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..25)));
@@ -801,11 +830,12 @@ pub mod tests {
         let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        let wsv = Arc::new(WorldStateView::new(
+        let state = Arc::new(State::new(
             world_with_test_domains([alice_key.public_key().clone()]),
             kura,
             query_handle,
         ));
+        let state_view = state.view();
 
         let queue = Queue::from_config(Config {
             future_threshold,
@@ -813,7 +843,7 @@ pub mod tests {
         });
 
         let tx = accepted_tx(alice_id, &alice_key);
-        assert!(queue.push(tx.clone(), &wsv).is_ok());
+        assert!(queue.push(tx.clone(), &state_view).is_ok());
         // create the same tx but with timestamp in the future
         let tx = {
             let chain_id = ChainId::from("0");
@@ -834,7 +864,7 @@ pub mod tests {
                 .expect("Failed to accept Transaction.")
         };
         assert!(matches!(
-            queue.push(tx, &wsv),
+            queue.push(tx, &state_view),
             Err(Failure {
                 err: Error::InFuture,
                 ..
@@ -866,7 +896,7 @@ pub mod tests {
             World::with([domain], PeersIds::new())
         };
         let query_handle = LiveQueryStore::test().start();
-        let mut wsv = WorldStateView::new(world, kura, query_handle);
+        let state = State::new(world, kura, query_handle);
 
         let queue = Queue::from_config(Config {
             transaction_time_to_live: Duration::from_secs(100),
@@ -877,11 +907,17 @@ pub mod tests {
 
         // First push by Alice should be fine
         queue
-            .push(accepted_tx("alice@wonderland", &alice_key_pair), &wsv)
+            .push(
+                accepted_tx("alice@wonderland", &alice_key_pair),
+                &state.view(),
+            )
             .expect("Failed to push tx into queue");
 
         // Second push by Alice excide limit and will be rejected
-        let result = queue.push(accepted_tx("alice@wonderland", &alice_key_pair), &wsv);
+        let result = queue.push(
+            accepted_tx("alice@wonderland", &alice_key_pair),
+            &state.view(),
+        );
         assert!(
             matches!(
                 result,
@@ -895,26 +931,33 @@ pub mod tests {
 
         // First push by Bob should be fine despite previous Alice error
         queue
-            .push(accepted_tx("bob@wonderland", &bob_key_pair), &wsv)
+            .push(accepted_tx("bob@wonderland", &bob_key_pair), &state.view())
             .expect("Failed to push tx into queue");
 
-        let transactions = queue.collect_transactions_for_block(&wsv, 10);
+        let transactions = queue.collect_transactions_for_block(&state.view(), 10);
         assert_eq!(transactions.len(), 2);
+        let mut state_block = state.block(false);
         for transaction in transactions {
-            // Put transaction hashes into wsv as if they were in the blockchain
-            wsv.transactions.insert(transaction.as_ref().hash(), 1);
+            // Put transaction hashes into state as if they were in the blockchain
+            state_block
+                .transactions
+                .insert(transaction.as_ref().hash(), 1);
         }
+        state_block.commit();
         // Cleanup transactions
-        let transactions = queue.collect_transactions_for_block(&wsv, 10);
+        let transactions = queue.collect_transactions_for_block(&state.view(), 10);
         assert!(transactions.is_empty());
 
         // After cleanup Alice and Bob pushes should work fine
         queue
-            .push(accepted_tx("alice@wonderland", &alice_key_pair), &wsv)
+            .push(
+                accepted_tx("alice@wonderland", &alice_key_pair),
+                &state.view(),
+            )
             .expect("Failed to push tx into queue");
 
         queue
-            .push(accepted_tx("bob@wonderland", &bob_key_pair), &wsv)
+            .push(accepted_tx("bob@wonderland", &bob_key_pair), &state.view())
             .expect("Failed to push tx into queue");
     }
 }

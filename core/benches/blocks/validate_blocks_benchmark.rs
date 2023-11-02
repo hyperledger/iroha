@@ -3,7 +3,7 @@
 mod validate_blocks;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use validate_blocks::WsvValidateBlocks;
+use validate_blocks::StateValidateBlocks;
 
 fn validate_blocks(c: &mut Criterion) {
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -15,9 +15,9 @@ fn validate_blocks(c: &mut Criterion) {
     group.significance_level(0.1).sample_size(10);
     group.bench_function("validate_blocks", |b| {
         b.iter_batched(
-            || WsvValidateBlocks::setup(rt.handle()).expect("Failed to setup benchmark"),
+            || StateValidateBlocks::setup(rt.handle()).expect("Failed to setup benchmark"),
             |bench| {
-                WsvValidateBlocks::measure(bench).expect("Failed to execute benchmark");
+                StateValidateBlocks::measure(bench).expect("Failed to execute benchmark");
             },
             criterion::BatchSize::SmallInput,
         );
@@ -25,5 +25,5 @@ fn validate_blocks(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(wsv, validate_blocks);
-criterion_main!(wsv);
+criterion_group!(state, validate_blocks);
+criterion_main!(state);

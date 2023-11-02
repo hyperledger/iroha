@@ -7,7 +7,7 @@
 
 mod apply_blocks;
 
-use apply_blocks::WsvApplyBlocks;
+use apply_blocks::StateApplyBlocks;
 
 fn main() {
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -19,6 +19,6 @@ fn main() {
         iroha_logger::test_logger();
     }
     iroha_logger::info!("Starting...");
-    let bench = WsvApplyBlocks::setup(rt.handle()).expect("Failed to setup benchmark");
-    WsvApplyBlocks::measure(&bench).expect("Failed to execute benchmark");
+    let bench = StateApplyBlocks::setup(rt.handle()).expect("Failed to setup benchmark");
+    StateApplyBlocks::measure(&bench).expect("Failed to execute benchmark");
 }

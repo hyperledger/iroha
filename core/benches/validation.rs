@@ -8,9 +8,9 @@ use iroha_core::{
     prelude::*,
     query::store::LiveQueryStore,
     smartcontracts::{isi::Registrable as _, Execute},
+    state::{State, World},
     sumeragi::network_topology::Topology,
     tx::TransactionExecutor,
-    wsv::World,
 };
 use iroha_data_model::{isi::InstructionBox, prelude::*, transaction::TransactionLimits};
 use iroha_primitives::unique_vec::UniqueVec;
@@ -56,12 +56,12 @@ fn build_test_transaction(keys: &KeyPair, chain_id: ChainId) -> SignedTransactio
     .sign(keys)
 }
 
-fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
+fn build_test_and_transient_state(keys: KeyPair) -> State {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::test().start();
     let (public_key, _) = keys.into_parts();
 
-    let mut wsv = WorldStateView::new(
+    let state = State::new(
         {
             let domain_id = DomainId::from_str(START_DOMAIN).expect("Valid");
             let account_id = AccountId::new(
@@ -78,6 +78,8 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
     );
 
     {
+        let mut state_block = state.block(false);
+        let mut state_transaction = state_block.transaction();
         let path_to_executor = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../configs/swarm/executor.wasm");
         let wasm = std::fs::read(&path_to_executor)
@@ -85,11 +87,13 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
         let executor = Executor::new(WasmSmartContract::from_compiled(wasm));
         let authority = "genesis@genesis".parse().expect("Valid");
         Upgrade::new(executor)
-            .execute(&authority, &mut wsv)
+            .execute(&authority, &mut state_transaction)
             .expect("Failed to load executor");
+        state_transaction.apply();
+        state_block.commit();
     }
 
-    wsv
+    state
 }
 
 fn accept_transaction(criterion: &mut Criterion) {
@@ -142,12 +146,12 @@ fn validate_transaction(criterion: &mut Criterion) {
     .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failure_count = 0;
-    let wsv = build_test_and_transient_wsv(keys);
+    let state = build_test_and_transient_state(keys);
     let _ = criterion.bench_function("validate", move |b| {
         let transaction_executor = TransactionExecutor::new(TRANSACTION_LIMITS);
         b.iter(|| {
-            let mut wsv = wsv.clone();
-            match transaction_executor.validate(transaction.clone(), &mut wsv) {
+            let mut state_block = state.block(false);
+            match transaction_executor.validate(transaction.clone(), &mut state_block) {
                 Ok(_) => success_count += 1,
                 Err(_) => failure_count += 1,
             }
@@ -169,12 +173,14 @@ fn sign_blocks(criterion: &mut Criterion) {
     let key_pair = KeyPair::random();
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::test().start();
-    let mut wsv = WorldStateView::new(World::new(), kura, query_handle);
+    let state = State::new(World::new(), kura, query_handle);
     let topology = Topology::new(UniqueVec::new());
 
     let mut count = 0;
 
-    let block = BlockBuilder::new(vec![transaction], topology, Vec::new()).chain(0, &mut wsv);
+    let mut state_block = state.block(false);
+    let block =
+        BlockBuilder::new(vec![transaction], topology, Vec::new()).chain(0, &mut state_block);
 
     let _ = criterion.bench_function("sign_block", |b| {
         b.iter_batched(

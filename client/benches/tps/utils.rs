@@ -114,19 +114,19 @@ impl Config {
         }
 
         let blocks_out_of_measure = 2 + MeasurerUnit::PREPARATION_BLOCKS_NUMBER * self.peers;
-        let blocks_wsv = network
+        let state_view = network
             .genesis
             .iroha
             .as_ref()
             .expect("Must be some")
-            .sumeragi
-            .wsv_clone();
-        let mut blocks = blocks_wsv.all_blocks().skip(blocks_out_of_measure as usize);
+            .state
+            .view();
+        let mut blocks = state_view.all_blocks().skip(blocks_out_of_measure as usize);
         let (txs_accepted, txs_rejected) = (0..self.blocks)
             .map(|_| {
                 let block = blocks
                     .next()
-                    .expect("The block is not yet in WSV. Need more sleep?");
+                    .expect("The block is not yet in state. Need more sleep?");
                 (
                     block.transactions().filter(|tx| tx.error.is_none()).count(),
                     block.transactions().filter(|tx| tx.error.is_some()).count(),

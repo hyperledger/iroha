@@ -1,5 +1,5 @@
 use eyre::Result;
-use iroha_core::{block::CommittedBlock, prelude::*};
+use iroha_core::{block::CommittedBlock, prelude::*, state::State};
 use iroha_data_model::prelude::*;
 
 #[path = "./common.rs"]
@@ -7,13 +7,13 @@ mod common;
 
 use common::*;
 
-pub struct WsvApplyBlocks {
-    wsv: WorldStateView,
+pub struct StateApplyBlocks {
+    state: State,
     blocks: Vec<CommittedBlock>,
 }
 
-impl WsvApplyBlocks {
-    /// Create [`WorldStateView`] and blocks for benchmarking
+impl StateApplyBlocks {
+    /// Create [`State`] and blocks for benchmarking
     ///
     /// # Errors
     /// - Failed to parse [`AccountId`]
@@ -25,28 +25,36 @@ impl WsvApplyBlocks {
         let assets_per_domain = 1000;
         let account_id: AccountId = "alice@wonderland".parse()?;
         let key_pair = KeyPair::random();
-        let wsv = build_wsv(rt, &account_id, &key_pair);
+        let state = build_state(rt, &account_id, &key_pair);
 
         let nth = 100;
         let instructions = [
-            populate_wsv(domains, accounts_per_domain, assets_per_domain, &account_id),
+            populate_state(domains, accounts_per_domain, assets_per_domain, &account_id),
             delete_every_nth(domains, accounts_per_domain, assets_per_domain, nth),
             restore_every_nth(domains, accounts_per_domain, assets_per_domain, nth),
         ];
 
         let blocks = {
-            // Clone wsv because it will be changed during creation of block
-            let mut wsv = wsv.clone();
+            // Create empty state because it will be changed during creation of block
+            let state = build_state(rt, &account_id, &key_pair);
             instructions
                 .into_iter()
-                .map(|instructions| {
-                    let block = create_block(&mut wsv, instructions, account_id.clone(), &key_pair);
-                    wsv.apply_without_execution(&block).map(|()| block)
+                .map(|instructions| -> Result<_> {
+                    let mut state_block = state.block(false);
+                    let block = create_block(
+                        &mut state_block,
+                        instructions,
+                        account_id.clone(),
+                        &key_pair,
+                    );
+                    state_block.apply_without_execution(&block)?;
+                    state_block.commit();
+                    Ok(block)
                 })
                 .collect::<Result<Vec<_>, _>>()?
         };
 
-        Ok(Self { wsv, blocks })
+        Ok(Self { state, blocks })
     }
 
     /// Run benchmark body.
@@ -56,17 +64,13 @@ impl WsvApplyBlocks {
     /// - Failed to apply block
     ///
     /// # Panics
-    /// If wsv isn't one block ahead of finalized wsv.
-    pub fn measure(Self { wsv, blocks }: &Self) -> Result<()> {
-        let mut finalized_wsv = wsv.clone();
-        let mut wsv = finalized_wsv.clone();
-
-        assert_eq!(wsv.height(), 0);
+    /// If state height isn't updated after applying block
+    pub fn measure(Self { state, blocks }: &Self) -> Result<()> {
         for (block, i) in blocks.iter().zip(1..) {
-            finalized_wsv = wsv.clone();
-            wsv.apply(block)?;
-            assert_eq!(wsv.height(), i);
-            assert_eq!(wsv.height(), finalized_wsv.height() + 1);
+            let mut state_block = state.block(false);
+            state_block.apply(block)?;
+            assert_eq!(state_block.height(), i);
+            state_block.commit();
         }
 
         Ok(())

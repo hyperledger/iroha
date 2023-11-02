@@ -5,8 +5,8 @@ use iroha_core::{
     prelude::*,
     query::store::LiveQueryStore,
     smartcontracts::{Execute, Registrable as _},
+    state::{State, StateBlock, World},
     sumeragi::network_topology::Topology,
-    wsv::World,
 };
 use iroha_data_model::{
     account::Account,
@@ -22,7 +22,7 @@ use serde_json::json;
 
 /// Create block
 pub fn create_block(
-    wsv: &mut WorldStateView,
+    state: &mut StateBlock<'_>,
     instructions: Vec<InstructionBox>,
     account_id: AccountId,
     key_pair: &KeyPair,
@@ -32,7 +32,7 @@ pub fn create_block(
     let transaction = TransactionBuilder::new(chain_id.clone(), account_id)
         .with_instructions(instructions)
         .sign(key_pair);
-    let limits = wsv.transaction_executor().transaction_limits;
+    let limits = state.transaction_executor().transaction_limits;
 
     let topology = Topology::new(UniqueVec::new());
     let block = BlockBuilder::new(
@@ -40,7 +40,7 @@ pub fn create_block(
         topology.clone(),
         Vec::new(),
     )
-    .chain(0, wsv)
+    .chain(0, state)
     .sign(key_pair)
     .commit(&topology)
     .unwrap();
@@ -53,7 +53,7 @@ pub fn create_block(
     block
 }
 
-pub fn populate_wsv(
+pub fn populate_state(
     domains: usize,
     accounts_per_domain: usize,
     assets_per_domain: usize,
@@ -162,11 +162,11 @@ pub fn restore_every_nth(
     instructions
 }
 
-pub fn build_wsv(
+pub fn build_state(
     rt: &tokio::runtime::Handle,
     account_id: &AccountId,
     key_pair: &KeyPair,
-) -> WorldStateView {
+) -> State {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let query_handle = {
         let _guard = rt.enter();
@@ -177,25 +177,30 @@ pub fn build_wsv(
         account_id.clone(),
         Account::new(account_id.clone(), key_pair.public_key().clone()).build(account_id),
     );
-    let mut wsv = WorldStateView::new(World::with([domain], UniqueVec::new()), kura, query_handle);
-    wsv.config.transaction_limits = TransactionLimits::new(u64::MAX, u64::MAX);
-    wsv.config.executor_runtime.fuel_limit = u64::MAX;
-    wsv.config.executor_runtime.max_memory_bytes = u32::MAX;
-    wsv.config.wasm_runtime.fuel_limit = u64::MAX;
-    wsv.config.wasm_runtime.max_memory_bytes = u32::MAX;
+    let state = State::new(World::with([domain], UniqueVec::new()), kura, query_handle);
 
     {
+        let mut state_block = state.block(false);
+
+        state_block.config.transaction_limits = TransactionLimits::new(u64::MAX, u64::MAX);
+        state_block.config.executor_runtime.fuel_limit = u64::MAX;
+        state_block.config.executor_runtime.max_memory_bytes = u32::MAX;
+
+        let mut state_transaction = state_block.transaction();
         let path_to_executor = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../configs/swarm/executor.wasm");
         let wasm = std::fs::read(&path_to_executor)
             .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_executor.display()));
         let executor = Executor::new(WasmSmartContract::from_compiled(wasm));
         Upgrade::new(executor)
-            .execute(account_id, &mut wsv)
+            .execute(account_id, &mut state_transaction)
             .expect("Failed to load executor");
+
+        state_transaction.apply();
+        state_block.commit();
     }
 
-    wsv
+    state
 }
 
 fn construct_domain_id(i: usize) -> DomainId {
