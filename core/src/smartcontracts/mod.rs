@@ -1,6 +1,6 @@
 //! Iroha smart contract functionality. Most of the traits mentioned
 //! [`isi`] or Iroha Special Instructions are the main way of
-//! interacting with the [`WorldStateView`], even [`wasm`] based
+//! interacting with the [`State`], even [`wasm`] based
 //! smart-contracts can only interact with the `world`, via
 //! instructions.
 
@@ -13,15 +13,19 @@ use iroha_data_model::{
 pub use isi::*;
 
 use self::query::Lazy;
-use crate::wsv::WorldStateView;
+use crate::state::{StateSnapshot, StateTransaction};
 
-/// Trait implementations should provide actions to apply changes on [`WorldStateView`].
+/// Trait implementations should provide actions to apply changes on [`StateTransaction`].
 pub trait Execute {
-    /// Apply actions to `wsv` on behalf of `authority`.
+    /// Apply actions to `state_transaction` on behalf of `authority`.
     ///
     /// # Errors
     /// Concrete to each implementer.
-    fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error>;
+    fn execute(
+        self,
+        authority: &AccountId,
+        state_transaction: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), Error>;
 }
 
 /// This trait should be implemented for all Iroha Queries.
@@ -29,15 +33,14 @@ pub trait ValidQuery: iroha_data_model::query::Query
 where
     Self::Output: Lazy,
 {
-    /// Execute query on the [`WorldStateView`].
-    /// Should not mutate [`WorldStateView`]!
+    /// Execute query on the [`WorldSnapshot`].
     ///
     /// Returns Ok(QueryResult) if succeeded and Err(String) if failed.
     ///
     /// # Errors
     /// Concrete to each implementer
-    fn execute<'wsv>(
+    fn execute<'state>(
         &self,
-        wsv: &'wsv WorldStateView,
-    ) -> Result<<Self::Output as Lazy>::Lazy<'wsv>, QueryExecutionFail>;
+        state_snapshot: &'state StateSnapshot<'state>,
+    ) -> Result<<Self::Output as Lazy>::Lazy<'state>, QueryExecutionFail>;
 }

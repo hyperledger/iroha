@@ -1,11 +1,11 @@
 //! This module contains implementations of smart-contract traits and instructions for [`Account`] structure
-//! and implementations of [`Query`]'s to [`WorldStateView`] about [`Account`].
+//! and implementations of [`Query`]'s about [`Account`].
 
 use iroha_data_model::{prelude::*, query::error::FindError};
 use iroha_telemetry::metrics;
 
 use super::prelude::*;
-use crate::{ValidQuery, WorldStateView};
+use crate::ValidQuery;
 
 impl Registrable for iroha_data_model::account::NewAccount {
     type Target = Account;
@@ -36,30 +36,39 @@ pub mod isi {
 
     use self::asset::isi::assert_numeric_spec;
     use super::*;
-    use crate::role::{AsRoleIdWithOwnerRef, RoleIdWithOwner, RoleIdWithOwnerRef};
+    use crate::{role::RoleIdWithOwner, state::StateTransaction};
 
     impl Execute for Register<Asset> {
         #[metrics(+"register_asset")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let asset_id = self.object.id;
 
-            match wsv.asset(&asset_id) {
+            match state_transaction.world.asset(&asset_id) {
                 Err(err) => match err {
                     QueryExecutionFail::Find(FindError::Asset(_)) => {
-                        assert_can_register(&asset_id.definition_id, wsv, &self.object.value)?;
-                        let asset = wsv
+                        assert_can_register(
+                            &asset_id.definition_id,
+                            state_transaction,
+                            &self.object.value,
+                        )?;
+                        let asset = state_transaction
+                            .world
                             .asset_or_insert(asset_id.clone(), self.object.value)
                             .expect("Account exists");
 
                         match asset.value {
                             AssetValue::Numeric(increment) => {
-                                wsv.increase_asset_total_amount(
+                                state_transaction.world.increase_asset_total_amount(
                                     &asset_id.definition_id,
                                     increment,
                                 )?;
                             }
                             AssetValue::Store(_) => {
-                                wsv.increase_asset_total_amount(
+                                state_transaction.world.increase_asset_total_amount(
                                     &asset_id.definition_id,
                                     Numeric::ONE,
                                 )?;
@@ -80,31 +89,44 @@ pub mod isi {
 
     impl Execute for Unregister<Asset> {
         #[metrics(+"unregister_asset")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let asset_id = self.object_id;
             let account_id = asset_id.account_id.clone();
 
-            let asset = wsv.account_mut(&account_id).and_then(|account| {
-                account
-                    .remove_asset(&asset_id)
-                    .ok_or_else(|| FindError::Asset(asset_id))
-            })?;
+            let asset = state_transaction
+                .world
+                .account_mut(&account_id)
+                .and_then(|account| {
+                    account
+                        .remove_asset(&asset_id)
+                        .ok_or_else(|| FindError::Asset(asset_id))
+                })?;
 
             match asset.value {
                 AssetValue::Numeric(increment) => {
-                    wsv.decrease_asset_total_amount(&asset.id.definition_id, increment)?;
+                    state_transaction
+                        .world
+                        .decrease_asset_total_amount(&asset.id.definition_id, increment)?;
                 }
                 AssetValue::Store(_) => {
-                    wsv.decrease_asset_total_amount(&asset.id.definition_id, Numeric::ONE)?;
+                    state_transaction
+                        .world
+                        .decrease_asset_total_amount(&asset.id.definition_id, Numeric::ONE)?;
                 }
             }
 
-            wsv.emit_events(Some(AccountEvent::Asset(AssetEvent::Removed(
-                AssetChanged {
-                    asset_id: asset.id,
-                    amount: asset.value,
-                },
-            ))));
+            state_transaction
+                .world
+                .emit_events(Some(AccountEvent::Asset(AssetEvent::Removed(
+                    AssetChanged {
+                        asset_id: asset.id,
+                        amount: asset.value,
+                    },
+                ))));
 
             Ok(())
         }
@@ -112,11 +134,17 @@ pub mod isi {
 
     impl Execute for Mint<PublicKey, Account> {
         #[metrics(+"mint_account_public_key")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let account_id = self.destination_id;
             let public_key = self.object;
 
-            wsv.account_mut(&account_id)
+            state_transaction
+                .world
+                .account_mut(&account_id)
                 .map_err(Error::from)
                 .and_then(|account| {
                     if account.contains_signatory(&public_key) {
@@ -131,7 +159,9 @@ pub mod isi {
                     Ok(())
                 })?;
 
-            wsv.emit_events(Some(AccountEvent::AuthenticationAdded(account_id.clone())));
+            state_transaction
+                .world
+                .emit_events(Some(AccountEvent::AuthenticationAdded(account_id.clone())));
 
             Ok(())
         }
@@ -139,11 +169,15 @@ pub mod isi {
 
     impl Execute for Burn<PublicKey, Account> {
         #[metrics(+"burn_account_public_key")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let account_id = self.destination_id;
             let public_key = self.object;
 
-            wsv.account_mut(&account_id)
+            state_transaction.world.account_mut(&account_id)
                 .map_err(Error::from)
                 .and_then(|account| {
                     match account.remove_signatory(&public_key) {
@@ -156,7 +190,9 @@ pub mod isi {
                     }
                 })?;
 
-            wsv.emit_events(Some(AccountEvent::AuthenticationRemoved(account_id)));
+            state_transaction
+                .world
+                .emit_events(Some(AccountEvent::AuthenticationRemoved(account_id)));
 
             Ok(())
         }
@@ -164,42 +200,57 @@ pub mod isi {
 
     impl Execute for Mint<SignatureCheckCondition, Account> {
         #[metrics(+"mint_account_signature_check_condition")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let account_id = self.destination_id;
             let signature_check_condition = self.object;
 
-            wsv.account_mut(&account_id)?.signature_check_condition = signature_check_condition;
+            state_transaction
+                .world
+                .account_mut(&account_id)?
+                .signature_check_condition = signature_check_condition;
 
-            wsv.emit_events(Some(AccountEvent::AuthenticationAdded(account_id.clone())));
+            state_transaction
+                .world
+                .emit_events(Some(AccountEvent::AuthenticationAdded(account_id.clone())));
 
             Ok(())
         }
     }
 
     impl Execute for Transfer<Account, AssetDefinitionId, Account> {
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let Transfer {
                 source_id,
                 object,
                 destination_id,
             } = self;
 
-            let _ = wsv.account(&source_id)?;
-            let _ = wsv.account(&destination_id)?;
+            let _ = state_transaction.world.account(&source_id)?;
+            let _ = state_transaction.world.account(&destination_id)?;
 
-            let asset_definition = wsv.asset_definition_mut(&object)?;
+            let asset_definition = state_transaction.world.asset_definition_mut(&object)?;
 
             if asset_definition.owned_by != source_id {
                 return Err(Error::Find(FindError::Account(source_id)));
             }
 
             asset_definition.owned_by = destination_id.clone();
-            wsv.emit_events(Some(AssetDefinitionEvent::OwnerChanged(
-                AssetDefinitionOwnerChanged {
-                    asset_definition_id: object,
-                    new_owner: destination_id,
-                },
-            )));
+            state_transaction
+                .world
+                .emit_events(Some(AssetDefinitionEvent::OwnerChanged(
+                    AssetDefinitionOwnerChanged {
+                        asset_definition_id: object,
+                        new_owner: destination_id,
+                    },
+                )));
 
             Ok(())
         }
@@ -207,12 +258,18 @@ pub mod isi {
 
     impl Execute for SetKeyValue<Account> {
         #[metrics(+"set_account_key_value")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let account_id = self.object_id;
 
-            let account_metadata_limits = wsv.config.account_metadata_limits;
+            let account_metadata_limits = state_transaction.config.account_metadata_limits;
 
-            wsv.account_mut(&account_id)
+            state_transaction
+                .world
+                .account_mut(&account_id)
                 .map_err(Error::from)
                 .and_then(|account| {
                     account
@@ -225,11 +282,13 @@ pub mod isi {
                         .map_err(Error::from)
                 })?;
 
-            wsv.emit_events(Some(AccountEvent::MetadataInserted(MetadataChanged {
-                target_id: account_id.clone(),
-                key: self.key.clone(),
-                value: self.value,
-            })));
+            state_transaction
+                .world
+                .emit_events(Some(AccountEvent::MetadataInserted(MetadataChanged {
+                    target_id: account_id.clone(),
+                    key: self.key.clone(),
+                    value: self.value,
+                })));
 
             Ok(())
         }
@@ -237,21 +296,30 @@ pub mod isi {
 
     impl Execute for RemoveKeyValue<Account> {
         #[metrics(+"remove_account_key_value")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let account_id = self.object_id;
 
-            let value = wsv.account_mut(&account_id).and_then(|account| {
-                account
-                    .metadata
-                    .remove(&self.key)
-                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))
-            })?;
+            let value = state_transaction
+                .world
+                .account_mut(&account_id)
+                .and_then(|account| {
+                    account
+                        .metadata
+                        .remove(&self.key)
+                        .ok_or_else(|| FindError::MetadataKey(self.key.clone()))
+                })?;
 
-            wsv.emit_events(Some(AccountEvent::MetadataRemoved(MetadataChanged {
-                target_id: account_id.clone(),
-                key: self.key,
-                value,
-            })));
+            state_transaction
+                .world
+                .emit_events(Some(AccountEvent::MetadataRemoved(MetadataChanged {
+                    target_id: account_id.clone(),
+                    key: self.key,
+                    value,
+                })));
 
             Ok(())
         }
@@ -259,23 +327,31 @@ pub mod isi {
 
     impl Execute for Grant<PermissionToken, Account> {
         #[metrics(+"grant_account_permission")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let account_id = self.destination_id;
             let permission = self.object;
             let permission_id = permission.definition_id.clone();
 
             // Check if account exists
-            wsv.account_mut(&account_id)?;
+            state_transaction.world.account_mut(&account_id)?;
 
-            if !wsv
-                .permission_token_schema()
+            if !state_transaction
+                .world
+                .permission_token_schema
                 .token_ids
                 .contains(&permission_id)
             {
                 return Err(FindError::PermissionToken(permission_id).into());
             }
 
-            if wsv.account_contains_inherent_permission(&account_id, &permission) {
+            if state_transaction
+                .world
+                .account_contains_inherent_permission(&account_id, &permission)
+            {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Grant,
                     id: permission.definition_id.into(),
@@ -283,14 +359,18 @@ pub mod isi {
                 .into());
             }
 
-            wsv.add_account_permission(&account_id, permission);
+            state_transaction
+                .world
+                .add_account_permission(&account_id, permission);
 
-            wsv.emit_events(Some(AccountEvent::PermissionAdded(
-                AccountPermissionChanged {
-                    account_id,
-                    permission_id,
-                },
-            )));
+            state_transaction
+                .world
+                .emit_events(Some(AccountEvent::PermissionAdded(
+                    AccountPermissionChanged {
+                        account_id,
+                        permission_id,
+                    },
+                )));
 
             Ok(())
         }
@@ -298,23 +378,32 @@ pub mod isi {
 
     impl Execute for Revoke<PermissionToken, Account> {
         #[metrics(+"revoke_account_permission")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let account_id = self.destination_id;
             let permission = self.object;
 
             // Check if account exists
-            wsv.account(&account_id)?;
+            state_transaction.world.account(&account_id)?;
 
-            if !wsv.remove_account_permission(&account_id, &permission) {
+            if !state_transaction
+                .world
+                .remove_account_permission(&account_id, &permission)
+            {
                 return Err(FindError::PermissionToken(permission.definition_id).into());
             }
 
-            wsv.emit_events(Some(AccountEvent::PermissionRemoved(
-                AccountPermissionChanged {
-                    account_id,
-                    permission_id: permission.definition_id,
-                },
-            )));
+            state_transaction
+                .world
+                .emit_events(Some(AccountEvent::PermissionRemoved(
+                    AccountPermissionChanged {
+                        account_id,
+                        permission_id: permission.definition_id,
+                    },
+                )));
 
             Ok(())
         }
@@ -322,12 +411,16 @@ pub mod isi {
 
     impl Execute for Grant<RoleId, Account> {
         #[metrics(+"grant_account_role")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let account_id = self.destination_id;
             let role_id = self.object;
 
-            let permissions = wsv
-                .world()
+            let permissions = state_transaction
+                .world
                 .roles
                 .get(&role_id)
                 .ok_or_else(|| FindError::Role(role_id.clone()))?
@@ -336,12 +429,16 @@ pub mod isi {
                 .into_iter()
                 .map(|token| token.definition_id);
 
-            wsv.account(&account_id)?;
+            state_transaction.world.account(&account_id)?;
 
-            if !wsv
+            if state_transaction
                 .world
                 .account_roles
-                .insert(RoleIdWithOwner::new(account_id.clone(), role_id.clone()))
+                .insert(
+                    RoleIdWithOwner::new(account_id.clone(), role_id.clone()),
+                    (),
+                )
+                .is_some()
             {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Grant,
@@ -350,7 +447,7 @@ pub mod isi {
                 .into());
             }
 
-            wsv.emit_events({
+            state_transaction.world.emit_events({
                 let account_id_clone = account_id.clone();
                 permissions
                     .zip(core::iter::repeat_with(move || account_id.clone()))
@@ -373,12 +470,16 @@ pub mod isi {
 
     impl Execute for Revoke<RoleId, Account> {
         #[metrics(+"revoke_account_role")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let account_id = self.destination_id;
             let role_id = self.object;
 
-            let permissions = wsv
-                .world()
+            let permissions = state_transaction
+                .world
                 .roles
                 .get(&role_id)
                 .ok_or_else(|| FindError::Role(role_id.clone()))?
@@ -387,15 +488,19 @@ pub mod isi {
                 .into_iter()
                 .map(|token| token.definition_id);
 
-            if !wsv
+            if state_transaction
                 .world
                 .account_roles
-                .remove::<dyn AsRoleIdWithOwnerRef>(&RoleIdWithOwnerRef::new(&account_id, &role_id))
+                .remove(RoleIdWithOwner {
+                    account_id: account_id.clone(),
+                    role_id: role_id.clone(),
+                })
+                .is_none()
             {
                 return Err(FindError::Role(role_id).into());
             }
 
-            wsv.emit_events({
+            state_transaction.world.emit_events({
                 let account_id_clone = account_id.clone();
                 permissions
                     .zip(core::iter::repeat_with(move || account_id.clone()))
@@ -419,15 +524,18 @@ pub mod isi {
     /// Assert that this asset can be registered to an account.
     fn assert_can_register(
         definition_id: &AssetDefinitionId,
-        wsv: &mut WorldStateView,
+        state_transaction: &mut StateTransaction<'_, '_>,
         value: &AssetValue,
     ) -> Result<(), Error> {
         let expected_asset_value_type = match value.value_type() {
             AssetValueType::Numeric(_) => asset::isi::expected_asset_value_type_numeric,
             AssetValueType::Store => asset::isi::expected_asset_value_type_store,
         };
-        let definition =
-            asset::isi::assert_asset_type(definition_id, wsv, expected_asset_value_type)?;
+        let definition = asset::isi::assert_asset_type(
+            definition_id,
+            state_transaction,
+            expected_asset_value_type,
+        )?;
         if let AssetValue::Numeric(numeric) = value {
             assert_numeric_spec(numeric, &definition)?;
         }
@@ -437,11 +545,13 @@ pub mod isi {
             Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
             Mintable::Once => {
                 if !value.is_zero_value() {
-                    let asset_definition = wsv.asset_definition_mut(definition_id)?;
+                    let asset_definition = state_transaction
+                        .world
+                        .asset_definition_mut(definition_id)?;
                     forbid_minting(asset_definition)?;
-                    wsv.emit_events(Some(AssetDefinitionEvent::MintabilityChanged(
-                        definition_id.clone(),
-                    )));
+                    state_transaction.world.emit_events(Some(
+                        AssetDefinitionEvent::MintabilityChanged(definition_id.clone()),
+                    ));
                 }
                 Ok(())
             }
@@ -488,43 +598,48 @@ pub mod query {
     };
 
     use super::*;
+    use crate::state::StateSnapshot;
 
     impl ValidQuery for FindRolesByAccountId {
         #[metrics(+"find_roles_by_account_id")]
-        fn execute<'wsv>(
+        fn execute<'state>(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<Box<dyn Iterator<Item = RoleId> + 'wsv>, Error> {
+            state_snapshot: &'state StateSnapshot<'state>,
+        ) -> Result<Box<dyn Iterator<Item = RoleId> + 'state>, Error> {
             let account_id = &self.id;
-            iroha_logger::trace!(%account_id, roles=?wsv.world.roles);
-            wsv.account(account_id)?;
-            Ok(Box::new(wsv.account_roles(account_id).cloned()))
+            state_snapshot.world.account(account_id)?;
+            Ok(Box::new(
+                state_snapshot.world.account_roles(account_id).cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindPermissionTokensByAccountId {
         #[metrics(+"find_permission_tokens_by_account_id")]
-        fn execute<'wsv>(
+        fn execute<'state>(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<Box<dyn Iterator<Item = PermissionToken> + 'wsv>, Error> {
+            state_snapshot: &'state StateSnapshot<'state>,
+        ) -> Result<Box<dyn Iterator<Item = PermissionToken> + 'state>, Error> {
             let account_id = &self.id;
-            iroha_logger::trace!(%account_id, accounts=?wsv.world.domains);
             Ok(Box::new(
-                wsv.account_permission_tokens(account_id)?.cloned(),
+                state_snapshot
+                    .world
+                    .account_permission_tokens(account_id)?
+                    .cloned(),
             ))
         }
     }
 
     impl ValidQuery for FindAllAccounts {
         #[metrics(+"find_all_accounts")]
-        fn execute<'wsv>(
+        fn execute<'state>(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
+            state_snapshot: &'state StateSnapshot<'state>,
+        ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
             Ok(Box::new(
-                wsv.domains()
-                    .values()
+                state_snapshot
+                    .world
+                    .domains()
                     .flat_map(|domain| domain.accounts.values())
                     .cloned(),
             ))
@@ -533,24 +648,28 @@ pub mod query {
 
     impl ValidQuery for FindAccountById {
         #[metrics(+"find_account_by_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Account, Error> {
+        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<Account, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
-            wsv.map_account(id, Clone::clone).map_err(Into::into)
+            state_snapshot
+                .world
+                .map_account(id, Clone::clone)
+                .map_err(Into::into)
         }
     }
 
     impl ValidQuery for FindAccountsByName {
         #[metrics(+"find_account_by_name")]
-        fn execute<'wsv>(
+        fn execute<'state>(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
+            state_snapshot: &'state StateSnapshot<'state>,
+        ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
             let name = self.name.clone();
             iroha_logger::trace!(%name);
             Ok(Box::new(
-                wsv.domains()
-                    .values()
+                state_snapshot
+                    .world
+                    .domains()
                     .flat_map(move |domain| {
                         let name = name.clone();
 
@@ -566,24 +685,28 @@ pub mod query {
 
     impl ValidQuery for FindAccountsByDomainId {
         #[metrics(+"find_accounts_by_domain_id")]
-        fn execute<'wsv>(
+        fn execute<'state>(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
+            state_snapshot: &'state StateSnapshot<'state>,
+        ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
             let id = &self.domain_id;
 
             iroha_logger::trace!(%id);
-            Ok(Box::new(wsv.domain(id)?.accounts.values().cloned()))
+            Ok(Box::new(
+                state_snapshot.world.domain(id)?.accounts.values().cloned(),
+            ))
         }
     }
 
     impl ValidQuery for FindAccountKeyValueByIdAndKey {
         #[metrics(+"find_account_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);
-            wsv.map_account(id, |account| account.metadata.get(key).cloned())?
+            state_snapshot
+                .world
+                .map_account(id, |account| account.metadata.get(key).cloned())?
                 .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
                 .map(Into::into)
         }
@@ -591,22 +714,24 @@ pub mod query {
 
     impl ValidQuery for FindAccountsWithAsset {
         #[metrics(+"find_accounts_with_asset")]
-        fn execute<'wsv>(
+        fn execute<'state>(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
+            state_snapshot: &'state StateSnapshot<'state>,
+        ) -> Result<Box<dyn Iterator<Item = Account> + 'state>, Error> {
             let asset_definition_id = self.asset_definition_id.clone();
             iroha_logger::trace!(%asset_definition_id);
 
             Ok(Box::new(
-                wsv.map_domain(&asset_definition_id.domain_id.clone(), move |domain| {
-                    domain.accounts.values().filter(move |account| {
-                        let asset_id =
-                            AssetId::new(asset_definition_id.clone(), account.id().clone());
-                        account.assets.get(&asset_id).is_some()
-                    })
-                })?
-                .cloned(),
+                state_snapshot
+                    .world
+                    .map_domain(&asset_definition_id.domain_id.clone(), move |domain| {
+                        domain.accounts.values().filter(move |account| {
+                            let asset_id =
+                                AssetId::new(asset_definition_id.clone(), account.id().clone());
+                            account.assets.get(&asset_id).is_some()
+                        })
+                    })?
+                    .cloned(),
             ))
         }
     }

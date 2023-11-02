@@ -1,4 +1,4 @@
-error: Function must have at least one argument of type `WorldStateView`.
+error: Function must have at least one argument of type `StateTransaction` or `StateSnapshot`.
  --> tests/ui_fail/no_args.rs:4:1
   |
 4 | fn execute() -> Result<(), ()> {

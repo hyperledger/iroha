@@ -12,7 +12,7 @@ use super::*;
 pub mod model {
     use super::*;
 
-    /// Special event that is emitted when `WSV` is ready for handling time-triggers
+    /// Special event that is emitted when state is ready for handling time-triggers
     ///
     /// Contains time interval which is used to identify time-triggers to be executed
     #[derive(

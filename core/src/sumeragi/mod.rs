@@ -15,9 +15,13 @@ use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
 use network_topology::{Role, Topology};
-use tokio::sync::watch;
 
-use crate::{block::ValidBlock, handler::ThreadHandler, kura::BlockCount};
+use crate::{
+    block::ValidBlock,
+    handler::ThreadHandler,
+    kura::BlockCount,
+    state::{State, StateBlock},
+};
 
 pub mod main_loop;
 pub mod message;
@@ -42,8 +46,7 @@ struct LastUpdateMetricsData {
 /// Handle to `Sumeragi` actor
 #[derive(Clone)]
 pub struct SumeragiHandle {
-    public_wsv_receiver: watch::Receiver<WorldStateView>,
-    public_finalized_wsv_receiver: watch::Receiver<WorldStateView>,
+    state: Arc<State>,
     metrics: Metrics,
     last_update_metrics_mutex: Arc<Mutex<LastUpdateMetricsData>>,
     network: IrohaNetwork,
@@ -56,46 +59,6 @@ pub struct SumeragiHandle {
 }
 
 impl SumeragiHandle {
-    /// Pass closure inside and apply fn to [`WorldStateView`].
-    /// This function must be used with very cheap closures.
-    /// So that it costs no more than cloning wsv.
-    pub fn apply_wsv<T>(&self, f: impl FnOnce(&WorldStateView) -> T) -> T {
-        f(&self.public_wsv_receiver.borrow())
-    }
-
-    /// Get public clone of [`WorldStateView`].
-    pub fn wsv_clone(&self) -> WorldStateView {
-        self.public_wsv_receiver.borrow().clone()
-    }
-
-    /// Notify when [`WorldStateView`] is updated.
-    pub async fn wsv_updated(&mut self) {
-        self.public_wsv_receiver
-            .changed()
-            .await
-            .expect("Shouldn't return error as long as there is at least one SumeragiHandle");
-    }
-
-    /// Pass closure inside and apply fn to finalized [`WorldStateView`].
-    /// This function must be used with very cheap closures.
-    /// So that it costs no more than cloning wsv.
-    pub fn apply_finalized_wsv<T>(&self, f: impl FnOnce(&WorldStateView) -> T) -> T {
-        f(&self.public_finalized_wsv_receiver.borrow())
-    }
-
-    /// Get public clone of finalized [`WorldStateView`].
-    pub fn finalized_wsv_clone(&self) -> WorldStateView {
-        self.public_finalized_wsv_receiver.borrow().clone()
-    }
-
-    /// Notify when finalized [`WorldStateView`] is updated.
-    pub async fn finalized_wsv_updated(&mut self) {
-        self.public_finalized_wsv_receiver
-            .changed()
-            .await
-            .expect("Shouldn't return error as long as there is at least one SumeragiHandle");
-    }
-
     /// Update the metrics on the world state view.
     ///
     /// # Errors
@@ -114,14 +77,14 @@ impl SumeragiHandle {
             .try_into()
             .expect("casting usize to u64");
 
-        let wsv = self.wsv_clone();
+        let state_view = self.state.view();
 
         let mut last_guard = self.last_update_metrics_mutex.lock();
 
         let start_index = last_guard.block_height;
         {
             let mut block_index = start_index;
-            while block_index < wsv.height() {
+            while block_index < state_view.height() {
                 let Some(block) = self.kura.get_block_by_height(block_index + 1) else {
                     break;
                 };
@@ -155,7 +118,7 @@ impl SumeragiHandle {
 
         let new_tx_amounts = {
             let mut new_buf = Vec::new();
-            core::mem::swap(&mut new_buf, &mut wsv.new_tx_amounts.lock());
+            core::mem::swap(&mut new_buf, &mut state_view.new_tx_amounts.lock());
             new_buf
         };
 
@@ -164,7 +127,7 @@ impl SumeragiHandle {
         }
 
         #[allow(clippy::cast_possible_truncation)]
-        if let Some(timestamp) = wsv.genesis_timestamp() {
+        if let Some(timestamp) = state_view.genesis_timestamp() {
             // this will overflow in 584942417years.
             self.metrics.uptime_since_genesis_ms.set(
                 (current_time() - timestamp)
@@ -176,9 +139,10 @@ impl SumeragiHandle {
 
         self.metrics.connected_peers.set(online_peers_count);
 
-        let domains = wsv.domains();
-        self.metrics.domains.set(domains.len() as u64);
-        for domain in domains.values() {
+        self.metrics
+            .domains
+            .set(state_view.world.domains.len() as u64);
+        for domain in state_view.world.domains() {
             self.metrics
                 .accounts
                 .get_metric_with_label_values(&[domain.id().name.as_ref()])
@@ -188,7 +152,7 @@ impl SumeragiHandle {
 
         self.metrics
             .view_changes
-            .set(wsv.latest_block_view_change_index());
+            .set(state_view.latest_block_view_change_index());
 
         self.metrics.queue_size.set(self.queue.tx_len() as u64);
 
@@ -227,27 +191,31 @@ impl SumeragiHandle {
     fn replay_block(
         chain_id: &ChainId,
         block: &SignedBlock,
-        wsv: &mut WorldStateView,
+        state_block: &mut StateBlock<'_>,
         mut current_topology: Topology,
     ) -> Topology {
         // NOTE: topology need to be updated up to block's view_change_index
         current_topology.rotate_all_n(block.header().view_change_index);
 
-        let block = ValidBlock::validate(block.clone(), &current_topology, chain_id, wsv)
+        let block = ValidBlock::validate(block.clone(), &current_topology, chain_id, state_block)
             .expect("Kura blocks should be valid")
             .commit(&current_topology)
             .expect("Kura blocks should be valid");
 
         if block.as_ref().header().is_genesis() {
-            wsv.world_mut().trusted_peers_ids = block.as_ref().commit_topology().clone();
+            *state_block.world.trusted_peers_ids = block.as_ref().commit_topology().clone();
         }
 
-        wsv.apply_without_execution(&block).expect(
+        state_block.apply_without_execution(&block).expect(
             "Block application in init should not fail. \
              Blocks loaded from kura assumed to be valid",
         );
 
-        Topology::recreate_topology(block.as_ref(), 0, wsv.peers().cloned().collect())
+        Topology::recreate_topology(
+            block.as_ref(),
+            0,
+            state_block.world.peers().cloned().collect(),
+        )
     }
 
     /// Start [`Sumeragi`] actor and return handle to it.
@@ -260,7 +228,7 @@ impl SumeragiHandle {
             sumeragi_config,
             common_config,
             events_sender,
-            mut wsv,
+            state,
             queue,
             kura,
             network,
@@ -271,48 +239,50 @@ impl SumeragiHandle {
         let (control_message_sender, control_message_receiver) = mpsc::sync_channel(100);
         let (message_sender, message_receiver) = mpsc::sync_channel(100);
 
-        let skip_block_count = wsv.block_hashes.len();
-        let mut blocks_iter = (skip_block_count + 1..=block_count).map(|block_height| {
-            kura.get_block_by_height(block_height as u64).expect(
-                "Sumeragi should be able to load the block that was reported as presented. \
-                 If not, the block storage was probably disconnected.",
-            )
-        });
+        let blocks_iter;
+        let mut current_topology;
 
-        let mut current_topology = match wsv.height() {
-            0 => {
-                assert!(!sumeragi_config.trusted_peers.is_empty());
-                Topology::new(sumeragi_config.trusted_peers.clone())
-            }
-            height => {
-                let block_ref = kura.get_block_by_height(height).expect(
-                    "Sumeragi could not load block that was reported as present. \
-                     Please check that the block storage was not disconnected.",
-                );
-                Topology::recreate_topology(&block_ref, 0, wsv.peers().cloned().collect())
-            }
-        };
+        {
+            let state_view = state.view();
+            let skip_block_count = state_view.block_hashes.len();
+            blocks_iter = (skip_block_count + 1..=block_count).map(|block_height| {
+                kura.get_block_by_height(block_height as u64).expect(
+                    "Sumeragi should be able to load the block that was reported as presented. \
+                    If not, the block storage was probably disconnected.",
+                )
+            });
 
-        let block_iter_except_last =
-            (&mut blocks_iter).take(block_count.saturating_sub(skip_block_count + 1));
-        for block in block_iter_except_last {
-            current_topology =
-                Self::replay_block(&common_config.chain_id, &block, &mut wsv, current_topology);
+            current_topology = match state_view.height() {
+                0 => {
+                    assert!(!sumeragi_config.trusted_peers.is_empty());
+                    Topology::new(sumeragi_config.trusted_peers.clone())
+                }
+                height => {
+                    let block_ref = kura.get_block_by_height(height).expect(
+                        "Sumeragi could not load block that was reported as present. \
+                        Please check that the block storage was not disconnected.",
+                    );
+                    Topology::recreate_topology(
+                        &block_ref,
+                        0,
+                        state_view.world.peers_ids().iter().cloned().collect(),
+                    )
+                }
+            };
         }
 
-        // finalized_wsv is one block behind
-        let finalized_wsv = wsv.clone();
-
-        if let Some(block) = blocks_iter.next() {
-            current_topology =
-                Self::replay_block(&common_config.chain_id, &block, &mut wsv, current_topology);
+        for block in blocks_iter {
+            let mut state_block = state.block(false);
+            current_topology = Self::replay_block(
+                &common_config.chain_id,
+                &block,
+                &mut state_block,
+                current_topology,
+            );
+            state_block.commit();
         }
 
-        info!("Sumeragi has finished loading blocks and setting up the WSV");
-
-        let (public_wsv_sender, public_wsv_receiver) = watch::channel(wsv.clone());
-        let (public_finalized_wsv_sender, public_finalized_wsv_receiver) =
-            watch::channel(finalized_wsv.clone());
+        info!("Sumeragi has finished loading blocks and setting up the state");
 
         #[cfg(debug_assertions)]
         let debug_force_soft_fork = sumeragi_config.debug_force_soft_fork;
@@ -327,31 +297,30 @@ impl SumeragiHandle {
             peer_id,
             queue: Arc::clone(&queue),
             events_sender,
-            public_wsv_sender,
-            public_finalized_wsv_sender,
-            commit_time: wsv.config.commit_time,
-            block_time: wsv.config.block_time,
-            max_txs_in_block: wsv.config.max_transactions_in_block.get() as usize,
+            commit_time: state.view().config.commit_time,
+            block_time: state.view().config.block_time,
+            max_txs_in_block: state.view().config.max_transactions_in_block.get() as usize,
             kura: Arc::clone(&kura),
             network: network.clone(),
             control_message_receiver,
             message_receiver,
             debug_force_soft_fork,
             current_topology,
-            wsv,
-            finalized_wsv,
             transaction_cache: Vec::new(),
         };
 
         // Oneshot channel to allow forcefully stopping the thread.
         let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
 
-        let thread_handle = std::thread::Builder::new()
-            .name("sumeragi thread".to_owned())
-            .spawn(move || {
-                main_loop::run(genesis_network, sumeragi, shutdown_receiver);
-            })
-            .expect("Sumeragi thread spawn should not fail.");
+        let thread_handle = {
+            let state = Arc::clone(&state);
+            std::thread::Builder::new()
+                .name("sumeragi thread".to_owned())
+                .spawn(move || {
+                    main_loop::run(genesis_network, sumeragi, shutdown_receiver, state);
+                })
+                .expect("Sumeragi thread spawn should not fail.")
+        };
 
         let shutdown = move || {
             if let Err(error) = shutdown_sender.send(()) {
@@ -361,13 +330,12 @@ impl SumeragiHandle {
 
         let thread_handle = ThreadHandler::new(Box::new(shutdown), thread_handle);
         SumeragiHandle {
+            state,
             network,
             queue,
             kura,
             control_message_sender,
             message_sender,
-            public_wsv_receiver,
-            public_finalized_wsv_receiver,
             metrics: Metrics::default(),
             last_update_metrics_mutex: Arc::new(Mutex::new(LastUpdateMetricsData {
                 block_height: 0,
@@ -388,34 +356,34 @@ pub const TELEMETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Structure represents a block that is currently in discussion.
 #[non_exhaustive]
-pub struct VotingBlock {
+pub struct VotingBlock<'state> {
     /// At what time has this peer voted for this block
     pub voted_at: Instant,
     /// Valid Block
     pub block: ValidBlock,
-    /// WSV after applying transactions to it
-    pub new_wsv: WorldStateView,
+    /// [`WorldState`] after applying transactions to it but before it was committed
+    pub state_block: StateBlock<'state>,
 }
 
-impl VotingBlock {
+impl VotingBlock<'_> {
     /// Construct new `VotingBlock` with current time.
-    pub fn new(block: ValidBlock, new_wsv: WorldStateView) -> VotingBlock {
+    pub fn new(block: ValidBlock, state_block: StateBlock<'_>) -> VotingBlock {
         VotingBlock {
             block,
             voted_at: Instant::now(),
-            new_wsv,
+            state_block,
         }
     }
     /// Construct new `VotingBlock` with the given time.
     pub(crate) fn voted_at(
         block: ValidBlock,
-        new_wsv: WorldStateView,
+        state_block: StateBlock<'_>,
         voted_at: Instant,
     ) -> VotingBlock {
         VotingBlock {
             voted_at,
             block,
-            new_wsv,
+            state_block,
         }
     }
 }
@@ -426,7 +394,7 @@ pub struct SumeragiStartArgs {
     pub sumeragi_config: SumeragiConfig,
     pub common_config: CommonConfig,
     pub events_sender: EventsSender,
-    pub wsv: WorldStateView,
+    pub state: Arc<State>,
     pub queue: Arc<Queue>,
     pub kura: Arc<Kura>,
     pub network: IrohaNetwork,

@@ -10,7 +10,7 @@ use iroha_p2p::Post;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
 
-use crate::{kura::Kura, sumeragi::SumeragiHandle, IrohaNetwork, NetworkMessage};
+use crate::{kura::Kura, state::State, sumeragi::SumeragiHandle, IrohaNetwork, NetworkMessage};
 
 /// [`BlockSynchronizer`] actor handle.
 #[derive(Clone)]
@@ -38,8 +38,7 @@ pub struct BlockSynchronizer {
     gossip_period: Duration,
     gossip_max_size: NonZeroU32,
     network: IrohaNetwork,
-    latest_hash: Option<HashOf<SignedBlock>>,
-    previous_hash: Option<HashOf<SignedBlock>>,
+    state: Arc<State>,
 }
 
 impl BlockSynchronizer {
@@ -56,13 +55,6 @@ impl BlockSynchronizer {
         loop {
             tokio::select! {
                 _ = gossip_period.tick() => self.request_block().await,
-                () = self.sumeragi.wsv_updated() => {
-                    let (latest_hash, previous_hash) = self
-                        .sumeragi
-                        .apply_wsv(|wsv| (wsv.latest_block_hash(), wsv.previous_block_hash()));
-                    self.latest_hash = latest_hash;
-                    self.previous_hash = previous_hash;
-                }
                 msg = message_receiver.recv() => {
                     let Some(msg) = msg else {
                         info!("All handler to BlockSynchronizer are dropped. Shutting down...");
@@ -94,9 +86,16 @@ impl BlockSynchronizer {
 
     /// Sends request for latest blocks to a chosen peer
     async fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
+        let (previous_hash, latest_hash) = {
+            let state_view = self.state.view();
+            (
+                state_view.previous_block_hash(),
+                state_view.latest_block_hash(),
+            )
+        };
         message::Message::GetBlocksAfter(message::GetBlocksAfter::new(
-            self.latest_hash,
-            self.previous_hash,
+            latest_hash,
+            previous_hash,
             self.peer_id.clone(),
         ))
         .send_to(&self.network, peer_id)
@@ -110,9 +109,8 @@ impl BlockSynchronizer {
         kura: Arc<Kura>,
         peer_id: PeerId,
         network: IrohaNetwork,
+        state: Arc<State>,
     ) -> Self {
-        let (latest_hash, previous_hash) =
-            sumeragi.apply_wsv(|wsv| (wsv.latest_block_hash(), wsv.previous_block_hash()));
         Self {
             peer_id,
             sumeragi,
@@ -120,8 +118,7 @@ impl BlockSynchronizer {
             gossip_period: config.gossip_period,
             gossip_max_size: config.gossip_max_size,
             network,
-            latest_hash,
-            previous_hash,
+            state,
         }
     }
 }
@@ -191,7 +188,8 @@ pub mod message {
                     previous_hash,
                     peer_id,
                 }) => {
-                    let local_latest_block_hash = block_sync.latest_hash;
+                    let local_latest_block_hash = block_sync.state.view().latest_block_hash();
+
                     if *latest_hash == local_latest_block_hash
                         || *previous_hash == local_latest_block_hash
                     {

@@ -13,13 +13,12 @@ use syn::{parse::Parse, punctuated::Punctuated, token::Comma, FnArg, LitStr, Pat
 const TOTAL_STR: &str = "total";
 #[cfg(feature = "metric-instrumentation")]
 const SUCCESS_STR: &str = "success";
-const WSV_STRING: &str = "WorldStateView";
 
 fn type_has_metrics_field(ty: &Type) -> bool {
     match ty {
         // This may seem fragile, but it isn't. We use the same convention
         // everywhere in the code base, and if you follow `CONTRIBUTING.md`
-        // you'll likely have `use iroha_core::WorldStateView`
+        // you'll likely have `use iroha_core::{StateTransaction, StateSnapshot}`
         // somewhere. If you don't, you're violating the `CONTRIBUTING.md` in
         // more than one way.
         Type::Path(pth) => {
@@ -28,7 +27,7 @@ fn type_has_metrics_field(ty: &Type) -> bool {
                 .last()
                 .expect("Should have at least one segment")
                 .ident;
-            *type_name == WSV_STRING
+            *type_name == "StateSnapshot" || *type_name == "StateTransaction"
         }
         _ => false,
     }
@@ -38,7 +37,7 @@ fn type_has_metrics_field(ty: &Type) -> bool {
 /// metrics.
 ///
 /// # Errors
-/// If no argument is of type `WorldStateView`.
+/// If no argument is of type `StateTransaction` of `StateSnapshot`.
 fn arg_metrics(input: &Punctuated<FnArg, Comma>) -> Result<syn::Ident, &Punctuated<FnArg, Comma>> {
     input
         .iter()
@@ -132,11 +131,11 @@ impl ToTokens for MetricSpec {
 /// # Examples
 ///
 /// ```rust
-/// use iroha_core::wsv::{World, WorldStateView};
+/// use iroha_core::state::{World, StateTransaction};
 /// use iroha_telemetry_derive::metrics;
 ///
 /// #[metrics(+"test_query", "another_test_query_without_timing")]
-/// fn execute(wsv: &WorldStateView) -> Result<(), ()> {
+/// fn execute(state: &StateTransaction) -> Result<(), ()> {
 ///     Ok(())
 /// }
 /// ```
@@ -162,7 +161,7 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
         emit!(
             emitter,
             func.sig,
-            "Function must have at least one argument of type `WorldStateView`."
+            "Function must have at least one argument of type `StateTransaction` or `StateSnapshot`."
         );
         return emitter.finish_token_stream();
     }
@@ -220,7 +219,7 @@ fn impl_metrics(emitter: &mut Emitter, _specs: &MetricSpecs, func: &syn::ItemFn)
             emit!(
                 emitter,
                 args,
-                "At least one argument must be a `WorldStateView`."
+                "At least one argument must be a `StateTransaction` or `StateSnapshot`."
             );
             return quote!();
         }

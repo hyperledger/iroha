@@ -42,16 +42,20 @@ pub mod isi {
 
     impl Execute for Register<Account> {
         #[metrics(+"register_account")]
-        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let account: Account = self.object.build(authority);
             let account_id = account.id().clone();
 
             account_id
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(state_transaction.config.ident_length_limits)
                 .map_err(Error::from)?;
 
-            let domain = wsv.domain_mut(&account_id.domain_id)?;
+            let domain = state_transaction.world.domain_mut(&account_id.domain_id)?;
             if domain.accounts.get(&account_id).is_some() {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
@@ -61,7 +65,9 @@ pub mod isi {
             }
             domain.add_account(account.clone());
 
-            wsv.emit_events(Some(DomainEvent::Account(AccountEvent::Created(account))));
+            state_transaction
+                .world
+                .emit_events(Some(DomainEvent::Account(AccountEvent::Created(account))));
 
             Ok(())
         }
@@ -69,17 +75,23 @@ pub mod isi {
 
     impl Execute for Unregister<Account> {
         #[metrics(+"unregister_account")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let account_id = self.object_id;
 
-            let domain = wsv.domain_mut(&account_id.domain_id)?;
+            let domain = state_transaction.world.domain_mut(&account_id.domain_id)?;
             if domain.remove_account(&account_id).is_none() {
                 return Err(FindError::Account(account_id).into());
             }
 
-            wsv.emit_events(Some(DomainEvent::Account(AccountEvent::Deleted(
-                account_id,
-            ))));
+            state_transaction
+                .world
+                .emit_events(Some(DomainEvent::Account(AccountEvent::Deleted(
+                    account_id,
+                ))));
 
             Ok(())
         }
@@ -87,16 +99,22 @@ pub mod isi {
 
     impl Execute for Register<AssetDefinition> {
         #[metrics(+"register_asset_definition")]
-        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let asset_definition = self.object.build(authority);
             asset_definition
                 .id()
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(state_transaction.config.ident_length_limits)
                 .map_err(Error::from)?;
 
             let asset_definition_id = asset_definition.id().clone();
-            let domain = wsv.domain_mut(&asset_definition_id.domain_id)?;
+            let domain = state_transaction
+                .world
+                .domain_mut(&asset_definition_id.domain_id)?;
             if domain.asset_definitions.get(&asset_definition_id).is_some() {
                 return Err(RepetitionError {
                     instruction_type: InstructionType::Register,
@@ -109,9 +127,11 @@ pub mod isi {
 
             domain.add_asset_definition(asset_definition.clone());
 
-            wsv.emit_events(Some(DomainEvent::AssetDefinition(
-                AssetDefinitionEvent::Created(asset_definition),
-            )));
+            state_transaction
+                .world
+                .emit_events(Some(DomainEvent::AssetDefinition(
+                    AssetDefinitionEvent::Created(asset_definition),
+                )));
 
             Ok(())
         }
@@ -119,11 +139,15 @@ pub mod isi {
 
     impl Execute for Unregister<AssetDefinition> {
         #[metrics(+"unregister_asset_definition")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
             let mut assets_to_remove = Vec::new();
-            for domain in wsv.domains().values() {
+            for domain in state_transaction.world.domains() {
                 for account in domain.accounts.values() {
                     assets_to_remove.extend(
                         account
@@ -144,7 +168,8 @@ pub mod isi {
             let mut events = Vec::with_capacity(assets_to_remove.len() + 1);
             for asset_id in assets_to_remove {
                 let account_id = asset_id.account_id.clone();
-                if wsv
+                if state_transaction
+                    .world
                     .account_mut(&account_id)?
                     .remove_asset(&asset_id)
                     .is_none()
@@ -155,7 +180,9 @@ pub mod isi {
                 events.push(AccountEvent::Asset(AssetEvent::Deleted(asset_id)).into());
             }
 
-            let domain = wsv.domain_mut(&asset_definition_id.domain_id)?;
+            let domain = state_transaction
+                .world
+                .domain_mut(&asset_definition_id.domain_id)?;
             if domain
                 .remove_asset_definition(&asset_definition_id)
                 .is_none()
@@ -169,7 +196,7 @@ pub mod isi {
                 AssetDefinitionEvent::Deleted(asset_definition_id),
             )));
 
-            wsv.emit_events(events);
+            state_transaction.world.emit_events(events);
 
             Ok(())
         }
@@ -177,11 +204,17 @@ pub mod isi {
 
     impl Execute for SetKeyValue<AssetDefinition> {
         #[metrics(+"set_key_value_asset_definition")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
-            let metadata_limits = wsv.config.asset_definition_metadata_limits;
-            wsv.asset_definition_mut(&asset_definition_id)
+            let metadata_limits = state_transaction.config.asset_definition_metadata_limits;
+            state_transaction
+                .world
+                .asset_definition_mut(&asset_definition_id)
                 .map_err(Error::from)
                 .and_then(|asset_definition| {
                     asset_definition
@@ -190,13 +223,15 @@ pub mod isi {
                         .map_err(Error::from)
                 })?;
 
-            wsv.emit_events(Some(AssetDefinitionEvent::MetadataInserted(
-                MetadataChanged {
-                    target_id: asset_definition_id,
-                    key: self.key,
-                    value: self.value,
-                },
-            )));
+            state_transaction
+                .world
+                .emit_events(Some(AssetDefinitionEvent::MetadataInserted(
+                    MetadataChanged {
+                        target_id: asset_definition_id,
+                        key: self.key,
+                        value: self.value,
+                    },
+                )));
 
             Ok(())
         }
@@ -204,25 +239,32 @@ pub mod isi {
 
     impl Execute for RemoveKeyValue<AssetDefinition> {
         #[metrics(+"remove_key_value_asset_definition")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let asset_definition_id = self.object_id;
 
-            let value =
-                wsv.asset_definition_mut(&asset_definition_id)
-                    .and_then(|asset_definition| {
-                        asset_definition
-                            .metadata
-                            .remove(&self.key)
-                            .ok_or_else(|| FindError::MetadataKey(self.key.clone()))
-                    })?;
+            let value = state_transaction
+                .world
+                .asset_definition_mut(&asset_definition_id)
+                .and_then(|asset_definition| {
+                    asset_definition
+                        .metadata
+                        .remove(&self.key)
+                        .ok_or_else(|| FindError::MetadataKey(self.key.clone()))
+                })?;
 
-            wsv.emit_events(Some(AssetDefinitionEvent::MetadataRemoved(
-                MetadataChanged {
-                    target_id: asset_definition_id,
-                    key: self.key,
-                    value,
-                },
-            )));
+            state_transaction
+                .world
+                .emit_events(Some(AssetDefinitionEvent::MetadataRemoved(
+                    MetadataChanged {
+                        target_id: asset_definition_id,
+                        key: self.key,
+                        value,
+                    },
+                )));
 
             Ok(())
         }
@@ -230,21 +272,27 @@ pub mod isi {
 
     impl Execute for SetKeyValue<Domain> {
         #[metrics(+"set_domain_key_value")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let domain_id = self.object_id;
 
-            let limits = wsv.config.domain_metadata_limits;
+            let limits = state_transaction.config.domain_metadata_limits;
 
-            let domain = wsv.domain_mut(&domain_id)?;
+            let domain = state_transaction.world.domain_mut(&domain_id)?;
             domain
                 .metadata
                 .insert_with_limits(self.key.clone(), self.value.clone(), limits)?;
 
-            wsv.emit_events(Some(DomainEvent::MetadataInserted(MetadataChanged {
-                target_id: domain_id,
-                key: self.key,
-                value: self.value,
-            })));
+            state_transaction
+                .world
+                .emit_events(Some(DomainEvent::MetadataInserted(MetadataChanged {
+                    target_id: domain_id,
+                    key: self.key,
+                    value: self.value,
+                })));
 
             Ok(())
         }
@@ -252,47 +300,59 @@ pub mod isi {
 
     impl Execute for RemoveKeyValue<Domain> {
         #[metrics(+"remove_domain_key_value")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let domain_id = self.object_id;
 
-            let domain = wsv.domain_mut(&domain_id)?;
+            let domain = state_transaction.world.domain_mut(&domain_id)?;
             let value = domain
                 .metadata
                 .remove(&self.key)
                 .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
 
-            wsv.emit_events(Some(DomainEvent::MetadataRemoved(MetadataChanged {
-                target_id: domain_id,
-                key: self.key,
-                value,
-            })));
+            state_transaction
+                .world
+                .emit_events(Some(DomainEvent::MetadataRemoved(MetadataChanged {
+                    target_id: domain_id,
+                    key: self.key,
+                    value,
+                })));
 
             Ok(())
         }
     }
 
     impl Execute for Transfer<Account, DomainId, Account> {
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let Transfer {
                 source_id,
                 object,
                 destination_id,
             } = self;
 
-            let _ = wsv.account(&source_id)?;
-            let _ = wsv.account(&destination_id)?;
+            let _ = state_transaction.world.account(&source_id)?;
+            let _ = state_transaction.world.account(&destination_id)?;
 
-            let domain = wsv.domain_mut(&object)?;
+            let domain = state_transaction.world.domain_mut(&object)?;
 
             if domain.owned_by != source_id {
                 return Err(Error::Find(FindError::Account(source_id)));
             }
 
             domain.owned_by = destination_id.clone();
-            wsv.emit_events(Some(DomainEvent::OwnerChanged(DomainOwnerChanged {
-                domain_id: object,
-                new_owner: destination_id,
-            })));
+            state_transaction
+                .world
+                .emit_events(Some(DomainEvent::OwnerChanged(DomainOwnerChanged {
+                    domain_id: object,
+                    new_owner: destination_id,
+                })));
 
             Ok(())
         }
@@ -307,33 +367,36 @@ pub mod query {
     };
 
     use super::*;
+    use crate::state::StateSnapshot;
 
     impl ValidQuery for FindAllDomains {
         #[metrics(+"find_all_domains")]
-        fn execute<'wsv>(
+        fn execute<'state>(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<Box<dyn Iterator<Item = Domain> + 'wsv>, Error> {
-            Ok(Box::new(wsv.domains().values().cloned()))
+            state_snapshot: &'state StateSnapshot<'state>,
+        ) -> Result<Box<dyn Iterator<Item = Domain> + 'state>, Error> {
+            Ok(Box::new(state_snapshot.world.domains().cloned()))
         }
     }
 
     impl ValidQuery for FindDomainById {
         #[metrics(+"find_domain_by_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Domain, Error> {
+        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<Domain, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
-            Ok(wsv.domain(id)?.clone())
+            Ok(state_snapshot.world.domain(id)?.clone())
         }
     }
 
     impl ValidQuery for FindDomainKeyValueByIdAndKey {
         #[metrics(+"find_domain_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);
-            wsv.map_domain(id, |domain| domain.metadata.get(key).cloned())?
+            state_snapshot
+                .world
+                .map_domain(id, |domain| domain.metadata.get(key).cloned())?
                 .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
                 .map(Into::into)
         }
@@ -341,11 +404,12 @@ pub mod query {
 
     impl ValidQuery for FindAssetDefinitionKeyValueByIdAndKey {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);
-            Ok(wsv
+            Ok(state_snapshot
+                .world
                 .asset_definition(id)?
                 .metadata
                 .get(key)

@@ -10,37 +10,47 @@ use iroha_data_model::{
 use iroha_telemetry::metrics;
 
 use super::*;
+use crate::state::StateSnapshot;
 
 impl ValidQuery for FindAllBlocks {
     #[metrics(+"find_all_blocks")]
-    fn execute<'wsv>(
+    fn execute<'state>(
         &self,
-        wsv: &'wsv WorldStateView,
-    ) -> Result<Box<dyn Iterator<Item = SignedBlock> + 'wsv>, QueryExecutionFail> {
+        state_snapshot: &'state StateSnapshot<'state>,
+    ) -> Result<Box<dyn Iterator<Item = SignedBlock> + 'state>, QueryExecutionFail> {
         Ok(Box::new(
-            wsv.all_blocks().rev().map(|block| (*block).clone()),
+            state_snapshot
+                .all_blocks()
+                .rev()
+                .map(|block| (*block).clone()),
         ))
     }
 }
 
 impl ValidQuery for FindAllBlockHeaders {
     #[metrics(+"find_all_block_headers")]
-    fn execute<'wsv>(
+    fn execute<'state>(
         &self,
-        wsv: &'wsv WorldStateView,
-    ) -> Result<Box<dyn Iterator<Item = BlockHeader> + 'wsv>, QueryExecutionFail> {
+        staete_snapshot: &'state StateSnapshot<'state>,
+    ) -> Result<Box<dyn Iterator<Item = BlockHeader> + 'state>, QueryExecutionFail> {
         Ok(Box::new(
-            wsv.all_blocks().rev().map(|block| block.header().clone()),
+            staete_snapshot
+                .all_blocks()
+                .rev()
+                .map(|block| block.header().clone()),
         ))
     }
 }
 
 impl ValidQuery for FindBlockHeaderByHash {
     #[metrics(+"find_block_header")]
-    fn execute(&self, wsv: &WorldStateView) -> Result<BlockHeader, QueryExecutionFail> {
+    fn execute(
+        &self,
+        state_snapshot: &StateSnapshot<'_>,
+    ) -> Result<BlockHeader, QueryExecutionFail> {
         let hash = self.hash;
 
-        let block = wsv
+        let block = state_snapshot
             .all_blocks()
             .find(|block| block.hash() == hash)
             .ok_or_else(|| QueryExecutionFail::Find(FindError::Block(hash)))?;

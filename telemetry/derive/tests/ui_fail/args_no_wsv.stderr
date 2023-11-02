@@ -1,5 +1,5 @@
-error: At least one argument must be a `WorldStateView`.
+error: At least one argument must be a `StateTransaction` or `StateSnapshot`.
  --> tests/ui_fail/args_no_wsv.rs:4:12
   |
-4 | fn execute(_wsv: &World) -> Result<(), ()> {
-  |            ^^^^^^^^^^^^
+4 | fn execute(_state: &World) -> Result<(), ()> {
+  |            ^^^^^^^^^^^^^^

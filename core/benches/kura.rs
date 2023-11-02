@@ -10,8 +10,8 @@ use iroha_core::{
     kura::{BlockStore, LockStatus},
     prelude::*,
     query::store::LiveQueryStore,
+    state::{State, World},
     sumeragi::network_topology::Topology,
-    wsv::World,
 };
 use iroha_crypto::KeyPair;
 use iroha_data_model::{prelude::*, transaction::TransactionLimits};
@@ -49,11 +49,14 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let _thread_handle = iroha_core::kura::Kura::start(kura.clone());
 
     let query_handle = LiveQueryStore::test().start();
-    let mut wsv = WorldStateView::new(World::new(), kura, query_handle);
+    let state = State::new(World::new(), kura, query_handle);
     let topology = Topology::new(UniqueVec::new());
-    let mut block = BlockBuilder::new(vec![tx], topology, Vec::new())
-        .chain(0, &mut wsv)
-        .sign(&KeyPair::random());
+    let mut block = {
+        let mut state_block = state.block(false);
+        BlockBuilder::new(vec![tx], topology, Vec::new())
+            .chain(0, &mut state_block)
+            .sign(&KeyPair::random())
+    };
 
     for _ in 1..n_executors {
         block = block.sign(&KeyPair::random());

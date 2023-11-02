@@ -20,7 +20,10 @@ use iroha_genesis::GenesisTransaction;
 use iroha_logger::{debug, error};
 use iroha_macro::FromVariant;
 
-use crate::{prelude::*, smartcontracts::wasm};
+use crate::{
+    smartcontracts::wasm,
+    state::{StateBlock, StateTransaction},
+};
 
 /// `AcceptedTransaction` — a transaction accepted by iroha peer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,7 +163,7 @@ impl TransactionExecutor {
     }
 
     /// Move transaction lifecycle forward by checking if the
-    /// instructions can be applied to the `WorldStateView`.
+    /// instructions can be applied to the [`StateBlock`].
     ///
     /// Validation is skipped for genesis.
     ///
@@ -169,11 +172,13 @@ impl TransactionExecutor {
     pub fn validate(
         &self,
         tx: AcceptedTransaction,
-        wsv: &mut WorldStateView,
+        state_block: &mut StateBlock<'_>,
     ) -> Result<SignedTransaction, (SignedTransaction, TransactionRejectionReason)> {
-        if let Err(rejection_reason) = self.validate_internal(tx.clone(), wsv) {
+        let mut state_transaction = state_block.transaction();
+        if let Err(rejection_reason) = self.validate_internal(tx.clone(), &mut state_transaction) {
             return Err((tx.0, rejection_reason));
         }
+        state_transaction.apply();
 
         Ok(tx.0)
     }
@@ -181,11 +186,12 @@ impl TransactionExecutor {
     fn validate_internal(
         &self,
         tx: AcceptedTransaction,
-        wsv: &mut WorldStateView,
+        state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), TransactionRejectionReason> {
         let authority = tx.as_ref().authority();
 
-        if !wsv
+        if !state_transaction
+            .world
             .domain(&authority.domain_id)
             .map_err(|_e| {
                 TransactionRejectionReason::AccountDoesNotExist(FindError::Domain(
@@ -200,18 +206,12 @@ impl TransactionExecutor {
             ));
         }
 
-        // Create clone wsv to try execute transaction against it to prevent failed transaction from changing wsv
-        let mut wsv_for_validation = wsv.clone();
-
         debug!("Validating transaction: {:?}", tx);
-        Self::validate_with_runtime_executor(tx.clone(), &mut wsv_for_validation)?;
+        Self::validate_with_runtime_executor(tx.clone(), state_transaction)?;
 
         if let (authority, Executable::Wasm(bytes)) = tx.into() {
-            self.validate_wasm(authority, &mut wsv_for_validation, bytes)?
+            self.validate_wasm(authority, state_transaction, bytes)?
         }
-
-        // Replace wsv in case of successful execution
-        *wsv = wsv_for_validation;
 
         debug!("Validation successful");
         Ok(())
@@ -220,7 +220,7 @@ impl TransactionExecutor {
     fn validate_wasm(
         &self,
         authority: AccountId,
-        wsv: &mut WorldStateView,
+        state_transaction: &mut StateTransaction<'_, '_>,
         wasm: WasmSmartContract,
     ) -> Result<(), TransactionRejectionReason> {
         debug!("Validating wasm");
@@ -229,7 +229,7 @@ impl TransactionExecutor {
             .build()
             .and_then(|mut wasm_runtime| {
                 wasm_runtime.validate(
-                    wsv,
+                    state_transaction,
                     authority,
                     wasm,
                     self.transaction_limits.max_instruction_number,
@@ -243,17 +243,18 @@ impl TransactionExecutor {
 
     /// Validate transaction with runtime executors.
     ///
-    /// Note: transaction instructions will be executed on the given `wsv`.
+    /// Note: transaction instructions will be executed on the given `state_transaction`.
     fn validate_with_runtime_executor(
         tx: AcceptedTransaction,
-        wsv: &mut WorldStateView,
+        state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), TransactionRejectionReason> {
         let tx: SignedTransaction = tx.into();
         let authority = tx.authority().clone();
 
-        wsv.executor()
+        state_transaction.world
+            .executor
             .clone() // Cloning executor is a cheap operation
-            .validate_transaction(wsv, &authority, tx)
+            .validate_transaction(state_transaction, &authority, tx)
             .map_err(|error| {
                 if let ValidationFail::InternalError(msg) = &error {
                     error!(

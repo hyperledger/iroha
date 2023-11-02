@@ -1,4 +1,4 @@
-//! This module contains [`WorldStateView`] snapshot actor service.
+//! This module contains [`State`] snapshot actor service.
 use std::{
     io::Read,
     path::{Path, PathBuf},
@@ -16,13 +16,12 @@ use tokio::sync::mpsc;
 use crate::{
     kura::{BlockCount, Kura},
     query::store::LiveQueryStoreHandle,
-    sumeragi::SumeragiHandle,
-    wsv::{KuraSeed, WorldStateView},
+    state::{deserialize::KuraSeed, State},
 };
 
-/// Name of the [`WorldStateView`] snapshot file.
+/// Name of the [`State`] snapshot file.
 const SNAPSHOT_FILE_NAME: &str = "snapshot.data";
-/// Name of the temporary [`WorldStateView`] snapshot file.
+/// Name of the temporary [`State`] snapshot file.
 const SNAPSHOT_TMP_FILE_NAME: &str = "snapshot.tmp";
 
 // /// Errors produced by [`SnapshotMaker`] actor.
@@ -35,15 +34,15 @@ pub struct SnapshotMakerHandle {
     _message_sender: mpsc::Sender<()>,
 }
 
-/// Actor responsible for [`WorldStateView`] snapshot reading and writing.
+/// Actor responsible for [`State`] snapshot reading and writing.
 pub struct SnapshotMaker {
-    sumeragi: SumeragiHandle,
+    state: Arc<State>,
     /// Frequency at which snapshot is made
     create_every: Duration,
     /// Path to the directory where snapshots are stored
     store_dir: PathBuf,
-    /// Flag to signal that new wsv is available for taking snapshot
-    new_wsv_available: bool,
+    /// Hash of the latest block stored in the state
+    latest_block_hash: Option<HashOf<SignedBlock>>,
 }
 
 impl SnapshotMaker {
@@ -65,18 +64,13 @@ impl SnapshotMaker {
 
         loop {
             tokio::select! {
-                _ = snapshot_create_every.tick(), if self.new_wsv_available => {
+                _ = snapshot_create_every.tick() => {
                     // Offload snapshot creation into blocking thread
                     self.create_snapshot().await;
                 },
-                () = self.sumeragi.finalized_wsv_updated() => {
-                    self.sumeragi.apply_finalized_wsv(|finalized_wsv| self.new_wsv_available = finalized_wsv.height() > 0);
-                }
                 _ = message_receiver.recv() => {
                     info!("All handler to SnapshotMaker are dropped. Saving latest snapshot and shutting down...");
-                    if self.new_wsv_available {
-                        self.create_snapshot().await;
-                    }
+                    self.create_snapshot().await;
                     break;
                 }
             }
@@ -86,25 +80,32 @@ impl SnapshotMaker {
 
     /// Invoke snapshot creation task
     async fn create_snapshot(&mut self) {
-        let sumeragi = self.sumeragi.clone();
         let store_dir = self.store_dir.clone();
-        let handle = tokio::task::spawn_blocking(move || -> Result<u64, TryWriteError> {
-            sumeragi.apply_finalized_wsv(|wsv| {
-                try_write_snapshot(wsv, store_dir)?;
-                Ok(wsv.height())
-            })
-        });
+        let latest_block_hash;
+        let at_height;
+        {
+            let state_view = self.state.view();
+            latest_block_hash = state_view.latest_block_hash();
+            at_height = state_view.height();
+        }
 
-        match handle.await {
-            Ok(Ok(at_height)) => {
-                iroha_logger::info!(at_height, "Successfully created a snapshot of WSV");
-                self.new_wsv_available = false;
-            }
-            Ok(Err(error)) => {
-                iroha_logger::error!(%error, "Failed to create a snapshot of WSV");
-            }
-            Err(panic) => {
-                iroha_logger::error!(%panic, "Task panicked during creation of WSV snapshot");
+        if latest_block_hash != self.latest_block_hash {
+            let state = self.state.clone();
+            let handle = tokio::task::spawn_blocking(move || -> Result<(), TryWriteError> {
+                try_write_snapshot(&state, &store_dir)
+            });
+
+            match handle.await {
+                Ok(Ok(())) => {
+                    iroha_logger::info!(at_height, "Successfully created a snapshot of state");
+                    self.latest_block_hash = latest_block_hash;
+                }
+                Ok(Err(error)) => {
+                    iroha_logger::error!(%error, "Failed to create a snapshot of state");
+                }
+                Err(panic) => {
+                    iroha_logger::error!(%panic, "Task panicked during creation of state snapshot");
+                }
             }
         }
     }
@@ -112,13 +113,14 @@ impl SnapshotMaker {
     /// Create from [`Config`].
     ///
     /// Might return [`None`] if the configuration is not suitable for _making_ snapshots.
-    pub fn from_config(config: &Config, sumeragi: &SumeragiHandle) -> Option<Self> {
+    pub fn from_config(config: &Config, state: Arc<State>) -> Option<Self> {
         if let Mode::ReadWrite = config.mode {
+            let latest_block_hash = state.view().latest_block_hash();
             Some(Self {
-                sumeragi: sumeragi.clone(),
+                state,
                 create_every: config.create_every,
                 store_dir: config.store_dir.clone(),
-                new_wsv_available: false,
+                latest_block_hash,
             })
         } else {
             None
@@ -126,7 +128,7 @@ impl SnapshotMaker {
     }
 }
 
-/// Try to deserialize [`WorldStateView`] from a snapshot file.
+/// Try to deserialize [`State`] from a snapshot file.
 ///
 /// # Errors
 /// - IO errors
@@ -136,7 +138,7 @@ pub fn try_read_snapshot(
     kura: &Arc<Kura>,
     query_handle: LiveQueryStoreHandle,
     BlockCount(block_count): BlockCount,
-) -> Result<WorldStateView, TryReadError> {
+) -> Result<State, TryReadError> {
     let mut bytes = Vec::new();
     let path = store_dir.as_ref().join(SNAPSHOT_FILE_NAME);
     let mut file = match std::fs::OpenOptions::new().read(true).open(&path) {
@@ -156,8 +158,9 @@ pub fn try_read_snapshot(
         kura: Arc::clone(kura),
         query_handle,
     };
-    let wsv = seed.deserialize(&mut deserializer)?;
-    let snapshot_height = wsv.block_hashes.len();
+    let state = seed.deserialize(&mut deserializer)?;
+    let state_view = state.view();
+    let snapshot_height = state_view.block_hashes.len();
     if snapshot_height > block_count {
         return Err(TryReadError::MismatchedHeight {
             snapshot_height,
@@ -167,8 +170,8 @@ pub fn try_read_snapshot(
     for height in 1..snapshot_height {
         let kura_block_hash = kura
             .get_block_hash(height as u64)
-            .expect("Kura has height at least as large as wsv_height");
-        let snapshot_block_hash = wsv.block_hashes[height - 1];
+            .expect("Kura has height at least as large as state height");
+        let snapshot_block_hash = state_view.block_hashes[height - 1];
         if kura_block_hash != snapshot_block_hash {
             return Err(TryReadError::MismatchedHash {
                 height,
@@ -177,7 +180,7 @@ pub fn try_read_snapshot(
             });
         }
     }
-    Ok(wsv)
+    Ok(state)
 }
 
 /// Serialize and write snapshot to file,
@@ -186,10 +189,7 @@ pub fn try_read_snapshot(
 /// # Errors
 /// - IO errors
 /// - Serialization errors
-fn try_write_snapshot(
-    wsv: &WorldStateView,
-    store_dir: impl AsRef<Path>,
-) -> Result<(), TryWriteError> {
+fn try_write_snapshot(state: &State, store_dir: impl AsRef<Path>) -> Result<(), TryWriteError> {
     std::fs::create_dir_all(store_dir.as_ref())
         .map_err(|err| TryWriteError::IO(err, store_dir.as_ref().to_path_buf()))?;
     let path_to_file = store_dir.as_ref().join(SNAPSHOT_FILE_NAME);
@@ -201,7 +201,7 @@ fn try_write_snapshot(
         .open(&path_to_tmp_file)
         .map_err(|err| TryWriteError::IO(err, path_to_tmp_file.clone()))?;
     let mut serializer = serde_json::Serializer::new(file);
-    wsv.serialize(&mut serializer)?;
+    state.serialize(&mut serializer)?;
     std::fs::rename(path_to_tmp_file, &path_to_file)
         .map_err(|err| TryWriteError::IO(err, path_to_file.clone()))?;
     Ok(())
@@ -214,7 +214,7 @@ pub enum TryReadError {
     NotFound,
     /// Failed reading/writing {1:?} from disk
     IO(#[source] std::io::Error, PathBuf),
-    /// Error (de)serializing World State View snapshot
+    /// Error (de)serializing state snapshot
     Serialization(#[from] serde_json::Error),
     /// Snapshot is in a non-consistent state. Snapshot has greater height ({snapshot_height}) than kura block store ({kura_height})
     MismatchedHeight {
@@ -254,11 +254,11 @@ mod tests {
     use super::*;
     use crate::query::store::LiveQueryStore;
 
-    fn wsv_factory() -> WorldStateView {
+    fn state_factory() -> State {
         let alice_key = KeyPair::random();
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
-        WorldStateView::new(
+        State::new(
             crate::queue::tests::world_with_test_domains([alice_key.public_key().clone()]),
             kura,
             query_handle,
@@ -269,9 +269,9 @@ mod tests {
     async fn creates_all_dirs_while_writing_snapshots() {
         let tmp_root = tempdir().unwrap();
         let snapshot_store_dir = tmp_root.path().join("path/to/snapshot/dir");
-        let wsv = wsv_factory();
+        let state = state_factory();
 
-        try_write_snapshot(&wsv, &snapshot_store_dir).unwrap();
+        try_write_snapshot(&state, &snapshot_store_dir).unwrap();
 
         assert!(Path::exists(snapshot_store_dir.as_path()))
     }
@@ -280,14 +280,14 @@ mod tests {
     async fn can_read_snapshot_after_writing() {
         let tmp_root = tempdir().unwrap();
         let store_dir = tmp_root.path().join("snapshot");
-        let wsv = wsv_factory();
+        let state = state_factory();
 
-        try_write_snapshot(&wsv, &store_dir).unwrap();
+        try_write_snapshot(&state, &store_dir).unwrap();
         let _wsv = try_read_snapshot(
             &store_dir,
             &Kura::blank_kura_for_testing(),
             LiveQueryStore::test().start(),
-            BlockCount(usize::try_from(wsv.height()).unwrap()),
+            BlockCount(usize::try_from(state.view().height()).unwrap()),
         )
         .unwrap();
     }
@@ -328,10 +328,7 @@ mod tests {
             panic!("should not be ok")
         };
 
-        assert_eq!(
-            format!("{error}"),
-            "Error (de)serializing World State View snapshot"
-        );
+        assert_eq!(format!("{error}"), "Error (de)serializing state snapshot");
     }
 
     // TODO: test block count comparison

@@ -23,7 +23,11 @@ pub mod isi {
 
     impl Execute for Register<Trigger> {
         #[metrics(+"register_trigger")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let new_trigger = self.object;
 
             if !new_trigger.action.filter.mintable() {
@@ -35,8 +39,8 @@ pub mod isi {
                 }
             }
 
-            let engine = wsv.engine.clone(); // Cloning engine is cheap
-            let triggers = wsv.triggers_mut();
+            let engine = state_transaction.engine.clone(); // Cloning engine is cheap
+            let triggers = &mut state_transaction.world.triggers;
             let trigger_id = new_trigger.id().clone();
             let success = match &new_trigger.action.filter {
                 TriggeringEventFilterBox::Data(_) => triggers.add_data_trigger(
@@ -74,7 +78,9 @@ pub mod isi {
                 .into());
             }
 
-            wsv.emit_events(Some(TriggerEvent::Created(trigger_id)));
+            state_transaction
+                .world
+                .emit_events(Some(TriggerEvent::Created(trigger_id)));
 
             Ok(())
         }
@@ -82,12 +88,18 @@ pub mod isi {
 
     impl Execute for Unregister<Trigger> {
         #[metrics(+"unregister_trigger")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let trigger_id = self.object_id.clone();
 
-            let triggers = wsv.triggers_mut();
+            let triggers = &mut state_transaction.world.triggers;
             if triggers.remove(&trigger_id) {
-                wsv.emit_events(Some(TriggerEvent::Deleted(self.object_id)));
+                state_transaction
+                    .world
+                    .emit_events(Some(TriggerEvent::Deleted(self.object_id)));
                 Ok(())
             } else {
                 Err(RepetitionError {
@@ -101,10 +113,14 @@ pub mod isi {
 
     impl Execute for Mint<u32, Trigger> {
         #[metrics(+"mint_trigger_repetitions")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let id = self.destination_id;
 
-            let triggers = wsv.triggers_mut();
+            let triggers = &mut state_transaction.world.triggers;
             triggers
                 .inspect_by_id(&id, |action| -> Result<(), Error> {
                     if action.mintable() {
@@ -120,12 +136,14 @@ pub mod isi {
                     .ok_or(super::set::RepeatsOverflowError)
             })?;
 
-            wsv.emit_events(Some(TriggerEvent::Extended(
-                TriggerNumberOfExecutionsChanged {
-                    trigger_id: id,
-                    by: self.object,
-                },
-            )));
+            state_transaction
+                .world
+                .emit_events(Some(TriggerEvent::Extended(
+                    TriggerNumberOfExecutionsChanged {
+                        trigger_id: id,
+                        by: self.object,
+                    },
+                )));
 
             Ok(())
         }
@@ -133,21 +151,27 @@ pub mod isi {
 
     impl Execute for Burn<u32, Trigger> {
         #[metrics(+"burn_trigger_repetitions")]
-        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            _authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let trigger = self.destination_id;
-            let triggers = wsv.triggers_mut();
+            let triggers = &mut state_transaction.world.triggers;
             triggers.mod_repeats(&trigger, |n| {
                 n.checked_sub(self.object)
                     .ok_or(super::set::RepeatsOverflowError)
             })?;
             // TODO: Is it okay to remove triggers with 0 repeats count from `TriggerSet` only
             // when they will match some of the events?
-            wsv.emit_events(Some(TriggerEvent::Shortened(
-                TriggerNumberOfExecutionsChanged {
-                    trigger_id: trigger,
-                    by: self.object,
-                },
-            )));
+            state_transaction
+                .world
+                .emit_events(Some(TriggerEvent::Shortened(
+                    TriggerNumberOfExecutionsChanged {
+                        trigger_id: trigger,
+                        by: self.object,
+                    },
+                )));
 
             Ok(())
         }
@@ -155,10 +179,16 @@ pub mod isi {
 
     impl Execute for ExecuteTrigger {
         #[metrics(+"execute_trigger")]
-        fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+        fn execute(
+            self,
+            authority: &AccountId,
+            state_transaction: &mut StateTransaction<'_, '_>,
+        ) -> Result<(), Error> {
             let id = &self.trigger_id;
 
-            wsv.triggers()
+            state_transaction
+                .world
+                .triggers
                 .inspect_by_id(id, |action| -> Result<(), Error> {
                     let allow_execute = if let TriggeringEventFilterBox::ExecuteTrigger(filter) =
                         action.clone_and_box().filter
@@ -185,7 +215,9 @@ pub mod isi {
                 .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))
                 .and_then(core::convert::identity)?;
 
-            wsv.execute_trigger(id.clone(), authority);
+            state_transaction
+                .world
+                .execute_trigger(id.clone(), authority);
 
             Ok(())
         }
@@ -201,31 +233,35 @@ pub mod query {
     };
 
     use super::*;
-    use crate::prelude::*;
+    use crate::{prelude::*, state::StateSnapshot};
 
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
-        fn execute<'wsv>(
+        fn execute<'state>(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> Result<Box<dyn Iterator<Item = TriggerId> + 'wsv>, Error> {
-            Ok(Box::new(wsv.triggers().ids().cloned()))
+            state_snapshot: &'state StateSnapshot<'state>,
+        ) -> Result<Box<dyn Iterator<Item = TriggerId> + 'state>, Error> {
+            Ok(Box::new(state_snapshot.world.triggers.ids().cloned()))
         }
     }
 
     impl ValidQuery for FindTriggerById {
         #[metrics(+"find_trigger_by_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Trigger, Error> {
+        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<Trigger, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
             // Can't use just `LoadedActionTrait::clone_and_box` cause this will trigger lifetime mismatch
             #[allow(clippy::redundant_closure_for_method_calls)]
-            let loaded_action = wsv
-                .triggers()
+            let loaded_action = state_snapshot
+                .world
+                .triggers
                 .inspect_by_id(id, |action| action.clone_and_box())
                 .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))?;
 
-            let action = wsv.triggers().get_original_action(loaded_action).into();
+            let action = state_snapshot
+                .world
+                .triggers
+                .get_original_action(loaded_action).into();
 
             // TODO: Should we redact the metadata if the account is not the authority/owner?
             Ok(Trigger::new(id.clone(), action))
@@ -234,11 +270,13 @@ pub mod query {
 
     impl ValidQuery for FindTriggerKeyValueByIdAndKey {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValueBox, Error> {
+        fn execute(&self, state_snapshot: &StateSnapshot<'_>) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);
-            wsv.triggers()
+            state_snapshot
+                .world
+                .triggers
                 .inspect_by_id(id, |action| {
                     action
                         .metadata()
@@ -253,19 +291,21 @@ pub mod query {
 
     impl ValidQuery for FindTriggersByDomainId {
         #[metrics(+"find_triggers_by_domain_id")]
-        fn execute<'wsv>(
+        fn execute<'state>(
             &self,
-            wsv: &'wsv WorldStateView,
-        ) -> eyre::Result<Box<dyn Iterator<Item = Trigger> + 'wsv>, Error> {
+            state_snapshot: &'state StateSnapshot<'state>,
+        ) -> eyre::Result<Box<dyn Iterator<Item = Trigger> + 'state>, Error> {
             let domain_id = &self.domain_id;
 
             Ok(Box::new(
-                wsv.triggers()
+                state_snapshot
+                    .world
+                    .triggers
                     .inspect_by_domain_id(domain_id, |trigger_id, action| {
                         (trigger_id.clone(), action.clone_and_box())
                     })
                     .map(|(trigger_id, action)| {
-                        let action = wsv.triggers().get_original_action(action).into();
+                        let action = state_snapshot.world.triggers.get_original_action(action).into();
                         Trigger::new(trigger_id, action)
                     }),
             ))

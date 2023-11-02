@@ -77,15 +77,15 @@ fn fetch_size() -> impl warp::Filter<Extract = (FetchSize,), Error = warp::Rejec
 pub async fn handle_transaction(
     chain_id: Arc<ChainId>,
     queue: Arc<Queue>,
-    sumeragi: SumeragiHandle,
+    state: Arc<State>,
     transaction: SignedTransaction,
 ) -> Result<Empty> {
-    let wsv = sumeragi.wsv_clone();
-    let transaction_limits = wsv.config.transaction_limits;
+    let state_view = state.view();
+    let transaction_limits = state_view.config.transaction_limits;
     let transaction = AcceptedTransaction::accept(transaction, &chain_id, &transaction_limits)
         .map_err(Error::AcceptTransaction)?;
     queue
-        .push(transaction, &wsv)
+        .push(transaction, &state_view)
         .map_err(|queue::Failure { tx, err }| {
             iroha_logger::warn!(
                 tx_hash=%tx.as_ref().hash(), ?err,
@@ -101,26 +101,29 @@ pub async fn handle_transaction(
 #[iroha_futures::telemetry_future]
 pub async fn handle_queries(
     live_query_store: LiveQueryStoreHandle,
-    sumeragi: SumeragiHandle,
-
+    state: Arc<State>,
     query_request: http::ClientQueryRequest,
 ) -> Result<Scale<BatchedResponse<QueryOutputBox>>> {
-    let handle = task::spawn_blocking(move || match query_request.0 {
-        QueryRequest::Query(QueryWithParameters {
-            query: signed_query,
-            sorting,
-            pagination,
-            fetch_size,
-        }) => sumeragi.apply_wsv(|wsv| {
-            let valid_query = ValidQueryRequest::validate(signed_query, wsv)?;
-            let query_output = valid_query.execute(wsv)?;
-            live_query_store
-                .handle_query_output(query_output, &sorting, pagination, fetch_size)
-                .map_err(ValidationFail::from)
-        }),
-        QueryRequest::Cursor(cursor) => live_query_store
-            .handle_query_cursor(cursor)
-            .map_err(ValidationFail::from),
+    let handle = task::spawn_blocking(move || {
+        let state_view = state.view();
+        let state_snapshot = state_view.to_snapshot();
+        match query_request.0 {
+            QueryRequest::Query(QueryWithParameters {
+                query: signed_query,
+                sorting,
+                pagination,
+                fetch_size,
+            }) => {
+                let valid_query = ValidQueryRequest::validate(signed_query, &state_snapshot)?;
+                let query_output = valid_query.execute(&state_snapshot)?;
+                live_query_store
+                    .handle_query_output(query_output, &sorting, pagination, fetch_size)
+                    .map_err(ValidationFail::from)
+            }
+            QueryRequest::Cursor(cursor) => live_query_store
+                .handle_query_cursor(cursor)
+                .map_err(ValidationFail::from),
+        }
     });
     handle
         .await
@@ -282,11 +285,12 @@ pub mod subscription {
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "telemetry")]
-pub async fn handle_version(sumeragi: SumeragiHandle) -> Json {
+pub async fn handle_version(state: Arc<State>) -> Json {
     use iroha_version::Version;
 
-    let string = sumeragi
-        .apply_wsv(WorldStateView::latest_block_ref)
+    let state_view = state.view();
+    let string = state_view
+        .latest_block_ref()
         .expect("Genesis not applied. Nothing we can do. Solve the issue and rerun.")
         .version()
         .to_string();

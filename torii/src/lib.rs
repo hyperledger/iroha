@@ -20,6 +20,7 @@ use iroha_core::{
     prelude::*,
     query::store::LiveQueryStoreHandle,
     queue::{self, Queue},
+    state::State,
     sumeragi::SumeragiHandle,
     EventsSender,
 };
@@ -53,6 +54,7 @@ pub struct Torii {
     kura: Arc<Kura>,
     transaction_max_content_length: u64,
     address: SocketAddr,
+    state: Arc<State>,
 }
 
 impl Torii {
@@ -68,6 +70,7 @@ impl Torii {
         sumeragi: SumeragiHandle,
         query_service: LiveQueryStoreHandle,
         kura: Arc<Kura>,
+        state: Arc<State>,
     ) -> Self {
         Self {
             chain_id: Arc::new(chain_id),
@@ -78,6 +81,7 @@ impl Torii {
             sumeragi,
             query_service,
             kura,
+            state,
             address: config.address,
             transaction_max_content_length: config.max_content_len_bytes,
         }
@@ -119,9 +123,9 @@ impl Torii {
                     )))
                 }))
             .or(warp::path(uri::API_VERSION)
-                .and(add_state!(self.sumeragi.clone()))
-                .and_then(|sumeragi| async {
-                    Ok::<_, Infallible>(routing::handle_version(sumeragi).await)
+                .and(add_state!(self.state.clone()))
+                .and_then(|state| async {
+                    Ok::<_, Infallible>(routing::handle_version(state).await)
                 }));
 
         #[cfg(feature = "schema")]
@@ -157,7 +161,7 @@ impl Torii {
                 endpoint4(
                     routing::handle_transaction,
                     warp::path(uri::TRANSACTION)
-                        .and(add_state!(self.chain_id, self.queue, self.sumeragi))
+                        .and(add_state!(self.chain_id, self.queue, self.state.clone()))
                         .and(warp::body::content_length_limit(
                             self.transaction_max_content_length,
                         ))
@@ -166,7 +170,7 @@ impl Torii {
                 .or(endpoint3(
                     routing::handle_queries,
                     warp::path(uri::QUERY)
-                        .and(add_state!(self.query_service, self.sumeragi,))
+                        .and(add_state!(self.query_service, self.state.clone(),))
                         .and(routing::client_query_request()),
                 ))
                 .or(endpoint2(

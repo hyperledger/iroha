@@ -50,6 +50,7 @@ iroha_telemetry = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_genesis = { workspace = true }
 iroha_wasm_codec = { workspace = true }
+storage = { workspace = true, features = ["serde"] }
 
 async-trait = { workspace = true }
 dashmap = { workspace = true }
