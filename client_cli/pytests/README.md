@@ -39,27 +39,29 @@ This test framework uses [Poetry](https://python-poetry.org/) for dependency man
 
 1. Install Poetry by following the [official installation guide](https://python-poetry.org/docs/#installation).
 
-2. Navigate to the `client_cli/pytest` directory in your terminal.
+2. Navigate to the `client_cli/pytests` directory in your terminal.
 
 3. Install the dependencies and set up a virtual environment using Poetry:
-
-   ```bash
-   poetry install
-   
+    ```bash
+    poetry install
+    ```
 4. Activate the virtual environment:
-    ```bash
-    poetry shell
-Now, you should be in the virtual environment with all the required dependencies installed. All the subsequent commands (e.g., pytest, allure) should be executed within this virtual environment.
-
-5. When you're done working in the virtual environment, deactivate it by running:
-    ```bash
-    exit
+	```bash
+	poetry shell
+	```
+	Now, you should be in the virtual environment with all the required dependencies installed. All the subsequent commands (e.g., pytest, allure) should be executed within this virtual environment.
+ 5. When you're done working in the virtual environment, deactivate it by running:
+	```bash
+	exit
+	```
 
 ## Run tests
 
 To run tests and generate a report in the allure-results folder, execute the following command:
 
-```pytest -k "not xfail" --alluredir allure-results```
+```bash
+pytest -k "not xfail" --alluredir allure-results
+```
 
 The `--alluredir` option specifies the directory where the report should be stored.
 
@@ -67,7 +69,9 @@ The `--alluredir` option specifies the directory where the report should be stor
 
 To launch a web server that serves the Allure report generated, run:
 
-```allure serve allure-results```
+```bash
+allure serve allure-results
+```
 
 The `allure-results` argument specifies the directory where the report is stored. After running this command, you should be able to view the report in your web browser by navigating to `http://localhost:port`, where port is the port number displayed in the console output.
 
