@@ -34,6 +34,7 @@ cmake-build-debug/*
 external/*
 core/infra/protobuf
 include/generated/*
+.obsidian/
 .scannerwork/
 peers.list
 cmake-build*
