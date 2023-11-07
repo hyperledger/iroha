@@ -43,7 +43,7 @@ class Iroha(ClientCli):
         """
         return self
 
-    def domains(self) -> List[str]:
+    def domains(self) -> Dict[str, Dict]:
         """
         Retrieve domains from the Iroha network and return then as list of ids.
 
@@ -52,8 +52,8 @@ class Iroha(ClientCli):
         """
         self._execute_command('domain')
         domains = json.loads(self.stdout)
-        domains = [domain["id"] for domain in domains]
-        return domains
+        domains_dict = { domain["id"]: domain for domain in domains }
+        return domains_dict
 
     def accounts(self) -> List[str]:
         """

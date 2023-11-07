@@ -246,18 +246,23 @@ class ClientCli:
         """
         return self
 
-    def execute(self):
+    def execute(self, command=None):
         """
         Executes the command and captures stdout and stderr.
 
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        command = '\n'.join(self.command)
-        with allure.step(f'{command} on the {str(self.config.torii_api_port)} peer'):
+        if command is None:
+            command = self.command
+        else:
+            command = [self.BASE_PATH] + self.BASE_FLAGS + command.split()
+        allure_command = ' '.join(map(str, command[3:]))
+        print(allure_command)
+        with allure.step(f'{allure_command} on the {str(self.config.torii_api_port)} peer'):
             try:
                 with subprocess.Popen(
-                        self.command,
+                        command,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         text=True

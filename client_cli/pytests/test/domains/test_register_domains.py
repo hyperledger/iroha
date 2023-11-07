@@ -15,7 +15,7 @@ def test_register_domain(
         GIVEN_fake_name):
     with allure.step(
             f'WHEN client_cli registers the domain name "{GIVEN_fake_name}"'):
-        client_cli.register().domain(GIVEN_fake_name)
+        client_cli.execute(f'domain register --id={GIVEN_fake_name}')
     with allure.step(
             f'THEN Iroha should have the domain name "{GIVEN_fake_name}"'):
         iroha.should(have.domain(GIVEN_fake_name))
