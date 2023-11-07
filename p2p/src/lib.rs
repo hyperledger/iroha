@@ -71,8 +71,8 @@ pub enum CryptographicError {
     /// Encryption failed
     #[from(ignore)]
     Encrypt(aead::Error),
-    /// Ursa Cryptography error
-    Ursa(CryptoError),
+    /// Cryptography error
+    Crypto(CryptoError),
 }
 
 impl<T: Into<CryptographicError>> From<T> for Error {
