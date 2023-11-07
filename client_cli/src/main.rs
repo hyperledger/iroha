@@ -363,11 +363,13 @@ mod domain {
         /// List domains
         #[clap(subcommand)]
         List(List),
+        /// Transfer domain
+        Transfer(Transfer),
     }
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            match_all!((self, context), { Args::Register, Args::List })
+            match_all!((self, context), { Args::Register, Args::List, Args::Transfer })
         }
     }
 
@@ -418,6 +420,36 @@ mod domain {
             }?;
             context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
             Ok(())
+        }
+    }
+
+    /// Transfer a domain between accounts
+    #[derive(Debug, StructOpt)]
+    pub struct Transfer {
+        /// Domain name as double-quited string
+        #[structopt(short, long)]
+        pub id: DomainId,
+        /// Account from which to transfer (in form `name@domain_name')
+        #[structopt(short, long)]
+        pub from: AccountId,
+        /// Account to which to transfer (in form `name@domain_name')
+        #[structopt(short, long)]
+        pub to: AccountId,
+        /// The JSON/JSON5 file with key-value metadata pairs
+        #[structopt(short, long, default_value = "")]
+        pub metadata: super::Metadata,
+    }
+
+    impl RunArgs for Transfer {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let Self {
+                id,
+                from,
+                to,
+                metadata: Metadata(metadata),
+            } = self;
+            let transfer_domain = TransferExpr::new(from, id, to);
+            submit([transfer_domain], metadata, context).wrap_err("Failed to transfer domain")
         }
     }
 }
@@ -774,7 +806,7 @@ mod asset {
         /// Account from which to transfer (in form `name@domain_name')
         #[structopt(short, long)]
         pub from: AccountId,
-        /// Account from which to transfer (in form `name@domain_name')
+        /// Account to which to transfer (in form `name@domain_name')
         #[structopt(short, long)]
         pub to: AccountId,
         /// Asset id to transfer (in form like `name#domain_name')
