@@ -12,7 +12,7 @@ use iroha_data_model::{
     account::Account,
     asset::{AssetDefinition, AssetDefinitionId},
     domain::Domain,
-    isi::InstructionExpr,
+    isi::InstructionBox,
     prelude::*,
     transaction::TransactionLimits,
 };
@@ -22,7 +22,7 @@ use serde_json::json;
 /// Create block
 pub fn create_block(
     wsv: &mut WorldStateView,
-    instructions: Vec<InstructionExpr>,
+    instructions: Vec<InstructionBox>,
     account_id: AccountId,
     key_pair: KeyPair,
 ) -> CommittedBlock {
@@ -57,13 +57,13 @@ pub fn populate_wsv(
     accounts_per_domain: usize,
     assets_per_domain: usize,
     owner_id: &AccountId,
-) -> Vec<InstructionExpr> {
-    let mut instructions: Vec<InstructionExpr> = Vec::new();
+) -> Vec<InstructionBox> {
+    let mut instructions: Vec<InstructionBox> = Vec::new();
     for i in 0..domains {
         let domain_id = construct_domain_id(i);
         let domain = Domain::new(domain_id.clone());
-        instructions.push(RegisterExpr::new(domain).into());
-        let can_unregister_domain = GrantExpr::new(
+        instructions.push(Register::domain(domain).into());
+        let can_unregister_domain = Grant::permission_token(
             PermissionToken::new(
                 "CanUnregisterDomain".parse().unwrap(),
                 &json!({ "domain_id": domain_id.clone() }),
@@ -74,8 +74,8 @@ pub fn populate_wsv(
         for j in 0..accounts_per_domain {
             let account_id = construct_account_id(j, domain_id.clone());
             let account = Account::new(account_id.clone(), []);
-            instructions.push(RegisterExpr::new(account).into());
-            let can_unregister_account = GrantExpr::new(
+            instructions.push(Register::account(account).into());
+            let can_unregister_account = Grant::permission_token(
                 PermissionToken::new(
                     "CanUnregisterAccount".parse().unwrap(),
                     &json!({ "account_id": account_id.clone() }),
@@ -90,8 +90,8 @@ pub fn populate_wsv(
                 asset_definition_id.clone(),
                 iroha_data_model::asset::AssetValueType::Quantity,
             );
-            instructions.push(RegisterExpr::new(asset_definition).into());
-            let can_unregister_asset_definition = GrantExpr::new(
+            instructions.push(Register::asset_definition(asset_definition).into());
+            let can_unregister_asset_definition = Grant::permission_token(
                 PermissionToken::new(
                     "CanUnregisterAssetDefinition".parse().unwrap(),
                     &json!({ "asset_definition_id": asset_definition_id }),
@@ -109,23 +109,23 @@ pub fn delete_every_nth(
     accounts_per_domain: usize,
     assets_per_domain: usize,
     nth: usize,
-) -> Vec<InstructionExpr> {
-    let mut instructions: Vec<InstructionExpr> = Vec::new();
+) -> Vec<InstructionBox> {
+    let mut instructions: Vec<InstructionBox> = Vec::new();
     for i in 0..domains {
         let domain_id = construct_domain_id(i);
         if i % nth == 0 {
-            instructions.push(UnregisterExpr::new(domain_id.clone()).into());
+            instructions.push(Unregister::domain(domain_id.clone()).into());
         } else {
             for j in 0..accounts_per_domain {
                 if j % nth == 0 {
                     let account_id = construct_account_id(j, domain_id.clone());
-                    instructions.push(UnregisterExpr::new(account_id.clone()).into());
+                    instructions.push(Unregister::account(account_id.clone()).into());
                 }
             }
             for k in 0..assets_per_domain {
                 if k % nth == 0 {
                     let asset_definition_id = construct_asset_definition_id(k, domain_id.clone());
-                    instructions.push(UnregisterExpr::new(asset_definition_id).into());
+                    instructions.push(Unregister::asset_definition(asset_definition_id).into());
                 }
             }
         }
@@ -138,19 +138,19 @@ pub fn restore_every_nth(
     accounts_per_domain: usize,
     assets_per_domain: usize,
     nth: usize,
-) -> Vec<InstructionExpr> {
-    let mut instructions: Vec<InstructionExpr> = Vec::new();
+) -> Vec<InstructionBox> {
+    let mut instructions: Vec<InstructionBox> = Vec::new();
     for i in 0..domains {
         let domain_id = construct_domain_id(i);
         if i % nth == 0 {
             let domain = Domain::new(domain_id.clone());
-            instructions.push(RegisterExpr::new(domain).into());
+            instructions.push(Register::domain(domain).into());
         }
         for j in 0..accounts_per_domain {
             if j % nth == 0 || i % nth == 0 {
                 let account_id = construct_account_id(j, domain_id.clone());
                 let account = Account::new(account_id.clone(), []);
-                instructions.push(RegisterExpr::new(account).into());
+                instructions.push(Register::account(account).into());
             }
         }
         for k in 0..assets_per_domain {
@@ -160,7 +160,7 @@ pub fn restore_every_nth(
                     asset_definition_id,
                     iroha_data_model::asset::AssetValueType::Quantity,
                 );
-                instructions.push(RegisterExpr::new(asset_definition).into());
+                instructions.push(Register::asset_definition(asset_definition).into());
             }
         }
     }
@@ -186,7 +186,7 @@ pub fn build_wsv(account_id: &AccountId, key_pair: &KeyPair) -> WorldStateView {
         let wasm = std::fs::read(&path_to_executor)
             .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_executor.display()));
         let executor = Executor::new(WasmSmartContract::from_compiled(wasm));
-        UpgradeExpr::new(executor)
+        Upgrade::new(executor)
             .execute(account_id, &mut wsv)
             .expect("Failed to load executor");
     }

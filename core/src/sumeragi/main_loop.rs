@@ -1210,7 +1210,7 @@ mod tests {
 
         // Create "genesis" block
         // Creating an instruction
-        let fail_box: InstructionExpr = Fail::new("Dummy isi").into();
+        let fail_box: InstructionBox = Fail::new("Dummy isi".to_owned()).into();
 
         // Making two transactions that have the same instruction
         let tx = TransactionBuilder::new(alice_id.clone())
@@ -1231,10 +1231,10 @@ mod tests {
         kura.store_block(genesis);
 
         // Making two transactions that have the same instruction
-        let create_asset_definition1 = RegisterExpr::new(AssetDefinition::quantity(
+        let create_asset_definition1 = Register::asset_definition(AssetDefinition::quantity(
             "xor1#wonderland".parse().expect("Valid"),
         ));
-        let create_asset_definition2 = RegisterExpr::new(AssetDefinition::quantity(
+        let create_asset_definition2 = Register::asset_definition(AssetDefinition::quantity(
             "xor2#wonderland".parse().expect("Valid"),
         ));
 

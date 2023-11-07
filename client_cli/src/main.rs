@@ -391,7 +391,7 @@ mod domain {
                 id,
                 metadata: Metadata(metadata),
             } = self;
-            let create_domain = RegisterExpr::new(Domain::new(id));
+            let create_domain = iroha_client::data_model::isi::Register::domain(Domain::new(id));
             submit([create_domain], metadata, context).wrap_err("Failed to create domain")
         }
     }
@@ -449,7 +449,7 @@ mod domain {
                 to,
                 metadata: Metadata(metadata),
             } = self;
-            let transfer_domain = TransferExpr::new(from, id, to);
+            let transfer_domain = iroha_client::data_model::isi::Transfer::domain(from, id, to);
             submit([transfer_domain], metadata, context).wrap_err("Failed to transfer domain")
         }
     }
@@ -512,7 +512,8 @@ mod account {
                 key,
                 metadata: Metadata(metadata),
             } = self;
-            let create_account = RegisterExpr::new(Account::new(id, [key]));
+            let create_account =
+                iroha_client::data_model::isi::Register::account(Account::new(id, [key]));
             submit([create_account], metadata, context).wrap_err("Failed to register account")
         }
     }
@@ -558,12 +559,12 @@ mod account {
 
     impl RunArgs for SignatureCondition {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let account = Account::new(context.configuration().account_id.clone(), []);
+            let account_id = context.configuration().account_id.clone();
             let Self {
                 condition: Signature(condition),
                 metadata: Metadata(metadata),
             } = self;
-            let mint_box = MintExpr::new(account, EvaluatesTo::new_unchecked(condition));
+            let mint_box = Mint::account_signature_check_condition(condition, account_id);
             submit([mint_box], metadata, context).wrap_err("Failed to set signature condition")
         }
     }
@@ -634,7 +635,7 @@ mod account {
                 permission,
                 metadata: Metadata(metadata),
             } = self;
-            let grant = GrantExpr::new(permission.0, id);
+            let grant = iroha_client::data_model::isi::Grant::permission_token(permission.0, id);
             submit([grant], metadata, context)
                 .wrap_err("Failed to grant the permission to the account")
         }
@@ -727,7 +728,8 @@ mod asset {
             if unmintable {
                 asset_definition = asset_definition.mintable_once();
             }
-            let create_asset_definition = RegisterExpr::new(asset_definition);
+            let create_asset_definition =
+                iroha_client::data_model::isi::Register::asset_definition(asset_definition);
             submit([create_asset_definition], metadata, context)
                 .wrap_err("Failed to register asset")
         }
@@ -758,9 +760,9 @@ mod asset {
                 quantity,
                 metadata: Metadata(metadata),
             } = self;
-            let mint_asset = MintExpr::new(
-                quantity.to_value(),
-                IdBox::AssetId(AssetId::new(asset, account)),
+            let mint_asset = iroha_client::data_model::isi::Mint::asset_quantity(
+                quantity,
+                AssetId::new(asset, account),
             );
             submit([mint_asset], metadata, context)
                 .wrap_err("Failed to mint asset of type `NumericValue::U32`")
@@ -792,9 +794,9 @@ mod asset {
                 quantity,
                 metadata: Metadata(metadata),
             } = self;
-            let burn_asset = BurnExpr::new(
-                quantity.to_value(),
-                IdBox::AssetId(AssetId::new(asset, account)),
+            let burn_asset = iroha_client::data_model::isi::Burn::asset_quantity(
+                quantity,
+                AssetId::new(asset, account),
             );
             submit([burn_asset], metadata, context)
                 .wrap_err("Failed to burn asset of type `NumericValue::U32`")
@@ -830,10 +832,10 @@ mod asset {
                 quantity,
                 metadata: Metadata(metadata),
             } = self;
-            let transfer_asset = TransferExpr::new(
-                IdBox::AssetId(AssetId::new(asset_id, from)),
-                quantity.to_value(),
-                IdBox::AccountId(to),
+            let transfer_asset = iroha_client::data_model::isi::Transfer::asset_quantity(
+                AssetId::new(asset_id, from),
+                quantity,
+                to,
             );
             submit([transfer_asset], metadata, context).wrap_err("Failed to transfer asset")
         }
@@ -934,7 +936,9 @@ mod peer {
                 key,
                 metadata: Metadata(metadata),
             } = self;
-            let register_peer = RegisterExpr::new(Peer::new(PeerId::new(&address, &key)));
+            let register_peer = iroha_client::data_model::isi::Register::peer(Peer::new(
+                PeerId::new(&address, &key),
+            ));
             submit([register_peer], metadata, context).wrap_err("Failed to register peer")
         }
     }
@@ -960,7 +964,8 @@ mod peer {
                 key,
                 metadata: Metadata(metadata),
             } = self;
-            let unregister_peer = UnregisterExpr::new(IdBox::PeerId(PeerId::new(&address, &key)));
+            let unregister_peer =
+                iroha_client::data_model::isi::Unregister::peer(PeerId::new(&address, &key));
             submit([unregister_peer], metadata, context).wrap_err("Failed to unregister peer")
         }
     }
@@ -1017,7 +1022,7 @@ mod json {
             reader.read_to_end(&mut raw_content)?;
 
             let string_content = String::from_utf8(raw_content)?;
-            let instructions: Vec<InstructionExpr> = json5::from_str(&string_content)?;
+            let instructions: Vec<InstructionBox> = json5::from_str(&string_content)?;
             submit(instructions, UnlimitedMetadata::new(), context)
                 .wrap_err("Failed to submit parsed instructions")
         }

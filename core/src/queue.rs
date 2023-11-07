@@ -512,7 +512,7 @@ mod tests {
                 .build()
                 .expect("Default queue config should always build")
         });
-        let instructions: [InstructionExpr; 0] = [];
+        let instructions: [InstructionBox; 0] = [];
         let tx = TransactionBuilder::new("alice@wonderland".parse().expect("Valid"))
             .with_instructions(instructions);
         let tx_limits = TransactionLimits {

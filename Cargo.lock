@@ -2935,20 +2935,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha_dsl"
-version = "2.0.0-pre-rc.20"
-dependencies = [
- "iroha_client",
- "iroha_config",
- "iroha_crypto",
- "iroha_data_model",
- "litrs",
- "proc-macro2",
- "quote",
- "serde_json",
-]
-
-[[package]]
 name = "iroha_executor"
 version = "2.0.0-pre-rc.20"
 dependencies = [
@@ -3581,15 +3567,6 @@ name = "linux-raw-sys"
 version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "969488b55f8ac402214f3f5fd243ebb7206cf82de60d3172994707a4bcc2b829"
-
-[[package]]
-name = "litrs"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f17c3668f3cc1132437cdadc93dab05e52d592f06948d3f64828430c36e4a70"
-dependencies = [
- "proc-macro2",
-]
 
 [[package]]
 name = "lock_api"

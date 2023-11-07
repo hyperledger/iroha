@@ -9,6 +9,7 @@ use iroha_client::{
     },
 };
 use iroha_crypto::KeyPair;
+use iroha_data_model::isi::InstructionBox;
 use test_network::*;
 
 use super::Configuration;
@@ -23,18 +24,19 @@ fn long_multiple_blocks_created() -> Result<()> {
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    client.submit_blocking(
+    client.submit_all_blocking(
         ParametersBuilder::new()
             .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
             .into_set_parameters(),
     )?;
 
-    let create_domain = RegisterExpr::new(Domain::new("domain".parse()?));
+    let create_domain: InstructionBox = Register::domain(Domain::new("domain".parse()?)).into();
     let account_id: AccountId = "account@domain".parse()?;
     let (public_key, _) = KeyPair::generate()?.into();
-    let create_account = RegisterExpr::new(Account::new(account_id.clone(), [public_key]));
+    let create_account = Register::account(Account::new(account_id.clone(), [public_key])).into();
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
-    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let create_asset =
+        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone())).into();
 
     client.submit_all([create_domain, create_account, create_asset])?;
 
@@ -44,12 +46,9 @@ fn long_multiple_blocks_created() -> Result<()> {
     //When
     for _ in 0..N_BLOCKS {
         let quantity: u32 = 1;
-        let mint_asset = MintExpr::new(
-            quantity.to_value(),
-            IdBox::AssetId(AssetId::new(
-                asset_definition_id.clone(),
-                account_id.clone(),
-            )),
+        let mint_asset = Mint::asset_quantity(
+            quantity,
+            AssetId::new(asset_definition_id.clone(), account_id.clone()),
         );
         client.submit(mint_asset)?;
         account_has_quantity += quantity;

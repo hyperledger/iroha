@@ -233,9 +233,7 @@ pub fn derive_ref_into_domain_owner(input: TokenStream) -> Result<TokenStream> {
 }
 
 /// Implements the `iroha_executor::Validate` trait for the given `Executor` struct. As
-/// this trait has a `iroha_executor::prelude::Visit`, and the latter has an
-/// `iroha_executor::data_model::evaluate::ExpressionEvaluator`
-/// bound, at least these two should be implemented as well.
+/// this trait has a `iroha_executor::prelude::Visit` at least this one should be implemented as well.
 ///
 /// Emits a compile error if the struct didn't have all the expected fields with corresponding
 /// types, i.e. `verdict`: `iroha_executor::prelude::Result`, `block_height`: `u64` and
@@ -271,7 +269,7 @@ pub fn derive_validate(input: TokenStream) -> TokenStream {
 /// ```ignore
 /// use iroha_executor::{smart_contract, prelude::*};
 ///
-/// #[derive(Constructor, Entrypoints, ExpressionEvaluator, Validate, Visit)]
+/// #[derive(Constructor, Entrypoints, Validate, Visit)]
 /// #[visit(custom(visit_query)]
 /// pub struct Executor {
 ///    verdict: Result,
@@ -318,7 +316,7 @@ pub fn derive_visit(input: TokenStream) -> TokenStream {
 /// ```ignore
 /// use iroha_executor::{smart_contract, prelude::*};
 ///
-/// #[derive(Constructor, Entrypoints, ExpressionEvaluator, Validate, Visit)]
+/// #[derive(Constructor, Entrypoints, Validate, Visit)]
 /// #[entrypoints(custom(validate_query))]
 /// pub struct Executor {
 ///    verdict: Result,
@@ -337,27 +335,6 @@ pub fn derive_entrypoints(input: TokenStream) -> TokenStream {
     };
 
     let result = default::impl_derive_entrypoints(&mut emitter, &input);
-
-    emitter.finish_token_stream_with(result)
-}
-
-/// Implements `iroha_executor::data_model::evaluate::ExpressionEvaluator` trait
-/// for the given `Executor` struct.
-///
-/// Emits a compile error if the struct didn't have all the expected fields with corresponding
-/// types, i.e. `verdict`: `iroha_executor::prelude::Result`, `block_height`: `u64` and
-/// `host`: `iroha_executor::smart_contract::Host`, though technically only `host` is needed.
-/// The types can be unqualified, but not aliased.
-#[manyhow]
-#[proc_macro_derive(ExpressionEvaluator)]
-pub fn derive_expression_evaluator(input: TokenStream) -> TokenStream {
-    let mut emitter = Emitter::new();
-
-    let Some(input) = emitter.handle(syn2::parse2(input)) else {
-        return emitter.finish_token_stream();
-    };
-
-    let result = default::impl_derive_expression_evaluator(&mut emitter, &input);
 
     emitter.finish_token_stream_with(result)
 }

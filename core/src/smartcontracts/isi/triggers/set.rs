@@ -862,7 +862,7 @@ pub enum LoadedExecutable {
     /// Loaded WASM
     Wasm(LoadedWasm),
     /// Vector of ISI
-    Instructions(Vec<InstructionExpr>),
+    Instructions(Vec<InstructionBox>),
 }
 
 impl core::fmt::Debug for LoadedExecutable {

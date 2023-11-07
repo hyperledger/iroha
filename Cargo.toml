@@ -218,7 +218,6 @@ members = [
   "genesis",
   "primitives",
   "primitives/derive",
-  "dsl",
   "ffi",
   "ffi/derive",
   "futures",

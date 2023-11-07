@@ -14,9 +14,13 @@ fn failed_trigger_revert() -> Result<()> {
     let trigger_id = TriggerId::from_str("trigger")?;
     let account_id = AccountId::from_str("alice@wonderland")?;
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland")?;
-    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
-    let instructions: [InstructionExpr; 2] = [create_asset.into(), Fail::new("Always fail").into()];
-    let register_trigger = RegisterExpr::new(Trigger::new(
+    let create_asset =
+        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+    let instructions: [InstructionBox; 2] = [
+        create_asset.into(),
+        Fail::new("Always fail".to_owned()).into(),
+    ];
+    let register_trigger = Register::trigger(Trigger::new(
         trigger_id.clone(),
         Action::new(
             instructions,
@@ -30,7 +34,7 @@ fn failed_trigger_revert() -> Result<()> {
     ));
     let _ = client.submit_blocking(register_trigger);
 
-    let call_trigger = ExecuteTriggerExpr::new(trigger_id);
+    let call_trigger = ExecuteTrigger::new(trigger_id);
     client.submit_blocking(call_trigger)?;
 
     //Then

@@ -21,7 +21,7 @@ fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
     ));
     wait_for_genesis_committed(&network.clients(), 1);
 
-    client.submit_blocking(
+    client.submit_all_blocking(
         ParametersBuilder::new()
             .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
             .into_set_parameters(),

@@ -1472,14 +1472,12 @@ pub mod account {
     }
 
     /// Construct a query to get account by id
-    pub fn by_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindAccountById {
+    pub fn by_id(account_id: AccountId) -> FindAccountById {
         FindAccountById::new(account_id)
     }
 
     /// Construct a query to get all accounts containing specified asset
-    pub fn all_with_asset(
-        asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
-    ) -> FindAccountsWithAsset {
+    pub fn all_with_asset(asset_definition_id: AssetDefinitionId) -> FindAccountsWithAsset {
         FindAccountsWithAsset::new(asset_definition_id)
     }
 }
@@ -1499,19 +1497,17 @@ pub mod asset {
     }
 
     /// Construct a query to get asset definition by its id
-    pub fn definition_by_id(
-        asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
-    ) -> FindAssetDefinitionById {
+    pub fn definition_by_id(asset_definition_id: AssetDefinitionId) -> FindAssetDefinitionById {
         FindAssetDefinitionById::new(asset_definition_id)
     }
 
     /// Construct a query to get all assets by account id
-    pub fn by_account_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindAssetsByAccountId {
+    pub fn by_account_id(account_id: AccountId) -> FindAssetsByAccountId {
         FindAssetsByAccountId::new(account_id)
     }
 
     /// Construct a query to get an asset by its id
-    pub fn by_id(asset_id: impl Into<EvaluatesTo<AssetId>>) -> FindAssetById {
+    pub fn by_id(asset_id: AssetId) -> FindAssetById {
         FindAssetById::new(asset_id)
     }
 }
@@ -1532,9 +1528,7 @@ pub mod block {
     }
 
     /// Construct a query to find block header by hash
-    pub fn header_by_hash(
-        hash: impl Into<EvaluatesTo<HashOf<SignedBlock>>>,
-    ) -> FindBlockHeaderByHash {
+    pub fn header_by_hash(hash: HashOf<SignedBlock>) -> FindBlockHeaderByHash {
         FindBlockHeaderByHash::new(hash)
     }
 }
@@ -1549,7 +1543,7 @@ pub mod domain {
     }
 
     /// Construct a query to get all domain by id
-    pub fn by_id(domain_id: impl Into<EvaluatesTo<DomainId>>) -> FindDomainById {
+    pub fn by_id(domain_id: DomainId) -> FindDomainById {
         FindDomainById::new(domain_id)
     }
 }
@@ -1565,16 +1559,12 @@ pub mod transaction {
     }
 
     /// Construct a query to retrieve transactions for account
-    pub fn by_account_id(
-        account_id: impl Into<EvaluatesTo<AccountId>>,
-    ) -> FindTransactionsByAccountId {
+    pub fn by_account_id(account_id: AccountId) -> FindTransactionsByAccountId {
         FindTransactionsByAccountId::new(account_id)
     }
 
     /// Construct a query to retrieve transaction by hash
-    pub fn by_hash(
-        hash: impl Into<EvaluatesTo<HashOf<SignedTransaction>>>,
-    ) -> FindTransactionByHash {
+    pub fn by_hash(hash: HashOf<SignedTransaction>) -> FindTransactionByHash {
         FindTransactionByHash::new(hash)
     }
 }
@@ -1584,7 +1574,7 @@ pub mod trigger {
     use super::*;
 
     /// Construct a query to get triggers by domain id
-    pub fn by_domain_id(domain_id: impl Into<EvaluatesTo<DomainId>>) -> FindTriggersByDomainId {
+    pub fn by_domain_id(domain_id: DomainId) -> FindTriggersByDomainId {
         FindTriggersByDomainId::new(domain_id)
     }
 }
@@ -1600,10 +1590,8 @@ pub mod permission {
 
     /// Construct a query to get all [`PermissionToken`] granted
     /// to account with given [`Id`][AccountId]
-    pub fn by_account_id(
-        account_id: impl Into<EvaluatesTo<AccountId>>,
-    ) -> FindPermissionTokensByAccountId {
-        FindPermissionTokensByAccountId::new(account_id.into())
+    pub fn by_account_id(account_id: AccountId) -> FindPermissionTokensByAccountId {
+        FindPermissionTokensByAccountId::new(account_id)
     }
 }
 
@@ -1622,12 +1610,12 @@ pub mod role {
     }
 
     /// Construct a query to retrieve a role by its id
-    pub fn by_id(role_id: impl Into<EvaluatesTo<RoleId>>) -> FindRoleByRoleId {
+    pub fn by_id(role_id: RoleId) -> FindRoleByRoleId {
         FindRoleByRoleId::new(role_id)
     }
 
     /// Construct a query to retrieve all roles for an account
-    pub fn by_account_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindRolesByAccountId {
+    pub fn by_account_id(account_id: AccountId) -> FindRolesByAccountId {
         FindRolesByAccountId::new(account_id)
     }
 }
@@ -1681,7 +1669,7 @@ mod tests {
 
         let build_transaction = || {
             client
-                .build_transaction(Vec::<InstructionExpr>::new(), UnlimitedMetadata::new())
+                .build_transaction(Vec::<InstructionBox>::new(), UnlimitedMetadata::new())
                 .unwrap()
         };
         let tx1 = build_transaction();
@@ -1754,13 +1742,6 @@ mod tests {
                     )),
                 ),
                 (StatusCode::UNPROCESSABLE_ENTITY, ValidationFail::TooComplex),
-                (
-                    StatusCode::NOT_FOUND,
-                    // Here should be `Find`, but actually handler doesn't care
-                    ValidationFail::QueryFailed(QueryExecutionFail::Evaluate(
-                        "whatever".to_owned(),
-                    )),
-                ),
             ];
             for (status_code, err) in responses {
                 let resp = Response::builder().status(status_code).body(err.encode())?;
