@@ -55,6 +55,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "amcl"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee5cca1ddc8b9dceb55b7f1272a9d1e643d73006f350a20ab4926d24e33f0f0d"
+
+[[package]]
 name = "amcl_wrapper"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1401,7 +1407,6 @@ dependencies = [
  "ff",
  "generic-array 0.14.7",
  "group",
- "hkdf",
  "pkcs8",
  "rand_core 0.6.4",
  "sec1",
@@ -2840,13 +2845,16 @@ name = "iroha_crypto"
 version = "2.0.0-pre-rc.20"
 dependencies = [
  "aead",
+ "amcl",
  "amcl_wrapper",
  "arrayref",
  "blake2",
  "chacha20poly1305",
  "curve25519-dalek",
  "derive_more",
+ "digest 0.10.7",
  "ed25519-dalek",
+ "elliptic-curve",
  "getset",
  "hex",
  "hex-literal",

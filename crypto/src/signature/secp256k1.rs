@@ -1,14 +1,12 @@
 // TODO: clean up & remove
-#![allow(missing_docs)]
-
-use rand::rngs::OsRng;
-use sha2::digest::generic_array::typenum::U32;
+#![allow(missing_docs, unused)]
 
 use crate::{Algorithm, Error, KeyGenOption, PrivateKey, PublicKey};
 
 pub const PRIVATE_KEY_SIZE: usize = 32;
 pub const PUBLIC_KEY_SIZE: usize = 33;
 pub const SIGNATURE_SIZE: usize = 64;
+pub const PUBLIC_UNCOMPRESSED_KEY_SIZE: usize = 65;
 
 const ALGORITHM: Algorithm = Algorithm::Secp256k1;
 
@@ -45,30 +43,64 @@ impl EcdsaSecp256k1Sha256 {
 }
 
 mod ecdsa_secp256k1 {
+    use amcl::secp256k1::ecp;
     use arrayref::array_ref;
+    use digest::{consts::U32, Digest};
+    use ed25519_dalek::{Signer, Verifier};
+    use elliptic_curve::sec1::FromEncodedPoint;
     use iroha_primitives::const_vec::ConstVec;
-    use rand::{RngCore, SeedableRng};
+    use k256;
+    use rand::{rngs::OsRng, RngCore, SeedableRng};
     use rand_chacha::ChaChaRng;
-    use secp256k1;
-    use sha2::Digest;
     use zeroize::Zeroize;
 
-    use super::*;
+    use super::{ALGORITHM, PRIVATE_KEY_SIZE, PUBLIC_KEY_SIZE, PUBLIC_UNCOMPRESSED_KEY_SIZE};
+    use crate::{Error, KeyGenOption, PrivateKey, PublicKey};
 
-    pub struct EcdsaSecp256k1Impl(secp256k1::Secp256k1<secp256k1::All>);
+    pub struct EcdsaSecp256k1Impl;
 
     impl EcdsaSecp256k1Impl {
-        pub fn new() -> Self {
-            Self(secp256k1::Secp256k1::new())
+        pub fn public_key_compressed(&self, pk: &PublicKey) -> Vec<u8> {
+            assert_eq!(pk.digest_function, ALGORITHM);
+            let mut compressed = [0u8; PUBLIC_KEY_SIZE];
+            ecp::ECP::frombytes(&pk.payload[..]).tobytes(&mut compressed, true);
+            compressed.to_vec()
         }
-        pub(crate) fn keypair<D>(
+
+        pub fn public_key_uncompressed(&self, pk: &PublicKey) -> Vec<u8> {
+            assert_eq!(pk.digest_function, ALGORITHM);
+            let mut uncompressed = [0u8; PUBLIC_UNCOMPRESSED_KEY_SIZE];
+            ecp::ECP::frombytes(&pk.payload[..]).tobytes(&mut uncompressed, false);
+            uncompressed.to_vec()
+        }
+
+        pub fn parse(&self, data: &[u8]) -> Result<PublicKey, Error> {
+            match data.len() {
+                PUBLIC_KEY_SIZE => Ok(PublicKey {
+                    digest_function: ALGORITHM,
+                    payload: ConstVec::new(data.to_vec()),
+                }),
+                PUBLIC_UNCOMPRESSED_KEY_SIZE => {
+                    let mut compressed = [0u8; PUBLIC_KEY_SIZE];
+                    ecp::ECP::frombytes(data).tobytes(&mut compressed, true);
+                    Ok(PublicKey {
+                        digest_function: ALGORITHM,
+                        payload: ConstVec::new(compressed.to_vec()),
+                    })
+                }
+                _ => Err(Error::Parse("Invalid key length".to_string())),
+            }
+        }
+
+        pub fn new() -> Self {
+            Self {}
+        }
+
+        pub fn keypair<D: Digest<OutputSize = U32>>(
             &self,
             option: Option<KeyGenOption>,
-        ) -> Result<(PublicKey, PrivateKey), Error>
-        where
-            D: Digest<OutputSize = U32>,
-        {
-            let sk = match option {
+        ) -> Result<(PublicKey, PrivateKey), Error> {
+            let signing_key = match option {
                 Some(mut o) => match o {
                     KeyGenOption::UseSeed(ref mut seed) => {
                         let mut s = [0u8; PRIVATE_KEY_SIZE];
@@ -77,44 +109,43 @@ mod ecdsa_secp256k1 {
                         rng.fill_bytes(&mut s);
                         let k = D::digest(&s);
                         s.zeroize();
-                        secp256k1::SecretKey::from_slice(k.as_slice())?
+                        k256::SecretKey::from_slice(k.as_slice())?
                     }
                     KeyGenOption::FromPrivateKey(ref s) => {
                         assert_eq!(s.digest_function, ALGORITHM);
-                        secp256k1::SecretKey::from_slice(&s.payload[..])?
+                        k256::SecretKey::from_slice(&s.payload[..])?
                     }
                 },
-                None => {
-                    let mut s = [0u8; PRIVATE_KEY_SIZE];
-                    OsRng.fill_bytes(&mut s);
-                    let k = D::digest(&s);
-                    s.zeroize();
-                    secp256k1::SecretKey::from_slice(k.as_slice())?
-                }
+                None => k256::SecretKey::random(&mut OsRng),
             };
-            let pk = secp256k1::PublicKey::from_secret_key(&self.0, &sk);
+
+            let public_key = signing_key.public_key();
+            let compressed = public_key.to_sec1_bytes(); //serialized as compressed point
             Ok((
                 PublicKey {
                     digest_function: ALGORITHM,
-                    payload: ConstVec::new(pk.serialize().to_vec()),
+                    payload: ConstVec::new(compressed),
                 },
                 PrivateKey {
                     digest_function: ALGORITHM,
-                    payload: ConstVec::new(sk[..].to_vec()),
+                    payload: ConstVec::new(signing_key.to_bytes().to_vec()),
                 },
             ))
         }
+
         pub fn sign<D>(&self, message: &[u8], sk: &PrivateKey) -> Result<Vec<u8>, Error>
         where
             D: Digest<OutputSize = U32>,
         {
             assert_eq!(sk.digest_function, ALGORITHM);
-            let h = D::digest(message);
-            let msg = secp256k1::Message::from_digest_slice(h.as_slice())?;
-            let s = secp256k1::SecretKey::from_slice(&sk.payload[..])?;
-            let sig = self.0.sign_ecdsa(&msg, &s);
-            Ok(sig.serialize_compact().to_vec())
+            let signing_key = k256::SecretKey::from_slice(&sk.payload[..])
+                .map_err(|e| Error::Signing(format!("{:?}", e)))?;
+            let signing_key = k256::ecdsa::SigningKey::from(signing_key);
+
+            let signature: k256::ecdsa::Signature = signing_key.sign(message);
+            Ok(signature.to_bytes().to_vec())
         }
+
         pub fn verify<D>(
             &self,
             message: &[u8],
@@ -124,50 +155,31 @@ mod ecdsa_secp256k1 {
         where
             D: Digest<OutputSize = U32>,
         {
-            assert_eq!(pk.digest_function, ALGORITHM);
-            let h = D::digest(message);
-            let msg = secp256k1::Message::from_digest_slice(h.as_slice())?;
-            let p = secp256k1::PublicKey::from_slice(&pk.payload[..])?;
-            let sig = secp256k1::ecdsa::Signature::from_compact(signature)?;
-            let res = self.0.verify_ecdsa(&msg, &sig, &p);
-            match res {
-                Ok(()) => Ok(true),
-                Err(secp256k1::Error::IncorrectSignature) => Ok(false),
-                Err(err) => Err(Error::from(err)),
-            }
+            let compressed_pk = self.public_key_compressed(pk);
+            let verifying_key = k256::PublicKey::from_sec1_bytes(&compressed_pk)
+                .map_err(|e| Error::Signing(format!("{:?}", e)))?;
+            let signature = k256::ecdsa::Signature::from_slice(signature)
+                .map_err(|e| Error::Signing(format!("{:?}", e)))?;
+
+            let verifying_key = k256::ecdsa::VerifyingKey::from(verifying_key);
+
+            Ok(verifying_key.verify(message, &signature).is_ok())
         }
+
         pub fn normalize_s(&self, signature: &mut [u8]) -> Result<(), Error> {
-            let mut sig = secp256k1::ecdsa::Signature::from_compact(signature)?;
+            let mut sig = k256::ecdsa::Signature::from_slice(signature)
+                .map_err(|e| Error::Signing(format!("{:?}", e)))?;
             sig.normalize_s();
-            let compact = sig.serialize_compact();
-            signature.clone_from_slice(&compact[..]);
+            signature.copy_from_slice(&sig.to_bytes());
             Ok(())
         }
     }
 }
 
-impl From<secp256k1::Error> for Error {
-    fn from(error: secp256k1::Error) -> Error {
-        match error {
-            secp256k1::Error::IncorrectSignature => Error::Parse("Incorrect Signature".to_string()),
-            secp256k1::Error::InvalidMessage => Error::Parse("Invalid Message".to_string()),
-            secp256k1::Error::InvalidPublicKey => Error::Parse("Invalid Public Key".to_string()),
-            secp256k1::Error::InvalidSignature => Error::Parse("Invalid Signature".to_string()),
-            secp256k1::Error::InvalidSecretKey => Error::Parse("Invalid Secret Key".to_string()),
-            secp256k1::Error::InvalidRecoveryId => Error::Parse("Invalid Recovery Id".to_string()),
-            secp256k1::Error::InvalidTweak => Error::Parse("Invalid Tweak".to_string()),
-            secp256k1::Error::NotEnoughMemory => Error::Parse("Not Enough Memory".to_string()),
-            secp256k1::Error::InvalidSharedSecret => {
-                Error::Parse("Invalid Shared Secret".to_string())
-            }
-            secp256k1::Error::InvalidPublicKeySum => {
-                Error::Parse("Invalid Public Key Sum".to_string())
-            }
-            secp256k1::Error::InvalidParityValue(e) => {
-                Error::Parse(format!("Invalid Parity Value: {}", e))
-            }
-            secp256k1::Error::InvalidEllSwift => Error::Parse("Invalid Ell Swift".to_string()),
-        }
+impl From<elliptic_curve::Error> for Error {
+    fn from(error: elliptic_curve::Error) -> Error {
+        // rust crypto doesn't expose any kind of error information..
+        Error::Other(format!("{}", error))
     }
 }
 
