@@ -1,16 +1,7 @@
-// TODO: clean up & remove
-#![allow(missing_docs)]
-
 // Do not expose the [implementation] module & the [implementation::BlsConfiguration] trait
 mod implementation;
 
 pub const PRIVATE_KEY_SIZE: usize = amcl_wrapper::constants::MODBYTES;
-/// This is a simple alias so the consumer can just use PrivateKey::random() to generate a new one
-/// instead of wrapping it as a private field
-// pub type PrivateKey = FieldElement;
-
-const MESSAGE_CONTEXT: &[u8; 20] = b"for signing messages";
-const PUBLICKEY_CONTEXT: &[u8; 47] = b"for signing public keys for proof of possession";
 
 /// This version is the "normal" BLS signature scheme
 /// with the public key group in G1 and signature group in G2.

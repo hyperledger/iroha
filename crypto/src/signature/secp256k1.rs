@@ -1,22 +1,11 @@
-// TODO: clean up & remove
-#![allow(missing_docs, unused)]
-
 use crate::{Algorithm, Error, KeyGenOption, PrivateKey, PublicKey};
 
 pub const PRIVATE_KEY_SIZE: usize = 32;
 pub const PUBLIC_KEY_SIZE: usize = 33;
-pub const SIGNATURE_SIZE: usize = 64;
-pub const PUBLIC_UNCOMPRESSED_KEY_SIZE: usize = 65;
 
 const ALGORITHM: Algorithm = Algorithm::Secp256k1;
 
 pub struct EcdsaSecp256k1Sha256(ecdsa_secp256k1::EcdsaSecp256k1Impl);
-
-impl EcdsaSecp256k1Sha256 {
-    pub fn normalize_s(&self, signature: &mut [u8]) -> Result<(), Error> {
-        self.0.normalize_s(signature)
-    }
-}
 
 impl EcdsaSecp256k1Sha256 {
     pub fn new() -> Self {
@@ -31,15 +20,6 @@ impl EcdsaSecp256k1Sha256 {
     pub fn verify(&self, message: &[u8], signature: &[u8], pk: &PublicKey) -> Result<bool, Error> {
         self.0.verify::<sha2::Sha256>(message, signature, pk)
     }
-    pub const fn signature_size() -> usize {
-        SIGNATURE_SIZE
-    }
-    pub const fn private_key_size() -> usize {
-        PRIVATE_KEY_SIZE
-    }
-    pub const fn public_key_size() -> usize {
-        PUBLIC_KEY_SIZE
-    }
 }
 
 mod ecdsa_secp256k1 {
@@ -47,14 +27,13 @@ mod ecdsa_secp256k1 {
     use arrayref::array_ref;
     use digest::{consts::U32, Digest};
     use ed25519_dalek::{Signer, Verifier};
-    use elliptic_curve::sec1::FromEncodedPoint;
     use iroha_primitives::const_vec::ConstVec;
     use k256;
     use rand::{rngs::OsRng, RngCore, SeedableRng};
     use rand_chacha::ChaChaRng;
     use zeroize::Zeroize;
 
-    use super::{ALGORITHM, PRIVATE_KEY_SIZE, PUBLIC_KEY_SIZE, PUBLIC_UNCOMPRESSED_KEY_SIZE};
+    use super::{ALGORITHM, PRIVATE_KEY_SIZE, PUBLIC_KEY_SIZE};
     use crate::{Error, KeyGenOption, PrivateKey, PublicKey};
 
     pub struct EcdsaSecp256k1Impl;
@@ -65,31 +44,6 @@ mod ecdsa_secp256k1 {
             let mut compressed = [0u8; PUBLIC_KEY_SIZE];
             ecp::ECP::frombytes(&pk.payload[..]).tobytes(&mut compressed, true);
             compressed.to_vec()
-        }
-
-        pub fn public_key_uncompressed(&self, pk: &PublicKey) -> Vec<u8> {
-            assert_eq!(pk.digest_function, ALGORITHM);
-            let mut uncompressed = [0u8; PUBLIC_UNCOMPRESSED_KEY_SIZE];
-            ecp::ECP::frombytes(&pk.payload[..]).tobytes(&mut uncompressed, false);
-            uncompressed.to_vec()
-        }
-
-        pub fn parse(&self, data: &[u8]) -> Result<PublicKey, Error> {
-            match data.len() {
-                PUBLIC_KEY_SIZE => Ok(PublicKey {
-                    digest_function: ALGORITHM,
-                    payload: ConstVec::new(data.to_vec()),
-                }),
-                PUBLIC_UNCOMPRESSED_KEY_SIZE => {
-                    let mut compressed = [0u8; PUBLIC_KEY_SIZE];
-                    ecp::ECP::frombytes(data).tobytes(&mut compressed, true);
-                    Ok(PublicKey {
-                        digest_function: ALGORITHM,
-                        payload: ConstVec::new(compressed.to_vec()),
-                    })
-                }
-                _ => Err(Error::Parse("Invalid key length".to_string())),
-            }
         }
 
         pub fn new() -> Self {
@@ -165,237 +119,195 @@ mod ecdsa_secp256k1 {
 
             Ok(verifying_key.verify(message, &signature).is_ok())
         }
-
-        pub fn normalize_s(&self, signature: &mut [u8]) -> Result<(), Error> {
-            let mut sig = k256::ecdsa::Signature::from_slice(signature)
-                .map_err(|e| Error::Signing(format!("{:?}", e)))?;
-            sig.normalize_s();
-            signature.copy_from_slice(&sig.to_bytes());
-            Ok(())
-        }
     }
 }
 
 impl From<elliptic_curve::Error> for Error {
     fn from(error: elliptic_curve::Error) -> Error {
-        // rust crypto doesn't expose any kind of error information..
+        // RustCrypto doesn't expose any kind of error information =(
         Error::Other(format!("{}", error))
     }
 }
 
-// #[cfg(test)]
-// mod test {
-//     use openssl::{
-//         bn::{BigNum, BigNumContext},
-//         ec::{EcGroup, EcKey, EcPoint},
-//         ecdsa::EcdsaSig,
-//         nid::Nid,
-//     };
-//     use secp256k1;
-//     use sha2::Digest;
-//
-//     use super::{EcdsaPublicKeyHandler, *};
-//
-//     const MESSAGE_1: &[u8] = b"This is a dummy message for use with tests";
-//     const SIGNATURE_1: &str = "ae46d3fec8e2eb95ebeaf95f7f096ec4bf517f5ef898e4379651f8af8e209ed75f3c47156445d6687a5f817fb3e188e2a76df653b330df859ec47579c8c409be";
-//     const PRIVATE_KEY: &str = "e4f21b38e005d4f895a29e84948d7cc83eac79041aeb644ee4fab8d9da42f713";
-//     const PUBLIC_KEY: &str = "0242c1e1f775237a26da4fd51b8d75ee2709711f6e90303e511169a324ef0789c0";
-//
-//     #[test]
-//     #[ignore]
-//     fn create_new_keys() {
-//         let scheme = EcdsaSecp256k1Sha256::new();
-//         let (s, p) = scheme.keypair(None).unwrap();
-//
-//         println!("{:?}", s);
-//         println!("{:?}", p);
-//     }
-//
-//     #[test]
-//     fn secp256k1_load_keys() {
-//         let scheme = EcdsaSecp256k1Sha256::new();
-//         let secret = PrivateKey(hex::decode(PRIVATE_KEY).unwrap());
-//         let sres = scheme.keypair(Some(KeyGenOption::FromSecretKey(secret)));
-//         assert!(sres.is_ok());
-//         let pres = scheme.parse(hex::decode(PUBLIC_KEY).unwrap().as_slice());
-//         assert!(pres.is_ok());
-//         let (p1, _) = sres.unwrap();
-//         assert_eq!(p1, pres.unwrap());
-//     }
-//
-//     #[test]
-//     fn secp256k1_compatibility() {
-//         let scheme = EcdsaSecp256k1Sha256::new();
-//         let secret = PrivateKey(hex::decode(PRIVATE_KEY).unwrap());
-//         let (p, s) = scheme
-//             .keypair(Some(KeyGenOption::FromSecretKey(secret)))
-//             .unwrap();
-//
-//         let p_u = scheme.parse(&scheme.public_key_uncompressed(&p));
-//         assert!(p_u.is_ok());
-//         let p_u = p_u.unwrap();
-//         assert_eq!(p_u, p);
-//
-//         let sk = secp256k1::key::SecretKey::from_slice(&s[..]);
-//         assert!(sk.is_ok());
-//         let pk = secp256k1::key::PublicKey::from_slice(&p[..]);
-//         assert!(pk.is_ok());
-//         let pk = secp256k1::key::PublicKey::from_slice(&scheme.public_key_uncompressed(&p)[..]);
-//         assert!(pk.is_ok());
-//
-//         let openssl_group = EcGroup::from_curve_name(Nid::SECP256K1).unwrap();
-//         let mut ctx = BigNumContext::new().unwrap();
-//         let openssl_point = EcPoint::from_bytes(
-//             &openssl_group,
-//             &scheme.public_key_uncompressed(&p)[..],
-//             &mut ctx,
-//         );
-//         assert!(openssl_point.is_ok());
-//     }
-//
-//     #[test]
-//     fn secp256k1_verify() {
-//         let scheme = EcdsaSecp256k1Sha256::new();
-//         let p = PublicKey(hex::decode(PUBLIC_KEY).unwrap());
-//
-//         let result = scheme.verify(&MESSAGE_1, hex::decode(SIGNATURE_1).unwrap().as_slice(), &p);
-//         assert!(result.is_ok());
-//         assert!(result.unwrap());
-//
-//         let context = secp256k1::Secp256k1::new();
-//         let pk = secp256k1::key::PublicKey::from_slice(
-//             hex::decode(PUBLIC_KEY).unwrap().as_slice(),
-//         )
-//         .unwrap();
-//
-//         let h = sha2::Sha256::digest(&MESSAGE_1);
-//         let msg = secp256k1::Message::from_slice(h.as_slice()).unwrap();
-//
-//         //Check if signatures produced here can be verified by secp256k1
-//         let mut signature =
-//             secp256k1::Signature::from_compact(&hex::decode(SIGNATURE_1).unwrap()[..])
-//                 .unwrap();
-//         signature.normalize_s();
-//         let result = context.verify(&msg, &signature, &pk);
-//         assert!(result.is_ok());
-//
-//         let openssl_group = EcGroup::from_curve_name(Nid::SECP256K1).unwrap();
-//         let mut ctx = BigNumContext::new().unwrap();
-//         let openssl_point =
-//             EcPoint::from_bytes(&openssl_group, &pk.serialize_uncompressed(), &mut ctx).unwrap();
-//         let openssl_pkey = EcKey::from_public_key(&openssl_group, &openssl_point).unwrap();
-//
-//         //Check if the signatures produced here can be verified by openssl
-//         let (r, s) = SIGNATURE_1.split_at(SIGNATURE_1.len() / 2);
-//         let openssl_r = BigNum::from_hex_str(r).unwrap();
-//         let openssl_s = BigNum::from_hex_str(s).unwrap();
-//         let openssl_sig = EcdsaSig::from_private_components(openssl_r, openssl_s).unwrap();
-//         let openssl_result = openssl_sig.verify(h.as_slice(), &openssl_pkey);
-//         assert!(openssl_result.is_ok());
-//         assert!(openssl_result.unwrap());
-//     }
-//
-//     #[test]
-//     fn secp256k1_sign() {
-//         let scheme = EcdsaSecp256k1Sha256::new();
-//         let secret = PrivateKey(hex::decode(PRIVATE_KEY).unwrap());
-//         let (p, s) = scheme
-//             .keypair(Some(KeyGenOption::FromSecretKey(secret)))
-//             .unwrap();
-//
-//         match scheme.sign(MESSAGE_1, &s) {
-//             Ok(sig) => {
-//                 let result = scheme.verify(&MESSAGE_1, &sig, &p);
-//                 assert!(result.is_ok());
-//                 assert!(result.unwrap());
-//
-//                 assert_eq!(sig.len(), SIGNATURE_SIZE);
-//
-//                 //Check if secp256k1 signs the message and this module still can verify it
-//                 //And that private keys can sign with other libraries
-//                 let context = secp256k1::Secp256k1::new();
-//                 let sk = secp256k1::key::SecretKey::from_slice(
-//                     hex::decode(PRIVATE_KEY).unwrap().as_slice(),
-//                 )
-//                 .unwrap();
-//
-//                 let h = sha2::Sha256::digest(&MESSAGE_1);
-//
-//                 let msg = secp256k1::Message::from_slice(h.as_slice()).unwrap();
-//                 let sig_1 = context.sign(&msg, &sk).serialize_compact();
-//
-//                 let result = scheme.verify(&MESSAGE_1, &sig_1, &p);
-//
-//                 assert!(result.is_ok());
-//                 assert!(result.unwrap());
-//
-//                 let openssl_group = EcGroup::from_curve_name(Nid::SECP256K1).unwrap();
-//                 let mut ctx = BigNumContext::new().unwrap();
-//                 let openssl_point = EcPoint::from_bytes(
-//                     &openssl_group,
-//                     &scheme.public_key_uncompressed(&p)[..],
-//                     &mut ctx,
-//                 )
-//                 .unwrap();
-//                 let openssl_pkey = EcKey::from_public_key(&openssl_group, &openssl_point).unwrap();
-//                 let openssl_skey = EcKey::from_private_components(
-//                     &openssl_group,
-//                     &BigNum::from_hex_str(PRIVATE_KEY).unwrap(),
-//                     &openssl_point,
-//                 )
-//                 .unwrap();
-//
-//                 let openssl_sig = EcdsaSig::sign(h.as_slice(), &openssl_skey).unwrap();
-//                 let openssl_result = openssl_sig.verify(h.as_slice(), &openssl_pkey);
-//                 assert!(openssl_result.is_ok());
-//                 assert!(openssl_result.unwrap());
-//                 let mut temp_sig = Vec::new();
-//                 temp_sig.extend(openssl_sig.r().to_vec());
-//                 temp_sig.extend(openssl_sig.s().to_vec());
-//
-//                 //secp256k1 expects normalized "s"'s.
-//                 scheme.normalize_s(temp_sig.as_mut_slice()).unwrap();
-//                 let result = scheme.verify(&MESSAGE_1, temp_sig.as_slice(), &p);
-//                 assert!(result.is_ok());
-//                 assert!(result.unwrap());
-//
-//                 let (p, s) = scheme.keypair(None).unwrap();
-//                 match scheme.sign(&MESSAGE_1, &s) {
-//                     Ok(signed) => {
-//                         let result = scheme.verify(&MESSAGE_1, &signed, &p);
-//                         assert!(result.is_ok());
-//                         assert!(result.unwrap());
-//                     }
-//                     Err(er) => assert!(false, "{}", er),
-//                 }
-//
-//                 let signer = Signer::new(&scheme, &s);
-//                 match signer.sign(&MESSAGE_1) {
-//                     Ok(signed) => {
-//                         let result = scheme.verify(&MESSAGE_1, &signed, &p);
-//                         assert!(result.is_ok());
-//                         assert!(result.unwrap());
-//                     }
-//                     Err(er) => assert!(false, "{}", er),
-//                 }
-//             }
-//             Err(e) => assert!(false, "{}", e),
-//         }
-//     }
-//
-//     #[test]
-//     fn secp256k1_publickey_compression() {
-//         let scheme = EcdsaSecp256k1Sha256::new();
-//
-//         let pk = PublicKey(hex::decode(PUBLIC_KEY).unwrap());
-//
-//         let res = scheme.public_key_compressed(&pk);
-//         assert_eq!(res[..], pk[..]);
-//
-//         let res = scheme.public_key_uncompressed(&pk);
-//         let pk = PublicKey(res);
-//
-//         let res = scheme.public_key_uncompressed(&pk);
-//         assert_eq!(res[..], pk[..]);
-//     }
-// }
+#[cfg(test)]
+mod test {
+    use amcl::secp256k1::ecp;
+    use openssl::{
+        bn::{BigNum, BigNumContext},
+        ec::{EcGroup, EcKey, EcPoint},
+        ecdsa::EcdsaSig,
+        nid::Nid,
+    };
+    use secp256k1;
+    use sha2::Digest;
+
+    use super::*;
+
+    const MESSAGE_1: &[u8] = b"This is a dummy message for use with tests";
+    const SIGNATURE_1: &str = "ae46d3fec8e2eb95ebeaf95f7f096ec4bf517f5ef898e4379651f8af8e209ed75f3c47156445d6687a5f817fb3e188e2a76df653b330df859ec47579c8c409be";
+    const PRIVATE_KEY: &str = "e4f21b38e005d4f895a29e84948d7cc83eac79041aeb644ee4fab8d9da42f713";
+    const PUBLIC_KEY: &str = "0242c1e1f775237a26da4fd51b8d75ee2709711f6e90303e511169a324ef0789c0";
+
+    fn public_key_uncompressed(pk: &PublicKey) -> Vec<u8> {
+        const PUBLIC_UNCOMPRESSED_KEY_SIZE: usize = 65;
+
+        assert_eq!(pk.digest_function, ALGORITHM);
+        let mut uncompressed = [0u8; PUBLIC_UNCOMPRESSED_KEY_SIZE];
+        ecp::ECP::frombytes(&pk.payload[..]).tobytes(&mut uncompressed, false);
+        uncompressed.to_vec()
+    }
+
+    #[test]
+    #[ignore]
+    fn create_new_keys() {
+        let scheme = EcdsaSecp256k1Sha256::new();
+        let (s, p) = scheme.keypair(None).unwrap();
+
+        println!("{:?}", s);
+        println!("{:?}", p);
+    }
+
+    #[test]
+    fn secp256k1_load_keys() {
+        let scheme = EcdsaSecp256k1Sha256::new();
+        let secret = PrivateKey::from_hex(ALGORITHM, PRIVATE_KEY).unwrap();
+        let sres = scheme.keypair(Some(KeyGenOption::FromPrivateKey(secret)));
+        assert!(sres.is_ok());
+    }
+
+    #[test]
+    fn secp256k1_compatibility() {
+        let scheme = EcdsaSecp256k1Sha256::new();
+        let secret = PrivateKey::from_hex(ALGORITHM, PRIVATE_KEY).unwrap();
+        let (p, s) = scheme
+            .keypair(Some(KeyGenOption::FromPrivateKey(secret)))
+            .unwrap();
+
+        let sk = secp256k1::SecretKey::from_slice(s.payload());
+        assert!(sk.is_ok());
+        let pk = secp256k1::PublicKey::from_slice(p.payload());
+        assert!(pk.is_ok());
+
+        let openssl_group = EcGroup::from_curve_name(Nid::SECP256K1).unwrap();
+        let mut ctx = BigNumContext::new().unwrap();
+        let openssl_point =
+            EcPoint::from_bytes(&openssl_group, &public_key_uncompressed(&p)[..], &mut ctx);
+        assert!(openssl_point.is_ok());
+    }
+
+    #[test]
+    fn secp256k1_verify() {
+        let scheme = EcdsaSecp256k1Sha256::new();
+        let p = PublicKey::from_hex(ALGORITHM, PUBLIC_KEY).unwrap();
+
+        let result = scheme.verify(&MESSAGE_1, hex::decode(SIGNATURE_1).unwrap().as_slice(), &p);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+
+        let context = secp256k1::Secp256k1::new();
+        let pk =
+            secp256k1::PublicKey::from_slice(hex::decode(PUBLIC_KEY).unwrap().as_slice()).unwrap();
+
+        let h = sha2::Sha256::digest(&MESSAGE_1);
+        let msg = secp256k1::Message::from_digest_slice(h.as_slice()).unwrap();
+
+        //Check if signatures produced here can be verified by secp256k1
+        let mut signature =
+            secp256k1::ecdsa::Signature::from_compact(&hex::decode(SIGNATURE_1).unwrap()[..])
+                .unwrap();
+        signature.normalize_s();
+        let result = context.verify_ecdsa(&msg, &signature, &pk);
+        assert!(result.is_ok());
+
+        let openssl_group = EcGroup::from_curve_name(Nid::SECP256K1).unwrap();
+        let mut ctx = BigNumContext::new().unwrap();
+        let openssl_point =
+            EcPoint::from_bytes(&openssl_group, &pk.serialize_uncompressed(), &mut ctx).unwrap();
+        let openssl_pkey = EcKey::from_public_key(&openssl_group, &openssl_point).unwrap();
+
+        // Check if the signatures produced here can be verified by openssl
+        let (r, s) = SIGNATURE_1.split_at(SIGNATURE_1.len() / 2);
+        let openssl_r = BigNum::from_hex_str(r).unwrap();
+        let openssl_s = BigNum::from_hex_str(s).unwrap();
+        let openssl_sig = EcdsaSig::from_private_components(openssl_r, openssl_s).unwrap();
+        let openssl_result = openssl_sig.verify(h.as_slice(), &openssl_pkey);
+        assert!(openssl_result.is_ok());
+        assert!(openssl_result.unwrap());
+    }
+
+    #[test]
+    fn secp256k1_sign() {
+        let scheme = EcdsaSecp256k1Sha256::new();
+        let secret = PrivateKey::from_hex(ALGORITHM, PRIVATE_KEY).unwrap();
+        let (p, s) = scheme
+            .keypair(Some(KeyGenOption::FromPrivateKey(secret)))
+            .unwrap();
+
+        match scheme.sign(MESSAGE_1, &s) {
+            Ok(sig) => {
+                let result = scheme.verify(&MESSAGE_1, &sig, &p);
+                assert!(result.is_ok());
+                assert!(result.unwrap());
+
+                const SIGNATURE_SIZE: usize = 64;
+                assert_eq!(sig.len(), SIGNATURE_SIZE);
+
+                // Check if secp256k1 signs the message and this module still can verify it
+                // And that private keys can sign with other libraries
+                let context = secp256k1::Secp256k1::new();
+                let sk =
+                    secp256k1::SecretKey::from_slice(hex::decode(PRIVATE_KEY).unwrap().as_slice())
+                        .unwrap();
+
+                let h = sha2::Sha256::digest(&MESSAGE_1);
+
+                let msg = secp256k1::Message::from_digest_slice(h.as_slice()).unwrap();
+                let sig_1 = context.sign_ecdsa(&msg, &sk).serialize_compact();
+
+                let result = scheme.verify(&MESSAGE_1, &sig_1, &p);
+
+                assert!(result.is_ok());
+                assert!(result.unwrap());
+
+                let openssl_group = EcGroup::from_curve_name(Nid::SECP256K1).unwrap();
+                let mut ctx = BigNumContext::new().unwrap();
+                let openssl_point =
+                    EcPoint::from_bytes(&openssl_group, &public_key_uncompressed(&p)[..], &mut ctx)
+                        .unwrap();
+                let openssl_pkey = EcKey::from_public_key(&openssl_group, &openssl_point).unwrap();
+                let openssl_skey = EcKey::from_private_components(
+                    &openssl_group,
+                    &BigNum::from_hex_str(PRIVATE_KEY).unwrap(),
+                    &openssl_point,
+                )
+                .unwrap();
+
+                let openssl_sig = EcdsaSig::sign(h.as_slice(), &openssl_skey).unwrap();
+                let openssl_result = openssl_sig.verify(h.as_slice(), &openssl_pkey);
+                assert!(openssl_result.is_ok());
+                assert!(openssl_result.unwrap());
+                let mut temp_sig = Vec::new();
+                temp_sig.extend(openssl_sig.r().to_vec());
+                temp_sig.extend(openssl_sig.s().to_vec());
+
+                // secp256k1 expects normalized "s"'s.
+                // scheme.normalize_s(temp_sig.as_mut_slice()).unwrap();
+                // k256 seems to be normalizing always now
+                let result = scheme.verify(&MESSAGE_1, temp_sig.as_slice(), &p);
+                assert!(result.is_ok());
+                assert!(result.unwrap());
+
+                let (p, s) = scheme.keypair(None).unwrap();
+                match scheme.sign(&MESSAGE_1, &s) {
+                    Ok(signed) => {
+                        let result = scheme.verify(&MESSAGE_1, &signed, &p);
+                        assert!(result.is_ok());
+                        assert!(result.unwrap());
+                    }
+                    Err(er) => assert!(false, "{}", er),
+                }
+            }
+            Err(e) => assert!(false, "{}", e),
+        }
+    }
+}

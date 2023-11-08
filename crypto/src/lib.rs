@@ -233,10 +233,12 @@ impl KeyPair {
         };
 
         let (public_key, private_key) = match configuration.algorithm {
-            Algorithm::Ed25519 => Ed25519Sha512.keypair(key_gen_option),
-            Algorithm::Secp256k1 => EcdsaSecp256k1Sha256::new().keypair(key_gen_option),
-            Algorithm::BlsNormal => BlsNormal::new().keypair(key_gen_option),
-            Algorithm::BlsSmall => BlsSmall::new().keypair(key_gen_option),
+            Algorithm::Ed25519 => signature::ed25519::Ed25519Sha512.keypair(key_gen_option),
+            Algorithm::Secp256k1 => {
+                signature::secp256k1::EcdsaSecp256k1Sha256::new().keypair(key_gen_option)
+            }
+            Algorithm::BlsNormal => signature::bls::BlsNormal::new().keypair(key_gen_option),
+            Algorithm::BlsSmall => signature::bls::BlsSmall::new().keypair(key_gen_option),
         }?;
 
         Ok(Self {
@@ -317,13 +319,36 @@ impl PublicKey {
         let key_gen_option = Some(KeyGenOption::FromPrivateKey(private_key));
 
         let (public_key, _) = match digest_function {
-            Algorithm::Ed25519 => Ed25519Sha512.keypair(key_gen_option),
-            Algorithm::Secp256k1 => EcdsaSecp256k1Sha256::new().keypair(key_gen_option),
-            Algorithm::BlsNormal => BlsNormal::new().keypair(key_gen_option),
-            Algorithm::BlsSmall => BlsSmall::new().keypair(key_gen_option),
+            Algorithm::Ed25519 => signature::ed25519::Ed25519Sha512.keypair(key_gen_option),
+            Algorithm::Secp256k1 => {
+                signature::secp256k1::EcdsaSecp256k1Sha256::new().keypair(key_gen_option)
+            }
+            Algorithm::BlsNormal => signature::bls::BlsNormal::new().keypair(key_gen_option),
+            Algorithm::BlsSmall => signature::bls::BlsSmall::new().keypair(key_gen_option),
         }?;
 
         Ok(public_key)
+    }
+
+    /// Construct `PrivateKey` from hex encoded string
+    ///
+    /// # Errors
+    ///
+    /// - If the given payload is not hex encoded
+    /// - If the given payload is not a valid private key
+    #[cfg(feature = "std")]
+    pub fn from_hex(digest_function: Algorithm, payload: &str) -> Result<Self, Error> {
+        let payload = hex_decode(payload)?;
+        let payload = ConstVec::new(payload);
+
+        // NOTE: PrivateKey does some validation by generating a public key from the provided bytes
+        // we can't really do this for PublicKey
+        // this can be solved if the keys used here would be actually aware of the underlying crypto primitive types
+        // instead of just being raw bytes
+        Ok(Self {
+            digest_function,
+            payload,
+        })
     }
 }
 
@@ -415,7 +440,7 @@ impl PrivateKey {
     /// - If the given payload is not hex encoded
     /// - If the given payload is not a valid private key
     #[cfg(feature = "std")]
-    pub fn from_hex(digest_function: Algorithm, payload: &[u8]) -> Result<Self, Error> {
+    pub fn from_hex(digest_function: Algorithm, payload: &str) -> Result<Self, Error> {
         let payload = hex_decode(payload)?;
         let payload = ConstVec::new(payload);
 

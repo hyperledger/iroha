@@ -1,5 +1,7 @@
-// TODO: clean up & remove
-#![allow(unused, missing_docs)]
+//! A suite of Diffie-Hellman key exchange methods.
+//!
+//! [`X25519Sha256`] is the only key exchange scheme currently supported,
+//! as it is the only one used by the iroha p2p transport protocol.
 
 mod x25519;
 
@@ -28,7 +30,10 @@ pub trait KeyExchangeScheme {
         remote_public_key: &PublicKey,
     ) -> Result<SessionKey, Error>;
 
-    fn shared_secret_size() -> usize;
-    fn public_key_size() -> usize;
-    fn private_key_size() -> usize;
+    /// Size of the shared secret in bytes.
+    const SHARED_SECRET_SIZE: usize;
+    /// Size of the public key in bytes.
+    const PUBLIC_KEY_SIZE: usize;
+    /// Size of the private key in bytes.
+    const PRIVATE_KEY_SIZE: usize;
 }

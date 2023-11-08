@@ -1,14 +1,14 @@
 #[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
-mod bls;
+pub(crate) mod bls;
 
 #[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
-mod ed25519;
+pub(crate) mod ed25519;
 
 #[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
-mod secp256k1;
+pub(crate) mod secp256k1;
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, collections::btree_set, format, string::String, vec, vec::Vec};
@@ -25,11 +25,6 @@ use parity_scale_codec::{Decode, Encode};
 #[cfg(not(feature = "ffi_import"))]
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "std")]
-#[cfg(not(feature = "ffi_import"))]
-pub use self::{
-    bls::BlsNormal, bls::BlsSmall, ed25519::Ed25519Sha512, secp256k1::EcdsaSecp256k1Sha256,
-};
 #[cfg(any(feature = "std", feature = "import_ffi"))]
 use crate::Error;
 use crate::{ffi, PublicKey};
@@ -72,10 +67,12 @@ impl Signature {
         let algorithm: crate::Algorithm = private_key.digest_function();
 
         let signature = match algorithm {
-            crate::Algorithm::Ed25519 => Ed25519Sha512::new().sign(payload, &private_key),
-            crate::Algorithm::Secp256k1 => EcdsaSecp256k1Sha256::new().sign(payload, &private_key),
-            crate::Algorithm::BlsSmall => BlsSmall::new().sign(payload, &private_key),
-            crate::Algorithm::BlsNormal => BlsNormal::new().sign(payload, &private_key),
+            crate::Algorithm::Ed25519 => ed25519::Ed25519Sha512::new().sign(payload, &private_key),
+            crate::Algorithm::Secp256k1 => {
+                secp256k1::EcdsaSecp256k1Sha256::new().sign(payload, &private_key)
+            }
+            crate::Algorithm::BlsSmall => bls::BlsSmall::new().sign(payload, &private_key),
+            crate::Algorithm::BlsNormal => bls::BlsNormal::new().sign(payload, &private_key),
         }?;
         Ok(Self {
             public_key,
@@ -93,16 +90,18 @@ impl Signature {
 
         match algorithm {
             crate::Algorithm::Ed25519 => {
-                Ed25519Sha512::new().verify(payload, self.payload(), &self.public_key)
+                ed25519::Ed25519Sha512::new().verify(payload, self.payload(), &self.public_key)
             }
-            crate::Algorithm::Secp256k1 => {
-                EcdsaSecp256k1Sha256::new().verify(payload, self.payload(), &self.public_key)
-            }
+            crate::Algorithm::Secp256k1 => secp256k1::EcdsaSecp256k1Sha256::new().verify(
+                payload,
+                self.payload(),
+                &self.public_key,
+            ),
             crate::Algorithm::BlsSmall => {
-                BlsSmall::new().verify(payload, self.payload(), &self.public_key)
+                bls::BlsSmall::new().verify(payload, self.payload(), &self.public_key)
             }
             crate::Algorithm::BlsNormal => {
-                BlsNormal::new().verify(payload, self.payload(), &self.public_key)
+                bls::BlsNormal::new().verify(payload, self.payload(), &self.public_key)
             }
         }?;
 
