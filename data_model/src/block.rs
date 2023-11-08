@@ -175,7 +175,6 @@ impl SignedBlock {
     }
 
     /// Used to inject faulty payload for testing
-    #[cfg(debug_assertions)]
     #[cfg(feature = "transparent_api")]
     pub fn payload_mut(&mut self) -> &mut BlockPayload {
         let SignedBlock::V1(block) = self;
