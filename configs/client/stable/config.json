@@ -10,7 +10,6 @@
     "password": "ilovetea"
   },
   "TORII_API_URL": "http://127.0.0.1:8080/",
-  "TORII_TELEMETRY_URL": "http://127.0.0.1:8180/",
   "TRANSACTION_TIME_TO_LIVE_MS": 100000,
   "TRANSACTION_STATUS_TIMEOUT_MS": 15000,
   "TRANSACTION_LIMITS": {
