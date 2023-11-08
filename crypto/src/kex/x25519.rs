@@ -11,6 +11,7 @@ const ALGORITHM: Algorithm = Algorithm::Ed25519;
 use super::KeyExchangeScheme;
 use crate::{Algorithm, Error, KeyGenOption, PrivateKey, PublicKey, SessionKey};
 
+/// Implements the [`KeyExchangeScheme`] using X25519 key exchange and SHA256 hash function.
 #[derive(Copy, Clone)]
 pub struct X25519Sha256;
 
@@ -70,33 +71,14 @@ impl KeyExchangeScheme for X25519Sha256 {
         Ok(SessionKey(ConstVec::new(hash.as_slice().to_vec())))
     }
 
-    fn public_key_size() -> usize {
-        32
-    }
-    fn private_key_size() -> usize {
-        32
-    }
-    fn shared_secret_size() -> usize {
-        32
-    }
+    const SHARED_SECRET_SIZE: usize = 32;
+    const PUBLIC_KEY_SIZE: usize = 32;
+    const PRIVATE_KEY_SIZE: usize = 32;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // #[test]
-    // fn convert_from_sig_keys() {
-    //     use crate::{Ed25519Sha512, SignatureScheme};
-    //     let sig_scheme = Ed25519Sha512::new();
-    //     let (pk, sk) = sig_scheme.keypair(None).unwrap();
-    //     let res = Ed25519Sha512::ver_key_to_key_exchange(&pk);
-    //     assert!(res.is_ok());
-    //     let pk1 = res.unwrap();
-    //     let kex_scheme = X25519Sha256::new();
-    //     let res = kex_scheme.compute_shared_secret(&sk, &pk1);
-    //     assert!(res.is_ok());
-    // }
 
     #[test]
     fn key_exchange() {

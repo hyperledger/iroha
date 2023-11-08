@@ -6,14 +6,11 @@ use amcl_wrapper::{
 };
 
 use super::{
+    implementation::{BlsConfiguration, BlsImpl, Signature, MESSAGE_CONTEXT},
     normal::{normal_generate, NormalConfiguration, NormalGenerator, NormalSignature},
     small::{small_generate, SmallConfiguration, SmallGenerator, SmallSignature},
-    MESSAGE_CONTEXT,
 };
-use crate::{
-    signature::bls::implementation::{BlsConfiguration, BlsImpl, Signature},
-    KeyGenOption,
-};
+use crate::KeyGenOption;
 
 const MESSAGE_1: &[u8; 22] = b"This is a test message";
 const MESSAGE_2: &[u8; 20] = b"Another test message";

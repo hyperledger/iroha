@@ -7,9 +7,9 @@ use aead::{
 };
 use chacha20poly1305::ChaCha20Poly1305 as SysChaCha20Poly1305;
 
-// use zeroize::Zeroize;
 use super::Encryptor;
 
+/// ChaCha20Poly1305 is a symmetric encryption algorithm that uses the ChaCha20 stream cipher
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct ChaCha20Poly1305 {
     key: GenericArray<u8, U32>,
@@ -35,6 +35,8 @@ impl AeadCore for ChaCha20Poly1305 {
     type CiphertextOverhead = U0;
 }
 
+// false positives: eliding lifetimes here requires an unstable feature `anonymous_lifetime_in_impl_trait`
+#[allow(single_use_lifetimes)]
 impl Aead for ChaCha20Poly1305 {
     fn encrypt<'msg, 'aad>(
         &self,
@@ -56,9 +58,6 @@ impl Aead for ChaCha20Poly1305 {
         Ok(plaintext)
     }
 }
-
-// default_impl!(ChaCha20Poly1305);
-// drop_impl!(ChaCha20Poly1305);
 
 #[cfg(test)]
 mod tests {
@@ -138,6 +137,7 @@ mod tests {
         assert_eq!(dummytext.to_vec(), plaintext);
     }
 
+    // TODO: this should be tested for, but only after we integrate with secrecy/zeroize
     // #[test]
     // fn zeroed_on_drop() {
     //     let mut aes = ChaCha20Poly1305::new(&ChaCha20Poly1305::key_gen().unwrap());

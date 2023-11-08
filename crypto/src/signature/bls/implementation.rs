@@ -8,7 +8,13 @@ use amcl_wrapper::{
 };
 use sha2::Sha256;
 
-use super::{MESSAGE_CONTEXT, PRIVATE_KEY_SIZE, PUBLICKEY_CONTEXT};
+pub(super) const MESSAGE_CONTEXT: &[u8; 20] = b"for signing messages";
+
+// it is not unused? Why am I getting the unused lint here?
+#[allow(dead_code)]
+const PUBLICKEY_CONTEXT: &[u8; 47] = b"for signing public keys for proof of possession";
+
+use super::PRIVATE_KEY_SIZE;
 use crate::{
     Algorithm, ConstVec, Error, KeyGenOption, PrivateKey as IrohaPrivateKey,
     PublicKey as IrohaPublicKey,
@@ -67,14 +73,6 @@ impl<C: BlsConfiguration + ?Sized> PublicKey<C> {
         Self(g.scalar_mul_const_time(sk))
 
         // Self(g * sk)
-    }
-
-    // Create an combined public key without rogue key mitigation
-    pub fn combine(&mut self, pks: &[PublicKey<C>]) {
-        for pk in pks {
-            self.0.add_assign_(&pk.0)
-            // self.0 += &;
-        }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
