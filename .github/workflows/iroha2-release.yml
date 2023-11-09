@@ -13,10 +13,10 @@ jobs:
     container:
       image: hyperledger/iroha2-ci:nightly-2023-06-25
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
         with:
           install: true
       - name: Get tag from branch name
@@ -30,21 +30,22 @@ jobs:
           RELEASE=$(curl -s https://raw.githubusercontent.com/hyperledger/iroha/${{ github.ref_name }}/Cargo.toml | sed -n '3p' | sed -e 's/version = "//g' -e 's/"$//' | tr -d '\n')
           echo "RELEASE=$RELEASE" >>$GITHUB_ENV
       - name: Login to DockerHub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Login to Soramitsu Harbor
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: docker.soramitsu.co.jp
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
       - name: Build and push iroha2 image
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           push: true
           tags: |
+            hyperledger/iroha2:${{ env.TAG }}
             hyperledger/iroha2:${{ env.TAG }}-${{ env.RELEASE }}
             docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}-${{ env.RELEASE }}
           labels: commit=${{ github.sha }}
@@ -62,7 +63,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           ref: iroha2-dev
           token: ${{ secrets.G_ACCESS_TOKEN }}
@@ -71,7 +72,7 @@ jobs:
           ./scripts/update_configs.sh lts
           ./scripts/update_configs.sh stable
       - name: Commit config changes
-        uses: stefanzweifel/git-auto-commit-action@v4
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: '[documentation]: Update lts/stable configs following a release'
           branch: iroha2-dev
