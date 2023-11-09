@@ -42,7 +42,7 @@ pub mod tests {
             .expect("Public key not in multihash format");
         let private_key = PrivateKey::from_hex(
             iroha_crypto::Algorithm::Ed25519,
-            "D748E18CE60CB30DEA3E73C9019B7AF45A8D465E3D71BCC9A5EF99A008205E534CFFD0EE429B1BDD36B3910EC570852B8BB63F18750341772FB46BC856C5CAAF".as_ref()
+            "D748E18CE60CB30DEA3E73C9019B7AF45A8D465E3D71BCC9A5EF99A008205E534CFFD0EE429B1BDD36B3910EC570852B8BB63F18750341772FB46BC856C5CAAF"
         ).expect("Private key not hex encoded");
 
         KeyPair::new(public_key, private_key).expect("Key pair mismatch")

@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 use arrayref::array_ref;
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey as PK};
+use ed25519_dalek::{Signature, SigningKey, VerifyingKey as PK};
 pub use ed25519_dalek::{
     EXPANDED_SECRET_KEY_LENGTH as PRIVATE_KEY_SIZE, PUBLIC_KEY_LENGTH as PUBLIC_KEY_SIZE,
     SIGNATURE_LENGTH as SIGNATURE_SIZE,
@@ -10,6 +10,7 @@ use iroha_primitives::const_vec::ConstVec;
 use rand::{rngs::OsRng, SeedableRng};
 use rand_chacha::ChaChaRng;
 use sha2::Digest;
+use signature::{Signer as _, Verifier as _};
 use zeroize::Zeroize;
 
 const ALGORITHM: Algorithm = Algorithm::Ed25519;
@@ -33,22 +34,17 @@ fn parse_public_key(pk: &PublicKey) -> Result<PK, Error> {
 pub struct Ed25519Sha512;
 
 impl Ed25519Sha512 {
-    pub fn new() -> Self {
-        Self
-    }
-    pub fn keypair(&self, option: Option<KeyGenOption>) -> Result<(PublicKey, PrivateKey), Error> {
+    pub fn keypair(mut option: Option<KeyGenOption>) -> Result<(PublicKey, PrivateKey), Error> {
         let kp = match option {
-            Some(mut o) => match o {
-                KeyGenOption::UseSeed(ref mut s) => {
-                    let hash = sha2::Sha256::digest(s.as_slice());
-                    s.zeroize();
-                    let mut rng = ChaChaRng::from_seed(*array_ref!(hash.as_slice(), 0, 32));
-                    SigningKey::generate(&mut rng)
-                }
-                KeyGenOption::FromPrivateKey(ref s) => parse_private_key(s)?,
-            },
+            Some(KeyGenOption::UseSeed(ref mut s)) => {
+                let hash = sha2::Sha256::digest(s.as_slice());
+                s.zeroize();
+                let mut rng = ChaChaRng::from_seed(*array_ref!(hash.as_slice(), 0, 32));
+                SigningKey::generate(&mut rng)
+            }
+            Some(KeyGenOption::FromPrivateKey(ref s)) => parse_private_key(s)?,
             None => {
-                let mut rng = OsRng::default();
+                let mut rng = OsRng;
                 SigningKey::generate(&mut rng)
             }
         };
@@ -63,11 +59,11 @@ impl Ed25519Sha512 {
             },
         ))
     }
-    pub fn sign(&self, message: &[u8], sk: &PrivateKey) -> Result<Vec<u8>, Error> {
+    pub fn sign(message: &[u8], sk: &PrivateKey) -> Result<Vec<u8>, Error> {
         let kp = parse_private_key(sk)?;
         Ok(kp.sign(message).to_bytes().to_vec())
     }
-    pub fn verify(&self, message: &[u8], signature: &[u8], pk: &PublicKey) -> Result<bool, Error> {
+    pub fn verify(message: &[u8], signature: &[u8], pk: &PublicKey) -> Result<bool, Error> {
         let p = parse_public_key(pk)?;
         let s = Signature::try_from(signature).map_err(|e| Error::Parse(e.to_string()))?;
         p.verify(message, &s)
@@ -94,18 +90,16 @@ mod test {
     #[test]
     #[ignore]
     fn create_new_keys() {
-        let scheme = Ed25519Sha512::new();
-        let (p, s) = scheme.keypair(None).unwrap();
+        let (p, s) = Ed25519Sha512::keypair(None).unwrap();
 
-        println!("{:?}", s);
-        println!("{:?}", p);
+        println!("{s:?}");
+        println!("{p:?}");
     }
 
     #[test]
     fn ed25519_load_keys() {
-        let scheme = Ed25519Sha512::new();
         let secret = PrivateKey::from_hex(Algorithm::Ed25519, PRIVATE_KEY).unwrap();
-        let sres = scheme.keypair(Some(KeyGenOption::FromPrivateKey(secret)));
+        let sres = Ed25519Sha512::keypair(Some(KeyGenOption::FromPrivateKey(secret)));
         assert!(sres.is_ok());
         let (p1, s1) = sres.unwrap();
 
@@ -121,13 +115,11 @@ mod test {
 
     #[test]
     fn ed25519_verify() {
-        let scheme = Ed25519Sha512::new();
         let secret = PrivateKey::from_hex(Algorithm::Ed25519, PRIVATE_KEY).unwrap();
-        let (p, _) = scheme
-            .keypair(Some(KeyGenOption::FromPrivateKey(secret)))
-            .unwrap();
+        let (p, _) = Ed25519Sha512::keypair(Some(KeyGenOption::FromPrivateKey(secret))).unwrap();
 
-        let result = scheme.verify(&MESSAGE_1, hex::decode(SIGNATURE_1).unwrap().as_slice(), &p);
+        let result =
+            Ed25519Sha512::verify(MESSAGE_1, hex::decode(SIGNATURE_1).unwrap().as_slice(), &p);
         assert!(result.is_ok());
         assert!(result.unwrap());
 
@@ -146,38 +138,31 @@ mod test {
 
     #[test]
     fn ed25519_sign() {
-        let scheme = Ed25519Sha512::new();
         let secret = PrivateKey::from_hex(Algorithm::Ed25519, PRIVATE_KEY).unwrap();
-        let (p, s) = scheme
-            .keypair(Some(KeyGenOption::FromPrivateKey(secret)))
-            .unwrap();
+        let (p, s) = Ed25519Sha512::keypair(Some(KeyGenOption::FromPrivateKey(secret))).unwrap();
 
-        match scheme.sign(&MESSAGE_1, &s) {
-            Ok(sig) => {
-                let result = scheme.verify(&MESSAGE_1, &sig, &p);
-                assert!(result.is_ok());
-                assert!(result.unwrap());
+        let sig = Ed25519Sha512::sign(MESSAGE_1, &s).unwrap();
+        let result = Ed25519Sha512::verify(MESSAGE_1, &sig, &p);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
 
-                assert_eq!(sig.len(), SIGNATURE_SIZE);
-                assert_eq!(hex::encode(sig.as_slice()), SIGNATURE_1);
+        assert_eq!(sig.len(), SIGNATURE_SIZE);
+        assert_eq!(hex::encode(sig.as_slice()), SIGNATURE_1);
 
-                //Check if libsodium signs the message and this module still can verify it
-                //And that private keys can sign with other libraries
-                let mut signature = [0u8; ffi::crypto_sign_ed25519_BYTES as usize];
-                unsafe {
-                    ffi::crypto_sign_ed25519_detached(
-                        signature.as_mut_ptr(),
-                        std::ptr::null_mut(),
-                        MESSAGE_1.as_ptr(),
-                        MESSAGE_1.len() as u64,
-                        s.payload().as_ptr(),
-                    )
-                };
-                let result = scheme.verify(&MESSAGE_1, &signature, &p);
-                assert!(result.is_ok());
-                assert!(result.unwrap());
-            }
-            Err(e) => assert!(false, "{}", e),
-        }
+        //Check if libsodium signs the message and this module still can verify it
+        //And that private keys can sign with other libraries
+        let mut signature = [0u8; ffi::crypto_sign_ed25519_BYTES as usize];
+        unsafe {
+            ffi::crypto_sign_ed25519_detached(
+                signature.as_mut_ptr(),
+                std::ptr::null_mut(),
+                MESSAGE_1.as_ptr(),
+                MESSAGE_1.len() as u64,
+                s.payload().as_ptr(),
+            )
+        };
+        let result = Ed25519Sha512::verify(MESSAGE_1, &signature, &p);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
     }
 }

@@ -9,13 +9,20 @@ use iroha_schema::{IntoSchema, MetaMap, Metadata, TypeId, VecMeta};
 use parity_scale_codec::{WrapperTypeDecode, WrapperTypeEncode};
 use serde::{Deserialize, Serialize};
 
-/// Stores bytes that are not supposed to change during the runtime of the program in a compact way
-///
-/// This is a more efficient than `Vec<u8>` because it does not have to store the capacity field
-///
-/// It does not do reference-counting, so cloning is not cheap
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Serialize, Deserialize)]
-pub struct ConstVec<T>(Box<[T]>);
+use crate::ffi;
+
+ffi::ffi_item! {
+    /// Stores bytes that are not supposed to change during the runtime of the program in a compact way
+    ///
+    /// This is a more efficient than `Vec<u8>` because it does not have to store the capacity field
+    ///
+    /// It does not do reference-counting, so cloning is not cheap
+    #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Serialize, Deserialize)]
+    #[repr(transparent)]
+    pub struct ConstVec<T>(Box<[T]>);
+
+    ffi_type(opaque)
+}
 
 impl<T> ConstVec<T> {
     /// Create a new `ConstVec` from something convertible into a `Box<[T]>`.

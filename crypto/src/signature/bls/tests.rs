@@ -35,12 +35,8 @@ fn size_check() {
 }
 
 fn signature_generation_from_seed<C: BlsConfiguration>() {
-    let keypair_1 = BlsImpl::<C>::new()
-        .keypair(Some(KeyGenOption::UseSeed(SEED.to_vec())))
-        .unwrap();
-    let keypair_2 = BlsImpl::<C>::new()
-        .keypair(Some(KeyGenOption::UseSeed(SEED.to_vec())))
-        .unwrap();
+    let keypair_1 = BlsImpl::<C>::keypair(Some(KeyGenOption::UseSeed(SEED.to_vec()))).unwrap();
+    let keypair_2 = BlsImpl::<C>::keypair(Some(KeyGenOption::UseSeed(SEED.to_vec()))).unwrap();
     assert_eq!(keypair_1, keypair_2);
 }
 

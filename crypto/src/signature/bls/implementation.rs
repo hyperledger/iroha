@@ -1,8 +1,8 @@
 use std::{hash::Hash, marker::PhantomData};
 
 /// Implements
-/// https://eprint.iacr.org/2018/483 and
-/// https://crypto.stanford.edu/~dabo/pubs/papers/BLSmultisig.html
+/// <https://eprint.iacr.org/2018/483> and
+/// <https://crypto.stanford.edu/~dabo/pubs/papers/BLSmultisig.html>
 use amcl_wrapper::{
     field_elem::FieldElement, group_elem::GroupElement, group_elem_g1::G1, group_elem_g2::G2,
 };
@@ -20,7 +20,7 @@ use crate::{
     PublicKey as IrohaPublicKey,
 };
 
-/// This is a simple alias so the consumer can just use PrivateKey::random() to generate a new one
+/// This is a simple alias so the consumer can just use `PrivateKey::random`() to generate a new one
 /// instead of wrapping it as a private field
 pub type PrivateKey = FieldElement;
 
@@ -120,7 +120,7 @@ impl<C: BlsConfiguration + ?Sized> Signature<C> {
         g: &C::Generator,
     ) -> bool {
         let hash = C::hash_msg(message, context);
-        C::ate_2_pairing_is_one(&g, &self.0, &pk.0, &hash)
+        C::ate_2_pairing_is_one(g, &self.0, &pk.0, &hash)
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -149,12 +149,9 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
             .map_err(|e| Error::Parse(format!("Failed to parse private key: {}", e)))
     }
 
-    pub fn new() -> Self {
-        Self(PhantomData)
-    }
-
+    // the names are from an RFC, not a good idea to change them
+    #[allow(clippy::similar_names)]
     pub fn keypair(
-        &self,
         options: Option<KeyGenOption>,
     ) -> Result<(IrohaPublicKey, IrohaPrivateKey), Error> {
         let (public_key, private_key) = match options {
@@ -162,7 +159,7 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
                 // Follows https://datatracker.ietf.org/doc/draft-irtf-cfrg-bls-signature/?include_text=1
                 KeyGenOption::UseSeed(ref seed) => {
                     let salt = b"BLS-SIG-KEYGEN-SALT-";
-                    let info = [0u8, PRIVATE_KEY_SIZE as u8]; // key_info || I2OSP(L, 2)
+                    let info = [0u8, PRIVATE_KEY_SIZE.try_into().unwrap()]; // key_info || I2OSP(L, 2)
                     let mut ikm = vec![0u8; seed.len() + 1];
                     ikm[..seed.len()].copy_from_slice(seed); // IKM || I2OSP(0, 1)
                     let mut okm = [0u8; PRIVATE_KEY_SIZE];
@@ -198,18 +195,13 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
         ))
     }
 
-    pub fn sign(&self, message: &[u8], sk: &IrohaPrivateKey) -> Result<Vec<u8>, Error> {
+    pub fn sign(message: &[u8], sk: &IrohaPrivateKey) -> Result<Vec<u8>, Error> {
         let sk = Self::parse_private_key(sk)?;
 
         Ok(Signature::<C>::new(message, None, &sk).to_bytes())
     }
 
-    pub fn verify(
-        &self,
-        message: &[u8],
-        signature: &[u8],
-        pk: &IrohaPublicKey,
-    ) -> Result<bool, Error> {
+    pub fn verify(message: &[u8], signature: &[u8], pk: &IrohaPublicKey) -> Result<bool, Error> {
         let pk = Self::parse_public_key(pk)?;
 
         Ok(Signature::<C>::from_bytes(signature)

@@ -431,8 +431,8 @@ mod state {
                 PublicKey::from_raw(algorithm, ConstVec::new(key))
             };
             let shared_key =
-                key_exchange.compute_shared_secret(&local_private_key, &remote_public_key)?;
-            let cryptographer = Cryptographer::new(shared_key);
+                key_exchange.compute_shared_secret(&local_private_key, &remote_public_key);
+            let cryptographer = Cryptographer::new(&shared_key);
             Ok(SendKey {
                 peer_id,
                 connection,
@@ -470,8 +470,8 @@ mod state {
             garbage::write(write_half).await?;
             write_half.write_all(&local_public_key_raw).await?;
             let shared_key =
-                key_exchange.compute_shared_secret(&local_private_key, &remote_public_key)?;
-            let cryptographer = Cryptographer::new(shared_key);
+                key_exchange.compute_shared_secret(&local_private_key, &remote_public_key);
+            let cryptographer = Cryptographer::new(&shared_key);
             Ok(SendKey {
                 peer_id,
                 connection,
@@ -716,7 +716,7 @@ mod cryptographer {
         }
 
         /// Derives shared key from local private key and remote public key.
-        pub fn new(shared_key: SessionKey) -> Self {
+        pub fn new(shared_key: &SessionKey) -> Self {
             let disambiguator = blake2b_hash(shared_key.payload());
 
             let encryptor = SymmetricEncryptor::<E>::new_from_session_key(shared_key);

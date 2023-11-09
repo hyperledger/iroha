@@ -16,10 +16,14 @@ pub trait KeyExchangeScheme {
     fn new() -> Self;
     /// Create new keypairs. If
     /// `options` is None, the keys are generated ephemerally from the `OsRng`
-    /// `options` is UseSeed, the keys are generated ephemerally from the sha256 hash of the seed which is
-    ///     then used to seed the ChaChaRng
-    /// `options` is FromPrivateKey, the corresponding public key is returned. This should be used for
+    /// `options` is `UseSeed`, the keys are generated ephemerally from the sha256 hash of the seed which is
+    ///     then used to seed the `ChaChaRng`
+    /// `options` is `FromPrivateKey`, the corresponding public key is returned. This should be used for
     ///     static Diffie-Hellman and loading a long-term key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the key generation fails.
     fn keypair(&self, options: Option<KeyGenOption>) -> Result<(PublicKey, PrivateKey), Error>;
     /// Compute the diffie-hellman shared secret.
     /// `local_private_key` is the key generated from calling `keypair` while
@@ -28,7 +32,7 @@ pub trait KeyExchangeScheme {
         &self,
         local_private_key: &PrivateKey,
         remote_public_key: &PublicKey,
-    ) -> Result<SessionKey, Error>;
+    ) -> SessionKey;
 
     /// Size of the shared secret in bytes.
     const SHARED_SECRET_SIZE: usize;
