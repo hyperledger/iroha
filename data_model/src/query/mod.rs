@@ -7,9 +7,10 @@ use alloc::{
     boxed::Box,
     format,
     string::{String, ToString as _},
+    vec,
     vec::Vec,
 };
-use core::cmp::Ordering;
+use core::{cmp::Ordering, num::NonZeroU32};
 
 pub use cursor::ForwardCursor;
 use derive_more::{Constructor, Display};
@@ -39,6 +40,42 @@ use crate::{
 pub mod cursor;
 pub mod pagination;
 pub mod sorting;
+
+const FETCH_SIZE: &str = "fetch_size";
+
+/// Default value for `fetch_size` parameter in queries.
+// SAFETY: `10` is greater than `0`
+#[allow(unsafe_code)]
+pub const DEFAULT_FETCH_SIZE: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(10) };
+
+/// Max value for `fetch_size` parameter in queries.
+// SAFETY: `10_000` is greater than `0`
+#[allow(unsafe_code)]
+pub const MAX_FETCH_SIZE: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(10_000) };
+
+/// Structure for query fetch size parameter encoding/decoding
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Constructor, Decode, Encode, Deserialize, Serialize,
+)]
+pub struct FetchSize {
+    /// Inner value of a fetch size.
+    ///
+    /// If not specified then [`DEFAULT_FETCH_SIZE`] is used.
+    pub fetch_size: Option<NonZeroU32>,
+}
+
+impl FetchSize {
+    /// Converts self to iterator of tuples to be used in queries.
+    ///
+    /// The length of the output iterator is not constant and has either 0 or 1 value.
+    pub fn into_query_parameters(
+        self,
+    ) -> impl IntoIterator<Item = (&'static str, NonZeroU32)> + Clone {
+        self.fetch_size
+            .map(|fetch_size| (FETCH_SIZE, fetch_size))
+            .into_iter()
+    }
+}
 
 macro_rules! queries {
     ($($($meta:meta)* $item:item)+) => {
@@ -183,6 +220,7 @@ pub mod model {
         pub query: Q,
         pub sorting: Sorting,
         pub pagination: Pagination,
+        pub fetch_size: FetchSize,
     }
 }
 
@@ -1323,9 +1361,14 @@ pub mod http {
 
     impl ClientQueryRequest {
         /// Construct a new request containing query.
-        pub fn query(query: SignedQuery, sorting: Sorting, pagination: Pagination) -> Self {
+        pub fn query(
+            query: SignedQuery,
+            sorting: Sorting,
+            pagination: Pagination,
+            fetch_size: FetchSize,
+        ) -> Self {
             Self(QueryRequest::Query(QueryWithParameters::new(
-                query, sorting, pagination,
+                query, sorting, pagination, fetch_size,
             )))
         }
 
@@ -1509,6 +1552,8 @@ pub mod error {
             ),
             /// Unknown query cursor
             UnknownCursor,
+            /// fetch_size could not be greater than {MAX_FETCH_SIZE:?}
+            FetchSizeTooBig,
         }
 
         /// Type assertion error
@@ -1568,6 +1613,6 @@ pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
         peer::prelude::*, permission::prelude::*, role::prelude::*, transaction::*,
-        trigger::prelude::*, QueryBox, TransactionQueryOutput,
+        trigger::prelude::*, FetchSize, QueryBox, TransactionQueryOutput,
     };
 }

@@ -5,8 +5,6 @@
 // FIXME: This can't be fixed, because one trait in `warp` is private.
 #![allow(opaque_hidden_inferred_bound)]
 
-use std::num::NonZeroUsize;
-
 use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
 use iroha_config::{
@@ -45,11 +43,13 @@ fn client_query_request(
     body::versioned::<SignedQuery>()
         .and(sorting())
         .and(paginate())
-        .and_then(|signed_query, sorting, pagination| async move {
+        .and(fetch_size())
+        .and_then(|signed_query, sorting, pagination, fetch_size| async move {
             Result::<_, std::convert::Infallible>::Ok(http::ClientQueryRequest::query(
                 signed_query,
                 sorting,
                 pagination,
+                fetch_size,
             ))
         })
         .or(cursor().and_then(|cursor| async move {
@@ -70,6 +70,11 @@ fn cursor() -> impl warp::Filter<Extract = (ForwardCursor,), Error = warp::Rejec
 
 /// Filter for warp which extracts pagination
 fn paginate() -> impl warp::Filter<Extract = (Pagination,), Error = warp::Rejection> + Copy {
+    warp::query()
+}
+
+/// Filter for warp which extracts fetch size
+fn fetch_size() -> impl warp::Filter<Extract = (FetchSize,), Error = warp::Rejection> + Copy {
     warp::query()
 }
 
@@ -101,7 +106,6 @@ async fn handle_instructions(
 async fn handle_queries(
     live_query_store: LiveQueryStoreHandle,
     sumeragi: SumeragiHandle,
-    fetch_size: NonZeroUsize,
 
     query_request: http::ClientQueryRequest,
 ) -> Result<Scale<BatchedResponse<Value>>> {
@@ -110,11 +114,12 @@ async fn handle_queries(
             query: signed_query,
             sorting,
             pagination,
+            fetch_size,
         }) => sumeragi.apply_wsv(|wsv| {
             let valid_query = ValidQueryRequest::validate(signed_query, wsv)?;
             let query_output = valid_query.execute(wsv)?;
             live_query_store
-                .handle_query_output(query_output, fetch_size, &sorting, pagination)
+                .handle_query_output(query_output, &sorting, pagination, fetch_size)
                 .map_err(ValidationFail::from)
         }),
         QueryRequest::Cursor(cursor) => live_query_store
@@ -477,15 +482,10 @@ impl Torii {
                         ))
                         .and(body::versioned()),
                 )
-                .or(endpoint4(
+                .or(endpoint3(
                     handle_queries,
                     warp::path(uri::QUERY)
-                        .and(add_state!(
-                            self.query_service,
-                            self.sumeragi,
-                            NonZeroUsize::try_from(self.iroha_cfg.torii.fetch_size)
-                                .expect("u64 should always fit into usize")
-                        ))
+                        .and(add_state!(self.query_service, self.sumeragi,))
                         .and(client_query_request()),
                 ))
                 .or(endpoint2(

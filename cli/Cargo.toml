@@ -59,6 +59,7 @@ iroha_genesis = { workspace = true }
 iroha_wasm_builder = { workspace = true }
 
 
+derive_more = { workspace = true }
 async-trait = { workspace = true }
 color-eyre = { workspace = true }
 eyre = { workspace = true }

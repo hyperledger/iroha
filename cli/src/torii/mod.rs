@@ -105,7 +105,9 @@ impl Error {
             QueryFailed(query_error)
             | InstructionFailed(InstructionExecutionError::Query(query_error)) => match query_error
             {
-                Evaluate(_) | Conversion(_) | UnknownCursor => StatusCode::BAD_REQUEST,
+                Evaluate(_) | Conversion(_) | UnknownCursor | FetchSizeTooBig => {
+                    StatusCode::BAD_REQUEST
+                }
                 Signature(_) => StatusCode::UNAUTHORIZED,
                 Find(_) => StatusCode::NOT_FOUND,
             },

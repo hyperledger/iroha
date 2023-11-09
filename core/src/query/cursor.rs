@@ -1,6 +1,6 @@
 //! Module with cursor-based pagination functional like [`Batched`].
 
-use std::num::{NonZeroU64, NonZeroUsize};
+use std::num::{NonZeroU32, NonZeroU64};
 
 use derive_more::Display;
 use parity_scale_codec::{Decode, Encode};
@@ -9,11 +9,11 @@ use serde::{Deserialize, Serialize};
 /// Trait for iterators that can be batched.
 pub trait Batch: IntoIterator + Sized {
     /// Pack iterator into batches of the given size.
-    fn batched(self, fetch_size: NonZeroUsize) -> Batched<Self>;
+    fn batched(self, fetch_size: NonZeroU32) -> Batched<Self>;
 }
 
 impl<I: IntoIterator> Batch for I {
-    fn batched(self, batch_size: NonZeroUsize) -> Batched<Self> {
+    fn batched(self, batch_size: NonZeroU32) -> Batched<Self> {
         Batched {
             iter: self.into_iter(),
             batch_size,
@@ -27,7 +27,7 @@ impl<I: IntoIterator> Batch for I {
 #[derive(Debug)]
 pub struct Batched<I: IntoIterator> {
     iter: I::IntoIter,
-    batch_size: NonZeroUsize,
+    batch_size: NonZeroU32,
     cursor: Option<u64>,
 }
 
@@ -52,7 +52,12 @@ impl<I: IntoIterator + FromIterator<I::Item>> Batched<I> {
             .iter
             .by_ref()
             .inspect(|_| batch_size += 1)
-            .take(self.batch_size.get())
+            .take(
+                self.batch_size
+                    .get()
+                    .try_into()
+                    .expect("`u32` should always fit into `usize`"),
+            )
             .collect();
 
         self.cursor = if let Some(cursor) = self.cursor {

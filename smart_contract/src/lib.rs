@@ -80,6 +80,7 @@ pub struct QueryRequest<Q> {
     query: Q,
     sorting: Sorting,
     pagination: Pagination,
+    fetch_size: FetchSize,
 }
 
 impl<Q: Query> From<QueryRequest<Q>> for SmartContractQueryRequest {
@@ -88,6 +89,7 @@ impl<Q: Query> From<QueryRequest<Q>> for SmartContractQueryRequest {
             query_request.query.into(),
             query_request.sorting,
             query_request.pagination,
+            query_request.fetch_size,
         )
     }
 }
@@ -107,6 +109,9 @@ pub trait ExecuteQueryOnHost: Sized {
 
     /// Apply pagination to a query
     fn paginate(self, pagination: Pagination) -> Self::QueryRequest;
+
+    /// Set fetch size for a query. Default is [`DEFAULT_FETCH_SIZE`]
+    fn fetch_size(self, fetch_size: FetchSize) -> Self::QueryRequest;
 
     /// Execute query on the host
     ///
@@ -130,6 +135,7 @@ where
             query: self,
             sorting,
             pagination: Pagination::default(),
+            fetch_size: FetchSize::default(),
         }
     }
 
@@ -138,6 +144,16 @@ where
             query: self,
             sorting: Sorting::default(),
             pagination,
+            fetch_size: FetchSize::default(),
+        }
+    }
+
+    fn fetch_size(self, fetch_size: FetchSize) -> Self::QueryRequest {
+        QueryRequest {
+            query: self,
+            sorting: Sorting::default(),
+            pagination: Pagination::default(),
+            fetch_size,
         }
     }
 
@@ -146,6 +162,7 @@ where
             query: self,
             sorting: Sorting::default(),
             pagination: Pagination::default(),
+            fetch_size: FetchSize::default(),
         }
         .execute()
     }
@@ -166,6 +183,11 @@ where
 
     fn paginate(mut self, pagination: Pagination) -> Self {
         self.pagination = pagination;
+        self
+    }
+
+    fn fetch_size(mut self, fetch_size: FetchSize) -> Self::QueryRequest {
+        self.fetch_size = fetch_size;
         self
     }
 
