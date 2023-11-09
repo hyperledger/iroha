@@ -27,7 +27,7 @@ jobs:
     container:
       image: hyperledger/iroha2-ci:nightly-2023-06-25
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: Install iroha_wasm_test_runner
         run: cargo install --path tools/wasm_test_runner
