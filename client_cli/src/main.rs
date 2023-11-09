@@ -61,7 +61,7 @@ impl FromStr for Configuration {
 
 /// Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.
 #[derive(StructOpt, Debug)]
-#[structopt(name = "iroha_client_cli", version = concat!(env!("CARGO_PKG_VERSION")), author)]
+#[structopt(name = "iroha_client_cli", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
 struct Args {
     /// Sets a config file path
     #[structopt(short, long)]
