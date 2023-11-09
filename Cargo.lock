@@ -2875,6 +2875,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "sha2",
+ "signature",
  "x25519-dalek",
  "zeroize",
 ]

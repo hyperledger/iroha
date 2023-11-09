@@ -9,7 +9,7 @@ use chacha20poly1305::ChaCha20Poly1305 as SysChaCha20Poly1305;
 
 use super::Encryptor;
 
-/// ChaCha20Poly1305 is a symmetric encryption algorithm that uses the ChaCha20 stream cipher
+/// `ChaCha20Poly1305` is a symmetric encryption algorithm that uses the `ChaCha20` stream cipher
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct ChaCha20Poly1305 {
     key: GenericArray<u8, U32>,
@@ -67,20 +67,20 @@ mod tests {
 
     #[test]
     fn encrypt_easy_works() {
-        let aes = ChaCha20Poly1305::new(&ChaCha20Poly1305::key_gen().unwrap());
+        let cipher = ChaCha20Poly1305::new(&ChaCha20Poly1305::key_gen().unwrap());
         let aad = Vec::new();
         let message = b"Hello and Goodbye!".to_vec();
-        let res = aes.encrypt_easy(&aad, &message);
+        let res = cipher.encrypt_easy(&aad, &message);
         assert!(res.is_ok());
         let ciphertext = res.unwrap();
-        let res = aes.decrypt_easy(&aad, &ciphertext);
+        let res = cipher.decrypt_easy(&aad, &ciphertext);
         assert!(res.is_ok());
         assert_eq!(message, res.unwrap());
     }
 
     #[test]
     fn encrypt_works() {
-        let aes = ChaCha20Poly1305::new(&ChaCha20Poly1305::key_gen().unwrap());
+        let cipher = ChaCha20Poly1305::new(&ChaCha20Poly1305::key_gen().unwrap());
         let nonce = ChaCha20Poly1305::nonce_gen().unwrap();
         let aad = b"encrypt test".to_vec();
         let message = b"Hello and Goodbye!".to_vec();
@@ -88,47 +88,47 @@ mod tests {
             msg: message.as_slice(),
             aad: aad.as_slice(),
         };
-        let res = aes.encrypt(&nonce, payload);
+        let res = cipher.encrypt(&nonce, payload);
         assert!(res.is_ok());
         let ciphertext = res.unwrap();
         let payload = Payload {
             msg: ciphertext.as_slice(),
             aad: aad.as_slice(),
         };
-        let res = aes.decrypt(&nonce, payload);
+        let res = cipher.decrypt(&nonce, payload);
         assert!(res.is_ok());
         assert_eq!(message, res.unwrap());
     }
 
     #[test]
     fn decrypt_should_fail() {
-        let aes = ChaCha20Poly1305::new(&ChaCha20Poly1305::key_gen().unwrap());
+        let cipher = ChaCha20Poly1305::new(&ChaCha20Poly1305::key_gen().unwrap());
         let aad = b"decrypt should fail".to_vec();
         let message = b"Hello and Goodbye!".to_vec();
-        let res = aes.encrypt_easy(&aad, &message);
+        let res = cipher.encrypt_easy(&aad, &message);
         assert!(res.is_ok());
         let mut ciphertext = res.unwrap();
 
         let aad = b"decrypt should succeed".to_vec();
-        let res = aes.decrypt_easy(&aad, &ciphertext);
+        let res = cipher.decrypt_easy(&aad, &ciphertext);
         assert!(res.is_err());
 
         let aad = b"decrypt should fail".to_vec();
         ciphertext[0] ^= ciphertext[1];
-        let res = aes.decrypt_easy(&aad, &ciphertext);
+        let res = cipher.decrypt_easy(&aad, &ciphertext);
         assert!(res.is_err());
     }
 
     #[test]
     fn buffer_works() {
-        let aes = ChaCha20Poly1305::new(&ChaCha20Poly1305::key_gen().unwrap());
+        let cipher = ChaCha20Poly1305::new(&ChaCha20Poly1305::key_gen().unwrap());
         let aad = b"buffer works".to_vec();
         let dummytext = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
         let mut ciphertext = Vec::new();
-        let res = aes.encrypt_buffer(&aad, &mut Cursor::new(dummytext), &mut ciphertext);
+        let res = cipher.encrypt_buffer(&aad, &mut Cursor::new(dummytext), &mut ciphertext);
         assert!(res.is_ok());
         let mut plaintext = Vec::new();
-        let res = aes.decrypt_buffer(
+        let res = cipher.decrypt_buffer(
             &aad,
             &mut Cursor::new(ciphertext.as_slice()),
             &mut plaintext,

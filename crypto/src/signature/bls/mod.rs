@@ -17,11 +17,11 @@ mod normal {
     use super::{implementation, implementation::BlsConfiguration};
     use crate::Algorithm;
 
-    pub(crate) type NormalGenerator = G1;
-    pub(crate) type NormalSignatureGroup = G2;
+    pub type NormalGenerator = G1;
+    pub type NormalSignatureGroup = G2;
 
     #[cfg(test)]
-    pub(crate) fn normal_generate(
+    pub fn normal_generate(
         g: &NormalGenerator,
     ) -> (NormalPublicKey, super::implementation::PrivateKey) {
         NormalConfiguration::generate(g)
@@ -52,9 +52,9 @@ mod normal {
 
     pub type NormalBls = implementation::BlsImpl<NormalConfiguration>;
     #[cfg(test)]
-    pub(crate) type NormalSignature = implementation::Signature<NormalConfiguration>;
+    pub type NormalSignature = implementation::Signature<NormalConfiguration>;
     #[cfg(test)]
-    pub(crate) type NormalPublicKey = implementation::PublicKey<NormalConfiguration>;
+    pub type NormalPublicKey = implementation::PublicKey<NormalConfiguration>;
 }
 
 /// This version is the small BLS signature scheme
@@ -74,11 +74,11 @@ mod small {
     use super::implementation::{self, BlsConfiguration};
     use crate::Algorithm;
 
-    pub(crate) type SmallGenerator = G2;
-    pub(crate) type SmallSignatureGroup = G1;
+    pub type SmallGenerator = G2;
+    pub type SmallSignatureGroup = G1;
 
     #[cfg(test)]
-    pub(crate) fn small_generate(
+    pub fn small_generate(
         g: &SmallGenerator,
     ) -> (SmallPublicKey, super::implementation::PrivateKey) {
         SmallConfiguration::generate(g)
@@ -109,9 +109,9 @@ mod small {
 
     pub type SmallBls = implementation::BlsImpl<SmallConfiguration>;
     #[cfg(test)]
-    pub(crate) type SmallSignature = implementation::Signature<SmallConfiguration>;
+    pub type SmallSignature = implementation::Signature<SmallConfiguration>;
     #[cfg(test)]
-    pub(crate) type SmallPublicKey = implementation::PublicKey<SmallConfiguration>;
+    pub type SmallPublicKey = implementation::PublicKey<SmallConfiguration>;
 }
 
 pub use normal::NormalBls as BlsNormal;

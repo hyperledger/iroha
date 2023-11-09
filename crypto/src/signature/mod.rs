@@ -1,3 +1,6 @@
+// pub(crate) for inner modules it is not redundant, the contents of `signature` module get re-exported at root
+#![allow(clippy::redundant_pub_crate)]
+
 #[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
 pub(crate) mod bls;
@@ -67,12 +70,12 @@ impl Signature {
         let algorithm: crate::Algorithm = private_key.digest_function();
 
         let signature = match algorithm {
-            crate::Algorithm::Ed25519 => ed25519::Ed25519Sha512::new().sign(payload, &private_key),
+            crate::Algorithm::Ed25519 => ed25519::Ed25519Sha512::sign(payload, &private_key),
             crate::Algorithm::Secp256k1 => {
-                secp256k1::EcdsaSecp256k1Sha256::new().sign(payload, &private_key)
+                secp256k1::EcdsaSecp256k1Sha256::sign(payload, &private_key)
             }
-            crate::Algorithm::BlsSmall => bls::BlsSmall::new().sign(payload, &private_key),
-            crate::Algorithm::BlsNormal => bls::BlsNormal::new().sign(payload, &private_key),
+            crate::Algorithm::BlsSmall => bls::BlsSmall::sign(payload, &private_key),
+            crate::Algorithm::BlsNormal => bls::BlsNormal::sign(payload, &private_key),
         }?;
         Ok(Self {
             public_key,
@@ -90,18 +93,16 @@ impl Signature {
 
         match algorithm {
             crate::Algorithm::Ed25519 => {
-                ed25519::Ed25519Sha512::new().verify(payload, self.payload(), &self.public_key)
+                ed25519::Ed25519Sha512::verify(payload, self.payload(), &self.public_key)
             }
-            crate::Algorithm::Secp256k1 => secp256k1::EcdsaSecp256k1Sha256::new().verify(
-                payload,
-                self.payload(),
-                &self.public_key,
-            ),
+            crate::Algorithm::Secp256k1 => {
+                secp256k1::EcdsaSecp256k1Sha256::verify(payload, self.payload(), &self.public_key)
+            }
             crate::Algorithm::BlsSmall => {
-                bls::BlsSmall::new().verify(payload, self.payload(), &self.public_key)
+                bls::BlsSmall::verify(payload, self.payload(), &self.public_key)
             }
             crate::Algorithm::BlsNormal => {
-                bls::BlsNormal::new().verify(payload, self.payload(), &self.public_key)
+                bls::BlsNormal::verify(payload, self.payload(), &self.public_key)
             }
         }?;
 

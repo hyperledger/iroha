@@ -34,7 +34,6 @@ pub use blake2;
 use derive_more::{DebugCustom, Display};
 use error::{Error, NoSuchAlgorithm};
 use getset::{CopyGetters, Getters};
-// TODO: do not spill the hashes to the crate root
 pub use hash::*;
 use iroha_macro::ffi_impl_opaque;
 use iroha_primitives::const_vec::ConstVec;
@@ -46,8 +45,8 @@ use parity_scale_codec::{Decode, Encode};
 use serde::Deserialize;
 use serde::Serialize;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
-// TODO: do not spill the signatures to the crate root
-pub use signature::*;
+
+pub use self::signature::*;
 
 // Hiding constants is a bad idea. For one, you're forcing the user to
 // create temporaries, but also you're not actually hiding any
@@ -233,12 +232,12 @@ impl KeyPair {
         };
 
         let (public_key, private_key) = match configuration.algorithm {
-            Algorithm::Ed25519 => signature::ed25519::Ed25519Sha512.keypair(key_gen_option),
+            Algorithm::Ed25519 => signature::ed25519::Ed25519Sha512::keypair(key_gen_option),
             Algorithm::Secp256k1 => {
-                signature::secp256k1::EcdsaSecp256k1Sha256::new().keypair(key_gen_option)
+                signature::secp256k1::EcdsaSecp256k1Sha256::keypair(key_gen_option)
             }
-            Algorithm::BlsNormal => signature::bls::BlsNormal::new().keypair(key_gen_option),
-            Algorithm::BlsSmall => signature::bls::BlsSmall::new().keypair(key_gen_option),
+            Algorithm::BlsNormal => signature::bls::BlsNormal::keypair(key_gen_option),
+            Algorithm::BlsSmall => signature::bls::BlsSmall::keypair(key_gen_option),
         }?;
 
         Ok(Self {
@@ -319,12 +318,12 @@ impl PublicKey {
         let key_gen_option = Some(KeyGenOption::FromPrivateKey(private_key));
 
         let (public_key, _) = match digest_function {
-            Algorithm::Ed25519 => signature::ed25519::Ed25519Sha512.keypair(key_gen_option),
+            Algorithm::Ed25519 => signature::ed25519::Ed25519Sha512::keypair(key_gen_option),
             Algorithm::Secp256k1 => {
-                signature::secp256k1::EcdsaSecp256k1Sha256::new().keypair(key_gen_option)
+                signature::secp256k1::EcdsaSecp256k1Sha256::keypair(key_gen_option)
             }
-            Algorithm::BlsNormal => signature::bls::BlsNormal::new().keypair(key_gen_option),
-            Algorithm::BlsSmall => signature::bls::BlsSmall::new().keypair(key_gen_option),
+            Algorithm::BlsNormal => signature::bls::BlsNormal::keypair(key_gen_option),
+            Algorithm::BlsSmall => signature::bls::BlsSmall::keypair(key_gen_option),
         }?;
 
         Ok(public_key)
@@ -687,7 +686,7 @@ mod tests {
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774".as_ref()
+            "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
         ).expect("Private key not hex encoded")).is_ok());
 
         assert!(KeyPair::new("ea0161040FCFADE2FC5D9104A9ACF9665EA545339DDF10AE50343249E01AF3B8F885CD5D52956542CCE8105DB3A2EC4006E637A7177FAAEA228C311F907DAAFC254F22667F1A1812BB710C6F4116A1415275D27BB9FB884F37E8EF525CC31F3945E945FA"
@@ -695,7 +694,7 @@ mod tests {
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::BlsNormal,
-            "0000000000000000000000000000000049BF70187154C57B97AF913163E8E875733B4EAF1F3F0689B31CE392129493E9".as_ref()
+            "0000000000000000000000000000000049BF70187154C57B97AF913163E8E875733B4EAF1F3F0689B31CE392129493E9"
         ).expect("Private key not hex encoded")).is_ok());
     }
 
@@ -731,13 +730,13 @@ mod tests {
     fn invalid_private_key() {
         assert!(PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "0000000000000000000000000000000049BF70187154C57B97AF913163E8E875733B4EAF1F3F0689B31CE392129493E9".as_ref()
+            "0000000000000000000000000000000049BF70187154C57B97AF913163E8E875733B4EAF1F3F0689B31CE392129493E9"
         ).is_err());
 
         assert!(
             PrivateKey::from_hex(
                 Algorithm::BlsNormal,
-                "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774".as_ref()
+                "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
             ).is_err());
     }
 
@@ -749,7 +748,7 @@ mod tests {
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4".as_ref()
+            "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
         ).expect("Private key not valid")).is_err());
 
         assert!(KeyPair::new("ea0161040FCFADE2FC5D9104A9ACF9665EA545339DDF10AE50343249E01AF3B8F885CD5D52956542CCE8105DB3A2EC4006E637A7177FAAEA228C311F907DAAFC254F22667F1A1812BB710C6F4116A1415275D27BB9FB884F37E8EF525CC31F3945E945FA"
@@ -757,7 +756,7 @@ mod tests {
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::BlsNormal,
-            "000000000000000000000000000000002F57460183837EFBAC6AA6AB3B8DBB7CFFCFC59E9448B7860A206D37D470CBA3".as_ref()
+            "000000000000000000000000000000002F57460183837EFBAC6AA6AB3B8DBB7CFFCFC59E9448B7860A206D37D470CBA3"
         ).expect("Private key not valid")).is_err());
     }
 

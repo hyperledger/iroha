@@ -361,7 +361,7 @@ fn test_encryption() {
         35, 231, 165, 122, 153, 14, 68, 13, 84, 5, 24,
     ];
 
-    let encryptor = SymmetricEncryptor::<ChaCha20Poly1305>::new_with_key(TEST_KEY).unwrap();
+    let encryptor = SymmetricEncryptor::<ChaCha20Poly1305>::new_with_key(TEST_KEY);
     let message = b"Some ciphertext";
     let aad = b"Iroha2 AAD";
     let res = encryptor.encrypt_easy(aad.as_ref(), message.as_ref());
