@@ -251,27 +251,24 @@ impl SumeragiHandle {
             )
         });
 
-        let current_topology = match wsv.height() {
-            0 => {
-                assert!(!configuration.trusted_peers.peers.is_empty());
-                Topology::new(configuration.trusted_peers.peers.clone())
-            }
-            height => {
-                let block_ref = kura.get_block_by_height(height).expect(
-                    "Sumeragi could not load block that was reported as present. \
-                     Please check that the block storage was not disconnected.",
-                );
-                Topology::recreate_topology(
-                    &block_ref,
-                    0,
-                    wsv.peers_ids().iter().cloned().collect(),
-                )
-            }
+        let mut current_topology = {
+            assert!(!configuration.trusted_peers.peers.is_empty());
+            Topology::new(configuration.trusted_peers.peers.clone())
         };
 
         let block_iter_except_last =
             (&mut blocks_iter).take(block_count.saturating_sub(skip_block_count + 1));
         for block in block_iter_except_last {
+            if wsv.height() == 0 {
+                current_topology = Topology::new(block.payload().commit_topology.clone());
+                wsv.world_mut().trusted_peers_ids = current_topology.ordered_peers.clone();
+            }
+
+            let new_topology =
+                Topology::recreate_topology(&block, 0, wsv.peers_ids().iter().cloned().collect());
+
+            current_topology.rotate_all_n(block.payload().header().view_change_index);
+
             let block = ValidBlock::validate(Clone::clone(&block), &current_topology, &mut wsv)
                 .expect("Kura blocks should be valid")
                 .commit(&current_topology)
@@ -280,12 +277,26 @@ impl SumeragiHandle {
                 "Block application in init should not fail. \
                  Blocks loaded from kura assumed to be valid",
             );
+            current_topology = new_topology;
         }
 
         // finalized_wsv is one block behind
         let finalized_wsv = wsv.clone();
 
         if let Some(latest_block) = blocks_iter.next() {
+            if wsv.height() == 0 {
+                current_topology = Topology::new(latest_block.payload().commit_topology.clone());
+                wsv.world_mut().trusted_peers_ids = current_topology.ordered_peers.clone();
+            }
+
+            let new_topology = Topology::recreate_topology(
+                &latest_block,
+                0,
+                wsv.peers_ids().iter().cloned().collect(),
+            );
+
+            current_topology.rotate_all_n(latest_block.payload().header().view_change_index);
+
             let latest_block =
                 ValidBlock::validate(Clone::clone(&latest_block), &current_topology, &mut wsv)
                     .expect("Kura blocks should be valid")
@@ -295,6 +306,7 @@ impl SumeragiHandle {
                 "Block application in init should not fail. \
                  Blocks loaded from kura assumed to be valid",
             );
+            current_topology = new_topology;
         }
 
         info!("Sumeragi has finished loading blocks and setting up the WSV");

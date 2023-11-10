@@ -841,13 +841,7 @@ pub(crate) fn run(
         sumeragi
             .transaction_cache
             // Checking if transactions are in the blockchain is costly
-            .retain(|tx| {
-                let expired = sumeragi.queue.is_expired(tx);
-                if expired {
-                    debug!(?tx, "Transaction expired")
-                }
-                expired
-            });
+            .retain(|tx| !sumeragi.queue.is_expired(tx));
 
         let mut expired_transactions = Vec::new();
         sumeragi.queue.get_transactions_for_block(

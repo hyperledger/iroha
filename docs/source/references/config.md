@@ -33,6 +33,7 @@ The following is the default configuration used by Iroha.
   "PUBLIC_KEY": null,
   "PRIVATE_KEY": null,
   "DISABLE_PANIC_TERMINAL_COLORS": false,
+  "EXIT_AFTER_INIT": false,
   "KURA": {
     "INIT_MODE": "strict",
     "BLOCK_STORE_PATH": "./storage",
@@ -179,6 +180,16 @@ Has type `Option<u64>`[^1]. Can be configured via environment variable `BLOCK_SY
 Disable coloring of the backtrace and error report on panic
 
 Has type `Option<bool>`[^1]. Can be configured via environment variable `IROHA_DISABLE_PANIC_TERMINAL_COLORS`
+
+```json
+false
+```
+
+## `exit_after_init`
+
+Exit after initialization for startup time testing
+
+Has type `Option<bool>`[^1]. Can be configured via environment variable `IROHA_EXIT_AFTER_INIT`
 
 ```json
 false

@@ -2,6 +2,7 @@
   "PUBLIC_KEY": null,
   "PRIVATE_KEY": null,
   "DISABLE_PANIC_TERMINAL_COLORS": false,
+  "EXIT_AFTER_INIT": false,
   "KURA": {
     "INIT_MODE": "strict",
     "BLOCK_STORE_PATH": "./storage",

@@ -292,6 +292,11 @@ impl Iroha {
             block_count,
         });
 
+        if config.exit_after_init {
+            iroha_logger::error!("Exiting after init due to configuration");
+            return Err(eyre!("Exiting after init due to configuration"));
+        }
+
         let block_sync = BlockSynchronizer::from_configuration(
             &config.block_sync,
             sumeragi.clone(),

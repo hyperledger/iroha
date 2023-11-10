@@ -18,7 +18,6 @@ import time
 import urllib.error
 import urllib.request
 
-
 class Network:
     """
     A network of bootstrapped peers to run on bare metal.
@@ -53,6 +52,11 @@ class Network:
             self.trusted_peers.append(json.dumps(peer_entry))
         os.environ["SUMERAGI_TRUSTED_PEERS"] = f"[{','.join(self.trusted_peers)}]"
 
+        self.is_startup_benchmark = False
+        if args.benchmark:
+            del self.peers[1:]
+            self.is_startup_benchmark = True
+
     def wait_for_genesis(self, n_tries: int):
         for i in range(n_tries):
             logging.info(f"Waiting for genesis block to be created... Attempt {i+1}/{n_tries}")
@@ -73,9 +77,9 @@ class Network:
         sys.exit(2)
 
     def run(self):
-        self.peers[0].run(is_genesis=True)
+        self.peers[0].run(self.is_startup_benchmark, is_genesis=True)
         for peer in self.peers[1:]:
-            peer.run()
+            peer.run(self.is_startup_benchmark)
         self.wait_for_genesis(20)
 
 class _Peer:
@@ -110,7 +114,7 @@ class _Peer:
 
         logging.info(f"Peer {self.name} initialized")
 
-    def run(self, is_genesis: bool = False):
+    def run(self, is_startup_benchmark, is_genesis: bool = False):
         logging.info(f"Running peer {self.name}...")
         peer_dir = self.out_dir.joinpath(f"peers/{self.name}")
         os.makedirs(peer_dir, exist_ok=True)
@@ -127,12 +131,22 @@ class _Peer:
         os.environ["TORII_API_URL"] = f"{self.host_ip}:{self.api_port}"
         os.environ["TOKIO_CONSOLE_ADDR"] = f"{self.host_ip}:{self.tokio_console_port}"
 
-        genesis_arg = "--submit-genesis" if is_genesis else ""
-        # FD never gets closed
-        log_file = open(peer_dir.joinpath(".log"), "w")
-        # These processes are created detached from the parent process already
-        subprocess.Popen([self.name, genesis_arg], executable=f"{self.out_dir}/peers/iroha",
-                    stdout=log_file, stderr=subprocess.STDOUT)
+        if is_startup_benchmark:
+            os.environ["IROHA_EXIT_AFTER_INIT"] = "true"
+            shutil.copy2(f"{self.root_dir}/benchmark_blockstore/blocks.data", f"{self.out_dir}/peers/{self.name}/storage/blocks.data")
+            shutil.copy2(f"{self.root_dir}/benchmark_blockstore/blocks.index", f"{self.out_dir}/peers/{self.name}/storage/blocks.index")
+            start_time = time.time_ns()
+            subprocess.run([f"{self.out_dir}/peers/iroha"])
+            runtime = time.time_ns() - start_time
+            print("Took " + str(float(runtime) / 1000000.0) + " ms")
+            exit()
+        else:
+            genesis_arg = "--submit-genesis" if is_genesis else ""
+            # FD never gets closed
+            log_file = open(peer_dir.joinpath(".log"), "w")
+            # These processes are created detached from the parent process already
+            subprocess.Popen([self.name, genesis_arg], executable=f"{self.out_dir}/peers/iroha",
+                        stdout=log_file, stderr=subprocess.STDOUT)
 
 def pos_int(arg):
     if int(arg) > 0:
@@ -173,6 +187,7 @@ def main(args: argparse.Namespace):
     logging.addLevelName(logging.INFO, f"\033[32m{logging.getLevelName(logging.INFO)}\033[0m")
     logging.addLevelName(logging.ERROR, f"\033[35m{logging.getLevelName(logging.ERROR)}\033[0m")
     logging.addLevelName(logging.CRITICAL, f"\033[31m{logging.getLevelName(logging.CRITICAL)}\033[0m")
+
     if args.command == "setup":
         setup(args)
     elif args.command == "cleanup":
@@ -231,6 +246,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Enable verbose output")
+    parser.add_argument("--benchmark", "-b", action="store_true",
+                        help="Perform the startup time benchmark with the benchmark chain")
 
     args = parser.parse_args()
     main(args)
