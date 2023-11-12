@@ -136,7 +136,7 @@ iroha::protocol::Transaction generateTransactionWhichAddsAssetQuantiti(
     return iroha_lib::Tx(
                 account_name,
                 keypair)
-            .addAssetQuantity(assetIdWithDomain, assetAmount)
+            .addAssetQuantity(assetIdWithDomain, assetAmount, "")
             .signAndAddSignature();
 }
 

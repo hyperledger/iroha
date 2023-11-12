@@ -48,6 +48,7 @@ AddAssetQuantity createAddAssetQuantity() {
   AddAssetQuantity aaq;
   aaq.amount = "10.10";
   aaq.asset_id = "123";
+  aaq.title = "testtitle";
   return aaq;
 }
 
@@ -66,6 +67,7 @@ SubtractAssetQuantity createSubtractAssetQuantity() {
   SubtractAssetQuantity saq;
   saq.amount = "10.10";
   saq.asset_id = "ast";
+  saq.title = "testtitle";
   return saq;
 }
 

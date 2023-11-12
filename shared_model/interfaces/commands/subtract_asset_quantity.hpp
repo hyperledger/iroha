@@ -28,6 +28,11 @@ namespace shared_model {
        */
       virtual const Amount &amount() const = 0;
 
+      /**
+       * @return title
+      */
+      virtual const std::string &title() const = 0;
+
       std::string toString() const override;
 
       bool operator==(const ModelType &rhs) const override;

@@ -113,6 +113,7 @@ namespace iroha {
         document.AddMember("command_type", "AddAssetQuantity", allocator);
         document.AddMember("asset_id", add_asset_quantity->asset_id, allocator);
         document.AddMember("amount", add_asset_quantity->amount, allocator);
+        document.AddMember("title", add_asset_quantity->title, allocator);
 
         return document;
       }
@@ -122,7 +123,8 @@ namespace iroha {
         auto des = makeFieldDeserializer(document);
         return make_optional_ptr<AddAssetQuantity>()
             | des.String(&AddAssetQuantity::asset_id, "asset_id")
-            | des.String(&AddAssetQuantity::amount, "amount") | toCommand;
+            | des.String(&AddAssetQuantity::amount, "amount")
+            | des.String(&AddAssetQuantity::title, "title") | toCommand;
       }
 
       // AddPeer
@@ -520,7 +522,8 @@ namespace iroha {
         auto des = makeFieldDeserializer(document);
         return make_optional_ptr<SubtractAssetQuantity>()
             | des.String(&SubtractAssetQuantity::asset_id, "asset_id")
-            | des.String(&SubtractAssetQuantity::amount, "amount") | toCommand;
+            | des.String(&SubtractAssetQuantity::amount, "amount")
+            | des.String(&SubtractAssetQuantity::title, "title") | toCommand;
       }
 
       // Abstract
