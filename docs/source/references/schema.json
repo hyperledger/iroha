@@ -424,12 +424,12 @@
   "AssetDefinitionId": {
     "Struct": [
       {
-        "name": "name",
-        "type": "Name"
-      },
-      {
         "name": "domain_id",
         "type": "DomainId"
+      },
+      {
+        "name": "name",
+        "type": "Name"
       }
     ]
   },

@@ -107,6 +107,15 @@
         }
       },
       {
+        "Transfer": {
+          "Domain": {
+            "source_id": "genesis@genesis",
+            "object": "wonderland",
+            "destination_id": "alice@wonderland"
+          }
+        }
+      },
+      {
         "Grant": {
           "PermissionToken": {
             "object": {

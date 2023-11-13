@@ -10,7 +10,7 @@ use core::str::FromStr;
 #[cfg(feature = "std")]
 use std::collections::{btree_map, btree_set};
 
-use derive_more::{DebugCustom, Display};
+use derive_more::{Constructor, DebugCustom, Display};
 use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_primitives::{const_vec::ConstVec, must_use::MustUse};
@@ -34,12 +34,6 @@ use crate::{
 /// API to work with collections of [`Id`] : [`Account`] mappings.
 pub type AccountsMap = btree_map::BTreeMap<AccountId, Account>;
 
-// The size of the array must be fixed. If we use more than `1` we
-// waste all of that space for all non-multisig accounts. If we
-// have 1 signatory per account, we keep the signature on the
-// stack. If we have more than 1, we keep everything on the
-// heap. Thanks to the union feature, we're not wasting `8Bytes`
-// of space, over `Vec`.
 type Signatories = btree_set::BTreeSet<PublicKey>;
 
 #[model]
@@ -64,6 +58,7 @@ pub mod model {
         PartialOrd,
         Ord,
         Hash,
+        Constructor,
         Getters,
         Decode,
         Encode,
@@ -114,7 +109,7 @@ pub mod model {
 
     /// Builder which should be submitted in a transaction to create a new [`Account`]
     #[derive(
-        DebugCustom, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        DebugCustom, Display, Clone, IdEqOrdHash, Decode, Encode, Serialize, Deserialize, IntoSchema,
     )]
     #[display(fmt = "[{id}]")]
     #[debug(fmt = "[{id:?}] {{ signatories: {signatories:?}, metadata: {metadata} }}")]
@@ -150,14 +145,6 @@ pub mod model {
         AnyAccountSignatureOr(ConstVec<PublicKey>),
         #[display(fmt = "AllAccountSignaturesAnd({_0:?})")]
         AllAccountSignaturesAnd(ConstVec<PublicKey>),
-    }
-}
-
-impl AccountId {
-    /// Construct [`Self`].
-    // NOTE: not derived to preserve order of fields in which [`Self`] is parsed from string
-    pub fn new(name: Name, domain_id: DomainId) -> Self {
-        Self { domain_id, name }
     }
 }
 
@@ -259,6 +246,7 @@ impl Registered for Account {
     type With = NewAccount;
 }
 
+#[cfg(feature = "transparent_api")]
 impl FromIterator<Account> for crate::Value {
     fn from_iter<T: IntoIterator<Item = Account>>(iter: T) -> Self {
         iter.into_iter()
@@ -447,7 +435,7 @@ mod tests {
         let mut account_ids = Vec::new();
         for name in [&name_a, &name_b] {
             for domain_id in [&domain_id_a, &domain_id_b] {
-                account_ids.push(AccountId::new(name.clone(), domain_id.clone()));
+                account_ids.push(AccountId::new(domain_id.clone(), name.clone()));
             }
         }
 

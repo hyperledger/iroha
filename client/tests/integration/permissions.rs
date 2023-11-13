@@ -17,7 +17,7 @@ fn genesis_transactions_are_validated() {
 
     // Setting up genesis
 
-    let genesis = GenesisNetwork::test_with_instructions([Grant::permission_token(
+    let genesis = GenesisNetwork::test_with_instructions([Grant::permission(
         PermissionToken::new("InvalidToken".parse().unwrap(), &json!(null)),
         AccountId::from_str("alice@wonderland").unwrap(),
     )
@@ -201,30 +201,38 @@ fn permissions_differ_not_only_by_names() {
     let (_rt, _not_drop, client) = <PeerBuilder>::new().with_port(10_745).start_with_runtime();
 
     let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
-    let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
+    let mouse_id: AccountId = "mouse@outfit".parse().expect("Valid");
     let mouse_keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
 
-    // Registering `Store` asset definitions
-    let hat_definition_id: AssetDefinitionId = "hat#wonderland".parse().expect("Valid");
-    let new_hat_definition = AssetDefinition::store(hat_definition_id.clone());
-    let shoes_definition_id: AssetDefinitionId = "shoes#wonderland".parse().expect("Valid");
-    let new_shoes_definition = AssetDefinition::store(shoes_definition_id.clone());
-    client
-        .submit_all_blocking([
-            Register::asset_definition(new_hat_definition),
-            Register::asset_definition(new_shoes_definition),
-        ])
-        .expect("Failed to register new asset definitions");
-
     // Registering mouse
+    let outfit_domain: DomainId = "outfit".parse().unwrap();
+    let create_outfit_domain = Register::domain(Domain::new(outfit_domain.clone()));
     let new_mouse_account = Account::new(mouse_id.clone(), [mouse_keypair.public_key().clone()]);
     client
-        .submit_blocking(Register::account(new_mouse_account))
+        .submit_all_blocking([
+            InstructionBox::from(create_outfit_domain),
+            Register::account(new_mouse_account).into(),
+        ])
         .expect("Failed to register mouse");
+
+    // Registering `Store` asset definitions
+    let hat_definition_id: AssetDefinitionId = "hat#outfit".parse().expect("Valid");
+    let new_hat_definition = AssetDefinition::store(hat_definition_id.clone());
+    let transfer_shoes_domain = Transfer::domain(alice_id.clone(), outfit_domain, mouse_id.clone());
+    let shoes_definition_id: AssetDefinitionId = "shoes#outfit".parse().expect("Valid");
+    let new_shoes_definition = AssetDefinition::store(shoes_definition_id.clone());
+    let instructions: [InstructionBox; 3] = [
+        Register::asset_definition(new_hat_definition).into(),
+        Register::asset_definition(new_shoes_definition).into(),
+        transfer_shoes_domain.into(),
+    ];
+    client
+        .submit_all_blocking(instructions)
+        .expect("Failed to register new asset definitions");
 
     // Granting permission to Alice to modify metadata in Mouse's hats
     let mouse_hat_id = AssetId::new(hat_definition_id, mouse_id.clone());
-    let allow_alice_to_set_key_value_in_hats = Grant::permission_token(
+    let allow_alice_to_set_key_value_in_hats = Grant::permission(
         PermissionToken::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
             &json!({ "asset_id": mouse_hat_id }),
@@ -261,7 +269,7 @@ fn permissions_differ_not_only_by_names() {
         .expect_err("Expected Alice to fail to modify Mouse's shoes");
 
     // Granting permission to Alice to modify metadata in Mouse's shoes
-    let allow_alice_to_set_key_value_in_shoes = Grant::permission_token(
+    let allow_alice_to_set_key_value_in_shoes = Grant::permission(
         PermissionToken::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
             &json!({ "asset_id": mouse_shoes_id }),
@@ -312,7 +320,7 @@ fn stored_vs_granted_token_payload() -> Result<()> {
 
     // Allow alice to mint mouse asset and mint initial value
     let mouse_asset = AssetId::new(asset_definition_id, mouse_id.clone());
-    let allow_alice_to_set_key_value_in_mouse_asset = Grant::permission_token(
+    let allow_alice_to_set_key_value_in_mouse_asset = Grant::permission(
         PermissionToken::from_str_unchecked(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
             // NOTE: Introduced additional whitespaces in the serialized form
@@ -347,7 +355,7 @@ fn permission_tokens_are_unified() {
     // Given
     let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
 
-    let allow_alice_to_transfer_rose_1 = Grant::permission_token(
+    let allow_alice_to_transfer_rose_1 = Grant::permission(
         PermissionToken::from_str_unchecked(
             "CanTransferUserAsset".parse().unwrap(),
             // NOTE: Introduced additional whitespaces in the serialized form
@@ -356,7 +364,7 @@ fn permission_tokens_are_unified() {
         alice_id.clone(),
     );
 
-    let allow_alice_to_transfer_rose_2 = Grant::permission_token(
+    let allow_alice_to_transfer_rose_2 = Grant::permission(
         PermissionToken::from_str_unchecked(
             "CanTransferUserAsset".parse().unwrap(),
             // NOTE: Introduced additional whitespaces in the serialized form

@@ -8,14 +8,58 @@ use test_network::*;
 
 #[test]
 fn domain_owner_domain_permissions() -> Result<()> {
+    let chain_id = ChainId::new("0");
+
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_080).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
     let kingdom_id: DomainId = "kingdom".parse()?;
+    let bob_id: AccountId = "bob@kingdom".parse()?;
+    let coin_id: AssetDefinitionId = "coin#kingdom".parse()?;
+    let coin = AssetDefinition::quantity(coin_id.clone());
 
     // "alice@wonderland" is owner of "kingdom" domain
     let kingdom = Domain::new(kingdom_id.clone());
     test_client.submit_blocking(Register::domain(kingdom))?;
+
+    let bob_keypair = KeyPair::generate()?;
+    let bob = Account::new(bob_id.clone(), [bob_keypair.public_key().clone()]);
+    test_client.submit_blocking(Register::account(bob))?;
+
+    // Asset definitions can't be registered by "bob@kingdom" by default
+    let transaction = TransactionBuilder::new(chain_id.clone(), bob_id.clone())
+        .with_instructions([Register::asset_definition(coin.clone())])
+        .sign(bob_keypair.clone())?;
+    let err = test_client
+        .submit_transaction_blocking(&transaction)
+        .expect_err("Tx should fail due to permissions");
+
+    let rejection_reason = err
+        .downcast_ref::<PipelineRejectionReason>()
+        .unwrap_or_else(|| panic!("Error {err} is not PipelineRejectionReason"));
+
+    assert!(matches!(
+        rejection_reason,
+        &PipelineRejectionReason::Transaction(TransactionRejectionReason::Validation(
+            ValidationFail::NotPermitted(_)
+        ))
+    ));
+
+    // "alice@wonderland" owns the domain and can register AssetDefinitions by default as domain owner
+    test_client.submit_blocking(Register::asset_definition(coin.clone()))?;
+    test_client.submit_blocking(Unregister::asset_definition(coin_id))?;
+
+    // Granting a respective token also allows "bob@kingdom" to do so
+    let token = PermissionToken::new(
+        "CanRegisterAssetDefinitionInDomain".parse().unwrap(),
+        &json!({ "domain_id": kingdom_id }),
+    );
+    test_client.submit_blocking(Grant::permission(token.clone(), bob_id.clone()))?;
+    let transaction = TransactionBuilder::new(chain_id, bob_id.clone())
+        .with_instructions([Register::asset_definition(coin)])
+        .sign(bob_keypair)?;
+    test_client.submit_transaction_blocking(&transaction)?;
+    test_client.submit_blocking(Revoke::permission(token, bob_id.clone()))?;
 
     // check that "alice@wonderland" as owner of domain can edit metadata in her domain
     let key: Name = "key".parse()?;
@@ -24,13 +68,12 @@ fn domain_owner_domain_permissions() -> Result<()> {
     test_client.submit_blocking(RemoveKeyValue::domain(kingdom_id.clone(), key))?;
 
     // check that "alice@wonderland" as owner of domain can grant and revoke domain related permission tokens
-    let bob_id: AccountId = "bob@wonderland".parse()?;
     let token = PermissionToken::new(
         "CanUnregisterDomain".parse().unwrap(),
         &json!({ "domain_id": kingdom_id }),
     );
-    test_client.submit_blocking(Grant::permission_token(token.clone(), bob_id.clone()))?;
-    test_client.submit_blocking(Revoke::permission_token(token, bob_id))?;
+    test_client.submit_blocking(Grant::permission(token.clone(), bob_id.clone()))?;
+    test_client.submit_blocking(Revoke::permission(token, bob_id))?;
 
     // check that "alice@wonderland" as owner of domain can unregister her domain
     test_client.submit_blocking(Unregister::domain(kingdom_id))?;
@@ -90,8 +133,8 @@ fn domain_owner_account_permissions() -> Result<()> {
         "CanUnregisterAccount".parse().unwrap(),
         &json!({ "account_id": mad_hatter_id }),
     );
-    test_client.submit_blocking(Grant::permission_token(token.clone(), bob_id.clone()))?;
-    test_client.submit_blocking(Revoke::permission_token(token, bob_id))?;
+    test_client.submit_blocking(Grant::permission(token.clone(), bob_id.clone()))?;
+    test_client.submit_blocking(Revoke::permission(token, bob_id))?;
 
     // check that "alice@wonderland" as owner of domain can unregister accounts in her domain
     test_client.submit_blocking(Unregister::account(mad_hatter_id))?;
@@ -111,7 +154,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
     let coin_id: AssetDefinitionId = "coin#kingdom".parse()?;
 
     // "alice@wonderland" is owner of "kingdom" domain
-    let kingdom = Domain::new(kingdom_id);
+    let kingdom = Domain::new(kingdom_id.clone());
     test_client.submit_blocking(Register::domain(kingdom))?;
 
     let bob_keypair = KeyPair::generate()?;
@@ -120,6 +163,13 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
 
     let rabbit = Account::new(rabbit_id.clone(), []);
     test_client.submit_blocking(Register::account(rabbit))?;
+
+    // Grant permission to register asset definitions to "bob@kingdom"
+    let token = PermissionToken::new(
+        "CanRegisterAssetDefinitionInDomain".parse().unwrap(),
+        &json!({ "domain_id": kingdom_id }),
+    );
+    test_client.submit_blocking(Grant::permission(token, bob_id.clone()))?;
 
     // register asset definitions by "bob@kingdom" so he is owner of it
     let coin = AssetDefinition::quantity(coin_id.clone());
@@ -151,8 +201,8 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
         "CanUnregisterAssetDefinition".parse().unwrap(),
         &json!({ "asset_definition_id": coin_id }),
     );
-    test_client.submit_blocking(Grant::permission_token(token.clone(), bob_id.clone()))?;
-    test_client.submit_blocking(Revoke::permission_token(token, bob_id))?;
+    test_client.submit_blocking(Grant::permission(token.clone(), bob_id.clone()))?;
+    test_client.submit_blocking(Revoke::permission(token, bob_id))?;
 
     // check that "alice@wonderland" as owner of domain can unregister asset definitions in her domain
     test_client.submit_blocking(Unregister::asset_definition(coin_id))?;
@@ -174,12 +224,19 @@ fn domain_owner_asset_permissions() -> Result<()> {
     let store_id: AssetDefinitionId = "store#kingdom".parse()?;
 
     // "alice@wonderland" is owner of "kingdom" domain
-    let kingdom = Domain::new(kingdom_id);
+    let kingdom = Domain::new(kingdom_id.clone());
     test_client.submit_blocking(Register::domain(kingdom))?;
 
     let bob_keypair = KeyPair::generate()?;
     let bob = Account::new(bob_id.clone(), [bob_keypair.public_key().clone()]);
     test_client.submit_blocking(Register::account(bob))?;
+
+    // Grant permission to register asset definitions to "bob@kingdom"
+    let token = PermissionToken::new(
+        "CanRegisterAssetDefinitionInDomain".parse().unwrap(),
+        &json!({ "domain_id": kingdom_id }),
+    );
+    test_client.submit_blocking(Grant::permission(token, bob_id.clone()))?;
 
     // register asset definitions by "bob@kingdom" so he is owner of it
     let coin = AssetDefinition::quantity(coin_id.clone());
@@ -216,8 +273,8 @@ fn domain_owner_asset_permissions() -> Result<()> {
         "CanUnregisterUserAsset".parse().unwrap(),
         &json!({ "asset_id": bob_store_id }),
     );
-    test_client.submit_blocking(Grant::permission_token(token.clone(), bob_id.clone()))?;
-    test_client.submit_blocking(Revoke::permission_token(token, bob_id))?;
+    test_client.submit_blocking(Grant::permission(token.clone(), bob_id.clone()))?;
+    test_client.submit_blocking(Revoke::permission(token, bob_id))?;
 
     Ok(())
 }
@@ -273,8 +330,8 @@ fn domain_owner_trigger_permissions() -> Result<()> {
         "CanUnregisterUserTrigger".parse().unwrap(),
         &json!({ "trigger_id": trigger_id }),
     );
-    test_client.submit_blocking(Grant::permission_token(token.clone(), bob_id.clone()))?;
-    test_client.submit_blocking(Revoke::permission_token(token, bob_id))?;
+    test_client.submit_blocking(Grant::permission(token.clone(), bob_id.clone()))?;
+    test_client.submit_blocking(Revoke::permission(token, bob_id))?;
 
     // check that "alice@wonderland" as owner of domain can unregister triggers in her domain
     test_client.submit_blocking(Unregister::trigger(trigger_id))?;

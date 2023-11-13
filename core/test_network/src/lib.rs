@@ -94,11 +94,11 @@ impl TestGenesis for GenesisNetwork {
         let alice_id = AccountId::from_str("alice@wonderland").expect("valid names");
 
         let mint_rose_permission = PermissionToken::new(
-            "CanMintAssetsWithDefinition".parse().unwrap(),
+            "CanMintAssetWithDefinition".parse().unwrap(),
             &json!({ "asset_definition_id": rose_definition_id }),
         );
         let burn_rose_permission = PermissionToken::new(
-            "CanBurnAssetsWithDefinition".parse().unwrap(),
+            "CanBurnAssetWithDefinition".parse().unwrap(),
             &json!({ "asset_definition_id": rose_definition_id }),
         );
         let unregister_any_peer_permission =
@@ -124,7 +124,7 @@ impl TestGenesis for GenesisNetwork {
             upgrade_executor_permission,
         ] {
             first_transaction
-                .append_instruction(Grant::permission_token(permission, alice_id.clone()).into());
+                .append_instruction(Grant::permission(permission, alice_id.clone()).into());
         }
 
         for isi in extra_isi.into_iter() {

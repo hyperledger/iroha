@@ -33,8 +33,8 @@ fn build_test_transaction(keys: KeyPair, chain_id: ChainId) -> SignedTransaction
         .into();
     let create_account = Register::account(Account::new(
         AccountId::new(
-            account_name.parse().expect("Valid"),
             domain_name.parse().expect("Valid"),
+            account_name.parse().expect("Valid"),
         ),
         [public_key],
     ))
@@ -50,8 +50,8 @@ fn build_test_transaction(keys: KeyPair, chain_id: ChainId) -> SignedTransaction
     TransactionBuilder::new(
         chain_id,
         AccountId::new(
-            START_ACCOUNT.parse().expect("Valid"),
             START_DOMAIN.parse().expect("Valid"),
+            START_ACCOUNT.parse().expect("Valid"),
         ),
     )
     .with_instructions(instructions)
@@ -68,8 +68,8 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
         {
             let domain_id = DomainId::from_str(START_DOMAIN).expect("Valid");
             let account_id = AccountId::new(
-                Name::from_str(START_ACCOUNT).expect("Valid"),
                 domain_id.clone(),
+                Name::from_str(START_ACCOUNT).expect("Valid"),
             );
             let mut domain = Domain::new(domain_id).build(&account_id);
             let account = Account::new(account_id.clone(), [public_key]).build(&account_id);

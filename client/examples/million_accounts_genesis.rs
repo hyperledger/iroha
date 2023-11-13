@@ -77,8 +77,8 @@ fn create_million_accounts_directly() {
     for i in 0_u32..1_000_000_u32 {
         let domain_id: DomainId = format!("wonderland-{i}").parse().expect("Valid");
         let normal_account_id = AccountId::new(
-            format!("bob-{i}").parse().expect("Valid"),
             domain_id.clone(),
+            format!("bob-{i}").parse().expect("Valid"),
         );
         let create_domain: InstructionBox = Register::domain(Domain::new(domain_id)).into();
         let create_account = Register::account(Account::new(normal_account_id.clone(), [])).into();

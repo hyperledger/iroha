@@ -105,7 +105,6 @@ types!(
     BlockMessage,
     BlockRejectionReason,
     BlockSubscriptionRequest,
-    Box<FindError>,
     Box<GenericPredicateBox<ValuePredicate>>,
     Box<Value>,
     Box<ValuePredicate>,
