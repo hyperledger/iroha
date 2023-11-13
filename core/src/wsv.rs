@@ -1341,9 +1341,8 @@ mod tests {
         for i in 1..=BLOCK_CNT {
             let mut block = block.clone();
 
-            let SignedBlock::V1(v1_block) = &mut block.0;
-            v1_block.payload.header.height = i as u64;
-            v1_block.payload.header.previous_block_hash = block_hashes.last().copied();
+            block.0.payload_mut().header.height = i as u64;
+            block.0.payload_mut().header.previous_block_hash = block_hashes.last().copied();
 
             block_hashes.push(block.hash());
             wsv.apply(&block).unwrap();
