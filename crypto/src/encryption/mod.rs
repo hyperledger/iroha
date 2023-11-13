@@ -17,16 +17,29 @@
 
 mod chacha20poly1305;
 
-use std::io::{Read, Write};
-
 use aead::{
     generic_array::{typenum::Unsigned, ArrayLength, GenericArray},
-    Aead, Error, KeyInit, Payload,
+    Aead, Error as AeadError, KeyInit, Payload,
 };
+use displaydoc::Display;
 use rand::{rngs::OsRng, RngCore};
+use thiserror::Error;
 
 pub use self::chacha20poly1305::ChaCha20Poly1305;
 use crate::SessionKey;
+
+/// An error that can occur during encryption or decryption
+#[derive(Error, Display, Debug)]
+pub enum Error {
+    /// Failed to generate nonce for an encryption operation
+    NonceGeneration(#[source] rand::Error),
+    /// Failed to encrypt data
+    Encryption(AeadError),
+    /// Failed to decrypt data
+    Decryption(AeadError),
+    /// Not enough data to decrypt message
+    NotEnoughData,
+}
 
 // Helpful for generating bytes using the operating system random number generator
 fn random_vec(bytes: usize) -> Result<Vec<u8>, Error> {
@@ -34,7 +47,7 @@ fn random_vec(bytes: usize) -> Result<Vec<u8>, Error> {
     OsRng
         .try_fill_bytes(value.as_mut_slice())
         // RustCrypto errors don't have any details, can't propagate the error
-        .map_err(|_| Error)?;
+        .map_err(Error::NonceGeneration)?;
     Ok(value)
 }
 
@@ -42,13 +55,6 @@ fn random_bytes<T: ArrayLength<u8>>() -> Result<GenericArray<u8, T>, Error> {
     Ok(GenericArray::clone_from_slice(
         random_vec(T::to_usize())?.as_slice(),
     ))
-}
-
-fn read_buffer<I: Read>(buffer: &mut I) -> Result<Vec<u8>, Error> {
-    let mut v = Vec::new();
-    let bytes_read = buffer.read_to_end(&mut v).map_err(|_| Error)?;
-    v.truncate(bytes_read);
-    Ok(v)
 }
 
 /// A generic symmetric encryption wrapper
@@ -118,7 +124,9 @@ impl<E: Encryptor> SymmetricEncryptor<E> {
             msg: plaintext.as_ref(),
             aad: aad.as_ref(),
         };
-        self.encryptor.encrypt(nonce, payload)
+        self.encryptor
+            .encrypt(nonce, payload)
+            .map_err(Error::Encryption)
     }
 
     /// Decrypt `ciphertext` using integrity protected `aad`. The result is the plaintext if successful
@@ -153,35 +161,9 @@ impl<E: Encryptor> SymmetricEncryptor<E> {
             msg: ciphertext.as_ref(),
             aad: aad.as_ref(),
         };
-        self.encryptor.decrypt(nonce, payload)
-    }
-
-    /// Similar to `encrypt_easy` but reads from a stream instead of a slice
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if reading the buffer, nonce generation, encryption or writing the buffer fails
-    pub fn encrypt_buffer<A: AsRef<[u8]>, I: Read, O: Write>(
-        &self,
-        aad: A,
-        plaintext: &mut I,
-        ciphertext: &mut O,
-    ) -> Result<(), Error> {
-        self.encryptor.encrypt_buffer(aad, plaintext, ciphertext)
-    }
-
-    /// Similar to `decrypt_easy` but reads from a stream instead of a slice
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if reading the buffer, decryption or writing the buffer fails
-    pub fn decrypt_buffer<A: AsRef<[u8]>, I: Read, O: Write>(
-        &self,
-        aad: A,
-        ciphertext: &mut I,
-        plaintext: &mut O,
-    ) -> Result<(), Error> {
-        self.encryptor.decrypt_buffer(aad, ciphertext, plaintext)
+        self.encryptor
+            .decrypt(nonce, payload)
+            .map_err(Error::Decryption)
     }
 }
 
@@ -211,7 +193,7 @@ pub trait Encryptor: Aead + KeyInit {
             msg: plaintext.as_ref(),
             aad: aad.as_ref(),
         };
-        let ciphertext = self.encrypt(&nonce, payload)?;
+        let ciphertext = self.encrypt(&nonce, payload).map_err(Error::Encryption)?;
         let mut result = nonce.to_vec();
         result.extend_from_slice(ciphertext.as_slice());
         Ok(result)
@@ -227,7 +209,7 @@ pub trait Encryptor: Aead + KeyInit {
     fn decrypt_easy<M: AsRef<[u8]>>(&self, aad: M, ciphertext: M) -> Result<Vec<u8>, Error> {
         let ciphertext = ciphertext.as_ref();
         if ciphertext.len() < Self::MinSize::to_usize() {
-            return Err(Error);
+            return Err(Error::NotEnoughData);
         }
 
         let nonce = GenericArray::from_slice(&ciphertext[..Self::NonceSize::to_usize()]);
@@ -235,42 +217,8 @@ pub trait Encryptor: Aead + KeyInit {
             msg: &ciphertext[Self::NonceSize::to_usize()..],
             aad: aad.as_ref(),
         };
-        let plaintext = self.decrypt(nonce, payload)?;
+        let plaintext = self.decrypt(nonce, payload).map_err(Error::Decryption)?;
         Ok(plaintext)
-    }
-
-    /// Same as [`Encryptor::encrypt_easy`] but works with [`std::io`] streams instead of slices
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if reading the buffer, nonce generation, encryption or writing the buffer fails
-    fn encrypt_buffer<M: AsRef<[u8]>, I: Read, O: Write>(
-        &self,
-        aad: M,
-        plaintext: &mut I,
-        ciphertext: &mut O,
-    ) -> Result<(), Error> {
-        let p = read_buffer(plaintext)?;
-        let c = self.encrypt_easy(aad.as_ref(), p.as_slice())?;
-        ciphertext.write_all(c.as_slice()).map_err(|_| Error)?;
-        Ok(())
-    }
-
-    /// Same as [`Encryptor::decrypt_easy`] but works with [`std::io`] streams instead of slices
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if reading the buffer, decryption or writing the buffer fails
-    fn decrypt_buffer<M: AsRef<[u8]>, I: Read, O: Write>(
-        &self,
-        aad: M,
-        ciphertext: &mut I,
-        plaintext: &mut O,
-    ) -> Result<(), Error> {
-        let c = read_buffer(ciphertext)?;
-        let p = self.decrypt_easy(aad.as_ref(), c.as_slice())?;
-        plaintext.write_all(p.as_slice()).map_err(|_| Error)?;
-        Ok(())
     }
 
     /// Generate a new key for this encryptor
