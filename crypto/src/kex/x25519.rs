@@ -81,18 +81,16 @@ mod tests {
     #[test]
     fn key_exchange() {
         let scheme = X25519Sha256::new();
-        let res = scheme.keypair(None);
-        assert!(res.is_ok());
-        let (public_key1, secret_key1) = res.unwrap();
+        let (public_key1, secret_key1) = scheme.keypair(None).unwrap();
         let _res = scheme.compute_shared_secret(&secret_key1, &public_key1);
         let res = scheme.keypair(None);
         let (public_key2, secret_key2) = res.unwrap();
         let _res = scheme.compute_shared_secret(&secret_key2, &public_key1);
         let _res = scheme.compute_shared_secret(&secret_key1, &public_key2);
 
-        let res = scheme.keypair(Some(KeyGenOption::FromPrivateKey(secret_key1)));
-        assert!(res.is_ok());
-        let (public_key2, secret_key1) = res.unwrap();
+        let (public_key2, secret_key1) = scheme
+            .keypair(Some(KeyGenOption::FromPrivateKey(secret_key1)))
+            .unwrap();
         assert_eq!(public_key2, public_key1);
         assert_eq!(secret_key1, secret_key1);
     }
