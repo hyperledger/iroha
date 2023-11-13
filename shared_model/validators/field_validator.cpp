@@ -73,6 +73,8 @@ namespace {
 
   const RegexValidator kAccountNameValidator{"AccountName",
                                              R"#([a-z_0-9]{1,32})#"};
+  const RegexValidator kTitleNameValidator{"Title",
+                                             R"#([a-z_0-9]{1,32})#"};
   const RegexValidator kAssetNameValidator{"AssetName", R"#([a-z_0-9]{1,32})#"};
   const RegexValidator kDomainValidator{
       "Domain",
@@ -95,6 +97,12 @@ namespace {
                                            kAccountNameValidator.getPattern()
                                                + R"#(\@)#"
                                                + kDomainValidator.getPattern()};
+//  const RegexValidator kTitleValidator{"Title",
+//                                       kTitleNameValidator.getPattern()
+//                                               + R"#(\@)#"
+//                                               + kDomainValidator.getPattern()};
+  const RegexValidator kTitleValidator{"Title", ".*"};
+
   const RegexValidator kAssetIdValidator{"AssetId",
                                          kAssetNameValidator.getPattern()
                                              + R"#(\#)#"
@@ -132,6 +140,11 @@ namespace shared_model {
     std::optional<ValidationError> FieldValidator::validateAccountId(
         const interface::types::AccountIdType &account_id) const {
       return kAccountIdValidator.validate(account_id);
+    }
+
+    std::optional<ValidationError> FieldValidator::validateTitle(
+        const interface::types::TitleType &title) const {
+      return kTitleValidator.validate(title);
     }
 
     std::optional<ValidationError> FieldValidator::validateAssetId(

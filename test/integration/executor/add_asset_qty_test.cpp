@@ -37,6 +37,17 @@ class AddAssetQuantityTest : public ExecutorTestBase {
         issuer,
         validation_enabled);
   }
+  iroha::ametsuchi::CommandResult addAssetWithTitle(const AccountIdType &issuer,
+                                           const AssetIdType &asset = kAssetId,
+                                           const Amount &amount = kAmount,
+                                           const TitleType &title = "",
+                                           bool validation_enabled = true) {
+    return getItf().executeCommandAsAccount(
+        *getItf().getMockCommandFactory()->constructAddAssetQuantityWithTitle(asset,
+                                                                     amount, title),
+        issuer,
+        validation_enabled);
+  }
 };
 
 using AddAssetQuantityBasicTest = BasicExecutorTest<AddAssetQuantityTest>;
@@ -48,7 +59,7 @@ using AddAssetQuantityBasicTest = BasicExecutorTest<AddAssetQuantityTest>;
  * @and the asset is not added to the user
  */
 TEST_P(AddAssetQuantityBasicTest, InvalidAsset) {
-  checkCommandError(addAsset(kAdminId, kSecondDomainAssetId), 3);
+  checkCommandError(addAssetWithTitle(kAdminId, kSecondDomainAssetId), 3);
   checkAssetQuantities(kAdminId, {});
 }
 

@@ -25,6 +25,9 @@ namespace shared_model {
       FactoryResult<MockAddAssetQuantity> constructAddAssetQuantity(
           const types::AssetIdType &asset_id, const Amount &asset_amount) const;
 
+      FactoryResult<MockAddAssetQuantity> constructAddAssetQuantityWithTitle(
+          const types::AssetIdType &asset_id, const Amount &asset_amount, const std::string &title) const;
+
       /**
        * Construct a mocked AddPeer
        * @param peer to be in that command

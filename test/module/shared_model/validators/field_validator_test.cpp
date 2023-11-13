@@ -91,6 +91,11 @@ class FieldValidatorTest : public ValidatorsTest {
                                             account_id_test_cases));
     }
 
+    field_validators.insert(makeValidator("title",
+                                          &FieldValidator::validateTitle,
+                                          &FieldValidatorTest::title,
+                                          title_test_cases));
+
     field_validators.insert(
         makeValidator("key",
                       &FieldValidator::validateAccountDetailKey,
@@ -313,6 +318,10 @@ class FieldValidatorTest : public ValidatorsTest {
 
   std::vector<FieldTestCase> asset_id_test_cases = idTestCases(
       "asset_id", &FieldValidatorTest::asset_id, '#', {'A', '-', ' '}, 32);
+
+  std::vector<FieldTestCase> title_test_cases = {
+      makeValidCase(&FieldValidatorTest::title, ""),
+  };
 
   std::vector<FieldTestCase> callee_cases{
       {"too big", [&] { callee = std::string(42, 'a'); }, false, ""},
@@ -728,6 +737,10 @@ class FieldValidatorTest : public ValidatorsTest {
                     &FieldValidator::validateAssetId,
                     &FieldValidatorTest::asset_id,
                     asset_id_test_cases),
+      makeValidator("title",
+                    &FieldValidator::validateTitle,
+                    &FieldValidatorTest::title,
+                    title_test_cases),
       makeTransformValidator(
           "amount",
           &FieldValidator::validateAmount,

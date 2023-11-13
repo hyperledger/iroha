@@ -126,6 +126,12 @@ namespace executor_testing {
         const shared_model::interface::types::AssetIdType &asset_id,
         const shared_model::interface::Amount &quantity);
 
+    void addAssetWithTitle(
+        const shared_model::interface::types::AccountIdType &dest_account_id,
+        const shared_model::interface::types::AssetIdType &asset_id,
+        const shared_model::interface::types::TitleType &title,
+        const shared_model::interface::Amount &quantity);
+
     //  ---------------- checkers -----------------
 
     /// A plain representation of an asset quantity.
