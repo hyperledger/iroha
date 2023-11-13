@@ -68,12 +68,9 @@ mod tests {
         let cipher = ChaCha20Poly1305::new(&ChaCha20Poly1305::key_gen().unwrap());
         let aad = Vec::new();
         let message = b"Hello and Goodbye!".to_vec();
-        let res = cipher.encrypt_easy(&aad, &message);
-        assert!(res.is_ok());
-        let ciphertext = res.unwrap();
-        let res = cipher.decrypt_easy(&aad, &ciphertext);
-        assert!(res.is_ok());
-        assert_eq!(message, res.unwrap());
+        let ciphertext = cipher.encrypt_easy(&aad, &message).unwrap();
+        let decrypted_message = cipher.decrypt_easy(&aad, &ciphertext).unwrap();
+        assert_eq!(message, decrypted_message);
     }
 
     #[test]
@@ -86,16 +83,13 @@ mod tests {
             msg: message.as_slice(),
             aad: aad.as_slice(),
         };
-        let res = cipher.encrypt(&nonce, payload);
-        assert!(res.is_ok());
-        let ciphertext = res.unwrap();
+        let ciphertext = cipher.encrypt(&nonce, payload).unwrap();
         let payload = Payload {
             msg: ciphertext.as_slice(),
             aad: aad.as_slice(),
         };
-        let res = cipher.decrypt(&nonce, payload);
-        assert!(res.is_ok());
-        assert_eq!(message, res.unwrap());
+        let decrypted_message = cipher.decrypt(&nonce, payload).unwrap();
+        assert_eq!(message, decrypted_message);
     }
 
     #[test]
@@ -104,17 +98,14 @@ mod tests {
         let aad = b"decrypt should fail".to_vec();
         let message = b"Hello and Goodbye!".to_vec();
         let res = cipher.encrypt_easy(&aad, &message);
-        assert!(res.is_ok());
         let mut ciphertext = res.unwrap();
 
         let aad = b"decrypt should succeed".to_vec();
-        let res = cipher.decrypt_easy(&aad, &ciphertext);
-        assert!(res.is_err());
+        cipher.decrypt_easy(&aad, &ciphertext).unwrap_err();
 
         let aad = b"decrypt should fail".to_vec();
         ciphertext[0] ^= ciphertext[1];
-        let res = cipher.decrypt_easy(&aad, &ciphertext);
-        assert!(res.is_err());
+        cipher.decrypt_easy(&aad, &ciphertext).unwrap_err();
     }
 
     // TODO: this should be tested for, but only after we integrate with secrecy/zeroize

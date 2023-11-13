@@ -73,7 +73,6 @@ fn random_bytes<T: ArrayLength<u8>>() -> Result<GenericArray<u8, T>, Error> {
 ///
 /// let ciphertext = res.unwrap();
 /// let res = encryptor.decrypt_easy(aad.as_ref(), ciphertext.as_slice());
-/// assert!(res.is_ok());
 /// assert_eq!(res.unwrap().as_slice(), message);
 /// ```
 #[derive(Debug, Clone)]

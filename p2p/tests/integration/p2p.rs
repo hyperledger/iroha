@@ -364,11 +364,11 @@ fn test_encryption() {
     let encryptor = SymmetricEncryptor::<ChaCha20Poly1305>::new_with_key(TEST_KEY);
     let message = b"Some ciphertext";
     let aad = b"Iroha2 AAD";
-    let res = encryptor.encrypt_easy(aad.as_ref(), message.as_ref());
-    assert!(res.is_ok());
-
-    let ciphertext = res.unwrap();
-    let res_cipher = encryptor.decrypt_easy(aad.as_ref(), ciphertext.as_slice());
-    assert!(res_cipher.is_ok());
-    assert_eq!(res_cipher.unwrap().as_slice(), message);
+    let ciphertext = encryptor
+        .encrypt_easy(aad.as_ref(), message.as_ref())
+        .unwrap();
+    let decrypted = encryptor
+        .decrypt_easy(aad.as_ref(), ciphertext.as_slice())
+        .unwrap();
+    assert_eq!(decrypted.as_slice(), message);
 }
