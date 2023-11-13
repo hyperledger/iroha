@@ -9,7 +9,6 @@ use iroha_crypto::{
         Blake2bVar,
     },
     encryption::ChaCha20Poly1305,
-    error::Error as CryptoError,
     kex::X25519Sha256,
 };
 pub use network::message::*;
@@ -55,30 +54,13 @@ pub enum Error {
     /// Parity Scale codec error
     ParityScale(#[from] parity_scale_codec::Error),
     /// Failed to create keys
-    Keys(#[source] CryptographicError),
+    Keys(#[from] iroha_crypto::error::Error),
+    /// Symmetric encryption has failed
+    SymmetricEncryption(#[from] iroha_crypto::encryption::Error),
     /// Failed to parse socket address
     Addr(#[from] AddrParseError),
     /// Connection reset by peer in the middle of message transfer
     ConnectionResetByPeer,
-}
-
-/// Error in the cryptographic processes.
-#[derive(derive_more::From, Debug, Error, displaydoc::Display)]
-pub enum CryptographicError {
-    /// Decryption failed
-    #[from(ignore)]
-    Decrypt(aead::Error),
-    /// Encryption failed
-    #[from(ignore)]
-    Encrypt(aead::Error),
-    /// Cryptography error
-    Crypto(CryptoError),
-}
-
-impl<T: Into<CryptographicError>> From<T> for Error {
-    fn from(err: T) -> Self {
-        Self::Keys(err.into())
-    }
 }
 
 impl From<io::Error> for Error {

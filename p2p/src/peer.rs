@@ -14,7 +14,7 @@ use tokio::{
     sync::{mpsc, oneshot},
 };
 
-use crate::{boilerplate::*, CryptographicError, Error};
+use crate::{boilerplate::*, Error};
 
 /// Max length of message handshake in bytes excluding first message length byte.
 pub const MAX_HANDSHAKE_LENGTH: u8 = 255;
@@ -700,7 +700,6 @@ mod cryptographer {
         pub fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>, Error> {
             self.encryptor
                 .decrypt_easy(DEFAULT_AAD.as_ref(), data)
-                .map_err(CryptographicError::Decrypt)
                 .map_err(Into::into)
         }
 
@@ -711,7 +710,6 @@ mod cryptographer {
         pub fn encrypt(&self, data: &[u8]) -> Result<Vec<u8>, Error> {
             self.encryptor
                 .encrypt_easy(DEFAULT_AAD.as_ref(), data)
-                .map_err(CryptographicError::Encrypt)
                 .map_err(Into::into)
         }
 

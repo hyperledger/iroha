@@ -61,8 +61,6 @@ impl Aead for ChaCha20Poly1305 {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::*;
 
     #[test]
@@ -117,24 +115,6 @@ mod tests {
         ciphertext[0] ^= ciphertext[1];
         let res = cipher.decrypt_easy(&aad, &ciphertext);
         assert!(res.is_err());
-    }
-
-    #[test]
-    fn buffer_works() {
-        let cipher = ChaCha20Poly1305::new(&ChaCha20Poly1305::key_gen().unwrap());
-        let aad = b"buffer works".to_vec();
-        let dummytext = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
-        let mut ciphertext = Vec::new();
-        let res = cipher.encrypt_buffer(&aad, &mut Cursor::new(dummytext), &mut ciphertext);
-        assert!(res.is_ok());
-        let mut plaintext = Vec::new();
-        let res = cipher.decrypt_buffer(
-            &aad,
-            &mut Cursor::new(ciphertext.as_slice()),
-            &mut plaintext,
-        );
-        assert!(res.is_ok());
-        assert_eq!(dummytext.to_vec(), plaintext);
     }
 
     // TODO: this should be tested for, but only after we integrate with secrecy/zeroize
