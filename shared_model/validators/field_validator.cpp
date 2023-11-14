@@ -97,10 +97,7 @@ namespace {
                                            kAccountNameValidator.getPattern()
                                                + R"#(\@)#"
                                                + kDomainValidator.getPattern()};
-//  const RegexValidator kTitleValidator{"Title",
-//                                       kTitleNameValidator.getPattern()
-//                                               + R"#(\@)#"
-//                                               + kDomainValidator.getPattern()};
+
   const RegexValidator kTitleValidator{"Title", ".*"};
 
   const RegexValidator kAssetIdValidator{"AssetId",
