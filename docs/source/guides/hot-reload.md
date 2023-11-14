@@ -7,7 +7,7 @@ Here is the overall procedure for hot reloading Iroha in a Docker container:
     To avoid issues with dynamic linking, run:
 
     ```bash
-    cargo build --release --target x86_64-unknown-linux-musl --features "vendored"
+    cargo build --release --target x86_64-unknown-linux-musl
     ```
 
     <details> <summary> An explanation for using `cargo build` with these parameters. </summary>
@@ -15,7 +15,6 @@ Here is the overall procedure for hot reloading Iroha in a Docker container:
     You may experience an issue with dynamic linking if your host OS has a newer version of `glibc` compared to the one in the Docker container. The options used in the command above resolve the issue:
 
     - `--target x86_64-unknown-linux-musl` forces static linking against `musl` libc implementation
-    - `--features "vendored"` facilitates static linkage of the `openssl` library
 
     </details>
 

@@ -22,6 +22,24 @@ is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledg
 is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
 maintenance = { status = "actively-developed" }
 
+[features]
+tls-native = [
+    "attohttpc/tls-native",
+    "tokio-tungstenite/native-tls",
+]
+tls-native-vendored = [
+    "attohttpc/tls-native-vendored",
+    "tokio-tungstenite/native-tls-vendored",
+]
+tls-rustls-native-roots = [
+    "attohttpc/tls-rustls-native-roots",
+    "tokio-tungstenite/rustls-tls-native-roots",
+]
+tls-rustls-webpki-roots = [
+    "attohttpc/tls-rustls-webpki-roots",
+    "tokio-tungstenite/rustls-tls-webpki-roots",
+]
+
 [dependencies]
 iroha_config = { workspace = true }
 iroha_crypto = { workspace = true }
@@ -31,7 +49,7 @@ iroha_logger = { workspace = true }
 iroha_telemetry = { workspace = true }
 iroha_version = { workspace = true, features = ["http"] }
 
-attohttpc = "0.26.1"
+attohttpc = { version = "0.26.1", default-features = false }
 eyre = { workspace = true }
 http = "0.2.9"
 url = { workspace = true }
@@ -44,7 +62,7 @@ displaydoc = { workspace = true }
 derive_more = { workspace = true }
 parity-scale-codec = { workspace = true, default-features = false, features = ["derive"] }
 tokio = { workspace = true, features = ["rt"] }
-tokio-tungstenite = { workspace = true, features = ["native-tls"] }
+tokio-tungstenite = { workspace = true }
 futures-util = "0.3.28"
 
 [dev-dependencies]
