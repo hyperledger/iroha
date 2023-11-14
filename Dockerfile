@@ -28,7 +28,7 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/x86_64-linux-musl-native/bin/
 # builder stage
 WORKDIR /iroha
 COPY . .
-RUN cargo build --target x86_64-unknown-linux-musl --features vendored --profile deploy
+RUN cargo build --target x86_64-unknown-linux-musl --profile deploy
 
 
 # final image

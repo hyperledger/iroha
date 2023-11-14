@@ -36,8 +36,6 @@ std = [
     "dep:thiserror",
     "displaydoc/std",
 ]
-# Force static linking
-vendored = ["dep:openssl-sys"]
 # Replace structures and methods with FFI equivalents to facilitate dynamic linkage (mainly used in smartcontracts)
 #ffi_import = ["iroha_ffi", "iroha_primitives/ffi_import"]
 
@@ -55,9 +53,6 @@ parity-scale-codec = { workspace = true, features = ["derive", "full"] }
 serde = { workspace = true, features = ["derive"] }
 serde_with = { workspace = true, features = ["macros"] }
 hex = { workspace = true, features = ["alloc", "serde"] }
-# TODO: iroha_crypto no longer depends on openssl (did it ever?)
-# currently it's being used by iroha_client through attohttpc and iroha_cli through warp's tokeio-tunstenite
-openssl-sys = { version = "0.9.93", features = ["vendored"], optional = true }
 getset = { workspace = true }
 
 thiserror = { version = "1.0.50", optional = true }
@@ -96,4 +91,4 @@ serde_json = { workspace = true }
 # but to test some of the primitives against them
 secp256k1 = { version = "0.28.0", features = ["rand", "serde"] }
 libsodium-sys-stable = "1.20.3"
-openssl = "0.10.59"
+openssl = { version = "0.10.59", features = ["vendored"] }

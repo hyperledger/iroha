@@ -217,11 +217,13 @@ version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f77d243921b0979fbbd728dd2d5162e68ac8252976797c24eb5b3a6af9090dc"
 dependencies = [
- "flate2",
  "http",
  "log",
  "native-tls",
+ "rustls",
+ "rustls-native-certs",
  "url",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -2867,7 +2869,6 @@ dependencies = [
  "k256",
  "libsodium-sys-stable",
  "openssl",
- "openssl-sys",
  "parity-scale-codec",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -4681,6 +4682,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustls-native-certs"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9aace74cb666635c918e9c12bc0d348266037aa8eb599b5cba565709a8dff00"
+dependencies = [
+ "openssl-probe",
+ "rustls-pemfile",
+ "schannel",
+ "security-framework",
+]
+
+[[package]]
 name = "rustls-pemfile"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5540,6 +5553,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-rustls"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c28327cf380ac148141087fbfb9de9d7bd4e84ab5d2c28fbc911d753de8a7081"
+dependencies = [
+ "rustls",
+ "tokio",
+]
+
+[[package]]
 name = "tokio-stream"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5559,9 +5582,13 @@ dependencies = [
  "futures-util",
  "log",
  "native-tls",
+ "rustls",
+ "rustls-native-certs",
  "tokio",
  "tokio-native-tls",
+ "tokio-rustls",
  "tungstenite",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -5809,6 +5836,7 @@ dependencies = [
  "log",
  "native-tls",
  "rand 0.8.5",
+ "rustls",
  "sha1",
  "thiserror",
  "url",
