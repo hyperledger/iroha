@@ -122,14 +122,14 @@ latex_elements = {
 # Read variables for
 # common settings and locale:
 with open('common.yaml', 'r') as stream:
-    common = yaml.load(stream)
+    common = yaml.safe_load(stream)
     project = common.get('project')
     documentation = common.get('documentation')
     description = common.get('description')
     copyright = common.get('copyright')
     author = common.get('author')
 with open('locale.yaml', 'r') as stream:
-    locale = yaml.load(stream)
+    locale = yaml.safe_load(stream)
     language = locale.get('language')
     if locale.get('locale_dirs'):
         print("Setting locale dir to " + locale.get('locale_dirs'))
