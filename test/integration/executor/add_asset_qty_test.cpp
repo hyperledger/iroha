@@ -101,8 +101,8 @@ TEST_P(AddAssetQuantityBasicTest, DestOverflowPrecision2) {
   ASSERT_NO_FATAL_FAILURE(checkAssetQuantities(
       kAdminId, {AssetQuantity{kAssetId, kAmountPrec2Max}}));
 
-  checkCommandError(addAsset(kAdminId, kAssetId, Amount{"0.01"}), 4);
-  checkCommandError(addAsset(kAdminId, kAssetId, Amount{"0.1"}), 4);
+  checkCommandError(addAssetWithTitle(kAdminId, kAssetId, Amount{"0.01"}), 4);
+  checkCommandError(addAssetWithTitle(kAdminId, kAssetId, Amount{"0.1"}), 4);
 
   checkAssetQuantities(kAdminId, {AssetQuantity{kAssetId, kAmountPrec2Max}});
 }
@@ -121,7 +121,7 @@ TEST_P(AddAssetQuantityPermissionTest, CommandPermissionTest) {
   ASSERT_NO_FATAL_FAILURE(prepareState({}));
 
   if (checkResponse(
-          addAsset(getActor(), kAssetId, kAmount, getValidationEnabled()))) {
+          addAssetWithTitle(getActor(), kAssetId, kAmount, "", getValidationEnabled()))) {
     checkAssetQuantities(getActor(), {AssetQuantity{kAssetId, kAmount}});
   } else {
     checkAssetQuantities(getActor(), {});
