@@ -79,8 +79,8 @@ TEST_P(AddAssetQuantityBasicTest, DestOverflowPrecision1) {
   ASSERT_NO_FATAL_FAILURE(checkAssetQuantities(
       kAdminId, {AssetQuantity{kAssetId, kAmountPrec1Max}}));
 
-  checkCommandError(addAsset(kAdminId, kAssetId, Amount{"0.1"}), 4);
-  checkCommandError(addAsset(kAdminId, kAssetId, Amount{"1"}), 4);
+  checkCommandError(addAssetWithTitle(kAdminId, kAssetId, Amount{"0.1"}), 4);
+  checkCommandError(addAssetWithTitle(kAdminId, kAssetId, Amount{"1"}), 4);
 
   checkAssetQuantities(kAdminId, {AssetQuantity{kAssetId, kAmountPrec1Max}});
 }

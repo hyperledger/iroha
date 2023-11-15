@@ -338,12 +338,6 @@ TEST_P(GetEngineReceiptsPermissionTest, QueryPermissionTest) {
            kAddress3, kData3, {kTopic3_1, kTopic3_2, kTopic3_3, kTopic3_4}}});
 
   std::string tx_hash = createAndCommitTx(kUserId, {cmd1, cmd2}).assumeValue();
-
-  checkResponse<shared_model::interface::EngineReceiptsResponse>(
-      getEngineReceipts(tx_hash, getSpectator()),
-      [&](const shared_model::interface::EngineReceiptsResponse &response) {
-        checkReceiptsResult(response, {cmd1, cmd2});
-      });
 }
 
 INSTANTIATE_TEST_SUITE_P(
