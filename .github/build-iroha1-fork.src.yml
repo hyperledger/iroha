@@ -27,7 +27,7 @@ jobs:
   check_if_pull_request_comes_from_fork:
     runs-on: ubuntu-20.04 #ubuntu-latest
     permissions: read-all
-    name: Pull requests from forks should use this workflow 
+    name: Pull requests from forks should use this workflow
     if: github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     steps:
       - &step_show_context
@@ -44,8 +44,8 @@ jobs:
         uses: actions/checkout@v2
         with: &step_checkout_with_head
           ref: ${{ github.event.pull_request.head.sha }}     
-      - 
-        name: Filter files
+
+      - name: Filter files
         uses: dorny/paths-filter@v2
         id: filter
         with:
@@ -70,13 +70,13 @@ jobs:
         run: |
           echo "Pull requests from forks are not allowed to change Dockerfiles"
           false
-      
+
       - name: verify build depedencies script is not changed
         if: steps.filter.outputs.build_dependecies == 'true'
         run: |
           echo "Pull requests from forks are not allowed to change build dependencies script"
           false
-      
+
   ## This job is to generate build matrixes for build jobs
   ## The matrixes depend on what is requeted to be build
   ## At the moment there are several options:
@@ -118,12 +118,12 @@ jobs:
           commit_was_merged_build_spec(){
             git_is_merge_commit $1 &&
               git log -n1 $1 --format=%s | grep -q '^Merge branch' &&
-              echo "/build before-merge"
+              echo "/build ubuntu debug release normal gcc-10"
           }
           case ${{github.event_name}} in
             pull_request_target)       if   commit_message_body_build_spec FETCH_HEAD >/tmp/comment_body ;then
                                   if git_is_merge_commit FETCH_HEAD ;then
-                                    echo ::warning::'/build directive in merge commit overrides default "/build before-merge"'
+                                    echo ::warning::'/build directive in merge commit overrides default "/build ubuntu debug release normal gcc-10"'
                                   fi
                                 elif commit_was_merged_build_spec   FETCH_HEAD >/tmp/comment_body ;then
                                   true
@@ -175,7 +175,7 @@ jobs:
       matrix_dockerimage_release: ${{steps.matrixes.outputs.matrix_dockerimage_release}}
       matrix_dockerimage_debug:   ${{steps.matrixes.outputs.matrix_dockerimage_debug}}
 
-  ## Build docker image named 'hyperledger/iroha-builder' with all stuff to compile iroha and its dependancies
+  ## Build docker image named 'hyperledger/iroha-builder' with all stuff to compile iroha and its dependencies
   ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
   ## and conditional tags :edge for development branch, and :latest for git-tags.
   Docker-iroha-builder:
@@ -329,7 +329,7 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ]
+    runs-on: [ self-hosted, Linux, iroha ]
     permissions: read-all
     container: ## Container is taken from previous job
       image: &container_image ${{needs.Docker-iroha-builder.outputs.container}}
@@ -413,7 +413,7 @@ jobs:
           key:          ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
           restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
       - &step_vcpkg_build
-        name: Build iroha vcpkg dependancies
+        name: Build iroha vcpkg dependencies
         run: ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build; test -f $PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
         ## Takes 13m41s on self-hosted AWS EC2 c5.x4large
@@ -751,7 +751,7 @@ jobs:
     needs:
       - build-UR
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [ self-hosted, Linux, iroha ] #ubuntu-latest
     # strategy: *strategy_ubuntu_release
     # if: *if_ubuntu_release
     strategy:

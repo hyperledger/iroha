@@ -30,3 +30,7 @@ This is the list of maintainers, including their email address for direct commun
 | Ekaterina Mekhnetsova | [@outoftardis](https://github.com/outoftardis)       | mekhnetsova@soramitsu.co.jp     | Documentation                                                                 |
 | William Richter       | [@WRRicht3r](https://github.com/WRRicht3r)           | ryan.rrr66@gmail.com            | Documentation                                                                 |
 | Victor Gridnevsky     | [@6r1d](https://github.com/6r1d)                     | gridnevsky@soramitsu.co.jp      | Community manager, documentation, development: JavaScript, TypeScript, Python |
+| Alexander Strokov     | [@astrokov7](https://github.com/astrokov7)           | strokov@soramitsu.co.jp | QA, Python |
+| Michael Timofeev      | [@timofeevmd](https://github.com/timofeevmd)         | timofeev@soramitsu.co.jp | QA |
+| Nikita Strygin        | [@DCNick3](https://github.com/DCNick3)               | moslike6@gmail.com | Development: Rust |
+| Bogdan Yamkovoy       | [@yamkovoy](https://github.com/yamkovoy)             | yamkovoy@soramitsu.co.jp | Documentation |

@@ -295,16 +295,17 @@ iroha::ordering::PackedProposalData
 OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
   auto const available_txs_count = availableTxsCountBatchesCache();
   auto const full_proposals_count = available_txs_count / transaction_limit_;
-  auto const number_of_packs =
-      (available_txs_count
-       + (full_proposals_count > 0 ? 0 : transaction_limit_ - 1))
-      / transaction_limit_;
+  auto const number_of_proposals = std::min(
+      (uint32_t)((available_txs_count
+                  + (full_proposals_count > 0 ? 0 : transaction_limit_ - 1))
+                 / transaction_limit_),
+      max_proposal_pack_);
 
   PackedProposalContainer outcome;
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;
   BloomFilter256 bf;
 
-  for (uint32_t ix = 0; ix < number_of_packs; ++ix) {
+  for (uint32_t ix = 0; ix < number_of_proposals; ++ix) {
     assert(!isEmptyBatchesCache());
     batches_cache_.getTransactions(
         transaction_limit_, txs, bf, [&](auto const &batch) {

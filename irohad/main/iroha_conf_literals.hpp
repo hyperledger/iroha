@@ -47,6 +47,7 @@ namespace config_members {
   extern const char *LogLevel;
   extern const char *LogPatternsSection;
   extern const char *LogChildrenSection;
+  extern const char *MaxPastCreatedHours;
   extern const std::unordered_map<std::string, logger::LogLevel> LogLevels;
   extern const char *InitialPeers;
   extern const char *Address;

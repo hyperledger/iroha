@@ -71,6 +71,23 @@ namespace iroha::consensus::yac {
 
   /**
    * @given initialized network
+   * @when send vote to itself
+   * @then vote handled
+   */
+  TEST_F(YacNetworkTest, MessageHandledWhenMessageSent) {
+    proto::State request;
+    expectConnection(*peer, [&request](auto &stub) {
+      EXPECT_CALL(stub, SendState(_, _, _))
+          .WillOnce(DoAll(SaveArg<1>(&request), Return(grpc::Status::OK)));
+    });
+
+    network->sendState(*peer, {message});
+
+    ASSERT_EQ(request.votes_size(), 1);
+  }
+
+  /**
+   * @given initialized network
    * @when send request with one vote
    * @then status OK
    */
@@ -81,7 +98,7 @@ namespace iroha::consensus::yac {
     auto pb_vote = request.add_votes();
     *pb_vote = PbConverters::serializeVote(message);
 
-    auto response = service->HandleState(&context, request);
+    auto response = service->SendState(&context, &request, nullptr);
     ASSERT_EQ(response.error_code(), grpc::StatusCode::OK);
   }
 
@@ -93,7 +110,7 @@ namespace iroha::consensus::yac {
   TEST_F(YacNetworkTest, SendMessageEmptyKeys) {
     proto::State request;
     grpc::ServerContext context;
-    auto response = service->HandleState(&context, request);
+    auto response = service->SendState(&context, &request, nullptr);
     ASSERT_EQ(response.error_code(), grpc::StatusCode::CANCELLED);
   }
 }  // namespace iroha::consensus::yac

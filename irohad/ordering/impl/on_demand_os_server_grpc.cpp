@@ -94,8 +94,8 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
       if (!request->has_bloom_filter()
           || request->bloom_filter().size() != BloomFilter256::kBytesCount) {
 #endif  // USE_BLOOM_FILTER
-        log_->info("Response with full {} txs proposal.",
-                   sptr_proposal->transactions().size());
+        log_->debug("Response with full {} txs proposal.",
+                    sptr_proposal->transactions().size());
         *proposal = proto_proposal;
 #if USE_BLOOM_FILTER
       } else {

@@ -24,7 +24,7 @@ RUN apt-get update && \
             # other
             curl file ccache libssl-dev \
             gcovr cppcheck doxygen rsync graphviz graphviz-dev vim zip unzip pkg-config \
-            jq \
+            jq autoconf \
             postgresql postgresql-contrib; \
     if [ $(uname -m) = "x86_64" ] ;then \
         apt-get -y --no-install-recommends install \

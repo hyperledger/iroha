@@ -25,7 +25,6 @@
 #include "interfaces/queries/asset_pagination_meta.hpp"
 #include "interfaces/queries/query_payload_meta.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
-#include "multihash/multihash.hpp"
 #include "validators/field_validator.hpp"
 #include "validators/validation_error_helpers.hpp"
 
@@ -124,7 +123,11 @@ namespace shared_model {
     FieldValidator::FieldValidator(std::shared_ptr<ValidatorsConfig> config,
                                    time_t future_gap,
                                    TimeFunction time_provider)
-        : future_gap_(future_gap), time_provider_(time_provider) {}
+        : future_gap_(future_gap), time_provider_(time_provider),
+          max_delay_(config->max_past_created_hours ?
+                         std::chrono::hours(config->max_past_created_hours.value()) / std::chrono::milliseconds(1)
+                                                    : kDefaultMaxDelay)
+    {}
 
     std::optional<ValidationError> FieldValidator::validateAccountId(
         const interface::types::AccountIdType &account_id) const {
@@ -284,7 +287,7 @@ namespace shared_model {
             "CreatedTime",
             {fmt::format(
                 "sent from future, timestamp: {}, now: {}", timestamp, now)});
-      } else if (now > kMaxDelay + timestamp) {
+      } else if (now > max_delay_.count() + timestamp) {
         return ValidationError(
             "CreatedTime",
             {fmt::format("too old, timestamp: {}, now: {}", timestamp, now)});

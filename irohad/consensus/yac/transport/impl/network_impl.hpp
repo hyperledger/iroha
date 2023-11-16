@@ -23,7 +23,8 @@ namespace iroha::consensus::yac {
    * Class which provides implementation of client-side transport for
    * consensus based on grpc
    */
-  class NetworkImpl : public YacNetwork {
+  class NetworkImpl : public YacNetwork,
+                      public std::enable_shared_from_this<NetworkImpl> {
    public:
     using Service = proto::Yac;
     using ClientFactory = iroha::network::ClientFactory<Service>;

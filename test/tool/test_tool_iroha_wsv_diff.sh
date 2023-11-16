@@ -61,7 +61,7 @@ test_equal_wsv()(
     ## Make WSV in rocks database from block store
     time $iroha_migrate -block_store_path="$BLOCK_STORE_PATH" -rocksdb_path "$ROCKSDB_PATH" $DROP_STATE
 
-    $iroha_wsv_diff -pg_opt "$PG_OPT" -rocksdb_path "$ROCKSDB_PATH"
+    $iroha_wsv_diff -pg_opt "$PG_OPT" -rocksdb_path "$ROCKSDB_PATH" -ignore_checking_with_schema_version
 
     # ## No difference in dumps expected
     diff <(tail -n+2 rockdb.wsv) <(tail -n+2 postgres.wsv)
@@ -83,7 +83,7 @@ update account_has_asset set amount = 0.0 where account_id = 'superuser@bootstra
 END
     trap 'echo clean-up; psql_with_params <revert1.sql >/dev/null' EXIT
 
-    if ! $iroha_wsv_diff -pg_opt "$PG_OPT" -rocksdb_path "$ROCKSDB_PATH" | tee log ;then
+    if ! $iroha_wsv_diff -pg_opt "$PG_OPT" -rocksdb_path "$ROCKSDB_PATH" -ignore_checking_with_schema_version | tee log ;then
         grep -Fq <log '~~~ WSV-s DIFFER!!! ~~~'
         grep -Fq <log "Role-s 'client' have different permissions: '00000000000001110100100100000100100100011010111010000' and '00000000000001110100100100000100100100011010111010011'"
         grep -Fq <log 'Wsv-s have different roles.'
@@ -125,7 +125,7 @@ END
 END
     trap 'echo "clean-up."; psql_with_params <revert2.sql >/dev/null' EXIT
 
-    if ! $iroha_wsv_diff -pg_opt "$PG_OPT" -rocksdb_path "$ROCKSDB_PATH" | tee log ;then
+    if ! $iroha_wsv_diff -pg_opt "$PG_OPT" -rocksdb_path "$ROCKSDB_PATH" -ignore_checking_with_schema_version | tee log ;then
         grep -Fq <log '~~~ WSV-s DIFFER!!! ~~~' log
         grep -Fq <log "Role-s have different name: 'admin' and 'WRONG_ROLE'"
         grep -Fq <log 'Wsv-s have different roles.'

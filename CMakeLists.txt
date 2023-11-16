@@ -10,7 +10,7 @@ if(CCACHE_PROGRAM)
 endif()
 
 PROJECT(iroha
-  VERSION 1.4.0
+  VERSION 1.6.0
   LANGUAGES C CXX)
 
 SET(CMAKE_CXX_STANDARD 17)
@@ -202,6 +202,7 @@ endif()
 add_subdirectory(libs)
 add_subdirectory(irohad)
 add_subdirectory(iroha-cli)
+add_subdirectory(iroha-lib)
 add_subdirectory(shared_model)
 
 if(TESTING)

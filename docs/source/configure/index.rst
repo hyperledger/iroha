@@ -146,6 +146,8 @@ Environment-specific parameters
     }
   ]
 
+- ``max_past_created_hours``: optional parameter specifying how many hours in the past since current time (measured on the peer) can the transaction's `created_time` be set. The default value is `"24"` hours. This value must be the same on all peers, otherwise it can silently cause the network to stop producing blocks.
+
 Good Practice Example
 ---------------------
 

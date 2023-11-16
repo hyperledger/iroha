@@ -208,7 +208,7 @@ jobs:
                                   true
                                 else
                                   #echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
-                                  echo  >/tmp/comment_body "/build ubuntu debug release normal gcc-10"
+                                  echo  >/tmp/comment_body "/build ubuntu debug release normal gcc-10"$'\n' "/build macos debug clang"
                                 fi ;;
             push)               commit_message_body_build_spec >/tmp/comment_body || {
                                   echo "/build ubuntu debug release normal gcc-10"
@@ -221,6 +221,7 @@ jobs:
         id: matrixes
         run: |
           set -x
+          cat /tmp/comment_body
           cat /tmp/comment_body | .github/chatops-gen-matrix.sh
           echo "::set-output name=matrix_ubuntu::$(cat matrix_ubuntu)"
           echo "::set-output name=matrix_ubuntu_release::$(cat matrix_ubuntu_release)"
@@ -352,13 +353,13 @@ jobs:
       - &step_docker_buildx
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
-      - &step_docker_cache
-        name: Cache Docker layers
-        uses: actions/cache@v2
-        with:
-          path: /tmp/.buildx-cache
-          key:           ${{ runner.os }}-buildx-${{env.dockertag}}
-          restore-keys:  ${{ runner.os }}-buildx-
+      # - &step_docker_cache
+      #   name: Cache Docker layers
+      #   uses: actions/cache@v2
+      #   with:
+      #     path: /tmp/.buildx-cache
+      #     key:           ${{ runner.os }}-buildx-${{env.dockertag}}
+      #     restore-keys:  ${{ runner.os }}-buildx-
       - &step_docker_build_and_push
         id: build_and_push
         name: Build and push
@@ -379,14 +380,14 @@ jobs:
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo == github.event.pull_request.base.repo }}
           tags:   ${{ steps.meta_ghcr.outputs.tags }}
           labels: ${{ steps.meta_ghcr.outputs.labels }}
-      - &step_docker_move_cache
-        # Temp fix
-        # https://github.com/docker/build-push-action/issues/252
-        # https://github.com/moby/buildkit/issues/1896
-        name: Move cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+      # - &step_docker_move_cache
+      #   # Temp fix
+      #   # https://github.com/docker/build-push-action/issues/252
+      #   # https://github.com/moby/buildkit/issues/1896
+      #   name: Move cache
+      #   run: |
+      #     rm -rf /tmp/.buildx-cache
+      #     mv /tmp/.buildx-cache-new /tmp/.buildx-cache
       -
         name: Check if dockertaghash exists in remote registry
         id: dockertag_already
@@ -409,7 +410,7 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ]
+    runs-on: [ self-hosted, Linux, iroha ]
     container: ## Container is taken from previous job
       image: &container_image ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
@@ -473,24 +474,24 @@ jobs:
           echo >>$GITHUB_ENV _CCACHE_DIR=$($(realpath $CCACHE_PATH/gcc) --show-config | sed -nE 's,.*cache_dir = ,,p')
           echo >>$GITHUB_ENV NPROC=$(nproc | awk '{printf("%.0f",$1*0.77)}')
           echo >>$GITHUB_ENV HOME=$HOME
-      - &step_restore_ccache
-        name: Restore cache CCache
-        uses: actions/cache@v2
-        with:
-          path: ${{ env._CCACHE_DIR }}
-          key:          ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
-          restore-keys: ${{runner.os}}-ccache-
-      - &step_store_ccache_stats
-        run: ccache --show-stats | tee /tmp/ccache-stats
-      - &step_vcpkg_cache
-        ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
-        name: Restore cache Vcpkg binarycache ## NOTE not useng NuGet because on ubuntu nuget needs mono of 433MB, unusable.
-        uses: actions/cache@v2
-        with:
-          path: |
-            ${{env.HOME}}/.cache/vcpkg/archives
-          key:          ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
-          restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
+      # - &step_restore_ccache
+      #   name: Restore cache CCache
+      #   uses: actions/cache@v2
+      #   with:
+      #     path: ${{ env._CCACHE_DIR }}
+      #     key:          ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
+      #     restore-keys: ${{runner.os}}-ccache-
+      # - &step_store_ccache_stats
+      #   run: ccache --show-stats | tee /tmp/ccache-stats
+      # - &step_vcpkg_cache
+      #   ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+      #   name: Restore cache Vcpkg binarycache ## NOTE not useng NuGet because on ubuntu nuget needs mono of 433MB, unusable.
+      #   uses: actions/cache@v2
+      #   with:
+      #     path: |
+      #       ${{env.HOME}}/.cache/vcpkg/archives
+      #     key:          ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
+      #     restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
       - &step_vcpkg_build
         name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build; test -f $PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
@@ -530,8 +531,8 @@ jobs:
       - &step_cpack
         name: CPack (linux only)
         run: cd build; cpack;  ## cmake --build build --target package
-      - &step_compare_ccache_stats
-        run: ccache --show-stats | diff --side-by-side /tmp/ccache-stats - ||true
+      # - &step_compare_ccache_stats
+      #   run: ccache --show-stats | diff --side-by-side /tmp/ccache-stats - ||true
       - &step_always_after_build
         name: Show free space and disk usage
         if: ${{ always() }}
@@ -735,13 +736,13 @@ jobs:
         env:
           <<: *step_export_cxx_env
           CCACHE_PATH: /usr/local/opt/ccache/libexec
-      - *step_restore_ccache
-      - *step_store_ccache_stats
-      - *step_vcpkg_cache
+      # - *step_restore_ccache
+      # - *step_store_ccache_stats
+      # - *step_vcpkg_cache
       - *step_vcpkg_build
       - *step_cmake_configure
       - *step_cmake_build
-      - *step_compare_ccache_stats
+      # - *step_compare_ccache_stats
       - *step_always_after_build
       - *step_artifact_suffix
       - <<: *step_artifact_irohad
@@ -824,7 +825,7 @@ jobs:
     needs:
       - build-UR
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [ self-hosted, Linux, iroha ] #ubuntu-latest
     # strategy: *strategy_ubuntu_release
     # if: *if_ubuntu_release
     strategy:
@@ -873,11 +874,11 @@ jobs:
       - *step_docker_login_ghcr
       - *step_warn_docker_no_push
       - *step_docker_buildx
-      - <<: *step_docker_cache
-        with:
-          path: /tmp/.buildx-cache
-          key:           ${{ runner.os }}-buildx-release-${{env.dockertag}}
-          restore-keys:  ${{ runner.os }}-buildx-release
+      # - <<: *step_docker_cache
+      #   with:
+      #     path: /tmp/.buildx-cache
+      #     key:           ${{ runner.os }}-buildx-release-${{env.dockertag}}
+      #     restore-keys:  ${{ runner.os }}-buildx-release
       - <<: *step_docker_build_and_push
         with:
           <<: *step_docker_build_and_push_with
@@ -887,7 +888,7 @@ jobs:
         with:
           <<: *step_docker_build_and_push_ghcr-with
           context: docker/release/
-      - *step_docker_move_cache
+      # - *step_docker_move_cache
 
   docker-D:
     <<: *job_docker_image_release

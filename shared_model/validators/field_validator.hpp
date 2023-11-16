@@ -6,6 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_FIELD_VALIDATOR_HPP
 #define IROHA_SHARED_MODEL_FIELD_VALIDATOR_HPP
 
+#include <chrono>
 #include <regex>
 
 #include "cryptography/default_hash_provider.hpp"
@@ -202,13 +203,17 @@ namespace shared_model {
       // time provider callback
       TimeFunction time_provider_;
 
-     public:
       // max-delay between tx creation and validation
-      static constexpr auto kMaxDelay =
-          std::chrono::hours(24) / std::chrono::milliseconds(1);
+      std::chrono::milliseconds max_delay_;
+
+     public:
       // default value for future_gap field of FieldValidator
       static constexpr auto kDefaultFutureGap =
           std::chrono::minutes(5) / std::chrono::milliseconds(1);
+
+      // default value for future_gap field of FieldValidator
+      static constexpr auto kDefaultMaxDelay =
+          std::chrono::hours(24) / std::chrono::milliseconds(1);
 
       static constexpr size_t hash_size =
           crypto::DefaultHashProvider::kHashLength;
