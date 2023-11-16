@@ -512,6 +512,8 @@ namespace iroha {
             "asset_id", subtract_asset_quantity->asset_id, allocator);
         document.AddMember(
             "amount", subtract_asset_quantity->amount, allocator);
+        document.AddMember(
+            "title", subtract_asset_quantity->title, allocator);
 
         return document;
       }
