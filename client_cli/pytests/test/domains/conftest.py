@@ -10,6 +10,9 @@ from test import (
     GIVEN_string_with_reserved_character,
     GIVEN_string_with_whitespaces,
     GIVEN_existing_domain_with_uppercase_letter,
+    GIVEN_currently_authorized_account,
+    GIVEN_new_one_existing_account,
+    GIVEN_public_key,
     before_each)
 
 @pytest.fixture(scope="function", autouse=True)

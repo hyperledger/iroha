@@ -270,6 +270,11 @@ fn domain_owner_trigger_permissions() -> Result<()> {
     Ok(())
 }
 
+#[deprecated(
+    since = "2.0.0-pre-rc.20",
+    note = "This test suite is deprecated, use test_transfer_domains.py instead"
+)]
+#[ignore = "migrated to client cli python tests"]
 #[test]
 fn domain_owner_transfer() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_100).start_with_runtime();

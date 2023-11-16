@@ -21,17 +21,26 @@ def expected_in_actual(expected, actual) -> bool:
     return expected in actual
 
 
-def domain(expected):
+def domain(expected, owned_by=None):
     """
     Check if the expected domain is present in the list of domains.
+    Optionally checks if the domain is owned by a specific owner.
 
     :param expected: The expected domain object.
-    :return: True if the domain is present, False otherwise.
+    :param owned_by: The owner of the domain, default is None.
+    :return: True if the domain is present (and owned by the specified owner if provided), False otherwise.
     """
 
     def domain_in_domains() -> bool:
         domains = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected}"}}}}').domains()
-        return expected_in_actual(expected, domains)
+        if not expected_in_actual(expected, domains):
+            return False
+        if owned_by:
+            domain_info = domains.get(expected)
+            if not domain_info or domain_info.get('owned_by') != str(owned_by):
+                return False
+
+        return True
 
     return client_cli.wait_for(domain_in_domains)
 
