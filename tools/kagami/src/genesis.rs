@@ -7,6 +7,7 @@ use iroha_config::parameters::defaults::chain_wide::{
     DEFAULT_WASM_MAX_MEMORY_BYTES,
 };
 use iroha_data_model::{
+    asset::{AssetDefinitionId, AssetValueType},
     metadata::Limits,
     parameter::{default::*, ParametersBuilder},
     prelude::AssetId,
@@ -193,35 +194,39 @@ fn generate_synthetic(
     accounts_per_domain: u64,
     assets_per_domain: u64,
 ) -> color_eyre::Result<RawGenesisBlockFile> {
-    // Add default `Domain` and `Account` to still be able to query
-    let mut builder = builder
-        .domain("wonderland".parse()?)
-        .account("alice".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
-        .finish_domain();
-
-    for domain in 0..domains {
-        let mut domain_builder = builder.domain(format!("domain_{domain}").parse()?);
-
-        for account in 0..accounts_per_domain {
-            let (public_key, _) = iroha_crypto::KeyPair::random().into_parts();
-            domain_builder =
-                domain_builder.account(format!("account_{account}").parse()?, public_key);
-        }
-
-        for asset in 0..assets_per_domain {
-            domain_builder = domain_builder.asset(
-                format!("asset_{asset}").parse()?,
-                AssetValueType::Numeric(NumericSpec::default()),
-            );
-        }
-
-        builder = domain_builder.finish_domain();
-    }
-    let mut genesis = builder.build();
+    // Synthetic genesis is extension of default one
+    let mut genesis = generate_default(builder)?;
 
     let first_transaction = genesis
         .first_transaction_mut()
-        .expect("At least one transaction is expected");
+        .expect("transaction must exist");
+
+    for domain in 0..domains {
+        let domain_id: DomainId = format!("domain_{domain}").parse()?;
+        first_transaction
+            .append_instruction(Register::domain(Domain::new(domain_id.clone())).into());
+
+        for account in 0..accounts_per_domain {
+            let (public_key, _) = iroha_crypto::KeyPair::random().into_parts();
+            let account_id: AccountId = format!("account_{account}@{domain_id}").parse()?;
+            first_transaction.append_instruction(
+                Register::account(Account::new(account_id.clone(), public_key)).into(),
+            );
+        }
+
+        for asset in 0..assets_per_domain {
+            let asset_definition_id: AssetDefinitionId =
+                format!("asset_{asset}#{domain_id}").parse()?;
+            first_transaction.append_instruction(
+                Register::asset_definition(AssetDefinition::new(
+                    asset_definition_id,
+                    AssetValueType::Numeric(NumericSpec::default()),
+                ))
+                .into(),
+            );
+        }
+    }
+
     for domain in 0..domains {
         for account in 0..accounts_per_domain {
             // FIXME: it actually generates (assets_per_domain * accounts_per_domain) assets per domain
