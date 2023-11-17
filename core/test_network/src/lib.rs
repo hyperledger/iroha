@@ -330,10 +330,23 @@ impl Network {
 /// # Panics
 /// When unsuccessful after `MAX_RETRIES`.
 pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
-    const POLL_PERIOD: Duration = Duration::from_millis(1000);
     const MAX_RETRIES: u32 = 40;
+    wait_for_genesis_committed_with_max_retries(clients, offline_peers, MAX_RETRIES)
+}
 
-    for _ in 0..MAX_RETRIES {
+/// Wait for peers to have committed genesis block for specified amount of retries.
+/// Each retry once per second.
+///
+/// # Panics
+/// When unsuccessful after `max_retries`.
+pub fn wait_for_genesis_committed_with_max_retries(
+    clients: &[Client],
+    offline_peers: u32,
+    max_retries: u32,
+) {
+    const POLL_PERIOD: Duration = Duration::from_millis(1000);
+
+    for _ in 0..max_retries {
         let without_genesis_peers = clients.iter().fold(0_u32, |acc, client| {
             client.get_status().map_or(
                 acc + 1,
@@ -347,7 +360,7 @@ pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
     }
     panic!(
         "Failed to wait for online peers to commit genesis block. Total wait time: {:?}",
-        POLL_PERIOD * MAX_RETRIES
+        POLL_PERIOD * max_retries
     );
 }
 

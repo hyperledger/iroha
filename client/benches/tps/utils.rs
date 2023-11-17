@@ -31,6 +31,7 @@ pub struct Config {
     pub max_txs_per_block: u32,
     pub blocks: u32,
     pub sample_size: u32,
+    pub genesis_max_retries: u32,
 }
 
 impl fmt::Display for Config {
@@ -58,7 +59,7 @@ impl Config {
         // READY
         let (_rt, network, client) = Network::start_test_with_runtime(self.peers, None);
         let clients = network.clients();
-        wait_for_genesis_committed(&clients, 0);
+        wait_for_genesis_committed_with_max_retries(&clients, 0, self.genesis_max_retries);
 
         client.submit_all_blocking(
             ParametersBuilder::new()
