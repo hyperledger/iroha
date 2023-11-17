@@ -178,6 +178,17 @@ namespace shared_model {
       FactoryResult<MockSubtractAssetQuantity> constructSubtractAssetQuantity(
           const types::AssetIdType &asset_id, const Amount &amount) const;
 
+
+      /**
+       * Construct a mocked SubtractAssetQuantity
+       * @param asset_id to be in that command
+       * @param amount to be in that command
+       * @param title to be in that comand
+       * @return pointer to the created command
+       */
+      FactoryResult<MockSubtractAssetQuantity> constructSubtractAssetQuantityWithTitle(
+          const types::AssetIdType &asset_id, const Amount &amount, const std::string &title) const;
+
       /**
        * Construct a mocked TransferAsset
        * @param src_account_id to be in that command

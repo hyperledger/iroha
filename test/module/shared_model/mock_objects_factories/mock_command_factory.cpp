@@ -302,6 +302,22 @@ namespace shared_model {
           });
     }
 
+    MockCommandFactory::FactoryResult<MockSubtractAssetQuantity>
+    MockCommandFactory::constructSubtractAssetQuantityWithTitle(
+        const types::AssetIdType &asset_id, const Amount &cmd_amount, const std::string &title) const {
+      return createFactoryResult<MockSubtractAssetQuantity>(
+          [&asset_id, &cmd_amount, &title](
+              FactoryResult<MockSubtractAssetQuantity> specific_cmd_mock) {
+            EXPECT_CALL(*specific_cmd_mock, assetId())
+                .WillRepeatedly(ReturnRefOfCopy(asset_id));
+            EXPECT_CALL(*specific_cmd_mock, amount())
+                .WillRepeatedly(ReturnRefOfCopy(cmd_amount));
+            EXPECT_CALL(*specific_cmd_mock, title())
+                .WillRepeatedly(ReturnRefOfCopy(title));
+            return specific_cmd_mock;
+          });
+    }
+
     MockCommandFactory::FactoryResult<MockTransferAsset>
     MockCommandFactory::constructTransferAsset(
         const types::AccountIdType &src_account_id,
