@@ -12,7 +12,7 @@ use iroha_data_model::{
     asset::AssetValue,
     query::{
         cursor::ForwardCursor, error::QueryExecutionFail, pagination::Pagination, sorting::Sorting,
-        FetchSize, DEFAULT_FETCH_SIZE, MAX_FETCH_SIZE,
+        FetchSize, QueryId, DEFAULT_FETCH_SIZE, MAX_FETCH_SIZE,
     },
     BatchedResponse, BatchedResponseV1, HasMetadata, IdentifiableBox, ValidationFail, Value,
 };
@@ -67,7 +67,7 @@ type LiveQuery = Batched<Vec<Value>>;
 /// Clients can handle their queries using [`LiveQueryStoreHandle`]
 #[derive(Debug)]
 pub struct LiveQueryStore {
-    queries: HashMap<String, (LiveQuery, Instant)>,
+    queries: HashMap<QueryId, (LiveQuery, Instant)>,
     query_idle_time: Duration,
 }
 
@@ -138,7 +138,7 @@ impl LiveQueryStore {
         LiveQueryStoreHandle { message_sender }
     }
 
-    fn insert(&mut self, query_id: String, live_query: LiveQuery) {
+    fn insert(&mut self, query_id: QueryId, live_query: LiveQuery) {
         self.queries.insert(query_id, (live_query, Instant::now()));
     }
 
@@ -148,8 +148,8 @@ impl LiveQueryStore {
 }
 
 enum Message {
-    Insert(String, Batched<Vec<Value>>),
-    Remove(String, oneshot::Sender<Option<Batched<Vec<Value>>>>),
+    Insert(QueryId, Batched<Vec<Value>>),
+    Remove(QueryId, oneshot::Sender<Option<Batched<Vec<Value>>>>),
 }
 
 /// Handle to interact with [`LiveQueryStore`].
@@ -207,13 +207,25 @@ impl LiveQueryStoreHandle {
         self.construct_query_response(query_id, cursor.cursor.map(NonZeroU64::get), live_query)
     }
 
-    fn insert(&self, query_id: String, live_query: LiveQuery) -> Result<()> {
+    /// Remove query from the storage if there is any.
+    ///
+    /// Returns `true` if query was removed, `false` otherwise.
+    ///
+    /// # Errors
+    ///
+    /// - Returns [`Error::ConnectionClosed`] if [`QueryService`] is dropped,
+    /// - Otherwise throws up query output handling errors.
+    pub fn drop_query(&self, query_id: QueryId) -> Result<bool> {
+        self.remove(query_id).map(|query_opt| query_opt.is_some())
+    }
+
+    fn insert(&self, query_id: QueryId, live_query: LiveQuery) -> Result<()> {
         self.message_sender
             .blocking_send(Message::Insert(query_id, live_query))
             .map_err(|_| Error::ConnectionClosed)
     }
 
-    fn remove(&self, query_id: String) -> Result<Option<LiveQuery>> {
+    fn remove(&self, query_id: QueryId) -> Result<Option<LiveQuery>> {
         let (sender, receiver) = oneshot::channel();
 
         self.message_sender
@@ -225,7 +237,7 @@ impl LiveQueryStoreHandle {
 
     fn construct_query_response(
         &self,
-        query_id: String,
+        query_id: QueryId,
         curr_cursor: Option<u64>,
         mut live_query: Batched<Vec<Value>>,
     ) -> Result<BatchedResponse<Value>> {

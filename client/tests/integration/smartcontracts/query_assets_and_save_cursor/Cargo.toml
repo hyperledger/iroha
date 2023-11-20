@@ -1,0 +1,18 @@
+[package]
+name = "query_assets_and_save_cursor"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+license.workspace = true
+
+[lib]
+crate-type = ['cdylib']
+
+[dependencies]
+iroha_smart_contract.workspace = true
+
+panic-halt.workspace = true
+lol_alloc.workspace = true
+serde_json = { version = "1.0.108", default-features = false }

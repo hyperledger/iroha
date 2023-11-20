@@ -16,6 +16,7 @@ use parity_scale_codec::{Decode, Encode, Input};
 use serde::Serialize;
 
 pub use self::model::*;
+use super::QueryId;
 
 const QUERY_ID: &str = "query_id";
 const CURSOR: &str = "cursor";
@@ -30,14 +31,14 @@ pub mod model {
     pub struct ForwardCursor {
         /// Unique ID of query. When provided in a query the query will look up if there
         /// is was already a query with a matching ID and resume returning result batches
-        pub query_id: Option<String>,
+        pub query_id: Option<QueryId>,
         /// Pointer to the next element in the result set
         pub cursor: Option<NonZeroU64>,
     }
 
     impl ForwardCursor {
         /// Create a new cursor.
-        pub const fn new(query_id: Option<String>, cursor: Option<NonZeroU64>) -> Self {
+        pub const fn new(query_id: Option<QueryId>, cursor: Option<NonZeroU64>) -> Self {
             Self { query_id, cursor }
         }
     }
@@ -50,7 +51,7 @@ mod candidate {
 
     #[derive(Decode, Deserialize)]
     struct ForwardCursorCandidate {
-        query_id: Option<String>,
+        query_id: Option<QueryId>,
         cursor: Option<NonZeroU64>,
     }
 
@@ -92,7 +93,7 @@ mod candidate {
     }
 }
 
-impl From<ForwardCursor> for Vec<(&'static str, String)> {
+impl From<ForwardCursor> for Vec<(&'static str, QueryId)> {
     fn from(cursor: ForwardCursor) -> Self {
         match (cursor.query_id, cursor.cursor) {
             (Some(query_id), Some(cursor)) => {

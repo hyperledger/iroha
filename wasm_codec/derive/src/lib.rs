@@ -68,7 +68,7 @@ pub fn wrap(attr: TokenStream, item: TokenStream) -> TokenStream {
     let ident = &fn_item.sig.ident;
 
     let mut inner_fn_item = fn_item.clone();
-    let inner_fn_ident = syn::Ident::new(&format!("__{}_inner", ident), ident.span());
+    let inner_fn_ident = syn::Ident::new(&format!("__{ident}_inner"), ident.span());
     inner_fn_item.sig.ident = inner_fn_ident.clone();
 
     let fn_class = classify_fn(&fn_item.sig);
@@ -113,7 +113,7 @@ pub fn wrap_trait_fn(attr: TokenStream, item: TokenStream) -> TokenStream {
     let ident = &fn_item.sig.ident;
 
     let mut inner_fn_item = fn_item.clone();
-    let inner_fn_ident = syn::Ident::new(&format!("__{}_inner", ident), ident.span());
+    let inner_fn_ident = syn::Ident::new(&format!("__{ident}_inner"), ident.span());
     inner_fn_item.sig.ident = inner_fn_ident;
 
     let fn_class = classify_fn(&fn_item.sig);

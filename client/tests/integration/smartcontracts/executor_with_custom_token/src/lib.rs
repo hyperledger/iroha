@@ -170,6 +170,7 @@ impl Executor {
     }
 }
 
+// TODO (#4049): Fix unused `visit_register_domain()`
 fn visit_register_domain(executor: &mut Executor, authority: &AccountId, _isi: Register<Domain>) {
     if executor.block_height() == 0 {
         pass!(executor)

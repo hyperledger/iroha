@@ -143,6 +143,7 @@ fn upgrade_executor(client: &Client, executor: impl AsRef<Path>) -> Result<()> {
     info!("Building executor");
 
     let wasm = iroha_wasm_builder::Builder::new(executor.as_ref())
+        .show_output()
         .build()?
         .optimize()?
         .into_bytes()?;

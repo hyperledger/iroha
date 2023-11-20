@@ -329,6 +329,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
     info!("Building trigger");
     let wasm =
         iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose_trigger")
+            .show_output()
             .build()?
             .optimize()?
             .into_bytes()?;

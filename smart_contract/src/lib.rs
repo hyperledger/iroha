@@ -43,6 +43,31 @@ unsafe extern "C" fn _iroha_smart_contract_dealloc(offset: *mut u8, len: usize) 
     let _box = Box::from_raw(core::slice::from_raw_parts_mut(offset, len));
 }
 
+/// Macro to parse literal as a type. Panics if failed.
+///
+/// # Example
+///
+/// ```
+/// use iroha_smart_contract::{prelude::*, parse};
+///
+/// let account_id = parse!("alice@wonderland" as AccountId);
+/// ```
+#[macro_export]
+macro_rules! parse {
+    ($l:literal as _) => {
+        compile_error!(
+            "Don't use `_` as a type in this macro, \
+             otherwise panic message would be less informative"
+        )
+    };
+    ($l:literal as $t:ty) => {
+        $crate::debug::DebugExpectExt::dbg_expect(
+            $l.parse::<$t>(),
+            concat!("Failed to parse `", $l, "` as `", stringify!($t), "`"),
+        )
+    };
+}
+
 /// Implementing instructions can be executed on the host
 pub trait ExecuteOnHost: Instruction {
     /// Execute instruction on the host
@@ -229,9 +254,9 @@ pub struct QueryOutputCursor<T> {
 }
 
 impl<T> QueryOutputCursor<T> {
-    /// Get inner value consuming [`Self`].
-    pub fn into_inner(self) -> T {
-        self.batch
+    /// Get inner values of batch and cursor, consuming [`Self`].
+    pub fn into_raw_parts(self) -> (T, ForwardCursor) {
+        (self.batch, self.cursor)
     }
 }
 
@@ -435,7 +460,10 @@ mod host {
 
 /// Most used items
 pub mod prelude {
-    pub use crate::{ExecuteOnHost, ExecuteQueryOnHost};
+    pub use iroha_smart_contract_derive::main;
+    pub use iroha_smart_contract_utils::debug::DebugUnwrapExt;
+
+    pub use crate::{data_model::prelude::*, ExecuteOnHost, ExecuteQueryOnHost};
 }
 
 #[cfg(test)]
@@ -494,7 +522,7 @@ mod tests {
         assert_eq!(query, get_test_query());
 
         let response: Result<BatchedResponse<Value>, ValidationFail> = Ok(BatchedResponseV1::new(
-            QUERY_RESULT.unwrap().into_inner(),
+            QUERY_RESULT.unwrap().into_raw_parts().0,
             ForwardCursor::new(None, None),
         )
         .into());
