@@ -382,6 +382,7 @@ fn gen_impl_ffi(name: &Ident, generics: &syn2::Generics) -> TokenStream {
             type Ref<#lifetime> = &#lifetime iroha_ffi::Extern where #(#lifetime_bounded_where_clause),*;
             type RefMut<#lifetime> = &#lifetime mut iroha_ffi::Extern where #(#lifetime_bounded_where_clause),*;
             type Box = Box<iroha_ffi::Extern>;
+            type SliceBox = Box<[iroha_ffi::Extern]>;
             type SliceRef<#lifetime> = &#lifetime [iroha_ffi::ir::Transparent] where #(#lifetime_bounded_where_clause),*;
             type SliceRefMut<#lifetime> = &#lifetime mut [iroha_ffi::ir::Transparent] where #(#lifetime_bounded_where_clause),*;
             type Vec = Vec<iroha_ffi::ir::Transparent>;

@@ -254,7 +254,6 @@ pub fn derive_ffi_type(emitter: &mut Emitter, input: &syn2::DeriveInput) -> Toke
     };
 
     let name = &input.ident;
-
     if let darling::ast::Data::Enum(variants) = &input.data {
         if variants.is_empty() {
             emit!(

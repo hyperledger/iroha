@@ -129,6 +129,12 @@ impl OpaqueStruct {
 }
 
 #[ffi_export]
+/// Take and return boxed slice
+pub fn freestanding_with_boxed_slice(item: Box<[u8]>) -> Box<[u8]> {
+    item
+}
+
+#[ffi_export]
 /// Take and return byte
 pub fn freestanding_with_option(item: Option<u8>) -> Option<u8> {
     item
@@ -425,6 +431,29 @@ fn return_option() {
         assert!(!param2.is_null());
         let param2: Option<&Value> = FfiConvert::try_from_ffi(param2, &mut ()).unwrap();
         assert_eq!(Some(&Value(String::from("Omen"))), param2);
+    }
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
+fn take_and_return_boxed_slice() {
+    let input: Box<[u8]> = [12u8, 42u8].into();
+    let mut output = MaybeUninit::new(OutBoxedSlice::from_raw_parts(core::ptr::null_mut(), 0));
+    let mut in_store = Default::default();
+
+    unsafe {
+        assert_eq!(
+            FfiReturn::Ok,
+            __freestanding_with_boxed_slice(
+                FfiConvert::into_ffi(input, &mut in_store),
+                output.as_mut_ptr()
+            )
+        );
+
+        let output = output.assume_init();
+        assert_eq!(output.len(), 2);
+        let boxed_slice = Box::<[u8]>::try_read_out(output).expect("Valid");
+        assert_eq!(boxed_slice, [12u8, 42u8].into());
     }
 }
 

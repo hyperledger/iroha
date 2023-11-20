@@ -165,6 +165,17 @@ impl<C: ReprC> OutBoxedSlice<C> {
         self.1
     }
 
+    /// Create [`Self`] from a `Box<[T]>`
+    pub fn from_boxed_slice(source: Option<Box<[C]>>) -> Self {
+        source.map_or_else(
+            || Self(core::ptr::null_mut(), 0),
+            |boxed_slice| {
+                let mut boxed_slice = core::mem::ManuallyDrop::new(boxed_slice);
+                Self(boxed_slice.as_mut_ptr(), boxed_slice.len())
+            },
+        )
+    }
+
     /// Create [`Self`] from a `Vec<T>`
     pub fn from_vec(source: Option<Vec<C>>) -> Self {
         source.map_or_else(
