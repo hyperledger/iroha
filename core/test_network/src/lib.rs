@@ -678,14 +678,26 @@ pub trait TestClient: Sized {
     /// Create test client from api url
     fn test(api_url: &SocketAddr) -> Self;
 
-    /// Create test client from api url and keypair
-    fn test_with_key(api_url: &SocketAddr, keys: KeyPair) -> Self;
-
     /// Create test client from api url, keypair, and account id
     fn test_with_account(api_url: &SocketAddr, keys: KeyPair, account_id: &AccountId) -> Self;
 
     /// Loop for events with filter and handler function
     fn for_each_event(self, event_filter: FilterBox, f: impl Fn(Result<Event>));
+
+    /// Submit transaction with polling
+    ///
+    /// # Errors
+    /// If predicate is not satisfied, after maximum retries.
+    fn submit_transaction_till<R: Query + Debug + Clone>(
+        &self,
+        tx: &SignedTransaction,
+        request: R,
+        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
+    ) -> eyre::Result<()>
+    where
+        R::Output: QueryOutput,
+        <R::Output as QueryOutput>::Target: core::fmt::Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>;
 
     /// Submit instruction with polling
     ///
@@ -796,14 +808,6 @@ impl TestClient for Client {
         Client::new(&ClientConfiguration::test(api_url)).expect("Invalid client configuration")
     }
 
-    fn test_with_key(api_url: &SocketAddr, keys: KeyPair) -> Self {
-        let mut configuration = ClientConfiguration::test(api_url);
-        let (public_key, private_key) = keys.into();
-        configuration.public_key = public_key;
-        configuration.private_key = private_key;
-        Client::new(&configuration).expect("Invalid client configuration")
-    }
-
     fn test_with_account(api_url: &SocketAddr, keys: KeyPair, account_id: &AccountId) -> Self {
         let mut configuration = ClientConfiguration::test(api_url);
         configuration.account_id = account_id.clone();
@@ -820,6 +824,22 @@ impl TestClient for Client {
         {
             f(event_result)
         }
+    }
+
+    fn submit_transaction_till<R: Query + Debug + Clone>(
+        &self,
+        tx: &SignedTransaction,
+        request: R,
+        f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
+    ) -> eyre::Result<()>
+    where
+        R::Output: QueryOutput,
+        <R::Output as QueryOutput>::Target: core::fmt::Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+    {
+        self.submit_transaction(tx)
+            .expect("Failed to submit instruction.");
+        self.poll_request(request, f)
     }
 
     fn submit_till<R: Query + Debug + Clone>(

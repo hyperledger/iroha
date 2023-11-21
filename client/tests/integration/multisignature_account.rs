@@ -1,7 +1,7 @@
 use std::thread;
 
 use eyre::Result;
-use iroha_client::client::{self, Client, QueryResult};
+use iroha_client::client::{self, QueryResult};
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
 use test_network::*;
@@ -10,7 +10,7 @@ use super::Configuration;
 
 #[test]
 fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
-    let (_rt, peer, client) = <PeerBuilder>::new().with_port(10_605).start_with_runtime();
+    let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_605).start_with_runtime();
     wait_for_genesis_committed(&[client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
@@ -25,7 +25,7 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
     );
 
     let instructions: [InstructionExpr; 2] = [create_asset.into(), add_signatory.into()];
-    client.submit_all(instructions)?;
+    client.submit_all(instructions.clone())?;
     thread::sleep(pipeline_time * 2);
     //When
     let quantity: u32 = 200;
@@ -36,17 +36,20 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
             account_id.clone(),
         )),
     );
-    Client::test_with_key(&peer.api_address, key_pair).submit_till(
-        mint_asset,
-        client::asset::by_account_id(account_id),
-        |result| {
-            let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
 
-            assets.iter().any(|asset| {
-                asset.id().definition_id == asset_definition_id
-                    && *asset.value() == AssetValue::Quantity(quantity)
-            })
-        },
-    )?;
+    let tx = TransactionBuilder::new(account_id.clone())
+        .with_instructions([mint_asset])
+        .sign(client.key_pair.clone())
+        .unwrap()
+        .sign(key_pair)
+        .unwrap();
+    client.submit_transaction_till(&tx, client::asset::by_account_id(account_id), |result| {
+        let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
+
+        assets.iter().any(|asset| {
+            asset.id().definition_id == asset_definition_id
+                && *asset.value() == AssetValue::Quantity(quantity)
+        })
+    })?;
     Ok(())
 }

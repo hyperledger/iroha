@@ -478,8 +478,7 @@ mod tests {
     }
 
     #[test]
-    async fn push_multisignature_tx() {
-        let max_txs_in_block = 2;
+    async fn push_any_account_signature() {
         let key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
         let kura = Kura::blank_kura_for_testing();
         let wsv = {
@@ -491,7 +490,7 @@ mod tests {
                 key_pairs.iter().map(KeyPair::public_key).cloned(),
             )
             .build(&account_id);
-            account.signature_check_condition = SignatureCheckCondition::all_account_signatures();
+            account.signature_check_condition = SignatureCheckCondition::any_account_signature();
             assert!(domain.add_account(account).is_none());
             let query_handle = LiveQueryStore::test().start();
             Arc::new(WorldStateView::new(
@@ -515,22 +514,74 @@ mod tests {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        let fully_signed_tx: AcceptedTransaction = {
-            let mut signed_tx = tx
-                .clone()
+        let partially_signed_tx = AcceptedTransaction::accept(
+            tx.clone()
                 .sign(key_pairs[0].clone())
-                .expect("Failed to sign.");
-            for key_pair in &key_pairs[1..] {
-                signed_tx = signed_tx.sign(key_pair.clone()).expect("Failed to sign");
-            }
-            AcceptedTransaction::accept(signed_tx, &tx_limits)
-                .expect("Failed to accept Transaction.")
-        };
-        // Check that fully signed transaction pass signature check
+                .expect("Failed to sign."),
+            &tx_limits,
+        )
+        .expect("Failed to accept Transaction.");
+
+        // Check that partially signed transaction passes signature check
         assert!(matches!(
-            fully_signed_tx.check_signature_condition(&wsv),
+            partially_signed_tx.check_signature_condition(&wsv),
             Ok(MustUse(true))
         ));
+
+        queue
+            .push(partially_signed_tx, &wsv)
+            .expect("Should be possible to put partially signed transaction into the queue");
+
+        assert_eq!(queue.tx_len(), 1);
+
+        let max_txs_in_block = 2;
+        let mut available = queue.collect_transactions_for_block(&wsv, max_txs_in_block);
+        assert_eq!(available.len(), 1);
+        let tx_from_queue = available.pop().expect("Checked that have one transactions");
+        // Check that transaction from queue pass signature check
+        assert!(matches!(
+            tx_from_queue.check_signature_condition(&wsv),
+            Ok(MustUse(true))
+        ));
+    }
+
+    #[test]
+    async fn push_multisignature_tx() {
+        let max_txs_in_block = 2;
+        let key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
+        let kura = Kura::blank_kura_for_testing();
+        let wsv = {
+            let domain_id = DomainId::from_str("wonderland").expect("Valid");
+            let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+            let mut domain = Domain::new(domain_id).build(&account_id);
+            let account = Account::new(
+                account_id.clone(),
+                key_pairs.iter().map(KeyPair::public_key).cloned(),
+            )
+            .build(&account_id);
+            assert!(domain.add_account(account).is_none());
+            let query_handle = LiveQueryStore::test().start();
+            Arc::new(WorldStateView::new(
+                World::with([domain], PeersIds::new()),
+                kura,
+                query_handle,
+            ))
+        };
+
+        let queue = Queue::from_configuration(&Configuration {
+            transaction_time_to_live_ms: 100_000,
+            max_transactions_in_queue: 100,
+            ..ConfigurationProxy::default()
+                .build()
+                .expect("Default queue config should always build")
+        });
+        let instructions: [InstructionExpr; 0] = [];
+        let tx = TransactionBuilder::new("alice@wonderland".parse().expect("Valid"))
+            .with_instructions(instructions);
+        let tx_limits = TransactionLimits {
+            max_instruction_number: 4096,
+            max_wasm_size_bytes: 0,
+        };
 
         let get_tx = |key_pair| {
             AcceptedTransaction::accept(
@@ -541,7 +592,7 @@ mod tests {
         };
         for key_pair in key_pairs {
             let partially_signed_tx: AcceptedTransaction = get_tx(key_pair);
-            // Check that non of partially signed pass signature check
+            // Check that none of partially signed pass signature check
             assert!(matches!(
                 partially_signed_tx.check_signature_condition(&wsv),
                 Ok(MustUse(false))

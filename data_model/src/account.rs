@@ -291,7 +291,7 @@ impl FromStr for AccountId {
 
 impl Default for SignatureCheckCondition {
     fn default() -> Self {
-        Self::AnyAccountSignatureOr(ConstVec::new_empty())
+        Self::AllAccountSignaturesAnd(ConstVec::new_empty())
     }
 }
 
@@ -373,14 +373,12 @@ mod tests {
         let key3 = make_key();
         let condition = SignatureCheckCondition::default();
 
-        check_signature_check_condition(&condition, &[], &[], false);
+        check_signature_check_condition(&condition, &[], &[], true);
         check_signature_check_condition(&condition, &[&key1], &[], false);
-        check_signature_check_condition(&condition, &[], &[&key1], false);
+        check_signature_check_condition(&condition, &[], &[&key1], true);
         check_signature_check_condition(&condition, &[&key1], &[&key1], true);
         check_signature_check_condition(&condition, &[&key1], &[&key2], false);
-        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key1], true);
-        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key2], true);
-        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key3], true);
+        check_signature_check_condition(&condition, &[&key1, &key2, &key3], &[&key1, &key2, &key3], true);
     }
 
     #[test]

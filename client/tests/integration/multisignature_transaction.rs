@@ -30,16 +30,14 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     let key_pair_2 = KeyPair::generate()?;
     let asset_definition_id = AssetDefinitionId::from_str("camomile#wonderland")?;
     let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
-    let set_signature_condition = MintExpr::new(
-        SignatureCheckCondition::AllAccountSignaturesAnd(
-            vec![key_pair_2.public_key().clone()].into(),
-        ),
+    let mint_public_key = MintExpr::new(
+        key_pair_2.public_key().clone(),
         IdBox::AccountId(alice_id.clone()),
     );
 
     let mut client_configuration = ClientConfiguration::test(&network.genesis.api_address);
     let client = Client::new(&client_configuration)?;
-    let instructions: [InstructionExpr; 2] = [create_asset.into(), set_signature_condition.into()];
+    let instructions: [InstructionExpr; 2] = [create_asset.into(), mint_public_key.into()];
     client.submit_all_blocking(instructions)?;
 
     //When
@@ -83,8 +81,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     let transaction = client_2
         .get_original_transaction(&transaction, 3, Duration::from_millis(100))?
         .expect("Found no pending transaction for this account.");
-    client_2.submit_transaction(&client_2.sign_transaction(transaction)?)?;
-    thread::sleep(pipeline_time);
+    client_2.submit_transaction_blocking(&client_2.sign_transaction(transaction)?)?;
     let assets = client_1
         .request(request)?
         .collect::<QueryResult<Vec<_>>>()?;

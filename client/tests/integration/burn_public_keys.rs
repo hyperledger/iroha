@@ -6,16 +6,22 @@ use test_network::*;
 fn submit(
     client: &Client,
     instructions: impl IntoIterator<Item = impl Instruction>,
-    submitter: Option<(AccountId, KeyPair)>,
+    submitter: Option<(AccountId, KeyPair, impl IntoIterator<Item = KeyPair>)>,
 ) -> (
     HashOf<SignedTransaction>,
     eyre::Result<HashOf<TransactionPayload>>,
 ) {
-    let tx = if let Some((account_id, keypair)) = submitter {
-        TransactionBuilder::new(account_id)
+    let tx = if let Some((account_id, main_keypair, keypairs)) = submitter {
+        let mut tx = TransactionBuilder::new(account_id)
             .with_instructions(instructions)
-            .sign(keypair)
-            .unwrap()
+            .sign(main_keypair)
+            .unwrap();
+
+        for keypair in keypairs {
+            tx = tx.sign(keypair).unwrap();
+        }
+
+        tx
     } else {
         let tx = client
             .build_transaction(instructions, UnlimitedMetadata::default())
@@ -54,21 +60,25 @@ fn public_keys_cannot_be_burned_to_nothing() {
         [charlie_initial_keypair.public_key().clone()],
     ));
 
-    let (tx_hash, res) = submit(&client, [register_charlie], None);
+    let (tx_hash, res) = submit(&client, [register_charlie], None::<(_, _, [KeyPair; 0])>);
     res.unwrap();
     get(&client, tx_hash);
     let mut keys_count = charlie_keys_count(&client);
     assert_eq!(keys_count, 1);
 
+    let mut keypairs = Vec::new();
     let mint_keys = (0..KEYS_COUNT - 1).map(|_| {
-        let (public_key, _) = KeyPair::generate().unwrap().into();
+        let keypair = KeyPair::generate().unwrap();
+        let public_key = keypair.public_key().clone();
+
+        keypairs.push(keypair);
         MintExpr::new(public_key, charlie_id.clone())
     });
 
     let (tx_hash, res) = submit(
         &client,
         mint_keys,
-        Some((charlie_id.clone(), charlie_initial_keypair.clone())),
+        Some((charlie_id.clone(), charlie_initial_keypair.clone(), [])),
     );
     res.unwrap();
     get(&client, tx_hash);
@@ -87,7 +97,11 @@ fn public_keys_cannot_be_burned_to_nothing() {
     let (tx_hash, res) = submit(
         &client,
         burn_keys_leaving_one,
-        Some((charlie_id.clone(), charlie_initial_keypair.clone())),
+        Some((
+            charlie_id.clone(),
+            charlie_initial_keypair.clone(),
+            keypairs,
+        )),
     );
     res.unwrap();
     let committed_txn = get(&client, tx_hash);
@@ -100,7 +114,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
     let (tx_hash, res) = submit(
         &client,
         std::iter::once(burn_the_last_key),
-        Some((charlie_id.clone(), charlie_initial_keypair)),
+        Some((charlie_id.clone(), charlie_initial_keypair, [])),
     );
     assert!(res.is_err());
     let committed_txn = get(&client, tx_hash);
