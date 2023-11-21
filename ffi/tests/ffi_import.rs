@@ -26,6 +26,11 @@ pub fn freestanding_returns_local_slice(input: &[(u32, u32)]) -> &[(u32, u32)] {
 }
 
 #[ffi_import]
+pub fn freestanding_returns_boxed_slice(input: Box<[u32]>) -> Box<[u32]> {
+    unreachable!("replaced by ffi_import")
+}
+
+#[ffi_import]
 pub fn freestanding_returns_iterator(
     input: impl IntoIterator<Item = u32>,
 ) -> impl ExactSizeIterator<Item = u32> {
@@ -74,6 +79,14 @@ fn vec_of_tuples_is_coppied_when_returned() {
     let in_tuple = vec![(420_u32, 420_u32)];
     let out_tuple: LocalSlice<(u32, u32)> = freestanding_returns_local_slice(&in_tuple);
     assert_eq!(in_tuple, *out_tuple);
+}
+
+#[test]
+#[webassembly_test::webassembly_test]
+fn boxed_slice_of_primitives() {
+    let in_boxed_slice = vec![420_u32, 420_u32].into_boxed_slice();
+    let out_boxed_slice: Box<[u32]> = freestanding_returns_boxed_slice(in_boxed_slice.clone());
+    assert_eq!(in_boxed_slice, out_boxed_slice);
 }
 
 #[test]
@@ -149,6 +162,16 @@ mod ffi {
     ) -> FfiReturn {
         let input = input.into_rust().map(<[_]>::to_vec);
         output.write(OutBoxedSlice::from_vec(input));
+        FfiReturn::Ok
+    }
+
+    #[no_mangle]
+    unsafe extern "C" fn __freestanding_returns_boxed_slice(
+        input: SliceMut<u32>,
+        output: *mut OutBoxedSlice<u32>,
+    ) -> FfiReturn {
+        let input = input.into_rust().map(|slice| (&*slice).into());
+        output.write(OutBoxedSlice::from_boxed_slice(input));
         FfiReturn::Ok
     }
 

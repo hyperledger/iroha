@@ -21,7 +21,8 @@ ffi::ffi_item! {
     #[repr(transparent)]
     pub struct ConstVec<T>(Box<[T]>);
 
-    ffi_type(opaque)
+    // SAFETY: `ConstVec` has no trap representation in ConstVec
+    ffi_type(unsafe {robust})
 }
 
 impl<T> ConstVec<T> {

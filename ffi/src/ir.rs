@@ -105,6 +105,8 @@ pub trait IrTypeFamily {
         Self: 'itm;
     /// [`Ir`] type that [`Box<T>`] is mapped into
     type Box;
+    /// [`Ir`] type that `Box<[T]>` is mapped into
+    type SliceBox;
     /// [`Ir`] type that `&[T]` is mapped into
     type SliceRef<'itm>
     where
@@ -124,6 +126,7 @@ impl<R: Cloned> IrTypeFamily for R {
     // NOTE: Unused
     type RefMut<'itm> = () where Self: 'itm;
     type Box = Box<Self>;
+    type SliceBox = Box<[Self]>;
     type SliceRef<'itm> = &'itm [Self] where Self: 'itm;
     // NOTE: Unused
     type SliceRefMut<'itm> = () where Self: 'itm;
@@ -134,6 +137,7 @@ impl IrTypeFamily for Robust {
     type Ref<'itm> = Transparent;
     type RefMut<'itm> = Transparent;
     type Box = Box<Self>;
+    type SliceBox = Box<[Self]>;
     type SliceRef<'itm> = &'itm [Self];
     type SliceRefMut<'itm> = &'itm mut [Self];
     type Vec = Vec<Self>;
@@ -143,6 +147,7 @@ impl IrTypeFamily for Opaque {
     type Ref<'itm> = Transparent;
     type RefMut<'itm> = Transparent;
     type Box = Box<Self>;
+    type SliceBox = Box<[Self]>;
     type SliceRef<'itm> = &'itm [Self];
     type SliceRefMut<'itm> = &'itm mut [Self];
     type Vec = Vec<Self>;
@@ -152,6 +157,7 @@ impl IrTypeFamily for Transparent {
     type Ref<'itm> = Self;
     type RefMut<'itm> = Self;
     type Box = Box<Self>;
+    type SliceBox = Box<[Self]>;
     type SliceRef<'itm> = &'itm [Self];
     type SliceRefMut<'itm> = &'itm mut [Self];
     type Vec = Vec<Self>;
@@ -161,6 +167,7 @@ impl IrTypeFamily for &Extern {
     type Ref<'itm> = &'itm Self where Self: 'itm;
     type RefMut<'itm> = &'itm mut Self where Self: 'itm;
     type Box = Box<Self>;
+    type SliceBox = Box<[Self]>;
     type SliceRef<'itm> = &'itm [Self] where Self: 'itm;
     type SliceRefMut<'itm> = &'itm mut [Self] where Self: 'itm;
     type Vec = Vec<Self>;
@@ -170,6 +177,7 @@ impl IrTypeFamily for &mut Extern {
     type Ref<'itm> = &'itm Self where Self: 'itm;
     type RefMut<'itm> = &'itm mut Self where Self: 'itm;
     type Box = Box<Self>;
+    type SliceBox = Box<[Self]>;
     type SliceRef<'itm> = &'itm [Self] where Self: 'itm;
     type SliceRefMut<'itm> = &'itm mut [Self] where Self: 'itm;
     type Vec = Vec<Self>;
@@ -208,6 +216,12 @@ where
     R::Type: IrTypeFamily,
 {
     type Type = <R::Type as IrTypeFamily>::Box;
+}
+impl<R: Ir> Ir for Box<[R]>
+where
+    R::Type: IrTypeFamily,
+{
+    type Type = <R::Type as IrTypeFamily>::SliceBox;
 }
 impl<'itm, R: Ir> Ir for &'itm [R]
 where

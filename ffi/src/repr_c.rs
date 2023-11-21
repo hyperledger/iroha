@@ -687,6 +687,53 @@ impl<R: ReprC> COutPtrRead<Box<Robust>> for Box<R> {
     }
 }
 
+impl<R: ReprC> CType<Box<[Robust]>> for Box<[R]> {
+    type ReprC = SliceMut<R>;
+}
+impl<R: ReprC> CTypeConvert<'_, Box<[Robust]>, SliceMut<R>> for Box<[R]> {
+    type RustStore = Self;
+    type FfiStore = ();
+
+    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<R> {
+        *store = self;
+        SliceMut::from_slice(Some(store.as_mut()))
+    }
+
+    unsafe fn try_from_repr_c(source: SliceMut<R>, _: &mut ()) -> Result<Self> {
+        source
+            .into_rust()
+            .ok_or(FfiReturn::ArgIsNull)
+            .map(|slice| (&*slice).into())
+    }
+}
+
+impl<R: ReprC> CWrapperType<Box<[Robust]>> for Box<[R]> {
+    type InputType = Self;
+    type ReturnType = Self;
+}
+impl<R: ReprC> COutPtr<Box<[Robust]>> for Box<[R]> {
+    type OutPtr = OutBoxedSlice<R>;
+}
+impl<R: ReprC> COutPtrWrite<Box<[Robust]>> for Box<[R]> {
+    unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
+        let mut store = Box::default();
+        CTypeConvert::<Box<[Robust]>, _>::into_repr_c(self, &mut store);
+        out_ptr.write(OutBoxedSlice::from_boxed_slice(Some(store)));
+    }
+}
+impl<R: ReprC> COutPtrRead<Box<[Robust]>> for Box<[R]> {
+    unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
+        let slice = SliceMut::from_raw_parts_mut(out_ptr.as_mut_ptr(), out_ptr.len());
+        let res = CTypeConvert::<Box<[Robust]>, _>::try_from_repr_c(slice, &mut ());
+
+        if !out_ptr.deallocate() {
+            return Err(FfiReturn::TrapRepresentation);
+        }
+
+        res
+    }
+}
+
 impl<R: ReprC> CType<&[Robust]> for &[R] {
     type ReprC = SliceRef<R>;
 }
@@ -865,6 +912,50 @@ impl<R> COutPtr<Box<Opaque>> for Box<R> {
 impl<R> COutPtrWrite<Box<Opaque>> for Box<R> {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
         write_non_local::<_, Box<Opaque>>(self, out_ptr);
+    }
+}
+
+impl<R> CType<Box<[Opaque]>> for Box<[R]> {
+    type ReprC = SliceMut<*mut R>;
+}
+impl<R> CTypeConvert<'_, Box<[Opaque]>, SliceMut<*mut R>> for Box<[R]> {
+    type RustStore = Box<[*mut R]>;
+    type FfiStore = ();
+
+    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<*mut R> {
+        *store = Vec::from(self)
+            .into_iter()
+            .map(|a: R| Box::new(a))
+            .map(Box::into_raw)
+            .collect();
+
+        SliceMut::from_slice(Some(store))
+    }
+
+    unsafe fn try_from_repr_c(source: SliceMut<*mut R>, _: &mut ()) -> Result<Self> {
+        source
+            .into_rust()
+            .ok_or(FfiReturn::ArgIsNull)?
+            .iter()
+            .map(|&item| {
+                if let Some(item) = item.as_mut() {
+                    return Ok(*Box::from_raw(item));
+                }
+
+                Err(FfiReturn::ArgIsNull)
+            })
+            .collect::<core::result::Result<_, _>>()
+    }
+}
+
+impl<R> COutPtr<Box<[Opaque]>> for Box<[R]> {
+    type OutPtr = OutBoxedSlice<*mut R>;
+}
+impl<R> COutPtrWrite<Box<[Opaque]>> for Box<[R]> {
+    unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
+        let mut store = Box::default();
+        CTypeConvert::<Box<[Opaque]>, _>::into_repr_c(self, &mut store);
+        out_ptr.write(OutBoxedSlice::from_boxed_slice(Some(store)));
     }
 }
 
@@ -1081,6 +1172,10 @@ impl<'itm, R: External> CWrapperType<Box<&'itm Extern>> for Box<&'itm R> {
     type InputType = Box<R::RefType<'itm>>;
     type ReturnType = Box<R::RefType<'itm>>;
 }
+impl<'itm, R: External> CWrapperType<Box<[&'itm Extern]>> for Box<[&'itm R]> {
+    type InputType = Box<[R::RefType<'itm>]>;
+    type ReturnType = Box<[R::RefType<'itm>]>;
+}
 impl<'itm, R: External> CWrapperType<&'itm [&'itm Extern]> for &'itm [&'itm R] {
     type InputType = &'itm [R::RefType<'itm>];
     type ReturnType = &'itm [R::RefType<'itm>];
@@ -1105,6 +1200,10 @@ impl<'itm, R: External> CWrapperType<&'itm mut Extern> for &'itm mut R {
 impl<'itm, R: External> CWrapperType<Box<&'itm mut Extern>> for Box<&'itm mut R> {
     type InputType = Box<R::RefMutType<'itm>>;
     type ReturnType = Box<R::RefMutType<'itm>>;
+}
+impl<'itm, R: External> CWrapperType<Box<[&'itm mut Extern]>> for Box<[&'itm mut R]> {
+    type InputType = Box<[R::RefMutType<'itm>]>;
+    type ReturnType = Box<[R::RefMutType<'itm>]>;
 }
 impl<'itm, R: External> CWrapperType<&'itm [&'itm mut Extern]> for &'itm [&'itm mut R] {
     type InputType = &'itm [R::RefMutType<'itm>];
@@ -1266,6 +1365,63 @@ where
 {
     unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
         Box::<R::Target>::try_read_out(out_ptr).and_then(|output| transmute_from_target_box(output))
+    }
+}
+
+impl<R: Transmute> CType<Box<[Transparent]>> for Box<[R]>
+where
+    Box<[R::Target]>: FfiType,
+{
+    type ReprC = <Box<[R::Target]> as FfiType>::ReprC;
+}
+impl<'itm, R: Transmute, C: ReprC> CTypeConvert<'itm, Box<[Transparent]>, C> for Box<[R]>
+where
+    Box<[R::Target]>: FfiConvert<'itm, C>,
+{
+    type RustStore = <Box<[R::Target]> as FfiConvert<'itm, C>>::RustStore;
+    type FfiStore = <Box<[R::Target]> as FfiConvert<'itm, C>>::FfiStore;
+
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> C {
+        transmute_into_target_boxed_slice(self).into_ffi(store)
+    }
+
+    unsafe fn try_from_repr_c(source: C, store: &'itm mut Self::FfiStore) -> Result<Self> {
+        <Box<[R::Target]>>::try_from_ffi(source, store)
+            .and_then(|output| transmute_from_target_boxed_slice(output))
+    }
+}
+
+impl<R: Transmute> CWrapperType<Box<[Transparent]>> for Box<[R]>
+where
+    Box<[R::Target]>: FfiWrapperType,
+    <Box<[R::Target]> as FfiWrapperType>::InputType: WrapperTypeOf<Self>,
+    <Box<[R::Target]> as FfiWrapperType>::ReturnType: WrapperTypeOf<Self>,
+{
+    type InputType = <<Box<[R::Target]> as FfiWrapperType>::InputType as WrapperTypeOf<Self>>::Type;
+    type ReturnType =
+        <<Box<[R::Target]> as FfiWrapperType>::ReturnType as WrapperTypeOf<Self>>::Type;
+}
+impl<R: Transmute> COutPtr<Box<[Transparent]>> for Box<[R]>
+where
+    Box<[R::Target]>: FfiOutPtr,
+{
+    type OutPtr = <Box<[R::Target]> as FfiOutPtr>::OutPtr;
+}
+impl<R: Transmute> COutPtrWrite<Box<[Transparent]>> for Box<[R]>
+where
+    Box<[R::Target]>: FfiOutPtrWrite,
+{
+    unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
+        FfiOutPtrWrite::write_out(transmute_into_target_boxed_slice(self), out_ptr);
+    }
+}
+impl<R: Transmute> COutPtrRead<Box<[Transparent]>> for Box<[R]>
+where
+    Box<[R::Target]>: FfiOutPtrRead,
+{
+    unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
+        <Box<[R::Target]>>::try_read_out(out_ptr)
+            .and_then(|output| transmute_from_target_boxed_slice(output))
     }
 }
 
@@ -1453,6 +1609,11 @@ unsafe impl<R: Transmute> NonLocal<Box<Transparent>> for Box<R> where
 {
 }
 // SAFETY: Type doesn't return a reference to the store if the inner type doesn't
+unsafe impl<R: Transmute> NonLocal<Box<[Transparent]>> for Box<[R]> where
+    Box<[R::Target]>: Ir + NonLocal<<Box<[R::Target]> as Ir>::Type>
+{
+}
+// SAFETY: Type doesn't return a reference to the store if the inner type doesn't
 unsafe impl<'slice, R: Transmute> NonLocal<&'slice [Transparent]> for &'slice [R] where
     &'slice [R::Target]: Ir + NonLocal<<&'slice [R::Target] as Ir>::Type>
 {
@@ -1504,6 +1665,26 @@ unsafe fn transmute_from_target_box<R: Transmute>(source: Box<R::Target>) -> Res
     }
 
     Ok(Box::from_raw(Box::into_raw(source).cast::<R>()))
+}
+
+#[allow(clippy::boxed_local)]
+fn transmute_into_target_boxed_slice<R: Transmute>(mut source: Box<[R]>) -> Box<[R::Target]> {
+    let (ptr, len) = (source.as_mut_ptr().cast::<R::Target>(), source.len());
+    // SAFETY: `R` is guaranteed to be transmutable into `R::Target`
+    unsafe { Box::from_raw(core::slice::from_raw_parts_mut(ptr, len)) }
+}
+#[allow(clippy::boxed_local)]
+unsafe fn transmute_from_target_boxed_slice<R: Transmute>(
+    mut source: Box<[R::Target]>,
+) -> Result<Box<[R]>> {
+    if !source.iter().all(|item| R::is_valid(item)) {
+        return Err(FfiReturn::TrapRepresentation);
+    }
+
+    Ok(Box::from_raw(core::slice::from_raw_parts_mut(
+        source.as_mut_ptr().cast(),
+        source.len(),
+    )))
 }
 
 fn transmute_into_target_slice_ref<R: Transmute>(source: &[R]) -> &[R::Target] {
