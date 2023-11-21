@@ -43,10 +43,10 @@ The following is the default configuration used by Iroha.
   "SUMERAGI": {
     "KEY_PAIR": null,
     "PEER_ID": null,
-    "BLOCK_TIME_MS": 2000,
+    "BLOCK_TIME_MS": 1000,
     "TRUSTED_PEERS": null,
-    "COMMIT_TIME_LIMIT_MS": 4000,
-    "MAX_TRANSACTIONS_IN_BLOCK": 512,
+    "COMMIT_TIME_LIMIT_MS": 120000,
+    "MAX_TRANSACTIONS_IN_BLOCK": 20,
     "ACTOR_CHANNEL_CAPACITY": 100,
     "GOSSIP_BATCH_SIZE": 500,
     "GOSSIP_PERIOD_MS": 1000
@@ -58,7 +58,7 @@ The following is the default configuration used by Iroha.
     "MAX_CONTENT_LEN": 16384000
   },
   "BLOCK_SYNC": {
-    "GOSSIP_PERIOD_MS": 10000,
+    "GOSSIP_PERIOD_MS": 1000,
     "BLOCK_BATCH_SIZE": 4,
     "ACTOR_CHANNEL_CAPACITY": 100
   },
@@ -140,7 +140,7 @@ Has type `Option<block_sync::ConfigurationProxy>`[^1]. Can be configured via env
 {
   "ACTOR_CHANNEL_CAPACITY": 100,
   "BLOCK_BATCH_SIZE": 4,
-  "GOSSIP_PERIOD_MS": 10000
+  "GOSSIP_PERIOD_MS": 1000
 }
 ```
 
@@ -171,7 +171,7 @@ The period of time to wait between sending requests for the latest block.
 Has type `Option<u64>`[^1]. Can be configured via environment variable `BLOCK_SYNC_GOSSIP_PERIOD_MS`
 
 ```json
-10000
+1000
 ```
 
 ## `disable_panic_terminal_colors`
@@ -521,12 +521,12 @@ Has type `Option<Box<sumeragi::ConfigurationProxy>>`[^1]. Can be configured via 
 ```json
 {
   "ACTOR_CHANNEL_CAPACITY": 100,
-  "BLOCK_TIME_MS": 2000,
-  "COMMIT_TIME_LIMIT_MS": 4000,
+  "BLOCK_TIME_MS": 1000,
+  "COMMIT_TIME_LIMIT_MS": 120000,
   "GOSSIP_BATCH_SIZE": 500,
   "GOSSIP_PERIOD_MS": 1000,
   "KEY_PAIR": null,
-  "MAX_TRANSACTIONS_IN_BLOCK": 512,
+  "MAX_TRANSACTIONS_IN_BLOCK": 20,
   "PEER_ID": null,
   "TRUSTED_PEERS": null
 }
@@ -549,7 +549,7 @@ The period of time a peer waits for the `CreatedBlock` message after getting a `
 Has type `Option<u64>`[^1]. Can be configured via environment variable `SUMERAGI_BLOCK_TIME_MS`
 
 ```json
-2000
+1000
 ```
 
 ### `sumeragi.commit_time_limit_ms`
@@ -559,7 +559,7 @@ The period of time a peer waits for `CommitMessage` from the proxy tail.
 Has type `Option<u64>`[^1]. Can be configured via environment variable `SUMERAGI_COMMIT_TIME_LIMIT_MS`
 
 ```json
-4000
+120000
 ```
 
 ### `sumeragi.gossip_batch_size`
@@ -599,7 +599,7 @@ The upper limit of the number of transactions per block.
 Has type `Option<u32>`[^1]. Can be configured via environment variable `SUMERAGI_MAX_TRANSACTIONS_IN_BLOCK`
 
 ```json
-512
+20
 ```
 
 ### `sumeragi.peer_id`

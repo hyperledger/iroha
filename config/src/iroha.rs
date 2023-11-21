@@ -251,7 +251,7 @@ mod tests {
             cfg_proxy.kura.unwrap().block_store_path.unwrap()
         );
         assert_eq!(
-            10000,
+            1000,
             cfg_proxy
                 .block_sync
                 .expect("Block sync configuration was None")

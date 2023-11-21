@@ -13,9 +13,9 @@ use self::default::*;
 /// Module with a set of default values.
 pub mod default {
     /// Default number of miliseconds the peer waits for transactions before creating a block.
-    pub const DEFAULT_BLOCK_TIME_MS: u64 = 2000;
+    pub const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
     /// Default amount of time allocated for voting on a block before a peer can ask for a view change.
-    pub const DEFAULT_COMMIT_TIME_LIMIT_MS: u64 = 4000;
+    pub const DEFAULT_COMMIT_TIME_LIMIT_MS: u64 = 120000;
     /// Unused const. Should be removed in the future.
     pub const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
     /// Default duration in ms between every transaction gossip.
@@ -23,7 +23,7 @@ pub mod default {
     /// Default maximum number of transactions sent in single gossip message.
     pub const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
     /// Default maximum number of transactions in block.
-    pub const DEFAULT_MAX_TRANSACTIONS_IN_BLOCK: u32 = 2_u32.pow(9);
+    pub const DEFAULT_MAX_TRANSACTIONS_IN_BLOCK: u32 = 20;
 
     /// Default estimation of consensus duration.
     #[allow(clippy::integer_division)]

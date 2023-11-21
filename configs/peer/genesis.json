@@ -119,17 +119,17 @@
         "Sequence": [
           {
             "NewParameter": {
-              "Parameter": "?MaxTransactionsInBlock=512"
+              "Parameter": "?MaxTransactionsInBlock=20"
             }
           },
           {
             "NewParameter": {
-              "Parameter": "?BlockTime=2000"
+              "Parameter": "?BlockTime=1000"
             }
           },
           {
             "NewParameter": {
-              "Parameter": "?CommitTimeLimit=4000"
+              "Parameter": "?CommitTimeLimit=120000"
             }
           },
           {

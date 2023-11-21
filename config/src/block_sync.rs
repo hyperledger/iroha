@@ -3,7 +3,7 @@ use iroha_config_base::derive::{Documented, Proxy};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_BLOCK_BATCH_SIZE: u32 = 4;
-const DEFAULT_GOSSIP_PERIOD_MS: u64 = 10000;
+const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 
 /// Configuration for `BlockSynchronizer`.

@@ -61,6 +61,7 @@ pub fn get_config_proxy(peers: UniqueVec<PeerId>, key_pair: Option<KeyPair>) -> 
         public_key: Some(public_key.clone()),
         private_key: Some(private_key.clone()),
         sumeragi: Some(Box::new(iroha_config::sumeragi::ConfigurationProxy {
+            commit_time_limit_ms: Some(2000),
             max_transactions_in_block: Some(2),
             trusted_peers: Some(TrustedPeers { peers }),
             ..iroha_config::sumeragi::ConfigurationProxy::default()

@@ -52,7 +52,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
             TriggeringFilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
         ),
     ));
-    test_client.submit(register_trigger)?;
+    test_client.submit_blocking(register_trigger)?;
 
     submit_sample_isi_on_every_block_commit(
         event_listener,
@@ -106,7 +106,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
             TriggeringFilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
         ),
     ));
-    test_client.submit(register_trigger)?;
+    test_client.submit_blocking(register_trigger)?;
     submit_sample_isi_on_every_block_commit(
         event_listener,
         &mut test_client,
@@ -152,7 +152,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
             TriggeringFilterBox::Time(TimeEventFilter::new(ExecutionTime::PreCommit)),
         ),
     ));
-    test_client.submit(register_trigger)?;
+    test_client.submit_blocking(register_trigger)?;
 
     for _ in event_listener.take(CHECKS_COUNT) {
         let new_value = get_asset_value(&mut test_client, asset_id.clone())?;
@@ -165,7 +165,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
             "key".parse::<Name>()?,
             String::from("value"),
         );
-        test_client.submit(sample_isi)?;
+        test_client.submit_blocking(sample_isi)?;
     }
 
     Ok(())
@@ -227,7 +227,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
             TriggeringFilterBox::Time(TimeEventFilter::new(ExecutionTime::Schedule(schedule))),
         ),
     ));
-    test_client.submit(register_trigger)?;
+    test_client.submit_blocking(register_trigger)?;
 
     // Time trigger will be executed on block commits, so we have to produce some transactions
     submit_sample_isi_on_every_block_commit(
@@ -298,7 +298,7 @@ fn submit_sample_isi_on_every_block_commit(
             "key".parse::<Name>()?,
             String::from("value"),
         );
-        test_client.submit(sample_isi)?;
+        test_client.submit_blocking(sample_isi)?;
     }
 
     Ok(())
