@@ -226,7 +226,7 @@ impl Iroha {
         telemetry: Option<iroha_logger::Telemetries>,
     ) -> Result<Self> {
         let listen_addr = config.torii.p2p_addr.clone();
-        let network = IrohaNetwork::start(listen_addr, config.public_key.clone())
+        let network = IrohaNetwork::start(listen_addr, config.sumeragi.key_pair.clone())
             .await
             .wrap_err("Unable to start P2P-network")?;
 
