@@ -6,7 +6,7 @@ use std::{
 };
 
 use futures::{stream::FuturesUnordered, StreamExt};
-use iroha_crypto::PublicKey;
+use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::prelude::PeerId;
 use iroha_logger::prelude::*;
 use iroha_primitives::addr::SocketAddr;
@@ -65,8 +65,8 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
     ///
     /// # Errors
     /// - If binding to address fail
-    #[log(skip(public_key))]
-    pub async fn start(listen_addr: SocketAddr, public_key: PublicKey) -> Result<Self, Error> {
+    #[log(skip(key_pair))]
+    pub async fn start(listen_addr: SocketAddr, key_pair: KeyPair) -> Result<Self, Error> {
         let listener = TcpListener::bind(&listen_addr.to_string()).await?;
         iroha_logger::info!("Network bound to listener");
         let (online_peers_sender, online_peers_receiver) = watch::channel(HashSet::new());
@@ -82,7 +82,7 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
             listener,
             peers: HashMap::new(),
             connecting_peers: HashMap::new(),
-            public_key,
+            key_pair,
             subscribers_to_peers_messages: Vec::new(),
             subscribe_to_peers_messages_receiver,
             online_peers_sender,
@@ -166,8 +166,8 @@ struct NetworkBase<T: Pload, K: Kex, E: Enc> {
     connecting_peers: HashMap<ConnectionId, PublicKey>,
     /// [`TcpListener`] that is accepting [`Peer`]s' connections
     listener: TcpListener,
-    /// Our app-level public key
-    public_key: PublicKey,
+    /// Our app-level key pair
+    key_pair: KeyPair,
     /// Recipients of messages received from other peers in the network.
     subscribers_to_peers_messages: Vec<mpsc::Sender<T>>,
     /// Receiver to subscribe for messages received from other peers in the network.
@@ -199,7 +199,7 @@ struct NetworkBase<T: Pload, K: Kex, E: Enc> {
 
 impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
     /// [`Self`] task.
-    #[log(skip(self), fields(listen_addr=%self.listen_addr, public_key=%self.public_key))]
+    #[log(skip(self), fields(listen_addr=%self.listen_addr, public_key=%self.key_pair.public_key()))]
     async fn run(mut self) {
         // TODO: probably should be configuration parameter
         let mut update_topology_interval = tokio::time::interval(Duration::from_millis(100));
@@ -273,7 +273,8 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         let conn_id = self.get_conn_id();
         let service_message_sender = self.service_message_sender.clone();
         connected_from::<T, K, E>(
-            PeerId::new(addr, &self.public_key),
+            addr.clone(),
+            self.key_pair.clone(),
             Connection::new(conn_id, stream),
             service_message_sender,
         );
@@ -281,7 +282,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
 
     fn set_current_topology(&mut self, UpdateTopology(topology): UpdateTopology) {
         iroha_logger::debug!(?topology, "Network receive new topology");
-        let self_public_key_hash = blake2b_hash(self.public_key.payload());
+        let self_public_key_hash = blake2b_hash(self.key_pair.public_key().payload());
         let topology = topology
             .into_iter()
             .map(|peer_id| {
@@ -335,7 +336,8 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         let service_message_sender = self.service_message_sender.clone();
         connecting::<T, K, E>(
             // NOTE: we intentionally use peer's address and our public key, it's used during handshake
-            PeerId::new(&peer.address, &self.public_key),
+            peer.address.clone(),
+            self.key_pair.clone(),
             conn_id,
             service_message_sender,
         );
@@ -398,11 +400,13 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
 
     fn peer_terminated(&mut self, Terminated { peer_id, conn_id }: Terminated) {
         self.connecting_peers.remove(&conn_id);
-        if let Some(peer) = self.peers.get(&peer_id.public_key) {
-            if peer.conn_id == conn_id {
-                iroha_logger::debug!(conn_id, peer=%peer_id, "Peer terminated");
-                self.peers.remove(&peer_id.public_key);
-                Self::remove_online_peer(&self.online_peers_sender, &peer_id);
+        if let Some(peer_id) = peer_id {
+            if let Some(peer) = self.peers.get(&peer_id.public_key) {
+                if peer.conn_id == conn_id {
+                    iroha_logger::debug!(conn_id, peer=%peer_id, "Peer terminated");
+                    self.peers.remove(&peer_id.public_key);
+                    Self::remove_online_peer(&self.online_peers_sender, &peer_id);
+                }
             }
         }
     }
@@ -417,7 +421,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
                     Self::remove_online_peer(&self.online_peers_sender, &peer_id);
                 }
             }
-            None if peer_id.public_key == self.public_key => {
+            None if &peer_id.public_key == self.key_pair.public_key() => {
                 #[cfg(debug_assertions)]
                 iroha_logger::trace!("Not sending message to myself")
             }
