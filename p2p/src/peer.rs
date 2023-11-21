@@ -25,19 +25,23 @@ pub const DEFAULT_AAD: &[u8; 10] = b"Iroha2 AAD";
 pub mod handles {
     //! Module with functions to start peer actor and handle to interact with it.
 
+    use iroha_crypto::KeyPair;
     use iroha_logger::Instrument;
+    use iroha_primitives::addr::SocketAddr;
 
     use super::{run::RunPeerArgs, *};
     use crate::unbounded_with_len;
 
     /// Start Peer in [`state::Connecting`] state
     pub fn connecting<T: Pload, K: Kex, E: Enc>(
-        peer_id: PeerId,
+        peer_addr: SocketAddr,
+        key_pair: KeyPair,
         connection_id: ConnectionId,
         service_message_sender: mpsc::Sender<ServiceMessage<T>>,
     ) {
         let peer = state::Connecting {
-            peer_id,
+            peer_addr,
+            key_pair,
             connection_id,
         };
         let peer = RunPeerArgs {
@@ -49,12 +53,14 @@ pub mod handles {
 
     /// Start Peer in [`state::ConnectedFrom`] state
     pub fn connected_from<T: Pload, K: Kex, E: Enc>(
-        peer_id: PeerId,
+        peer_addr: SocketAddr,
+        key_pair: KeyPair,
         connection: Connection,
         service_message_sender: mpsc::Sender<ServiceMessage<T>>,
     ) {
         let peer = state::ConnectedFrom {
-            peer_id,
+            peer_addr,
+            key_pair,
             connection,
         };
         let peer = RunPeerArgs {
@@ -105,7 +111,7 @@ mod run {
         }: RunPeerArgs<T, P>,
     ) {
         let conn_id = peer.connection_id();
-        let mut peer_id = peer.peer_id().clone();
+        let mut peer_id = None;
 
         iroha_logger::trace!("Peer created");
 
@@ -130,7 +136,7 @@ mod run {
                     },
                 cryptographer,
             } = peer;
-            peer_id = new_peer_id;
+            let peer_id = peer_id.insert(new_peer_id);
 
             let disambiguator = blake2b_hash(&cryptographer.shared_key);
 
@@ -228,27 +234,17 @@ mod run {
     /// Trait for peer stages that might be used as starting point for peer's [`run`] function.
     pub(super) trait Entrypoint<K: Kex, E: Enc>: Handshake<K, E> + Send + 'static {
         fn connection_id(&self) -> ConnectionId;
-
-        fn peer_id(&self) -> &PeerId;
     }
 
     impl<K: Kex, E: Enc> Entrypoint<K, E> for Connecting {
         fn connection_id(&self) -> ConnectionId {
             self.connection_id
         }
-
-        fn peer_id(&self) -> &PeerId {
-            &self.peer_id
-        }
     }
 
     impl<K: Kex, E: Enc> Entrypoint<K, E> for ConnectedFrom {
         fn connection_id(&self) -> ConnectionId {
             self.connection.id
-        }
-
-        fn peer_id(&self) -> &PeerId {
-            &self.peer_id
         }
     }
 
@@ -374,28 +370,32 @@ mod run {
 mod state {
     //! Module for peer stages.
 
-    use iroha_crypto::ursa::keys::PublicKey;
+    use iroha_crypto::{ursa::keys::PublicKey, KeyPair, Signature};
+    use iroha_primitives::addr::SocketAddr;
 
     use super::{cryptographer::Cryptographer, *};
 
     /// Peer that is connecting. This is the initial stage of a new
     /// outgoing peer.
     pub(super) struct Connecting {
-        pub peer_id: PeerId,
+        pub peer_addr: SocketAddr,
+        pub key_pair: KeyPair,
         pub connection_id: ConnectionId,
     }
 
     impl Connecting {
         pub(super) async fn connect_to(
             Self {
-                peer_id,
+                peer_addr,
+                key_pair,
                 connection_id,
             }: Self,
         ) -> Result<ConnectedTo, crate::Error> {
-            let stream = TcpStream::connect(peer_id.address.to_string()).await?;
+            let stream = TcpStream::connect(peer_addr.to_string()).await?;
             let connection = Connection::new(connection_id, stream);
             Ok(ConnectedTo {
-                peer_id,
+                peer_addr,
+                key_pair,
                 connection,
             })
         }
@@ -403,36 +403,40 @@ mod state {
 
     /// Peer that is being connected to.
     pub(super) struct ConnectedTo {
-        peer_id: PeerId,
+        peer_addr: SocketAddr,
+        key_pair: KeyPair,
         connection: Connection,
     }
 
     impl ConnectedTo {
         pub(super) async fn send_client_hello<K: Kex, E: Enc>(
             Self {
-                peer_id,
+                peer_addr,
+                key_pair,
                 mut connection,
             }: Self,
         ) -> Result<SendKey<E>, crate::Error> {
             let key_exchange = K::new();
-            let (local_public_key, local_private_key) = key_exchange.keypair(None)?;
+            let (kx_local_pk, kx_local_sk) = key_exchange.keypair(None)?;
             let write_half = &mut connection.write;
             garbage::write(write_half).await?;
-            write_half.write_all(local_public_key.as_ref()).await?;
+            write_half.write_all(kx_local_pk.as_ref()).await?;
             // Read server hello with node's public key
             let read_half = &mut connection.read;
-            let remote_public_key = {
+            let kx_remote_pk = {
                 garbage::read(read_half).await?;
                 // Then we have servers public key
                 let mut key = vec![0_u8; 32];
                 let _ = read_half.read_exact(&mut key).await?;
                 PublicKey(key)
             };
-            let shared_key =
-                key_exchange.compute_shared_secret(&local_private_key, &remote_public_key)?;
+            let shared_key = key_exchange.compute_shared_secret(&kx_local_sk, &kx_remote_pk)?;
             let cryptographer = Cryptographer::new(shared_key);
             Ok(SendKey {
-                peer_id,
+                peer_addr,
+                key_pair,
+                kx_local_pk,
+                kx_remote_pk,
                 connection,
                 cryptographer,
             })
@@ -441,22 +445,24 @@ mod state {
 
     /// Peer that is being connected from
     pub(super) struct ConnectedFrom {
-        pub peer_id: PeerId,
+        pub peer_addr: SocketAddr,
+        pub key_pair: KeyPair,
         pub connection: Connection,
     }
 
     impl ConnectedFrom {
         pub(super) async fn read_client_hello<K: Kex, E: Enc>(
             Self {
-                peer_id,
+                peer_addr,
+                key_pair,
                 mut connection,
                 ..
             }: Self,
         ) -> Result<SendKey<E>, crate::Error> {
             let key_exchange = K::new();
-            let (local_public_key, local_private_key) = key_exchange.keypair(None)?;
+            let (kx_local_pk, kx_local_sk) = key_exchange.keypair(None)?;
             let read_half = &mut connection.read;
-            let remote_public_key = {
+            let kx_remote_pk = {
                 garbage::read(read_half).await?;
                 // And then we have clients public key
                 let mut key = vec![0_u8; 32];
@@ -465,12 +471,14 @@ mod state {
             };
             let write_half = &mut connection.write;
             garbage::write(write_half).await?;
-            write_half.write_all(local_public_key.as_ref()).await?;
-            let shared_key =
-                key_exchange.compute_shared_secret(&local_private_key, &remote_public_key)?;
+            write_half.write_all(kx_local_pk.as_ref()).await?;
+            let shared_key = key_exchange.compute_shared_secret(&kx_local_sk, &kx_remote_pk)?;
             let cryptographer = Cryptographer::new(shared_key);
             Ok(SendKey {
-                peer_id,
+                peer_addr,
+                key_pair,
+                kx_local_pk,
+                kx_remote_pk,
                 connection,
                 cryptographer,
             })
@@ -479,7 +487,10 @@ mod state {
 
     /// Peer that needs to send key.
     pub(super) struct SendKey<E: Enc> {
-        peer_id: PeerId,
+        peer_addr: SocketAddr,
+        key_pair: KeyPair,
+        kx_local_pk: PublicKey,
+        kx_remote_pk: PublicKey,
         connection: Connection,
         cryptographer: Cryptographer<E>,
     }
@@ -487,16 +498,19 @@ mod state {
     impl<E: Enc> SendKey<E> {
         pub(super) async fn send_our_public_key(
             Self {
-                peer_id,
+                peer_addr,
+                key_pair,
+                kx_local_pk,
+                kx_remote_pk,
                 mut connection,
                 cryptographer,
             }: Self,
         ) -> Result<GetKey<E>, crate::Error> {
             let write_half = &mut connection.write;
 
-            // We take our public key from our `id` and will replace it with theirs when we read it
-            // Packing length and message in one network packet for efficiency
-            let data = peer_id.public_key().encode();
+            let payload = create_payload(&kx_local_pk, &kx_remote_pk);
+            let signature = Signature::new(key_pair, &payload)?;
+            let data = signature.encode();
 
             let data = &cryptographer.encrypt(data.as_slice())?;
 
@@ -507,8 +521,10 @@ mod state {
 
             write_half.write_all(&buf).await?;
             Ok(GetKey {
-                peer_id,
+                peer_addr,
                 connection,
+                kx_local_pk,
+                kx_remote_pk,
                 cryptographer,
             })
         }
@@ -516,8 +532,10 @@ mod state {
 
     /// Peer that needs to get key.
     pub struct GetKey<E: Enc> {
-        peer_id: PeerId,
+        peer_addr: SocketAddr,
         connection: Connection,
+        kx_local_pk: PublicKey,
+        kx_remote_pk: PublicKey,
         cryptographer: Cryptographer<E>,
     }
 
@@ -525,8 +543,10 @@ mod state {
         /// Read the peer's public key
         pub(super) async fn read_their_public_key(
             Self {
-                mut peer_id,
+                peer_addr,
                 mut connection,
+                kx_local_pk,
+                kx_remote_pk,
                 cryptographer,
             }: Self,
         ) -> Result<Ready<E>, crate::Error> {
@@ -538,9 +558,19 @@ mod state {
 
             let data = cryptographer.decrypt(data.as_slice())?;
 
-            let pub_key = DecodeAll::decode_all(&mut data.as_slice())?;
+            let signature: Signature = DecodeAll::decode_all(&mut data.as_slice())?;
 
-            peer_id.public_key = pub_key;
+            // Swap order of keys since we are verifying for other peer order remote/local keys is reversed
+            let payload = create_payload(&kx_remote_pk, &kx_local_pk);
+            signature.verify(&payload)?;
+
+            let (remote_pub_key, _) = signature.into();
+
+            let peer_id = PeerId {
+                address: peer_addr,
+                public_key: remote_pub_key,
+            };
+
             Ok(Ready {
                 peer_id,
                 connection,
@@ -555,6 +585,14 @@ mod state {
         pub peer_id: PeerId,
         pub connection: Connection,
         pub cryptographer: Cryptographer<E>,
+    }
+
+    fn create_payload(kx_local_pk: &PublicKey, kx_remote_pk: &PublicKey) -> Vec<u8> {
+        let mut payload =
+            Vec::with_capacity(kx_local_pk.as_ref().len() + kx_remote_pk.as_ref().len());
+        payload.extend(kx_local_pk.as_ref());
+        payload.extend(kx_remote_pk.as_ref());
+        payload
     }
 }
 
@@ -660,7 +698,7 @@ pub mod message {
     /// Peer faced error or `Terminate` message, send to indicate that it is terminated
     pub struct Terminated {
         /// Peer Id
-        pub peer_id: PeerId,
+        pub peer_id: Option<PeerId>,
         /// Connection Id
         pub conn_id: ConnectionId,
     }

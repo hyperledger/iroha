@@ -1,7 +1,6 @@
 use std::{
     collections::HashSet,
     fmt::Debug,
-    str::FromStr,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc, Once,
@@ -49,11 +48,9 @@ async fn network_create() {
     setup_logger();
     info!("Starting network tests...");
     let address = socket_addr!(127.0.0.1:12_000);
-    let public_key = iroha_crypto::PublicKey::from_str(
-        "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
-    )
-    .unwrap();
-    let network = NetworkHandle::start(address.clone(), public_key.clone())
+    let key_pair = KeyPair::generate().unwrap();
+    let public_key = key_pair.public_key().clone();
+    let network = NetworkHandle::start(address.clone(), key_pair)
         .await
         .unwrap();
     tokio::time::sleep(delay).await;
@@ -158,23 +155,19 @@ impl TestActor {
 async fn two_networks() {
     let delay = Duration::from_millis(300);
     setup_logger();
-    let public_key1 = iroha_crypto::PublicKey::from_str(
-        "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
-    )
-    .unwrap();
-    let public_key2 = iroha_crypto::PublicKey::from_str(
-        "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C1",
-    )
-    .unwrap();
+    let key_pair1 = KeyPair::generate().unwrap();
+    let public_key1 = key_pair1.public_key().clone();
+    let key_pair2 = KeyPair::generate().unwrap().clone();
+    let public_key2 = key_pair2.public_key().clone();
     info!("Starting first network...");
     let address1 = socket_addr!(127.0.0.1:12_005);
-    let mut network1 = NetworkHandle::start(address1.clone(), public_key1.clone())
+    let mut network1 = NetworkHandle::start(address1.clone(), key_pair1)
         .await
         .unwrap();
 
     info!("Starting second network...");
     let address2 = socket_addr!(127.0.0.1:12_010);
-    let network2 = NetworkHandle::start(address2.clone(), public_key2.clone())
+    let network2 = NetworkHandle::start(address2.clone(), key_pair2)
         .await
         .unwrap();
 
@@ -251,13 +244,16 @@ async fn multiple_networks() {
     info!("Starting...");
 
     let mut peers = Vec::new();
+    let mut key_pairs = Vec::new();
     for i in 0_u16..10_u16 {
         let address = socket_addr!(127.0.0.1: 12_015 + ( i * 5));
-        let keypair = KeyPair::generate().unwrap();
+        let key_pair = KeyPair::generate().unwrap();
+        let public_key = key_pair.public_key().clone();
         peers.push(PeerId {
             address,
-            public_key: keypair.public_key().clone(),
+            public_key,
         });
+        key_pairs.push(key_pair);
     }
 
     let mut networks = Vec::new();
@@ -269,9 +265,11 @@ async fn multiple_networks() {
     let barrier = Arc::new(Barrier::new(peers.len()));
     peers
         .iter()
-        .map(|peer| {
+        .zip(key_pairs)
+        .map(|(peer, key_pair)| {
             start_network(
                 peer.clone(),
+                key_pair,
                 peers.clone(),
                 msgs.clone(),
                 Arc::clone(&barrier),
@@ -312,6 +310,7 @@ async fn multiple_networks() {
 
 async fn start_network(
     peer: PeerId,
+    key_pair: KeyPair,
     peers: Vec<PeerId>,
     messages: WaitForN,
     barrier: Arc<Barrier>,
@@ -321,11 +320,8 @@ async fn start_network(
     // This actor will get the messages from other peers and increment the counter
     let actor = TestActor::start(messages);
 
-    let PeerId {
-        address,
-        public_key,
-    } = peer.clone();
-    let mut network = NetworkHandle::start(address, public_key).await.unwrap();
+    let PeerId { address, .. } = peer.clone();
+    let mut network = NetworkHandle::start(address, key_pair).await.unwrap();
     network.subscribe_to_peers_messages(actor);
 
     let _ = barrier.wait().await;
