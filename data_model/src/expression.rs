@@ -177,6 +177,7 @@ pub mod model {
         #[serde(flatten)]
         pub expression: Box<Expression>,
         #[codec(skip)]
+        #[serde(bound(deserialize = "V: TryFrom<Value>"))]
         pub(super) _value_type: PhantomData<V>,
     }
 

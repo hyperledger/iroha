@@ -1,0 +1,18 @@
+error[E0277]: the trait bound `MyTestStructEvsTo: From<iroha_data_model::Value>` is not satisfied
+  --> tests/evaluates_to_serde_fail/deser_evaluates_to_fails.rs:16:67
+   |
+16 |     let deserialized: Result<EvaluatesTo<MyTestStructEvsTo>, _> = serde_json::from_str(&serialized);
+   |                                                                   ^^^^^^^^^^^^^^^^^^^^ the trait `From<iroha_data_model::Value>` is not implemented for `MyTestStructEvsTo`
+   |
+   = help: the trait `Deserialize<'de>` is implemented for `iroha_data_model::expression::EvaluatesTo<V>`
+   = note: required for `iroha_data_model::Value` to implement `Into<MyTestStructEvsTo>`
+   = note: required for `MyTestStructEvsTo` to implement `TryFrom<iroha_data_model::Value>`
+   = note: required for `iroha_data_model::expression::EvaluatesTo<MyTestStructEvsTo>` to implement `Deserialize<'_>`
+note: required by a bound in `serde_json::from_str`
+  --> $CARGO/serde_json-1.0.107/src/de.rs
+   |
+   | pub fn from_str<'a, T>(s: &'a str) -> Result<T>
+   |        -------- required by a bound in this function
+   | where
+   |     T: de::Deserialize<'a>,
+   |        ^^^^^^^^^^^^^^^^^^^ required by this bound in `from_str`
