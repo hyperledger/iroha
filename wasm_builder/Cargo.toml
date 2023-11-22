@@ -16,4 +16,4 @@ eyre = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
 sha256 = "1.4.0"
 path-absolutize = { workspace = true }
-wasm-opt = "0.114.1"
+wasm-opt = "0.116.0"

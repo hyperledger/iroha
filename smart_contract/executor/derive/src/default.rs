@@ -198,7 +198,6 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn2::DeriveInput) -> To
         })
         .collect::<Vec<_>>();
 
-    println!("{}", quote!(#(#visit_items)*));
     quote! {
         impl ::iroha_executor::prelude::Visit for #ident {
             #(#visit_items)*

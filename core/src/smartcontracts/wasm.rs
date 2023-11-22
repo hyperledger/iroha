@@ -713,7 +713,7 @@ impl<W, S> Runtime<state::CommonState<W, S>> {
 
         store.limiter(|s| &mut s.store_limits);
         store
-            .add_fuel(self.config.fuel_limit)
+            .set_fuel(self.config.fuel_limit)
             .expect("Wasm Runtime config is malformed, this is a bug");
 
         store
