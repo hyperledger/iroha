@@ -23,6 +23,9 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [features]
+# Use rustls by default to avoid OpenSSL dependency, simplifying compilation with musl
+default = ["tls-rustls-native-roots"]
+
 tls-native = [
     "attohttpc/tls-native",
     "tokio-tungstenite/native-tls",

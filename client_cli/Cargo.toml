@@ -23,7 +23,7 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha_client = { workspace = true, features = ["tls-rustls-native-roots"] }
+iroha_client = { workspace = true }
 iroha_data_model = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_crypto = { workspace = true }
