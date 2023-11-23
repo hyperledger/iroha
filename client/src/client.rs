@@ -1099,7 +1099,7 @@ impl Client {
     ///
     /// # Errors
     /// If sending request or decoding fails
-    pub fn set_config(&self, dto: ConfigurationDTO) -> Result<bool> {
+    pub fn set_config(&self, dto: ConfigurationDTO) -> Result<()> {
         let body = serde_json::to_vec(&dto).wrap_err(format!("Failed to serialize {dto:?}"))?;
         let url = self.torii_url.join(uri::CONFIGURATION).expect("Valid URI");
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
@@ -1114,9 +1114,9 @@ impl Client {
                 resp.status(),
                 std::str::from_utf8(resp.body()).unwrap_or(""),
             ));
-        }
-        serde_json::from_slice(resp.body())
-            .wrap_err(format!("Failed to decode body {:?}", resp.body()))
+        };
+
+        Ok(())
     }
 
     /// Gets network status seen from the peer
