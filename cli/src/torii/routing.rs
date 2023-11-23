@@ -7,7 +7,7 @@
 
 use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
-use iroha_config::{client_api::ConfigurationSubset, iroha::Configuration, torii::uri};
+use iroha_config::{client_api::ConfigurationDTO, iroha::Configuration, torii::uri};
 use iroha_core::{
     query::{pagination::Paginate, store::LiveQueryStoreHandle},
     smartcontracts::query::ValidQueryRequest,
@@ -165,14 +165,14 @@ async fn handle_pending_transactions(
 
 #[iroha_futures::telemetry_future]
 async fn handle_get_configuration(iroha_cfg: Configuration) -> Result<Json> {
-    let subset = ConfigurationSubset::from(&iroha_cfg);
+    let subset = ConfigurationDTO::from(&iroha_cfg);
     Ok(reply::json(&subset))
 }
 
 #[iroha_futures::telemetry_future]
 async fn handle_post_configuration(
     iroha_cfg: Configuration,
-    value: ConfigurationSubset,
+    value: ConfigurationDTO,
 ) -> Result<impl Reply> {
     value.update_base(&iroha_cfg)?;
     Ok(reply::reply())

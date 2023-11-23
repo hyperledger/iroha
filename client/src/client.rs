@@ -13,7 +13,7 @@ use derive_more::{DebugCustom, Display};
 use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
-use iroha_config::{client::Configuration, client_api::ConfigurationSubset, torii::uri};
+use iroha_config::{client::Configuration, client_api::ConfigurationDTO, torii::uri};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
@@ -1076,7 +1076,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending request or decoding fails
-    pub fn get_config(&self) -> Result<ConfigurationSubset> {
+    pub fn get_config(&self) -> Result<ConfigurationDTO> {
         let resp = DefaultRequestBuilder::new(
             HttpMethod::GET,
             self.torii_url.join(uri::CONFIGURATION).expect("Valid URI"),
@@ -1099,9 +1099,8 @@ impl Client {
     ///
     /// # Errors
     /// If sending request or decoding fails
-    pub fn set_config(&self, config: ConfigurationSubset) -> Result<bool> {
-        let body =
-            serde_json::to_vec(&config).wrap_err(format!("Failed to serialize {config:?}"))?;
+    pub fn set_config(&self, dto: ConfigurationDTO) -> Result<bool> {
+        let body = serde_json::to_vec(&dto).wrap_err(format!("Failed to serialize {dto:?}"))?;
         let url = self.torii_url.join(uri::CONFIGURATION).expect("Valid URI");
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
             .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
