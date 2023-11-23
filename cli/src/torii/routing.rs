@@ -7,12 +7,7 @@
 
 use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
-use iroha_config::{
-    base::proxy::Documented,
-    iroha::{Configuration, ConfigurationView},
-    torii::uri,
-    GetConfiguration, PostConfiguration,
-};
+use iroha_config::{client_api::ConfigurationSubset, iroha::Configuration, torii::uri};
 use iroha_core::{
     query::{pagination::Paginate, store::LiveQueryStoreHandle},
     smartcontracts::query::ValidQueryRequest,
@@ -169,42 +164,18 @@ async fn handle_pending_transactions(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_get_configuration(
-    iroha_cfg: Configuration,
-    get_cfg: GetConfiguration,
-) -> Result<Json> {
-    use GetConfiguration::*;
-
-    match get_cfg {
-        Docs(field) => <Configuration as Documented>::get_doc_recursive(
-            field.iter().map(AsRef::as_ref).collect::<Vec<&str>>(),
-        )
-        .wrap_err("Failed to get docs {:?field}")
-        .and_then(|doc| serde_json::to_value(doc).wrap_err("Failed to serialize docs")),
-        // Cast to configuration view to hide private keys.
-        Value => serde_json::to_value(ConfigurationView::from(iroha_cfg))
-            .wrap_err("Failed to serialize value"),
-    }
-    .map(|v| reply::json(&v))
-    .map_err(Error::Config)
+async fn handle_get_configuration(iroha_cfg: Configuration) -> Result<Json> {
+    let subset = ConfigurationSubset::from(&iroha_cfg);
+    Ok(reply::json(&subset))
 }
 
 #[iroha_futures::telemetry_future]
 async fn handle_post_configuration(
     iroha_cfg: Configuration,
-    cfg: PostConfiguration,
-) -> Result<Json> {
-    use iroha_config::base::runtime_upgrades::Reload;
-    use PostConfiguration::*;
-
-    iroha_logger::debug!(?cfg);
-    match cfg {
-        LogLevel(level) => {
-            iroha_cfg.logger.max_log_level.reload(level)?;
-        }
-    };
-
-    Ok(reply::json(&true))
+    value: ConfigurationSubset,
+) -> Result<impl Reply> {
+    value.update_base(&iroha_cfg)?;
+    Ok(reply::reply())
 }
 
 #[iroha_futures::telemetry_future]
@@ -437,12 +408,11 @@ impl Torii {
                     .and(add_state!(self.queue, self.sumeragi,))
                     .and(paginate()),
             )
-            .or(endpoint2(
-                handle_get_configuration,
-                warp::path(uri::CONFIGURATION)
-                    .and(add_state!(self.iroha_cfg))
-                    .and(warp::body::json()),
-            )),
+            .or(warp::path(uri::CONFIGURATION)
+                .and(add_state!(self.iroha_cfg))
+                .and_then(|iroha_cfg| async move {
+                    Ok::<_, Infallible>(WarpResult(handle_get_configuration(iroha_cfg).await))
+                })),
         );
 
         let get_router_status = warp::path(uri::STATUS)

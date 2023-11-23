@@ -13,14 +13,13 @@ use derive_more::{DebugCustom, Display};
 use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
-use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
+use iroha_config::{client::Configuration, client_api::ConfigurationSubset, torii::uri};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
 use parity_scale_codec::DecodeAll;
 use rand::Rng;
-use serde::de::DeserializeOwned;
 use url::Url;
 
 use self::{blocks_api::AsyncBlockStream, events_api::AsyncEventStream};
@@ -1073,13 +1072,16 @@ impl Client {
         )
     }
 
-    fn get_config<T: DeserializeOwned>(&self, get_config: &GetConfiguration) -> Result<T> {
+    /// Get value of config on peer
+    ///
+    /// # Errors
+    /// Fails if sending request or decoding fails
+    pub fn get_config(&self) -> Result<ConfigurationSubset> {
         let resp = DefaultRequestBuilder::new(
             HttpMethod::GET,
             self.torii_url.join(uri::CONFIGURATION).expect("Valid URI"),
         )
         .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
-        .body(serde_json::to_vec(get_config).wrap_err("Failed to serialize")?)
         .build()?
         .send()?;
 
@@ -1097,9 +1099,9 @@ impl Client {
     ///
     /// # Errors
     /// If sending request or decoding fails
-    pub fn set_config(&self, post_config: PostConfiguration) -> Result<bool> {
-        let body = serde_json::to_vec(&post_config)
-            .wrap_err(format!("Failed to serialize {post_config:?}"))?;
+    pub fn set_config(&self, config: ConfigurationSubset) -> Result<bool> {
+        let body =
+            serde_json::to_vec(&config).wrap_err(format!("Failed to serialize {config:?}"))?;
         let url = self.torii_url.join(uri::CONFIGURATION).expect("Valid URI");
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
             .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
@@ -1116,25 +1118,6 @@ impl Client {
         }
         serde_json::from_slice(resp.body())
             .wrap_err(format!("Failed to decode body {:?}", resp.body()))
-    }
-
-    /// Get documentation of some field on config
-    ///
-    /// # Errors
-    /// Fails if sending request or decoding fails
-    pub fn get_config_docs(&self, field: &[&str]) -> Result<Option<String>> {
-        let field = field.iter().copied().map(ToOwned::to_owned).collect();
-        self.get_config(&GetConfiguration::Docs(field))
-            .wrap_err("Failed to get docs for field")
-    }
-
-    /// Get value of config on peer
-    ///
-    /// # Errors
-    /// Fails if sending request or decoding fails
-    pub fn get_config_value(&self) -> Result<serde_json::Value> {
-        self.get_config(&GetConfiguration::Value)
-            .wrap_err("Failed to get configuration value")
     }
 
     /// Gets network status seen from the peer
