@@ -2,8 +2,8 @@
 //!
 //! Intended usage:
 //!
-//! - Create [`Root`] from [`crate::iroha::Configuration`] and serialize it for the client
-//! - Deserialize [`Root`] from the client and use [`Root::apply_update()`] to update the configuration
+//! - Create [`ConfigurationDTO`] from [`crate::iroha::Configuration`] and serialize it for the client
+//! - Deserialize [`ConfigurationDTO`] from the client and use [`ConfigurationDTO::apply_update()`] to update the configuration
 // TODO: Currently logic here is not generalised and handles only `logger.max_log_level` parameter. In future, when
 //       other parts of configuration are refactored and there is a solid foundation e.g. as a general
 //       configuration-related crate, this part should be re-written in a clean way.
@@ -17,11 +17,11 @@ use super::{iroha::Configuration as BaseConfiguration, logger::Configuration as 
 
 /// Subset of [`super::iroha`] configuration.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-pub struct ConfigurationSubset {
+pub struct ConfigurationDTO {
     logger: Logger,
 }
 
-impl From<&'_ BaseConfiguration> for ConfigurationSubset {
+impl From<&'_ BaseConfiguration> for ConfigurationDTO {
     fn from(value: &'_ BaseConfiguration) -> Self {
         Self {
             logger: value.logger.as_ref().into(),
@@ -29,7 +29,7 @@ impl From<&'_ BaseConfiguration> for ConfigurationSubset {
     }
 }
 
-impl ConfigurationSubset {
+impl ConfigurationDTO {
     /// Update the base configuration with the values stored in [`Self`].
     pub fn update_base(&self, target: &BaseConfiguration) -> Result<(), ReloadError> {
         target
@@ -60,7 +60,7 @@ mod test {
 
     #[test]
     fn snapshot_serialized_form() {
-        let value = ConfigurationSubset {
+        let value = ConfigurationDTO {
             logger: Logger {
                 max_log_level: Level::TRACE,
             },
