@@ -18,7 +18,8 @@ use super::{iroha::Configuration as BaseConfiguration, logger::Configuration as 
 /// Subset of [`super::iroha`] configuration.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub struct ConfigurationDTO {
-    logger: Logger,
+    #[allow(missing_docs)]
+    pub logger: Logger,
 }
 
 impl From<&'_ BaseConfiguration> for ConfigurationDTO {
@@ -41,9 +42,9 @@ impl ConfigurationDTO {
 
 /// Subset of [`super::logger`] configuration.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-struct Logger {
+pub struct Logger {
     #[allow(missing_docs)]
-    max_log_level: Level,
+    pub max_log_level: Level,
 }
 
 impl From<&'_ BaseLogger> for Logger {
