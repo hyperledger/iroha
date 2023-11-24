@@ -1,11 +1,13 @@
 use std::thread;
 
 use eyre::{Context, Result};
-use iroha_client::client::Client;
-use iroha_data_model::{
-    parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-    peer::Peer as DataModelPeer,
-    prelude::*,
+use iroha_client::{
+    client::Client,
+    data_model::{
+        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+        peer::Peer as DataModelPeer,
+        prelude::*,
+    },
 };
 use test_network::*;
 

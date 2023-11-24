@@ -11,10 +11,12 @@ use std::{
 };
 
 use eyre::{Result, WrapErr};
-use iroha_client::client::Client;
-use iroha_data_model::{
-    parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-    prelude::*,
+use iroha_client::{
+    client::Client,
+    data_model::{
+        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+        prelude::*,
+    },
 };
 use serde::Deserialize;
 use serde_json::json;

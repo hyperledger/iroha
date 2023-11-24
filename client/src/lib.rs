@@ -37,3 +37,5 @@ pub mod samples {
         .expect("Client config should build as all required fields were provided")
     }
 }
+
+pub use iroha_data_model as data_model;

@@ -4,12 +4,12 @@
 
 #[cfg(not(test))]
 use data_model::smart_contract::payloads;
-pub use iroha_data_model as data_model;
 pub use iroha_smart_contract as smart_contract;
 pub use iroha_smart_contract_utils::debug;
 #[cfg(not(test))]
 use iroha_smart_contract_utils::decode_with_length_prefix_from_raw;
 pub use iroha_trigger_derive::main;
+pub use smart_contract::data_model;
 
 pub mod log {
     //! WASM logging utilities

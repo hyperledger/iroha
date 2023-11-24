@@ -5,12 +5,14 @@ use std::{
 };
 
 use eyre::{Result, WrapErr as _};
-use iroha_client::client::{self, QueryResult};
-use iroha_data_model::{
-    account::Account,
-    predicate::{string, value, PredicateBox},
-    prelude::*,
-    query::{Pagination, Sorting},
+use iroha_client::{
+    client::{self, QueryResult},
+    data_model::{
+        account::Account,
+        predicate::{string, value, PredicateBox},
+        prelude::*,
+        query::{Pagination, Sorting},
+    },
 };
 use test_network::*;
 

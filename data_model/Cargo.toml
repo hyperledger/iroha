@@ -55,8 +55,6 @@ base64 = { workspace = true, features = ["alloc"] }
 once_cell = { workspace = true, optional = true }
 
 [dev-dependencies]
-iroha_client = { workspace = true }
-
 trybuild = { workspace = true }
 criterion = { workspace = true }
 

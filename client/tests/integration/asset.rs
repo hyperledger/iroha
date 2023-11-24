@@ -1,9 +1,11 @@
 use std::{str::FromStr as _, thread};
 
 use eyre::Result;
-use iroha_client::client::{self, QueryResult};
+use iroha_client::{
+    client::{self, QueryResult},
+    data_model::prelude::*,
+};
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::prelude::*;
 use iroha_primitives::fixed::Fixed;
 use serde_json::json;
 use test_network::*;
@@ -92,7 +94,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
-    let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
+    let metadata = iroha_client::data_model::metadata::UnlimitedMetadata::default();
     //When
     let quantity: u32 = 200;
     let mint = MintExpr::new(
@@ -126,7 +128,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset =
         RegisterExpr::new(AssetDefinition::big_quantity(asset_definition_id.clone()));
-    let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
+    let metadata = iroha_client::data_model::metadata::UnlimitedMetadata::default();
     //When
     let quantity: u128 = 2_u128.pow(65);
     let mint = MintExpr::new(
@@ -160,7 +162,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let identifiable_box = AssetDefinition::fixed(asset_definition_id.clone());
     let create_asset = RegisterExpr::new(identifiable_box);
-    let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
+    let metadata = iroha_client::data_model::metadata::UnlimitedMetadata::default();
 
     //When
     let quantity: Fixed = Fixed::try_from(123.456_f64).unwrap();

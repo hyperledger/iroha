@@ -1,8 +1,10 @@
 use eyre::Result;
-use iroha_client::client::{self, QueryResult};
-use iroha_data_model::{
-    parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-    prelude::*,
+use iroha_client::{
+    client::{self, QueryResult},
+    data_model::{
+        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+        prelude::*,
+    },
 };
 use test_network::*;
 use tokio::runtime::Runtime;

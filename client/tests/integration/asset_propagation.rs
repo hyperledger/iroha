@@ -1,12 +1,14 @@
 use std::{str::FromStr as _, thread};
 
 use eyre::Result;
-use iroha_client::client::{self, QueryResult};
-use iroha_crypto::KeyPair;
-use iroha_data_model::{
-    parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-    prelude::*,
+use iroha_client::{
+    client::{self, QueryResult},
+    data_model::{
+        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+        prelude::*,
+    },
 };
+use iroha_crypto::KeyPair;
 use test_network::*;
 
 use super::Configuration;

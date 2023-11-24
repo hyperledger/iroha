@@ -5,8 +5,10 @@ use std::{
 };
 
 use eyre::Result;
-use iroha_client::client::{transaction, QueryResult};
-use iroha_data_model::{prelude::*, query::Pagination};
+use iroha_client::{
+    client::{transaction, QueryResult},
+    data_model::{prelude::*, query::Pagination},
+};
 use test_network::*;
 
 use super::Configuration;
