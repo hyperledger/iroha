@@ -11,7 +11,7 @@ use alloc::{
 use core::{num::ParseIntError, str::FromStr};
 
 use derive_more::From;
-use iroha_primitives::fixed::{Fixed, FixedPointOperationError};
+use iroha_primitives::fixed::FixedPointOperationError;
 use serde::{de::Error, Deserializer, Serializer};
 
 pub use self::model::*;
@@ -115,10 +115,6 @@ impl FromStr for NumericValue {
             } else {
                 Err(ParseNumericError::Format)
             }
-        } else if let Ok(fixed) = Fixed::from_str(s) {
-            // This is the only unambiguous numerical type which we
-            // can safely deserialize from a string.
-            Ok(NumericValue::Fixed(fixed))
         } else {
             Err(ParseNumericError::Format)
         }
@@ -310,8 +306,14 @@ mod tests {
             NumericValue::Fixed((u32::MAX as f64).try_into().expect("trivial conversion")),
         ];
         for val in values {
-            let new_value: NumericValue = format!("{val}").parse().expect("Failed to parse");
+            let new_value: NumericValue = format!("{val:?}").parse().expect("Failed to parse");
             assert_eq!(new_value, val);
         }
+    }
+
+    #[test]
+    fn deserialize_without_prefix_fails() {
+        assert!(serde_json::from_str::<NumericValue>("\"100\"").is_err());
+        assert!(serde_json::from_str::<NumericValue>("\"100.0\"").is_err());
     }
 }
