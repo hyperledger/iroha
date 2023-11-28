@@ -13,7 +13,7 @@ fn main() -> Result<()> {
     // HACK: used by Nix, since at the moment
     // the checks are a process that's hard to accomodate
     // in Nix environment
-    if std::option_env!("IROHA_SKIP_WASM_CHECKS").is_none() {
+    if std::option_env!("IROHA_SKIP_WASM_CHECKS").is_some() {
         check_default_executor()?;
     }
 
