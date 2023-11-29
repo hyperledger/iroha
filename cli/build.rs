@@ -1,6 +1,7 @@
 //! Build script to extract git hash of iroha build and to check runtime executor
 
 use eyre::{eyre, Result, WrapErr};
+use std::env;
 
 const DEFAULT_EXECUTOR_PATH: &str = "../default_executor";
 
@@ -10,10 +11,7 @@ fn main() -> Result<()> {
 
     extract_git_hash()?;
 
-    // HACK: used by Nix, since at the moment
-    // the checks are a process that's hard to accomodate
-    // in Nix environment
-    if std::option_env!("IROHA_SKIP_WASM_CHECKS").is_some() {
+    if env::var("PROFILE") == Ok("test".to_string()) {
         check_default_executor()?;
     }
 
