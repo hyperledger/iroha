@@ -8,7 +8,7 @@ use eyre::{Report, Result};
 use iroha_config::queue::Configuration;
 use iroha_crypto::HashOf;
 use iroha_data_model::{account::AccountId, transaction::prelude::*};
-use iroha_logger::{debug, info, trace, warn};
+use iroha_logger::{debug, trace, warn};
 use iroha_primitives::must_use::MustUse;
 use rand::seq::IteratorRandom;
 use thiserror::Error;
@@ -189,7 +189,6 @@ impl Queue {
     pub fn push(&self, tx: AcceptedTransaction, wsv: &WorldStateView) -> Result<(), Failure> {
         trace!(?tx, "Pushing to the queue");
         if let Err(err) = self.check_tx(&tx, wsv) {
-            warn!("Failed to evaluate signature check. Error = {}", err);
             return Err(Failure { tx, err });
         }
 
@@ -199,8 +198,13 @@ impl Queue {
         let entry = match self.txs.entry(hash) {
             Entry::Occupied(mut old_tx) => {
                 // MST case
+                let signatures_amount_before = old_tx.get().signatures().len();
                 assert!(old_tx.get_mut().merge_signatures(tx));
-                info!("Signature added to existing multisignature transaction");
+                let signatures_amount_after = old_tx.get().signatures().len();
+                let new_signatures_amount = signatures_amount_after - signatures_amount_before;
+                if new_signatures_amount > 0 {
+                    debug!(%hash, new_signatures_amount, "Signatures added to existing multisignature transaction");
+                }
                 return Ok(());
             }
             Entry::Vacant(entry) => entry,
