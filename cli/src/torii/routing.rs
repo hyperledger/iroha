@@ -528,9 +528,7 @@ impl Torii {
                 })
             });
 
-        let ws_router = events_ws_router
-            .or(blocks_ws_router)
-            .with(warp::trace::request());
+        let ws_router = events_ws_router.or(blocks_ws_router);
 
         warp::any()
             .and(
