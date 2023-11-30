@@ -1,14 +1,14 @@
 //! Module with development telemetry
 
 use eyre::{Result, WrapErr};
-use iroha_logger::telemetry::Telemetry;
+use iroha_logger::telemetry::Event as Telemetry;
 use tokio::{
     fs::OpenOptions,
     io::AsyncWriteExt,
-    sync::mpsc::Receiver,
+    sync::broadcast::Receiver,
     task::{self, JoinHandle},
 };
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 
 use crate::Configuration;
 
@@ -19,7 +19,7 @@ pub async fn start(
     config: &Configuration,
     telemetry: Receiver<Telemetry>,
 ) -> Result<JoinHandle<()>> {
-    let mut telemetry = crate::futures::get_stream(ReceiverStream::new(telemetry));
+    let mut telemetry = crate::futures::get_stream(BroadcastStream::new(telemetry).fuse());
 
     let Some(telemetry_file) = &config.file else {
         return Ok(task::spawn(async move {

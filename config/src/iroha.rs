@@ -248,7 +248,13 @@ mod tests {
         let cfg_proxy = ConfigurationProxy::from_path(CONFIGURATION_PATH);
         assert_eq!(
             "./storage",
-            cfg_proxy.kura.unwrap().block_store_path.unwrap()
+            cfg_proxy
+                .kura
+                .unwrap()
+                .block_store_path
+                .unwrap()
+                .to_str()
+                .unwrap()
         );
         assert_eq!(
             10000,

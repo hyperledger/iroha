@@ -231,7 +231,7 @@ Follow these commit guidelines:
 
 <details> <summary> Expand to learn how to change the log level or write logs to a JSON.</summary>
 
-If one of your tests is failing, you may want to decrease the maximum logging level. By default, Iroha only logs `INFO` level messages, but retains the ability to produce both `DEBUG` and `TRACE` level logs. This setting can be changed either using the `MAX_LOG_LEVEL` environment variable for code-based tests, or using the `/configuration` endpoint on one of the peers in a deployed network.
+If one of your tests is failing, you may want to decrease the maximum logging level. By default, Iroha only logs `INFO` level messages, but retains the ability to produce both `DEBUG` and `TRACE` level logs. This setting can be changed either using the `LOG_LEVEL` environment variable for code-based tests, or using the `/configuration` endpoint on one of the peers in a deployed network.
 
 While logs printed in the `stdout` are sufficient, you may find it more convenient to produce `json`-formatted logs into a separate file and parse them using either [node-bunyan](https://www.npmjs.com/package/bunyan) or [rust-bunyan](https://crates.io/crates/bunyan).
 
@@ -251,8 +251,8 @@ In this case you should compile iroha with support of tokio console like that:
 RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
 ```
 
-Port for tokio console can by configured through `TOKIO_CONSOLE_ADDR` configuration parameter (or environment variable).
-Using tokio console require log level to be `TRACE`, can be enabled through configuration parameter or environment variable `MAX_LOG_LEVEL`.
+Port for tokio console can by configured through `LOG_TOKIO_CONSOLE_ADDR` configuration parameter (or environment variable).
+Using tokio console require log level to be `TRACE`, can be enabled through configuration parameter or environment variable `LOG_LEVEL`.
 
 Example of running iroha with tokio console support using `scripts/test_env.sh`:
 
@@ -260,7 +260,7 @@ Example of running iroha with tokio console support using `scripts/test_env.sh`:
 # 1. Compile iroha
 RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
 # 2. Run iroha with TRACE log level
-MAX_LOG_LEVEL=TRACE ./scripts/test_env.sh setup
+LOG_LEVEL=TRACE ./scripts/test_env.sh setup
 # 3. Access iroha. Peers will be available on ports 5555, 5556, ...
 tokio-console http://127.0.0.1:5555
 ```

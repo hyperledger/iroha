@@ -10,7 +10,9 @@ use std::{
 };
 
 use futures::{stream::FuturesUnordered, StreamExt};
+use iroha_config::torii::Configuration as ToriiConfiguration;
 use iroha_core::{
+    kiso::{Error as KisoError, KisoHandle},
     kura::Kura,
     prelude::*,
     query::store::LiveQueryStoreHandle,
@@ -18,6 +20,7 @@ use iroha_core::{
     sumeragi::SumeragiHandle,
     EventsSender,
 };
+use iroha_primitives::addr::SocketAddr;
 use tokio::sync::Notify;
 use utils::*;
 use warp::{
@@ -33,13 +36,15 @@ mod routing;
 
 /// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii {
-    iroha_cfg: super::Configuration,
+    kiso: KisoHandle,
     queue: Arc<Queue>,
     events: EventsSender,
     notify_shutdown: Arc<Notify>,
     sumeragi: SumeragiHandle,
     query_service: LiveQueryStoreHandle,
     kura: Arc<Kura>,
+    instructions_max_content_length: u64,
+    address: SocketAddr,
 }
 
 /// Torii errors.
@@ -53,13 +58,13 @@ pub enum Error {
     Config(#[source] eyre::Report),
     /// Failed to push into queue
     PushIntoQueue(#[from] Box<queue::Error>),
-    /// Attempt to change configuration failed
-    ConfigurationReload(#[from] iroha_config::base::runtime_upgrades::ReloadError),
     #[cfg(feature = "telemetry")]
     /// Error while getting Prometheus metrics
     Prometheus(#[source] eyre::Report),
     /// Internal error while getting status
     StatusFailure(#[source] eyre::Report),
+    /// Failure caused by configuration subsystem
+    ConfigurationFailure(#[from] KisoError),
     /// Cannot find status segment by provided path
     StatusSegmentNotFound(#[source] eyre::Report),
 }
@@ -82,7 +87,7 @@ impl Error {
 
         match self {
             Query(e) => Self::query_status_code(e),
-            AcceptTransaction(_) | ConfigurationReload(_) => StatusCode::BAD_REQUEST,
+            AcceptTransaction(_) => StatusCode::BAD_REQUEST,
             Config(_) | StatusSegmentNotFound(_) => StatusCode::NOT_FOUND,
             PushIntoQueue(err) => match **err {
                 queue::Error::Full => StatusCode::INTERNAL_SERVER_ERROR,
@@ -90,7 +95,9 @@ impl Error {
                 _ => StatusCode::BAD_REQUEST,
             },
             #[cfg(feature = "telemetry")]
-            Prometheus(_) | StatusFailure(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Prometheus(_) | StatusFailure(_) | ConfigurationFailure(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 

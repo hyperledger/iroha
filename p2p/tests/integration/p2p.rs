@@ -10,7 +10,7 @@ use std::{
 use futures::{prelude::*, stream::FuturesUnordered, task::AtomicWaker};
 use iroha_config_base::proxy::Builder;
 use iroha_crypto::KeyPair;
-use iroha_data_model::{prelude::PeerId, Level};
+use iroha_data_model::prelude::PeerId;
 use iroha_logger::{prelude::*, Configuration, ConfigurationProxy};
 use iroha_p2p::{network::message::*, NetworkHandle};
 use iroha_primitives::addr::socket_addr;
@@ -23,18 +23,18 @@ use tokio::{
 #[derive(Clone, Debug, Decode, Encode)]
 struct TestMessage(String);
 
-static INIT: Once = Once::new();
-
 fn setup_logger() {
+    static INIT: Once = Once::new();
+
     INIT.call_once(|| {
-        let log_config = Configuration {
-            max_log_level: Level::TRACE.into(),
-            compact_mode: false,
+        let config = Configuration {
+            level: iroha_logger::Level::TRACE,
+            format: iroha_logger::Format::Pretty,
             ..ConfigurationProxy::default()
                 .build()
                 .expect("Default logger config failed to build. This is a programmer error")
         };
-        iroha_logger::init(&log_config).expect("Failed to start logger");
+        iroha_logger::init_global(&config, true).unwrap();
     })
 }
 
@@ -230,17 +230,7 @@ async fn two_networks() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn multiple_networks() {
-    let log_config = Configuration {
-        max_log_level: Level::TRACE.into(),
-        compact_mode: false,
-        ..ConfigurationProxy::default()
-            .build()
-            .expect("Default logger config should always build")
-    };
-    // Can't use logger because it's failed to initialize.
-    if let Err(err) = iroha_logger::init(&log_config) {
-        eprintln!("Failed to initialize logger: {err}");
-    }
+    setup_logger();
     info!("Starting...");
 
     let mut peers = Vec::new();

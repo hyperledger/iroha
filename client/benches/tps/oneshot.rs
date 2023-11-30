@@ -20,7 +20,7 @@ fn main() {
         flush_guard = Some(flame_layer.flush_on_drop());
 
         tracing_subscriber::registry().with(flame_layer).init();
-        iroha_logger::disable_logger();
+        iroha_logger::disable_global().expect("Logger wasn't set yet");
     }
 
     let config = utils::Config::from_path("benches/tps/config.json").expect("Failed to configure");

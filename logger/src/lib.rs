@@ -1,159 +1,139 @@
 //! Iroha's logging utilities.
+pub mod actor;
 pub mod layer;
 pub mod telemetry;
 
 use std::{
     fmt::Debug,
-    fs::OpenOptions,
-    path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        OnceLock,
     },
 };
 
-use color_eyre::{eyre::WrapErr, Report, Result};
-use iroha_config::logger::into_tracing_level;
-pub use iroha_config::logger::{Configuration, ConfigurationProxy};
-pub use telemetry::{Telemetry, TelemetryFields, TelemetryLayer};
-use tokio::sync::mpsc::Receiver;
+use actor::LoggerHandle;
+use color_eyre::{eyre::eyre, Report, Result};
+pub use iroha_config::logger::{Configuration, ConfigurationProxy, Format, Level};
+use iroha_config::{base::proxy::Builder, logger::into_tracing_level};
+use tracing::subscriber::set_global_default;
 pub use tracing::{
     debug, debug_span, error, error_span, info, info_span, instrument as log, trace, trace_span,
     warn, warn_span, Instrument,
 };
-use tracing::{subscriber::set_global_default, Subscriber};
-use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 pub use tracing_futures::Instrument as InstrumentFutures;
+pub use tracing_subscriber::reload::Error as ReloadError;
 use tracing_subscriber::{layer::SubscriberExt, registry::Registry, reload};
 
-/// Substrate telemetry
-pub type SubstrateTelemetry = Receiver<Telemetry>;
-
-/// Future telemetry
-pub type FutureTelemetry = Receiver<Telemetry>;
-
-/// Convenience wrapper for Telemetry types.
-pub type Telemetries = (SubstrateTelemetry, FutureTelemetry);
+const TELEMETRY_CAPACITY: usize = 1000;
 
 static LOGGER_SET: AtomicBool = AtomicBool::new(false);
 
-/// Initializes `Logger` with given [`Configuration`].
-/// After the initialization `log` macros will print with the use of this `Logger`.
-/// Returns the receiving side of telemetry channels (regular telemetry, future telemetry)
-///
-/// # Errors
-/// If the logger is already set, raises a generic error.
-pub fn init(configuration: &Configuration) -> Result<Option<Telemetries>> {
+fn try_set_logger() -> Result<()> {
     if LOGGER_SET
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        return Ok(None);
+        return Err(eyre!("Logger is already set."));
     }
-    Ok(Some(setup_logger(configuration)?))
+    Ok(())
 }
 
-/// Disables the logger by setting `LOGGER_SET` to true. Will fail
-/// if the logger has already been initialized. This function is
-/// required in order to generate flamegraphs and flamecharts.
+/// Initializes the logger globally with given [`Configuration`].
 ///
-/// Returns true on success.
-pub fn disable_logger() -> bool {
-    LOGGER_SET
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_ok()
-}
+/// Returns [`LoggerHandle`] to interact with the logger instance
+///
+/// Works only once per process, all subsequent invocations will fail.
+///
+/// For usage in tests consider [`test_logger`].
+///
+/// # Errors
+/// If the logger is already set, raises a generic error.
+// TODO: refactor configuration in a way that `terminal_colors` is part of it
+//       https://github.com/hyperledger/iroha/issues/3500
+pub fn init_global(configuration: &Configuration, terminal_colors: bool) -> Result<LoggerHandle> {
+    try_set_logger()?;
 
-fn setup_logger(configuration: &Configuration) -> Result<Telemetries> {
     let layer = tracing_subscriber::fmt::layer()
-        .with_ansi(configuration.terminal_colors)
+        .with_ansi(terminal_colors)
         .with_test_writer();
 
-    if configuration.compact_mode {
-        add_bunyan(configuration, layer.compact())
-    } else {
-        add_bunyan(configuration, layer)
+    match configuration.format {
+        Format::Full => step2(configuration, layer),
+        Format::Compact => step2(configuration, layer.compact()),
+        Format::Pretty => step2(configuration, layer.pretty()),
+        Format::Json => step2(configuration, layer.json()),
     }
 }
 
-fn bunyan_writer_create(destination: PathBuf) -> Result<Arc<std::fs::File>> {
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(destination)
-        .wrap_err("Failed to create or open bunyan logs file")
-        .map(Arc::new)
+/// Returns once lazily initialised global logger for testing purposes.
+///
+/// # Panics
+/// If [`init_global`] or [`disable_global`] were called first.
+#[allow(clippy::needless_update)] // complications with `tokio-console` feature
+pub fn test_logger() -> LoggerHandle {
+    static LOGGER: OnceLock<LoggerHandle> = OnceLock::new();
+
+    LOGGER
+        .get_or_init(|| {
+            // NOTE: if this config should be changed for some specific tests, consider
+            // isolating those tests into a separate process and controlling default logger config
+            // with ENV vars rather than by extending `test_logger` signature. This will both remain
+            // `test_logger` simple and also will emphasise isolation which is necessary anyway in
+            // case of singleton mocking (where the logger is the singleton).
+            let config = Configuration {
+                level: Level::DEBUG,
+                format: Format::Pretty,
+                ..ConfigurationProxy::default().build().unwrap()
+            };
+
+            init_global(&config, true).expect(
+                "`init_global()` or `disable_global()` should not be called before `test_logger()`",
+            )
+        })
+        .clone()
 }
 
-fn add_bunyan<L>(configuration: &Configuration, layer: L) -> Result<Telemetries>
+/// Disables the logger globally, so that subsequent calls to [`init_global`] will fail.
+///
+/// Disabling logger is required in order to generate flamegraphs and flamecharts.
+///
+/// # Errors
+/// If global logger was already initialised/disabled.
+pub fn disable_global() -> Result<()> {
+    try_set_logger()
+}
+
+fn step2<L>(configuration: &Configuration, layer: L) -> Result<LoggerHandle>
 where
     L: tracing_subscriber::Layer<Registry> + Debug + Send + Sync + 'static,
 {
-    let level: tracing::Level = into_tracing_level(configuration.max_log_level.value());
+    let level: tracing::Level = into_tracing_level(configuration.level);
     let level_filter = tracing_subscriber::filter::LevelFilter::from_level(level);
-    let (filter, handle) = reload::Layer::new(level_filter);
-    configuration
-        .max_log_level
-        .set_handle(iroha_config::logger::ReloadHandle(handle));
-    let (bunyan_layer, storage_layer) = match configuration.log_file_path.clone() {
-        Some(path) => (
-            Some(BunyanFormattingLayer::new(
-                "bunyan_layer".into(),
-                bunyan_writer_create(path)?,
-            )),
-            Some(JsonStorageLayer),
-        ),
-        None => (None, None),
-    };
+    let (level_filter, level_filter_handle) = reload::Layer::new(level_filter);
     let subscriber = Registry::default()
         .with(layer)
-        .with(filter)
-        .with(storage_layer)
-        .with(tracing_error::ErrorLayer::default())
-        .with(bunyan_layer);
+        .with(level_filter)
+        .with(tracing_error::ErrorLayer::default());
 
-    add_tokio_console_subscriber(configuration, subscriber)
-}
-
-fn add_tokio_console_subscriber<
-    S: Subscriber + Send + Sync + 'static + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
->(
-    configuration: &Configuration,
-    subscriber: S,
-) -> Result<Telemetries> {
     #[cfg(all(feature = "tokio-console", not(feature = "no-tokio-console")))]
-    {
+    let subscriber = {
         let console_subscriber = console_subscriber::ConsoleLayer::builder()
             .server_addr(
                 configuration
                     .tokio_console_addr
-                    .parse::<std::net::SocketAddr>()
+                    .into()
                     .expect("Invalid address for tokio console"),
             )
             .spawn();
 
-        add_telemetry_and_set_default(configuration, subscriber.with(console_subscriber))
-    }
-    #[cfg(any(not(feature = "tokio-console"), feature = "no-tokio-console"))]
-    {
-        add_telemetry_and_set_default(configuration, subscriber)
-    }
-}
-
-fn add_telemetry_and_set_default<S: Subscriber + Send + Sync + 'static>(
-    configuration: &Configuration,
-    subscriber: S,
-) -> Result<Telemetries> {
-    // static global_subscriber: dyn Subscriber = once_cell::new;
-    let (subscriber, receiver, receiver_future) = TelemetryLayer::from_capacity(
-        subscriber,
-        configuration
-            .telemetry_capacity
-            .try_into()
-            .expect("u32 should always fit in usize"),
-    );
+        subscriber.with(console_subscriber)
+    };
+    let (subscriber, receiver) = telemetry::Layer::new::<TELEMETRY_CAPACITY>(subscriber);
     set_global_default(subscriber)?;
-    Ok((receiver, receiver_future))
+
+    let handle = LoggerHandle::new(level_filter_handle, receiver);
+
+    Ok(handle)
 }
 
 /// Macro for sending telemetry info

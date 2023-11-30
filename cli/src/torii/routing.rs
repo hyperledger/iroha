@@ -7,7 +7,7 @@
 
 use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
-use iroha_config::{client_api::ConfigurationDTO, iroha::Configuration, torii::uri};
+use iroha_config::{client_api::ConfigurationDTO, torii::uri};
 use iroha_core::{
     query::{pagination::Paginate, store::LiveQueryStoreHandle},
     smartcontracts::query::ValidQueryRequest,
@@ -164,17 +164,17 @@ async fn handle_pending_transactions(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_get_configuration(iroha_cfg: Configuration) -> Result<Json> {
-    let subset = ConfigurationDTO::from(&iroha_cfg);
-    Ok(reply::json(&subset))
+async fn handle_get_configuration(kiso: KisoHandle) -> Result<Json> {
+    let dto = kiso.get_dto().await?;
+    Ok(reply::json(&dto))
 }
 
 #[iroha_futures::telemetry_future]
 async fn handle_post_configuration(
-    iroha_cfg: Configuration,
+    kiso: KisoHandle,
     value: ConfigurationDTO,
 ) -> Result<impl Reply> {
-    value.update_base(&iroha_cfg)?;
+    kiso.update_with_dto(value).await?;
     Ok(reply::reply())
 }
 
@@ -374,8 +374,9 @@ fn handle_status(
 impl Torii {
     /// Construct `Torii`.
     #[allow(clippy::too_many_arguments)]
-    pub fn from_configuration(
-        iroha_cfg: Configuration,
+    pub fn new(
+        kiso: KisoHandle,
+        config: &ToriiConfiguration,
         queue: Arc<Queue>,
         events: EventsSender,
         notify_shutdown: Arc<Notify>,
@@ -384,13 +385,15 @@ impl Torii {
         kura: Arc<Kura>,
     ) -> Self {
         Self {
-            iroha_cfg,
+            kiso,
             queue,
             events,
             notify_shutdown,
             sumeragi,
             query_service,
             kura,
+            address: config.api_url.clone(),
+            instructions_max_content_length: config.max_content_len.into(),
         }
     }
 
@@ -409,9 +412,9 @@ impl Torii {
                     .and(paginate()),
             )
             .or(warp::path(uri::CONFIGURATION)
-                .and(add_state!(self.iroha_cfg))
-                .and_then(|iroha_cfg| async move {
-                    Ok::<_, Infallible>(WarpResult(handle_get_configuration(iroha_cfg).await))
+                .and(add_state!(self.kiso))
+                .and_then(|kiso| async move {
+                    Ok::<_, Infallible>(WarpResult(handle_get_configuration(kiso).await))
                 })),
         );
 
@@ -448,7 +451,7 @@ impl Torii {
                     warp::path(uri::TRANSACTION)
                         .and(add_state!(self.queue, self.sumeragi))
                         .and(warp::body::content_length_limit(
-                            self.iroha_cfg.torii.max_content_len.into(),
+                            self.instructions_max_content_length,
                         ))
                         .and(body::versioned()),
                 )
@@ -461,7 +464,7 @@ impl Torii {
                 .or(endpoint2(
                     handle_post_configuration,
                     warp::path(uri::CONFIGURATION)
-                        .and(add_state!(self.iroha_cfg))
+                        .and(add_state!(self.kiso))
                         .and(warp::body::json()),
                 )),
             )
@@ -519,10 +522,10 @@ impl Torii {
     /// # Errors
     /// Can fail due to listening to network or if http server fails
     fn start_api(self: Arc<Self>) -> eyre::Result<Vec<tokio::task::JoinHandle<()>>> {
-        let api_url = &self.iroha_cfg.torii.api_url;
+        let torii_address = &self.address;
 
         let mut handles = vec![];
-        match api_url.to_socket_addrs() {
+        match torii_address.to_socket_addrs() {
             Ok(addrs) => {
                 for addr in addrs {
                     let torii = Arc::clone(&self);
@@ -538,7 +541,7 @@ impl Torii {
                 Ok(handles)
             }
             Err(error) => {
-                iroha_logger::error!(%api_url, %error, "API address configuration parse error");
+                iroha_logger::error!(%torii_address, %error, "API address configuration parse error");
                 Err(eyre::Error::new(error))
             }
         }

@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 
-use iroha_config::kura::Mode;
+use iroha_config::kura::{Configuration, Mode};
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::block::SignedBlock;
 use iroha_logger::prelude::*;
@@ -51,21 +51,23 @@ impl Kura {
     /// to access the block store indicated by the provided
     /// path.
     pub fn new(
-        mode: Mode,
-        block_store_path: &Path,
-        debug_output_new_blocks: bool,
+        config: &Configuration,
+        // mode: Mode,
+        // block_store_path: &Path,
+        // debug_output_new_blocks: bool,
     ) -> Result<Arc<Self>> {
+        let block_store_path = Path::new(&config.block_store_path);
         let mut block_store = BlockStore::new(block_store_path, LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist()?;
 
-        let block_plain_text_path = debug_output_new_blocks.then(|| {
+        let block_plain_text_path = config.debug_output_new_blocks.then(|| {
             let mut path_buf = block_store_path.to_path_buf();
             path_buf.push("blocks.json");
             path_buf
         });
 
         let kura = Arc::new(Self {
-            mode,
+            mode: config.init_mode,
             block_store: Mutex::new(block_store),
             block_data: Mutex::new(Vec::new()),
             block_plain_text_path,
@@ -1054,9 +1056,13 @@ mod tests {
     #[tokio::test]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().unwrap();
-        Kura::new(Mode::Strict, temp_dir.path(), false)
-            .unwrap()
-            .init()
-            .unwrap();
+        Kura::new(&Configuration {
+            init_mode: Mode::Strict,
+            block_store_path: temp_dir.into_path(),
+            debug_output_new_blocks: false,
+        })
+        .unwrap()
+        .init()
+        .unwrap();
     }
 }

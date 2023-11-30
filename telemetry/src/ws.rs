@@ -4,13 +4,13 @@ use std::time::Duration;
 use chrono::Local;
 use eyre::{eyre, Result};
 use futures::{stream::SplitSink, Sink, SinkExt, StreamExt};
-use iroha_logger::Telemetry;
+use iroha_logger::telemetry::Event as Telemetry;
 use serde_json::Map;
 use tokio::{
     net::TcpStream,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{broadcast, mpsc},
 };
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
 use tokio_tungstenite::{
     tungstenite::{Error, Message},
     MaybeTlsStream, WebSocketStream,
@@ -21,15 +21,20 @@ use crate::retry_period::RetryPeriod;
 
 type WebSocketSplitSink = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 
+const INTERNAL_CHANNEL_CAPACITY: usize = 10;
+
 /// Starts telemetry sending data to a server
 /// # Errors
 /// Fails if unable to connect to the server
-pub async fn start(config: &crate::Configuration, telemetry: Receiver<Telemetry>) -> Result<bool> {
+pub async fn start(
+    config: &crate::Configuration,
+    telemetry: broadcast::Receiver<Telemetry>,
+) -> Result<bool> {
     if let (Some(name), Some(url)) = (&config.name, &config.url) {
         iroha_logger::info!(%url, "Starting telemetry");
         let (ws, _) = tokio_tungstenite::connect_async(url).await?;
         let (write, _read) = ws.split();
-        let (internal_sender, internal_receiver) = mpsc::channel(10);
+        let (internal_sender, internal_receiver) = mpsc::channel(INTERNAL_CHANNEL_CAPACITY);
         let client = Client::new(
             name.clone(),
             write,
@@ -50,7 +55,7 @@ struct Client<S, F> {
     name: String,
     sink_factory: F,
     retry_period: RetryPeriod,
-    internal_sender: Sender<InternalMessage>,
+    internal_sender: mpsc::Sender<InternalMessage>,
     sink: Option<S>,
     init_msg: Option<Message>,
 }
@@ -65,7 +70,7 @@ where
         sink: S,
         sink_factory: F,
         retry_period: RetryPeriod,
-        internal_sender: Sender<InternalMessage>,
+        internal_sender: mpsc::Sender<InternalMessage>,
     ) -> Self {
         Self {
             name,
@@ -79,15 +84,15 @@ where
 
     pub async fn run(
         mut self,
-        receiver: Receiver<Telemetry>,
-        internal_receiver: Receiver<InternalMessage>,
+        receiver: broadcast::Receiver<Telemetry>,
+        internal_receiver: mpsc::Receiver<InternalMessage>,
     ) {
-        let mut stream = ReceiverStream::new(receiver).fuse();
+        let mut stream = BroadcastStream::new(receiver).fuse();
         let mut internal_stream = ReceiverStream::new(internal_receiver).fuse();
         loop {
             tokio::select! {
                 msg = stream.next() => {
-                    if let Some(msg) = msg {
+                    if let Some(Ok(msg)) = msg {
                         self.on_telemetry(msg).await;
                     } else {
                         break;
@@ -272,8 +277,7 @@ mod tests {
 
     use eyre::{eyre, Result};
     use futures::{Sink, StreamExt};
-    use iroha_config::base::proxy::Builder;
-    use iroha_logger::telemetry::{Telemetry, TelemetryFields};
+    use iroha_logger::telemetry::{Event, Fields};
     use serde_json::{Map, Value};
     use tokio::task::JoinHandle;
     use tokio_tungstenite::tungstenite::{Error, Message};
@@ -356,13 +360,13 @@ mod tests {
     struct Suite {
         fail_send: Arc<AtomicBool>,
         fail_factory_create: Arc<AtomicBool>,
-        telemetry_sender: tokio::sync::mpsc::Sender<Telemetry>,
+        telemetry_sender: tokio::sync::broadcast::Sender<Event>,
         message_receiver: futures::channel::mpsc::Receiver<Message>,
     }
 
     impl Suite {
         pub fn new() -> (Self, JoinHandle<()>) {
-            let (telemetry_sender, telemetry_receiver) = tokio::sync::mpsc::channel(100);
+            let (telemetry_sender, telemetry_receiver) = tokio::sync::broadcast::channel(100);
             let (message_sender, message_receiver) = futures::channel::mpsc::channel(100);
             let fail_send = Arc::new(AtomicBool::new(false));
             let message_sender = {
@@ -402,10 +406,10 @@ mod tests {
         }
     }
 
-    fn system_connected_telemetry() -> Telemetry {
-        Telemetry {
+    fn system_connected_telemetry() -> Event {
+        Event {
             target: "telemetry::test",
-            fields: TelemetryFields(vec![
+            fields: Fields(vec![
                 ("msg", Value::String("system.connected".to_owned())),
                 (
                     "genesis_hash",
@@ -415,10 +419,10 @@ mod tests {
         }
     }
 
-    fn system_interval_telemetry(peers: u64) -> Telemetry {
-        Telemetry {
+    fn system_interval_telemetry(peers: u64) -> Event {
+        Event {
             target: "telemetry::test",
-            fields: TelemetryFields(vec![
+            fields: Fields(vec![
                 ("msg", Value::String("system.interval".to_owned())),
                 ("peers", Value::Number(peers.into())),
             ]),
@@ -433,10 +437,7 @@ mod tests {
         } = suite;
 
         // The first message is `initialization`
-        telemetry_sender
-            .send(system_connected_telemetry())
-            .await
-            .unwrap();
+        telemetry_sender.send(system_connected_telemetry()).unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
         {
             let msg = message_receiver.next().await.unwrap();
@@ -467,10 +468,7 @@ mod tests {
         }
 
         // The second message is `update`
-        telemetry_sender
-            .send(system_interval_telemetry(2))
-            .await
-            .unwrap();
+        telemetry_sender.send(system_interval_telemetry(2)).unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
         {
             let msg = message_receiver.next().await.unwrap();
@@ -500,19 +498,13 @@ mod tests {
 
         // Fail sending the first message
         fail_send.store(true, Ordering::SeqCst);
-        telemetry_sender
-            .send(system_connected_telemetry())
-            .await
-            .unwrap();
+        telemetry_sender.send(system_connected_telemetry()).unwrap();
         message_receiver.try_next().unwrap_err();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // The second message is not sent because the sink is reset
         fail_send.store(false, Ordering::SeqCst);
-        telemetry_sender
-            .send(system_interval_telemetry(1))
-            .await
-            .unwrap();
+        telemetry_sender.send(system_interval_telemetry(1)).unwrap();
         message_receiver.try_next().unwrap_err();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -521,10 +513,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         // The third message is not sent because the sink is not created yet
-        telemetry_sender
-            .send(system_interval_telemetry(1))
-            .await
-            .unwrap();
+        telemetry_sender.send(system_interval_telemetry(1)).unwrap();
         message_receiver.try_next().unwrap_err();
     }
 
@@ -538,19 +527,13 @@ mod tests {
 
         // Fail sending the first message
         fail_send.store(true, Ordering::SeqCst);
-        telemetry_sender
-            .send(system_connected_telemetry())
-            .await
-            .unwrap();
+        telemetry_sender.send(system_connected_telemetry()).unwrap();
         message_receiver.try_next().unwrap_err();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // The second message is not sent because the sink is reset
         fail_send.store(false, Ordering::SeqCst);
-        telemetry_sender
-            .send(system_interval_telemetry(1))
-            .await
-            .unwrap();
+        telemetry_sender.send(system_interval_telemetry(1)).unwrap();
         message_receiver.try_next().unwrap_err();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -569,12 +552,8 @@ mod tests {
         ($ident:ident, $future:ident) => {
             #[tokio::test]
             async fn $ident() {
-                iroha_logger::init(
-                    &iroha_logger::ConfigurationProxy::default()
-                        .build()
-                        .expect("Default logger config should always build"),
-                )
-                .unwrap();
+                // FIXME: needed?
+                iroha_logger::test_logger();
                 let (suite, run_handle) = Suite::new();
                 $future(suite).await;
                 run_handle.await.unwrap();

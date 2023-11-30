@@ -8,7 +8,6 @@ use iroha_client::{
     client::{asset, Client},
     data_model::prelude::*,
 };
-use iroha_config::base::runtime_upgrades::Reload;
 use iroha_crypto::KeyPair;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
@@ -40,15 +39,16 @@ fn query_requests(criterion: &mut Criterion) {
     .expect("genesis creation failed");
 
     let builder = PeerBuilder::new()
-        .with_configuration(configuration.clone())
+        .with_configuration(configuration)
         .with_into_genesis(genesis);
 
     rt.block_on(builder.start_with_peer(&mut peer));
-    configuration
-        .logger
-        .max_log_level
-        .reload(iroha_client::data_model::Level::ERROR)
-        .expect("Should not fail");
+    rt.block_on(async {
+        iroha_logger::test_logger()
+            .reload_level(iroha_client::data_model::Level::ERROR)
+            .await
+            .unwrap()
+    });
     let mut group = criterion.benchmark_group("query-requests");
     let domain_id: DomainId = "domain".parse().expect("Valid");
     let create_domain = RegisterExpr::new(Domain::new(domain_id.clone()));

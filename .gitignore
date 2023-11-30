@@ -49,3 +49,6 @@ result
 /test/
 /iroha-java/
 /lcov.info
+
+/rust-toolchain.toml
+.cargo/config.toml

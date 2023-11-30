@@ -2,7 +2,7 @@
 use std::env;
 
 use color_eyre::eyre::WrapErr as _;
-use iroha::style::Styling;
+use iroha::{style::Styling, TerminalColorsArg};
 use iroha_config::path::Path as ConfigPath;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use owo_colors::OwoColorize as _;
@@ -10,6 +10,8 @@ use owo_colors::OwoColorize as _;
 const HELP_ARG: [&str; 2] = ["--help", "-h"];
 const SUBMIT_ARG: [&str; 2] = ["--submit-genesis", "-s"];
 const VERSION_ARG: [&str; 2] = ["--version", "-V"];
+const TERMINAL_COLORS_ARG: &str = "--terminal-colors";
+const NO_TERMINAL_COLORS_ARG: &str = "--no-terminal-colors";
 
 const REQUIRED_ENV_VARS: [(&str, &str); 7] = [
     ("IROHA_TORII", "Torii (gateway) endpoint configuration"),
@@ -42,11 +44,29 @@ const REQUIRED_ENV_VARS: [(&str, &str); 7] = [
 /// - Telemetry setup
 /// - [`Sumeragi`] init
 async fn main() -> Result<(), color_eyre::Report> {
-    let styling = Styling::new();
-    if !iroha::style::should_disable_color() {
+    let mut args = iroha::Arguments::default();
+
+    let terminal_colors = env::var("TERMINAL_COLORS")
+        .ok()
+        .map(|s| !s.as_str().parse().unwrap_or(true))
+        .or_else(|| {
+            if env::args().any(|a| a == TERMINAL_COLORS_ARG) {
+                Some(true)
+            } else if env::args().any(|a| a == NO_TERMINAL_COLORS_ARG) {
+                Some(false)
+            } else {
+                None
+            }
+        })
+        .map_or(TerminalColorsArg::Default, TerminalColorsArg::UserSet)
+        .evaluate();
+
+    if terminal_colors {
         color_eyre::install()?;
     }
-    let mut args = iroha::Arguments::default();
+
+    let styling = Styling::new(terminal_colors);
+
     if env::args().any(|a| HELP_ARG.contains(&a.as_str())) {
         print_help(&styling)?;
         return Ok(());
@@ -109,7 +129,7 @@ async fn main() -> Result<(), color_eyre::Report> {
     }
 
     let config = iroha::combine_configs(&args)?;
-    let telemetry = iroha_logger::init(&config.logger)?;
+    let telemetry = iroha_logger::init_global(&config.logger, terminal_colors)?;
     if !config.disable_panic_terminal_colors {
         // FIXME: it shouldn't be logged here; it is a part of configuration domain
         //        this message can be very simply broken by the changes in the configuration
