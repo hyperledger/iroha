@@ -98,8 +98,6 @@ body:
          - Quality Assurance (`@astrokov7`)
          - WASM: Marin Veršić (`@mversic`)
          - Triggers: Daniil Polyakov (`@Arjentix`)
-         - Theoretical questions: Shunkichi Sato (`@s8sato`)
-         - Other topics: Aleksandr Petrosyan (`@appetrosyan`)
       placeholder: "@Username ..."
   - type: textarea
     id: notes
