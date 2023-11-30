@@ -20,13 +20,13 @@ impl LoggerHandle {
         telemetry_receiver: mpsc::Receiver<telemetry::ChannelEvent>,
     ) -> Self {
         let (tx, rx) = mpsc::channel(32);
-        let (substrate_forward, _) = broadcast::channel(32);
+        let (regular, _) = broadcast::channel(32);
         let (future_forward, _) = broadcast::channel(32);
         let mut actor = LoggerActor {
             message_receiver: rx,
             level_handle: handle,
             telemetry_receiver,
-            telemetry_forwarder_substrate: substrate_forward,
+            telemetry_forwarder_regular: regular,
             telemetry_forwarder_future: future_forward,
         };
         tokio::spawn(async move { actor.run().await });
@@ -96,7 +96,7 @@ pub enum Error {
 struct LoggerActor<S: Subscriber> {
     message_receiver: mpsc::Receiver<Message>,
     telemetry_receiver: mpsc::Receiver<telemetry::ChannelEvent>,
-    telemetry_forwarder_substrate: broadcast::Sender<telemetry::Event>,
+    telemetry_forwarder_regular: broadcast::Sender<telemetry::Event>,
     telemetry_forwarder_future: broadcast::Sender<telemetry::Event>,
     level_handle: reload::Handle<tracing_subscriber::filter::LevelFilter, S>,
 }
@@ -110,7 +110,7 @@ impl<S: Subscriber> LoggerActor<S> {
                 },
                 Some(telemetry::ChannelEvent(channel, event)) = self.telemetry_receiver.recv() => {
                     let forward_to = match channel {
-                        telemetry::Channel::Regular => &self.telemetry_forwarder_substrate,
+                        telemetry::Channel::Regular => &self.telemetry_forwarder_regular,
                         telemetry::Channel::Future => &self.telemetry_forwarder_future,
                     };
 
@@ -135,7 +135,7 @@ impl<S: Subscriber> LoggerActor<S> {
                 respond_to,
             } => {
                 let receiver = match kind {
-                    telemetry::Channel::Regular => self.telemetry_forwarder_substrate.subscribe(),
+                    telemetry::Channel::Regular => self.telemetry_forwarder_regular.subscribe(),
                     telemetry::Channel::Future => self.telemetry_forwarder_future.subscribe(),
                 };
                 let _ = respond_to.send(receiver);
