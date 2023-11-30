@@ -24,6 +24,5 @@ fn main() -> Result<()> {
 
 fn check_all_smartcontracts() -> Result<()> {
     iroha_wasm_builder::Builder::new(TEST_SMARTCONTRACTS_DIR)
-        .format()
         .check()
 }

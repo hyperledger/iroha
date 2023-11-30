@@ -30,6 +30,5 @@ fn extract_git_hash() -> Result<()> {
 /// Apply `cargo check` to the smartcontract.
 fn check_default_executor() -> Result<()> {
     iroha_wasm_builder::Builder::new(DEFAULT_EXECUTOR_PATH)
-        .format()
         .check()
 }
