@@ -559,12 +559,15 @@ impl WorldStateView {
                         continue;
                     }
                 }
+                let wsv = self.clone();
                 let event = match self.process_trigger(&id, &action, event) {
                     Ok(_) => {
                         succeed.push(id.clone());
                         TriggerCompletedEvent::new(id, TriggerCompletedOutcome::Success)
                     }
                     Err(error) => {
+                        // Revert to previous state on failure inside trigger
+                        *self = wsv;
                         let event = TriggerCompletedEvent::new(
                             id,
                             TriggerCompletedOutcome::Failure(error.to_string()),
