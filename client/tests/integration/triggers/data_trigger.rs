@@ -1,6 +1,5 @@
 use eyre::Result;
-use iroha_client::client;
-use iroha_data_model::prelude::*;
+use iroha_client::{client, data_model::prelude::*};
 use test_network::*;
 
 #[test]

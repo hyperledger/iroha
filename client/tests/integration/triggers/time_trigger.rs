@@ -1,9 +1,11 @@
 use std::{str::FromStr as _, time::Duration};
 
 use eyre::Result;
-use iroha_client::client::{self, Client, QueryResult};
+use iroha_client::{
+    client::{self, Client, QueryResult},
+    data_model::{prelude::*, transaction::WasmSmartContract},
+};
 use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
-use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
 use iroha_logger::info;
 use test_network::*;
 

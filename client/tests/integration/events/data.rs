@@ -1,7 +1,7 @@
 use std::{fmt::Write as _, str::FromStr, sync::mpsc, thread};
 
 use eyre::Result;
-use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
+use iroha_client::data_model::{prelude::*, transaction::WasmSmartContract};
 use parity_scale_codec::Encode as _;
 use serde_json::json;
 use test_network::*;
@@ -171,7 +171,7 @@ fn produce_multiple_events() -> Result<()> {
         "CanSetKeyValueInUserAccount".parse()?,
         &json!({ "account_id": alice_id }),
     );
-    let role = iroha_data_model::role::Role::new(role_id.clone())
+    let role = iroha_client::data_model::role::Role::new(role_id.clone())
         .add_permission(token_1.clone())
         .add_permission(token_2.clone());
     let instructions = [RegisterExpr::new(role.clone())];

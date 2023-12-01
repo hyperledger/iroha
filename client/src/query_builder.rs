@@ -1,12 +1,13 @@
 use std::fmt::Debug;
 
-use iroha_data_model::{
-    predicate::PredicateBox,
-    query::{sorting::Sorting, FetchSize, Pagination, Query},
-    Value,
+use crate::{
+    client::{Client, QueryOutput, QueryResult},
+    data_model::{
+        predicate::PredicateBox,
+        query::{sorting::Sorting, FetchSize, Pagination, Query},
+        Value,
+    },
 };
-
-use crate::client::{Client, QueryOutput, QueryResult};
 
 pub struct QueryRequestBuilder<'a, R> {
     client: &'a Client,

@@ -15,15 +15,6 @@ use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
 use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
 use iroha_crypto::{HashOf, KeyPair};
-use iroha_data_model::{
-    block::SignedBlock,
-    isi::Instruction,
-    predicate::PredicateBox,
-    prelude::*,
-    query::{Pagination, Query, Sorting},
-    transaction::TransactionPayload,
-    BatchedResponse, ValidationFail,
-};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
@@ -34,6 +25,15 @@ use url::Url;
 
 use self::{blocks_api::AsyncBlockStream, events_api::AsyncEventStream};
 use crate::{
+    data_model::{
+        block::SignedBlock,
+        isi::Instruction,
+        predicate::PredicateBox,
+        prelude::*,
+        query::{Pagination, Query, Sorting},
+        transaction::TransactionPayload,
+        BatchedResponse, ValidationFail,
+    },
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
     query_builder::QueryRequestBuilder,
@@ -144,7 +144,7 @@ where
             .map_err(Into::into)
             .wrap_err("Unexpected type")?;
 
-        self.query_request.request = iroha_data_model::query::QueryRequest::Cursor(cursor);
+        self.query_request.request = crate::data_model::query::QueryRequest::Cursor(cursor);
         Ok(value)
     }
 }
@@ -263,7 +263,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.client_cursor >= self.iter.len() {
-            let iroha_data_model::query::QueryRequest::Cursor(cursor) =
+            let crate::data_model::query::QueryRequest::Cursor(cursor) =
                 &self.query_handler.query_request.request
             else {
                 return None;
@@ -323,18 +323,18 @@ macro_rules! impl_query_output {
 }
 impl_query_output! {
     bool,
-    iroha_data_model::Value,
-    iroha_data_model::numeric::NumericValue,
-    iroha_data_model::role::Role,
-    iroha_data_model::asset::Asset,
-    iroha_data_model::asset::AssetDefinition,
-    iroha_data_model::account::Account,
-    iroha_data_model::domain::Domain,
-    iroha_data_model::block::BlockHeader,
-    iroha_data_model::query::MetadataValue,
-    iroha_data_model::query::TransactionQueryOutput,
-    iroha_data_model::permission::PermissionTokenSchema,
-    iroha_data_model::trigger::Trigger<iroha_data_model::events::TriggeringFilterBox>,
+    crate::data_model::Value,
+    crate::data_model::numeric::NumericValue,
+    crate::data_model::role::Role,
+    crate::data_model::asset::Asset,
+    crate::data_model::asset::AssetDefinition,
+    crate::data_model::account::Account,
+    crate::data_model::domain::Domain,
+    crate::data_model::block::BlockHeader,
+    crate::data_model::query::MetadataValue,
+    crate::data_model::query::TransactionQueryOutput,
+    crate::data_model::permission::PermissionTokenSchema,
+    crate::data_model::trigger::Trigger<crate::data_model::events::TriggeringFilterBox>,
 }
 
 /// Iroha client
@@ -367,7 +367,7 @@ pub struct Client {
 pub struct QueryRequest {
     torii_url: Url,
     headers: HashMap<String, String>,
-    request: iroha_data_model::query::QueryRequest<Vec<u8>>,
+    request: crate::data_model::query::QueryRequest<Vec<u8>>,
 }
 
 impl QueryRequest {
@@ -378,8 +378,8 @@ impl QueryRequest {
         Self {
             torii_url: format!("http://{torii_url}").parse().unwrap(),
             headers: HashMap::new(),
-            request: iroha_data_model::query::QueryRequest::Query(
-                iroha_data_model::query::QueryWithParameters {
+            request: crate::data_model::query::QueryRequest::Query(
+                crate::data_model::query::QueryWithParameters {
                     query: Vec::default(),
                     sorting: Sorting::default(),
                     pagination: Pagination::default(),
@@ -397,12 +397,12 @@ impl QueryRequest {
         .headers(self.headers);
 
         match self.request {
-            iroha_data_model::query::QueryRequest::Query(query_with_params) => builder
+            crate::data_model::query::QueryRequest::Query(query_with_params) => builder
                 .params(query_with_params.sorting().clone().into_query_parameters())
                 .params(query_with_params.pagination().into_query_parameters())
                 .params(query_with_params.fetch_size().into_query_parameters())
                 .body(query_with_params.query().clone()),
-            iroha_data_model::query::QueryRequest::Cursor(cursor) => {
+            crate::data_model::query::QueryRequest::Cursor(cursor) => {
                 builder.params(Vec::from(cursor))
             }
         }
@@ -754,10 +754,10 @@ impl Client {
     /// ```ignore
     /// use eyre::Result;
     /// use iroha_client::{
+    ///     data_model::{predicate::PredicateBox, prelude::{Account, FindAllAccounts, Pagination}},
     ///     client::Client,
     ///     http::{RequestBuilder, Response, Method},
     /// };
-    /// use iroha_data_model::{predicate::PredicateBox, prelude::{Account, FindAllAccounts, Pagination}};
     ///
     /// struct YourAsyncRequest;
     ///
@@ -821,8 +821,8 @@ impl Client {
         let query_request = QueryRequest {
             torii_url: self.torii_url.clone(),
             headers: self.headers.clone(),
-            request: iroha_data_model::query::QueryRequest::Query(
-                iroha_data_model::query::QueryWithParameters::new(
+            request: crate::data_model::query::QueryRequest::Query(
+                crate::data_model::query::QueryWithParameters::new(
                     request, sorting, pagination, fetch_size,
                 ),
             ),
@@ -883,7 +883,7 @@ impl Client {
     #[cfg(debug_assertions)]
     pub fn request_with_cursor<O>(
         &self,
-        cursor: iroha_data_model::query::cursor::ForwardCursor,
+        cursor: crate::data_model::query::cursor::ForwardCursor,
     ) -> QueryResult<O::Target>
     where
         O: QueryOutput,
@@ -892,7 +892,7 @@ impl Client {
         let request = QueryRequest {
             torii_url: self.torii_url.clone(),
             headers: self.headers.clone(),
-            request: iroha_data_model::query::QueryRequest::Cursor(cursor),
+            request: crate::data_model::query::QueryRequest::Cursor(cursor),
         };
         let response = request.clone().assemble().build()?.send()?;
 
@@ -1386,7 +1386,7 @@ pub mod events_api {
         pub struct Events;
 
         impl FlowEvents for Events {
-            type Event = iroha_data_model::prelude::Event;
+            type Event = crate::data_model::prelude::Event;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 let event_socket_message = EventMessage::decode_all(&mut message.as_slice())?;
@@ -1413,9 +1413,8 @@ mod blocks_api {
     pub mod flow {
         use std::num::NonZeroU64;
 
-        use iroha_data_model::block::stream::*;
-
         use super::*;
+        use crate::data_model::block::stream::*;
 
         /// Initialization struct for Blocks API flow.
         pub struct Init {
@@ -1466,7 +1465,7 @@ mod blocks_api {
         pub struct Events;
 
         impl FlowEvents for Events {
-            type Event = iroha_data_model::block::SignedBlock;
+            type Event = crate::data_model::block::SignedBlock;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 Ok(BlockMessage::decode_all(&mut message.as_slice()).map(Into::into)?)
@@ -1758,9 +1757,9 @@ mod tests {
     #[cfg(test)]
     mod query_errors_handling {
         use http::Response;
-        use iroha_data_model::{asset::Asset, query::error::QueryExecutionFail, ValidationFail};
 
         use super::*;
+        use crate::data_model::{asset::Asset, query::error::QueryExecutionFail, ValidationFail};
 
         #[test]
         fn certain_errors() -> Result<()> {

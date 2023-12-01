@@ -1,8 +1,10 @@
 use std::{str::FromStr, sync::Arc};
 
 use eyre::Result;
-use iroha_client::client::{self, QueryResult};
-use iroha_data_model::prelude::*;
+use iroha_client::{
+    client::{self, QueryResult},
+    data_model::prelude::*,
+};
 use iroha_primitives::unique_vec;
 use tempfile::TempDir;
 use test_network::*;

@@ -2731,7 +2731,6 @@ dependencies = [
  "iroha_client",
  "iroha_config",
  "iroha_crypto",
- "iroha_data_model",
  "iroha_primitives",
  "json5",
  "once_cell",
@@ -2892,7 +2891,6 @@ dependencies = [
  "derive_more",
  "displaydoc",
  "getset",
- "iroha_client",
  "iroha_crypto",
  "iroha_data_model_derive",
  "iroha_ffi",
@@ -2962,7 +2960,6 @@ dependencies = [
 name = "iroha_executor"
 version = "2.0.0-pre-rc.20"
 dependencies = [
- "iroha_data_model",
  "iroha_executor_derive",
  "iroha_schema",
  "iroha_smart_contract",
@@ -2976,7 +2973,6 @@ name = "iroha_executor_derive"
 version = "2.0.0-pre-rc.20"
 dependencies = [
  "darling",
- "iroha_data_model",
  "iroha_macro_utils",
  "manyhow",
  "proc-macro2",
@@ -3283,7 +3279,6 @@ dependencies = [
 name = "iroha_trigger"
 version = "2.0.0-pre-rc.20"
 dependencies = [
- "iroha_data_model",
  "iroha_smart_contract",
  "iroha_smart_contract_utils",
  "iroha_trigger_derive",

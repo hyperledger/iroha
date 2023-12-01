@@ -1,8 +1,10 @@
 use std::{str::FromStr as _, thread, time::Duration};
 
 use eyre::Result;
-use iroha_client::client::{self, Client, QueryResult};
-use iroha_data_model::prelude::*;
+use iroha_client::{
+    client::{self, Client, QueryResult},
+    data_model::prelude::*,
+};
 use iroha_genesis::GenesisNetwork;
 use serde_json::json;
 use test_network::{PeerBuilder, *};

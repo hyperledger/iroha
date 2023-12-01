@@ -1,11 +1,11 @@
 use std::thread::{self, JoinHandle};
 
 use eyre::Result;
-use iroha_crypto::HashOf;
-use iroha_data_model::{
+use iroha_client::data_model::{
     parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
     prelude::*,
 };
+use iroha_crypto::HashOf;
 use test_network::*;
 
 use super::Configuration;

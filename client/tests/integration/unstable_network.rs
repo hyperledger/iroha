@@ -1,8 +1,10 @@
 use core::sync::atomic::Ordering;
 use std::thread;
 
-use iroha_client::client::{self, Client, QueryResult};
-use iroha_data_model::{prelude::*, Level};
+use iroha_client::{
+    client::{self, Client, QueryResult},
+    data_model::{prelude::*, Level},
+};
 use rand::seq::SliceRandom;
 use test_network::*;
 use tokio::runtime::Runtime;

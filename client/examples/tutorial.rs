@@ -3,9 +3,9 @@
 use std::fs::File;
 
 use eyre::{Error, WrapErr};
+use iroha_client::data_model::TryToValue;
 // #region rust_config_crates
 use iroha_config::client::Configuration;
-use iroha_data_model::TryToValue;
 // #endregion rust_config_crates
 
 fn main() {
@@ -47,10 +47,12 @@ fn json_config_client_test(config: &Configuration) -> Result<(), Error> {
 
 fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region domain_register_example_crates
-    use iroha_client::client::Client;
-    use iroha_data_model::{
-        metadata::UnlimitedMetadata,
-        prelude::{Domain, DomainId, InstructionExpr, RegisterExpr},
+    use iroha_client::{
+        client::Client,
+        data_model::{
+            metadata::UnlimitedMetadata,
+            prelude::{Domain, DomainId, InstructionExpr, RegisterExpr},
+        },
     };
     // #endregion domain_register_example_crates
 
@@ -91,9 +93,9 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
 
 fn account_definition_test() -> Result<(), Error> {
     // #region account_definition_comparison
-    use iroha_data_model::prelude::AccountId;
+    use iroha_client::data_model::prelude::AccountId;
 
-    // Create an `iroha_data_model::AccountId` instance
+    // Create an `iroha_client::data_model::AccountId` instance
     // with a DomainId instance and a Domain ID for an account
     let longhand_account_id = AccountId::new("white_rabbit".parse()?, "looking_glass".parse()?);
     let account_id: AccountId = "white_rabbit@looking_glass"
@@ -111,12 +113,14 @@ fn account_definition_test() -> Result<(), Error> {
 
 fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region register_account_crates
-    use iroha_client::client::Client;
-    use iroha_crypto::KeyPair;
-    use iroha_data_model::{
-        metadata::UnlimitedMetadata,
-        prelude::{Account, AccountId, InstructionExpr, RegisterExpr},
+    use iroha_client::{
+        client::Client,
+        data_model::{
+            metadata::UnlimitedMetadata,
+            prelude::{Account, AccountId, InstructionExpr, RegisterExpr},
+        },
     };
+    use iroha_crypto::KeyPair;
     // #endregion register_account_crates
 
     // Create an Iroha client
@@ -161,9 +165,11 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region register_asset_crates
     use std::str::FromStr as _;
 
-    use iroha_client::client::Client;
-    use iroha_data_model::prelude::{
-        AccountId, AssetDefinition, AssetDefinitionId, AssetId, IdBox, MintExpr, RegisterExpr,
+    use iroha_client::{
+        client::Client,
+        data_model::prelude::{
+            AccountId, AssetDefinition, AssetDefinitionId, AssetId, IdBox, MintExpr, RegisterExpr,
+        },
     };
     // #endregion register_asset_crates
 
@@ -209,10 +215,12 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
     // #region mint_asset_crates
     use std::str::FromStr;
 
-    use iroha_client::client::Client;
-    use iroha_data_model::{
-        prelude::{AccountId, AssetDefinitionId, AssetId, MintExpr, ToValue},
-        IdBox,
+    use iroha_client::{
+        client::Client,
+        data_model::{
+            prelude::{AccountId, AssetDefinitionId, AssetId, MintExpr, ToValue},
+            IdBox,
+        },
     };
     // #endregion mint_asset_crates
 
@@ -267,10 +275,12 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
     // #region burn_asset_crates
     use std::str::FromStr;
 
-    use iroha_client::client::Client;
-    use iroha_data_model::{
-        prelude::{AccountId, AssetDefinitionId, AssetId, BurnExpr, ToValue},
-        IdBox,
+    use iroha_client::{
+        client::Client,
+        data_model::{
+            prelude::{AccountId, AssetDefinitionId, AssetId, BurnExpr, ToValue},
+            IdBox,
+        },
     };
     // #endregion burn_asset_crates
 
