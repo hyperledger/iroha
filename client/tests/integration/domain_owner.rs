@@ -1,6 +1,8 @@
 use eyre::Result;
-use iroha_crypto::KeyPair;
-use iroha_data_model::{account::SignatureCheckCondition, prelude::*};
+use iroha_client::{
+    crypto::KeyPair,
+    data_model::{account::SignatureCheckCondition, prelude::*},
+};
 use serde_json::json;
 use test_network::*;
 

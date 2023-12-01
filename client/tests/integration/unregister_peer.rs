@@ -1,15 +1,16 @@
 use std::thread;
 
 use eyre::Result;
-use iroha_client::client::{self, QueryResult};
-use iroha_crypto::KeyPair;
-use iroha_data_model::{
-    parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-    prelude::*,
+use iroha_client::{
+    client::{self, QueryResult},
+    crypto::KeyPair,
+    data_model::{
+        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+        prelude::*,
+    },
 };
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 // Note the test is marked as `unstable`,  not the network.
 #[ignore = "ignore, more in #2851"]

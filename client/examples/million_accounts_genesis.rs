@@ -2,7 +2,7 @@
 use std::{thread, time::Duration};
 
 use iroha::samples::{construct_executor, get_config};
-use iroha_data_model::prelude::*;
+use iroha_client::data_model::prelude::*;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use test_network::{

@@ -1,8 +1,10 @@
 use std::num::{NonZeroU32, NonZeroU64};
 
 use eyre::Result;
-use iroha_client::client::{asset, QueryResult};
-use iroha_data_model::{asset::AssetDefinition, prelude::*, query::Pagination};
+use iroha_client::{
+    client::{asset, QueryResult},
+    data_model::{asset::AssetDefinition, prelude::*, query::Pagination},
+};
 use test_network::*;
 
 #[test]

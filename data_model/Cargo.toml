@@ -54,8 +54,6 @@ strum = { workspace = true, features = ["derive"] }
 base64 = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
-iroha_client = { workspace = true }
-
 trybuild = { workspace = true }
 criterion = { workspace = true }
 

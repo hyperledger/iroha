@@ -24,10 +24,7 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 iroha_client = { workspace = true }
-iroha_data_model = { workspace = true }
 iroha_primitives = { workspace = true }
-iroha_crypto = { workspace = true }
-iroha_config = { workspace = true }
 
 color-eyre = { workspace = true }
 # TODO: migrate to clap v4 (and use the workspace dependency)

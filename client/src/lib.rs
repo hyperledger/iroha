@@ -8,11 +8,10 @@ mod http_default;
 
 /// Module containing sample configurations for tests and benchmarks.
 pub mod samples {
-    use iroha_config::{
-        client::{Configuration, ConfigurationProxy},
-        torii::uri::DEFAULT_API_ADDR,
+    use crate::{
+        config::{torii::DEFAULT_API_ADDR, Configuration, ConfigurationProxy},
+        crypto::KeyPair,
     };
-    use iroha_crypto::KeyPair;
 
     /// Get sample client configuration.
     pub fn get_client_config(key_pair: &KeyPair) -> Configuration {
@@ -36,3 +35,12 @@ pub mod samples {
         .expect("Client config should build as all required fields were provided")
     }
 }
+
+pub mod config {
+    //! Module for client-related configuration and structs
+
+    pub use iroha_config::{client::*, path, torii::uri as torii};
+}
+
+pub use iroha_crypto as crypto;
+pub use iroha_data_model as data_model;

@@ -1,14 +1,15 @@
 use std::thread::{self, JoinHandle};
 
 use eyre::Result;
-use iroha_crypto::HashOf;
-use iroha_data_model::{
-    parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-    prelude::*,
+use iroha_client::{
+    crypto::HashOf,
+    data_model::{
+        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+        prelude::*,
+    },
 };
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 // Needed to re-enable ignored tests.
 #[allow(dead_code)]
@@ -75,7 +76,7 @@ fn test_with_instruction_and_status_and_port(
 #[derive(Clone)]
 struct Checker {
     listener: iroha_client::client::Client,
-    hash: iroha_crypto::HashOf<TransactionPayload>,
+    hash: HashOf<TransactionPayload>,
 }
 
 impl Checker {

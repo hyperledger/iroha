@@ -1,9 +1,11 @@
 use eyre::Result;
-use iroha_client::client::ClientQueryError;
-use iroha_crypto::KeyPair;
-use iroha_data_model::{
-    prelude::*,
-    query::{asset::FindTotalAssetQuantityByAssetDefinitionId, error::QueryExecutionFail},
+use iroha_client::{
+    client::ClientQueryError,
+    crypto::KeyPair,
+    data_model::{
+        prelude::*,
+        query::{asset::FindTotalAssetQuantityByAssetDefinitionId, error::QueryExecutionFail},
+    },
 };
 use iroha_primitives::fixed::Fixed;
 use test_network::*;

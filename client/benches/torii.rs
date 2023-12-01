@@ -4,10 +4,12 @@ use std::thread;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use iroha::samples::{construct_executor, get_config};
-use iroha_client::client::{asset, Client};
+use iroha_client::{
+    client::{asset, Client},
+    crypto::KeyPair,
+    data_model::prelude::*,
+};
 use iroha_config::base::runtime_upgrades::Reload;
-use iroha_crypto::KeyPair;
-use iroha_data_model::prelude::*;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use iroha_version::Encode;
@@ -45,7 +47,7 @@ fn query_requests(criterion: &mut Criterion) {
     configuration
         .logger
         .max_log_level
-        .reload(iroha_data_model::Level::ERROR)
+        .reload(iroha_client::data_model::Level::ERROR)
         .expect("Should not fail");
     let mut group = criterion.benchmark_group("query-requests");
     let domain_id: DomainId = "domain".parse().expect("Valid");

@@ -1,6 +1,8 @@
-use iroha_client::client::{account, transaction, Client};
-use iroha_crypto::{HashOf, KeyPair, PublicKey};
-use iroha_data_model::{isi::Instruction, prelude::*, transaction::TransactionPayload};
+use iroha_client::{
+    client::{account, transaction, Client},
+    crypto::{HashOf, KeyPair, PublicKey},
+    data_model::{isi::Instruction, prelude::*, transaction::TransactionPayload},
+};
 use test_network::*;
 
 fn submit(

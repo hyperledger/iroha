@@ -5,11 +5,12 @@ use std::{
 };
 
 use eyre::Result;
-use iroha_client::client::{transaction, QueryResult};
-use iroha_data_model::{prelude::*, query::Pagination};
+use iroha_client::{
+    client::{transaction, QueryResult},
+    data_model::{prelude::*, query::Pagination},
+};
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 #[ignore = "ignore, more in #2851"]
 #[test]

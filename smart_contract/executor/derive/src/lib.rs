@@ -202,7 +202,7 @@ pub fn derive_ref_into_domain_owner(input: TokenStream) -> TokenStream {
 
 /// Implements the `iroha_executor::Validate` trait for the given `Executor` struct. As
 /// this trait has a `iroha_executor::prelude::Visit`, and the latter has an
-/// `iroha_executor::iroha_data_model::evaluate::ExpressionEvaluator`
+/// `iroha_executor::data_model::evaluate::ExpressionEvaluator`
 /// bound, at least these two should be implemented as well.
 ///
 /// Emits a compile error if the struct didn't have all the expected fields with corresponding
@@ -309,7 +309,7 @@ pub fn derive_entrypoints(input: TokenStream2) -> TokenStream2 {
     emitter.finish_token_stream_with(result)
 }
 
-/// Implements `iroha_executor::iroha_data_model::evaluate::ExpressionEvaluator` trait
+/// Implements `iroha_executor::data_model::evaluate::ExpressionEvaluator` trait
 /// for the given `Executor` struct.
 ///
 /// Emits a compile error if the struct didn't have all the expected fields with corresponding

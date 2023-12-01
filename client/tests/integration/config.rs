@@ -1,8 +1,8 @@
-pub use iroha_config::base::proxy::Builder as _;
-use iroha_config::iroha::ConfigurationProxy;
+use iroha_config::{
+    base::proxy::Builder,
+    iroha::{Configuration, ConfigurationProxy},
+};
 use test_network::*;
-
-use super::Configuration;
 
 #[test]
 fn get_config() {

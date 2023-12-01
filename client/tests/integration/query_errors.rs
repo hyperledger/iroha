@@ -1,9 +1,11 @@
 use std::str::FromStr;
 
-use iroha_client::client::{self, ClientQueryError};
-use iroha_data_model::{
-    prelude::*,
-    query::error::{FindError, QueryExecutionFail},
+use iroha_client::{
+    client::{self, ClientQueryError},
+    data_model::{
+        prelude::*,
+        query::error::{FindError, QueryExecutionFail},
+    },
 };
 
 #[test]

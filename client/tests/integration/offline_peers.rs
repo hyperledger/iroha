@@ -1,14 +1,13 @@
 use eyre::Result;
-use iroha_client::client::{self, Client, QueryResult};
-use iroha_crypto::KeyPair;
-use iroha_data_model::{
-    peer::{Peer as DataModelPeer, PeerId},
-    prelude::*,
+use iroha_client::{
+    client::{self, Client, QueryResult},
+    crypto::KeyPair,
+    data_model::{peer::Peer as DataModelPeer, prelude::*},
 };
 use test_network::*;
 use tokio::runtime::Runtime;
 
-use super::Configuration;
+use iroha_config::iroha::Configuration;
 
 #[test]
 fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {

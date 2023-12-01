@@ -1,13 +1,14 @@
 use std::{str::FromStr, thread};
 
 use eyre::Result;
-use iroha_client::client::{self, Client, QueryResult};
-use iroha_data_model::prelude::*;
+use iroha_client::{
+    client::{self, Client, QueryResult},
+    data_model::prelude::*,
+};
+use iroha_config::iroha::Configuration;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use test_network::*;
 use tokio::runtime::Runtime;
-
-use super::Configuration;
 
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {

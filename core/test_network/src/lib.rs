@@ -7,7 +7,10 @@ use std::{collections::BTreeMap, path::Path, sync::Arc, thread};
 use eyre::Result;
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha::Iroha;
-use iroha_client::client::{Client, QueryOutput};
+use iroha_client::{
+    client::{Client, QueryOutput},
+    data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query, Level},
+};
 use iroha_config::{
     base::proxy::{LoadFromEnv, Override},
     client::Configuration as ClientConfiguration,
@@ -16,9 +19,6 @@ use iroha_config::{
     torii::Configuration as ToriiConfiguration,
 };
 use iroha_crypto::prelude::*;
-use iroha_data_model::{
-    isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query, Level,
-};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
 use iroha_primitives::{

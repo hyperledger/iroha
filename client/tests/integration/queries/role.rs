@@ -1,8 +1,10 @@
 use std::collections::HashSet;
 
 use eyre::Result;
-use iroha_client::client::{self, QueryResult};
-use iroha_data_model::{prelude::*, query::error::QueryExecutionFail};
+use iroha_client::{
+    client::{self, QueryResult},
+    data_model::{prelude::*, query::error::QueryExecutionFail},
+};
 use serde_json::json;
 use test_network::*;
 

@@ -14,10 +14,11 @@ use color_eyre::{
 };
 use dialoguer::Confirm;
 use erased_serde::Serialize;
-use iroha_client::client::{Client, QueryResult};
-use iroha_config::{client::Configuration as ClientConfiguration, path::Path as ConfigPath};
-use iroha_crypto::prelude::*;
-use iroha_data_model::prelude::*;
+use iroha_client::{
+    client::{Client, QueryResult},
+    config::{path::Path as ConfigPath, Configuration as ClientConfiguration},
+    data_model::prelude::*,
+};
 use iroha_primitives::addr::SocketAddr;
 
 /// Metadata wrapper, which can be captured from cli arguments (from user supplied file).
@@ -263,7 +264,7 @@ fn submit(
 }
 
 mod filter {
-    use iroha_data_model::predicate::PredicateBox;
+    use iroha_client::data_model::predicate::PredicateBox;
 
     use super::*;
 

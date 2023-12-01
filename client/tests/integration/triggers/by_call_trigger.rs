@@ -1,11 +1,13 @@
 use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 
 use eyre::{eyre, Result, WrapErr};
-use iroha_client::client::{self, Client};
-use iroha_data_model::{
-    prelude::*,
-    query::error::{FindError, QueryExecutionFail},
-    transaction::Executable,
+use iroha_client::{
+    client::{self, Client},
+    data_model::{
+        prelude::*,
+        query::error::{FindError, QueryExecutionFail},
+        transaction::Executable,
+    },
 };
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::info;
