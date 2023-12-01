@@ -12,17 +12,6 @@ const TEST_SMARTCONTRACTS_DIR: &str = "tests/integration/smartcontracts";
 fn main() -> Result<()> {
     println!("cargo:rerun-if-changed={TEST_SMARTCONTRACTS_DIR}");
 
-    // HACK: used by Nix, since at the moment
-    // the checks are a process that's hard to accomodate
-    // in Nix environment
-    if std::option_env!("IROHA_SKIP_WASM_CHECKS").is_some() {
-        check_all_smartcontracts()?;
-    }
-
     Ok(())
 }
 
-fn check_all_smartcontracts() -> Result<()> {
-    iroha_wasm_builder::Builder::new(TEST_SMARTCONTRACTS_DIR)
-        .check()
-}
