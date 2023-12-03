@@ -27,9 +27,9 @@ namespace iroha {
       std::string amount;
 
       /**
-       * Title
+       * Description
        */
-      std::string title;
+      std::string description;
 
       bool operator==(const Command &command) const override;
 
@@ -38,7 +38,7 @@ namespace iroha {
       SubtractAssetQuantity(const std::string &asset_id,
                             const std::string &amount,
                             const std::string &title)
-          : asset_id(asset_id), amount(amount), title(title) {}
+          : asset_id(asset_id), amount(amount), description(description) {}
     };
   }  // namespace model
 }  // namespace iroha

@@ -42,7 +42,7 @@ namespace shared_model {
         : public shared_model::interface::AddAssetQuantity {
       MOCK_CONST_METHOD0(assetId, const types::AssetIdType &());
       MOCK_CONST_METHOD0(amount, const Amount &());
-      MOCK_CONST_METHOD0(title, const std::string &());
+      MOCK_CONST_METHOD0(description, const std::string &());
     };
 
     struct MockAddPeer : public shared_model::interface::AddPeer {
@@ -141,7 +141,7 @@ namespace shared_model {
         : public shared_model::interface::SubtractAssetQuantity {
       MOCK_CONST_METHOD0(assetId, const types::AssetIdType &());
       MOCK_CONST_METHOD0(amount, const Amount &());
-      MOCK_CONST_METHOD0(title, const std::string &());
+      MOCK_CONST_METHOD0(description, const std::string &());
     };
 
     struct MockTransferAsset : public shared_model::interface::TransferAsset {

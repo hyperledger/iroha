@@ -91,10 +91,10 @@ class FieldValidatorTest : public ValidatorsTest {
                                             account_id_test_cases));
     }
 
-    field_validators.insert(makeValidator("title",
-                                          &FieldValidator::validateTitle,
-                                          &FieldValidatorTest::title,
-                                          title_test_cases));
+    field_validators.insert(makeValidator("description",
+                                          &FieldValidator::validateDescription,
+                                          &FieldValidatorTest::description,
+                                          description_test_cases));
 
     field_validators.insert(
         makeValidator("key",
@@ -319,8 +319,8 @@ class FieldValidatorTest : public ValidatorsTest {
   std::vector<FieldTestCase> asset_id_test_cases = idTestCases(
       "asset_id", &FieldValidatorTest::asset_id, '#', {'A', '-', ' '}, 32);
 
-  std::vector<FieldTestCase> title_test_cases = {
-      makeValidCase(&FieldValidatorTest::title, ""),
+  std::vector<FieldTestCase> description_test_cases = {
+      makeValidCase(&FieldValidatorTest::description, ""),
   };
 
   std::vector<FieldTestCase> callee_cases{
@@ -602,17 +602,6 @@ class FieldValidatorTest : public ValidatorsTest {
                       // CompareAndSetAccountDetail
                       std::string(5 * 1024 * 1024, '0'))};
 
-  std::vector<FieldTestCase> description_test_cases{
-      makeValidCase(&FieldValidatorTest::description, "valid description"),
-      makeValidCase(&FieldValidatorTest::description, ""),
-      makeValidCase(&FieldValidatorTest::description,
-                    std::string(FieldValidator::kMaxDescriptionSize, 0)),
-      makeInvalidCase(
-          "long_description",
-          "value",
-          &FieldValidatorTest::description,
-          std::string(FieldValidator::kMaxDescriptionSize + 1, '0'))};
-
   std::vector<FieldTestCase> quorum_test_cases{
       makeValidCase(&FieldValidatorTest::quorum, 1),
       makeValidCase(&FieldValidatorTest::quorum, 128),
@@ -737,10 +726,10 @@ class FieldValidatorTest : public ValidatorsTest {
                     &FieldValidator::validateAssetId,
                     &FieldValidatorTest::asset_id,
                     asset_id_test_cases),
-      makeValidator("title",
-                    &FieldValidator::validateTitle,
-                    &FieldValidatorTest::title,
-                    title_test_cases),
+      makeValidator("description",
+                    &FieldValidator::validateDescription,
+                    &FieldValidatorTest::description,
+                    description_test_cases),
       makeTransformValidator(
           "amount",
           &FieldValidator::validateAmount,

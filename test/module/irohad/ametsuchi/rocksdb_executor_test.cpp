@@ -1378,7 +1378,7 @@ namespace iroha::ametsuchi {
   TEST_F(SubtractAccountAssetTest, NoPerms) {
     addAsset();
     CHECK_SUCCESSFUL_RESULT(
-        execute(*mock_command_factory->constructAddAssetQuantityWithTitle(
+        execute(*mock_command_factory->constructAddAssetQuantityWithDescription(
                     asset_id, asset_amount_one_zero, ""),
                 true));
     auto account_asset = getAccountAsset(account_id, asset_id);
@@ -1386,7 +1386,7 @@ namespace iroha::ametsuchi {
     ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
 
     auto cmd_result =
-        execute(*mock_command_factory->constructAddAssetQuantityWithTitle(
+        execute(*mock_command_factory->constructAddAssetQuantityWithDescription(
             asset_id, asset_amount_one_zero, ""));
 
     std::vector<std::string> query_args{
@@ -1451,7 +1451,7 @@ namespace iroha::ametsuchi {
 
     auto asset2_id = "coin#" + domain2_id;
     CHECK_SUCCESSFUL_RESULT(
-        execute(*mock_command_factory->constructAddAssetQuantityWithTitle(
+        execute(*mock_command_factory->constructAddAssetQuantityWithDescription(
                     asset2_id, asset_amount_one_zero, ""),
                 true));
     auto account_asset = getAccountAsset(account_id, asset2_id);
@@ -1459,7 +1459,7 @@ namespace iroha::ametsuchi {
     ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
 
     auto cmd_result =
-        execute(*mock_command_factory->constructAddAssetQuantityWithTitle(
+        execute(*mock_command_factory->constructAddAssetQuantityWithDescription(
             asset2_id, asset_amount_one_zero, ""));
 
     std::vector<std::string> query_args{
@@ -1479,7 +1479,7 @@ namespace iroha::ametsuchi {
   TEST_F(SubtractAccountAssetTest, NoAsset) {
     addAllPermsWithoutRoot();
     auto cmd_result =
-        execute(*mock_command_factory->constructSubtractAssetQuantityWithTitle(
+        execute(*mock_command_factory->constructSubtractAssetQuantityWithDescription(
             asset_id, asset_amount_one_zero, ""));
 
     std::vector<std::string> query_args{asset_id};
@@ -1495,7 +1495,7 @@ namespace iroha::ametsuchi {
     addAllPermsWithoutRoot();
     addAsset();
     auto cmd_result =
-        execute(*mock_command_factory->constructSubtractAssetQuantityWithTitle(
+        execute(*mock_command_factory->constructSubtractAssetQuantityWithDescription(
             asset_id, shared_model::interface::Amount{"1.0000"}, ""));
 
     std::vector<std::string> query_args{account_id, asset_id, "1.0000", "1"};
@@ -1511,11 +1511,11 @@ namespace iroha::ametsuchi {
     addAllPermsWithoutRoot();
     addAsset();
     CHECK_SUCCESSFUL_RESULT(
-        execute(*mock_command_factory->constructAddAssetQuantityWithTitle(
+        execute(*mock_command_factory->constructAddAssetQuantityWithDescription(
                     asset_id, asset_amount_one_zero, ""),
                 true));
     auto cmd_result =
-        execute(*mock_command_factory->constructSubtractAssetQuantityWithTitle(
+        execute(*mock_command_factory->constructSubtractAssetQuantityWithDescription(
             asset_id, shared_model::interface::Amount{"2.0"}, ""));
 
     std::vector<std::string> query_args{account_id, asset_id, "2.0"};

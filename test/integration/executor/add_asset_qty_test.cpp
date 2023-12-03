@@ -37,14 +37,14 @@ class AddAssetQuantityTest : public ExecutorTestBase {
         issuer,
         validation_enabled);
   }
-  iroha::ametsuchi::CommandResult addAssetWithTitle(const AccountIdType &issuer,
+  iroha::ametsuchi::CommandResult addAssetWithDescription(const AccountIdType &issuer,
                                            const AssetIdType &asset = kAssetId,
                                            const Amount &amount = kAmount,
-                                           const TitleType &title = "",
+                                           const DescriptionType &description = "",
                                            bool validation_enabled = true) {
     return getItf().executeCommandAsAccount(
-        *getItf().getMockCommandFactory()->constructAddAssetQuantityWithTitle(asset,
-                                                                     amount, title),
+        *getItf().getMockCommandFactory()->constructAddAssetQuantityWithDescription(asset,
+                                                                     amount, description),
         issuer,
         validation_enabled);
   }
@@ -59,7 +59,7 @@ using AddAssetQuantityBasicTest = BasicExecutorTest<AddAssetQuantityTest>;
  * @and the asset is not added to the user
  */
 TEST_P(AddAssetQuantityBasicTest, InvalidAsset) {
-  checkCommandError(addAssetWithTitle(kAdminId, kSecondDomainAssetId), 3);
+  checkCommandError(addAssetWithDescription(kAdminId, kSecondDomainAssetId), 3);
   checkAssetQuantities(kAdminId, {});
 }
 
@@ -79,8 +79,8 @@ TEST_P(AddAssetQuantityBasicTest, DestOverflowPrecision1) {
   ASSERT_NO_FATAL_FAILURE(checkAssetQuantities(
       kAdminId, {AssetQuantity{kAssetId, kAmountPrec1Max}}));
 
-  checkCommandError(addAssetWithTitle(kAdminId, kAssetId, Amount{"0.1"}), 4);
-  checkCommandError(addAssetWithTitle(kAdminId, kAssetId, Amount{"1"}), 4);
+  checkCommandError(addAssetWithDescription(kAdminId, kAssetId, Amount{"0.1"}), 4);
+  checkCommandError(addAssetWithDescription(kAdminId, kAssetId, Amount{"1"}), 4);
 
   checkAssetQuantities(kAdminId, {AssetQuantity{kAssetId, kAmountPrec1Max}});
 }
@@ -101,8 +101,8 @@ TEST_P(AddAssetQuantityBasicTest, DestOverflowPrecision2) {
   ASSERT_NO_FATAL_FAILURE(checkAssetQuantities(
       kAdminId, {AssetQuantity{kAssetId, kAmountPrec2Max}}));
 
-  checkCommandError(addAssetWithTitle(kAdminId, kAssetId, Amount{"0.01"}), 4);
-  checkCommandError(addAssetWithTitle(kAdminId, kAssetId, Amount{"0.1"}), 4);
+  checkCommandError(addAssetWithDescription(kAdminId, kAssetId, Amount{"0.01"}), 4);
+  checkCommandError(addAssetWithDescription(kAdminId, kAssetId, Amount{"0.1"}), 4);
 
   checkAssetQuantities(kAdminId, {AssetQuantity{kAssetId, kAmountPrec2Max}});
 }
@@ -121,7 +121,7 @@ TEST_P(AddAssetQuantityPermissionTest, CommandPermissionTest) {
   ASSERT_NO_FATAL_FAILURE(prepareState({}));
 
   if (checkResponse(
-          addAssetWithTitle(getActor(), kAssetId, kAmount, "", getValidationEnabled()))) {
+          addAssetWithDescription(getActor(), kAssetId, kAmount, "", getValidationEnabled()))) {
     checkAssetQuantities(getActor(), {AssetQuantity{kAssetId, kAmount}});
   } else {
     checkAssetQuantities(getActor(), {});

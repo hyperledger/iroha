@@ -20,8 +20,8 @@ namespace shared_model {
       return amount_;
     }
 
-    const std::string &AddAssetQuantity::title() const {
-      return title_;
+    const std::string &AddAssetQuantity::description() const {
+      return description_;
     }
 
   }  // namespace proto

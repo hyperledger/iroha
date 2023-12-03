@@ -7,13 +7,13 @@ namespace iroha_lib {
 std::shared_ptr<Command> CommandGenerator::generateAddAssetQuantity(
         const std::string& asset_id,
         const std::string& amount,
-        const std::string& title)
+        const std::string& description)
 {
     AddAssetQuantity addAssetQuantity;
     addAssetQuantity.set_asset_id(asset_id);
     addAssetQuantity.set_amount(amount);
-    if (!title.empty()) {
-      addAssetQuantity.set_title(title);
+    if (!description.empty()) {
+      addAssetQuantity.set_description(description);
     }
 
     auto cmd = Command();
@@ -232,14 +232,14 @@ std::shared_ptr<Command> CommandGenerator::generateSetAccountQuorum(
 std::shared_ptr<Command> CommandGenerator::generateSubtractAssetQuantity(
         const std::string& asset_id,
         const std::string& amount,
-        const std::string& title)
+        const std::string& description)
 {
     SubtractAssetQuantity subtractAssetQuantity;
     subtractAssetQuantity.set_asset_id(asset_id);
     subtractAssetQuantity.set_amount(amount);
-    std::optional<std::string> title_optional = title;
-    if (title_optional) {
-        subtractAssetQuantity.set_title(*title_optional);
+    std::optional<std::string> description_optional = description;
+    if (description_optional) {
+        subtractAssetQuantity.set_description(*description_optional);
     }
 
     auto cmd = Command();

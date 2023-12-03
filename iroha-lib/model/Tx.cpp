@@ -21,12 +21,12 @@ void Tx::addCommand(const iroha::protocol::Command& command)
 Tx& Tx::addAssetQuantity(
         const std::string& asset_id,
         const std::string& amount,
-        const std::string& title)
+        const std::string& description)
 {
     auto cmd = cmd_generator_.generateAddAssetQuantity(
                 asset_id,
                 amount,
-                title);
+                description);
     addCommand(*cmd);
     return *this;
 }
@@ -194,12 +194,12 @@ Tx& Tx::setAccountQuorum(
 Tx& Tx::subtractAssetQuantity(
         const std::string& asset_id,
         const std::string& amount,
-        const std::string& title)
+        const std::string& description)
 {
     auto cmd = cmd_generator_.generateSubtractAssetQuantity(
                 asset_id,
                 amount,
-                title);
+                description);
     addCommand(*cmd);
     return *this;
 }

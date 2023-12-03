@@ -28,7 +28,7 @@ namespace shared_model {
        */
       virtual const Amount &amount() const = 0;
 
-      virtual const std::string &title() const = 0;
+      virtual const std::string &description() const = 0;
 
       std::string toString() const override;
 

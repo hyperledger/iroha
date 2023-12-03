@@ -25,8 +25,8 @@ namespace shared_model {
       FactoryResult<MockAddAssetQuantity> constructAddAssetQuantity(
           const types::AssetIdType &asset_id, const Amount &asset_amount) const;
 
-      FactoryResult<MockAddAssetQuantity> constructAddAssetQuantityWithTitle(
-          const types::AssetIdType &asset_id, const Amount &asset_amount, const std::string &title) const;
+      FactoryResult<MockAddAssetQuantity> constructAddAssetQuantityWithDescription(
+          const types::AssetIdType &asset_id, const Amount &asset_amount, const std::string &description) const;
 
       /**
        * Construct a mocked AddPeer
@@ -183,11 +183,11 @@ namespace shared_model {
        * Construct a mocked SubtractAssetQuantity
        * @param asset_id to be in that command
        * @param amount to be in that command
-       * @param title to be in that comand
+       * @param description to be in that comand
        * @return pointer to the created command
        */
-      FactoryResult<MockSubtractAssetQuantity> constructSubtractAssetQuantityWithTitle(
-          const types::AssetIdType &asset_id, const Amount &amount, const std::string &title) const;
+      FactoryResult<MockSubtractAssetQuantity> constructSubtractAssetQuantityWithDescription(
+          const types::AssetIdType &asset_id, const Amount &amount, const std::string &description) const;
 
       /**
        * Construct a mocked TransferAsset
