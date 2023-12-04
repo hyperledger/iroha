@@ -8,6 +8,26 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  check_format_smart_contracts:
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2023-06-25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check and Format Default Executor
+        run: |
+          cd ./default_executor
+          cargo format -- --check
+          cargo check
+
+      - name: Check and Format Client
+        run: |
+          cd ./client/tests/integration/smartcontracts
+          cargo format -- --check
+          cargo check
+
   registry:
     runs-on: [self-hosted, Linux, iroha2-dev-push]
     container:
