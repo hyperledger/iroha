@@ -4,11 +4,13 @@ use std::time::Duration;
 use chrono::Local;
 use eyre::{eyre, Result};
 use futures::{stream::SplitSink, Sink, SinkExt, StreamExt};
+use iroha_config::telemetry::RegularTelemetryConfig;
 use iroha_logger::telemetry::Event as Telemetry;
 use serde_json::Map;
 use tokio::{
     net::TcpStream,
     sync::{broadcast, mpsc},
+    task::JoinHandle,
 };
 use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
 use tokio_tungstenite::{
@@ -27,28 +29,30 @@ const INTERNAL_CHANNEL_CAPACITY: usize = 10;
 /// # Errors
 /// Fails if unable to connect to the server
 pub async fn start(
-    config: &crate::Configuration,
+    RegularTelemetryConfig {
+        name,
+        url,
+        max_retry_delay_exponent,
+        min_retry_period,
+    }: RegularTelemetryConfig,
     telemetry: broadcast::Receiver<Telemetry>,
-) -> Result<bool> {
-    if let (Some(name), Some(url)) = (&config.name, &config.url) {
-        iroha_logger::info!(%url, "Starting telemetry");
-        let (ws, _) = tokio_tungstenite::connect_async(url).await?;
-        let (write, _read) = ws.split();
-        let (internal_sender, internal_receiver) = mpsc::channel(INTERNAL_CHANNEL_CAPACITY);
-        let client = Client::new(
-            name.clone(),
-            write,
-            WebsocketSinkFactory::new(url.clone()),
-            RetryPeriod::new(config.min_retry_period, config.max_retry_delay_exponent),
-            internal_sender,
-        );
-        tokio::task::spawn(async move {
-            client.run(telemetry, internal_receiver).await;
-        });
-        Ok(true)
-    } else {
-        Ok(false)
-    }
+) -> Result<JoinHandle<()>> {
+    iroha_logger::info!(%url, "Starting telemetry");
+    let (ws, _) = tokio_tungstenite::connect_async(&url).await?;
+    let (write, _read) = ws.split();
+    let (internal_sender, internal_receiver) = mpsc::channel(INTERNAL_CHANNEL_CAPACITY);
+    let client = Client::new(
+        name,
+        write,
+        WebsocketSinkFactory::new(url),
+        RetryPeriod::new(min_retry_period, max_retry_delay_exponent),
+        internal_sender,
+    );
+    let handle = tokio::task::spawn(async move {
+        client.run(telemetry, internal_receiver).await;
+    });
+
+    Ok(handle)
 }
 
 struct Client<S, F> {

@@ -293,11 +293,10 @@ impl Iroha {
         );
 
         let queue = Arc::new(Queue::from_configuration(&config.queue));
-        if Self::start_telemetry(&logger, &config.telemetry).await? {
-            iroha_logger::info!("Telemetry started")
-        } else {
-            iroha_logger::warn!("Telemetry not started")
-        }
+        match Self::start_telemetry(&logger, &config.telemetry).await? {
+            TelemetryStartStatus::Started => iroha_logger::info!("Telemetry started"),
+            TelemetryStartStatus::NotStarted => iroha_logger::warn!("Telemetry not started"),
+        };
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
@@ -415,34 +414,44 @@ impl Iroha {
     async fn start_telemetry(
         logger: &LoggerHandle,
         config: &TelemetryConfiguration,
-    ) -> Result<bool> {
+    ) -> Result<TelemetryStartStatus> {
         #[allow(unused)]
+        let (config_for_regular, config_for_dev) = config.parse();
+
         #[cfg(feature = "dev-telemetry")]
         {
+            if let Some(config) = config_for_dev {
+                let receiver = logger
+                    .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Future)
+                    .await
+                    .wrap_err("Failed to subscribe on telemetry")?;
+                let _handle = iroha_telemetry::dev::start(config, receiver)
+                    .await
+                    .wrap_err("Failed to setup telemetry for futures")?;
+            }
+        }
+
+        if let Some(config) = config_for_regular {
             let receiver = logger
-                .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Future)
+                .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Regular)
                 .await
                 .wrap_err("Failed to subscribe on telemetry")?;
-            let _handle = iroha_telemetry::dev::start(config, receiver)
+            let _handle = iroha_telemetry::ws::start(config, receiver)
                 .await
-                .wrap_err("Failed to setup telemetry for futures")?;
-        }
-        let receiver = logger
-            .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Regular)
-            .await
-            .wrap_err("Failed to subscribe on telemetry")?;
+                .wrap_err("Failed to setup telemetry for websocket communication")?;
 
-        iroha_telemetry::ws::start(config, receiver)
-            .await
-            .wrap_err("Failed to setup telemetry for websocket communication")
+            Ok(TelemetryStartStatus::Started)
+        } else {
+            Ok(TelemetryStartStatus::NotStarted)
+        }
     }
 
     #[cfg(not(feature = "telemetry"))]
     async fn start_telemetry(
         _logger: &LoggerHandle,
         _config: &TelemetryConfiguration,
-    ) -> Result<bool> {
-        Ok(false)
+    ) -> Result<TelemetryStartStatus> {
+        Ok(TelemetryStartStatus::NotStarted)
     }
 
     #[allow(clippy::redundant_pub_crate)]
@@ -471,6 +480,11 @@ impl Iroha {
 
         Ok(handle)
     }
+}
+
+enum TelemetryStartStatus {
+    Started,
+    NotStarted,
 }
 
 fn genesis_account(public_key: PublicKey) -> Account {
