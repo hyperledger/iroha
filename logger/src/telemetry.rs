@@ -149,7 +149,6 @@ pub struct ChannelEvent(pub Channel, pub Event);
 pub enum Channel {
     /// Regular telemetry
     Regular,
-    /// Future telemetry (?)
-    // FIXME: what is the "future"?
+    /// Telemetry collected from futures instrumented with `iroha_futures::TelemetryFuture`.
     Future,
 }
