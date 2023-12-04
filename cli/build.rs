@@ -9,7 +9,7 @@ fn main() -> Result<()> {
     println!("cargo:rerun-if-changed={DEFAULT_EXECUTOR_PATH}");
 
     extract_git_hash()?;
-    
+
     Ok(())
 }
 
@@ -21,4 +21,3 @@ fn extract_git_hash() -> Result<()> {
         .map_err(|err| eyre!(Box::new(err)))
         .wrap_err("Failed to extract git hash")
 }
-

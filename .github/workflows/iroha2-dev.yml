@@ -16,16 +16,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
 
-      - name: Check and Format Default Executor
+      - name: Format check Default Executor
         run: |
           cd ./default_executor
-          cargo format -- --check
+          cargo fmt -- --check
           cargo check
 
-      - name: Check and Format Client
+      - name: Format check Client
         run: |
           cd ./client/tests/integration/smartcontracts
-          cargo format -- --check
+          cargo fmt -- --check
           cargo check
 
   registry:
