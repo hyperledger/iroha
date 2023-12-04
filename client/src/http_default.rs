@@ -6,7 +6,9 @@ use attohttpc::{
 };
 use eyre::{eyre, Error, Result, WrapErr};
 use http::header::HeaderName;
-use tokio_tungstenite::tungstenite::{stream::MaybeTlsStream, WebSocket};
+use tokio_tungstenite::tungstenite::{
+    client::IntoClientRequest, stream::MaybeTlsStream, WebSocket,
+};
 pub use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
 use url::Url;
 
@@ -117,21 +119,15 @@ impl DefaultWebSocketRequestBuilder {
 
     /// Consumes itself to build request.
     pub fn build(self) -> Result<DefaultWebSocketStreamRequest> {
-        let mut req = self.0.and_then(|b| b.body(()).map_err(Into::into))?;
-
-        let uri = req.uri().to_string();
-        let headers = req.headers_mut();
-
-        headers.insert("Host", uri.parse()?);
-        headers.insert("Connection", "Upgrade".parse()?);
-        headers.insert("Upgrade", "websocket".parse()?);
-        headers.insert("Sec-WebSocket-Version", "13".parse()?);
-        headers.insert(
-            "Sec-WebSocket-Key",
-            tokio_tungstenite::tungstenite::handshake::client::generate_key().parse()?,
-        );
-
-        Ok(DefaultWebSocketStreamRequest(req))
+        let builder = self.0?;
+        let mut request = builder
+            .uri_ref()
+            .ok_or(eyre!("Missing URI"))?
+            .into_client_request()?;
+        for (header, value) in builder.headers_ref().ok_or(eyre!("No headers found"))? {
+            request.headers_mut().entry(header).or_insert(value.clone());
+        }
+        Ok(DefaultWebSocketStreamRequest(request))
     }
 }
 
