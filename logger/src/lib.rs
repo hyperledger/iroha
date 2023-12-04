@@ -69,7 +69,7 @@ pub fn init_global(configuration: &Configuration, terminal_colors: bool) -> Resu
 ///
 /// # Panics
 /// If [`init_global`] or [`disable_global`] were called first.
-#[allow(clippy::needless_update)] // complications with `tokio-console` feature
+#[allow(clippy::needless_update)] // `tokio-console` feature adds additional fields to Configuration
 pub fn test_logger() -> LoggerHandle {
     static LOGGER: OnceLock<LoggerHandle> = OnceLock::new();
 

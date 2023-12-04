@@ -89,10 +89,10 @@ enum Message {
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// TODO
-    #[error("cannot dynamically update the configuration")]
+    #[error("failed to dynamically update the configuration")]
     Update(#[from] iroha_logger::ReloadError),
     /// TODO
-    #[error("cannot get actor's response")]
+    #[error("failed to get actor's response")]
     Communication(#[from] oneshot::error::RecvError),
 }
 
