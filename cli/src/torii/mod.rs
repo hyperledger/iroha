@@ -43,7 +43,7 @@ pub struct Torii {
     sumeragi: SumeragiHandle,
     query_service: LiveQueryStoreHandle,
     kura: Arc<Kura>,
-    instructions_max_content_length: u64,
+    transaction_max_content_length: u64,
     address: SocketAddr,
 }
 

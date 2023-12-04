@@ -50,12 +50,7 @@ impl Kura {
     /// Fails if there are filesystem errors when trying
     /// to access the block store indicated by the provided
     /// path.
-    pub fn new(
-        config: &Configuration,
-        // mode: Mode,
-        // block_store_path: &Path,
-        // debug_output_new_blocks: bool,
-    ) -> Result<Arc<Self>> {
+    pub fn new(config: &Configuration) -> Result<Arc<Self>> {
         let block_store_path = Path::new(&config.block_store_path);
         let mut block_store = BlockStore::new(block_store_path, LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist()?;

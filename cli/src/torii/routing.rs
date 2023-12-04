@@ -74,7 +74,7 @@ fn fetch_size() -> impl warp::Filter<Extract = (FetchSize,), Error = warp::Rejec
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_instructions(
+async fn handle_transaction(
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
     transaction: SignedTransaction,
@@ -393,7 +393,7 @@ impl Torii {
             query_service,
             kura,
             address: config.api_url.clone(),
-            instructions_max_content_length: config.max_content_len.into(),
+            transaction_max_content_length: config.max_content_len.into(),
         }
     }
 
@@ -447,11 +447,11 @@ impl Torii {
         let post_router = warp::post()
             .and(
                 endpoint3(
-                    handle_instructions,
+                    handle_transaction,
                     warp::path(uri::TRANSACTION)
                         .and(add_state!(self.queue, self.sumeragi))
                         .and(warp::body::content_length_limit(
-                            self.instructions_max_content_length,
+                            self.transaction_max_content_length,
                         ))
                         .and(body::versioned()),
                 )

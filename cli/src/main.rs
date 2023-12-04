@@ -129,7 +129,7 @@ async fn main() -> Result<(), color_eyre::Report> {
     }
 
     let config = iroha::combine_configs(&args)?;
-    let telemetry = iroha_logger::init_global(&config.logger, terminal_colors)?;
+    let logger = iroha_logger::init_global(&config.logger, terminal_colors)?;
     if !config.disable_panic_terminal_colors {
         // FIXME: it shouldn't be logged here; it is a part of configuration domain
         //        this message can be very simply broken by the changes in the configuration
@@ -160,7 +160,7 @@ async fn main() -> Result<(), color_eyre::Report> {
         })
         .transpose()?;
 
-    iroha::Iroha::with_genesis(genesis, config, telemetry)
+    iroha::Iroha::with_genesis(genesis, config, logger)
         .await?
         .start()
         .await?;

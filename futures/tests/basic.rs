@@ -31,12 +31,12 @@ async fn test_sleep() {
         Duration::from_nanos(80_000_000),
     ];
 
-    let telemetry_future = iroha_logger::test_logger()
+    let future_telemetry = iroha_logger::test_logger()
         .subscribe_on_telemetry(Channel::Future)
         .await
         .unwrap();
     assert_eq!(sleep(sleep_times.clone()).await, 10_i32);
-    let telemetry = BroadcastStream::new(telemetry_future)
+    let telemetry = BroadcastStream::new(future_telemetry)
         .filter_map(Result::ok)
         .map(FuturePollTelemetry::try_from)
         .filter_map(Result::ok)

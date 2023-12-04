@@ -16,10 +16,6 @@ pub struct Configuration {
     pub init_mode: Mode,
     /// Path to the existing block store folder or path to create new folder.
     pub block_store_path: PathBuf,
-    // /// Maximum number of blocks to write into a single storage file.
-    // pub blocks_per_storage_file: NonZeroU64,
-    // /// Default buffer capacity of actor's MPSC channel.
-    // pub actor_channel_capacity: u32,
     /// Whether or not new blocks be outputted to a file called blocks.json.
     pub debug_output_new_blocks: bool,
 }

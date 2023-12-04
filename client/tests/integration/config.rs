@@ -31,9 +31,6 @@ async fn config_endpoints() {
     dto.logger.level = NEW_LOG_LEVEL;
     test_client.set_config(dto).expect("New config is valid");
 
-    // FIXME: The updated value is not reflected
-    //        https://github.com/hyperledger/iroha/issues/4079
-
     // Checking the updated value
     dto = test_client.get_config().unwrap();
     assert_eq!(dto.logger.level, NEW_LOG_LEVEL);
