@@ -41,6 +41,7 @@ pub struct Configuration {
 
 /// Reflects formatters in [`tracing_subscriber::fmt::format`]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Format {
     /// See [`tracing_subscriber::fmt::format::Full`]
     Full,
@@ -89,5 +90,12 @@ pub mod tests {
             #[cfg(feature = "tokio-console")]
             tokio_console_addr: strat.2,
         })
+    }
+
+    #[test]
+    fn serialize_pretty_format_in_lowercase() {
+        let value = Format::Pretty;
+        let actual = serde_json::to_string(&value).unwrap();
+        assert_eq!("\"pretty\"", actual);
     }
 }

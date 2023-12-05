@@ -11,7 +11,7 @@ async fn setting_logger_twice_fails() {
     assert!(first.is_ok());
 
     let second = init_global(&cfg, false);
-    assert!(second.is_ok());
+    assert!(second.is_err());
 }
 
 #[test]

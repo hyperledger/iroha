@@ -556,8 +556,6 @@ mod tests {
         ($ident:ident, $future:ident) => {
             #[tokio::test]
             async fn $ident() {
-                // FIXME: needed?
-                iroha_logger::test_logger();
                 let (suite, run_handle) = Suite::new();
                 $future(suite).await;
                 run_handle.await.unwrap();
