@@ -2,7 +2,7 @@ name: I2::Release::Publish
 
 on:
   push:
-    branches: [iroha2-stable, iroha2-lts]
+    branches: [iroha2-stable, iroha2-lts, iroha2-stable-rc19]
 
 env:
   CARGO_TERM_COLOR: always
@@ -45,8 +45,8 @@ jobs:
         with:
           push: true
           tags: |
-            hyperledger/iroha2:${{ env.TAG }}-${{ env.RELEASE }}
-            docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}-${{ env.RELEASE }}
+            hyperledger/iroha2:stable-2.0.0-pre-rc.19
+            docker.soramitsu.co.jp/iroha2/iroha2:stable-2.0.0-pre-rc.19
           labels: commit=${{ github.sha }}
           build-args: TAG=${{ env.TAG }}
           file: Dockerfile
@@ -55,26 +55,26 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  configs:
-    runs-on: ubuntu-latest
-    container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: iroha2-dev
-      - name: Setup git config
-        run: |
-          cd .git
-          git config --local user.name "sorabot"
-          git config --local user.email "<>"
-      - name: Update configs
-        run: |
-          ./scripts/update_configs.sh lts
-          ./scripts/update_configs.sh stable
-      - name: Commit config changes
-        run: |
-          git config --global --add safe.directory /__w/iroha/iroha
-          git add -A
-          git diff-index --quiet HEAD || git commit -m "[documentation]: Update lts/stable configs following a release" --signoff
-          git push origin iroha2-dev
+  # configs:
+  #   runs-on: ubuntu-latest
+  #   container:
+  #     image: hyperledger/iroha2-ci:nightly-2023-06-25
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #       with:
+  #         ref: iroha2-dev
+  #     - name: Setup git config
+  #       run: |
+  #         cd .git
+  #         git config --local user.name "sorabot"
+  #         git config --local user.email "<>"
+  #     - name: Update configs
+  #       run: |
+  #         ./scripts/update_configs.sh lts
+  #         ./scripts/update_configs.sh stable
+  #     - name: Commit config changes
+  #       run: |
+  #         git config --global --add safe.directory /__w/iroha/iroha
+  #         git add -A
+  #         git diff-index --quiet HEAD || git commit -m "[documentation]: Update lts/stable configs following a release" --signoff
+  #         git push origin iroha2-dev
