@@ -46,7 +46,7 @@ pub struct DevTelemetryConfig {
 impl Configuration {
     /// Parses user-provided configuration into stronger typed structures
     ///
-    /// Should be refactored with https://github.com/hyperledger/iroha/issues/3500
+    /// Should be refactored with [#3500](https://github.com/hyperledger/iroha/issues/3500)
     pub fn parse(&self) -> (Option<RegularTelemetryConfig>, Option<DevTelemetryConfig>) {
         let Self {
             ref name,
@@ -67,11 +67,9 @@ impl Configuration {
             None
         };
 
-        let dev = if let Some(file) = file {
-            Some(DevTelemetryConfig { file: file.clone() })
-        } else {
-            None
-        };
+        let dev = file
+            .as_ref()
+            .map(|file| DevTelemetryConfig { file: file.clone() });
 
         (regular, dev)
     }
