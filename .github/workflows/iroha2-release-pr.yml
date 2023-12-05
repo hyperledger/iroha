@@ -104,13 +104,13 @@ jobs:
           chmod +x target/debug/iroha_client_cli
           chmod +x target/debug/kagami
       - name: Setup test environment
-        run: ./scripts/test_env.sh setup
+        run: ./scripts/test_env.py setup
       - name: Test iroha2-java API
         run: ./scripts/API/java.sh setup && ./scripts/API/java.sh run
       - name: Cleanup test iroha2-java API
         run: ./scripts/API/java.sh cleanup
       - name: Cleanup test environment
-        run: ./scripts/test_env.sh cleanup
+        run: ./scripts/test_env.py cleanup
       - name: Cleanup Gradle Cache
         # Remove some files from the Gradle cache, so they aren't
         # cached by GitHub Actions.  Restoring these files from a
