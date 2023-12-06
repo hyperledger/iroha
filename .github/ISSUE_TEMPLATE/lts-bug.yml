@@ -117,6 +117,4 @@ body:
          - Documentation issues: Ekaterina Mekhnetsova (`@outoftardis`), Victor Gridnevsky (`@6r1d`)
          - WASM: Marin Veršić (`@mversic`)
          - Triggers: Daniil Polyakov (`@Arjentix`)
-         - Theoretical questions: Shunkichi Sato (`@s8sato`)
-         - Other topics: Aleksandr Petrosyan (`@appetrosyan`)
       placeholder: "@Username ..."
