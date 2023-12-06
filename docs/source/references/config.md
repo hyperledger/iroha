@@ -47,8 +47,7 @@ The following is the default configuration used by Iroha.
     "MAX_TRANSACTIONS_IN_BLOCK": 512,
     "ACTOR_CHANNEL_CAPACITY": 100,
     "GOSSIP_BATCH_SIZE": 500,
-    "GOSSIP_PERIOD_MS": 1000,
-    "DEBUG_FORCE_SOFT_FORK": false
+    "GOSSIP_PERIOD_MS": 1000
   },
   "TORII": {
     "P2P_ADDR": null,
@@ -464,7 +463,6 @@ Has type `Option<Box<sumeragi::ConfigurationProxy>>`[^1]. Can be configured via 
   "ACTOR_CHANNEL_CAPACITY": 100,
   "BLOCK_TIME_MS": 2000,
   "COMMIT_TIME_LIMIT_MS": 4000,
-  "DEBUG_FORCE_SOFT_FORK": false,
   "GOSSIP_BATCH_SIZE": 500,
   "GOSSIP_PERIOD_MS": 1000,
   "KEY_PAIR": null,
@@ -502,16 +500,6 @@ Has type `Option<u64>`[^1]. Can be configured via environment variable `SUMERAGI
 
 ```json
 4000
-```
-
-### `sumeragi.debug_force_soft_fork`
-
-Only used in testing. Causes the genesis peer to withhold blocks when it
-
-Has type `Option<bool>`[^1]. Can be configured via environment variable `SUMERAGI_DEBUG_FORCE_SOFT_FORK`
-
-```json
-false
 ```
 
 ### `sumeragi.gossip_batch_size`
