@@ -1108,7 +1108,7 @@ impl Client {
             .build()?
             .send()?;
 
-        if resp.status() != StatusCode::OK {
+        if resp.status() != StatusCode::ACCEPTED {
             return Err(eyre!(
                 "Failed to post configuration with HTTP status: {}. {}",
                 resp.status(),

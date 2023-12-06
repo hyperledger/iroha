@@ -175,7 +175,7 @@ async fn handle_post_configuration(
     value: ConfigurationDTO,
 ) -> Result<impl Reply> {
     kiso.update_with_dto(value).await?;
-    Ok(reply::reply())
+    Ok(reply::with_status(reply::reply(), StatusCode::ACCEPTED))
 }
 
 #[iroha_futures::telemetry_future]
