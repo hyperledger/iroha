@@ -230,7 +230,7 @@ Has type `Option<Box<kura::ConfigurationProxy>>`[^1]. Can be configured via envi
 
 Path to the existing block store folder or path to create new folder.
 
-Has type `Option<PathBuf>`[^1]. Can be configured via environment variable `KURA_BLOCK_STORE_PATH`
+Has type `Option<String>`[^1]. Can be configured via environment variable `KURA_BLOCK_STORE_PATH`
 
 ```json
 "./storage"
