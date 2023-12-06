@@ -43,7 +43,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let cfg = Configuration {
         init_mode: iroha_config::kura::Mode::Strict,
         debug_output_new_blocks: false,
-        block_store_path: dir.path().to_path_buf(),
+        block_store_path: dir.path().to_str().unwrap().into(),
     };
     let kura = iroha_core::kura::Kura::new(&cfg).unwrap();
     let _thread_handle = iroha_core::kura::Kura::start(kura.clone());

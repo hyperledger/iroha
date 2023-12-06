@@ -1053,7 +1053,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         Kura::new(&Configuration {
             init_mode: Mode::Strict,
-            block_store_path: temp_dir.into_path(),
+            block_store_path: temp_dir.path().to_str().unwrap().into(),
             debug_output_new_blocks: false,
         })
         .unwrap()
