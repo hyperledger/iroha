@@ -119,8 +119,7 @@ class _Peer:
         os.environ["KURA_BLOCK_STORE_PATH"] = str(peer_dir.joinpath("storage"))
         os.environ["SNAPSHOT_DIR_PATH"] = str(peer_dir.joinpath("storage"))
         os.environ["LOG_LEVEL"] = "TRACE"
-        # FIXME: should it be JSON here?
-        os.environ["LOG_FORMAT"] = "json"
+        os.environ["LOG_FORMAT"] = "\"pretty\""
         os.environ["LOG_TOKIO_CONSOLE_ADDR"] = f"{self.host_ip}:{self.tokio_console_port}"
         os.environ["IROHA_PUBLIC_KEY"] = self.public_key
         os.environ["IROHA_PRIVATE_KEY"] = self.private_key
@@ -130,7 +129,7 @@ class _Peer:
 
         genesis_arg = "--submit-genesis" if is_genesis else ""
         # FD never gets closed
-        log_file = open(peer_dir.joinpath("log.json"), "w")
+        log_file = open(peer_dir.joinpath(".log"), "w")
         # These processes are created detached from the parent process already
         subprocess.Popen([self.name, genesis_arg], executable=f"{self.out_dir}/peers/iroha",
                     stdout=log_file, stderr=subprocess.STDOUT)
