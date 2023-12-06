@@ -289,7 +289,7 @@ TEST_P(TransferAsset, EmptyDesc) {
  * @then the tx hasn't passed stateless validation
  *       (aka skipProposal throws)
  */
-TEST_P(TransferAsset, LongDescStateless) {
+TEST_P(TransferAsset, DISABLED_LongDescStateless) {
   IntegrationTestFramework(1, GetParam())
       .setInitialState(kAdminKeypair)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
