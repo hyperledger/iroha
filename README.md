@@ -169,7 +169,7 @@ For a list of all endpoints, available operations, and ways to customize them wi
 
 By default, Iroha provides logs in a human-readable format and prints them out to `stdout`.
 
-The logging level can be changed either via a [configuration option](./docs/source/references/config.md#loggerlevel) or at run-time using the `configuration` endpoint.
+The logging level can be changed either via the [`logger.level` configuration parameter](./docs/source/references/config.md#loggerlevel) or at run-time using the `configuration` endpoint.
 
 <details><summary>Example: changing log level</summary>
 
@@ -182,7 +182,7 @@ curl -X POST \
 ```
 </details>
 
-Logger supports multiple output formats: `full` (default), `compact`, `pretty`, and `json`.
+The log format might be configured via the [`logger.format` configuration parameter](./docs/source/references/config.md#loggerformat). Possible values are: `full` (default), `compact`, `pretty`, and `json`.
 
 Output goes to `/dev/stdout`. Piping to files or [log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the responsibility of the peer administrator.
 
