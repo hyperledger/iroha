@@ -347,7 +347,7 @@ impl Iroha {
         let snapshot_maker =
             SnapshotMaker::from_configuration(&config.snapshot, sumeragi.clone()).start();
 
-        let kiso = KisoHandle::new(config.clone(), logger.clone());
+        let kiso = KisoHandle::new(config.clone());
 
         let torii = Torii::new(
             kiso.clone(),
@@ -359,6 +359,8 @@ impl Iroha {
             live_query_store_handle,
             Arc::clone(&kura),
         );
+
+        Self::spawn_configuration_updates_broadcasting(kiso.clone(), logger.clone());
 
         Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
 
@@ -479,6 +481,34 @@ impl Iroha {
         });
 
         Ok(handle)
+    }
+
+    /// Spawns a task which subscribes on updates from configuration actor
+    /// and broadcasts them further to interested actors. This way, neither config actor nor other ones know
+    /// about each other, achieving loose coupling of code and system.
+    fn spawn_configuration_updates_broadcasting(
+        kiso: KisoHandle,
+        logger: LoggerHandle,
+    ) -> task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut log_level_update = kiso
+                .subscribe_on_log_level()
+                .await
+                // FIXME: don't like neither the message nor inability to throw Result to the outside
+                .expect("Cannot proceed without working subscriptions");
+
+            loop {
+                tokio::select! {
+                    Ok(()) = log_level_update.changed() => {
+                        let value = *log_level_update.borrow_and_update();
+                        if let Err(error) = logger.reload_level(value).await {
+                            iroha_logger::error!("Failed to reload log level: {error}");
+                        };
+                    }
+                };
+                tokio::task::yield_now().await;
+            }
+        })
     }
 }
 

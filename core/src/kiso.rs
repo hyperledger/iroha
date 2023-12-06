@@ -4,45 +4,42 @@
 //! no any part of Iroha is interested in the whole state. However, the API could be extended
 //! in future.
 //!
-//! ## Example
-//!
-//! ```
-//! #[tokio::main]
-//! async fn main() {
-//!   todo!()
-//! }
-//! ```
+//! Updates mechanism is implemented via subscriptions to [`tokio::sync::watch`] channels. For now,
+//! only `logger.level` field is dynamic, which might be tracked with [`KisoHandle::subscribe_on_log_level()`].
 
 use eyre::Result;
 use iroha_config::{
     client_api::{ConfigurationDTO, Logger as LoggerDTO},
     iroha::Configuration,
 };
-use iroha_logger::actor::{Error as LoggerError, LoggerHandle};
-use tokio::sync::{mpsc, oneshot};
+use iroha_logger::Level;
+use tokio::sync::{mpsc, oneshot, watch};
 
 const DEFAULT_CHANNEL_SIZE: usize = 32;
 
-/// The handle to work with the actor.
+/// Handle to work with the actor.
 ///
 /// The actor will shutdown when all its handles are dropped.
 #[derive(Clone)]
 pub struct KisoHandle {
-    sender: mpsc::Sender<Message>,
+    actor: mpsc::Sender<Message>,
 }
 
 impl KisoHandle {
     /// Spawn a new actor
-    pub fn new(state: Configuration, logger: LoggerHandle) -> Self {
-        let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+    pub fn new(state: Configuration) -> Self {
+        let (actor_sender, actor_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
+        let (log_level_update, _) = watch::channel(state.logger.level);
         let mut actor = Actor {
-            receiver,
+            handle: actor_receiver,
             state,
-            logger,
+            log_level_update,
         };
         tokio::spawn(async move { actor.run().await });
 
-        Self { sender }
+        Self {
+            actor: actor_sender,
+        }
     }
 
     /// Fetch the [`ConfigurationDTO`] from the actor's state.
@@ -50,28 +47,40 @@ impl KisoHandle {
     /// # Errors
     /// If communication with actor fails.
     pub async fn get_dto(&self) -> Result<ConfigurationDTO, Error> {
-        let (send, recv) = oneshot::channel();
-        let msg = Message::GetDTO { respond_to: send };
-        let _ = self.sender.send(msg).await;
-        let dto = recv.await?;
+        let (tx, rx) = oneshot::channel();
+        let msg = Message::GetDTO { respond_to: tx };
+        let _ = self.actor.send(msg).await;
+        let dto = rx.await?;
         Ok(dto)
     }
 
-    /// Update the configuration state, applying side effects.
+    /// Update the configuration state and notify subscribers.
     ///
-    /// Awaits until the update is applied.
+    /// Works in a fire-and-forget way, i.e. completion of this task doesn't mean that updates are applied. However,
+    /// subsequent call of [`Self::get_dto()`] will return an updated state.
     ///
     /// # Errors
-    /// - If updating failure occurs
-    /// - If communication with actor is failed
+    /// If communication with actor fails.
     pub async fn update_with_dto(&self, dto: ConfigurationDTO) -> Result<(), Error> {
-        let (send, recv) = oneshot::channel();
+        let (tx, rx) = oneshot::channel();
         let msg = Message::UpdateWithDTO {
             dto,
-            respond_to: send,
+            respond_to: tx,
         };
-        let _ = self.sender.send(msg).await;
-        recv.await?
+        let _ = self.actor.send(msg).await;
+        rx.await?
+    }
+
+    /// Subscribe on updates of `logger.level` parameter.
+    ///
+    /// # Errors
+    /// If communication with actor fails.
+    pub async fn subscribe_on_log_level(&self) -> Result<watch::Receiver<Level>, Error> {
+        let (tx, rx) = oneshot::channel();
+        let msg = Message::SubscribeOnLogLevel { respond_to: tx };
+        let _ = self.actor.send(msg).await;
+        let receiver = rx.await?;
+        Ok(receiver)
     }
 }
 
@@ -83,37 +92,32 @@ enum Message {
         dto: ConfigurationDTO,
         respond_to: oneshot::Sender<Result<(), Error>>,
     },
+    SubscribeOnLogLevel {
+        respond_to: oneshot::Sender<watch::Receiver<Level>>,
+    },
 }
 
-/// TODO
+/// Possible errors might occur while working with [`KisoHandle`]
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    /// TODO
-    #[error("failed to dynamically update the configuration")]
-    Update(#[from] iroha_logger::ReloadError),
-    /// TODO
+    #[allow(missing_docs)]
     #[error("failed to get actor's response")]
     Communication(#[from] oneshot::error::RecvError),
 }
 
-impl From<LoggerError> for Error {
-    fn from(value: LoggerError) -> Self {
-        match value {
-            LoggerError::LevelReload(err) => Self::from(err),
-            LoggerError::Communication(err) => Self::from(err),
-        }
-    }
-}
-
 struct Actor {
-    receiver: mpsc::Receiver<Message>,
+    handle: mpsc::Receiver<Message>,
     state: Configuration,
-    logger: LoggerHandle,
+    /// Current implementation is somewhat not scalable in terms of code writing: for any
+    /// future dynamic parameter, it will require its own `subscribe_on_<field>` function in [`KisoHandle`],
+    /// new channel here, and new [`Message`] variant. If boilerplate expands, a more general solution will be
+    /// required. However, as of now a single manually written implementation seems optimal.
+    log_level_update: watch::Sender<Level>,
 }
 
 impl Actor {
     async fn run(&mut self) {
-        while let Some(msg) = self.receiver.recv().await {
+        while let Some(msg) = self.handle.recv().await {
             self.handle_message(msg).await
         }
     }
@@ -131,13 +135,73 @@ impl Actor {
                     },
                 respond_to,
             } => {
-                if let Err(err) = self.logger.reload_level(new_level).await {
-                    let _ = respond_to.send(Err(err.into()));
-                    return;
-                }
+                let _ = self.log_level_update.send(new_level);
                 self.state.logger.level = new_level;
+
                 let _ = respond_to.send(Ok(()));
             }
+            Message::SubscribeOnLogLevel { respond_to } => {
+                let _ = respond_to.send(self.log_level_update.subscribe());
+            }
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(unused)]
+mod tests {
+    use std::time::Duration;
+
+    use iroha_config::{
+        base::proxy::LoadFromDisk,
+        client_api::{ConfigurationDTO, Logger as LoggerDTO},
+        iroha::{Configuration, ConfigurationProxy},
+    };
+
+    use super::*;
+
+    fn test_config() -> Configuration {
+        // FIXME Specifying path here might break! Moreover, if the file is not found,
+        //       the error will say that `public_key` is missing!
+        //       Hopefully this will change: https://github.com/hyperledger/iroha/issues/2585
+        ConfigurationProxy::from_path("../config/iroha_test_config.json")
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn subscription_on_log_level_works() {
+        const INIT_LOG_LEVEL: Level = Level::WARN;
+        const NEW_LOG_LEVEL: Level = Level::DEBUG;
+        const WATCH_LAG_MILLIS: u64 = 30;
+
+        let mut config = test_config();
+        config.logger.level = INIT_LOG_LEVEL;
+        let kiso = KisoHandle::new(config);
+
+        let mut recv = kiso
+            .subscribe_on_log_level()
+            .await
+            .expect("Subscription should be fine");
+
+        let _err = tokio::time::timeout(Duration::from_millis(WATCH_LAG_MILLIS), recv.changed())
+            .await
+            .expect_err("Watcher should not be active initially");
+
+        kiso.update_with_dto(ConfigurationDTO {
+            logger: LoggerDTO {
+                level: NEW_LOG_LEVEL,
+            },
+        })
+        .await
+        .expect("Update should work fine");
+
+        let () = tokio::time::timeout(Duration::from_millis(WATCH_LAG_MILLIS), recv.changed())
+            .await
+            .expect("Watcher should resolve within timeout")
+            .expect("Watcher should not be closed");
+
+        let value = *recv.borrow_and_update();
+        assert_eq!(value, NEW_LOG_LEVEL);
     }
 }
