@@ -36,8 +36,6 @@ The following is the default configuration used by Iroha.
   "KURA": {
     "INIT_MODE": "strict",
     "BLOCK_STORE_PATH": "./storage",
-    "BLOCKS_PER_STORAGE_FILE": 1000,
-    "ACTOR_CHANNEL_CAPACITY": 100,
     "DEBUG_OUTPUT_NEW_BLOCKS": false
   },
   "SUMERAGI": {
@@ -49,7 +47,8 @@ The following is the default configuration used by Iroha.
     "MAX_TRANSACTIONS_IN_BLOCK": 512,
     "ACTOR_CHANNEL_CAPACITY": 100,
     "GOSSIP_BATCH_SIZE": 500,
-    "GOSSIP_PERIOD_MS": 1000
+    "GOSSIP_PERIOD_MS": 1000,
+    "DEBUG_FORCE_SOFT_FORK": false
   },
   "TORII": {
     "P2P_ADDR": null,
@@ -69,11 +68,8 @@ The following is the default configuration used by Iroha.
     "FUTURE_THRESHOLD_MS": 1000
   },
   "LOGGER": {
-    "MAX_LOG_LEVEL": "INFO",
-    "TELEMETRY_CAPACITY": 1000,
-    "COMPACT_MODE": false,
-    "LOG_FILE_PATH": null,
-    "TERMINAL_COLORS": true
+    "LEVEL": "INFO",
+    "FORMAT": "full"
   },
   "GENESIS": {
     "ACCOUNT_PUBLIC_KEY": null,
@@ -225,42 +221,20 @@ Has type `Option<Box<kura::ConfigurationProxy>>`[^1]. Can be configured via envi
 
 ```json
 {
-  "ACTOR_CHANNEL_CAPACITY": 100,
-  "BLOCKS_PER_STORAGE_FILE": 1000,
   "BLOCK_STORE_PATH": "./storage",
   "DEBUG_OUTPUT_NEW_BLOCKS": false,
   "INIT_MODE": "strict"
 }
 ```
 
-### `kura.actor_channel_capacity`
-
-Default buffer capacity of actor's MPSC channel.
-
-Has type `Option<u32>`[^1]. Can be configured via environment variable `KURA_ACTOR_CHANNEL_CAPACITY`
-
-```json
-100
-```
-
 ### `kura.block_store_path`
 
 Path to the existing block store folder or path to create new folder.
 
-Has type `Option<String>`[^1]. Can be configured via environment variable `KURA_BLOCK_STORE_PATH`
+Has type `Option<PathBuf>`[^1]. Can be configured via environment variable `KURA_BLOCK_STORE_PATH`
 
 ```json
 "./storage"
-```
-
-### `kura.blocks_per_storage_file`
-
-Maximum number of blocks to write into a single storage file.
-
-Has type `Option<NonZeroU64>`[^1]. Can be configured via environment variable `KURA_BLOCKS_PER_STORAGE_FILE`
-
-```json
-1000
 ```
 
 ### `kura.debug_output_new_blocks`
@@ -313,62 +287,29 @@ Has type `Option<Box<logger::ConfigurationProxy>>`[^1]. Can be configured via en
 
 ```json
 {
-  "COMPACT_MODE": false,
-  "LOG_FILE_PATH": null,
-  "MAX_LOG_LEVEL": "INFO",
-  "TELEMETRY_CAPACITY": 1000,
-  "TERMINAL_COLORS": true
+  "FORMAT": "full",
+  "LEVEL": "INFO"
 }
 ```
 
-### `logger.compact_mode`
+### `logger.format`
 
-Compact mode (no spans from telemetry)
+Output format
 
-Has type `Option<bool>`[^1]. Can be configured via environment variable `COMPACT_MODE`
-
-```json
-false
-```
-
-### `logger.log_file_path`
-
-If provided, logs will be copied to said file in the
-
-Has type `Option<Option<std::path::PathBuf>>`[^1]. Can be configured via environment variable `LOG_FILE_PATH`
+Has type `Option<Format>`[^1]. Can be configured via environment variable `LOG_FORMAT`
 
 ```json
-null
+"full"
 ```
 
-### `logger.max_log_level`
+### `logger.level`
 
-Maximum log level
+Level of logging verbosity
 
-Has type `Option<SyncLevel>`[^1]. Can be configured via environment variable `MAX_LOG_LEVEL`
+Has type `Option<Level>`[^1]. Can be configured via environment variable `LOG_LEVEL`
 
 ```json
 "INFO"
-```
-
-### `logger.telemetry_capacity`
-
-Capacity (or batch size) for telemetry channel
-
-Has type `Option<u32>`[^1]. Can be configured via environment variable `TELEMETRY_CAPACITY`
-
-```json
-1000
-```
-
-### `logger.terminal_colors`
-
-Enable ANSI terminal colors for formatted output.
-
-Has type `Option<bool>`[^1]. Can be configured via environment variable `TERMINAL_COLORS`
-
-```json
-true
 ```
 
 ## `network`
@@ -523,6 +464,7 @@ Has type `Option<Box<sumeragi::ConfigurationProxy>>`[^1]. Can be configured via 
   "ACTOR_CHANNEL_CAPACITY": 100,
   "BLOCK_TIME_MS": 2000,
   "COMMIT_TIME_LIMIT_MS": 4000,
+  "DEBUG_FORCE_SOFT_FORK": false,
   "GOSSIP_BATCH_SIZE": 500,
   "GOSSIP_PERIOD_MS": 1000,
   "KEY_PAIR": null,
@@ -560,6 +502,16 @@ Has type `Option<u64>`[^1]. Can be configured via environment variable `SUMERAGI
 
 ```json
 4000
+```
+
+### `sumeragi.debug_force_soft_fork`
+
+Only used in testing. Causes the genesis peer to withhold blocks when it
+
+Has type `Option<bool>`[^1]. Can be configured via environment variable `SUMERAGI_DEBUG_FORCE_SOFT_FORK`
+
+```json
+false
 ```
 
 ### `sumeragi.gossip_batch_size`
@@ -642,7 +594,7 @@ Has type `Option<Box<telemetry::ConfigurationProxy>>`[^1]. Can be configured via
 
 The filepath that to write dev-telemetry to
 
-Has type `Option<Option<std::path::PathBuf>>`[^1]. Can be configured via environment variable `TELEMETRY_FILE`
+Has type `Option<Option<PathBuf>>`[^1]. Can be configured via environment variable `TELEMETRY_FILE`
 
 ```json
 null
