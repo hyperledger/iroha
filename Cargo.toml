@@ -69,6 +69,7 @@ futures = { version = "0.3.28", default-features = false }
 tokio = "1.33.0"
 tokio-stream = "0.1.14"
 tokio-tungstenite = "0.20.1"
+tungstenite = "0.20.1"
 
 crossbeam = "0.8.2"
 crossbeam-queue = "0.3.8"
