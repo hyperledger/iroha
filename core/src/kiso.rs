@@ -98,10 +98,9 @@ enum Message {
 }
 
 /// Possible errors might occur while working with [`KisoHandle`]
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, displaydoc::Display, Debug)]
 pub enum Error {
-    #[allow(missing_docs)]
-    #[error("failed to get actor's response")]
+    /// Failed to get actor's response
     Communication(#[from] oneshot::error::RecvError),
 }
 
