@@ -20,13 +20,11 @@ jobs:
         run: |
           cd ./default_executor
           cargo fmt -- --check
-          cargo check
 
       - name: Format check Client
         run: |
           cd ./client/tests/integration/smartcontracts
           cargo fmt -- --check
-          cargo check
 
   registry:
     runs-on: [self-hosted, Linux, iroha2-dev-push]

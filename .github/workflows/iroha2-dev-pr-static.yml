@@ -3,11 +3,6 @@ name: I2::Dev::Static
 on:
   pull_request:
     branches: [iroha2-dev]
-    paths:
-      - '**.rs'
-      - '**.json'
-      - '**.toml'
-      - '.github/workflows/**.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,6 +12,24 @@ env:
   RUSTUP_TOOLCHAIN: nightly-2023-06-25
 
 jobs:
+  check_format_smart_contracts:
+    runs-on: [self-hosted, Linux, iroha2ci]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2023-06-25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format check Default Executor
+        run: |
+          cd ./default_executor
+          mold --run cargo fmt -- --check
+
+      - name: Format check Client
+        run: |
+          cd ./client/tests/integration/smartcontracts
+          mold --run cargo fmt -- --check
+
   analysis:
     runs-on: ubuntu-latest
     container:
