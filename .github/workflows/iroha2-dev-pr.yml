@@ -3,6 +3,11 @@ name: I2::Dev::Tests
 on:
   pull_request:
     branches: [iroha2-dev]
+    paths:
+      - "**.rs"
+      - "**.json"
+      - "**.toml"
+      - ".github/workflows/**.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
