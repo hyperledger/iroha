@@ -107,10 +107,10 @@ pub enum Error {
 struct Actor {
     handle: mpsc::Receiver<Message>,
     state: Configuration,
-    /// Current implementation is somewhat not scalable in terms of code writing: for any
-    /// future dynamic parameter, it will require its own `subscribe_on_<field>` function in [`KisoHandle`],
-    /// new channel here, and new [`Message`] variant. If boilerplate expands, a more general solution will be
-    /// required. However, as of now a single manually written implementation seems optimal.
+    // Current implementation is somewhat not scalable in terms of code writing: for any
+    // future dynamic parameter, it will require its own `subscribe_on_<field>` function in [`KisoHandle`],
+    // new channel here, and new [`Message`] variant. If boilerplate expands, a more general solution will be
+    // required. However, as of now a single manually written implementation seems optimal.
     log_level_update: watch::Sender<Level>,
 }
 
