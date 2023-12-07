@@ -17,7 +17,6 @@ proc-macro = true
 syn2 = { workspace = true }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
-manyhow = { workspace = true }
 
 [dev-dependencies]
 warp = { workspace = true }
