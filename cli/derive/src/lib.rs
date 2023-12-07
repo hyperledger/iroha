@@ -3,11 +3,11 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
-use syn::{
+use syn2::{
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
-    Ident, LitInt, Result as SynResult, Token,
+    Ident, LitInt, Token,
 };
 
 /// Generate warp filters for endpoints, accepting functions
@@ -53,13 +53,13 @@ use syn::{
 #[proc_macro]
 pub fn generate_endpoints(input: TokenStream) -> TokenStream {
     let EndpointList(list) = parse_macro_input!(input as EndpointList);
-    let arg_names = (1_u8..).map(|count| {
+    let lazy_arg_names = (1_u8..).map(|count| {
         Ident::new(
             format!("__endpoint_arg_{count}").as_str(),
             Span::call_site(),
         )
     });
-    let arg_types = (1_u8..).map(|count| {
+    let lazy_arg_types = (1_u8..).map(|count| {
         Ident::new(
             format!("__Endpoint_Arg_{count}").as_str(),
             Span::call_site(),
@@ -68,28 +68,22 @@ pub fn generate_endpoints(input: TokenStream) -> TokenStream {
     let mut endpoints = Vec::new();
 
     for item in list {
-        let (fun_name, arg_names, arg_types) = match item {
+        let (fun_name, arg_count) = match item {
             EndpointItem::ArgCount(arg_count) => {
                 let fun_name = Ident::new(&format!("endpoint{arg_count}"), Span::call_site());
-                let count = arg_count
-                    .base10_parse::<usize>()
-                    .expect("Already checked at parse stage");
-                let arg_names = arg_names.clone().take(count).collect::<Vec<_>>();
-                let arg_types = arg_types.clone().take(count).collect::<Vec<_>>();
-                (fun_name, arg_names, arg_types)
+                (fun_name, arg_count)
             }
             EndpointItem::NameAndArgCount {
                 name: fun_name,
                 arg_count,
-            } => {
-                let count = arg_count
-                    .base10_parse::<usize>()
-                    .expect("Already checked at parse stage");
-                let arg_names = arg_names.clone().take(count).collect::<Vec<_>>();
-                let arg_types = arg_types.clone().take(count).collect::<Vec<_>>();
-                (*fun_name, arg_names, arg_types)
-            }
+            } => (*fun_name, arg_count),
         };
+
+        let count = arg_count
+            .base10_parse::<usize>()
+            .expect("Already checked at parse stage");
+        let arg_names = lazy_arg_names.clone().take(count).collect::<Vec<_>>();
+        let arg_types = lazy_arg_types.clone().take(count).collect::<Vec<_>>();
 
         let expanded = quote! {
             #[inline]
@@ -129,7 +123,7 @@ enum EndpointItem {
 }
 
 impl Parse for EndpointList {
-    fn parse(input: ParseStream) -> SynResult<Self> {
+    fn parse(input: ParseStream) -> syn2::Result<Self> {
         let items = Punctuated::<EndpointItem, Token![,]>::parse_terminated(input)?;
         let mut seen_arg_counts = Vec::new();
         for item in &items {
@@ -138,7 +132,7 @@ impl Parse for EndpointList {
                 | EndpointItem::ArgCount(arg_count) => {
                     let curr_count = arg_count.base10_parse::<u8>()?;
                     if seen_arg_counts.contains(&curr_count) {
-                        return Err(syn::Error::new_spanned(
+                        return Err(syn2::Error::new_spanned(
                             arg_count.token(),
                             "argument counts for all endpoints should be distinct",
                         ));
@@ -153,7 +147,7 @@ impl Parse for EndpointList {
 }
 
 impl Parse for EndpointItem {
-    fn parse(input: ParseStream) -> SynResult<Self> {
+    fn parse(input: ParseStream) -> syn2::Result<Self> {
         let lookahead = input.lookahead1();
         if lookahead.peek(LitInt) {
             input.parse().map(EndpointItem::ArgCount)
