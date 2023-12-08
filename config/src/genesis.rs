@@ -1,12 +1,12 @@
 //! Module with genesis configuration logic.
-use iroha_config_base::derive::{view, Documented, Proxy};
+use iroha_config_base::derive::{view, Proxy};
 use iroha_crypto::{PrivateKey, PublicKey};
 use serde::{Deserialize, Serialize};
 
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration of the genesis block and the process of its submission.
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize,  Proxy)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_GENESIS_")]
     pub struct Configuration {

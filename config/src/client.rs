@@ -4,7 +4,7 @@ use std::num::NonZeroU64;
 
 use derive_more::Display;
 use eyre::{Result, WrapErr};
-use iroha_config_base::derive::{Documented, Error as ConfigError, Proxy};
+use iroha_config_base::derive::{Error as ConfigError, Proxy};
 use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, transaction::TransactionLimits};
 use iroha_primitives::small::SmallStr;
@@ -56,7 +56,7 @@ impl<'de> Deserialize<'de> for WebLogin {
 }
 
 /// Basic Authentication credentials
-#[derive(Clone, Deserialize, Serialize, Debug, Documented, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
 pub struct BasicAuth {
     /// Login for Basic Authentication
     pub web_login: WebLogin,
@@ -65,7 +65,7 @@ pub struct BasicAuth {
 }
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
-#[derive(Debug, Clone, Deserialize, Serialize, Proxy, Documented, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, Proxy, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_")]
 pub struct Configuration {

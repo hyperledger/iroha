@@ -2,7 +2,6 @@
 use std::{fmt::Debug, path::Path};
 
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
-use serde_json::Value;
 
 pub mod derive {
     //! Derives for configuration entities
@@ -99,34 +98,6 @@ pub mod derive {
     /// assert_eq!(outer, outer_proxy.build().unwrap());
     /// ```
     pub use iroha_config_derive::Builder;
-    /// Derive macro for implementing the trait
-    /// [`iroha_config::base::proxy::Documented`](`crate::proxy::Documented`)
-    /// for config structures.
-    ///
-    /// Even though this macro doesn't own any attributes, as of now
-    /// it relies on the `#[config]` attribute defined by the
-    /// [`iroha_config::base::derive::Override`](`crate::derive::Override`)
-    /// macro.  As such, `#[config(env_prefix = ...)]` is required for
-    /// generating documentation, and `#[config(inner)]` for getting
-    /// inner fields recursively.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use iroha_config_base::derive::Documented;
-    /// use iroha_config_base::proxy::Documented as _;
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, Documented)]
-    /// struct Outer { #[config(inner)] inner: Inner }
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, Documented)]
-    /// struct Inner { b: String }
-    ///
-    /// let outer = Outer { inner: Inner { b: "a".to_owned() }};
-    ///
-    /// assert_eq!(outer.get_recursive(["inner", "b"]).unwrap(), "a");
-    /// ```
-    pub use iroha_config_derive::Documented;
     /// Derive macro for implementing the trait
     /// [`iroha_config::base::proxy::LoadFromDisk`](`crate::proxy::LoadFromDisk`)
     /// trait for config structures.
@@ -272,37 +243,9 @@ pub mod derive {
     /// (via [`iroha_config_base::proxy::Builder`](`crate::proxy::Builder`)
     /// trait) and ways to combine two proxies together (via
     /// [`iroha_config_base::proxy::Override`](`crate::proxy::Override`)).
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use iroha_config_base::derive::{Documented, Proxy};
-    ///
-    /// // Need `Documented` here as it owns the `#[config]` attribute
-    /// #[derive(serde::Deserialize, serde::Serialize, Documented, Proxy)]
-    /// struct Outer { #[config(inner)] inner: Inner }
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, Documented, Proxy)]
-    /// struct Inner { b: String }
-    ///
-    /// // Will generate something like this
-    /// // #[derive(Debug, Clone, serde::Deserialize, serde::Serialize,
-    /// //   Builder, Override, Documented, LoadFromEnv, LoadFromDisk)]
-    /// // #[builder(parent = Outer)]
-    /// // struct OuterProxy { #[config(inner)] inner: Option<InnerProxy> }
-    ///
-    /// // #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize,
-    /// //   Builder, Override, Documented, LoadFromEnv, LoadFromDisk)]
-    /// // struct InnerProxy { b: Option<String> }
-    /// ```
     pub use iroha_config_derive::Proxy;
     use serde::Deserialize;
     use thiserror::Error;
-
-    // TODO: use VERGEN to point to LTS reference on LTS branch
-    /// Reference to the current Dev branch configuration
-    pub static CONFIG_REFERENCE: &str =
-        "https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/config.md";
 
     /// Represents a path to a nested field in a config structure
     #[derive(Debug, Deserialize)]
@@ -322,14 +265,9 @@ pub mod derive {
     #[ignore_extra_doc_attributes]
     #[allow(clippy::enum_variant_names)]
     pub enum Error {
-        /// Got unknown field: `{0}`
-        ///
-        /// Used in [`Documented`] trait for wrong query errors
-        UnknownField(Field),
-
         /// Failed to deserialize the field `{field}`
         ///
-        /// Used in [`Documented`] and [`super::proxy::LoadFromEnv`] trait for deserialization
+        /// Used in [`super::proxy::LoadFromEnv`] trait for deserialization
         /// errors
         #[serde(skip)]
         FieldDeserialization {
@@ -408,14 +346,6 @@ pub mod derive {
             }
         }
     }
-
-    #[test]
-    fn unknown_field_fmt() {
-        assert_eq!(
-            Error::UnknownField(Field(vec!["a".into(), "b".into()])).to_string(),
-            "Got unknown field: `a.b`"
-        );
-    }
 }
 
 pub mod view {
@@ -449,81 +379,6 @@ pub mod proxy {
     //! Module with traits for configuration proxies
 
     use super::*;
-
-    /// Trait for dynamic and asynchronous configuration via
-    /// maintenance endpoint for Rust structures
-    pub trait Documented: Serialize + DeserializeOwned {
-        /// Error type returned by methods of this trait
-        type Error;
-
-        /// Return documentation for all fields in a form of a JSON object
-        fn get_docs() -> Value;
-
-        /// Get inner documentation for non-leaf fields
-        fn get_inner_docs() -> String;
-
-        /// Return the JSON value of a given field
-        ///
-        /// # Errors
-        /// Fails if field was unknown
-        #[inline]
-        fn get(&self, field: &'_ str) -> Result<Value, Self::Error> {
-            self.get_recursive([field])
-        }
-
-        /// Get documentation of a given field
-        ///
-        /// # Errors
-        /// Fails if field was unknown
-        #[inline]
-        fn get_doc(field: &str) -> Result<Option<String>, Self::Error> {
-            Self::get_doc_recursive([field])
-        }
-
-        /// Return the JSON value of a given inner field of arbitrary
-        /// inner depth
-        ///
-        /// # Errors
-        /// Fails if field was unknown
-        fn get_recursive<'tl, T>(&self, inner_field: T) -> Result<Value, Self::Error>
-        where
-            T: AsRef<[&'tl str]> + Send + 'tl;
-
-        #[allow(single_use_lifetimes)] // Unstable
-        /// Get documentation of a given inner field of arbitrary depth
-        ///
-        /// # Errors
-        /// Fails if field was unknown
-        fn get_doc_recursive<'tl>(
-            field: impl AsRef<[&'tl str]>,
-        ) -> Result<Option<String>, Self::Error>;
-    }
-
-    impl<T: Documented> Documented for Box<T> {
-        type Error = T::Error;
-
-        fn get_docs() -> Value {
-            T::get_docs()
-        }
-
-        fn get_inner_docs() -> String {
-            T::get_inner_docs()
-        }
-
-        fn get_recursive<'tl, U>(&self, inner_field: U) -> Result<Value, Self::Error>
-        where
-            U: AsRef<[&'tl str]> + Send + 'tl,
-        {
-            T::get_recursive(self, inner_field)
-        }
-
-        #[allow(single_use_lifetimes)] // False-positive
-        fn get_doc_recursive<'tl>(
-            field: impl AsRef<[&'tl str]>,
-        ) -> Result<Option<String>, Self::Error> {
-            T::get_doc_recursive(field)
-        }
-    }
 
     /// Trait for combining two configuration instances
     pub trait Override: Serialize + DeserializeOwned + Sized {

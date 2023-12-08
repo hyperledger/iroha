@@ -25,9 +25,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - name: Check config.md
-        if: always()
-        run: ./scripts/tests/consistency.sh docs
       - name: Check genesis.json
         if: always()
         run: ./scripts/tests/consistency.sh genesis
