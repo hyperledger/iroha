@@ -328,9 +328,8 @@ impl LimitsExecutor {
 pub mod state {
     //! All supported states for [`Runtime`](super::Runtime)
 
-    use std::collections::HashSet;
-
     use derive_more::Constructor;
+    use indexmap::IndexSet;
 
     use super::*;
 
@@ -360,7 +359,7 @@ pub mod state {
         pub(super) store_limits: StoreLimits,
         /// Span inside of which all logs are recorded for this smart contract
         pub(super) log_span: Span,
-        pub(super) executed_queries: HashSet<QueryId>,
+        pub(super) executed_queries: IndexSet<QueryId>,
         /// Borrowed [`WorldStateView`] kind
         pub(super) wsv: W,
         /// Concrete state for specific executable
@@ -380,14 +379,14 @@ pub mod state {
                 authority,
                 store_limits: store_limits_from_config(&config),
                 log_span,
-                executed_queries: HashSet::new(),
+                executed_queries: IndexSet::new(),
                 wsv,
                 specific_state,
             }
         }
 
         /// Take executed queries leaving an empty set
-        pub fn take_executed_queries(&mut self) -> HashSet<QueryId> {
+        pub fn take_executed_queries(&mut self) -> IndexSet<QueryId> {
             std::mem::take(&mut self.executed_queries)
         }
     }

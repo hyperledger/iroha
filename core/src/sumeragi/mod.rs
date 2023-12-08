@@ -110,7 +110,10 @@ impl SumeragiHandle {
     pub fn update_metrics(&self) -> Result<()> {
         let online_peers_count: u64 = self
             .network
-            .online_peers(std::collections::HashSet::len)
+            .online_peers(
+                #[allow(clippy::disallowed_types)]
+                std::collections::HashSet::len,
+            )
             .try_into()
             .expect("casting usize to u64");
 
