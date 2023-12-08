@@ -18,14 +18,13 @@ New to our project? [Make your first contribution](#your-first-code-contribution
 
 ### TL;DR
 
-* Find [ZenHub](https://app.zenhub.com/workspaces/iroha-v2-60ddb820813b9100181fc060/board?repos=181739240).
-* Fork [Iroha](https://github.com/hyperledger/iroha/tree/iroha2-dev).
-* Fix your issue of choice.
-* Ensure you follow our [style guides](#style-guides) for code and documentation.
-* Write [tests](https://doc.rust-lang.org/cargo/commands/cargo-test.html). Ensure they all pass (`cargo test`).
-* Fix [`clippy`](https://lib.rs/crates/cargo-lints) warnings: `cargo lints clippy --workspace --benches --tests --examples --all-features`.
-* Format code `cargo +nightly fmt --all` and generate docs `cargo run --bin kagami -- docs >"docs/source/references/config.md" && git add "docs/source/references/config.md"`.
-* With the `upstream` set to track [Hyperledger Iroha repository](https://github.com/hyperledger/iroha), `git pull -r upstream iroha2-dev`, `git commit -s`, `git push <your-fork>`, and [create a pull request](https://github.com/hyperledger/iroha/compare) to the `iroha2-dev` branch. Ensure the PR has the `[type] #<issue number>: Description` [title](#pull-request-titles).
+- Find [ZenHub](https://app.zenhub.com/workspaces/iroha-v2-60ddb820813b9100181fc060/board?repos=181739240).
+- Fork [Iroha](https://github.com/hyperledger/iroha/tree/iroha2-dev).
+- Fix your issue of choice.
+- Ensure you follow our [style guides](#style-guides) for code and documentation.
+- Write [tests](https://doc.rust-lang.org/cargo/commands/cargo-test.html). Ensure they all pass (`cargo test --workspace`).
+- Perform pre-commit routine like formatting & artifacts regeneration (see [`pre-commit.sample`](./hooks/pre-commit.sample))
+- With the `upstream` set to track [Hyperledger Iroha repository](https://github.com/hyperledger/iroha), `git pull -r upstream iroha2-dev`, `git commit -s`, `git push <your-fork>`, and [create a pull request](https://github.com/hyperledger/iroha/compare) to the `iroha2-dev` branch. Ensure the PR has the `[type] #<issue number>: Description` [title](#pull-request-titles).
 
 ### Reporting Bugs
 

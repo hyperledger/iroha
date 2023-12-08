@@ -2,7 +2,7 @@
 //! configuration, as well as run-time reloading of the log-level.
 use core::fmt::Debug;
 
-use iroha_config_base::derive::{Documented, Proxy};
+use iroha_config_base::derive::Proxy;
 pub use iroha_data_model::Level;
 #[cfg(feature = "tokio-console")]
 use iroha_primitives::addr::{socket_addr, SocketAddr};
@@ -23,7 +23,7 @@ pub fn into_tracing_level(level: Level) -> tracing::Level {
 }
 
 /// 'Logger' configuration.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy, Documented)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "LOG_")]
 // `tokio_console_addr` is not `Copy`, but warning appears without `tokio-console` feature

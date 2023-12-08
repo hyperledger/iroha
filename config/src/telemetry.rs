@@ -1,12 +1,12 @@
 //! Module for telemetry-related configuration and structs.
 use std::path::PathBuf;
 
-use iroha_config_base::derive::{Documented, Proxy};
+use iroha_config_base::derive::Proxy;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
 /// Configuration parameters container
-#[derive(Clone, Deserialize, Serialize, Debug, Proxy, Documented, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, Debug, Proxy, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "TELEMETRY_")]
 pub struct Configuration {

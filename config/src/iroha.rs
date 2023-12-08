@@ -1,7 +1,7 @@
 //! This module contains [`struct@Configuration`] structure and related implementation.
 use std::fmt::Debug;
 
-use iroha_config_base::derive::{view, Documented, Error as ConfigError, Proxy};
+use iroha_config_base::derive::{view, Error as ConfigError, Proxy};
 use iroha_crypto::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,7 @@ use super::*;
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration parameters for a peer
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy, Documented)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_")]
     pub struct Configuration {

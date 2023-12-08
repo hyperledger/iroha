@@ -157,9 +157,7 @@ A brief overview on how to configure and maintain an Iroha instance:
 
 ### Configuration
 
-You can provide configuration parameters either as a `config.json` or using environment variables. Refer to the [detailed list](./docs/source/references/config.md) of all available configuration parameters.
-
-Configuration example you may use as a reference point: [cli/src/samples.rs](./cli/src/samples.rs)
+**Note:** this section is under development. You can track it in the [issue](https://github.com/hyperledger/iroha-2-docs/issues/392).
 
 ### Endpoints
 
@@ -169,7 +167,7 @@ For a list of all endpoints, available operations, and ways to customize them wi
 
 By default, Iroha provides logs in a human-readable format and prints them out to `stdout`.
 
-The logging level can be changed either via the [`logger.level` configuration parameter](./docs/source/references/config.md#loggerlevel) or at run-time using the `configuration` endpoint.
+The logging level can be changed either via the `logger.level` configuration parameter or at run-time using the `configuration` endpoint.
 
 <details><summary>Example: changing log level</summary>
 
@@ -182,7 +180,7 @@ curl -X POST \
 ```
 </details>
 
-The log format might be configured via the [`logger.format` configuration parameter](./docs/source/references/config.md#loggerformat). Possible values are: `full` (default), `compact`, `pretty`, and `json`.
+The log format might be configured via the `logger.format` configuration parameter. Possible values are: `full` (default), `compact`, `pretty`, and `json`.
 
 Output goes to `/dev/stdout`. Piping to files or [log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the responsibility of the peer administrator.
 
@@ -218,7 +216,7 @@ We encourage you to check out our [Iroha 2 Tutorial](https://hyperledger.github.
   * [Glossary](https://hyperledger.github.io/iroha-2-docs/guide/glossary)
   * [Iroha Special Instructions](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/instructions)
   * [API Reference](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints)
-* [Configuration Reference](./docs/source/references/config.md)
+<!-- * [Configuration Reference](./docs/source/references/config.md) -->
 * [Iroha 2 Whitepaper](./docs/source/iroha_2_whitepaper.md)
 
 Iroha SDKs:

@@ -1,13 +1,13 @@
 //! Module for kura-related configuration and structs
 
 use eyre::Result;
-use iroha_config_base::derive::{Documented, Proxy};
+use iroha_config_base::derive::Proxy;
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_BLOCK_STORE_PATH: &str = "./storage";
 
 /// `Kura` configuration.
-#[derive(Clone, Deserialize, Serialize, Debug, Documented, Proxy, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, Debug, Proxy, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "KURA_")]
 pub struct Configuration {

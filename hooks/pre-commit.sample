@@ -2,7 +2,6 @@
 set -e
 cargo +nightly fmt --all -- --check
 cargo +nightly lints clippy --workspace --benches --tests --examples --all-features
-cargo run --bin kagami -- docs >docs/source/references/config.md
 cargo run --bin kagami -- genesis >configs/peer/genesis.json
 cargo run --bin kagami -- schema >docs/source/references/schema.json
-git add docs/source/references/config.md configs/peer/genesis.json docs/source/references/schema.json
+git add configs/peer/genesis.json docs/source/references/schema.json

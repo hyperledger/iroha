@@ -1,5 +1,5 @@
 //! Module for wasm-related configuration and structs.
-use iroha_config_base::derive::{Documented, Proxy};
+use iroha_config_base::derive::Proxy;
 use serde::{Deserialize, Serialize};
 
 use self::default::*;
@@ -13,7 +13,7 @@ pub mod default {
 }
 
 /// `WebAssembly Runtime` configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Proxy)]
 #[config(env_prefix = "WASM_")]
 #[serde(rename_all = "UPPERCASE")]
 pub struct Configuration {

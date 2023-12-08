@@ -2,11 +2,6 @@
 set -e
 
 case $1 in
-    "docs")
-        cargo run --release --bin kagami -- docs | diff - docs/source/references/config.md || {
-            echo 'Please re-generate docs using `cargo run --release --bin kagami -- docs > docs/source/references/config.md`'
-            exit 1
-        };;
     "genesis")
         cargo run --release --bin kagami -- genesis --executor-path-in-genesis ./executor.wasm | diff - configs/peer/genesis.json || {
             echo 'Please re-generate the genesis with `cargo run --release --bin kagami -- genesis --executor-path-in-genesis ./executor.wasm > configs/peer/genesis.json`'
