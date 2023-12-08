@@ -23,7 +23,7 @@ fn main() -> Result<ExitCode> {
     };
     // Modules can be compiled through either the text or binary format
     let engine = Engine::default();
-    let module = Module::from_file(&engine, &file)?;
+    let module = Module::from_file(&engine, file)?;
     let mut tests = Vec::new();
     for export in module.exports() {
         if let Some(name) = export.name().strip_prefix("$webassembly-test$") {

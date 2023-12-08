@@ -269,7 +269,7 @@ impl QueryOutputCursor<Value> {
     /// May fail due to the same reasons [`QueryOutputCursorIterator`] can fail to iterate.
     pub fn collect(self) -> Result<Value, QueryOutputCursorError<Vec<Value>>> {
         let Value::Vec(v) = self.batch else {
-            return Ok(self.batch)
+            return Ok(self.batch);
         };
 
         // Making sure we received all values

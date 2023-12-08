@@ -15,9 +15,9 @@ use serde_json::json;
 
 use super::*;
 
-const INLINED_EXECUTOR_WARNING: &str = r#"WARN: You're using genesis with inlined executor.
+const INLINED_EXECUTOR_WARNING: &str = r"WARN: You're using genesis with inlined executor.
 Consider specifying a separate executor file using `--executor-path-in-genesis` instead.
-Use `--help` for more information."#;
+Use `--help` for more information.";
 
 #[derive(Parser, Debug, Clone)]
 #[clap(group = ArgGroup::new("executor").required(true))]

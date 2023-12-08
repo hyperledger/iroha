@@ -11,11 +11,11 @@ use serde::{Deserialize, Serialize};
 struct ConfigurationProxy {
     /// Inner structure
     #[config(inner)]
-    optional_inner: Option<InnerConfigurationProxy>,
+    inner: Option<InnerConfigurationProxy>,
     #[config(serde_as_str)]
-    pub optional_string_wrapper: Option<StringWrapper>,
-    pub optional_string: Option<String>,
-    pub optional_data: Option<Data>,
+    pub string_wrapper: Option<StringWrapper>,
+    pub string: Option<String>,
+    pub data: Option<Data>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Documented)]
@@ -33,13 +33,13 @@ struct Configuration {
 impl ConfigurationProxy {
     fn new_with_placeholders() -> Self {
         Self {
-            optional_inner: Some(InnerConfigurationProxy {
+            inner: Some(InnerConfigurationProxy {
                 a: Some("string".to_owned()),
                 b: Some(42),
             }),
-            optional_string_wrapper: Some(StringWrapper("string".to_owned())),
-            optional_string: Some("cool string".to_owned()),
-            optional_data: Some(Data {
+            string_wrapper: Some(StringWrapper("string".to_owned())),
+            string: Some("cool string".to_owned()),
+            data: Some(Data {
                 key: "key".to_owned(),
                 value: 34,
             }),
@@ -48,10 +48,10 @@ impl ConfigurationProxy {
 
     fn new_with_none() -> Self {
         Self {
-            optional_inner: None,
-            optional_string_wrapper: None,
-            optional_string: None,
-            optional_data: None,
+            inner: None,
+            string_wrapper: None,
+            string: None,
+            data: None,
         }
     }
 }
@@ -157,13 +157,10 @@ fn test_env_factory() -> TestEnv {
 fn test_proxy_load_from_env() {
     let config = ConfigurationProxy::new_with_placeholders();
     let env_config = ConfigurationProxy::from_env(&test_env_factory()).expect("valid env");
-    assert_eq!(&env_config.optional_data, &config.optional_data);
-    assert_eq!(
-        &env_config.optional_string_wrapper,
-        &config.optional_string_wrapper
-    );
-    assert_eq!(&env_config.optional_string, &config.optional_string);
-    assert_eq!(&env_config.optional_inner, &config.optional_inner);
+    assert_eq!(&env_config.data, &config.data);
+    assert_eq!(&env_config.string_wrapper, &config.string_wrapper);
+    assert_eq!(&env_config.string, &config.string);
+    assert_eq!(&env_config.inner, &config.inner);
 }
 
 #[test]
@@ -172,7 +169,7 @@ fn test_can_load_inner_without_the_wrapping_config() {
     env.remove_var("CONF_OPTIONAL_INNER");
     let config = ConfigurationProxy::new_with_placeholders();
     let env_config = ConfigurationProxy::from_env(&env).expect("valid env");
-    assert_eq!(&env_config.optional_inner, &config.optional_inner);
+    assert_eq!(&env_config.inner, &config.inner);
 }
 
 #[test]
@@ -180,7 +177,7 @@ fn test_proxy_combine_does_not_overload_with_none() {
     let config = ConfigurationProxy::new_with_none();
     let env_config = ConfigurationProxy::from_env(&test_env_factory()).expect("valid env");
     let combine_config = env_config.clone().override_with(config);
-    assert_eq!(&env_config.optional_data, &combine_config.optional_data);
+    assert_eq!(&env_config.data, &combine_config.data);
 }
 
 #[test]
@@ -205,5 +202,5 @@ fn configuration_proxy_from_env_returns_err_on_parsing_error() {
 
     let err = Target::from_env(&Env).expect_err("Must not be parsed");
     let err = eyre::Report::new(err);
-    assert_eq!(format!("{err:?}"), "Failed to deserialize the field `FOO`\n\nCaused by:\n    JSON5:  --> 1:1\n      |\n    1 | not u64 for sure\n      | ^---\n      |\n      = expected array, boolean, null, number, object, or string\n\nLocation:\n    config/base/tests/simple.rs:207:15");
+    assert_eq!(format!("{err:?}"), "Failed to deserialize the field `FOO`\n\nCaused by:\n    JSON5:  --> 1:1\n      |\n    1 | not u64 for sure\n      | ^---\n      |\n      = expected array, boolean, null, number, object, or string\n\nLocation:\n    config/base/tests/simple.rs:204:15");
 }

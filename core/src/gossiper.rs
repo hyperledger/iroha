@@ -79,7 +79,7 @@ impl TransactionGossiper {
         loop {
             tokio::select! {
                 _ = gossip_period.tick() => self.gossip_transactions(),
-                _ = self.sumeragi.wsv_updated() => {
+                () = self.sumeragi.wsv_updated() => {
                     self.wsv = self.sumeragi.wsv_clone();
                 }
                 transaction_gossip = message_receiver.recv() => {
@@ -118,7 +118,7 @@ impl TransactionGossiper {
 
             match AcceptedTransaction::accept(tx, transaction_limits) {
                 Ok(tx) => match self.queue.push(tx, &self.wsv) {
-                    Ok(_) => {}
+                    Ok(()) => {}
                     Err(crate::queue::Failure {
                         tx,
                         err: crate::queue::Error::InBlockchain,

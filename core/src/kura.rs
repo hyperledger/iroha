@@ -165,7 +165,7 @@ impl Kura {
             let mut block_data_buffer = vec![0_u8; block.length.try_into()?];
 
             match block_store.read_block_data(block.start, &mut block_data_buffer) {
-                Ok(_) => match SignedBlock::decode_all_versioned(&block_data_buffer) {
+                Ok(()) => match SignedBlock::decode_all_versioned(&block_data_buffer) {
                     Ok(decoded_block) => {
                         if previous_block_hash != decoded_block.payload().header.previous_block_hash
                         {
@@ -416,7 +416,7 @@ impl BlockStore {
                             .map_err(|e| Error::MkDir(e, store_path.to_path_buf()))
                         {
                             Err(e) => Err(e),
-                            Ok(_) => {
+                            Ok(()) => {
                                 if let Err(e) = fs::File::options()
                                     .read(true)
                                     .write(true)
@@ -560,7 +560,7 @@ impl BlockStore {
                 hashes_file
                     .read_exact(&mut buffer)
                     .add_err_context(&path)
-                    .and_then(|_| HashOf::decode_all(&mut buffer.as_slice()).map_err(Error::Codec))
+                    .and_then(|()| HashOf::decode_all(&mut buffer.as_slice()).map_err(Error::Codec))
             })
             .collect()
     }
@@ -1036,7 +1036,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "Kura must be able to lock the blockstore")]
     fn concurrent_lock() {
         let dir = tempfile::tempdir().unwrap();
         let _store = BlockStore::new(dir.path(), LockStatus::Unlocked);

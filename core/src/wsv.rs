@@ -561,7 +561,7 @@ impl WorldStateView {
                 }
                 let wsv = self.clone();
                 let event = match self.process_trigger(&id, &action, event) {
-                    Ok(_) => {
+                    Ok(()) => {
                         succeed.push(id.clone());
                         TriggerCompletedEvent::new(id, TriggerCompletedOutcome::Success)
                     }

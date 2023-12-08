@@ -81,7 +81,7 @@ mod ecdsa_secp256k1 {
         pub fn sign(message: &[u8], sk: &PrivateKey) -> Result<Vec<u8>, Error> {
             assert_eq!(sk.digest_function, ALGORITHM);
             let signing_key = k256::SecretKey::from_slice(&sk.payload[..])
-                .map_err(|e| Error::Signing(format!("{:?}", e)))?;
+                .map_err(|e| Error::Signing(format!("{e:?}")))?;
             let signing_key = k256::ecdsa::SigningKey::from(signing_key);
 
             let signature: k256::ecdsa::Signature = signing_key.sign(message);
@@ -91,9 +91,9 @@ mod ecdsa_secp256k1 {
         pub fn verify(message: &[u8], signature: &[u8], pk: &PublicKey) -> Result<bool, Error> {
             let compressed_pk = Self::public_key_compressed(pk);
             let verifying_key = k256::PublicKey::from_sec1_bytes(&compressed_pk)
-                .map_err(|e| Error::Signing(format!("{:?}", e)))?;
+                .map_err(|e| Error::Signing(format!("{e:?}")))?;
             let signature = k256::ecdsa::Signature::from_slice(signature)
-                .map_err(|e| Error::Signing(format!("{:?}", e)))?;
+                .map_err(|e| Error::Signing(format!("{e:?}")))?;
 
             let verifying_key = k256::ecdsa::VerifyingKey::from(verifying_key);
 

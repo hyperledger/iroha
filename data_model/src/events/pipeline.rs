@@ -276,10 +276,10 @@ mod tests {
             ],
             events
                 .iter()
-                .cloned()
-                .filter(|event| PipelineEventFilter::new()
+                .filter(|&event| PipelineEventFilter::new()
                     .hash(Hash::prehashed([0_u8; Hash::LENGTH]))
                     .matches(event))
+                .cloned()
                 .collect::<Vec<PipelineEvent>>()
         );
         assert_eq!(
@@ -290,10 +290,10 @@ mod tests {
             }],
             events
                 .iter()
-                .cloned()
-                .filter(|event| PipelineEventFilter::new()
+                .filter(|&event| PipelineEventFilter::new()
                     .entity_kind(PipelineEntityKind::Block)
                     .matches(event))
+                .cloned()
                 .collect::<Vec<PipelineEvent>>()
         );
         assert_eq!(
@@ -304,19 +304,19 @@ mod tests {
             }],
             events
                 .iter()
-                .cloned()
-                .filter(|event| PipelineEventFilter::new()
+                .filter(|&event| PipelineEventFilter::new()
                     .entity_kind(PipelineEntityKind::Transaction)
                     .hash(Hash::prehashed([2_u8; Hash::LENGTH]))
                     .matches(event))
+                .cloned()
                 .collect::<Vec<PipelineEvent>>()
         );
         assert_eq!(
             events,
             events
                 .iter()
+                .filter(|&event| PipelineEventFilter::new().matches(event))
                 .cloned()
-                .filter(|event| PipelineEventFilter::new().matches(event))
                 .collect::<Vec<PipelineEvent>>()
         )
     }

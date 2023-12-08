@@ -357,7 +357,9 @@ pub fn extract_box_generic(box_seg: &mut syn::PathSegment) -> &mut syn::Type {
         generics.args.len() == 1,
         "`Box` should have exactly one generic argument"
     );
-    let syn::GenericArgument::Type(generic_type) = generics.args.first_mut().expect("Can't be empty") else {
+    let syn::GenericArgument::Type(generic_type) =
+        generics.args.first_mut().expect("Can't be empty")
+    else {
         panic!("`Box` should have type as a generic argument")
     };
 

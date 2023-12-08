@@ -92,7 +92,7 @@ macro_rules! impl_as_dyn_key {
 
         impl PartialOrd for dyn $trait + '_ {
             fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
-                self.as_key().partial_cmp(&other.as_key())
+                Some(self.cmp(other))
             }
         }
 

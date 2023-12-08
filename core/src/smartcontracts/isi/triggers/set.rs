@@ -175,7 +175,7 @@ impl<F: Clone + Serialize> Serialize for TriggersWithContext<'_, F> {
         S: Serializer,
     {
         let mut map = serializer.serialize_map(Some(self.triggers.len()))?;
-        for (id, action) in self.triggers.iter() {
+        for (id, action) in self.triggers {
             let action = self.set.get_original_action(action.clone());
             map.serialize_entry(&id, &action)?;
         }

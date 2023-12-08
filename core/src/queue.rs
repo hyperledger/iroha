@@ -46,9 +46,9 @@ impl AcceptedTransaction {
 #[derive(Debug)]
 pub struct Queue {
     /// The queue for transactions
-    queue: ArrayQueue<HashOf<TransactionPayload>>,
+    tx_hashes: ArrayQueue<HashOf<TransactionPayload>>,
     /// [`AcceptedTransaction`]s addressed by `Hash`
-    txs: DashMap<HashOf<TransactionPayload>, AcceptedTransaction>,
+    accepted_txs: DashMap<HashOf<TransactionPayload>, AcceptedTransaction>,
     /// Amount of transactions per user in the queue
     txs_per_user: DashMap<AccountId, usize>,
     /// The maximum number of transactions in the queue
@@ -99,8 +99,8 @@ impl Queue {
     /// Makes queue from configuration
     pub fn from_configuration(cfg: &Configuration) -> Self {
         Self {
-            queue: ArrayQueue::new(cfg.max_transactions_in_queue as usize),
-            txs: DashMap::new(),
+            tx_hashes: ArrayQueue::new(cfg.max_transactions_in_queue as usize),
+            accepted_txs: DashMap::new(),
             txs_per_user: DashMap::new(),
             max_txs: cfg.max_transactions_in_queue as usize,
             max_txs_per_user: cfg.max_transactions_in_queue_per_user as usize,
@@ -140,7 +140,7 @@ impl Queue {
         &'wsv self,
         wsv: &'wsv WorldStateView,
     ) -> impl Iterator<Item = AcceptedTransaction> + 'wsv {
-        self.txs.iter().filter_map(|tx| {
+        self.accepted_txs.iter().filter_map(|tx| {
             if self.is_pending(tx.value(), wsv) {
                 return Some(tx.value().clone());
             }
@@ -151,7 +151,7 @@ impl Queue {
 
     /// Returns `n` randomly selected transaction from the queue.
     pub fn n_random_transactions(&self, n: u32, wsv: &WorldStateView) -> Vec<AcceptedTransaction> {
-        self.txs
+        self.accepted_txs
             .iter()
             .filter(|e| self.is_pending(e.value(), wsv))
             .map(|e| e.value().clone())
@@ -193,9 +193,9 @@ impl Queue {
         }
 
         // Get `txs_len` before entry to avoid deadlock
-        let txs_len = self.txs.len();
+        let txs_len = self.accepted_txs.len();
         let hash = tx.payload().hash();
-        let entry = match self.txs.entry(hash) {
+        let entry = match self.accepted_txs.entry(hash) {
             Entry::Occupied(mut old_tx) => {
                 // MST case
                 let signatures_amount_before = old_tx.get().signatures().len();
@@ -226,10 +226,10 @@ impl Queue {
 
         // Insert entry first so that the `tx` popped from `queue` will always have a `(hash, tx)` record in `txs`.
         entry.insert(tx);
-        self.queue.push(hash).map_err(|err_hash| {
+        self.tx_hashes.push(hash).map_err(|err_hash| {
             warn!("Queue is full");
             let (_, err_tx) = self
-                .txs
+                .accepted_txs
                 .remove(&err_hash)
                 .expect("Inserted just before match");
             self.decrease_per_user_tx_count(&err_tx.payload().authority);
@@ -238,7 +238,7 @@ impl Queue {
                 err: Error::Full,
             }
         })?;
-        trace!("Transaction queue length = {}", self.queue.len(),);
+        trace!("Transaction queue length = {}", self.tx_hashes.len(),);
         Ok(())
     }
 
@@ -250,10 +250,10 @@ impl Queue {
         expired_transactions: &mut Vec<AcceptedTransaction>,
     ) -> Option<AcceptedTransaction> {
         loop {
-            let Some(hash) = self.queue.pop() else {
+            let Some(hash) = self.tx_hashes.pop() else {
                 return None;
             };
-            let entry = match self.txs.entry(hash) {
+            let entry = match self.accepted_txs.entry(hash) {
                 Entry::Occupied(entry) => entry,
                 // FIXME: Reachable under high load. Investigate, see if it's a problem.
                 // As practice shows this code is not `unreachable!()`.
@@ -288,7 +288,7 @@ impl Queue {
 
     /// Return the number of transactions in the queue.
     pub fn tx_len(&self) -> usize {
-        self.txs.len()
+        self.accepted_txs.len()
     }
 
     /// Gets transactions till they fill whole block or till the end of queue.
@@ -335,7 +335,7 @@ impl Queue {
 
         seen_queue
             .into_iter()
-            .try_for_each(|hash| self.queue.push(hash))
+            .try_for_each(|hash| self.tx_hashes.push(hash))
             .expect("Exceeded the number of transactions pending");
         expired_transactions.extend(expired_transactions_queue);
     }
@@ -623,7 +623,7 @@ mod tests {
                 ..
             })
         ));
-        assert_eq!(queue.txs.len(), 0);
+        assert_eq!(queue.accepted_txs.len(), 0);
     }
 
     #[test]
@@ -653,7 +653,7 @@ mod tests {
                 .len(),
             0
         );
-        assert_eq!(queue.txs.len(), 0);
+        assert_eq!(queue.accepted_txs.len(), 0);
     }
 
     #[test]
@@ -850,11 +850,11 @@ mod tests {
         get_txs_handle.join().unwrap();
 
         // Validate the queue state.
-        let array_queue: Vec<_> = core::iter::from_fn(|| queue.queue.pop()).collect();
+        let array_queue: Vec<_> = core::iter::from_fn(|| queue.tx_hashes.pop()).collect();
 
-        assert_eq!(array_queue.len(), queue.txs.len());
+        assert_eq!(array_queue.len(), queue.accepted_txs.len());
         for tx in array_queue {
-            assert!(queue.txs.contains_key(&tx));
+            assert!(queue.accepted_txs.contains_key(&tx));
         }
     }
 
@@ -889,7 +889,7 @@ mod tests {
                 ..
             })
         ));
-        assert_eq!(queue.txs.len(), 1);
+        assert_eq!(queue.accepted_txs.len(), 1);
     }
 
     #[test]
