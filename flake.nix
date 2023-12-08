@@ -154,7 +154,6 @@
           VERGEN_IDEMPOTENT = true;
           VERGEN_GIT_SHA = self.rev or "?dirty tree?";
 
-          # Temporary workaround
         };
     in rec {
       inherit mkIroha;

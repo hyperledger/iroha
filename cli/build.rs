@@ -1,13 +1,8 @@
-//! Build script to extract git hash of iroha build and to check runtime executor
+//! Build script to extract git hash of iroha build
 
 use eyre::{eyre, Result, WrapErr};
 
-const DEFAULT_EXECUTOR_PATH: &str = "../default_executor";
-
 fn main() -> Result<()> {
-    println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed={DEFAULT_EXECUTOR_PATH}");
-
     extract_git_hash()?;
 
     Ok(())
