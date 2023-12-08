@@ -56,7 +56,7 @@ impl BlockSynchronizer {
         loop {
             tokio::select! {
                 _ = gossip_period.tick() => self.request_block().await,
-                _ = self.sumeragi.wsv_updated() => {
+                () = self.sumeragi.wsv_updated() => {
                     let (latest_hash, previous_hash) = self
                         .sumeragi
                         .apply_wsv(|wsv| (wsv.latest_block_hash(), wsv.previous_block_hash()));

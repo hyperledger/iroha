@@ -1593,7 +1593,7 @@ where
     /// # Examples
     ///
     ///
-    /// ```rust
+    /// ```
     /// use std::ops::ControlFlow;
     /// use iroha_data_model::PredicateSymbol;
     ///
@@ -1633,7 +1633,6 @@ where
     ///    }
     /// }
     ///
-    /// #[test]
     /// fn test() {
     ///    let good = Check::Good;
     ///    let bad = Check::Bad("example".to_owned());

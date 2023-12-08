@@ -227,7 +227,6 @@ pub mod prelude {
     pub use super::{
         data_model::{
             executor::{MigrationError, MigrationResult, Result},
-            prelude::*,
             visit::Visit,
             ValidationFail,
         },

@@ -326,13 +326,19 @@ mod tests {
                 .handle_query_output(query_output, &sorting, pagination, fetch_size)
                 .unwrap()
                 .into();
-            let Value::Vec(v) = batch else { panic!("not expected result") };
+            let Value::Vec(v) = batch else {
+                panic!("not expected result")
+            };
             counter += v.len();
 
             while cursor.cursor.is_some() {
-                let Ok(batched) = query_store_handle.handle_query_cursor(cursor) else { break };
+                let Ok(batched) = query_store_handle.handle_query_cursor(cursor) else {
+                    break;
+                };
                 let (batch, new_cursor) = batched.into();
-                let Value::Vec(v) = batch else { panic!("not expected result") };
+                let Value::Vec(v) = batch else {
+                    panic!("not expected result")
+                };
                 counter += v.len();
 
                 cursor = new_cursor;

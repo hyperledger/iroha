@@ -1103,7 +1103,7 @@ impl<'wrld> import::traits::GetExecutorPayloads<state::executor::ValidateTransac
         Validate {
             authority: state.authority.clone(),
             block_height: state.wsv.0.height(),
-            to_validate: state.specific_state.to_validate.clone(),
+            target: state.specific_state.to_validate.clone(),
         }
     }
 
@@ -1189,7 +1189,7 @@ impl<'wrld> import::traits::GetExecutorPayloads<state::executor::ValidateInstruc
         Validate {
             authority: state.authority.clone(),
             block_height: state.wsv.0.height(),
-            to_validate: state.specific_state.to_validate.clone(),
+            target: state.specific_state.to_validate.clone(),
         }
     }
 
@@ -1290,7 +1290,7 @@ impl<'wrld> import::traits::GetExecutorPayloads<state::executor::ValidateQuery<'
         Validate {
             authority: state.authority.clone(),
             block_height: state.wsv.0.height(),
-            to_validate: state.specific_state.to_validate.clone(),
+            target: state.specific_state.to_validate.clone(),
         }
     }
 }

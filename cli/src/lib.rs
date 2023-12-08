@@ -137,7 +137,7 @@ impl NetworkRelay {
             tokio::select! {
                 // Receive message from network
                 Some(msg) = receiver.recv() => self.handle_message(msg).await,
-                _ = self.shutdown_notify.notified() => {
+                () = self.shutdown_notify.notified() => {
                     iroha_logger::info!("NetworkRelay is being shut down.");
                     break;
                 }

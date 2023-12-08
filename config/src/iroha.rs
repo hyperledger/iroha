@@ -268,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "Failed to parse Trusted Peers")]
     fn parse_trusted_peers_fail_duplicate_peer_id() {
         let trusted_peers_string = r#"[{"address":"127.0.0.1:1337", "public_key": "ed0120954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}, {"address":"127.0.0.1:1337", "public_key": "ed0120954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}, {"address":"localhost:1338", "public_key": "ed0120954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}, {"address": "195.162.0.1:23", "public_key": "ed0120954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}]"#;
         let _result: TrustedPeers =

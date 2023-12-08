@@ -63,7 +63,7 @@ impl GenesisNetwork {
         let transactions_iter = std::iter::once(GenesisTransactionBuilder {
             isi: vec![UpgradeExpr::new(Executor::try_from(raw_block.executor)?).into()],
         })
-        .chain(raw_block.transactions.into_iter());
+        .chain(raw_block.transactions);
 
         #[cfg(test)]
         let transactions_iter = raw_block.transactions.into_iter();

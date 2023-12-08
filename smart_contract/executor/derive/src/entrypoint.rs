@@ -112,7 +112,7 @@ fn impl_validate_entrypoint(
         unsafe extern "C" fn #generated_entrypoint_ident() -> *const u8 {
             let payload = ::iroha_executor::#get_validation_payload_fn_ident();
             let verdict: ::iroha_executor::data_model::executor::Result =
-                #fn_name(payload.authority, payload.to_validate, payload.block_height);
+                #fn_name(payload.authority, payload.target, payload.block_height);
             let bytes_box = ::core::mem::ManuallyDrop::new(::iroha_executor::utils::encode_with_length_prefix(&verdict));
 
             bytes_box.as_ptr()

@@ -139,7 +139,7 @@ where
     async fn send_message(&mut self, msg: Message) {
         if let Some(sink) = self.sink.as_mut() {
             match sink.send(msg).await {
-                Ok(_) => {}
+                Ok(()) => {}
                 Err(Error::AlreadyClosed | Error::ConnectionClosed) => {
                     iroha_logger::debug!("Closed connection to telemetry");
                     self.sink = None;
@@ -305,7 +305,7 @@ mod tests {
             let this = Pin::into_inner(self);
             match this.sender.poll_ready(cx) {
                 Poll::Ready(r) => {
-                    let result = (this.before_send)().map(|_| r.expect("failed to send"));
+                    let result = (this.before_send)().map(|()| r.expect("failed to send"));
                     Poll::Ready(result)
                 }
                 Poll::Pending => Poll::Pending,

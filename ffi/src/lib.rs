@@ -329,6 +329,7 @@ macro_rules! ffi_type {
             type Target = $target;
 
             #[inline]
+            #[allow(clippy::redundant_closure_call)]
             unsafe fn is_valid(target: &Self::Target) -> bool {
                 $validity_fn(target)
             }
