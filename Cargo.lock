@@ -223,7 +223,7 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "url",
- "webpki-roots 0.25.2",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -2717,7 +2717,6 @@ dependencies = [
  "tokio-tungstenite",
  "tracing-flame",
  "tracing-subscriber",
- "tungstenite",
  "url",
 ]
 
@@ -5250,9 +5249,9 @@ dependencies = [
 
 [[package]]
 name = "subtle"
-version = "2.5.0"
+version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81cdd64d312baedb58e21336b31bc043b77e01cc99033ce76ef539f78e965ebc"
+checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
 name = "subtle-encoding"
@@ -5573,7 +5572,7 @@ dependencies = [
  "tokio-native-tls",
  "tokio-rustls",
  "tungstenite",
- "webpki-roots 0.25.2",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -5822,12 +5821,10 @@ dependencies = [
  "native-tls",
  "rand 0.8.5",
  "rustls",
- "rustls-native-certs",
  "sha1",
  "thiserror",
  "url",
  "utf-8",
- "webpki-roots 0.24.0",
 ]
 
 [[package]]
@@ -5945,7 +5942,7 @@ dependencies = [
  "rustls",
  "rustls-webpki",
  "url",
- "webpki-roots 0.25.2",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -6533,15 +6530,6 @@ checksum = "45e64391864794db026d27b15cbe6edd3c25864222bd90229dfa1a26ebf30705"
 dependencies = [
  "quote",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b291546d5d9d1eab74f069c77749f2cb8504a12caa20f0f2de93ddbf6f411888"
-dependencies = [
- "rustls-webpki",
 ]
 
 [[package]]
