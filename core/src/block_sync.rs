@@ -84,6 +84,7 @@ impl BlockSynchronizer {
     }
 
     /// Get a random online peer.
+    #[allow(clippy::disallowed_types)]
     pub fn random_peer(peers: &std::collections::HashSet<PeerId>) -> Option<Peer> {
         use rand::{seq::IteratorRandom, SeedableRng};
 

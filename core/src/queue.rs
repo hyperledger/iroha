@@ -1,10 +1,10 @@
 //! Module with queue actor
 use core::time::Duration;
-use std::collections::HashSet;
 
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
 use eyre::{Report, Result};
+use indexmap::IndexSet;
 use iroha_config::queue::Configuration;
 use iroha_crypto::HashOf;
 use iroha_data_model::{account::AccountId, transaction::prelude::*};
@@ -322,7 +322,7 @@ impl Queue {
             self.pop_from_queue(&mut seen_queue, wsv, &mut expired_transactions_queue)
         });
 
-        let transactions_hashes: HashSet<HashOf<TransactionPayload>> =
+        let transactions_hashes: IndexSet<HashOf<TransactionPayload>> =
             transactions.iter().map(|tx| tx.payload().hash()).collect();
         let txs = txs_from_queue
             .filter(|tx| !transactions_hashes.contains(&tx.payload().hash()))
