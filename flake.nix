@@ -155,7 +155,6 @@
           VERGEN_GIT_SHA = self.rev or "?dirty tree?";
 
           # Temporary workaround
-          IROHA_SKIP_WASM_CHECKS = true;
         };
     in rec {
       inherit mkIroha;
@@ -216,7 +215,6 @@
             fenix'.rust-analyzer
           ];
 
-          IROHA_SKIP_WASM_CHECKS = true;
         };
     });
 }
