@@ -1,0 +1,48 @@
+[package]
+name = "iroha_torii"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+description.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Enables Telemetry (i.e. Status, Metrics, and API Version) endpoints
+telemetry = ["iroha_telemetry", "iroha_core/telemetry", "serde_json"]
+# Enables Data Model Schema endpoint
+schema = ["iroha_schema_gen"]
+
+[dependencies]
+iroha_core = { workspace = true }
+iroha_config = { workspace = true }
+iroha_primitives = { workspace = true }
+iroha_logger = { workspace = true }
+iroha_data_model = { workspace = true, features = ["http"] }
+iroha_version = { workspace = true, features = ["http"] }
+iroha_torii_derive = { workspace = true }
+iroha_futures = { workspace = true }
+iroha_macro = { workspace = true }
+iroha_schema_gen = { workspace = true, optional = true }
+iroha_telemetry = { workspace = true, optional = true }
+
+thiserror = { workspace = true }
+displaydoc = { workspace = true }
+futures = { workspace = true, features = ["std", "async-await"] }
+warp = { workspace = true, features = ["multipart", "websocket"] }
+tokio = { workspace = true, features = ["sync", "time", "macros"] }
+eyre = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, optional = true }
+async-trait = { workspace = true }
+parity-scale-codec = { workspace = true, features = ["derive"] }
