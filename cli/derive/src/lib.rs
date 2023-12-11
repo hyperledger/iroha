@@ -1,11 +1,10 @@
 //! Crate with a proc macro for torii endpoint generation
 
-use proc_macro::TokenStream;
-use proc_macro2::Span;
+use manyhow::{manyhow, Result};
+use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn2::{
     parse::{Parse, ParseStream},
-    parse_macro_input,
     punctuated::Punctuated,
     Ident, LitInt, Token,
 };
@@ -50,9 +49,10 @@ use syn2::{
 /// // defaults, such as `endpoint3`.
 /// generate_endpoints!(3, my_endpoint: 2, 4, anotherOne: 5, );
 /// ```
+#[manyhow]
 #[proc_macro]
-pub fn generate_endpoints(input: TokenStream) -> TokenStream {
-    let EndpointList(list) = parse_macro_input!(input as EndpointList);
+pub fn generate_endpoints(input: TokenStream) -> Result<TokenStream> {
+    let EndpointList(list) = syn2::parse2(input)?;
     let lazy_arg_names = (1_u8..).map(|count| {
         Ident::new(
             format!("__endpoint_arg_{count}").as_str(),
@@ -107,10 +107,9 @@ pub fn generate_endpoints(input: TokenStream) -> TokenStream {
         endpoints.push(expanded);
     }
 
-    quote! {
+    Ok(quote! {
         #( #endpoints )*
-    }
-    .into()
+    })
 }
 
 #[derive(Debug)]
