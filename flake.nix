@@ -214,7 +214,6 @@
             fenix'.rust-analyzer
           ];
 
-          IROHA_SKIP_WASM_CHECKS = true;
         };
     });
 }

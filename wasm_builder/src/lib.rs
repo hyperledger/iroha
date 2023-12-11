@@ -27,7 +27,6 @@ const TOOLCHAIN: &str = "+nightly-2023-06-25";
 /// fn main() -> Result<()> {
 ///     let bytes = Builder::new("relative/path/to/smartcontract/")
 ///         .out_dir("path/to/out/dir") // Optional: Set output directory
-///         .format() // Optional: Enable smartcontract formatting
 ///         .build()? // Run build
 ///         .optimize()? // Optimize WASM output
 ///         .into_bytes()?; // Get resulting WASM bytes
@@ -44,8 +43,6 @@ pub struct Builder<'path, 'out_dir> {
     path: &'path Path,
     /// Build output directory
     out_dir: Option<&'out_dir Path>,
-    /// Flag to enable smartcontract formatting
-    format: bool,
 }
 
 impl<'path, 'out_dir> Builder<'path, 'out_dir> {
@@ -59,7 +56,6 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
         Self {
             path: relative_path.as_ref(),
             out_dir: None,
-            format: false,
         }
     }
 
@@ -76,19 +72,11 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
         self
     }
 
-    /// Enable smartcontract formatting using `cargo fmt`.
-    ///
-    /// Disabled by default.
-    pub fn format(mut self) -> Self {
-        self.format = true;
-        self
-    }
-
     /// Apply `cargo check` to the smartcontract.
     ///
     /// # Errors
     ///
-    /// Can fail due to multiple reasons like invalid path, failed formatting, failed build, etc.
+    /// Can fail due to multiple reasons like invalid path, failed build, etc.
     pub fn check(self) -> Result<()> {
         self.into_internal()?.check()
     }
@@ -97,8 +85,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
     ///
     /// # Errors
     ///
-    /// Can fail due to multiple reasons like invalid path, failed formatting,
-    /// failed build, etc.
+    /// Can fail due to multiple reasons like invalid path, failed build, etc.
     ///
     /// Will also return error if ran on workspace and not on the concrete package.
     pub fn build(self) -> Result<Output> {
@@ -115,7 +102,6 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
                 || -> Result<_> { Ok(Cow::Owned(Self::default_out_dir()?)) },
                 |out_dir| Ok(Cow::Borrowed(out_dir)),
             )?,
-            format: self.format,
         })
     }
 
@@ -168,13 +154,10 @@ mod internal {
     pub struct Builder<'out_dir> {
         pub absolute_path: PathBuf,
         pub out_dir: Cow<'out_dir, Path>,
-        pub format: bool,
     }
 
     impl Builder<'_> {
         pub fn check(self) -> Result<()> {
-            self.maybe_format()?;
-
             self.check_smartcontract().wrap_err_with(|| {
                 format!(
                     "Failed to check the smartcontract at path: {}",
@@ -184,8 +167,6 @@ mod internal {
         }
 
         pub fn build(self) -> Result<Output> {
-            self.maybe_format()?;
-
             let absolute_path = self.absolute_path.clone();
             self.build_smartcontract().wrap_err_with(|| {
                 format!(
@@ -193,18 +174,6 @@ mod internal {
                     absolute_path.display()
                 )
             })
-        }
-
-        fn maybe_format(&self) -> Result<()> {
-            if self.format {
-                self.format_smartcontract().wrap_err_with(|| {
-                    format!(
-                        "Failed to format the smartcontract at path: {}",
-                        self.absolute_path.display()
-                    )
-                })?;
-            }
-            Ok(())
         }
 
         fn build_options() -> impl Iterator<Item = &'static str> {
@@ -220,16 +189,6 @@ mod internal {
                 "wasm32-unknown-unknown",
             ]
             .into_iter()
-        }
-
-        fn format_smartcontract(&self) -> Result<()> {
-            let command_output = cargo_command()
-                .current_dir(&self.absolute_path)
-                .arg("fmt")
-                .output()
-                .wrap_err("Failed to run `cargo fmt`")?;
-
-            check_command_output(&command_output, "cargo fmt")
         }
 
         fn get_base_command(&self, cmd: &'static str) -> std::process::Command {
