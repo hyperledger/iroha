@@ -19,10 +19,6 @@ enum Cli {
     Build {
         #[command(flatten)]
         common: CommonArgs,
-        /// Enable smartcontract formatting using `cargo fmt`.
-        // TODO: why it is a part of `build` in wasm_builder?
-        #[arg(long)]
-        format: bool,
         /// Optimize WASM output.
         #[arg(long)]
         optimize: bool,
@@ -48,12 +44,10 @@ fn main() -> color_eyre::Result<()> {
         }
         Cli::Build {
             common: CommonArgs { path },
-            format,
             optimize,
             outfile,
         } => {
             let builder = Builder::new(&path);
-            let builder = if format { builder.format() } else { builder };
 
             let output = {
                 let mut sp = spinoff::Spinner::new_with_stream(
