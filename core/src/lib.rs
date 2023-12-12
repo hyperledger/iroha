@@ -14,9 +14,10 @@ pub mod tx;
 pub mod wsv;
 
 use core::time::Duration;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
 
 use gossiper::TransactionGossip;
+use indexmap::{IndexMap, IndexSet};
 use iroha_data_model::{permission::Permissions, prelude::*};
 use iroha_primitives::unique_vec::UniqueVec;
 use parity_scale_codec::{Decode, Encode};
@@ -37,16 +38,16 @@ pub type IrohaNetwork = iroha_p2p::NetworkHandle<NetworkMessage>;
 pub type PeersIds = UniqueVec<PeerId>;
 
 /// Parameters set.
-pub type Parameters = HashSet<Parameter>;
+pub type Parameters = IndexSet<Parameter>;
 
 /// API to work with collections of [`DomainId`] : [`Domain`] mappings.
-pub type DomainsMap = HashMap<DomainId, Domain>;
+pub type DomainsMap = IndexMap<DomainId, Domain>;
 
 /// API to work with a collections of [`RoleId`]: [`Role`] mappings.
-pub type RolesMap = HashMap<RoleId, Role>;
+pub type RolesMap = IndexMap<RoleId, Role>;
 
 /// API to work with a collections of [`AccountId`] [`Permissions`] mappings.
-pub type PermissionTokensMap = HashMap<AccountId, Permissions>;
+pub type PermissionTokensMap = IndexMap<AccountId, Permissions>;
 
 /// API to work with a collections of [`AccountId`] to [`RoleId`] mappings.
 pub type AccountRolesSet = BTreeSet<role::RoleIdWithOwner>;

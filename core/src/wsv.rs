@@ -1,15 +1,12 @@
 //! This module provides the [`WorldStateView`] — an in-memory representation of the current blockchain
 //! state.
 use std::{
-    borrow::Borrow,
-    collections::{BTreeSet, HashMap},
-    fmt::Debug,
-    marker::PhantomData,
-    sync::Arc,
+    borrow::Borrow, collections::BTreeSet, fmt::Debug, marker::PhantomData, sync::Arc,
     time::Duration,
 };
 
 use eyre::Result;
+use indexmap::IndexMap;
 use iroha_config::{
     base::proxy::Builder,
     wsv::{Configuration, ConfigurationProxy},
@@ -276,7 +273,7 @@ pub struct WorldStateView {
     /// Blockchain.
     pub block_hashes: Vec<HashOf<SignedBlock>>,
     /// Hashes of transactions mapped onto block height where they stored
-    pub transactions: HashMap<HashOf<SignedTransaction>, u64>,
+    pub transactions: IndexMap<HashOf<SignedTransaction>, u64>,
     /// Buffer containing events generated during `WorldStateView::apply`. Renewed on every block commit.
     #[serde(skip)]
     pub events_buffer: Vec<Event>,
@@ -914,7 +911,7 @@ impl WorldStateView {
         Self {
             world,
             config,
-            transactions: HashMap::new(),
+            transactions: IndexMap::new(),
             block_hashes: Vec::new(),
             events_buffer: Vec::new(),
             new_tx_amounts: Arc::new(Mutex::new(Vec::new())),
