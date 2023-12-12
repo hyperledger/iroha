@@ -93,19 +93,9 @@ impl<S: Subscriber> Layer<S> {
         EventSubscriber(Self { sender, subscriber })
     }
 
-    /// Create new telemetry layer with specific channel size (via const generic)
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new<const CHANNEL_SIZE: usize>(
-        subscriber: S,
-    ) -> (impl Subscriber, mpsc::Receiver<ChannelEvent>) {
-        let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
-        let telemetry = Self::from_senders(subscriber, sender);
-        (telemetry, receiver)
-    }
-
     /// Create new telemetry layer with specific channel size
     #[allow(clippy::new_ret_no_self)]
-    pub fn from_capacity(
+    pub fn with_capacity(
         subscriber: S,
         channel_size: usize,
     ) -> (impl Subscriber, mpsc::Receiver<ChannelEvent>) {

@@ -128,7 +128,7 @@ where
 
         subscriber.with(console_subscriber)
     };
-    let (subscriber, receiver) = telemetry::Layer::new::<TELEMETRY_CAPACITY>(subscriber);
+    let (subscriber, receiver) = telemetry::Layer::with_capacity(subscriber, TELEMETRY_CAPACITY);
     set_global_default(subscriber)?;
 
     let handle = LoggerHandle::new(level_filter_handle, receiver);
