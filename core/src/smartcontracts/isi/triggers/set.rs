@@ -9,8 +9,9 @@
 //! trigger hooks.
 
 use core::cmp::min;
-use std::{collections::HashMap, fmt};
+use std::fmt;
 
+use indexmap::IndexMap;
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     events::Filter as EventFilter,
@@ -138,17 +139,17 @@ impl<F: Filter + Into<TriggeringFilterBox> + Clone> LoadedActionTrait for Loaded
 #[derive(Debug, Default)]
 pub struct Set {
     /// Triggers using [`DataEventFilter`]
-    data_triggers: HashMap<TriggerId, LoadedAction<DataEventFilter>>,
+    data_triggers: IndexMap<TriggerId, LoadedAction<DataEventFilter>>,
     /// Triggers using [`PipelineEventFilter`]
-    pipeline_triggers: HashMap<TriggerId, LoadedAction<PipelineEventFilter>>,
+    pipeline_triggers: IndexMap<TriggerId, LoadedAction<PipelineEventFilter>>,
     /// Triggers using [`TimeEventFilter`]
-    time_triggers: HashMap<TriggerId, LoadedAction<TimeEventFilter>>,
+    time_triggers: IndexMap<TriggerId, LoadedAction<TimeEventFilter>>,
     /// Triggers using [`ExecuteTriggerEventFilter`]
-    by_call_triggers: HashMap<TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
+    by_call_triggers: IndexMap<TriggerId, LoadedAction<ExecuteTriggerEventFilter>>,
     /// Trigger ids with type of events they process
-    ids: HashMap<TriggerId, TriggeringEventType>,
+    ids: IndexMap<TriggerId, TriggeringEventType>,
     /// Original [`WasmSmartContract`]s by [`TriggerId`] for querying purposes.
-    original_contracts: HashMap<HashOf<WasmSmartContract>, WasmSmartContract>,
+    original_contracts: IndexMap<HashOf<WasmSmartContract>, WasmSmartContract>,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     matched_ids: Vec<(Event, TriggerId)>,
@@ -157,14 +158,14 @@ pub struct Set {
 /// Helper struct for serializing triggers.
 struct TriggersWithContext<'s, F> {
     /// Triggers being serialized
-    triggers: &'s HashMap<TriggerId, LoadedAction<F>>,
+    triggers: &'s IndexMap<TriggerId, LoadedAction<F>>,
     /// Containing Set, used for looking up origignal [`WasmSmartContract`]s
     /// during serialization.
     set: &'s Set,
 }
 
 impl<'s, F> TriggersWithContext<'s, F> {
-    fn new(triggers: &'s HashMap<TriggerId, LoadedAction<F>>, set: &'s Set) -> Self {
+    fn new(triggers: &'s IndexMap<TriggerId, LoadedAction<F>>, set: &'s Set) -> Self {
         Self { triggers, set }
     }
 }
@@ -236,7 +237,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "data_triggers" => {
-                            let triggers: HashMap<TriggerId, Action<DataEventFilter>> =
+                            let triggers: IndexMap<TriggerId, Action<DataEventFilter>> =
                                 map.next_value()?;
                             for (id, action) in triggers {
                                 set.add_data_trigger(self.loader.engine, Trigger::new(id, action))
@@ -244,7 +245,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                             }
                         }
                         "pipeline_triggers" => {
-                            let triggers: HashMap<TriggerId, Action<PipelineEventFilter>> =
+                            let triggers: IndexMap<TriggerId, Action<PipelineEventFilter>> =
                                 map.next_value()?;
                             for (id, action) in triggers {
                                 set.add_pipeline_trigger(
@@ -255,7 +256,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                             }
                         }
                         "time_triggers" => {
-                            let triggers: HashMap<TriggerId, Action<TimeEventFilter>> =
+                            let triggers: IndexMap<TriggerId, Action<TimeEventFilter>> =
                                 map.next_value()?;
                             for (id, action) in triggers {
                                 set.add_time_trigger(self.loader.engine, Trigger::new(id, action))
@@ -263,7 +264,7 @@ impl<'de> DeserializeSeed<'de> for WasmSeed<'_, Set> {
                             }
                         }
                         "by_call_triggers" => {
-                            let triggers: HashMap<TriggerId, Action<ExecuteTriggerEventFilter>> =
+                            let triggers: IndexMap<TriggerId, Action<ExecuteTriggerEventFilter>> =
                                 map.next_value()?;
                             for (id, action) in triggers {
                                 set.add_by_call_trigger(
@@ -387,7 +388,7 @@ impl Set {
         engine: &wasmtime::Engine,
         trigger: Trigger<F>,
         event_type: TriggeringEventType,
-        map: impl FnOnce(&mut Self) -> &mut HashMap<TriggerId, LoadedAction<F>>,
+        map: impl FnOnce(&mut Self) -> &mut IndexMap<TriggerId, LoadedAction<F>>,
     ) -> Result<bool> {
         if self.contains(trigger.id()) {
             return Ok(false);
@@ -816,8 +817,8 @@ impl Set {
 
     /// Remove actions with zero execution count from `triggers`
     fn remove_zeros<F: Filter>(
-        ids: &mut HashMap<TriggerId, TriggeringEventType>,
-        triggers: &mut HashMap<TriggerId, LoadedAction<F>>,
+        ids: &mut IndexMap<TriggerId, TriggeringEventType>,
+        triggers: &mut IndexMap<TriggerId, LoadedAction<F>>,
     ) {
         let to_remove: Vec<TriggerId> = triggers
             .iter()
