@@ -25,22 +25,14 @@ impl Default for Styling {
     }
 }
 
-/// Determine if message colourisation is to be enabled
-pub fn should_disable_color() -> bool {
-    supports_color::on(supports_color::Stream::Stdout).is_none()
-        || std::env::var("TERMINAL_COLORS")
-            .map(|s| !s.as_str().parse().unwrap_or(true))
-            .unwrap_or(false)
-}
-
 impl Styling {
     #[must_use]
     /// Constructor
-    pub fn new() -> Self {
-        if should_disable_color() {
-            Self::no_color()
-        } else {
+    pub fn new(terminal_colors: bool) -> Self {
+        if terminal_colors {
             Self::default()
+        } else {
+            Self::no_color()
         }
     }
 

@@ -170,7 +170,7 @@ impl Network {
         start_port: Option<u16>,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
-        configuration.logger.max_log_level = Level::INFO.into();
+        configuration.logger.level = Level::INFO;
         let network = Network::new_with_offline_peers(
             Some(configuration),
             n_peers,
@@ -414,22 +414,18 @@ impl Peer {
         temp_dir: Arc<TempDir>,
     ) {
         let mut configuration = self.get_config(configuration);
-        configuration
-            .kura
-            .block_store_path(temp_dir.path())
-            .expect("block store path not readable");
+        configuration.kura.block_store_path = temp_dir.path().to_str().unwrap().into();
         let info_span = iroha_logger::info_span!(
             "test-peer",
             p2p_addr = %self.p2p_address,
             api_addr = %self.api_address,
         );
-        let telemetry =
-            iroha_logger::init(&configuration.logger).expect("Failed to initialize telemetry");
+        let logger = iroha_logger::test_logger();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
 
         let handle = task::spawn(
             async move {
-                let mut iroha = Iroha::with_genesis(genesis, configuration, telemetry)
+                let mut iroha = Iroha::with_genesis(genesis, configuration, logger)
                     .await
                     .expect("Failed to start iroha");
                 let job_handle = iroha.start_as_task().unwrap();

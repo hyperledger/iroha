@@ -1,31 +1,26 @@
 //! Module with development telemetry
 
 use eyre::{Result, WrapErr};
-use iroha_logger::telemetry::Telemetry;
+use iroha_config::telemetry::DevTelemetryConfig;
+use iroha_logger::telemetry::Event as Telemetry;
 use tokio::{
     fs::OpenOptions,
     io::AsyncWriteExt,
-    sync::mpsc::Receiver,
+    sync::broadcast::Receiver,
     task::{self, JoinHandle},
 };
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
-
-use crate::Configuration;
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 
 /// Starts telemetry writing to a file
 /// # Errors
 /// Fails if unable to open the file
 pub async fn start(
-    config: &Configuration,
+    DevTelemetryConfig {
+        file: telemetry_file,
+    }: DevTelemetryConfig,
     telemetry: Receiver<Telemetry>,
 ) -> Result<JoinHandle<()>> {
-    let mut telemetry = crate::futures::get_stream(ReceiverStream::new(telemetry));
-
-    let Some(telemetry_file) = &config.file else {
-        return Ok(task::spawn(async move {
-            while telemetry.next().await.is_some() {}
-        }));
-    };
+    let mut stream = crate::futures::get_stream(BroadcastStream::new(telemetry).fuse());
 
     let mut file = OpenOptions::new()
             .write(true)
@@ -40,11 +35,11 @@ pub async fn start(
             .wrap_err("Failed to create and open file for telemetry")?;
 
     // Serde doesn't support async Read Write traits.
-    // So let synchonous synchronous code be here.
+    // So let synchronous code be here.
     //
     // TODO: After migration to tokio move to https://docs.rs/tokio-serde
     let join_handle = task::spawn(async move {
-        while let Some(item) = telemetry.next().await {
+        while let Some(item) = stream.next().await {
             let telemetry_json = match serde_json::to_string(&item) {
                 Ok(json) => json,
                 Err(error) => {

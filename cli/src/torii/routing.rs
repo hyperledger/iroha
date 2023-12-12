@@ -7,12 +7,7 @@
 
 use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
-use iroha_config::{
-    base::proxy::Documented,
-    iroha::{Configuration, ConfigurationView},
-    torii::uri,
-    GetConfiguration, PostConfiguration,
-};
+use iroha_config::{client_api::ConfigurationDTO, torii::uri};
 use iroha_core::{
     query::{pagination::Paginate, store::LiveQueryStoreHandle},
     smartcontracts::query::ValidQueryRequest,
@@ -79,7 +74,7 @@ fn fetch_size() -> impl warp::Filter<Extract = (FetchSize,), Error = warp::Rejec
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_instructions(
+async fn handle_transaction(
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
     transaction: SignedTransaction,
@@ -169,42 +164,18 @@ async fn handle_pending_transactions(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_get_configuration(
-    iroha_cfg: Configuration,
-    get_cfg: GetConfiguration,
-) -> Result<Json> {
-    use GetConfiguration::*;
-
-    match get_cfg {
-        Docs(field) => <Configuration as Documented>::get_doc_recursive(
-            field.iter().map(AsRef::as_ref).collect::<Vec<&str>>(),
-        )
-        .wrap_err("Failed to get docs {:?field}")
-        .and_then(|doc| serde_json::to_value(doc).wrap_err("Failed to serialize docs")),
-        // Cast to configuration view to hide private keys.
-        Value => serde_json::to_value(ConfigurationView::from(iroha_cfg))
-            .wrap_err("Failed to serialize value"),
-    }
-    .map(|v| reply::json(&v))
-    .map_err(Error::Config)
+async fn handle_get_configuration(kiso: KisoHandle) -> Result<Json> {
+    let dto = kiso.get_dto().await?;
+    Ok(reply::json(&dto))
 }
 
 #[iroha_futures::telemetry_future]
 async fn handle_post_configuration(
-    iroha_cfg: Configuration,
-    cfg: PostConfiguration,
-) -> Result<Json> {
-    use iroha_config::base::runtime_upgrades::Reload;
-    use PostConfiguration::*;
-
-    iroha_logger::debug!(?cfg);
-    match cfg {
-        LogLevel(level) => {
-            iroha_cfg.logger.max_log_level.reload(level)?;
-        }
-    };
-
-    Ok(reply::json(&true))
+    kiso: KisoHandle,
+    value: ConfigurationDTO,
+) -> Result<impl Reply> {
+    kiso.update_with_dto(value).await?;
+    Ok(reply::with_status(reply::reply(), StatusCode::ACCEPTED))
 }
 
 #[iroha_futures::telemetry_future]
@@ -403,8 +374,9 @@ fn handle_status(
 impl Torii {
     /// Construct `Torii`.
     #[allow(clippy::too_many_arguments)]
-    pub fn from_configuration(
-        iroha_cfg: Configuration,
+    pub fn new(
+        kiso: KisoHandle,
+        config: &ToriiConfiguration,
         queue: Arc<Queue>,
         events: EventsSender,
         notify_shutdown: Arc<Notify>,
@@ -413,13 +385,15 @@ impl Torii {
         kura: Arc<Kura>,
     ) -> Self {
         Self {
-            iroha_cfg,
+            kiso,
             queue,
             events,
             notify_shutdown,
             sumeragi,
             query_service,
             kura,
+            address: config.api_url.clone(),
+            transaction_max_content_length: config.max_content_len.into(),
         }
     }
 
@@ -437,12 +411,11 @@ impl Torii {
                     .and(add_state!(self.queue, self.sumeragi,))
                     .and(paginate()),
             )
-            .or(endpoint2(
-                handle_get_configuration,
-                warp::path(uri::CONFIGURATION)
-                    .and(add_state!(self.iroha_cfg))
-                    .and(warp::body::json()),
-            )),
+            .or(warp::path(uri::CONFIGURATION)
+                .and(add_state!(self.kiso))
+                .and_then(|kiso| async move {
+                    Ok::<_, Infallible>(WarpResult(handle_get_configuration(kiso).await))
+                })),
         );
 
         let get_router_status = warp::path(uri::STATUS)
@@ -474,11 +447,11 @@ impl Torii {
         let post_router = warp::post()
             .and(
                 endpoint3(
-                    handle_instructions,
+                    handle_transaction,
                     warp::path(uri::TRANSACTION)
                         .and(add_state!(self.queue, self.sumeragi))
                         .and(warp::body::content_length_limit(
-                            self.iroha_cfg.torii.max_content_len.into(),
+                            self.transaction_max_content_length,
                         ))
                         .and(body::versioned()),
                 )
@@ -491,7 +464,7 @@ impl Torii {
                 .or(endpoint2(
                     handle_post_configuration,
                     warp::path(uri::CONFIGURATION)
-                        .and(add_state!(self.iroha_cfg))
+                        .and(add_state!(self.kiso))
                         .and(warp::body::json()),
                 )),
             )
@@ -549,10 +522,10 @@ impl Torii {
     /// # Errors
     /// Can fail due to listening to network or if http server fails
     fn start_api(self: Arc<Self>) -> eyre::Result<Vec<tokio::task::JoinHandle<()>>> {
-        let api_url = &self.iroha_cfg.torii.api_url;
+        let torii_address = &self.address;
 
         let mut handles = vec![];
-        match api_url.to_socket_addrs() {
+        match torii_address.to_socket_addrs() {
             Ok(addrs) => {
                 for addr in addrs {
                     let torii = Arc::clone(&self);
@@ -568,7 +541,7 @@ impl Torii {
                 Ok(handles)
             }
             Err(error) => {
-                iroha_logger::error!(%api_url, %error, "API address configuration parse error");
+                iroha_logger::error!(%torii_address, %error, "API address configuration parse error");
                 Err(eyre::Error::new(error))
             }
         }

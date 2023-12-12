@@ -418,8 +418,6 @@ pub mod derive {
     }
 }
 
-pub mod runtime_upgrades;
-
 pub mod view {
     //! Module for view related traits and structs
 

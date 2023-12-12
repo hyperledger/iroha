@@ -1,4 +1,6 @@
 //! Module for telemetry-related configuration and structs.
+use std::path::PathBuf;
+
 use iroha_config_base::derive::{Documented, Proxy};
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -20,7 +22,57 @@ pub struct Configuration {
     pub max_retry_delay_exponent: u8,
     /// The filepath that to write dev-telemetry to
     #[config(serde_as_str)]
-    pub file: Option<std::path::PathBuf>,
+    pub file: Option<PathBuf>,
+}
+
+/// Complete configuration needed to start regular telemetry.
+pub struct RegularTelemetryConfig {
+    #[allow(missing_docs)]
+    pub name: String,
+    #[allow(missing_docs)]
+    pub url: Url,
+    #[allow(missing_docs)]
+    pub min_retry_period: u64,
+    #[allow(missing_docs)]
+    pub max_retry_delay_exponent: u8,
+}
+
+/// Complete configuration needed to start dev telemetry.
+pub struct DevTelemetryConfig {
+    #[allow(missing_docs)]
+    pub file: PathBuf,
+}
+
+impl Configuration {
+    /// Parses user-provided configuration into stronger typed structures
+    ///
+    /// Should be refactored with [#3500](https://github.com/hyperledger/iroha/issues/3500)
+    pub fn parse(&self) -> (Option<RegularTelemetryConfig>, Option<DevTelemetryConfig>) {
+        let Self {
+            ref name,
+            ref url,
+            max_retry_delay_exponent,
+            min_retry_period,
+            ref file,
+        } = *self;
+
+        let regular = if let (Some(name), Some(url)) = (name, url) {
+            Some(RegularTelemetryConfig {
+                name: name.clone(),
+                url: url.clone(),
+                max_retry_delay_exponent,
+                min_retry_period,
+            })
+        } else {
+            None
+        };
+
+        let dev = file
+            .as_ref()
+            .map(|file| DevTelemetryConfig { file: file.clone() });
+
+        (regular, dev)
+    }
 }
 
 impl Default for ConfigurationProxy {

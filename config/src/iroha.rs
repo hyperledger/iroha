@@ -262,9 +262,9 @@ mod tests {
 
     #[test]
     fn example_json_proxy_builds() {
-        ConfigurationProxy::from_path(CONFIGURATION_PATH).build().unwrap_or_else(|_| panic!("`ConfigurationProxy` specified in {CONFIGURATION_PATH} \
+        ConfigurationProxy::from_path(CONFIGURATION_PATH).build().unwrap_or_else(|err| panic!("`ConfigurationProxy` specified in {CONFIGURATION_PATH} \
                                                                                           failed to build. This probably means that some of the fields there were not updated \
-                                                                                          properly with new changes."));
+                                                                                          properly with new changes. Error: {err}"));
     }
 
     #[test]

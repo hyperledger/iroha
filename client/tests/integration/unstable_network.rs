@@ -55,7 +55,7 @@ fn unstable_network(
     let (network, iroha_client) = rt.block_on(async {
         let mut configuration = Configuration::test();
         configuration.sumeragi.max_transactions_in_block = MAX_TRANSACTIONS_IN_BLOCK;
-        configuration.logger.max_log_level = Level::INFO.into();
+        configuration.logger.level = Level::INFO;
         #[cfg(debug_assertions)]
         {
             configuration.sumeragi.debug_force_soft_fork = force_soft_fork;

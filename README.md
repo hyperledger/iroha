@@ -169,7 +169,7 @@ For a list of all endpoints, available operations, and ways to customize them wi
 
 By default, Iroha provides logs in a human-readable format and prints them out to `stdout`.
 
-The logging level can be changed either via a [configuration option](./docs/source/references/config.md#loggermax_log_level) or at run-time using the `configuration` endpoint.
+The logging level can be changed either via the [`logger.level` configuration parameter](./docs/source/references/config.md#loggerlevel) or at run-time using the `configuration` endpoint.
 
 <details><summary>Example: changing log level</summary>
 
@@ -178,17 +178,13 @@ For example, if your Iroha instance is running at `127.0.0.1:8080` and you want 
 curl -X POST \
     -H 'content-type: application/json' \
     http://127.0.0.1:8080/configuration \
-    -d '{"LogLevel": "DEBUG"}' -i
+    -d '{"logger": {"level": "DEBUG"}}' -i
 ```
 </details>
 
-#### JSON Logging Mode
+The log format might be configured via the [`logger.format` configuration parameter](./docs/source/references/config.md#loggerformat). Possible values are: `full` (default), `compact`, `pretty`, and `json`.
 
-Additionally, Iroha supports a JSON logging mode.
-
-To enable it, provide the [logging file](./docs/source/references/config.md#loggerlog_file_path) to store the logs in. On UNIX, you can also specify `/dev/stdout` or `/dev/stderr` if you prefer to pipe the output to [`bunyan`](https://www.npmjs.com/package/bunyan).
-
-[Log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the responsibility of the peer administrator.
+Output goes to `/dev/stdout`. Piping to files or [log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the responsibility of the peer administrator.
 
 ### Monitoring
 

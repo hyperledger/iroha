@@ -13,11 +13,13 @@ use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv, Override},
     iroha::{Configuration, ConfigurationProxy},
     path::Path as ConfigPath,
+    telemetry::Configuration as TelemetryConfiguration,
 };
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
     gossiper::{TransactionGossiper, TransactionGossiperHandle},
     handler::ThreadHandler,
+    kiso::KisoHandle,
     kura::Kura,
     prelude::{World, WorldStateView},
     query::store::LiveQueryStore,
@@ -30,6 +32,7 @@ use iroha_core::{
 };
 use iroha_data_model::prelude::*;
 use iroha_genesis::GenesisNetwork;
+use iroha_logger::actor::LoggerHandle;
 use tokio::{
     signal,
     sync::{broadcast, mpsc, Notify},
@@ -74,6 +77,25 @@ impl Default for Arguments {
     }
 }
 
+/// Reflects user decision (or its absence) about ANSI colored output
+#[derive(Copy, Clone, Debug)]
+pub enum TerminalColorsArg {
+    /// Coloring should be decided automatically
+    Default,
+    /// User explicitly specified the value
+    UserSet(bool),
+}
+
+impl TerminalColorsArg {
+    /// Transforms the enumeration into flag
+    pub fn evaluate(self) -> bool {
+        match self {
+            Self::Default => supports_color::on(supports_color::Stream::Stdout).is_some(),
+            Self::UserSet(x) => x,
+        }
+    }
+}
+
 /// Iroha is an
 /// [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29)
 /// of the system. It configures, coordinates and manages transactions
@@ -85,6 +107,8 @@ impl Default for Arguments {
 /// forgot this step.
 #[must_use = "run `.start().await?` to not immediately stop Iroha"]
 pub struct Iroha {
+    /// Actor responsible for the configuration
+    pub kiso: KisoHandle,
     /// Queue of transactions
     pub queue: Arc<Queue>,
     /// Sumeragi consensus
@@ -225,7 +249,7 @@ impl Iroha {
     pub async fn with_genesis(
         genesis: Option<GenesisNetwork>,
         config: Configuration,
-        telemetry: Option<iroha_logger::Telemetries>,
+        logger: LoggerHandle,
     ) -> Result<Self> {
         let listen_addr = config.torii.p2p_addr.clone();
         let network = IrohaNetwork::start(listen_addr, config.sumeragi.key_pair.clone())
@@ -234,15 +258,11 @@ impl Iroha {
 
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
-            [genesis_domain(&config)],
+            [genesis_domain(config.genesis.account_public_key.clone())],
             config.sumeragi.trusted_peers.peers.clone(),
         );
 
-        let kura = Kura::new(
-            config.kura.init_mode,
-            std::path::Path::new(&config.kura.block_store_path),
-            config.kura.debug_output_new_blocks,
-        )?;
+        let kura = Kura::new(&config.kura)?;
         let live_query_store_handle =
             LiveQueryStore::from_configuration(config.live_query_store).start();
 
@@ -273,11 +293,10 @@ impl Iroha {
         );
 
         let queue = Arc::new(Queue::from_configuration(&config.queue));
-        if Self::start_telemetry(telemetry, &config).await? {
-            iroha_logger::info!("Telemetry started")
-        } else {
-            iroha_logger::warn!("Telemetry not started")
-        }
+        match Self::start_telemetry(&logger, &config.telemetry).await? {
+            TelemetryStartStatus::Started => iroha_logger::info!("Telemetry started"),
+            TelemetryStartStatus::NotStarted => iroha_logger::warn!("Telemetry not started"),
+        };
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
@@ -328,8 +347,11 @@ impl Iroha {
         let snapshot_maker =
             SnapshotMaker::from_configuration(&config.snapshot, sumeragi.clone()).start();
 
-        let torii = Torii::from_configuration(
-            config.clone(),
+        let kiso = KisoHandle::new(config.clone());
+
+        let torii = Torii::new(
+            kiso.clone(),
+            &config.torii,
             Arc::clone(&queue),
             events_sender,
             Arc::clone(&notify_shutdown),
@@ -338,12 +360,15 @@ impl Iroha {
             Arc::clone(&kura),
         );
 
+        Self::spawn_configuration_updates_broadcasting(kiso.clone(), logger.clone());
+
         Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
 
         Self::prepare_panic_hook(notify_shutdown);
 
         let torii = Some(torii);
         Ok(Self {
+            kiso,
             queue,
             sumeragi,
             kura,
@@ -389,37 +414,46 @@ impl Iroha {
 
     #[cfg(feature = "telemetry")]
     async fn start_telemetry(
-        telemetry: Option<(
-            iroha_logger::SubstrateTelemetry,
-            iroha_logger::FutureTelemetry,
-        )>,
-        config: &Configuration,
-    ) -> Result<bool> {
+        logger: &LoggerHandle,
+        config: &TelemetryConfiguration,
+    ) -> Result<TelemetryStartStatus> {
         #[allow(unused)]
-        if let Some((substrate_telemetry, telemetry_future)) = telemetry {
-            #[cfg(feature = "dev-telemetry")]
-            {
-                iroha_telemetry::dev::start(&config.telemetry, telemetry_future)
+        let (config_for_regular, config_for_dev) = config.parse();
+
+        #[cfg(feature = "dev-telemetry")]
+        {
+            if let Some(config) = config_for_dev {
+                let receiver = logger
+                    .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Future)
+                    .await
+                    .wrap_err("Failed to subscribe on telemetry")?;
+                let _handle = iroha_telemetry::dev::start(config, receiver)
                     .await
                     .wrap_err("Failed to setup telemetry for futures")?;
             }
-            iroha_telemetry::ws::start(&config.telemetry, substrate_telemetry)
+        }
+
+        if let Some(config) = config_for_regular {
+            let receiver = logger
+                .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Regular)
                 .await
-                .wrap_err("Failed to setup telemetry for websocket communication")
+                .wrap_err("Failed to subscribe on telemetry")?;
+            let _handle = iroha_telemetry::ws::start(config, receiver)
+                .await
+                .wrap_err("Failed to setup telemetry for websocket communication")?;
+
+            Ok(TelemetryStartStatus::Started)
         } else {
-            Ok(false)
+            Ok(TelemetryStartStatus::NotStarted)
         }
     }
 
     #[cfg(not(feature = "telemetry"))]
     async fn start_telemetry(
-        _telemetry: Option<(
-            iroha_logger::SubstrateTelemetry,
-            iroha_logger::FutureTelemetry,
-        )>,
-        _config: &Configuration,
-    ) -> Result<bool> {
-        Ok(false)
+        _logger: &LoggerHandle,
+        _config: &TelemetryConfiguration,
+    ) -> Result<TelemetryStartStatus> {
+        Ok(TelemetryStartStatus::NotStarted)
     }
 
     #[allow(clippy::redundant_pub_crate)]
@@ -448,22 +482,52 @@ impl Iroha {
 
         Ok(handle)
     }
+
+    /// Spawns a task which subscribes on updates from configuration actor
+    /// and broadcasts them further to interested actors. This way, neither config actor nor other ones know
+    /// about each other, achieving loose coupling of code and system.
+    fn spawn_configuration_updates_broadcasting(
+        kiso: KisoHandle,
+        logger: LoggerHandle,
+    ) -> task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut log_level_update = kiso
+                .subscribe_on_log_level()
+                .await
+                // FIXME: don't like neither the message nor inability to throw Result to the outside
+                .expect("Cannot proceed without working subscriptions");
+
+            loop {
+                tokio::select! {
+                    Ok(()) = log_level_update.changed() => {
+                        let value = *log_level_update.borrow_and_update();
+                        if let Err(error) = logger.reload_level(value).await {
+                            iroha_logger::error!("Failed to reload log level: {error}");
+                        };
+                    }
+                };
+            }
+        })
+    }
 }
 
-fn genesis_account(public_key: iroha_crypto::PublicKey) -> Account {
+enum TelemetryStartStatus {
+    Started,
+    NotStarted,
+}
+
+fn genesis_account(public_key: PublicKey) -> Account {
     Account::new(iroha_genesis::GENESIS_ACCOUNT_ID.clone(), [public_key])
         .build(&iroha_genesis::GENESIS_ACCOUNT_ID)
 }
 
-fn genesis_domain(configuration: &Configuration) -> Domain {
-    let account_public_key = &configuration.genesis.account_public_key;
-
+fn genesis_domain(public_key: PublicKey) -> Domain {
     let mut domain = Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone())
         .build(&iroha_genesis::GENESIS_ACCOUNT_ID);
 
     domain.accounts.insert(
         iroha_genesis::GENESIS_ACCOUNT_ID.clone(),
-        genesis_account(account_public_key.clone()),
+        genesis_account(public_key),
     );
 
     domain
