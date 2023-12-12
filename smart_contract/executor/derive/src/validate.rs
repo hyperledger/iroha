@@ -154,7 +154,7 @@ impl FromAttributes for ValidateAttribute {
 
         let res = accumulator.handle(result);
 
-        accumulator.finish().map(|_| res.unwrap())
+        accumulator.finish().map(|()| res.unwrap())
     }
 }
 

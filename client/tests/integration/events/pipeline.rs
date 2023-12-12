@@ -40,7 +40,7 @@ fn test_with_instruction_and_status_and_port(
     port: u16,
 ) -> Result<()> {
     let (_rt, network, client) =
-        <Network>::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), Some(port));
+        Network::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), Some(port));
     let clients = network.clients();
     wait_for_genesis_committed(&clients, 0);
     let pipeline_time = Configuration::pipeline_time();

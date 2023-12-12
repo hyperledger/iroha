@@ -1,50 +1,51 @@
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, thread};
 
 use eyre::Result;
 use iroha_client::{
-    client::{self, QueryResult},
+    client::{self, Client, QueryResult},
     data_model::prelude::*,
 };
 use iroha_config::iroha::Configuration;
-use iroha_primitives::unique_vec;
-use tempfile::TempDir;
+use rand::{seq::SliceRandom, thread_rng, Rng};
 use test_network::*;
 use tokio::runtime::Runtime;
 
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
-    let temp_dir = Arc::new(TempDir::new()?);
-
-    let mut configuration = Configuration::test();
-    let mut peer = <PeerBuilder>::new().with_port(10_000).build()?;
-    configuration.sumeragi.trusted_peers.peers = unique_vec![peer.id.clone()];
-
     let account_id = AccountId::from_str("alice@wonderland").unwrap();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").unwrap();
-    let create_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
     let quantity: u32 = 200;
 
-    let iroha_client = client::Client::test(&peer.api_address);
+    let mut removed_peer = {
+        let n_peers = 4;
 
-    {
-        let rt = Runtime::test();
-        rt.block_on(
-            PeerBuilder::new()
-                .with_configuration(configuration.clone())
-                .with_dir(temp_dir.clone())
-                .start_with_peer(&mut peer),
-        );
-        wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
+        let (_rt, network, _) = Network::start_test_with_runtime(n_peers, Some(11_160));
+        wait_for_genesis_committed(&network.clients(), 0);
+        let pipeline_time = Configuration::pipeline_time();
+        let peer_clients = Network::clients(&network);
 
-        iroha_client.submit_blocking(create_asset)?;
+        let create_asset =
+            Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+        peer_clients
+            .choose(&mut thread_rng())
+            .unwrap()
+            .submit_blocking(create_asset)?;
+
         let mint_asset = Mint::asset_quantity(
             quantity,
             AssetId::new(asset_definition_id.clone(), account_id.clone()),
         );
-        iroha_client.submit_blocking(mint_asset)?;
+        peer_clients
+            .choose(&mut thread_rng())
+            .unwrap()
+            .submit_blocking(mint_asset)?;
 
-        let assets = iroha_client
+        // Wait for observing peer to get the block
+        thread::sleep(pipeline_time);
+
+        let assets = peer_clients
+            .choose(&mut thread_rng())
+            .unwrap()
             .request(client::asset::by_account_id(account_id.clone()))?
             .collect::<QueryResult<Vec<_>>>()?;
         let asset = assets
@@ -52,20 +53,29 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
             .find(|asset| asset.id().definition_id == asset_definition_id)
             .expect("Asset not found");
         assert_eq!(AssetValue::Quantity(quantity), *asset.value());
-        peer.stop();
-    }
 
+        let mut all_peers: Vec<_> = core::iter::once(network.genesis)
+            .chain(network.peers.into_values())
+            .collect();
+        let removed_peer_idx = rand::thread_rng().gen_range(0..all_peers.len());
+        let mut removed_peer = all_peers.swap_remove(removed_peer_idx);
+        removed_peer.stop();
+        removed_peer
+    };
+    // All peers have been stopped here
+
+    // Restart just one peer and check if it updates itself from the blockstore
     {
         let rt = Runtime::test();
         rt.block_on(
             PeerBuilder::new()
-                .with_configuration(configuration)
-                .with_dir(temp_dir)
-                .start_with_peer(&mut peer),
+                .with_dir(removed_peer.temp_dir.as_ref().unwrap().clone())
+                .start_with_peer(&mut removed_peer),
         );
-        wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
+        let removed_peer_client = Client::test(&removed_peer.api_address);
+        wait_for_genesis_committed(&vec![removed_peer_client.clone()], 0);
 
-        iroha_client.poll_request(client::asset::by_account_id(account_id), |result| {
+        removed_peer_client.poll_request(client::asset::by_account_id(account_id), |result| {
             let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
             iroha_logger::error!(?assets);
 
