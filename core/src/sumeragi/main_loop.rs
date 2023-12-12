@@ -186,7 +186,7 @@ impl Sumeragi {
         &mut self,
         shutdown_receiver: &mut tokio::sync::oneshot::Receiver<()>,
     ) -> Result<(), EarlyReturn> {
-        trace!("Listen for genesis");
+        info!(addr = %self.peer_id.address, "Listen for genesis");
 
         loop {
             std::thread::sleep(Duration::from_millis(50));
@@ -223,6 +223,8 @@ impl Sumeragi {
                                 }
                             };
 
+                        new_wsv.world_mut().trusted_peers_ids =
+                            block.payload().commit_topology.clone();
                         self.commit_block(block, new_wsv);
                         return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                     }
@@ -295,7 +297,7 @@ impl Sumeragi {
         info!(
             addr=%self.peer_id.address,
             role=%self.current_topology.role(&self.peer_id),
-            block_height=%self.wsv.height(),
+            block_height=%block.payload().header.height,
             block_hash=%block.hash(),
             "{}", Strategy::LOG_MESSAGE,
         );
@@ -313,11 +315,8 @@ impl Sumeragi {
         // Parameters are updated before updating public copy of sumeragi
         self.update_params();
 
-        let new_topology = Topology::recreate_topology(
-            block.as_ref(),
-            0,
-            self.wsv.peers_ids().iter().cloned().collect(),
-        );
+        let new_topology =
+            Topology::recreate_topology(block.as_ref(), 0, self.wsv.peers().cloned().collect());
         let events = block.produce_events();
 
         // https://github.com/hyperledger/iroha/issues/3396
@@ -801,10 +800,10 @@ pub(crate) fn run(
     };
     span.exit();
 
-    trace!(
-        me=%sumeragi.peer_id.public_key,
+    info!(
+        addr=%sumeragi.peer_id.address,
         role_in_next_round=%sumeragi.current_topology.role(&sumeragi.peer_id),
-        "Finished sumeragi init.",
+        "Sumeragi initialized",
     );
 
     let mut voting_block = None;
@@ -1125,7 +1124,7 @@ fn handle_block_sync(
             let last_committed_block = new_wsv
                 .latest_block_ref()
                 .expect("Not in genesis round so must have at least genesis block");
-            let new_peers = new_wsv.peers_ids().clone();
+            let new_peers = new_wsv.peers().cloned().collect();
             let view_change_index = block.payload().header().view_change_index;
             Topology::recreate_topology(&last_committed_block, view_change_index, new_peers)
         };
@@ -1145,7 +1144,7 @@ fn handle_block_sync(
             let last_committed_block = new_wsv
                 .latest_block_ref()
                 .expect("Not in genesis round so must have at least genesis block");
-            let new_peers = new_wsv.peers_ids().clone();
+            let new_peers = new_wsv.peers().cloned().collect();
             let view_change_index = block.payload().header().view_change_index;
             Topology::recreate_topology(&last_committed_block, view_change_index, new_peers)
         };

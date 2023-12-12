@@ -55,7 +55,7 @@ impl Config {
 
     pub fn measure(self) -> Result<Tps> {
         // READY
-        let (_rt, network, client) = <Network>::start_test_with_runtime(self.peers, None);
+        let (_rt, network, client) = Network::start_test_with_runtime(self.peers, None);
         let clients = network.clients();
         wait_for_genesis_committed(&clients, 0);
 

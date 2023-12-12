@@ -1,7 +1,4 @@
-pub use iroha_config::{
-    base::proxy::Builder,
-    iroha::{Configuration, ConfigurationProxy},
-};
+pub use iroha_config::iroha::Configuration;
 
 mod add_account;
 mod add_domain;

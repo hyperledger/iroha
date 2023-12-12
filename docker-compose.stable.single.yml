@@ -3,6 +3,7 @@ services:
   iroha0:
     build: .
     image: iroha2:stable
+    platform: linux/amd64
     environment:
       TORII_P2P_ADDR: iroha0:1337
       TORII_API_URL: iroha0:8080
@@ -18,7 +19,6 @@ services:
     ports:
       - "1337:1337"
       - "8080:8080"
-      - "8180:8180"
     init: true
     command: iroha --submit-genesis
     volumes:

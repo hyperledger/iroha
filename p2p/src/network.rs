@@ -366,7 +366,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         }: Connected<T>,
     ) {
         if !self.current_topology.contains_key(&peer_id) {
-            iroha_logger::warn!(topology=?self.current_topology, "Peer not present in topology is trying to connect");
+            iroha_logger::warn!(%peer_id, topology=?self.current_topology, "Peer not present in topology is trying to connect");
             return;
         }
 

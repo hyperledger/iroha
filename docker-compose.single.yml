@@ -3,6 +3,7 @@ services:
   iroha0:
     build: .
     image: iroha2:lts
+    platform: linux/amd64
     environment:
       TORII_P2P_ADDR: iroha0:1337
       TORII_API_URL: iroha0:8080
