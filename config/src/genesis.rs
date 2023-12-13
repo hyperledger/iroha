@@ -36,9 +36,11 @@ impl Default for ConfigurationProxy {
 }
 
 /// Parsed variant of the (user provided) [`Configuration`]
+// TODO: incorporate this struct into the final, parsed configuration
+//       https://github.com/hyperledger/iroha/issues/3500
 pub enum ParsedConfiguration {
     /// The peer can only observe the genesis block
-    View {
+    Default {
         /// Genesis account public key
         public_key: PublicKey,
     },
@@ -58,7 +60,7 @@ impl Configuration {
     /// See [`ParseError`]
     pub fn parse(self, submit: bool) -> Result<ParsedConfiguration, ParseError> {
         match (self.private_key, self.file, submit) {
-            (None, None, false) => Ok(ParsedConfiguration::View {
+            (None, None, false) => Ok(ParsedConfiguration::Default {
                 public_key: self.public_key,
             }),
             (Some(private_key), Some(file), true) => {
