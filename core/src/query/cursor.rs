@@ -31,6 +31,8 @@ pub struct Batched<I: IntoIterator> {
     cursor: Option<u64>,
 }
 
+impl<T> Encode for Batched<Vec<T>> {}
+
 /// Unknown cursor error.
 ///
 /// Happens when client sends a cursor that doesn't match any server's cursor.

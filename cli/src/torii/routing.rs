@@ -5,6 +5,8 @@
 // FIXME: This can't be fixed, because one trait in `warp` is private.
 #![allow(opaque_hidden_inferred_bound)]
 
+use std::num::NonZeroU32;
+
 use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
 use iroha_config::{
@@ -14,7 +16,11 @@ use iroha_config::{
     GetConfiguration, PostConfiguration,
 };
 use iroha_core::{
-    query::{pagination::Paginate, store::LiveQueryStoreHandle},
+    query::{
+        cursor::{Batch, Batched},
+        pagination::Paginate,
+        store::LiveQueryStoreHandle,
+    },
     smartcontracts::query::ValidQueryRequest,
     sumeragi::SumeragiHandle,
 };
@@ -154,18 +160,28 @@ async fn handle_pending_transactions(
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
     pagination: Pagination,
-) -> Result<Scale<Vec<SignedTransaction>>> {
+    fetch_size: FetchSize,
+) -> Result<Scale<Batched<Vec<SignedTransaction>>>> {
     let query_response = sumeragi.apply_wsv(|wsv| {
         queue
             .all_transactions(wsv)
             .map(Into::into)
             .paginate(pagination)
             .collect::<Vec<_>>()
-        // TODO:
-        //.batched(fetch_size)
     });
+    let fetch_size = fetch_size.fetch_size.map_or_else(
+        || {
+            if query_response.len() > 0 {
+                NonZeroU32::new(query_response.len().try_into().unwrap()).unwrap()
+            } else {
+                // no particular reason why 1
+                NonZeroU32::new(1).unwrap()
+            }
+        },
+        |size| size,
+    );
 
-    Ok(Scale(query_response))
+    Ok(Scale(query_response.batched(fetch_size)))
 }
 
 #[iroha_futures::telemetry_future]
@@ -431,11 +447,12 @@ impl Torii {
             .and_then(|| async { Ok::<_, Infallible>(handle_health()) });
 
         let get_router = warp::get().and(
-            endpoint3(
+            endpoint4(
                 handle_pending_transactions,
                 warp::path(uri::PENDING_TRANSACTIONS)
-                    .and(add_state!(self.queue, self.sumeragi,))
-                    .and(paginate()),
+                    .and(add_state!(self.queue, self.sumeragi))
+                    .and(paginate())
+                    .and(fetch_size()),
             )
             .or(endpoint2(
                 handle_get_configuration,
