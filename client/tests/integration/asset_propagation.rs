@@ -9,9 +9,8 @@ use iroha_client::{
         prelude::*,
     },
 };
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(

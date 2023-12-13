@@ -13,7 +13,6 @@ use derive_more::{DebugCustom, Display};
 use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
-use iroha_config::{client::Configuration, client_api::ConfigurationDTO, torii::uri};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
@@ -23,6 +22,7 @@ use url::Url;
 
 use self::{blocks_api::AsyncBlockStream, events_api::AsyncEventStream};
 use crate::{
+    config::{api::ConfigurationDTO, Configuration},
     crypto::{HashOf, KeyPair},
     data_model::{
         block::SignedBlock,
@@ -372,7 +372,7 @@ pub struct QueryRequest {
 impl QueryRequest {
     #[cfg(test)]
     fn dummy() -> Self {
-        let torii_url = iroha_config::torii::uri::DEFAULT_API_ADDR;
+        let torii_url = crate::config::torii::DEFAULT_API_ADDR;
 
         Self {
             torii_url: format!("http://{torii_url}").parse().unwrap(),
@@ -391,7 +391,9 @@ impl QueryRequest {
     fn assemble(self) -> DefaultRequestBuilder {
         let builder = DefaultRequestBuilder::new(
             HttpMethod::POST,
-            self.torii_url.join(uri::QUERY).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::QUERY)
+                .expect("Valid URI"),
         )
         .headers(self.headers);
 
@@ -682,7 +684,9 @@ impl Client {
         (
             B::new(
                 HttpMethod::POST,
-                self.torii_url.join(uri::TRANSACTION).expect("Valid URI"),
+                self.torii_url
+                    .join(crate::config::torii::TRANSACTION)
+                    .expect("Valid URI"),
             )
             .headers(self.headers.clone())
             .body(transaction_bytes),
@@ -752,7 +756,7 @@ impl Client {
     ///
     /// ```ignore
     /// use eyre::Result;
-    /// use iroha_client::{
+    /// use crate::{
     ///     data_model::{predicate::PredicateBox, prelude::{Account, FindAllAccounts, Pagination}},
     ///     client::Client,
     ///     http::{RequestBuilder, Response, Method},
@@ -951,7 +955,9 @@ impl Client {
         events_api::flow::Init::new(
             event_filter,
             self.headers.clone(),
-            self.torii_url.join(uri::SUBSCRIPTION).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::SUBSCRIPTION)
+                .expect("Valid URI"),
         )
     }
 
@@ -985,7 +991,9 @@ impl Client {
         blocks_api::flow::Init::new(
             height,
             self.headers.clone(),
-            self.torii_url.join(uri::BLOCKS_STREAM).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::BLOCKS_STREAM)
+                .expect("Valid URI"),
         )
     }
 
@@ -1018,7 +1026,7 @@ impl Client {
             let response = DefaultRequestBuilder::new(
                 HttpMethod::GET,
                 self.torii_url
-                    .join(uri::PENDING_TRANSACTIONS)
+                    .join(crate::config::torii::PENDING_TRANSACTIONS)
                     .expect("Valid URI"),
             )
             .params(pagination.clone())
@@ -1079,7 +1087,9 @@ impl Client {
     pub fn get_config(&self) -> Result<ConfigurationDTO> {
         let resp = DefaultRequestBuilder::new(
             HttpMethod::GET,
-            self.torii_url.join(uri::CONFIGURATION).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::CONFIGURATION)
+                .expect("Valid URI"),
         )
         .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
         .build()?
@@ -1101,7 +1111,10 @@ impl Client {
     /// If sending request or decoding fails
     pub fn set_config(&self, dto: ConfigurationDTO) -> Result<()> {
         let body = serde_json::to_vec(&dto).wrap_err(format!("Failed to serialize {dto:?}"))?;
-        let url = self.torii_url.join(uri::CONFIGURATION).expect("Valid URI");
+        let url = self
+            .torii_url
+            .join(crate::config::torii::CONFIGURATION)
+            .expect("Valid URI");
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
             .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
             .body(body)
@@ -1138,7 +1151,9 @@ impl Client {
     pub fn prepare_status_request<B: RequestBuilder>(&self) -> B {
         B::new(
             HttpMethod::GET,
-            self.torii_url.join(uri::STATUS).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::STATUS)
+                .expect("Valid URI"),
         )
         .headers(self.headers.clone())
     }
@@ -1634,13 +1649,10 @@ pub mod parameter {
 mod tests {
     use std::str::FromStr;
 
-    use iroha_config::{
-        client::{BasicAuth, ConfigurationProxy, WebLogin},
-        torii::uri::DEFAULT_API_ADDR,
-    };
     use iroha_primitives::small::SmallStr;
 
     use super::*;
+    use crate::config::{torii::DEFAULT_API_ADDR, BasicAuth, ConfigurationProxy, WebLogin};
 
     const LOGIN: &str = "mad_hatter";
     const PASSWORD: &str = "ilovetea";

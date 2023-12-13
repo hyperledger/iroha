@@ -9,9 +9,8 @@ use iroha_client::{
         prelude::*,
     },
 };
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 // Note the test is marked as `unstable`,  not the network.
 #[ignore = "ignore, more in #2851"]

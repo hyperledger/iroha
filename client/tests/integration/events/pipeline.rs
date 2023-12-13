@@ -8,9 +8,8 @@ use iroha_client::{
         prelude::*,
     },
 };
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 // Needed to re-enable ignored tests.
 #[allow(dead_code)]

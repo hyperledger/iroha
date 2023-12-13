@@ -6,9 +6,8 @@ use iroha_client::{
     crypto::KeyPair,
     data_model::prelude::*,
 };
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 #[test]
 fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
