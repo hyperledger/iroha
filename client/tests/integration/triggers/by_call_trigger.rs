@@ -6,7 +6,7 @@ use iroha_client::{
     data_model::{
         prelude::*,
         query::error::{FindError, QueryExecutionFail},
-        transaction::Executable,
+        transaction::{Executable, WasmSmartContract},
     },
 };
 use iroha_genesis::GenesisNetwork;
@@ -482,6 +482,58 @@ fn trigger_burn_repetitions() -> Result<()> {
     let _err = test_client
         .submit_blocking(execute_trigger)
         .expect_err("Should fail without repetitions");
+
+    Ok(())
+}
+
+#[test]
+fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_original_wasm_loss(
+) -> Result<()> {
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_115).start_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let account_id = AccountId::from_str("alice@wonderland")?;
+    let first_trigger_id = TriggerId::from_str("mint_rose_1")?;
+    let second_trigger_id = TriggerId::from_str("mint_rose_2")?;
+
+    let wasm =
+        iroha_wasm_builder::Builder::new("tests/integration/smartcontracts/mint_rose_trigger")
+            .build()?
+            .optimize()?
+            .into_bytes()?;
+    let wasm = WasmSmartContract::from_compiled(wasm);
+
+    let build_trigger = |trigger_id: TriggerId| {
+        Trigger::new(
+            trigger_id.clone(),
+            Action::new(
+                wasm.clone(),
+                Repeats::Indefinitely,
+                account_id.clone(),
+                TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+                    trigger_id,
+                    account_id.clone(),
+                )),
+            ),
+        )
+    };
+
+    let first_trigger = build_trigger(first_trigger_id.clone());
+    let second_trigger = build_trigger(second_trigger_id.clone());
+
+    test_client.submit_all_blocking([
+        RegisterExpr::new(first_trigger),
+        RegisterExpr::new(second_trigger.clone()),
+    ])?;
+
+    test_client.submit_blocking(UnregisterExpr::new(first_trigger_id))?;
+    let got_second_trigger = test_client
+        .request(FindTriggerById {
+            id: second_trigger_id.into(),
+        })
+        .expect("Failed to request second trigger");
+
+    assert_eq!(got_second_trigger, second_trigger);
 
     Ok(())
 }
