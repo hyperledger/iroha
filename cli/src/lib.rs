@@ -6,13 +6,14 @@
 //! should be constructed externally: (see `main.rs`).
 #[cfg(debug_assertions)]
 use core::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv, Override},
+    genesis::ParsedConfiguration as ParsedGenesisConfiguration,
     iroha::{Configuration, ConfigurationProxy},
-    path::Path as ConfigPath,
+    path::Path,
     telemetry::Configuration as TelemetryConfiguration,
 };
 use iroha_core::{
@@ -40,58 +41,8 @@ use tokio::{
     task,
 };
 
+// FIXME: move from CLI
 pub mod samples;
-pub mod style;
-
-/// Arguments for Iroha2.  Configuration for arguments is parsed from
-/// environment variables and then the appropriate object is
-/// constructed.
-#[derive(Debug)]
-pub struct Arguments {
-    /// Set this flag on the peer that should submit genesis on the network initial start.
-    pub submit_genesis: bool,
-    /// Set custom genesis file path. `None` if `submit_genesis` set to `false`.
-    pub genesis_path: Option<ConfigPath>,
-    /// Set custom config file path.
-    pub config_path: ConfigPath,
-}
-
-/// Default configuration path
-static CONFIGURATION_PATH: once_cell::sync::Lazy<&'static std::path::Path> =
-    once_cell::sync::Lazy::new(|| std::path::Path::new("config"));
-
-/// Default genesis path
-static GENESIS_PATH: once_cell::sync::Lazy<&'static std::path::Path> =
-    once_cell::sync::Lazy::new(|| std::path::Path::new("genesis"));
-
-impl Default for Arguments {
-    fn default() -> Self {
-        Self {
-            submit_genesis: false,
-            genesis_path: Some(ConfigPath::default(&GENESIS_PATH)),
-            config_path: ConfigPath::default(&CONFIGURATION_PATH),
-        }
-    }
-}
-
-/// Reflects user decision (or its absence) about ANSI colored output
-#[derive(Copy, Clone, Debug)]
-pub enum TerminalColorsArg {
-    /// Coloring should be decided automatically
-    Default,
-    /// User explicitly specified the value
-    UserSet(bool),
-}
-
-impl TerminalColorsArg {
-    /// Transforms the enumeration into flag
-    pub fn evaluate(self) -> bool {
-        match self {
-            Self::Default => supports_color::on(supports_color::Stream::Stdout).is_some(),
-            Self::UserSet(x) => x,
-        }
-    }
-}
 
 /// Iroha is an
 /// [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29)
@@ -99,9 +50,8 @@ impl TerminalColorsArg {
 /// and queries processing, work of consensus and storage.
 ///
 /// # Usage
-/// Construct and then `start` or `start_as_task`. If you experience
-/// an immediate shutdown after constructing Iroha, then you probably
-/// forgot this step.
+/// Construct and then [`Iroha::start()`] or [`Iroha::start_as_task()`]. If you experience
+/// an immediate shutdown after constructing Iroha, then you probably forgot this step.
 #[must_use = "run `.start().await?` to not immediately stop Iroha"]
 pub struct Iroha {
     /// Actor responsible for the configuration
@@ -235,17 +185,20 @@ impl Iroha {
         }));
     }
 
-    /// Create Iroha with specified broker, config, and genesis.
+    /// Create new Iroha instance.
     ///
     /// # Errors
     /// - Reading telemetry configs
-    /// - telemetry setup
-    /// - Initialization of [`Sumeragi`]
+    /// - Telemetry setup
+    /// - Initialization of [`Sumeragi`] and [`Kura`]
+    ///
+    /// # Side Effects
+    /// - Sets global panic hook
     #[allow(clippy::too_many_lines)]
     #[iroha_logger::log(name = "init", skip_all)] // This is actually easier to understand as a linear sequence of init statements.
-    pub async fn with_genesis(
-        genesis: Option<GenesisNetwork>,
+    pub async fn new(
         config: Configuration,
+        genesis: Option<GenesisNetwork>,
         logger: LoggerHandle,
     ) -> Result<Self> {
         let listen_addr = config.torii.p2p_addr.clone();
@@ -255,7 +208,7 @@ impl Iroha {
 
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
-            [genesis_domain(config.genesis.account_public_key.clone())],
+            [genesis_domain(config.genesis.public_key.clone())],
             config.sumeragi.trusted_peers.peers.clone(),
         );
 
@@ -530,32 +483,75 @@ fn genesis_domain(public_key: PublicKey) -> Domain {
     domain
 }
 
-/// Combine configuration proxies from several locations, preferring `ENV` vars over config file
+/// Reads configuration from the specified path and validates it.
 ///
 /// # Errors
-/// - if config fails to build
-pub fn combine_configs(args: &Arguments) -> color_eyre::eyre::Result<Configuration> {
-    args.config_path
-        .first_existing_path()
-        .map_or_else(
-            || {
-                eprintln!("Configuration file not found. Using environment variables as fallback.");
-                ConfigurationProxy::default()
-            },
-            |path| {
-                let path_proxy = ConfigurationProxy::from_path(&path.as_path());
-                // Override the default to ensure that the variables
-                // not specified in the config file don't have to be
-                // explicitly specified in the env.
-                ConfigurationProxy::default().override_with(path_proxy)
-            },
-        )
+/// - If config fails to build
+/// - If genesis config is invalid
+pub fn read_config(
+    path: &Path,
+    submit_genesis: bool,
+) -> Result<(Configuration, Option<GenesisNetwork>)> {
+    let config = ConfigurationProxy::default();
+
+    let config = if let Some(actual_config_path) = path.try_resolve() {
+        let mut cfg = config.override_with(ConfigurationProxy::from_path(&*actual_config_path));
+
+        // careful here: `genesis.file` might be a path relative to the config file.
+        // we need to resolve it before proceeding
+        // TODO: move this logic into `iroha_config`
+        if let Some(genesis) = &mut cfg.genesis {
+            if let Some(Some(genesis_path)) = &genesis.file {
+                let genesis_path = PathBuf::from(genesis_path);
+                if genesis_path.is_relative() {
+                    let resolved = actual_config_path.join(genesis_path);
+                    genesis.file = Some(Some(resolved.to_string_lossy().into_owned()));
+                }
+            }
+        }
+
+        cfg
+    } else {
+        config
+    };
+
+    // it is not chained to the previous expressions so that config proxy from env is evaluated
+    // after reading a file
+    let config = config
         .override_with(
             ConfigurationProxy::from_std_env()
                 .wrap_err("Failed to build configuration from env")?,
         )
-        .build()
-        .map_err(Into::into)
+        .build()?;
+
+    // TODO: move validation logic below to `iroha_config`
+
+    if !config.disable_panic_terminal_colors {
+        // FIXME: it shouldn't be logged here; it is a part of configuration domain
+        //        this message can be very simply broken by the changes in the configuration
+        //        https://github.com/hyperledger/iroha/issues/3506
+        eprintln!("The configuration parameter `DISABLE_PANIC_TERMINAL_COLORS` is deprecated. Set `TERMINAL_COLORS=false` instead. ")
+    }
+
+    if !submit_genesis && config.sumeragi.trusted_peers.peers.len() <= 1 {
+        return Err(eyre!("Only peer in network, yet required to receive genesis topology. This is a configuration error."));
+    }
+
+    let genesis = if let ParsedGenesisConfiguration::Submit {
+        key_pair,
+        raw_block,
+    } = config
+        .genesis
+        .clone()
+        .parse(submit_genesis)
+        .wrap_err("Invalid genesis configuration")?
+    {
+        Some(GenesisNetwork::new(raw_block, &key_pair)?)
+    } else {
+        None
+    };
+
+    Ok((config, genesis))
 }
 
 #[cfg(not(feature = "test-network"))]

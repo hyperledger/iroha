@@ -6,7 +6,7 @@ use alloc::borrow::Cow;
 use std::path::PathBuf;
 
 // TODO: replace with `std::fs::absolute` when it's stable.
-use path_absolutize::Absolutize as _;
+// use path_absolutize::Absolutize as _;
 use InnerPath::*;
 
 /// Allowed configuration file extension that user can provide.
@@ -27,61 +27,56 @@ pub type Result<T> = std::result::Result<T, ExtensionError>;
 /// Inner helper struct.
 ///
 /// With this struct, we force to use [`Path`]'s constructors instead of constructing it directly.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum InnerPath {
-    Default(PathBuf),
-    UserProvided(PathBuf),
+    /// Contains path without an extension, so that it will try to resolve
+    /// using [`ALLOWED_CONFIG_EXTENSIONS`]
+    TryExtensions(PathBuf),
+    /// Contains full path, with extension
+    Strict(PathBuf),
 }
 
 /// Wrapper around path to config file (e.g. `config.json`).
 ///
 /// Provides abstraction above user-provided config and default ones.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Path(InnerPath);
 
 impl core::fmt::Display for Path {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.0 {
-            Default(pth) => write!(
-                f,
-                "{:?} (default)",
-                pth.with_extension("json")
-                    .absolutize()
-                    .expect("Malformed default path")
-            ),
-            UserProvided(pth) => write!(
-                f,
-                "{:?} (user-provided)",
-                pth.with_extension("json")
-                    .absolutize()
-                    .expect("Malformed user-provided path")
-            ),
+            TryExtensions(path) => {
+                write!(
+                    f,
+                    "{}.{{{}}}",
+                    path.display(),
+                    ALLOWED_CONFIG_EXTENSIONS.join(",")
+                )
+            }
+            Strict(path) => write!(f, "{}", path.display()),
         }
     }
 }
 
 impl Path {
-    /// Construct new [`Path`] from the default `path`.
+    /// Construct new [`Path`] which will try to resolve multiple allowed extensions.
     ///
-    /// # Panics
-    ///
-    /// Panics if `path` contains an extension.
-    pub fn default(path: &'static std::path::Path) -> Self {
-        assert!(
-            path.extension().is_none(),
-            "Default configuration path should have no extension"
-        );
+    /// # Errors
+    /// If `path` contains extension.
+    pub fn try_extensions(path: impl Into<PathBuf>) -> Result<Self> {
+        let path = path.into();
 
-        Self(Default(path.to_owned()))
+        match path.extension() {
+            Some(ext) => Err(ExtensionError::Invalid(ext.to_string_lossy().into_owned())),
+            None => Ok(Self(TryExtensions(path))),
+        }
     }
 
     /// Construct new [`Path`] from user-provided `path`.
     ///
     /// # Errors
-    ///
-    /// An error will be returned if `path` contains no file extension
-    /// or contains unsupported one.
-    pub fn user_provided(path: impl Into<PathBuf>) -> Result<Self> {
+    /// If `path`'s extension is absent or unsupported.
+    pub fn strict(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
 
         let extension = path
@@ -92,27 +87,41 @@ impl Path {
             return Err(ExtensionError::Invalid(extension.into_owned()));
         }
 
-        Ok(Self(UserProvided(path)))
+        Ok(Self(Strict(path)))
     }
 
     /// Try to get first existing path by applying possible extensions if there are any.
-    pub fn first_existing_path(&self) -> Option<Cow<PathBuf>> {
+    pub fn try_resolve(&self) -> Option<Cow<PathBuf>> {
         match &self.0 {
-            Default(path) => ALLOWED_CONFIG_EXTENSIONS.iter().find_map(|extension| {
+            TryExtensions(path) => ALLOWED_CONFIG_EXTENSIONS.iter().find_map(|extension| {
                 let path_ext = path.with_extension(extension);
                 path_ext.exists().then_some(Cow::Owned(path_ext))
             }),
-            UserProvided(path) => path.exists().then_some(Cow::Borrowed(path)),
+            Strict(path) => path.exists().then_some(Cow::Borrowed(path)),
         }
     }
+}
 
-    /// Check if config path exists by applying allowed extensions if there are any.
-    pub fn exists(&self) -> bool {
-        match &self.0 {
-            Default(path) => ALLOWED_CONFIG_EXTENSIONS
-                .iter()
-                .any(|extension| path.with_extension(extension).exists()),
-            UserProvided(path) => path.exists(),
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_multi_extensions() {
+        let path =
+            Path::try_extensions("config").expect("Should be valid since doesn't have extension");
+
+        let display = format!("{path}");
+
+        assert_eq!(display, "config.{json,json5}")
+    }
+
+    #[test]
+    fn display_strict_extension() {
+        let path = Path::strict("config.json").expect("Should be valid since extension is valid");
+
+        let display = format!("{path}");
+
+        assert_eq!(display, "config.json")
     }
 }

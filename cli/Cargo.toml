@@ -55,6 +55,7 @@ iroha_torii = { workspace = true }
 iroha_genesis = { workspace = true }
 iroha_wasm_builder = { workspace = true }
 
+clap = { workspace = true, features = ["derive", "env", "string"] }
 color-eyre = { workspace = true }
 eyre = { workspace = true }
 tracing = { workspace = true }

@@ -122,10 +122,12 @@ impl TestGenesis for GenesisNetwork {
         }
 
         if submit_genesis {
-            return Some(
-                GenesisNetwork::from_configuration(genesis, Some(&cfg.genesis))
-                    .expect("Failed to init genesis"),
-            );
+            let key_pair = KeyPair::new(
+                cfg.genesis.public_key.clone(),
+                cfg.genesis.private_key.expect("Should be"),
+            )
+            .expect("Genesis key pair should be valid");
+            return Some(GenesisNetwork::new(genesis, &key_pair).expect("Failed to init genesis"));
         }
 
         None
@@ -432,7 +434,7 @@ impl Peer {
 
         let handle = task::spawn(
             async move {
-                let mut iroha = Iroha::with_genesis(genesis, configuration, logger)
+                let mut iroha = Iroha::new(configuration, genesis, logger)
                     .await
                     .expect("Failed to start iroha");
                 let job_handle = iroha.start_as_task().unwrap();

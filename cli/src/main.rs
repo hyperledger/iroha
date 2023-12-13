@@ -1,235 +1,154 @@
 //! Iroha peer command-line interface.
 use std::env;
 
-use color_eyre::eyre::WrapErr as _;
-use iroha::{style::Styling, TerminalColorsArg};
+use clap::Parser;
+use color_eyre::eyre::Result;
 use iroha_config::path::Path as ConfigPath;
-use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
-use owo_colors::OwoColorize as _;
 
-const HELP_ARG: [&str; 2] = ["--help", "-h"];
-const SUBMIT_ARG: [&str; 2] = ["--submit-genesis", "-s"];
-const VERSION_ARG: [&str; 2] = ["--version", "-V"];
-const TERMINAL_COLORS_ARG: &str = "--terminal-colors";
-const NO_TERMINAL_COLORS_ARG: &str = "--no-terminal-colors";
+const DEFAULT_CONFIG_PATH: &str = "config";
 
-const REQUIRED_ENV_VARS: [(&str, &str); 7] = [
-    ("IROHA_TORII", "Torii (gateway) endpoint configuration"),
-    (
-        "IROHA_SUMERAGI",
-        "Sumeragi (emperor) consensus configuration",
-    ),
-    (
-        "IROHA_KURA",
-        "Kura (storage). Configuration of block storage ",
-    ),
-    ("IROHA_BLOCK_SYNC", "Block synchronisation configuration"),
-    ("IROHA_PUBLIC_KEY", "Peer public key"),
-    ("IROHA_PRIVATE_KEY", "Peer private key"),
-    ("IROHA_GENESIS", "Genesis block configuration"),
-];
+fn parse_config_path(raw: &str) -> Result<ConfigPath> {
+    Ok(ConfigPath::strict(raw)?)
+}
+
+fn default_config_path() -> ConfigPath {
+    ConfigPath::try_extensions(DEFAULT_CONFIG_PATH)
+        .expect("Default config path should not have an extension. It is a bug.")
+}
+
+fn is_colouring_supported() -> bool {
+    supports_color::on(supports_color::Stream::Stdout).is_some()
+}
+
+fn default_terminal_colors_str() -> clap::builder::OsStr {
+    is_colouring_supported().to_string().into()
+}
+
+/// Iroha peer Command-Line Interface.
+#[derive(Parser, Debug)]
+#[command(name = "iroha", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
+struct Args {
+    /// Path to the configuration file, defaults to `config.json`/`config.json5`
+    ///
+    /// Supported extensions are `.json` and `.json5`. By default, Iroha looks up for a
+    /// `config` file in the Current Working Directory with both supported extensions.
+    /// If the default config file is not found, Iroha will rely on default values and environment
+    /// variables. However, if the config path is set explicitly with this argument and the file
+    /// is not found, Iroha will exit with an error.
+    #[arg(
+        long,
+        short,
+        env("IROHA_CONFIG"),
+        value_parser(parse_config_path),
+        value_name("PATH"),
+        value_hint(clap::ValueHint::FilePath)
+    )]
+    config: Option<ConfigPath>,
+    /// Whether to enable ANSI colored output or not
+    ///
+    /// By default, Iroha determines whether the terminal supports colors or not.
+    ///
+    /// In order to disable this flag explicitly, pass `--terminal-colors=false`.
+    #[arg(
+        long,
+        env,
+        default_missing_value("true"),
+        default_value(default_terminal_colors_str()),
+        action(clap::ArgAction::Set),
+        require_equals(true),
+        num_args(0..=1),
+    )]
+    terminal_colors: bool,
+    /// Whether the current peer should submit the genesis block or not
+    ///
+    /// The only one peer in the network should submit the genesis block.
+    ///
+    /// This argument must be set alongside with `genesis.file` and `genesis.private_key`
+    /// configuration options. If not, Iroha will exit with an error.
+    ///
+    /// This argument must be set if the amount of trusted peers in the config file
+    /// (`sumeragi.trusted_peers`) is less than 2, i.e. the network consists only from this peer
+    /// itself. Otherwise it would be impossible to receive genesis topology, and Iroha will exit
+    /// with an error.
+    #[arg(long)]
+    submit_genesis: bool,
+}
 
 #[tokio::main]
-/// To make `Iroha` peer work all actors should be started first.
-/// After that moment it you can start it with listening to torii events.
-///
-/// # Side effect
-/// - Prints welcome message in the log
-///
-/// # Errors
-/// - Reading genesis from disk
-/// - Reading config file
-/// - Reading config from `env`
-/// - Missing required fields in combined configuration
-/// - Telemetry setup
-/// - [`Sumeragi`] init
-async fn main() -> Result<(), color_eyre::Report> {
-    let mut args = iroha::Arguments::default();
+async fn main() -> Result<()> {
+    let args = Args::parse();
 
-    let terminal_colors = env::var("TERMINAL_COLORS")
-        .ok()
-        .map(|s| !s.as_str().parse().unwrap_or(true))
-        .or_else(|| {
-            if env::args().any(|a| a == TERMINAL_COLORS_ARG) {
-                Some(true)
-            } else if env::args().any(|a| a == NO_TERMINAL_COLORS_ARG) {
-                Some(false)
-            } else {
-                None
-            }
-        })
-        .map_or(TerminalColorsArg::Default, TerminalColorsArg::UserSet)
-        .evaluate();
-
-    if terminal_colors {
+    if args.terminal_colors {
         color_eyre::install()?;
     }
 
-    let styling = Styling::new(terminal_colors);
+    let config_path = args.config.unwrap_or_else(default_config_path);
 
-    if env::args().any(|a| HELP_ARG.contains(&a.as_str())) {
-        print_help(&styling)?;
-        return Ok(());
-    }
+    let (config, genesis) = iroha::read_config(&config_path, args.submit_genesis)?;
+    let logger = iroha_logger::init_global(&config.logger, args.terminal_colors)?;
 
-    if env::args().any(|a| VERSION_ARG.contains(&a.as_str())) {
-        print_version(&styling);
-        return Ok(());
-    }
-
-    if env::args().any(|a| SUBMIT_ARG.contains(&a.as_str())) {
-        args.submit_genesis = true;
-        if let Ok(genesis_path) = env::var("IROHA2_GENESIS_PATH") {
-            args.genesis_path = Some(
-                ConfigPath::user_provided(&genesis_path)
-                    .wrap_err_with(|| "Required, because `--submit-genesis` was specified.")
-                    .wrap_err_with(|| format!("Could not read `{genesis_path}`"))?,
-            );
-        }
-    } else {
-        args.genesis_path = None;
-    }
-
-    for arg in env::args().skip(1) {
-        if !arg.is_empty()
-            && !([HELP_ARG, SUBMIT_ARG]
-                .iter()
-                .any(|group| group.contains(&arg.as_str())))
-        {
-            print_help(&styling)?;
-            eyre::bail!(
-                "Unrecognised command-line flag `{}`",
-                arg.style(styling.negative)
-            );
-        }
-    }
-
-    if let Ok(config_path) = env::var("IROHA2_CONFIG_PATH") {
-        args.config_path = ConfigPath::user_provided(&config_path)
-            .wrap_err_with(|| format!("Failed to parse `{config_path}` as configuration path"))?;
-    }
-    if !args.config_path.exists() {
-        // Require all the fields defined in default `config.json`
-        // to be specified as env vars with their respective prefixes
-
-        // TODO: Consider moving these into the
-        // `iroha::combine_configs` and dependent functions.
-        for var_name in REQUIRED_ENV_VARS {
-            // Rather than short circuit and require the person to fix
-            // the missing env vars one by one, print out the whole
-            // list of missing environment variables.
-            let _ = env::var(var_name.0).map_err(|e| {
-                println!(
-                    "{}: {}",
-                    var_name.0.style(styling.highlight),
-                    e.style(styling.negative)
-                );
-            });
-        }
-    }
-
-    let config = iroha::combine_configs(&args)?;
-    let logger = iroha_logger::init_global(&config.logger, terminal_colors)?;
-    if !config.disable_panic_terminal_colors {
-        // FIXME: it shouldn't be logged here; it is a part of configuration domain
-        //        this message can be very simply broken by the changes in the configuration
-        //        https://github.com/hyperledger/iroha/issues/3506
-        iroha_logger::warn!("The configuration parameter `DISABLE_PANIC_TERMINAL_COLORS` is deprecated. Set `TERMINAL_COLORS=false` instead. ")
-    }
     iroha_logger::info!(
-        version = %env!("CARGO_PKG_VERSION"), git_commit_sha = env!("VERGEN_GIT_SHA"),
+        version = env!("CARGO_PKG_VERSION"),
+        git_commit_sha = env!("VERGEN_GIT_SHA"),
         "Hyperledgerいろは2にようこそ！(translation) Welcome to Hyperledger Iroha!"
     );
 
-    assert!(args.submit_genesis || config.sumeragi.trusted_peers.peers.len() > 1,
-        "Only peer in network, yet required to receive genesis topology. This is a configuration error."
-    );
+    if genesis.is_some() {
+        iroha_logger::debug!("Submitting genesis.");
+    }
 
-    let genesis = args
-        .submit_genesis
-        .then_some(())
-        .and(args.genesis_path)
-        .map(|genesis_path| {
-            let genesis_path = genesis_path.first_existing_path().ok_or({
-                color_eyre::eyre::eyre!("Genesis block file {genesis_path:?} doesn't exist")
-            })?;
-
-            let genesis_block = RawGenesisBlock::from_path(genesis_path.as_ref())?;
-            GenesisNetwork::from_configuration(genesis_block, Some(&config.genesis))
-                .wrap_err("Failed to initialize genesis.")
-        })
-        .transpose()?;
-
-    iroha::Iroha::with_genesis(genesis, config, logger)
+    iroha::Iroha::new(config, genesis, logger)
         .await?
         .start()
         .await?;
+
     Ok(())
 }
 
-fn print_help(styling: &Styling) -> Result<(), std::io::Error> {
-    use std::io::Write;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let stdout = std::io::stdout();
-    let lock = stdout.lock();
-    let mut buffer = std::io::BufWriter::with_capacity(1024 * REQUIRED_ENV_VARS.len(), lock);
-    writeln!(buffer, "{}", "Iroha 2".bold().green())?;
-    writeln!(buffer, "pass {} for this message", styling.or(&HELP_ARG))?;
-    writeln!(
-        buffer,
-        "pass {} to submit genesis from this peer",
-        styling.or(&SUBMIT_ARG)
-    )?;
-    writeln!(
-        buffer,
-        "pass {} to print version information",
-        styling.or(&VERSION_ARG)
-    )?;
-    writeln!(buffer)?;
-    writeln!(buffer, "Iroha 2 is configured via environment variables:")?;
-    writeln!(
-        buffer,
-        "    {} is the location of your {}",
-        "IROHA2_CONFIG_PATH".style(styling.highlight),
-        styling.with_json_file_ext("config")
-    )?;
-    writeln!(
-        buffer,
-        "    {} is the location of your {}",
-        "IROHA2_GENESIS_PATH".style(styling.highlight),
-        styling.with_json_file_ext("genesis")
-    )?;
-    writeln!(
-        buffer,
-        "If either of these is not provided, Iroha checks the current directory."
-    )?;
-    writeln!(buffer)?;
-    writeln!(
-        buffer,
-        "Additionally, in case of absence of both {} and {}
-in the current directory, all the variables from {} should be set via the environment
-as follows:",
-        "IROHA2_CONFIG_PATH".style(styling.highlight),
-        styling.with_json_file_ext("config"),
-        styling.with_json_file_ext("config")
-    )?;
-    for var in REQUIRED_ENV_VARS {
-        writeln!(buffer, "    {}: {}", var.0.style(styling.highlight), var.1)?;
+    #[test]
+    #[allow(clippy::bool_assert_comparison)] // for expressiveness
+    fn default_args() -> Result<()> {
+        let args = Args::try_parse_from(["test"])?;
+
+        assert_eq!(args.config, None);
+        assert_eq!(args.terminal_colors, is_colouring_supported());
+        assert_eq!(args.submit_genesis, false);
+
+        Ok(())
     }
-    writeln!(
-        buffer,
-        "Examples of these variables can be found in the default `configs/peer/config.json`."
-    )?;
-    Ok(())
-}
 
-fn print_version(styling: &Styling) {
-    println!(
-        "{} {} (git hash {}) \n {}: {}",
-        "Hyperledger Iroha".style(styling.positive),
-        env!("CARGO_PKG_VERSION").style(styling.highlight),
-        env!("VERGEN_GIT_SHA"),
-        "cargo features".style(styling.highlight),
-        env!("VERGEN_CARGO_FEATURES")
-    );
+    #[test]
+    #[allow(clippy::bool_assert_comparison)] // for expressiveness
+    fn terminal_colors_works_as_expected() -> Result<()> {
+        fn try_with(arg: &str) -> Result<bool> {
+            Ok(Args::try_parse_from(["test", arg])?.terminal_colors)
+        }
+
+        assert_eq!(
+            Args::try_parse_from(["test"])?.terminal_colors,
+            is_colouring_supported()
+        );
+        assert_eq!(try_with("--terminal-colors")?, true);
+        assert_eq!(try_with("--terminal-colors=false")?, false);
+        assert_eq!(try_with("--terminal-colors=true")?, true);
+        assert!(try_with("--terminal-colors=random").is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn user_provided_config_path_works() -> Result<()> {
+        let args = Args::try_parse_from(["test", "--config", "/home/custom/file.json"])?;
+
+        assert_eq!(
+            args.config,
+            Some(ConfigPath::strict("/home/custom/file.json").unwrap())
+        );
+
+        Ok(())
+    }
 }

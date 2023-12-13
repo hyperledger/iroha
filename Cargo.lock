@@ -577,29 +577,12 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.2.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ea181bf566f71cb9a5d17a59e1871af638180a18fb0035c92ae62b705207123"
-dependencies = [
- "atty",
- "bitflags 1.3.2",
- "clap_derive 3.2.25",
- "clap_lex 0.2.4",
- "indexmap 1.9.3",
- "once_cell",
- "strsim",
- "termcolor",
- "textwrap",
-]
-
-[[package]]
-name = "clap"
 version = "4.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfaff671f6b22ca62406885ece523383b9b64022e341e53e009a62ebc47a45f2"
 dependencies = [
  "clap_builder",
- "clap_derive 4.4.7",
+ "clap_derive",
 ]
 
 [[package]]
@@ -610,21 +593,8 @@ checksum = "a216b506622bb1d316cd51328dce24e07bdff4a6128a47c7e7fad11878d5adbb"
 dependencies = [
  "anstream",
  "anstyle",
- "clap_lex 0.6.0",
+ "clap_lex",
  "strsim",
-]
-
-[[package]]
-name = "clap_derive"
-version = "3.2.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae6371b8bdc8b7d3959e9cf7b22d4435ef3e79e138688421ec654acf8c81b008"
-dependencies = [
- "heck",
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -637,15 +607,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.41",
-]
-
-[[package]]
-name = "clap_lex"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2850f2f5a82cbf437dd5af4d49848fbdfc27c157c3d010345776f952765261c5"
-dependencies = [
- "os_str_bytes",
 ]
 
 [[package]]
@@ -765,9 +726,9 @@ dependencies = [
 
 [[package]]
 name = "const-oid"
-version = "0.9.5"
+version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28c122c3980598d243d63d9a704629a2d748d101f278052ff068be5a4423ab6f"
+checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
 name = "core-foundation"
@@ -939,7 +900,7 @@ dependencies = [
  "anes",
  "cast",
  "ciborium",
- "clap 4.4.11",
+ "clap",
  "criterion-plot",
  "is-terminal",
  "itertools 0.10.5",
@@ -2610,6 +2571,7 @@ dependencies = [
 name = "iroha"
 version = "2.0.0-pre-rc.20"
 dependencies = [
+ "clap",
  "color-eyre",
  "eyre",
  "iroha_config",
@@ -2678,7 +2640,7 @@ dependencies = [
 name = "iroha_client_cli"
 version = "2.0.0-pre-rc.20"
 dependencies = [
- "clap 3.2.25",
+ "clap",
  "color-eyre",
  "dialoguer",
  "erased-serde",
@@ -2702,6 +2664,7 @@ dependencies = [
  "iroha_config_base",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_genesis",
  "iroha_primitives",
  "json5",
  "once_cell",
@@ -2978,11 +2941,8 @@ version = "2.0.0-pre-rc.20"
 dependencies = [
  "derive_more",
  "eyre",
- "iroha_config",
  "iroha_crypto",
  "iroha_data_model",
- "iroha_logger",
- "iroha_primitives",
  "iroha_schema",
  "once_cell",
  "serde",
@@ -3161,7 +3121,7 @@ version = "2.0.0-pre-rc.20"
 name = "iroha_swarm"
 version = "2.0.0-pre-rc.20"
 dependencies = [
- "clap 4.4.11",
+ "clap",
  "color-eyre",
  "derive_more",
  "expect-test",
@@ -3321,7 +3281,7 @@ dependencies = [
 name = "iroha_wasm_builder_cli"
 version = "2.0.0-pre-rc.20"
 dependencies = [
- "clap 4.4.11",
+ "clap",
  "color-eyre",
  "iroha_wasm_builder",
  "owo-colors",
@@ -3454,7 +3414,7 @@ dependencies = [
 name = "kagami"
 version = "2.0.0-pre-rc.20"
 dependencies = [
- "clap 4.4.11",
+ "clap",
  "color-eyre",
  "derive_more",
  "iroha_config",
@@ -3481,7 +3441,7 @@ dependencies = [
 name = "kura_inspector"
 version = "2.0.0-pre-rc.20"
 dependencies = [
- "clap 4.4.11",
+ "clap",
  "iroha_core",
  "iroha_data_model",
  "iroha_version",
@@ -3925,12 +3885,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "os_str_bytes"
-version = "6.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2355d85b9a3786f481747ced0e0ff2ba35213a1f9bd406ed906554d7af805a1"
-
-[[package]]
 name = "overload"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3975,7 +3929,7 @@ dependencies = [
 name = "parity_scale_decoder"
 version = "2.0.0-pre-rc.20"
 dependencies = [
- "clap 4.4.11",
+ "clap",
  "colored",
  "eyre",
  "iroha_crypto",
@@ -5361,12 +5315,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "textwrap"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "222a222a5bfe1bba4a77b45ec488a741b3cb8872e5e499451fd7d0129c9c7c3d"
-
-[[package]]
 name = "thiserror"
 version = "1.0.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5888,9 +5836,9 @@ dependencies = [
 
 [[package]]
 name = "unsafe-libyaml"
-version = "0.2.9"
+version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f28467d3e1d3c6586d8f25fa243f544f5800fec42d97032474e17222c2b75cfa"
+checksum = "ab4c90930b95a82d00dc9e9ac071b4991924390d46cbd0dfe566148667605e4b"
 
 [[package]]
 name = "untrusted"

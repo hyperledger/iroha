@@ -10,12 +10,13 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Enables test-related functions (`GenesisNetwork::transactions_mut()`)
+test-utils = []
+
 [dependencies]
-iroha_config = { workspace = true }
 iroha_crypto = { workspace = true }
 iroha_data_model = { workspace = true, features = ["http"] }
-iroha_logger = { workspace = true }
-iroha_primitives = { workspace = true }
 iroha_schema = { workspace = true }
 
 derive_more = { workspace = true, features = ["deref"] }

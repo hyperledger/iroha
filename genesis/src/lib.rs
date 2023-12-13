@@ -8,8 +8,7 @@ use std::{
 };
 
 use derive_more::From;
-use eyre::{bail, eyre, ErrReport, Result, WrapErr};
-use iroha_config::genesis::Configuration;
+use eyre::{eyre, ErrReport, Result, WrapErr};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     asset::AssetDefinition,
@@ -34,29 +33,19 @@ pub struct GenesisTransaction(pub SignedTransaction);
 /// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.
 #[derive(Debug, Clone)]
 pub struct GenesisNetwork {
-    /// transactions from `GenesisBlock`, any transacton is accepted
-    pub transactions: Vec<GenesisTransaction>,
+    /// Transactions from [`RawGenesisBlock`]. This vector is guaranteed to be non-empty,
+    /// unless [`GenesisNetwork::transactions_mut()`] is used.
+    transactions: Vec<GenesisTransaction>,
 }
 
 impl GenesisNetwork {
     /// Construct [`GenesisNetwork`] from configuration.
     ///
     /// # Errors
-    /// Fails if genesis block is not found or cannot be deserialized.
-    pub fn from_configuration(
-        raw_block: RawGenesisBlock,
-        genesis_config: Option<&Configuration>,
-    ) -> Result<GenesisNetwork> {
-        iroha_logger::debug!("Submitting genesis.");
-        let genesis_config =
-            genesis_config.expect("Should be `Some` when `submit_genesis` is true");
-        let genesis_key_pair = KeyPair::new(
-            genesis_config.account_public_key.clone(),
-            genesis_config
-                .account_private_key
-                .clone()
-                .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
-        )?;
+    /// - If fails to sign a transaction (which means that the `key_pair` is malformed rather
+    ///   than anything else)
+    /// - If transactions set is empty
+    pub fn new(raw_block: RawGenesisBlock, genesis_key_pair: &KeyPair) -> Result<GenesisNetwork> {
         #[cfg(not(test))]
         // First instruction should be Executor upgrade.
         // This makes possible to grant permissions to users in genesis.
@@ -69,22 +58,32 @@ impl GenesisNetwork {
         let transactions_iter = raw_block.transactions.into_iter();
 
         let transactions = transactions_iter
-            .map(|raw_transaction| {
-                raw_transaction.sign(genesis_key_pair.clone())
-            })
             .enumerate()
-            .filter_map(|(i, res)| {
-                res.map_err(|error| {
-                    let error_msg = format!("{error:#}");
-                    iroha_logger::error!(error = %error_msg, transaction_num=i, "Genesis transaction failed")
-                })
-                .ok()
-            }).map(GenesisTransaction)
-            .collect::<Vec<_>>();
+            .map(|(i, raw_transaction)| {
+                raw_transaction
+                    // FIXME: fix underlying chain of `.sign` so that it doesn't
+                    //        consume the key pair unnecessarily 
+                    .sign(genesis_key_pair.clone())
+                    .map(GenesisTransaction)
+                    .wrap_err_with(|| eyre!("Failed to sign transaction #{i}"))
+            })
+            .collect::<Result<Vec<_>>>()?;
         if transactions.is_empty() {
-            bail!("Genesis transaction set contains no valid transactions");
+            return Err(eyre!("Genesis transaction set is empty"));
         }
         Ok(GenesisNetwork { transactions })
+    }
+
+    /// Consume `self` into genesis transactions
+    pub fn into_transactions(self) -> Vec<GenesisTransaction> {
+        self.transactions
+    }
+
+    #[cfg(feature = "test-utils")]
+    /// Get mutable genesis transactions, which allows to violate the invariant for
+    /// testing purposes
+    pub fn transactions_mut(&mut self) -> &mut Vec<GenesisTransaction> {
+        &mut self.transactions
     }
 }
 
@@ -106,19 +105,18 @@ impl RawGenesisBlock {
     /// # Errors
     /// If file not found or deserialization from file fails.
     pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Self> {
-        let file = File::open(&path).wrap_err(format!("Failed to open {:?}", &path))?;
+        let file = File::open(&path)
+            .wrap_err_with(|| eyre!("Failed to open {}", path.as_ref().display()))?;
         let size = file
             .metadata()
             .wrap_err("Unable to access genesis file metadata")?
             .len();
         if size >= Self::WARN_ON_GENESIS_GTE {
-            iroha_logger::warn!(%size, threshold = %Self::WARN_ON_GENESIS_GTE, "Genesis is quite large, it will take some time to apply it");
+            eprintln!("Genesis is quite large, it will take some time to apply it (size = {}, threshold = {})", size, Self::WARN_ON_GENESIS_GTE);
         }
         let reader = BufReader::new(file);
-        let mut raw_genesis_block: Self = serde_json::from_reader(reader).wrap_err(format!(
-            "Failed to deserialize raw genesis block from {:?}",
-            &path
-        ))?;
+        let mut raw_genesis_block: Self = serde_json::from_reader(reader)
+            .wrap_err_with(|| eyre!("Failed to deserialize raw genesis block from {:?}", &path))?;
         raw_genesis_block.executor.set_genesis_path(path);
         Ok(raw_genesis_block)
     }
@@ -363,7 +361,6 @@ impl<S> RawGenesisDomainBuilder<S> {
 
 #[cfg(test)]
 mod tests {
-    use iroha_config::{base::proxy::Builder, genesis::ConfigurationProxy};
 
     use super::*;
 
@@ -373,25 +370,31 @@ mod tests {
 
     #[test]
     fn load_new_genesis_block() -> Result<()> {
-        let (genesis_public_key, genesis_private_key) = KeyPair::generate()?.into();
+        let genesis_key_pair = KeyPair::generate()?;
         let (alice_public_key, _) = KeyPair::generate()?.into();
-        let _genesis_block = GenesisNetwork::from_configuration(
+        let _genesis_block = GenesisNetwork::new(
             RawGenesisBlockBuilder::default()
                 .domain("wonderland".parse()?)
                 .account("alice".parse()?, alice_public_key)
                 .finish_domain()
                 .executor(dummy_executor())
                 .build(),
-            Some(
-                &ConfigurationProxy {
-                    account_public_key: Some(genesis_public_key),
-                    account_private_key: Some(Some(genesis_private_key)),
-                }
-                .build()
-                .expect("Default genesis config should build when provided the `public key`"),
-            ),
+            &genesis_key_pair,
         )?;
         Ok(())
+    }
+
+    #[test]
+    fn failed_to_create_genesis_network_without_transactions() {
+        const RAW_JSON: &str = r#"{
+          "transactions": [],
+          "executor": "./exe.wasm"
+        }"#;
+        let raw_block = serde_json::from_str(RAW_JSON).expect("Should be valid JSON raw block");
+        let genesis_key_pair = KeyPair::generate().unwrap();
+
+        let _err = GenesisNetwork::new(raw_block, &genesis_key_pair)
+            .expect_err("Should fail with empty transactions");
     }
 
     #[test]

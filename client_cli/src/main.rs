@@ -7,7 +7,6 @@ use std::{
     time::Duration,
 };
 
-use clap::StructOpt;
 use color_eyre::{
     eyre::{ContextCompat as _, Error, WrapErr},
     Result,
@@ -16,7 +15,7 @@ use dialoguer::Confirm;
 use erased_serde::Serialize;
 use iroha_client::{
     client::{Client, QueryResult},
-    config::{path::Path as ConfigPath, Configuration as ClientConfiguration},
+    config::{path::Path, Configuration as ClientConfiguration},
     data_model::prelude::*,
 };
 use iroha_primitives::addr::SocketAddr;
@@ -61,26 +60,26 @@ impl FromStr for Configuration {
 }
 
 /// Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.
-#[derive(StructOpt, Debug)]
-#[structopt(name = "iroha_client_cli", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
+#[derive(clap::Parser, Debug)]
+#[command(name = "iroha_client_cli", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
 struct Args {
     /// Sets a config file path
-    #[structopt(short, long)]
+    #[arg(short, long)]
     config: Option<Configuration>,
     /// More verbose output
-    #[structopt(short, long)]
+    #[arg(short, long)]
     verbose: bool,
     /// Skip MST check. By setting this flag searching similar transactions on the server can be omitted.
     /// Thus if you don't use multisignature transactions you should use this flag as it will increase speed of submitting transactions.
     /// Also setting this flag could be useful when `iroha_client_cli` is used to submit the same transaction multiple times (like mint for example) in short period of time.
-    #[structopt(long)]
+    #[arg(long)]
     skip_mst_check: bool,
     /// Subcommands of client cli
-    #[structopt(subcommand)]
+    #[command(subcommand)]
     subcommand: Subcommand,
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(clap::Subcommand, Debug)]
 enum Subcommand {
     /// The subcommand related to domains
     #[clap(subcommand)]
@@ -184,10 +183,10 @@ fn main() -> Result<()> {
     let config = if let Some(config) = config_opt {
         config
     } else {
-        let config_path = ConfigPath::default(&DEFAULT_CONFIG_PATH);
+        let config_path = Path::try_extensions(*DEFAULT_CONFIG_PATH)?;
         Configuration::from_str(
             config_path
-                .first_existing_path()
+                .try_resolve()
                 .wrap_err("Configuration file does not exist")?
                 .as_ref()
                 .to_string_lossy()
@@ -287,7 +286,7 @@ mod events {
     use super::*;
 
     /// Get event stream from iroha peer
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(clap::Subcommand, Debug, Clone, Copy)]
     pub enum Args {
         /// Gets pipeline events
         Pipeline,
@@ -327,7 +326,7 @@ mod blocks {
     use super::*;
 
     /// Get block stream from iroha peer
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(clap::Args, Debug, Clone, Copy)]
     pub struct Args {
         /// Block height from which to start streaming blocks
         height: NonZeroU64,
@@ -375,13 +374,13 @@ mod domain {
     }
 
     /// Add subcommand for domain
-    #[derive(Debug, StructOpt)]
+    #[derive(Debug, clap::Args)]
     pub struct Register {
         /// Domain name as double-quoted string
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub id: DomainId,
         /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
+        #[arg(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
 
@@ -397,7 +396,7 @@ mod domain {
     }
 
     /// List domains with this command
-    #[derive(StructOpt, Debug, Clone)]
+    #[derive(clap::Subcommand, Debug, Clone)]
     pub enum List {
         /// All domains
         All,
@@ -425,19 +424,19 @@ mod domain {
     }
 
     /// Transfer a domain between accounts
-    #[derive(Debug, StructOpt)]
+    #[derive(Debug, clap::Args)]
     pub struct Transfer {
         /// Domain name as double-quited string
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub id: DomainId,
         /// Account from which to transfer (in form `name@domain_name')
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub from: AccountId,
         /// Account to which to transfer (in form `name@domain_name')
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub to: AccountId,
         /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
+        #[arg(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
 
@@ -463,15 +462,15 @@ mod account {
     use super::*;
 
     /// subcommands for account subcommand
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Subcommand, Debug)]
     pub enum Args {
         /// Register account
         Register(Register),
         /// Set something in account
-        #[clap(subcommand)]
+        #[command(subcommand)]
         Set(Set),
         /// List accounts
-        #[clap(subcommand)]
+        #[command(subcommand)]
         List(List),
         /// Grant a permission to the account
         Grant(Grant),
@@ -492,16 +491,16 @@ mod account {
     }
 
     /// Register account
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Register {
         /// Id of account in form `name@domain_name'
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub id: AccountId,
         /// Its public key
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub key: PublicKey,
         /// /// The JSON file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
+        #[arg(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
 
@@ -519,7 +518,7 @@ mod account {
     }
 
     /// Set subcommand of account
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Subcommand, Debug)]
     pub enum Set {
         /// Signature condition
         SignatureCondition(SignatureCondition),
@@ -531,7 +530,7 @@ mod account {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct Signature(SignatureCheckCondition);
 
     impl FromStr for Signature {
@@ -548,12 +547,12 @@ mod account {
     }
 
     /// Set accounts signature condition
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct SignatureCondition {
         /// Signature condition file
         pub condition: Signature,
         /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
+        #[arg(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
 
@@ -570,7 +569,7 @@ mod account {
     }
 
     /// List accounts with this command
-    #[derive(StructOpt, Debug, Clone)]
+    #[derive(clap::Subcommand, Debug, Clone)]
     pub enum List {
         /// All accounts
         All,
@@ -597,21 +596,21 @@ mod account {
         }
     }
 
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Grant {
         /// Account id
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub id: AccountId,
         /// The JSON/JSON5 file with a permission token
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub permission: Permission,
         /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
+        #[arg(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
 
     /// [`PermissionToken`] wrapper implementing [`FromStr`]
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct Permission(PermissionToken);
 
     impl FromStr for Permission {
@@ -642,10 +641,10 @@ mod account {
     }
 
     /// List all account permissions
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct ListPermissions {
         /// Account id
-        #[structopt(short, long)]
+        #[arg(short, long)]
         id: AccountId,
     }
 
@@ -668,7 +667,7 @@ mod asset {
     use super::*;
 
     /// Subcommand for dealing with asset
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Subcommand, Debug)]
     pub enum Args {
         /// Register subcommand of asset
         Register(Register),
@@ -695,19 +694,19 @@ mod asset {
     }
 
     /// Register subcommand of asset
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Register {
         /// Asset id for registering (in form of `name#domain_name')
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub id: AssetDefinitionId,
         /// Mintability of asset
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub unmintable: bool,
         /// Value type stored in asset
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub value_type: AssetValueType,
         /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
+        #[arg(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
 
@@ -736,19 +735,19 @@ mod asset {
     }
 
     /// Command for minting asset in existing Iroha account
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Mint {
         /// Account id where asset is stored (in form of `name@domain_name')
-        #[structopt(long)]
+        #[arg(long)]
         pub account: AccountId,
         /// Asset id from which to mint (in form of `name#domain_name')
-        #[structopt(long)]
+        #[arg(long)]
         pub asset: AssetDefinitionId,
         /// Quantity to mint
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub quantity: u32,
         /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
+        #[arg(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
 
@@ -770,19 +769,19 @@ mod asset {
     }
 
     /// Command for minting asset in existing Iroha account
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Burn {
         /// Account id where asset is stored (in form of `name@domain_name')
-        #[structopt(long)]
+        #[arg(long)]
         pub account: AccountId,
         /// Asset id from which to mint (in form of `name#domain_name')
-        #[structopt(long)]
+        #[arg(long)]
         pub asset: AssetDefinitionId,
         /// Quantity to mint
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub quantity: u32,
         /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
+        #[arg(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
 
@@ -804,22 +803,22 @@ mod asset {
     }
 
     /// Transfer asset between accounts
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Transfer {
         /// Account from which to transfer (in form `name@domain_name')
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub from: AccountId,
         /// Account to which to transfer (in form `name@domain_name')
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub to: AccountId,
         /// Asset id to transfer (in form like `name#domain_name')
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub asset_id: AssetDefinitionId,
         /// Quantity of asset as number
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub quantity: u32,
         /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
+        #[arg(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
 
@@ -842,13 +841,13 @@ mod asset {
     }
 
     /// Get info of asset
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Get {
         /// Account where asset is stored (in form of `name@domain_name')
-        #[structopt(long)]
+        #[arg(long)]
         pub account: AccountId,
         /// Asset name to lookup (in form of `name#domain_name')
-        #[structopt(long)]
+        #[arg(long)]
         pub asset: AssetDefinitionId,
     }
 
@@ -866,7 +865,7 @@ mod asset {
     }
 
     /// List assets with this command
-    #[derive(StructOpt, Debug, Clone)]
+    #[derive(clap::Subcommand, Debug, Clone)]
     pub enum List {
         /// All assets
         All,
@@ -898,7 +897,7 @@ mod peer {
     use super::*;
 
     /// Subcommand for dealing with peer
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Subcommand, Debug)]
     pub enum Args {
         /// Register subcommand of peer
         Register(Register),
@@ -916,16 +915,16 @@ mod peer {
     }
 
     /// Register subcommand of peer
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Register {
         /// P2P address of the peer e.g. `127.0.0.1:1337`
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub address: SocketAddr,
         /// Public key of the peer
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub key: PublicKey,
         /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
+        #[arg(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
 
@@ -944,16 +943,16 @@ mod peer {
     }
 
     /// Unregister subcommand of peer
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Unregister {
         /// P2P address of the peer e.g. `127.0.0.1:1337`
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub address: SocketAddr,
         /// Public key of the peer
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub key: PublicKey,
         /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
+        #[arg(short, long, default_value = "")]
         pub metadata: super::Metadata,
     }
 
@@ -977,10 +976,10 @@ mod wasm {
     use super::*;
 
     /// Subcommand for dealing with Wasm
-    #[derive(Debug, StructOpt)]
+    #[derive(Debug, clap::Args)]
     pub struct Args {
         /// Specify a path to the Wasm file or skip this flag to read from stdin
-        #[structopt(short, long)]
+        #[arg(short, long)]
         path: Option<PathBuf>,
     }
 
@@ -1012,7 +1011,7 @@ mod json {
     use super::*;
 
     /// Subcommand for submitting multi-instructions
-    #[derive(Clone, Copy, Debug, StructOpt)]
+    #[derive(Clone, Copy, Debug, clap::Args)]
     pub struct Args;
 
     impl RunArgs for Args {

@@ -24,7 +24,7 @@ fn genesis_transactions_are_validated() {
         AccountId::from_str("alice@wonderland").unwrap(),
     );
 
-    let tx_ref = &mut genesis.transactions.last_mut().unwrap().0;
+    let tx_ref = &mut genesis.transactions_mut().last_mut().unwrap().0;
     match &mut tx_ref.payload_mut().instructions {
         Executable::Instructions(instructions) => {
             instructions.push(grant_invalid_token.into());
