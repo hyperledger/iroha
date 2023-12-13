@@ -141,7 +141,13 @@ namespace shared_model {
 
     std::optional<ValidationError> FieldValidator::validateDescription(
         const interface::types::DescriptionType &description) const {
-      return kDescriptionValidator.validate(description);
+      if (description.size() > kMaxDescriptionSize) {
+        return ValidationError(
+            "Description",
+            {fmt::format("Size should be less or equal '{}'.",
+                         kMaxDescriptionSize)});
+      }
+      return std::nullopt;
     }
 
     std::optional<ValidationError> FieldValidator::validateAssetId(
