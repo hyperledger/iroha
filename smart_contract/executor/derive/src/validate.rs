@@ -58,7 +58,11 @@ impl FromAttributes for ValidateAttribute {
                 continue;
             }
 
-            let Some(list) = accumulator.handle(attr.meta.require_list().map_err(darling::Error::from)) else { continue; };
+            let Some(list) =
+                accumulator.handle(attr.meta.require_list().map_err(darling::Error::from))
+            else {
+                continue;
+            };
             let tokens = &list.tokens;
 
             if path.is_ident("validate") {

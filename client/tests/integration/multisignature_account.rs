@@ -3,9 +3,9 @@ use std::thread;
 use eyre::Result;
 use iroha_client::{
     client::{self, Client, QueryResult},
+    crypto::KeyPair,
     data_model::prelude::*,
 };
-use iroha_crypto::KeyPair;
 use test_network::*;
 
 use super::Configuration;

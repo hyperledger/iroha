@@ -3,6 +3,7 @@ use std::str::FromStr as _;
 use eyre::Result;
 use iroha_client::{
     client::{self, QueryResult},
+    crypto::KeyPair,
     data_model::prelude::*,
 };
 use serde_json::json;
@@ -52,7 +53,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let mouse_id = AccountId::from_str("mouse@wonderland")?;
 
     // Registering Mouse
-    let mouse_key_pair = iroha_crypto::KeyPair::generate()?;
+    let mouse_key_pair = KeyPair::generate()?;
     let register_mouse = Register::account(Account::new(
         mouse_id.clone(),
         [mouse_key_pair.public_key().clone()],

@@ -3,6 +3,7 @@ use std::{str::FromStr as _, thread, time::Duration};
 use eyre::Result;
 use iroha_client::{
     client::{self, Client, QueryResult},
+    crypto::KeyPair,
     data_model::prelude::*,
 };
 use iroha_genesis::GenesisNetwork;
@@ -80,7 +81,7 @@ fn permissions_disallow_asset_transfer() {
     let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
     let create_asset =
         Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
-    let mouse_keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
+    let mouse_keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
 
     let alice_start_assets = get_assets(&iroha_client, &alice_id);
     iroha_client
@@ -134,7 +135,7 @@ fn permissions_disallow_asset_burn() {
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset =
         Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
-    let mouse_keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
+    let mouse_keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
 
     let alice_start_assets = get_assets(&iroha_client, &alice_id);
 
@@ -204,7 +205,7 @@ fn permissions_differ_not_only_by_names() {
 
     let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
-    let mouse_keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
+    let mouse_keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
 
     // Registering `Store` asset definitions
     let hat_definition_id: AssetDefinitionId = "hat#wonderland".parse().expect("Valid");
@@ -300,7 +301,7 @@ fn stored_vs_granted_token_payload() -> Result<()> {
     let create_asset =
         Register::asset_definition(AssetDefinition::store(asset_definition_id.clone()));
     let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
-    let mouse_keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
+    let mouse_keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let new_mouse_account = Account::new(mouse_id.clone(), [mouse_keypair.public_key().clone()]);
     let instructions: [InstructionBox; 2] = [
         Register::account(new_mouse_account).into(),

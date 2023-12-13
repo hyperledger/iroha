@@ -114,12 +114,12 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region register_account_crates
     use iroha_client::{
         client::Client,
+        crypto::KeyPair,
         data_model::{
             metadata::UnlimitedMetadata,
             prelude::{Account, AccountId, InstructionBox, Register},
         },
     };
-    use iroha_crypto::KeyPair;
     // #endregion register_account_crates
 
     // Create an Iroha client

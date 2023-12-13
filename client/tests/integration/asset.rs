@@ -3,10 +3,9 @@ use std::{str::FromStr as _, thread};
 use eyre::Result;
 use iroha_client::{
     client::{self, QueryResult},
+    crypto::{KeyPair, PublicKey},
     data_model::prelude::*,
 };
-use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::isi::InstructionBox;
 use iroha_primitives::fixed::Fixed;
 use serde_json::json;
 use test_network::*;

@@ -1,14 +1,14 @@
 use eyre::Result;
 use iroha_client::{
     client::{Client, ClientQueryError},
+    crypto::KeyPair,
     data_model::{
         asset::AssetValue,
+        isi::Instruction,
         prelude::*,
         query::{asset::FindTotalAssetQuantityByAssetDefinitionId, error::QueryExecutionFail},
     },
 };
-use iroha_crypto::KeyPair;
-use iroha_data_model::isi::Instruction;
 use iroha_primitives::fixed::Fixed;
 use test_network::*;
 
