@@ -66,8 +66,7 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           file: lcov.info
-          compare-ref: ${{ github.base_ref }}
-          compare-sha: ${{ github.event.pull_request.base.sha}}
+          git-branch: ${{ github.base_ref }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           allow-empty: true
           fail_ci_if_error: true
