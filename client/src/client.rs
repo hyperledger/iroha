@@ -13,18 +13,6 @@ use derive_more::{DebugCustom, Display};
 use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
-use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
-use iroha_crypto::{HashOf, KeyPair};
-use iroha_data_model::{
-    block::SignedBlock,
-    http::BatchedResponse,
-    isi::Instruction,
-    predicate::PredicateBox,
-    prelude::*,
-    query::{ForwardCursor, Pagination, Query, Sorting},
-    transaction::TransactionPayload,
-    ValidationFail,
-};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
@@ -35,6 +23,18 @@ use url::Url;
 
 use self::{blocks_api::AsyncBlockStream, events_api::AsyncEventStream};
 use crate::{
+    config::Configuration,
+    crypto::{HashOf, KeyPair},
+    data_model::{
+        block::SignedBlock,
+        http::BatchedResponse,
+        isi::Instruction,
+        predicate::PredicateBox,
+        prelude::*,
+        query::{cursor::ForwardCursor, Pagination, Query, Sorting},
+        transaction::TransactionPayload,
+        ValidationFail,
+    },
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
 };
@@ -70,15 +70,15 @@ pub trait Sign {
     /// Fails if signature creation fails
     fn sign(
         self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::error::Error>;
+        key_pair: crate::crypto::KeyPair,
+    ) -> Result<SignedTransaction, crate::crypto::error::Error>;
 }
 
 impl Sign for TransactionBuilder {
     fn sign(
         self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
+        key_pair: crate::crypto::KeyPair,
+    ) -> Result<SignedTransaction, crate::crypto::error::Error> {
         self.sign(key_pair)
     }
 }
@@ -86,8 +86,8 @@ impl Sign for TransactionBuilder {
 impl Sign for SignedTransaction {
     fn sign(
         self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
+        key_pair: crate::crypto::KeyPair,
+    ) -> Result<SignedTransaction, crate::crypto::error::Error> {
         self.sign(key_pair)
     }
 }
@@ -315,18 +315,18 @@ macro_rules! impl_query_result {
 }
 impl_query_result! {
     bool,
-    iroha_data_model::Value,
-    iroha_data_model::numeric::NumericValue,
-    iroha_data_model::role::Role,
-    iroha_data_model::asset::Asset,
-    iroha_data_model::asset::AssetDefinition,
-    iroha_data_model::account::Account,
-    iroha_data_model::domain::Domain,
-    iroha_data_model::block::BlockHeader,
-    iroha_data_model::query::MetadataValue,
-    iroha_data_model::query::TransactionQueryOutput,
-    iroha_data_model::permission::PermissionTokenSchema,
-    iroha_data_model::trigger::Trigger<iroha_data_model::events::TriggeringFilterBox>,
+    crate::data_model::Value,
+    crate::data_model::numeric::NumericValue,
+    crate::data_model::role::Role,
+    crate::data_model::asset::Asset,
+    crate::data_model::asset::AssetDefinition,
+    crate::data_model::account::Account,
+    crate::data_model::domain::Domain,
+    crate::data_model::block::BlockHeader,
+    crate::data_model::query::MetadataValue,
+    crate::data_model::query::TransactionQueryOutput,
+    crate::data_model::permission::PermissionTokenSchema,
+    crate::data_model::trigger::Trigger<crate::data_model::events::TriggeringFilterBox>,
 }
 
 /// Iroha client
@@ -368,7 +368,7 @@ pub struct QueryRequest {
 impl QueryRequest {
     #[cfg(test)]
     fn dummy() -> Self {
-        let torii_url = iroha_config::torii::uri::DEFAULT_API_ADDR;
+        let torii_url = crate::config::torii::DEFAULT_API_ADDR;
 
         Self {
             torii_url: format!("http://{torii_url}").parse().unwrap(),
@@ -382,7 +382,9 @@ impl QueryRequest {
     fn assemble(self) -> DefaultRequestBuilder {
         DefaultRequestBuilder::new(
             HttpMethod::POST,
-            self.torii_url.join(uri::QUERY).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::QUERY)
+                .expect("Valid URI"),
         )
         .headers(self.headers)
         .params(Vec::from(self.sorting))
@@ -666,7 +668,9 @@ impl Client {
         (
             B::new(
                 HttpMethod::POST,
-                self.torii_url.join(uri::TRANSACTION).expect("Valid URI"),
+                self.torii_url
+                    .join(crate::config::torii::TRANSACTION)
+                    .expect("Valid URI"),
             )
             .headers(self.headers.clone())
             .body(transaction_bytes),
@@ -736,11 +740,11 @@ impl Client {
     ///
     /// ```ignore
     /// use eyre::Result;
-    /// use iroha_client::{
+    /// use crate::{
+    ///     data_model::{predicate::PredicateBox, prelude::{Account, FindAllAccounts, Pagination}},
     ///     client::Client,
     ///     http::{RequestBuilder, Response, Method},
     /// };
-    /// use iroha_data_model::{predicate::PredicateBox, prelude::{Account, FindAllAccounts, Pagination}};
     ///
     /// struct YourAsyncRequest;
     ///
@@ -1011,7 +1015,9 @@ impl Client {
         events_api::flow::Init::new(
             event_filter,
             self.headers.clone(),
-            self.torii_url.join(uri::SUBSCRIPTION).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::SUBSCRIPTION)
+                .expect("Valid URI"),
         )
     }
 
@@ -1045,7 +1051,9 @@ impl Client {
         blocks_api::flow::Init::new(
             height,
             self.headers.clone(),
-            self.torii_url.join(uri::BLOCKS_STREAM).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::BLOCKS_STREAM)
+                .expect("Valid URI"),
         )
     }
 
@@ -1078,7 +1086,7 @@ impl Client {
             let response = DefaultRequestBuilder::new(
                 HttpMethod::GET,
                 self.torii_url
-                    .join(uri::PENDING_TRANSACTIONS)
+                    .join(crate::config::torii::PENDING_TRANSACTIONS)
                     .expect("Valid URI"),
             )
             .params(pagination.clone())
@@ -1132,10 +1140,15 @@ impl Client {
         )
     }
 
-    fn get_config<T: DeserializeOwned>(&self, get_config: &GetConfiguration) -> Result<T> {
+    fn get_config<T: DeserializeOwned>(
+        &self,
+        get_config: &iroha_config::GetConfiguration,
+    ) -> Result<T> {
         let resp = DefaultRequestBuilder::new(
             HttpMethod::GET,
-            self.torii_url.join(uri::CONFIGURATION).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::CONFIGURATION)
+                .expect("Valid URI"),
         )
         .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
         .body(serde_json::to_vec(get_config).wrap_err("Failed to serialize")?)
@@ -1156,10 +1169,13 @@ impl Client {
     ///
     /// # Errors
     /// If sending request or decoding fails
-    pub fn set_config(&self, post_config: PostConfiguration) -> Result<bool> {
+    pub fn set_config(&self, post_config: iroha_config::PostConfiguration) -> Result<bool> {
         let body = serde_json::to_vec(&post_config)
             .wrap_err(format!("Failed to serialize {post_config:?}"))?;
-        let url = self.torii_url.join(uri::CONFIGURATION).expect("Valid URI");
+        let url = self
+            .torii_url
+            .join(crate::config::torii::CONFIGURATION)
+            .expect("Valid URI");
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
             .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
             .body(body)
@@ -1183,7 +1199,7 @@ impl Client {
     /// Fails if sending request or decoding fails
     pub fn get_config_docs(&self, field: &[&str]) -> Result<Option<String>> {
         let field = field.iter().copied().map(ToOwned::to_owned).collect();
-        self.get_config(&GetConfiguration::Docs(field))
+        self.get_config(&iroha_config::GetConfiguration::Docs(field))
             .wrap_err("Failed to get docs for field")
     }
 
@@ -1192,7 +1208,7 @@ impl Client {
     /// # Errors
     /// Fails if sending request or decoding fails
     pub fn get_config_value(&self) -> Result<serde_json::Value> {
-        self.get_config(&GetConfiguration::Value)
+        self.get_config(&iroha_config::GetConfiguration::Value)
             .wrap_err("Failed to get configuration value")
     }
 
@@ -1215,7 +1231,9 @@ impl Client {
     pub fn prepare_status_request<B: RequestBuilder>(&self) -> B {
         B::new(
             HttpMethod::GET,
-            self.torii_url.join(uri::STATUS).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::STATUS)
+                .expect("Valid URI"),
         )
         .headers(self.headers.clone())
     }
@@ -1445,7 +1463,7 @@ pub mod events_api {
         pub struct Events;
 
         impl FlowEvents for Events {
-            type Event = iroha_data_model::prelude::Event;
+            type Event = crate::data_model::prelude::Event;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 let event_socket_message = EventMessage::decode_all(&mut message.as_slice())?;
@@ -1472,9 +1490,8 @@ mod blocks_api {
     pub mod flow {
         use std::num::NonZeroU64;
 
-        use iroha_data_model::block::stream::*;
-
         use super::*;
+        use crate::data_model::block::stream::*;
 
         /// Initialization struct for Blocks API flow.
         pub struct Init {
@@ -1525,7 +1542,7 @@ mod blocks_api {
         pub struct Events;
 
         impl FlowEvents for Events {
-            type Event = iroha_data_model::block::SignedBlock;
+            type Event = crate::data_model::block::SignedBlock;
 
             fn message(&self, message: Vec<u8>) -> Result<Self::Event> {
                 Ok(BlockMessage::decode_all(&mut message.as_slice()).map(Into::into)?)
@@ -1724,13 +1741,10 @@ pub mod parameter {
 mod tests {
     use std::str::FromStr;
 
-    use iroha_config::{
-        client::{BasicAuth, ConfigurationProxy, WebLogin},
-        torii::uri::DEFAULT_API_ADDR,
-    };
     use iroha_primitives::small::SmallStr;
 
     use super::*;
+    use crate::config::{torii::DEFAULT_API_ADDR, BasicAuth, ConfigurationProxy, WebLogin};
 
     const LOGIN: &str = "mad_hatter";
     const PASSWORD: &str = "ilovetea";
@@ -1789,7 +1803,7 @@ mod tests {
                     .parse()
                     .expect("Public key not in mulithash format"),
             ),
-            private_key: Some(iroha_crypto::PrivateKey::from_hex(
+            private_key: Some(crate::crypto::PrivateKey::from_hex(
             iroha_crypto::Algorithm::Ed25519,
             "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0".as_ref()
             ).expect("Private key not hex encoded")),
@@ -1817,9 +1831,9 @@ mod tests {
     #[cfg(test)]
     mod query_errors_handling {
         use http::Response;
-        use iroha_data_model::{asset::Asset, query::error::QueryExecutionFail, ValidationFail};
 
         use super::*;
+        use crate::data_model::{asset::Asset, query::error::QueryExecutionFail, ValidationFail};
 
         #[test]
         fn certain_errors() -> Result<()> {

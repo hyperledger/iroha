@@ -1,15 +1,16 @@
 use std::{str::FromStr as _, thread};
 
 use eyre::Result;
-use iroha_client::client::{self, QueryResult};
-use iroha_crypto::KeyPair;
-use iroha_data_model::{
-    parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-    prelude::*,
+use iroha_client::{
+    client::{self, QueryResult},
+    crypto::KeyPair,
+    data_model::{
+        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+        prelude::*,
+    },
 };
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(

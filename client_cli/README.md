@@ -22,7 +22,7 @@ The above command will produce the `iroha_client_cli` ELF executable file for Li
 
 Check [build and installation instructions](https://hyperledger.github.io/iroha-2-docs/guide/build-and-install.html) for more details.
 
-## Usage 
+## Usage
 
 Run Iroha Client CLI:
 
@@ -62,8 +62,8 @@ Check the [Bash guide in Iroha Tutorial](https://hyperledger.github.io/iroha-2-d
 ./iroha_client_cli domain register --id="Soramitsu"
 ./iroha_client_cli account register --id="White Rabbit@Soramitsu" --key=""
 ./iroha_client_cli asset register --id="XOR#Soramitsu" --value-type=Quantity
-./iroha_client_cli asset mint --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010 
-./iroha_client_cli asset get --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" 
+./iroha_client_cli asset mint --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
+./iroha_client_cli asset get --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu"
 ```
 
 In this section we will show you how to use Iroha CLI Client to do the following:
@@ -101,20 +101,20 @@ Additionally, you need to provide the `key` argument with the account's public k
 
 It's time to give something to the Account you created. Let's add some Assets of the type `Quantity` to the account.
 
-To do so, you must first register an Asset Definition and only then add some Assets to the account. Specify the `asset` entity and then use the `register` and `mint` commands respectively. 
-	
+To do so, you must first register an Asset Definition and only then add some Assets to the account. Specify the `asset` entity and then use the `register` and `mint` commands respectively.
+
 Every asset has its own value type. In this example, it is defined as `Quantity`, a 32-bit unsigned integer. We also support `BigQuantity` and `Fixed`, which are a 128-bit unsigned integer and a 64-bit fixed-precision binary fraction, as well as `Store` for key-value structured data.
 
 ```bash
 ./iroha_client_cli asset register --id="XOR#Soramitsu" --value-type=Quantity
-./iroha_client_cli asset mint --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010 
+./iroha_client_cli asset mint --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
 ```
 
 You created `XOR#Soramitsu`, an asset of type `Quantity`, and then gave `1010` units of this asset to the account `White Rabbit@Soramitsu`.
 
 ### Query Account Assets Quantity
 
-Because distributed systems heavily rely on the concept of _eventual_ consistency and Iroha works by awaiting consensus between peers, your request is not guaranteed to be processed (or be accepted) even if it is correctly formed. 
+Because distributed systems heavily rely on the concept of _eventual_ consistency and Iroha works by awaiting consensus between peers, your request is not guaranteed to be processed (or be accepted) even if it is correctly formed.
 While the Iroha Client will successfully send your transactions and the Iroha Peer will confirm receiving them, it is possible that your request will not appear in the next block.
 
 Different causes such as a transaction timeout, a faulty peer in the network, catastrophic failure of the peer that you've sent your data towards, and many other conditions naturally occurring inside of any blockchain may lead to a rejection of your transaction at many different stages of processing.
@@ -128,7 +128,7 @@ Let's use Get Account Assets Query as an example.
 To know how many units of a particular asset an account has, use `asset get` with the specified account and asset:
 
 ```bash
-./iroha_client_cli asset get --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" 
+./iroha_client_cli asset get --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu"
 ```
 
 This query returns the quantity of `XOR#Soramitsu` asset for the `White Rabbit@Soramitsu` account.
@@ -141,7 +141,7 @@ Generally it looks like this:
 ./iroha_client_cli ENTITY list filter PREDICATE
 ```
 
-Where ENTITY is asset, account or domain and PREDICATE is condition used for filtering serialized using JSON5 (check `iroha_data_model::predicate::value::ValuePredicate` type).
+Where ENTITY is asset, account or domain and PREDICATE is condition used for filtering serialized using JSON5 (check `iroha_client::data_model::predicate::value::ValuePredicate` type).
 
 Examples:
 
@@ -174,7 +174,7 @@ These subcommands submit the provided wasm binary as an `Executable` to be execu
 ### Execute Multi-instruction Transactions
 
 The reference implementation of the Rust client, `iroha_client_cli`, is often used for diagnosing problems in other implementations.
-	
+
 To test transactions in the JSON format (used in the genesis block and by other SDKs), pipe the transaction into the client and add the `json` subcommand to the arguments:
 
 ```bash

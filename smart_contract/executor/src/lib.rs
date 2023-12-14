@@ -7,17 +7,15 @@ extern crate self as iroha_executor;
 
 use alloc::vec::Vec;
 
-pub use iroha_data_model as data_model;
-use iroha_data_model::{
-    executor::Result, permission::PermissionTokenId, visit::Visit, ValidationFail,
-};
+use data_model::{executor::Result, permission::PermissionTokenId, visit::Visit, ValidationFail};
 #[cfg(not(test))]
-use iroha_data_model::{prelude::*, smart_contract::payloads};
+use data_model::{prelude::*, smart_contract::payloads};
 pub use iroha_schema::MetaMap;
 pub use iroha_smart_contract as smart_contract;
 pub use iroha_smart_contract_utils::{debug, encode_with_length_prefix};
 #[cfg(not(test))]
 use iroha_smart_contract_utils::{decode_with_length_prefix_from_raw, encode_and_execute};
+pub use smart_contract::data_model;
 
 pub mod default;
 pub mod permission;
@@ -176,8 +174,7 @@ macro_rules! deny {
 /// # Example
 ///
 /// ```no_run
-/// use iroha_executor::parse;
-/// use iroha_data_model::prelude::*;
+/// use iroha_executor::{data_model::prelude::*, parse};
 ///
 /// let account_id = parse!("alice@wonderland" as AccountId);
 /// ```
@@ -278,17 +275,19 @@ pub mod prelude {
 
     pub use alloc::vec::Vec;
 
-    pub use iroha_data_model::{
-        executor::{MigrationError, MigrationResult, Result},
-        prelude::*,
-        visit::Visit,
-        ValidationFail,
-    };
     pub use iroha_executor_derive::{
         entrypoint, Constructor, ExpressionEvaluator, Token, Validate, ValidateEntrypoints,
         ValidateGrantRevoke, Visit,
     };
     pub use iroha_smart_contract::{prelude::*, Context};
 
-    pub use super::{declare_tokens, deny, pass, PermissionTokenSchema, Validate};
+    pub use super::{
+        data_model::{
+            executor::{MigrationError, MigrationResult, Result},
+            prelude::*,
+            visit::Visit,
+            ValidationFail,
+        },
+        declare_tokens, deny, pass, PermissionTokenSchema, Validate,
+    };
 }

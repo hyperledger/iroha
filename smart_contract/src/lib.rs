@@ -109,11 +109,11 @@ where
 #[derive(Debug, Clone, Copy)]
 pub struct Host;
 
-impl iroha_data_model::evaluate::ExpressionEvaluator for Host {
+impl data_model::evaluate::ExpressionEvaluator for Host {
     fn evaluate<E: Evaluate>(
         &self,
         expression: &E,
-    ) -> Result<E::Value, iroha_data_model::evaluate::EvaluationError> {
+    ) -> Result<E::Value, data_model::evaluate::EvaluationError> {
         expression.evaluate(&Context::new())
     }
 }
@@ -134,7 +134,7 @@ impl Context {
     }
 }
 
-impl iroha_data_model::evaluate::Context for Context {
+impl data_model::evaluate::Context for Context {
     fn query(&self, query: &QueryBox) -> Result<Value, ValidationFail> {
         query.execute()
     }

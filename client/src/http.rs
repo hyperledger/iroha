@@ -149,8 +149,8 @@ pub mod ws {
     /// ```rust
     /// use eyre::Result;
     /// use url::Url;
-    /// use iroha_data_model::prelude::Event;
     /// use iroha_client::{
+    ///     data_model::prelude::Event,
     ///     client::events_api::flow as events_api_flow,
     ///     http::{
     ///         ws::conn_flow::{Events, Init, InitData},

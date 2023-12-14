@@ -1,13 +1,14 @@
 use core::sync::atomic::Ordering;
 use std::thread;
 
-use iroha_client::client::{self, Client, QueryResult};
-use iroha_data_model::{prelude::*, Level};
+use iroha_client::{
+    client::{self, Client, QueryResult},
+    data_model::{prelude::*, Level},
+};
+use iroha_config::iroha::Configuration;
 use rand::seq::SliceRandom;
 use test_network::*;
 use tokio::runtime::Runtime;
-
-use super::Configuration;
 
 const MAX_TRANSACTIONS_IN_BLOCK: u32 = 5;
 

@@ -1682,7 +1682,7 @@ pub mod executor {
     pub fn visit_upgrade_executor<V: Validate + ?Sized>(
         executor: &mut V,
         authority: &AccountId,
-        _isi: Upgrade<iroha_data_model::executor::Executor>,
+        _isi: Upgrade<crate::data_model::executor::Executor>,
     ) {
         if is_genesis(executor) {
             pass!(executor);

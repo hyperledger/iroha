@@ -1,18 +1,19 @@
 use std::thread;
 
 use eyre::{Context, Result};
-use iroha_client::client::Client;
-use iroha_data_model::{
-    isi::{RegisterExpr, UnregisterExpr},
-    peer::Peer as DataModelPeer,
-    IdBox,
+use iroha_client::{
+    client::Client,
+    data_model::{
+        isi::{RegisterExpr, UnregisterExpr},
+        peer::Peer as DataModelPeer,
+        IdBox,
+    },
 };
+use iroha_config::iroha::Configuration;
 use iroha_primitives::unique_vec;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use test_network::*;
 use tokio::runtime::Runtime;
-
-use super::Configuration;
 
 #[ignore = "ignore, more in #2851"]
 #[test]
