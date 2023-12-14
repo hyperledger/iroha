@@ -3,8 +3,8 @@
 use std::fs::File;
 
 use eyre::{Error, WrapErr};
+use iroha_client::config::Configuration;
 // #region rust_config_crates
-use iroha_config::client::Configuration;
 // #endregion rust_config_crates
 
 fn main() {

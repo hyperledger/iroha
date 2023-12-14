@@ -9,9 +9,8 @@ use iroha_client::{
         prelude::*,
     },
 };
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 const N_BLOCKS: usize = 510;
 

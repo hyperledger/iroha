@@ -2,9 +2,8 @@ use std::thread;
 
 use eyre::Result;
 use iroha_client::{client, data_model::prelude::*};
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 #[test]
 fn client_add_domain_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()>

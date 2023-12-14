@@ -3,16 +3,15 @@ use std::{str::FromStr as _, thread, time::Duration};
 use eyre::Result;
 use iroha_client::{
     client::{self, Client, QueryResult},
+    config::Configuration as ClientConfiguration,
     crypto::KeyPair,
     data_model::{
         parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
         prelude::*,
     },
 };
-use iroha_config::client::Configuration as ClientConfiguration;
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 #[allow(clippy::too_many_lines)]
 #[test]

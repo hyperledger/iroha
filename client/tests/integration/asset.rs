@@ -6,11 +6,10 @@ use iroha_client::{
     crypto::{KeyPair, PublicKey},
     data_model::prelude::*,
 };
+use iroha_config::iroha::Configuration;
 use iroha_primitives::fixed::Fixed;
 use serde_json::json;
 use test_network::*;
-
-use super::Configuration;
 
 #[test]
 fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {

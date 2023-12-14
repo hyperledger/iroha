@@ -5,12 +5,11 @@ use iroha_client::{
     client::{self, QueryResult},
     data_model::prelude::*,
 };
+use iroha_config::iroha::Configuration;
 use iroha_primitives::unique_vec;
 use tempfile::TempDir;
 use test_network::*;
 use tokio::runtime::Runtime;
-
-use super::Configuration;
 
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
