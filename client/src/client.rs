@@ -14,7 +14,6 @@ use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
 use iroha_config::{client::Configuration, client_api::ConfigurationDTO, torii::uri};
-use iroha_crypto::{HashOf, KeyPair};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
@@ -24,6 +23,7 @@ use url::Url;
 
 use self::{blocks_api::AsyncBlockStream, events_api::AsyncEventStream};
 use crate::{
+    crypto::{HashOf, KeyPair},
     data_model::{
         block::SignedBlock,
         isi::Instruction,
@@ -69,15 +69,15 @@ pub trait Sign {
     /// Fails if signature creation fails
     fn sign(
         self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::error::Error>;
+        key_pair: crate::crypto::KeyPair,
+    ) -> Result<SignedTransaction, crate::crypto::error::Error>;
 }
 
 impl Sign for TransactionBuilder {
     fn sign(
         self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
+        key_pair: crate::crypto::KeyPair,
+    ) -> Result<SignedTransaction, crate::crypto::error::Error> {
         self.sign(key_pair)
     }
 }
@@ -85,8 +85,8 @@ impl Sign for TransactionBuilder {
 impl Sign for SignedTransaction {
     fn sign(
         self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
+        key_pair: crate::crypto::KeyPair,
+    ) -> Result<SignedTransaction, crate::crypto::error::Error> {
         self.sign(key_pair)
     }
 }
@@ -1699,8 +1699,8 @@ mod tests {
                     .parse()
                     .expect("Public key not in mulithash format"),
             ),
-            private_key: Some(iroha_crypto::PrivateKey::from_hex(
-            iroha_crypto::Algorithm::Ed25519,
+            private_key: Some(crate::crypto::PrivateKey::from_hex(
+            crate::crypto::Algorithm::Ed25519,
             "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
             ).expect("Private key not hex encoded")),
             account_id: Some(

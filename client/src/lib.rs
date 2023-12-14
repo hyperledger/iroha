@@ -13,7 +13,8 @@ pub mod samples {
         client::{Configuration, ConfigurationProxy},
         torii::uri::DEFAULT_API_ADDR,
     };
-    use iroha_crypto::KeyPair;
+
+    use crate::crypto::KeyPair;
 
     /// Get sample client configuration.
     pub fn get_client_config(key_pair: &KeyPair) -> Configuration {
@@ -38,4 +39,5 @@ pub mod samples {
     }
 }
 
+pub use iroha_crypto as crypto;
 pub use iroha_data_model as data_model;

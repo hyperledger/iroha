@@ -6,10 +6,9 @@ use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use iroha::samples::{construct_executor, get_config};
 use iroha_client::{
     client::{asset, Client},
+    crypto::KeyPair,
     data_model::prelude::*,
 };
-use iroha_crypto::KeyPair;
-use iroha_data_model::isi::InstructionBox;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use iroha_version::Encode;

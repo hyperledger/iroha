@@ -1,9 +1,8 @@
 use iroha_client::{
     client::{self, QueryResult},
-    data_model::{prelude::*, Registered},
+    crypto::KeyPair,
+    data_model::{isi::Instruction, prelude::*, Registered},
 };
-use iroha_crypto::KeyPair;
-use iroha_data_model::isi::Instruction;
 use iroha_primitives::fixed::Fixed;
 use test_network::*;
 

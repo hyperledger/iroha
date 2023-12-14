@@ -3,9 +3,9 @@ use std::{path::Path, str::FromStr as _};
 use eyre::Result;
 use iroha_client::{
     client::{self, Client, QueryResult},
+    crypto::KeyPair,
     data_model::prelude::*,
 };
-use iroha_crypto::KeyPair;
 use iroha_logger::info;
 use serde_json::json;
 use test_network::*;
