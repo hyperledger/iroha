@@ -627,11 +627,11 @@ mod tests {
             base.public_key = Some(key_pair.public_key().clone());
             base.private_key = Some(key_pair.private_key().clone());
 
-            let torii = (&mut base.torii).as_mut().unwrap();
+            let torii = base.torii.as_mut().unwrap();
             torii.p2p_addr = Some(socket_addr!(127.0.0.1:1337));
             torii.api_url = Some(socket_addr!(127.0.0.1:1337));
 
-            let genesis = (&mut base.genesis).as_mut().unwrap();
+            let genesis = base.genesis.as_mut().unwrap();
             genesis.private_key = Some(Some(key_pair.private_key().clone()));
             genesis.public_key = Some(key_pair.public_key().clone());
 
@@ -651,11 +651,10 @@ mod tests {
 
             let config = {
                 let mut cfg = config_factory()?;
-                (&mut cfg.genesis).as_mut().unwrap().file = Some(Some("./genesis/gen.json".into()));
-                (&mut cfg.kura).as_mut().unwrap().block_store_path = Some("../storage".into());
-                (&mut cfg.snapshot).as_mut().unwrap().dir_path = Some("../snapshots".into());
-                (&mut cfg.telemetry).as_mut().unwrap().file =
-                    Some(Some("../logs/telemetry".into()));
+                cfg.genesis.as_mut().unwrap().file = Some(Some("./genesis/gen.json".into()));
+                cfg.kura.as_mut().unwrap().block_store_path = Some("../storage".into());
+                cfg.snapshot.as_mut().unwrap().dir_path = Some("../snapshots".into());
+                cfg.telemetry.as_mut().unwrap().file = Some(Some("../logs/telemetry".into()));
                 cfg
             };
 
@@ -681,15 +680,15 @@ mod tests {
             assert!(genesis.is_some());
 
             assert_eq!(
-                PathBuf::from(config.kura.block_store_path).absolutize()?,
+                config.kura.block_store_path.absolutize()?,
                 dir.path().join("storage")
             );
             assert_eq!(
-                PathBuf::from(config.snapshot.dir_path).absolutize()?,
+                config.snapshot.dir_path.absolutize()?,
                 dir.path().join("snapshots")
             );
             assert_eq!(
-                PathBuf::from(config.telemetry.file.expect("Should be set")).absolutize()?,
+                config.telemetry.file.expect("Should be set").absolutize()?,
                 dir.path().join("logs/telemetry")
             );
 
@@ -706,7 +705,7 @@ mod tests {
 
             let config = {
                 let mut cfg = config_factory()?;
-                (&mut cfg.genesis).as_mut().unwrap().file = Some(Some("./genesis.json".into()));
+                cfg.genesis.as_mut().unwrap().file = Some(Some("./genesis.json".into()));
                 cfg
             };
 

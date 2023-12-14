@@ -63,8 +63,7 @@ impl Configuration {
             (None, None, false) => Ok(ParsedConfiguration::Default {
                 public_key: self.public_key,
             }),
-            (Some(private_key), Some(file), true) => {
-                let path = PathBuf::from(file);
+            (Some(private_key), Some(path), true) => {
                 let raw_block = RawGenesisBlock::from_path(&path)
                     .map_err(|report| ParseError::File { path, report })?;
 

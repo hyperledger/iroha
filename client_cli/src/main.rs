@@ -55,7 +55,7 @@ impl MetadataArgs {
             })
             .transpose()?;
 
-        Ok(value.unwrap_or_else(|| UnlimitedMetadata::default()))
+        Ok(value.unwrap_or_default())
     }
 }
 

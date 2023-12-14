@@ -69,10 +69,10 @@ impl Path {
     pub fn default(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let path = path.as_ref();
 
-        match path.extension() {
-            Some(ext) => Err(Error::InvalidExtension(ext.to_string_lossy().into_owned())),
-            None => Ok(Self(Default(path.to_path_buf()))),
-        }
+        path.extension().map_or_else(
+            || Ok(Self(Default(path.to_path_buf()))),
+            |ext| Err(Error::InvalidExtension(ext.to_string_lossy().into_owned())),
+        )
     }
 
     /// Construct new [`Path`] from user-provided `path` which will fail to [`Self::try_resolve()`]
@@ -95,6 +95,9 @@ impl Path {
     }
 
     /// Same as [`Self::user_provided()`], but accepts `&str` (useful for clap)
+    ///
+    /// # Errors
+    /// See [`Self::user_provided()`]
     pub fn user_provided_str(raw: &str) -> Result<Self> {
         Self::user_provided(raw)
     }

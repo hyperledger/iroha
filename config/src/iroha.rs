@@ -20,7 +20,8 @@ view! {
         /// Private key of this peer
         #[view(ignore)]
         pub private_key: PrivateKey,
-        /// Disable coloring of the backtrace and error report on panic
+        /// Disable coloring of the backtrace and error report on panic.
+        /// It is deprecated.
         pub disable_panic_terminal_colors: Option<bool>,
         /// `Kura` configuration
         #[config(inner)]
@@ -68,7 +69,7 @@ impl Default for ConfigurationProxy {
         Self {
             public_key: None,
             private_key: None,
-            disable_panic_terminal_colors: None,
+            disable_panic_terminal_colors: Some(None),
             kura: Some(Box::default()),
             sumeragi: Some(Box::default()),
             torii: Some(Box::default()),
