@@ -1,5 +1,5 @@
 [package]
-name = "iroha_torii_derive"
+name = "iroha_torii_macro"
 
 edition.workspace = true
 version.workspace = true

@@ -30,7 +30,7 @@ iroha_primitives = { workspace = true }
 iroha_logger = { workspace = true }
 iroha_data_model = { workspace = true, features = ["http"] }
 iroha_version = { workspace = true, features = ["http"] }
-iroha_torii_derive = { workspace = true }
+iroha_torii_macro = { workspace = true }
 iroha_futures = { workspace = true }
 iroha_macro = { workspace = true }
 iroha_schema_gen = { workspace = true, optional = true }

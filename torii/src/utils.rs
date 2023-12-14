@@ -81,4 +81,4 @@ impl<O: Reply, E: Reply> Reply for WarpResult<O, E> {
     }
 }
 
-iroha_torii_derive::generate_endpoints!(2, 3, 4, 5, 6, 7);
+iroha_torii_macro::generate_endpoints!(2, 3, 4, 5, 6, 7);
