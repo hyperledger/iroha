@@ -169,6 +169,8 @@ impl ConfigurationProxy {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use proptest::prelude::*;
 
     use super::*;
@@ -204,7 +206,7 @@ mod tests {
     prop_compose! {
         fn arb_proxy()(
             (public_key, private_key) in arb_keys(),
-            disable_panic_terminal_colors in prop::option::of(Just(true)),
+            disable_panic_terminal_colors in prop::option::of(Just(Some(false))),
             kura in prop::option::of(kura::tests::arb_proxy().prop_map(Box::new)),
             sumeragi in (prop::option::of(sumeragi::tests::arb_proxy().prop_map(Box::new))),
             torii in (prop::option::of(torii::tests::arb_proxy().prop_map(Box::new))),
@@ -244,7 +246,7 @@ mod tests {
     fn parse_example_json() {
         let cfg_proxy = ConfigurationProxy::from_path(CONFIGURATION_PATH);
         assert_eq!(
-            "./storage",
+            PathBuf::from("./storage"),
             cfg_proxy.kura.unwrap().block_store_path.unwrap()
         );
         assert_eq!(

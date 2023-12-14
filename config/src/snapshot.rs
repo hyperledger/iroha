@@ -43,7 +43,7 @@ pub mod tests {
         pub fn arb_proxy()
             (
                 create_every_ms in prop::option::of(Just(DEFAULT_SNAPSHOT_CREATE_EVERY_MS)),
-                dir_path in prop::option::of(Just(DEFAULT_SNAPSHOT_PATH.to_owned())),
+                dir_path in prop::option::of(Just(DEFAULT_SNAPSHOT_PATH.into())),
                 creation_enabled in prop::option::of(Just(DEFAULT_ENABLED)),
             )
             -> ConfigurationProxy {

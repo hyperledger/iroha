@@ -1,61 +1,61 @@
 //! iroha client command line
 use std::{
-    fmt,
     fs::{self, read as read_file},
     io::{stdin, stdout},
+    path::PathBuf,
     str::FromStr,
     time::Duration,
 };
 
 use color_eyre::{
-    eyre::{ContextCompat as _, Error, WrapErr},
+    eyre::{eyre, Error, WrapErr},
     Result,
 };
+// FIXME: sync with `kagami` (it uses `inquiry`, migrate both to something single)
 use dialoguer::Confirm;
 use erased_serde::Serialize;
 use iroha_client::{
     client::{Client, QueryResult},
-    config::{path::Path, Configuration as ClientConfiguration},
     data_model::prelude::*,
+};
+use iroha_config::{
+    base::proxy::{LoadFromDisk, LoadFromEnv, Override},
+    client::{Configuration as ClientConfiguration, ConfigurationProxy},
+    path::Path,
 };
 use iroha_primitives::addr::SocketAddr;
 
-/// Metadata wrapper, which can be captured from cli arguments (from user supplied file).
-#[derive(Debug, Clone)]
-pub struct Metadata(pub UnlimitedMetadata);
-
-impl fmt::Display for Metadata {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
+/// Re-usable clap `--metadata <PATH>` (`-m`) argument.
+/// Should be combined with `#[command(flatten)]` attr.
+#[derive(clap::Args, Debug, Clone)]
+// FIXME: `pub` is needed because Rust complains about "leaking private types"
+//        when this type is used inside of modules. I don't know how to fix it.
+pub struct MetadataArgs {
+    // The JSON/JSON5 file with key-value metadata pairs
+    #[arg(short, long, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
+    metadata: Option<PathBuf>,
 }
 
-impl FromStr for Metadata {
-    type Err = Error;
-    fn from_str(file: &str) -> Result<Self> {
-        if file.is_empty() {
-            return Ok(Self(UnlimitedMetadata::default()));
-        }
-        let err_msg = format!("Failed to open the metadata file {}.", &file);
-        let deser_err_msg = format!("Failed to deserialize metadata from file: {}", &file);
-        let content = fs::read_to_string(file).wrap_err(err_msg)?;
-        let metadata: UnlimitedMetadata = json5::from_str(&content).wrap_err(deser_err_msg)?;
-        Ok(Self(metadata))
-    }
-}
+impl MetadataArgs {
+    fn load(self) -> Result<UnlimitedMetadata> {
+        let value: Option<UnlimitedMetadata> = self
+            .metadata
+            .map(|path| {
+                let content = fs::read_to_string(&path).wrap_err_with(|| {
+                    eyre!("Failed to read the metadata file `{}`", path.display())
+                })?;
+                let metadata: UnlimitedMetadata =
+                    json5::from_str(&content).wrap_err_with(|| {
+                        eyre!(
+                            "Failed to deserialize metadata from file `{}`",
+                            path.display()
+                        )
+                    })?;
+                Ok::<_, color_eyre::Report>(metadata)
+            })
+            .transpose()?;
 
-/// Client configuration wrapper. Allows getting itself from arguments from cli (from user supplied file).
-#[derive(Debug, Clone)]
-struct Configuration(pub ClientConfiguration);
-
-impl FromStr for Configuration {
-    type Err = Error;
-    fn from_str(file: &str) -> Result<Self> {
-        let deser_err_msg = format!("Failed to decode config file {} ", &file);
-        let err_msg = format!("Failed to open config file {}", &file);
-        let content = fs::read_to_string(file).wrap_err(err_msg)?;
-        let cfg = json5::from_str(&content).wrap_err(deser_err_msg)?;
-        Ok(Self(cfg))
+        Ok(value.unwrap_or_else(|| UnlimitedMetadata::default()))
     }
 }
 
@@ -63,9 +63,21 @@ impl FromStr for Configuration {
 #[derive(clap::Parser, Debug)]
 #[command(name = "iroha_client_cli", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
 struct Args {
-    /// Sets a config file path
-    #[arg(short, long)]
-    config: Option<Configuration>,
+    /// Path to the configuration file, defaults to `config.json`/`config.json5`
+    ///
+    /// Supported extensions are `.json` and `.json5`. By default, Iroha looks up for a
+    /// `config` file in the Current Working Directory with both supported extensions.
+    /// If the default config file is not found, Iroha Client will rely on default values and
+    /// environment variables. However, if the config path is set explicitly with this argument
+    /// and the file is not found, Iroha Client will exit with an error.
+    #[arg(
+        short,
+        long,
+        value_name("PATH"),
+        value_hint(clap::ValueHint::FilePath),
+        value_parser(Path::user_provided_str)
+    )]
+    config: Option<Path>,
     /// More verbose output
     #[arg(short, long)]
     verbose: bool,
@@ -169,32 +181,33 @@ impl RunArgs for Subcommand {
 const RETRY_COUNT_MST: u32 = 1;
 const RETRY_IN_MST: Duration = Duration::from_millis(100);
 
-static DEFAULT_CONFIG_PATH: once_cell::sync::Lazy<&'static std::path::Path> =
-    once_cell::sync::Lazy::new(|| std::path::Path::new("config"));
+static DEFAULT_CONFIG_PATH: &str = "config";
 
 fn main() -> Result<()> {
     color_eyre::install()?;
     let Args {
-        config: config_opt,
+        config: config_path,
         subcommand,
         verbose,
         skip_mst_check,
     } = clap::Parser::parse();
-    let config = if let Some(config) = config_opt {
-        config
-    } else {
-        let config_path = Path::default(*DEFAULT_CONFIG_PATH)?;
-        Configuration::from_str(
-            config_path
-                .try_resolve()
-                .wrap_err("Configuration file does not exist")?
-                .as_ref()
-                .to_string_lossy()
-                .as_ref(),
-        )?
-    };
 
-    let Configuration(config) = config;
+    let config = ConfigurationProxy::default();
+    let config = if let Some(path) = config_path
+        .unwrap_or_else(|| Path::default(DEFAULT_CONFIG_PATH).expect("Default should be valid"))
+        .try_resolve()
+        .wrap_err("Failed to resolve config file")?
+    {
+        config.override_with(ConfigurationProxy::from_path(&*path))
+    } else {
+        config
+    };
+    let config = config.override_with(
+        ConfigurationProxy::from_std_env().wrap_err("Failed to read config from ENV")?,
+    );
+    let config = config
+        .build()
+        .wrap_err("Failed to finalize configuration")?;
 
     if verbose {
         eprintln!(
@@ -379,19 +392,15 @@ mod domain {
         /// Domain name as double-quoted string
         #[arg(short, long)]
         pub id: DomainId,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[arg(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Register {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self {
-                id,
-                metadata: Metadata(metadata),
-            } = self;
+            let Self { id, metadata } = self;
             let create_domain = iroha_client::data_model::isi::Register::domain(Domain::new(id));
-            submit([create_domain], metadata, context).wrap_err("Failed to create domain")
+            submit([create_domain], metadata.load()?, context).wrap_err("Failed to create domain")
         }
     }
 
@@ -435,9 +444,8 @@ mod domain {
         /// Account to which to transfer (in form `name@domain_name')
         #[arg(short, long)]
         pub to: AccountId,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[arg(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Transfer {
@@ -446,10 +454,11 @@ mod domain {
                 id,
                 from,
                 to,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let transfer_domain = iroha_client::data_model::isi::Transfer::domain(from, id, to);
-            submit([transfer_domain], metadata, context).wrap_err("Failed to transfer domain")
+            submit([transfer_domain], metadata.load()?, context)
+                .wrap_err("Failed to transfer domain")
         }
     }
 }
@@ -499,21 +508,17 @@ mod account {
         /// Its public key
         #[arg(short, long)]
         pub key: PublicKey,
-        /// /// The JSON file with key-value metadata pairs
-        #[arg(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Register {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self {
-                id,
-                key,
-                metadata: Metadata(metadata),
-            } = self;
+            let Self { id, key, metadata } = self;
             let create_account =
                 iroha_client::data_model::isi::Register::account(Account::new(id, [key]));
-            submit([create_account], metadata, context).wrap_err("Failed to register account")
+            submit([create_account], metadata.load()?, context)
+                .wrap_err("Failed to register account")
         }
     }
 
@@ -551,9 +556,8 @@ mod account {
     pub struct SignatureCondition {
         /// Signature condition file
         pub condition: Signature,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[arg(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for SignatureCondition {
@@ -561,10 +565,11 @@ mod account {
             let account_id = context.configuration().account_id.clone();
             let Self {
                 condition: Signature(condition),
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let mint_box = Mint::account_signature_check_condition(condition, account_id);
-            submit([mint_box], metadata, context).wrap_err("Failed to set signature condition")
+            submit([mint_box], metadata.load()?, context)
+                .wrap_err("Failed to set signature condition")
         }
     }
 
@@ -604,9 +609,8 @@ mod account {
         /// The JSON/JSON5 file with a permission token
         #[arg(short, long)]
         pub permission: Permission,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[arg(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     /// [`PermissionToken`] wrapper implementing [`FromStr`]
@@ -632,10 +636,10 @@ mod account {
             let Self {
                 id,
                 permission,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let grant = iroha_client::data_model::isi::Grant::permission_token(permission.0, id);
-            submit([grant], metadata, context)
+            submit([grant], metadata.load()?, context)
                 .wrap_err("Failed to grant the permission to the account")
         }
     }
@@ -705,9 +709,8 @@ mod asset {
         /// Value type stored in asset
         #[arg(short, long)]
         pub value_type: AssetValueType,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[arg(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Register {
@@ -716,7 +719,7 @@ mod asset {
                 id,
                 value_type,
                 unmintable,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let mut asset_definition = match value_type {
                 AssetValueType::Quantity => AssetDefinition::quantity(id),
@@ -729,7 +732,7 @@ mod asset {
             }
             let create_asset_definition =
                 iroha_client::data_model::isi::Register::asset_definition(asset_definition);
-            submit([create_asset_definition], metadata, context)
+            submit([create_asset_definition], metadata.load()?, context)
                 .wrap_err("Failed to register asset")
         }
     }
@@ -746,9 +749,8 @@ mod asset {
         /// Quantity to mint
         #[arg(short, long)]
         pub quantity: u32,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[arg(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Mint {
@@ -757,13 +759,13 @@ mod asset {
                 account,
                 asset,
                 quantity,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let mint_asset = iroha_client::data_model::isi::Mint::asset_quantity(
                 quantity,
                 AssetId::new(asset, account),
             );
-            submit([mint_asset], metadata, context)
+            submit([mint_asset], metadata.load()?, context)
                 .wrap_err("Failed to mint asset of type `NumericValue::U32`")
         }
     }
@@ -780,9 +782,8 @@ mod asset {
         /// Quantity to mint
         #[arg(short, long)]
         pub quantity: u32,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[arg(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Burn {
@@ -791,13 +792,13 @@ mod asset {
                 account,
                 asset,
                 quantity,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let burn_asset = iroha_client::data_model::isi::Burn::asset_quantity(
                 quantity,
                 AssetId::new(asset, account),
             );
-            submit([burn_asset], metadata, context)
+            submit([burn_asset], metadata.load()?, context)
                 .wrap_err("Failed to burn asset of type `NumericValue::U32`")
         }
     }
@@ -817,9 +818,8 @@ mod asset {
         /// Quantity of asset as number
         #[arg(short, long)]
         pub quantity: u32,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[arg(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Transfer {
@@ -829,14 +829,14 @@ mod asset {
                 to,
                 asset_id,
                 quantity,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let transfer_asset = iroha_client::data_model::isi::Transfer::asset_quantity(
                 AssetId::new(asset_id, from),
                 quantity,
                 to,
             );
-            submit([transfer_asset], metadata, context).wrap_err("Failed to transfer asset")
+            submit([transfer_asset], metadata.load()?, context).wrap_err("Failed to transfer asset")
         }
     }
 
@@ -923,9 +923,8 @@ mod peer {
         /// Public key of the peer
         #[arg(short, long)]
         pub key: PublicKey,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[arg(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Register {
@@ -933,12 +932,12 @@ mod peer {
             let Self {
                 address,
                 key,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let register_peer = iroha_client::data_model::isi::Register::peer(Peer::new(
                 PeerId::new(&address, &key),
             ));
-            submit([register_peer], metadata, context).wrap_err("Failed to register peer")
+            submit([register_peer], metadata.load()?, context).wrap_err("Failed to register peer")
         }
     }
 
@@ -951,9 +950,8 @@ mod peer {
         /// Public key of the peer
         #[arg(short, long)]
         pub key: PublicKey,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[arg(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Unregister {
@@ -961,11 +959,12 @@ mod peer {
             let Self {
                 address,
                 key,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let unregister_peer =
                 iroha_client::data_model::isi::Unregister::peer(PeerId::new(&address, &key));
-            submit([unregister_peer], metadata, context).wrap_err("Failed to unregister peer")
+            submit([unregister_peer], metadata.load()?, context)
+                .wrap_err("Failed to unregister peer")
         }
     }
 }

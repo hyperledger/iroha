@@ -3,16 +3,12 @@ use std::env;
 
 use clap::Parser;
 use color_eyre::eyre::Result;
-use iroha_config::path::Path as ConfigPath;
+use iroha_config::path::Path;
 
 const DEFAULT_CONFIG_PATH: &str = "config";
 
-fn parse_config_path(raw: &str) -> Result<ConfigPath> {
-    Ok(ConfigPath::user_provided(raw)?)
-}
-
-fn default_config_path() -> ConfigPath {
-    ConfigPath::default(DEFAULT_CONFIG_PATH)
+fn default_config_path() -> Path {
+    Path::default(DEFAULT_CONFIG_PATH)
         .expect("Default config path should not have an extension. It is a bug.")
 }
 
@@ -39,11 +35,12 @@ struct Args {
         long,
         short,
         env("IROHA_CONFIG"),
-        value_parser(parse_config_path),
         value_name("PATH"),
+        value_parser(Path::user_provided_str),
         value_hint(clap::ValueHint::FilePath)
     )]
-    config: Option<ConfigPath>,
+    // TODO: use value parser as in client cli
+    config: Option<Path>,
     /// Whether to enable ANSI colored output or not
     ///
     /// By default, Iroha determines whether the terminal supports colors or not.
@@ -107,6 +104,8 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use assertables::{assert_contains, assert_contains_as_result};
+
     use super::*;
 
     #[test]
@@ -146,9 +145,19 @@ mod tests {
 
         assert_eq!(
             args.config,
-            Some(ConfigPath::user_provided("/home/custom/file.json").unwrap())
+            Some(Path::user_provided("/home/custom/file.json").unwrap())
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn user_cannot_provide_invalid_extension() {
+        let err = Args::try_parse_from(["test", "--config", "file.toml"])
+            .expect_err("Should not allow TOML");
+
+        let formatted = format!("{err}");
+        assert_contains!(formatted, "invalid value 'file.toml' for '--config");
+        assert_contains!(formatted, "unsupported file extension `toml`");
     }
 }

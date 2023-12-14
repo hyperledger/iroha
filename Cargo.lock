@@ -179,6 +179,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
 
 [[package]]
+name = "assertables"
+version = "7.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c24e9d990669fbd16806bff449e4ac644fd9b1fca014760087732fe4102f131"
+
+[[package]]
 name = "async-stream"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2571,6 +2577,7 @@ dependencies = [
 name = "iroha"
 version = "2.0.0-pre-rc.20"
 dependencies = [
+ "assertables",
  "clap",
  "color-eyre",
  "eyre",
@@ -2649,6 +2656,7 @@ dependencies = [
  "dialoguer",
  "erased-serde",
  "iroha_client",
+ "iroha_config",
  "iroha_primitives",
  "json5",
  "once_cell",

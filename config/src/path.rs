@@ -66,12 +66,12 @@ impl Path {
     ///
     /// # Errors
     /// If `path` contains an extension.
-    pub fn default(path: impl Into<PathBuf>) -> Result<Self> {
-        let path = path.into();
+    pub fn default(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let path = path.as_ref();
 
         match path.extension() {
             Some(ext) => Err(Error::InvalidExtension(ext.to_string_lossy().into_owned())),
-            None => Ok(Self(Default(path))),
+            None => Ok(Self(Default(path.to_path_buf()))),
         }
     }
 
@@ -80,8 +80,8 @@ impl Path {
     ///
     /// # Errors
     /// If `path`'s extension is absent or unsupported.
-    pub fn user_provided(path: impl Into<PathBuf>) -> Result<Self> {
-        let path = path.into();
+    pub fn user_provided(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let path = path.as_ref();
 
         let extension = path
             .extension()
@@ -91,7 +91,12 @@ impl Path {
             return Err(Error::InvalidExtension(extension.into_owned()));
         }
 
-        Ok(Self(UserProvided(path)))
+        Ok(Self(UserProvided(path.to_path_buf())))
+    }
+
+    /// Same as [`Self::user_provided()`], but accepts `&str` (useful for clap)
+    pub fn user_provided_str(raw: &str) -> Result<Self> {
+        Self::user_provided(raw)
     }
 
     /// Try to get first existing path by applying possible extensions if there are any.
