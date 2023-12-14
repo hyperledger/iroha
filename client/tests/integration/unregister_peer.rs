@@ -99,7 +99,7 @@ fn init() -> Result<(
     AccountId,
     AssetDefinitionId,
 )> {
-    let (rt, network, client) = <Network>::start_test_with_runtime(4, Some(10_925));
+    let (rt, network, client) = Network::start_test_with_runtime(4, Some(10_925));
     let pipeline_time = Configuration::pipeline_time();
     iroha_logger::info!("Started");
     let parameters = ParametersBuilder::new()

@@ -59,7 +59,7 @@ fn unstable_network(
         {
             configuration.sumeragi.debug_force_soft_fork = force_soft_fork;
         }
-        let network = <Network>::new_with_offline_peers(
+        let network = Network::new_with_offline_peers(
             Some(configuration),
             n_peers + n_offline_peers,
             0,

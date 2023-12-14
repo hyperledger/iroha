@@ -351,7 +351,7 @@ impl<T: TryFrom<Value>> Iterator for QueryOutputCursorIterator<T> {
         let mut next_iter = match self.next_batch() {
             Ok(next_iter) => next_iter,
             Err(QueryOutputCursorError::Validation(ValidationFail::QueryFailed(
-                iroha_data_model::query::error::QueryExecutionFail::UnknownCursor,
+                data_model::query::error::QueryExecutionFail::UnknownCursor,
             ))) => return None,
             Err(err) => return Some(Err(err)),
         };

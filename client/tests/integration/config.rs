@@ -1,4 +1,4 @@
-use iroha_data_model::Level;
+use iroha_client::data_model::Level;
 use test_network::*;
 
 #[test]

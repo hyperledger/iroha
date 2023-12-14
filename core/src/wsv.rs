@@ -855,12 +855,6 @@ impl WorldStateView {
         &mut self.world
     }
 
-    /// Returns reference for trusted peer ids
-    #[inline]
-    pub fn peers_ids(&self) -> &PeersIds {
-        &self.world.trusted_peers_ids
-    }
-
     /// Return an iterator over blockchain block hashes starting with the block of the given `height`
     pub fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<SignedBlock>> {
         self.block_hashes

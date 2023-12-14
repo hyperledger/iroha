@@ -117,11 +117,11 @@ struct Actor {
 impl Actor {
     async fn run(&mut self) {
         while let Some(msg) = self.handle.recv().await {
-            self.handle_message(msg).await
+            self.handle_message(msg)
         }
     }
 
-    async fn handle_message(&mut self, msg: Message) {
+    fn handle_message(&mut self, msg: Message) {
         match msg {
             Message::GetDTO { respond_to } => {
                 let dto = ConfigurationDTO::from(&self.state);

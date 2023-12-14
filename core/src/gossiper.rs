@@ -100,7 +100,6 @@ impl TransactionGossiper {
             .n_random_transactions(self.gossip_batch_size, &self.wsv);
 
         if txs.is_empty() {
-            iroha_logger::debug!("Nothing to gossip");
             return;
         }
 
