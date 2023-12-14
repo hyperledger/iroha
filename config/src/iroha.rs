@@ -140,11 +140,8 @@ impl ConfigurationProxy {
                     message: "Torii config should have at least `p2p_addr` provided for sumeragi finalisation",
                 });
             }
-            // Finally, if trusted peers were not supplied, we can fall back to inserting itself as
-            // the only trusted one
-            if sumeragi_proxy.trusted_peers.is_none() {
-                sumeragi_proxy.insert_self_as_trusted_peers()
-            }
+
+            sumeragi_proxy.insert_self_as_trusted_peers()
         }
 
         Ok(())

@@ -267,27 +267,28 @@ mod valid {
             topology: &Topology,
             wsv: &mut WorldStateView,
         ) -> Result<ValidBlock, (SignedBlock, BlockValidationError)> {
-            let actual_commit_topology = &block.payload().commit_topology;
-            let expected_commit_topology = &topology.ordered_peers;
+            if !block.payload().header.is_genesis() {
+                let actual_commit_topology = &block.payload().commit_topology;
+                let expected_commit_topology = &topology.ordered_peers;
 
-            if actual_commit_topology != expected_commit_topology {
-                let actual_commit_topology = actual_commit_topology.clone();
+                if actual_commit_topology != expected_commit_topology {
+                    let actual_commit_topology = actual_commit_topology.clone();
 
-                return Err((
-                    block,
-                    BlockValidationError::TopologyMismatch {
-                        expected: expected_commit_topology.clone(),
-                        actual: actual_commit_topology,
-                    },
-                ));
-            }
+                    return Err((
+                        block,
+                        BlockValidationError::TopologyMismatch {
+                            expected: expected_commit_topology.clone(),
+                            actual: actual_commit_topology,
+                        },
+                    ));
+                }
 
-            if !block.payload().header.is_genesis()
-                && topology
+                if topology
                     .filter_signatures_by_roles(&[Role::Leader], block.signatures())
                     .is_empty()
-            {
-                return Err((block, SignatureVerificationError::LeaderMissing.into()));
+                {
+                    return Err((block, SignatureVerificationError::LeaderMissing.into()));
+                }
             }
 
             let expected_block_height = wsv.height() + 1;
