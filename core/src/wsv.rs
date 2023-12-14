@@ -602,7 +602,7 @@ impl WorldStateView {
 
     fn process_instructions(
         &mut self,
-        instructions: impl IntoIterator<Item = InstructionExpr>,
+        instructions: impl IntoIterator<Item = InstructionBox>,
         authority: &AccountId,
     ) -> Result<()> {
         instructions.into_iter().try_for_each(|instruction| {

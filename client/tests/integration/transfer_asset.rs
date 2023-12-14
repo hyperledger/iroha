@@ -3,17 +3,32 @@ use iroha_client::{
     data_model::{prelude::*, Registered},
 };
 use iroha_crypto::KeyPair;
+use iroha_data_model::isi::Instruction;
 use iroha_primitives::fixed::Fixed;
 use test_network::*;
 
 #[test]
 fn simulate_transfer_quantity() {
-    simulate_transfer(200_u32, &20_u32, AssetDefinition::quantity, 10_710)
+    simulate_transfer(
+        200_u32,
+        &20_u32,
+        AssetDefinition::quantity,
+        Mint::asset_quantity,
+        Transfer::asset_quantity,
+        10_710,
+    )
 }
 
 #[test]
 fn simulate_transfer_big_quantity() {
-    simulate_transfer(200_u128, &20_u128, AssetDefinition::big_quantity, 10_785)
+    simulate_transfer(
+        200_u128,
+        &20_u128,
+        AssetDefinition::big_quantity,
+        Mint::asset_big_quantity,
+        Transfer::asset_big_quantity,
+        10_785,
+    )
 }
 
 #[test]
@@ -22,6 +37,8 @@ fn simulate_transfer_fixed() {
         Fixed::try_from(200_f64).expect("Valid"),
         &Fixed::try_from(20_f64).expect("Valid"),
         AssetDefinition::fixed,
+        Mint::asset_fixed,
+        Transfer::asset_fixed,
         10_790,
     )
 }
@@ -34,22 +51,24 @@ fn simulate_insufficient_funds() {
         Fixed::try_from(20_f64).expect("Valid"),
         &Fixed::try_from(200_f64).expect("Valid"),
         AssetDefinition::fixed,
+        Mint::asset_fixed,
+        Transfer::asset_fixed,
         10_800,
     )
 }
 
-// TODO add tests when the transfer uses the wrong AssetId.
-
-fn simulate_transfer<
-    T: Into<AssetValue> + Clone,
-    D: FnOnce(AssetDefinitionId) -> <AssetDefinition as Registered>::With,
->(
+fn simulate_transfer<T>(
     starting_amount: T,
     amount_to_transfer: &T,
-    value_type: D,
+    asset_definition_ctr: impl FnOnce(AssetDefinitionId) -> <AssetDefinition as Registered>::With,
+    mint_ctr: impl FnOnce(T, AssetId) -> Mint<T, Asset>,
+    transfer_ctr: impl FnOnce(AssetId, T, AccountId) -> Transfer<Asset, T, Account>,
     port_number: u16,
 ) where
+    T: std::fmt::Debug + Clone + Into<AssetValue>,
     Value: From<T>,
+    Mint<T, Asset>: Instruction,
+    Transfer<Asset, T, Account>: Instruction,
 {
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new()
         .with_port(port_number)
@@ -61,15 +80,16 @@ fn simulate_transfer<
     let (bob_public_key, _) = KeyPair::generate()
         .expect("Failed to generate KeyPair")
         .into();
-    let create_mouse = RegisterExpr::new(Account::new(mouse_id.clone(), [bob_public_key]));
+    let create_mouse = Register::account(Account::new(mouse_id.clone(), [bob_public_key]));
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
-    let create_asset = RegisterExpr::new(value_type(asset_definition_id.clone()));
-    let mint_asset = MintExpr::new(
-        starting_amount.to_value(),
-        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
+    let create_asset =
+        Register::asset_definition(asset_definition_ctr(asset_definition_id.clone()));
+    let mint_asset = mint_ctr(
+        starting_amount,
+        AssetId::new(asset_definition_id.clone(), alice_id.clone()),
     );
 
-    let instructions: [InstructionExpr; 3] = [
+    let instructions: [InstructionBox; 3] = [
         // create_alice.into(), We don't need to register Alice, because she is created in genesis
         create_mouse.into(),
         create_asset.into(),
@@ -80,10 +100,10 @@ fn simulate_transfer<
         .expect("Failed to prepare state.");
 
     //When
-    let transfer_asset = TransferExpr::new(
-        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id)),
-        amount_to_transfer.clone().to_value(),
-        IdBox::AccountId(mouse_id.clone()),
+    let transfer_asset = transfer_ctr(
+        AssetId::new(asset_definition_id.clone(), alice_id),
+        amount_to_transfer.clone(),
+        mouse_id.clone(),
     );
     iroha_client
         .submit_till(

@@ -8,7 +8,7 @@ extern crate panic_halt;
 
 use alloc::borrow::ToOwned as _;
 
-use iroha_executor::{default::default_permission_token_schema, prelude::*, smart_contract};
+use iroha_executor::{default::default_permission_token_schema, prelude::*};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 
 #[global_allocator]
@@ -19,11 +19,10 @@ static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeList
 /// # Warning
 ///
 /// The defaults are not guaranteed to be stable.
-#[derive(Clone, Constructor, Debug, ValidateEntrypoints, ExpressionEvaluator, Validate, Visit)]
+#[derive(Debug, Clone, Constructor, Visit, Validate, ValidateEntrypoints)]
 pub struct Executor {
     verdict: Result,
     block_height: u64,
-    host: smart_contract::Host,
 }
 
 impl Executor {

@@ -118,7 +118,7 @@ impl TestGenesis for GenesisNetwork {
             upgrade_executor_permission,
         ] {
             first_transaction
-                .append_instruction(GrantExpr::new(permission, alice_id.clone()).into());
+                .append_instruction(Grant::permission_token(permission, alice_id.clone()).into());
         }
 
         if submit_genesis {
@@ -211,7 +211,7 @@ impl Network {
 
         time::sleep(Configuration::pipeline_time() + Configuration::block_sync_gossip_time()).await;
 
-        let add_peer = RegisterExpr::new(DataModelPeer::new(peer.id.clone()));
+        let add_peer = Register::peer(DataModelPeer::new(peer.id.clone()));
         genesis_client
             .submit(add_peer)
             .expect("Failed to add new peer.");
@@ -704,7 +704,7 @@ pub trait TestClient: Sized {
     /// If predicate is not satisfied, after maximum retries.
     fn submit_all_till<R: Query + Debug + Clone>(
         &self,
-        instructions: Vec<InstructionExpr>,
+        instructions: Vec<InstructionBox>,
         request: R,
         f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
     ) -> eyre::Result<()>
@@ -836,7 +836,7 @@ impl TestClient for Client {
 
     fn submit_all_till<R: Query + Debug + Clone>(
         &self,
-        instructions: Vec<InstructionExpr>,
+        instructions: Vec<InstructionBox>,
         request: R,
         f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
     ) -> eyre::Result<()>

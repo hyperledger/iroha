@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 pub use self::model::*;
 use crate::{
     account::AccountId,
-    isi::{Instruction, InstructionExpr},
+    isi::{Instruction, InstructionBox},
     metadata::UnlimitedMetadata,
     name::Name,
     Value,
@@ -51,7 +51,7 @@ pub mod model {
     pub enum Executable {
         /// Ordered set of instructions.
         #[debug(fmt = "{_0:?}")]
-        Instructions(Vec<InstructionExpr>),
+        Instructions(Vec<InstructionBox>),
         /// WebAssembly smartcontract
         Wasm(WasmSmartContract),
     }
@@ -533,7 +533,7 @@ pub mod error {
         pub struct InstructionExecutionFail {
             /// Instruction for which execution failed
             #[getset(get = "pub")]
-            pub instruction: InstructionExpr,
+            pub instruction: InstructionBox,
             /// Error which happened during execution
             pub reason: String,
         }
@@ -611,15 +611,12 @@ pub mod error {
 
     impl Display for InstructionExecutionFail {
         fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-            use InstructionExpr::*;
+            use InstructionBox::*;
             let kind = match self.instruction {
                 Burn(_) => "burn",
                 Fail(_) => "fail",
-                If(_) => "if",
                 Mint(_) => "mint",
-                Pair(_) => "pair",
                 Register(_) => "register",
-                Sequence(_) => "sequence",
                 Transfer(_) => "transfer",
                 Unregister(_) => "un-register",
                 SetKeyValue(_) => "set key-value pair",
@@ -691,7 +688,7 @@ mod http {
                     creation_time_ms,
                     nonce: None,
                     time_to_live_ms: None,
-                    instructions: Vec::<InstructionExpr>::new().into(),
+                    instructions: Vec::<InstructionBox>::new().into(),
                     metadata: UnlimitedMetadata::new(),
                 },
             }
@@ -707,7 +704,7 @@ mod http {
             self.payload.instructions = instructions
                 .into_iter()
                 .map(Into::into)
-                .collect::<Vec<InstructionExpr>>()
+                .collect::<Vec<InstructionBox>>()
                 .into();
             self
         }

@@ -416,7 +416,7 @@ pub mod isi {
 
 /// Asset-related query implementations.
 pub mod query {
-    use eyre::{Result, WrapErr as _};
+    use eyre::Result;
     use iroha_data_model::{
         asset::{Asset, AssetDefinition},
         query::{
@@ -464,12 +464,9 @@ pub mod query {
     impl ValidQuery for FindAssetById {
         #[metrics(+"find_asset_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Asset, Error> {
-            let id = wsv
-                .evaluate(&self.id)
-                .wrap_err("Failed to get asset id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = &self.id;
             iroha_logger::trace!(%id);
-            wsv.asset(&id).map_err(|asset_err| {
+            wsv.asset(id).map_err(|asset_err| {
                 if let Err(definition_err) = wsv.asset_definition(&id.definition_id) {
                     definition_err.into()
                 } else {
@@ -482,12 +479,9 @@ pub mod query {
     impl ValidQuery for FindAssetDefinitionById {
         #[metrics(+"find_asset_defintion_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<AssetDefinition, Error> {
-            let id = wsv
-                .evaluate(&self.id)
-                .wrap_err("Failed to get asset definition id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = &self.id;
 
-            let entry = wsv.asset_definition(&id).map_err(Error::from)?;
+            let entry = wsv.asset_definition(id).map_err(Error::from)?;
 
             Ok(entry)
         }
@@ -499,10 +493,7 @@ pub mod query {
             &self,
             wsv: &'wsv WorldStateView,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'wsv>, Error> {
-            let name = wsv
-                .evaluate(&self.name)
-                .wrap_err("Failed to get asset name")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let name = self.name.clone();
             iroha_logger::trace!(%name);
             Ok(Box::new(
                 wsv.domains()
@@ -530,12 +521,9 @@ pub mod query {
             &self,
             wsv: &'wsv WorldStateView,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'wsv>, Error> {
-            let id = wsv
-                .evaluate(&self.account_id)
-                .wrap_err("Failed to get account id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = &self.account_id;
             iroha_logger::trace!(%id);
-            Ok(Box::new(wsv.account_assets(&id)?.cloned()))
+            Ok(Box::new(wsv.account_assets(id)?.cloned()))
         }
     }
 
@@ -545,10 +533,7 @@ pub mod query {
             &self,
             wsv: &'wsv WorldStateView,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'wsv>, Error> {
-            let id = wsv
-                .evaluate(&self.asset_definition_id)
-                .wrap_err("Failed to get asset definition id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = self.asset_definition_id.clone();
             iroha_logger::trace!(%id);
             Ok(Box::new(
                 wsv.domains()
@@ -576,13 +561,10 @@ pub mod query {
             &self,
             wsv: &'wsv WorldStateView,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'wsv>, Error> {
-            let id = wsv
-                .evaluate(&self.domain_id)
-                .wrap_err("Failed to get domain id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = &self.domain_id;
             iroha_logger::trace!(%id);
             Ok(Box::new(
-                wsv.domain(&id)?
+                wsv.domain(id)?
                     .accounts
                     .values()
                     .flat_map(|account| account.assets.values())
@@ -597,14 +579,8 @@ pub mod query {
             &self,
             wsv: &'wsv WorldStateView,
         ) -> Result<Box<dyn Iterator<Item = Asset> + 'wsv>, Error> {
-            let domain_id = wsv
-                .evaluate(&self.domain_id)
-                .wrap_err("Failed to get domain id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let asset_definition_id = wsv
-                .evaluate(&self.asset_definition_id)
-                .wrap_err("Failed to get asset definition id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let domain_id = self.domain_id.clone();
+            let asset_definition_id = self.asset_definition_id.clone();
             let domain = wsv.domain(&domain_id)?;
             let _definition = domain
                 .asset_definitions
@@ -632,13 +608,10 @@ pub mod query {
     impl ValidQuery for FindAssetQuantityById {
         #[metrics(+"find_asset_quantity_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<NumericValue, Error> {
-            let id = wsv
-                .evaluate(&self.id)
-                .wrap_err("Failed to get asset id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = &self.id;
             iroha_logger::trace!(%id);
             let value = wsv
-                .asset(&id)
+                .asset(id)
                 .map_err(|asset_err| {
                     if let Err(definition_err) = wsv.asset_definition(&id.definition_id) {
                         Error::Find(definition_err)
@@ -656,12 +629,9 @@ pub mod query {
     impl ValidQuery for FindTotalAssetQuantityByAssetDefinitionId {
         #[metrics(+"find_total_asset_quantity_by_asset_definition_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<NumericValue, Error> {
-            let id = wsv
-                .evaluate(&self.id)
-                .wrap_err("Failed to get asset definition id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = &self.id;
             iroha_logger::trace!(%id);
-            let asset_value = wsv.asset_total_amount(&id)?;
+            let asset_value = wsv.asset_total_amount(id)?;
             Ok(asset_value)
         }
     }
@@ -669,15 +639,9 @@ pub mod query {
     impl ValidQuery for FindAssetKeyValueByIdAndKey {
         #[metrics(+"find_asset_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
-            let id = wsv
-                .evaluate(&self.id)
-                .wrap_err("Failed to get asset id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let key = wsv
-                .evaluate(&self.key)
-                .wrap_err("Failed to get key")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let asset = wsv.asset(&id).map_err(|asset_err| {
+            let id = &self.id;
+            let key = &self.key;
+            let asset = wsv.asset(id).map_err(|asset_err| {
                 if let Err(definition_err) = wsv.asset_definition(&id.definition_id) {
                     Error::Find(definition_err)
                 } else {
@@ -691,8 +655,8 @@ pub mod query {
                 .map_err(eyre::Error::from)
                 .map_err(|e| Error::Conversion(e.to_string()))?;
             store
-                .get(&key)
-                .ok_or_else(|| Error::Find(FindError::MetadataKey(key)))
+                .get(key)
+                .ok_or_else(|| Error::Find(FindError::MetadataKey(key.clone())))
                 .cloned()
                 .map(Into::into)
         }

@@ -261,7 +261,7 @@ mod tests {
         let rose_id = AssetId::new(rose_definition_id, account_id.clone());
         let trigger_id = "mint_rose".parse().expect("Valid");
         let action = Action::<FilterBox>::new(
-            vec![MintExpr::new(1_u32, rose_id)],
+            vec![Mint::asset_quantity(1_u32, rose_id)],
             Repeats::Indefinitely,
             account_id,
             FilterBox::Data(DataEventFilter::BySome(DataEntityFilter::ByAccount(

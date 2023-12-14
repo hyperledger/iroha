@@ -7,7 +7,7 @@ extern crate alloc;
 use alloc::{boxed::Box, format, vec::Vec};
 use core::ops::RangeFrom;
 
-use parity_scale_codec::{DecodeAll, Encode};
+pub use parity_scale_codec::{DecodeAll, Encode};
 
 pub mod debug;
 pub mod log;

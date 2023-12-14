@@ -17,19 +17,19 @@ fn executor_upgrade_should_work() -> Result<()> {
 
     // Register `admin` domain and account
     let admin_domain = Domain::new("admin".parse()?);
-    let register_admin_domain = RegisterExpr::new(admin_domain);
+    let register_admin_domain = Register::domain(admin_domain);
     client.submit_blocking(register_admin_domain)?;
 
     let admin_id: AccountId = "admin@admin".parse()?;
     let admin_keypair = KeyPair::generate()?;
     let admin_account = Account::new(admin_id.clone(), [admin_keypair.public_key().clone()]);
-    let register_admin_account = RegisterExpr::new(admin_account);
+    let register_admin_account = Register::account(admin_account);
     client.submit_blocking(register_admin_account)?;
 
     // Check that admin isn't allowed to transfer alice's rose by default
     let alice_rose: AssetId = "rose##alice@wonderland".parse()?;
     let admin_rose: AccountId = "admin@admin".parse()?;
-    let transfer_alice_rose = TransferExpr::new(alice_rose, NumericValue::U32(1), admin_rose);
+    let transfer_alice_rose = Transfer::asset_quantity(alice_rose, 1_u32, admin_rose);
     let transfer_rose_tx = TransactionBuilder::new(admin_id.clone())
         .with_instructions([transfer_alice_rose.clone()])
         .sign(admin_keypair.clone())?;
@@ -152,7 +152,7 @@ fn upgrade_executor(client: &Client, executor: impl AsRef<Path>) -> Result<()> {
 
     info!("WASM size is {} bytes", wasm.len());
 
-    let upgrade_executor = UpgradeExpr::new(Executor::new(WasmSmartContract::from_compiled(wasm)));
+    let upgrade_executor = Upgrade::new(Executor::new(WasmSmartContract::from_compiled(wasm)));
     client.submit_blocking(upgrade_executor)?;
 
     Ok(())

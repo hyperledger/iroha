@@ -37,7 +37,7 @@ fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    client.submit_blocking(
+    client.submit_all_blocking(
         ParametersBuilder::new()
             .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
             .into_set_parameters(),
@@ -52,7 +52,7 @@ fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
     // then `status.peers` decrements
     let peer = network.peers.values().last().unwrap();
     let peer_client = Client::test(&peer.api_address);
-    let unregister_peer = UnregisterExpr::new(IdBox::PeerId(peer.id.clone()));
+    let unregister_peer = Unregister::peer(peer.id.clone());
     client.submit_blocking(unregister_peer)?;
     thread::sleep(pipeline_time * 2); // Wait for some time to allow peers to connect
     status = client.get_status()?;
@@ -63,7 +63,7 @@ fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
 
     // Re-register the peer: committed with f = `faults` - 1 then
     // `status.peers` increments
-    let register_peer = RegisterExpr::new(DataModelPeer::new(peer.id.clone()));
+    let register_peer = Register::peer(DataModelPeer::new(peer.id.clone()));
     client.submit_blocking(register_peer)?;
     thread::sleep(pipeline_time * 4); // Wait for some time to allow peers to connect
     status = client.get_status()?;

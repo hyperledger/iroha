@@ -735,7 +735,7 @@ mod tests {
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
         let create_asset_definition =
-            RegisterExpr::new(AssetDefinition::quantity(asset_definition_id));
+            Register::asset_definition(AssetDefinition::quantity(asset_definition_id));
 
         // Making two transactions that have the same instruction
         let transaction_limits = &wsv.transaction_executor().transaction_limits;
@@ -778,7 +778,7 @@ mod tests {
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
         let create_asset_definition =
-            RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
+            Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
 
         // Making two transactions that have the same instruction
         let transaction_limits = &wsv.transaction_executor().transaction_limits;
@@ -791,14 +791,14 @@ mod tests {
         let quantity: u32 = 200;
         let fail_quantity: u32 = 20;
 
-        let fail_mint = MintExpr::new(
-            fail_quantity.to_value(),
-            IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
+        let fail_mint = Mint::asset_quantity(
+            fail_quantity,
+            AssetId::new(asset_definition_id.clone(), alice_id.clone()),
         );
 
-        let succeed_mint = MintExpr::new(
-            quantity.to_value(),
-            IdBox::AssetId(AssetId::new(asset_definition_id, alice_id.clone())),
+        let succeed_mint = Mint::asset_quantity(
+            quantity,
+            AssetId::new(asset_definition_id, alice_id.clone()),
         );
 
         let tx0 = TransactionBuilder::new(alice_id.clone())
@@ -848,14 +848,15 @@ mod tests {
         let transaction_limits = &wsv.transaction_executor().transaction_limits;
 
         let domain_id = DomainId::from_str("domain").expect("Valid");
-        let create_domain = RegisterExpr::new(Domain::new(domain_id));
+        let create_domain = Register::domain(Domain::new(domain_id));
         let asset_definition_id = AssetDefinitionId::from_str("coin#domain").expect("Valid");
-        let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id));
-        let instructions_fail: [InstructionExpr; 2] = [
+        let create_asset =
+            Register::asset_definition(AssetDefinition::quantity(asset_definition_id));
+        let instructions_fail: [InstructionBox; 2] = [
             create_domain.clone().into(),
-            Fail::new("Always fail").into(),
+            Fail::new("Always fail".to_owned()).into(),
         ];
-        let instructions_accept: [InstructionExpr; 2] = [create_domain.into(), create_asset.into()];
+        let instructions_accept: [InstructionBox; 2] = [create_domain.into(), create_asset.into()];
         let tx_fail = TransactionBuilder::new(alice_id.clone())
             .with_instructions(instructions_fail)
             .sign(alice_keys.clone())
