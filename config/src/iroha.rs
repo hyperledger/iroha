@@ -21,7 +21,7 @@ view! {
         #[view(ignore)]
         pub private_key: PrivateKey,
         /// Disable coloring of the backtrace and error report on panic
-        pub disable_panic_terminal_colors: bool,
+        pub disable_panic_terminal_colors: Option<bool>,
         /// `Kura` configuration
         #[config(inner)]
         pub kura: Box<kura::Configuration>,
@@ -68,7 +68,7 @@ impl Default for ConfigurationProxy {
         Self {
             public_key: None,
             private_key: None,
-            disable_panic_terminal_colors: Some(bool::default()),
+            disable_panic_terminal_colors: None,
             kura: Some(Box::default()),
             sumeragi: Some(Box::default()),
             torii: Some(Box::default()),

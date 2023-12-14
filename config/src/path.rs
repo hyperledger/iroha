@@ -14,15 +14,17 @@ pub const ALLOWED_CONFIG_EXTENSIONS: [&str; 2] = ["json", "json5"];
 
 /// Error type for [`Path`].
 #[derive(Debug, Clone, thiserror::Error, displaydoc::Display)]
-pub enum ExtensionError {
-    /// No valid file extension found. Allowed file extensions are: {ALLOWED_CONFIG_EXTENSIONS:?}
-    Missing,
-    /// Provided config file has an unsupported file extension `{0}`, allowed extensions are: {ALLOWED_CONFIG_EXTENSIONS:?}.
-    Invalid(String),
+pub enum Error {
+    /// File doesn't have an extension. Allowed file extensions are: {ALLOWED_CONFIG_EXTENSIONS:?}
+    MissingExtension,
+    /// Provided config file has an unsupported file extension `{0}`. Allowed extensions are: {ALLOWED_CONFIG_EXTENSIONS:?}.
+    InvalidExtension(String),
+    /// User-provided file `{0}` is not found.
+    FileNotFound(String),
 }
 
 /// Result type for [`Path`] constructors.
-pub type Result<T> = std::result::Result<T, ExtensionError>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// Inner helper struct.
 ///
@@ -30,10 +32,10 @@ pub type Result<T> = std::result::Result<T, ExtensionError>;
 #[derive(Debug, Clone, PartialEq)]
 enum InnerPath {
     /// Contains path without an extension, so that it will try to resolve
-    /// using [`ALLOWED_CONFIG_EXTENSIONS`]
-    TryExtensions(PathBuf),
-    /// Contains full path, with extension
-    Strict(PathBuf),
+    /// using [`ALLOWED_CONFIG_EXTENSIONS`]. [`Path::try_resolve()`] will not fail if not found.
+    Default(PathBuf),
+    /// Contains full path, with extension. [`Path::try_resolve()`] will fail if not found.
+    UserProvided(PathBuf),
 }
 
 /// Wrapper around path to config file (e.g. `config.json`).
@@ -45,7 +47,7 @@ pub struct Path(InnerPath);
 impl core::fmt::Display for Path {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.0 {
-            TryExtensions(path) => {
+            Default(path) => {
                 write!(
                     f,
                     "{}.{{{}}}",
@@ -53,51 +55,65 @@ impl core::fmt::Display for Path {
                     ALLOWED_CONFIG_EXTENSIONS.join(",")
                 )
             }
-            Strict(path) => write!(f, "{}", path.display()),
+            UserProvided(path) => write!(f, "{}", path.display()),
         }
     }
 }
 
 impl Path {
-    /// Construct new [`Path`] which will try to resolve multiple allowed extensions.
+    /// Construct new [`Path`] which will try to resolve multiple allowed extensions and will not
+    /// fail resolution ([`Self::try_resolve()`]) if file is not found.
     ///
     /// # Errors
-    /// If `path` contains extension.
-    pub fn try_extensions(path: impl Into<PathBuf>) -> Result<Self> {
+    /// If `path` contains an extension.
+    pub fn default(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
 
         match path.extension() {
-            Some(ext) => Err(ExtensionError::Invalid(ext.to_string_lossy().into_owned())),
-            None => Ok(Self(TryExtensions(path))),
+            Some(ext) => Err(Error::InvalidExtension(ext.to_string_lossy().into_owned())),
+            None => Ok(Self(Default(path))),
         }
     }
 
-    /// Construct new [`Path`] from user-provided `path`.
+    /// Construct new [`Path`] from user-provided `path` which will fail to [`Self::try_resolve()`]
+    /// if file is not found.
     ///
     /// # Errors
     /// If `path`'s extension is absent or unsupported.
-    pub fn strict(path: impl Into<PathBuf>) -> Result<Self> {
+    pub fn user_provided(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
 
         let extension = path
             .extension()
-            .ok_or(ExtensionError::Missing)?
+            .ok_or(Error::MissingExtension)?
             .to_string_lossy();
         if !ALLOWED_CONFIG_EXTENSIONS.contains(&extension.as_ref()) {
-            return Err(ExtensionError::Invalid(extension.into_owned()));
+            return Err(Error::InvalidExtension(extension.into_owned()));
         }
 
-        Ok(Self(Strict(path)))
+        Ok(Self(UserProvided(path)))
     }
 
     /// Try to get first existing path by applying possible extensions if there are any.
-    pub fn try_resolve(&self) -> Option<Cow<PathBuf>> {
+    ///
+    /// # Errors
+    /// If user-provided path is not found
+    pub fn try_resolve(&self) -> Result<Option<Cow<PathBuf>>> {
         match &self.0 {
-            TryExtensions(path) => ALLOWED_CONFIG_EXTENSIONS.iter().find_map(|extension| {
-                let path_ext = path.with_extension(extension);
-                path_ext.exists().then_some(Cow::Owned(path_ext))
-            }),
-            Strict(path) => path.exists().then_some(Cow::Borrowed(path)),
+            Default(path) => {
+                let maybe = ALLOWED_CONFIG_EXTENSIONS.iter().find_map(|extension| {
+                    let path_ext = path.with_extension(extension);
+                    path_ext.exists().then_some(Cow::Owned(path_ext))
+                });
+                Ok(maybe)
+            }
+            UserProvided(path) => {
+                if path.exists() {
+                    Ok(Some(Cow::Borrowed(path)))
+                } else {
+                    Err(Error::FileNotFound(path.to_string_lossy().into_owned()))
+                }
+            }
         }
     }
 }
@@ -108,8 +124,7 @@ mod tests {
 
     #[test]
     fn display_multi_extensions() {
-        let path =
-            Path::try_extensions("config").expect("Should be valid since doesn't have extension");
+        let path = Path::default("config").expect("Should be valid since doesn't have extension");
 
         let display = format!("{path}");
 
@@ -118,7 +133,8 @@ mod tests {
 
     #[test]
     fn display_strict_extension() {
-        let path = Path::strict("config.json").expect("Should be valid since extension is valid");
+        let path =
+            Path::user_provided("config.json").expect("Should be valid since extension is valid");
 
         let display = format!("{path}");
 

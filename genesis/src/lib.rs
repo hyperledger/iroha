@@ -50,27 +50,35 @@ impl GenesisNetwork {
         // First instruction should be Executor upgrade.
         // This makes possible to grant permissions to users in genesis.
         let transactions_iter = std::iter::once(GenesisTransactionBuilder {
-            isi: vec![Upgrade::new(Executor::try_from(raw_block.executor)?).into()],
+            isi: vec![Upgrade::new(
+                Executor::try_from(raw_block.executor)
+                    .wrap_err("Failed to construct the executor")?,
+            )
+            .into()],
         })
         .chain(raw_block.transactions);
 
         #[cfg(test)]
-        let transactions_iter = raw_block.transactions.into_iter();
+        let transactions_iter = {
+            if raw_block.transactions.is_empty() {
+                eyre::bail!("Genesis transaction set is empty");
+            }
+            raw_block.transactions.into_iter()
+        };
 
         let transactions = transactions_iter
             .enumerate()
             .map(|(i, raw_transaction)| {
                 raw_transaction
                     // FIXME: fix underlying chain of `.sign` so that it doesn't
-                    //        consume the key pair unnecessarily 
+                    //        consume the key pair unnecessarily. It might be costly to clone
+                    //        the key pair for a large genesis.
                     .sign(genesis_key_pair.clone())
                     .map(GenesisTransaction)
                     .wrap_err_with(|| eyre!("Failed to sign transaction #{i}"))
             })
             .collect::<Result<Vec<_>>>()?;
-        if transactions.is_empty() {
-            return Err(eyre!("Genesis transaction set is empty"));
-        }
+
         Ok(GenesisNetwork { transactions })
     }
 

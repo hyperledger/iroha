@@ -1,5 +1,7 @@
 //! Module for `SnapshotMaker`-related configuration and structs.
 
+use std::path::PathBuf;
+
 use iroha_config_base::derive::Proxy;
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +18,7 @@ pub struct Configuration {
     /// The period of time to wait between attempts to create new snapshot.
     pub create_every_ms: u64,
     /// Path to the directory where snapshots should be stored
-    pub dir_path: String,
+    pub dir_path: PathBuf,
     /// Flag to enable or disable snapshot creation
     pub creation_enabled: bool,
 }
@@ -25,7 +27,7 @@ impl Default for ConfigurationProxy {
     fn default() -> Self {
         Self {
             create_every_ms: Some(DEFAULT_SNAPSHOT_CREATE_EVERY_MS),
-            dir_path: Some(DEFAULT_SNAPSHOT_PATH.to_owned()),
+            dir_path: Some(DEFAULT_SNAPSHOT_PATH.into()),
             creation_enabled: Some(DEFAULT_ENABLED),
         }
     }

@@ -183,7 +183,7 @@ fn main() -> Result<()> {
     let config = if let Some(config) = config_opt {
         config
     } else {
-        let config_path = Path::try_extensions(*DEFAULT_CONFIG_PATH)?;
+        let config_path = Path::default(*DEFAULT_CONFIG_PATH)?;
         Configuration::from_str(
             config_path
                 .try_resolve()

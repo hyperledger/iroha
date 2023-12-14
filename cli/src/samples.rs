@@ -81,7 +81,7 @@ pub fn get_config_proxy(peers: UniqueVec<PeerId>, key_pair: Option<KeyPair>) -> 
         genesis: Some(Box::new(iroha_config::genesis::ConfigurationProxy {
             private_key: Some(Some(private_key)),
             public_key: Some(public_key),
-            file: Some(Some("./genesis.json".to_string())),
+            file: Some(Some("./genesis.json".into())),
         })),
         ..ConfigurationProxy::default()
     }

@@ -21,7 +21,7 @@ view! {
         #[view(ignore)]
         pub private_key: Option<PrivateKey>,
         /// Path to the genesis file
-        pub file: Option<String>
+        pub file: Option<PathBuf>
     }
 }
 

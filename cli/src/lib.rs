@@ -483,6 +483,24 @@ fn genesis_domain(public_key: PublicKey) -> Domain {
     domain
 }
 
+macro_rules! mutate_nested_option {
+    ($obj:expr, self, $func:expr) => {
+        $obj.as_mut().map($func)
+    };
+    ($obj:expr, $field:ident, $func:expr) => {
+        $obj.$field.as_mut().map($func)
+    };
+    ($obj:expr, [$field:ident, $($rest:tt)+], $func:expr) => {
+        $obj.$field.as_mut().map(|x| {
+            mutate_nested_option!(x, [$($rest)+], $func)
+        })
+    };
+    ($obj:tt, [$field:tt], $func:expr) => {
+        mutate_nested_option!($obj, $field, $func)
+    };
+
+}
+
 /// Reads configuration from the specified path and validates it.
 ///
 /// # Errors
@@ -494,21 +512,25 @@ pub fn read_config(
 ) -> Result<(Configuration, Option<GenesisNetwork>)> {
     let config = ConfigurationProxy::default();
 
-    let config = if let Some(actual_config_path) = path.try_resolve() {
+    let config = if let Some(actual_config_path) = path
+        .try_resolve()
+        .wrap_err("Failed to resolve configuration file")?
+    {
         let mut cfg = config.override_with(ConfigurationProxy::from_path(&*actual_config_path));
+        let config_dir = actual_config_path
+            .parent()
+            .expect("If config file was read, than it should has a parent. It is a bug.");
 
         // careful here: `genesis.file` might be a path relative to the config file.
         // we need to resolve it before proceeding
         // TODO: move this logic into `iroha_config`
-        if let Some(genesis) = &mut cfg.genesis {
-            if let Some(Some(genesis_path)) = &genesis.file {
-                let genesis_path = PathBuf::from(genesis_path);
-                if genesis_path.is_relative() {
-                    let resolved = actual_config_path.join(genesis_path);
-                    genesis.file = Some(Some(resolved.to_string_lossy().into_owned()));
-                }
-            }
-        }
+        let join_to_config_dir = |x: &mut PathBuf| {
+            *x = config_dir.join(&x);
+        };
+        mutate_nested_option!(cfg, [genesis, file, self], join_to_config_dir);
+        mutate_nested_option!(cfg, [snapshot, dir_path], join_to_config_dir);
+        mutate_nested_option!(cfg, [kura, block_store_path], join_to_config_dir);
+        mutate_nested_option!(cfg, [telemetry, file, self], join_to_config_dir);
 
         cfg
     } else {
@@ -517,16 +539,17 @@ pub fn read_config(
 
     // it is not chained to the previous expressions so that config proxy from env is evaluated
     // after reading a file
+    let config = config.override_with(
+        ConfigurationProxy::from_std_env().wrap_err("Failed to build configuration from env")?,
+    );
+
     let config = config
-        .override_with(
-            ConfigurationProxy::from_std_env()
-                .wrap_err("Failed to build configuration from env")?,
-        )
-        .build()?;
+        .build()
+        .wrap_err("Failed to finalize configuration")?;
 
     // TODO: move validation logic below to `iroha_config`
 
-    if !config.disable_panic_terminal_colors {
+    if config.disable_panic_terminal_colors.is_some() {
         // FIXME: it shouldn't be logged here; it is a part of configuration domain
         //        this message can be very simply broken by the changes in the configuration
         //        https://github.com/hyperledger/iroha/issues/3506
@@ -546,7 +569,10 @@ pub fn read_config(
         .parse(submit_genesis)
         .wrap_err("Invalid genesis configuration")?
     {
-        Some(GenesisNetwork::new(raw_block, &key_pair)?)
+        Some(
+            GenesisNetwork::new(raw_block, &key_pair)
+                .wrap_err("Failed to construct the genesis")?,
+        )
     } else {
         None
     };
@@ -554,28 +580,158 @@ pub fn read_config(
     Ok((config, genesis))
 }
 
-#[cfg(not(feature = "test-network"))]
 #[cfg(test)]
 mod tests {
-    use std::{iter::repeat, panic, thread};
-
-    use futures::future::join_all;
-    use serial_test::serial;
+    use iroha_genesis::RawGenesisBlockBuilder;
 
     use super::*;
 
-    #[tokio::test]
-    #[serial]
-    async fn iroha_should_notify_on_panic() {
-        let notify = Arc::new(Notify::new());
-        let hook = panic::take_hook();
-        <crate::Iroha>::prepare_panic_hook(Arc::clone(&notify));
-        let waiters: Vec<_> = repeat(()).take(10).map(|_| Arc::clone(&notify)).collect();
-        let handles: Vec<_> = waiters.iter().map(|waiter| waiter.notified()).collect();
-        thread::spawn(move || {
-            panic!("Test panic");
-        });
-        join_all(handles).await;
-        panic::set_hook(hook);
+    #[cfg(not(feature = "test-network"))]
+    mod no_test_network {
+        use std::{iter::repeat, panic, thread};
+
+        use futures::future::join_all;
+        use serial_test::serial;
+
+        use super::*;
+
+        #[tokio::test]
+        #[serial]
+        async fn iroha_should_notify_on_panic() {
+            let notify = Arc::new(Notify::new());
+            let hook = panic::take_hook();
+            <crate::Iroha>::prepare_panic_hook(Arc::clone(&notify));
+            let waiters: Vec<_> = repeat(()).take(10).map(|_| Arc::clone(&notify)).collect();
+            let handles: Vec<_> = waiters.iter().map(|waiter| waiter.notified()).collect();
+            thread::spawn(move || {
+                panic!("Test panic");
+            });
+            join_all(handles).await;
+            panic::set_hook(hook);
+        }
+    }
+
+    mod config_integration {
+        use iroha_crypto::KeyPair;
+        use iroha_genesis::{ExecutorMode, ExecutorPath};
+        use iroha_primitives::addr::socket_addr;
+        use path_absolutize::Absolutize as _;
+
+        use super::*;
+
+        fn config_factory() -> Result<ConfigurationProxy> {
+            let mut base = ConfigurationProxy::default();
+
+            let key_pair = KeyPair::generate()?;
+
+            base.public_key = Some(key_pair.public_key().clone());
+            base.private_key = Some(key_pair.private_key().clone());
+
+            let torii = (&mut base.torii).as_mut().unwrap();
+            torii.p2p_addr = Some(socket_addr!(127.0.0.1:1337));
+            torii.api_url = Some(socket_addr!(127.0.0.1:1337));
+
+            let genesis = (&mut base.genesis).as_mut().unwrap();
+            genesis.private_key = Some(Some(key_pair.private_key().clone()));
+            genesis.public_key = Some(key_pair.public_key().clone());
+
+            Ok(base)
+        }
+
+        // #[test]
+        // fn default_config_works() {}
+
+        #[test]
+        fn relative_file_paths_resolution() -> Result<()> {
+            // Given
+
+            let genesis = RawGenesisBlockBuilder::default()
+                .executor(ExecutorMode::Path(ExecutorPath("./executor.wasm".into())))
+                .build();
+
+            let config = {
+                let mut cfg = config_factory()?;
+                (&mut cfg.genesis).as_mut().unwrap().file = Some(Some("./genesis/gen.json".into()));
+                (&mut cfg.kura).as_mut().unwrap().block_store_path = Some("../storage".into());
+                (&mut cfg.snapshot).as_mut().unwrap().dir_path = Some("../snapshots".into());
+                (&mut cfg.telemetry).as_mut().unwrap().file =
+                    Some(Some("../logs/telemetry".into()));
+                cfg
+            };
+
+            let dir = tempfile::tempdir()?;
+            let genesis_path = dir.path().join("config/genesis/gen.json");
+            let executor_path = dir.path().join("config/genesis/executor.wasm");
+            let config_path = dir.path().join("config/config.json5");
+            std::fs::create_dir(dir.path().join("config"))?;
+            std::fs::create_dir(dir.path().join("config/genesis"))?;
+            std::fs::write(config_path, serde_json::to_string(&config)?)?;
+            std::fs::write(genesis_path, serde_json::to_string(&genesis)?)?;
+            std::fs::write(executor_path, "")?;
+
+            let config_path = Path::default(dir.path().join("config/config"))?;
+
+            // When
+
+            let (config, genesis) = read_config(&config_path, true)?;
+
+            // Then
+
+            // No need to check whether genesis.file is resolved - if not, genesis wouldn't be read
+            assert!(genesis.is_some());
+
+            assert_eq!(
+                PathBuf::from(config.kura.block_store_path).absolutize()?,
+                dir.path().join("storage")
+            );
+            assert_eq!(
+                PathBuf::from(config.snapshot.dir_path).absolutize()?,
+                dir.path().join("snapshots")
+            );
+            assert_eq!(
+                PathBuf::from(config.telemetry.file.expect("Should be set")).absolutize()?,
+                dir.path().join("logs/telemetry")
+            );
+
+            Ok(())
+        }
+
+        #[test]
+        fn fails_with_no_trusted_peers_and_submit_role() -> Result<()> {
+            // Given
+
+            let genesis = RawGenesisBlockBuilder::default()
+                .executor(ExecutorMode::Path(ExecutorPath("./executor.wasm".into())))
+                .build();
+
+            let config = {
+                let mut cfg = config_factory()?;
+                (&mut cfg.genesis).as_mut().unwrap().file = Some(Some("./genesis.json".into()));
+                cfg
+            };
+
+            let dir = tempfile::tempdir()?;
+            std::fs::write(
+                dir.path().join("config.json"),
+                serde_json::to_string(&config)?,
+            )?;
+            std::fs::write(
+                dir.path().join("genesis.json"),
+                serde_json::to_string(&genesis)?,
+            )?;
+            std::fs::write(dir.path().join("executor.wasm"), "")?;
+            let config_path = Path::user_provided(dir.path().join("config.json"))?;
+
+            // When & Then
+
+            let report = read_config(&config_path, false).unwrap_err();
+
+            assert_eq!(
+                format!("{report}"),
+                "Only peer in network, yet required to receive genesis topology. This is a configuration error."
+            );
+
+            Ok(())
+        }
     }
 }

@@ -8,11 +8,11 @@ use iroha_config::path::Path as ConfigPath;
 const DEFAULT_CONFIG_PATH: &str = "config";
 
 fn parse_config_path(raw: &str) -> Result<ConfigPath> {
-    Ok(ConfigPath::strict(raw)?)
+    Ok(ConfigPath::user_provided(raw)?)
 }
 
 fn default_config_path() -> ConfigPath {
-    ConfigPath::try_extensions(DEFAULT_CONFIG_PATH)
+    ConfigPath::default(DEFAULT_CONFIG_PATH)
         .expect("Default config path should not have an extension. It is a bug.")
 }
 
@@ -146,7 +146,7 @@ mod tests {
 
         assert_eq!(
             args.config,
-            Some(ConfigPath::strict("/home/custom/file.json").unwrap())
+            Some(ConfigPath::user_provided("/home/custom/file.json").unwrap())
         );
 
         Ok(())
