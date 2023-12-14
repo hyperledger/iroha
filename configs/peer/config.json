@@ -1,7 +1,7 @@
 {
   "PUBLIC_KEY": null,
   "PRIVATE_KEY": null,
-  "DISABLE_PANIC_TERMINAL_COLORS": false,
+  "DISABLE_PANIC_TERMINAL_COLORS": null,
   "KURA": {
     "INIT_MODE": "strict",
     "BLOCK_STORE_PATH": "./storage",
@@ -40,8 +40,9 @@
     "FORMAT": "full"
   },
   "GENESIS": {
-    "ACCOUNT_PUBLIC_KEY": null,
-    "ACCOUNT_PRIVATE_KEY": null
+    "PUBLIC_KEY": null,
+    "PRIVATE_KEY": null,
+    "FILE": null
   },
   "WSV": {
     "ASSET_METADATA_LIMITS": {
