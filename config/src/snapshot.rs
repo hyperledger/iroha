@@ -18,6 +18,7 @@ pub struct Configuration {
     /// The period of time to wait between attempts to create new snapshot.
     pub create_every_ms: u64,
     /// Path to the directory where snapshots should be stored
+    #[config(serde_as_str)]
     pub dir_path: PathBuf,
     /// Flag to enable or disable snapshot creation
     pub creation_enabled: bool,

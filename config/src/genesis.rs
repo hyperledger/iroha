@@ -21,6 +21,7 @@ view! {
         #[view(ignore)]
         pub private_key: Option<PrivateKey>,
         /// Path to the genesis file
+        #[config(serde_as_str)]
         pub file: Option<PathBuf>
     }
 }

@@ -16,6 +16,7 @@ pub struct Configuration {
     /// Initialization mode: `strict` or `fast`.
     pub init_mode: Mode,
     /// Path to the existing block store folder or path to create new folder.
+    #[config(serde_as_str)]
     pub block_store_path: PathBuf,
     /// Whether or not new blocks be outputted to a file called blocks.json.
     pub debug_output_new_blocks: bool,
