@@ -41,10 +41,10 @@ class Network:
 
         self.peers = [_Peer(args, i) for i in range(args.n_peers)]
 
-        os.environ["IROHA2_CONFIG_PATH"] = str(peers_dir.joinpath("config.json"))
-        os.environ["IROHA2_GENESIS_PATH"] = str(peers_dir.joinpath("genesis.json"))
-        os.environ["IROHA_GENESIS_ACCOUNT_PUBLIC_KEY"] = self.peers[0].public_key
-        os.environ["IROHA_GENESIS_ACCOUNT_PRIVATE_KEY"] = self.peers[0].private_key
+        os.environ["IROHA_CONFIG"] = str(peers_dir.joinpath("config.json"))
+        os.environ["IROHA_GENESIS_FILE"] = str(peers_dir.joinpath("genesis.json"))
+        os.environ["IROHA_GENESIS_PUBLIC_KEY"] = self.peers[0].public_key
+        os.environ["IROHA_GENESIS_PRIVATE_KEY"] = self.peers[0].private_key
 
         logging.info("Generating trusted peers...")
         self.trusted_peers = []
