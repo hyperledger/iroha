@@ -1,8 +1,10 @@
 use std::str::FromStr as _;
 
 use eyre::Result;
-use iroha_client::client::QueryResult;
-use iroha_data_model::{prelude::*, query::asset::FindAllAssetsDefinitions, trigger::TriggerId};
+use iroha_client::{
+    client::QueryResult,
+    data_model::{prelude::*, query::asset::FindAllAssetsDefinitions, trigger::TriggerId},
+};
 use test_network::*;
 
 #[test]
