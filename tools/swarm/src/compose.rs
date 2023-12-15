@@ -556,10 +556,7 @@ mod tests {
         let mut proxy = ConfigurationProxy::default()
             .override_with(ConfigurationProxy::from_env(&env).expect("valid env"));
         // `genesis.file` is supposed to be set in the config file
-        proxy
-            .genesis
-            .as_mut()
-            .map(|genesis| genesis.file = Some(Some("genesis.json".into())));
+        proxy.genesis.as_mut().unwrap().file = Some(Some("genesis.json".into()));
 
         let _cfg = proxy
             .build()

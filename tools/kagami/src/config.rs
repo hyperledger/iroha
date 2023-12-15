@@ -84,9 +84,8 @@ mod peer {
             let mut config = IrohaConfigurationProxy::default();
 
             if let Some(path) = self.genesis_file_in_config {
-                config.genesis.as_mut().map(|genesis| {
-                    genesis.file = Some(Some(path));
-                });
+                let genesis = config.genesis.as_mut().unwrap();
+                genesis.file = Some(Some(path));
             }
 
             writeln!(writer, "{}", serde_json::to_string_pretty(&config)?)
