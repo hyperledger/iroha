@@ -329,3 +329,39 @@ fn stored_vs_granted_token_payload() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+#[allow(deprecated)]
+fn permission_tokens_are_unified() {
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(11_230).start_with_runtime();
+    wait_for_genesis_committed(&[iroha_client.clone()], 0);
+
+    // Given
+    let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+
+    let allow_alice_to_transfer_rose_1 = Grant::permission_token(
+        PermissionToken::from_str_unchecked(
+            "CanTransferUserAsset".parse().unwrap(),
+            // NOTE: Introduced additional whitespaces in the serialized form
+            "{ \"asset_id\" : \"rose#wonderland#alice@wonderland\" }",
+        ),
+        alice_id.clone(),
+    );
+
+    let allow_alice_to_transfer_rose_2 = Grant::permission_token(
+        PermissionToken::from_str_unchecked(
+            "CanTransferUserAsset".parse().unwrap(),
+            // NOTE: Introduced additional whitespaces in the serialized form
+            "{ \"asset_id\" : \"rose##alice@wonderland\" }",
+        ),
+        alice_id,
+    );
+
+    iroha_client
+        .submit_blocking(allow_alice_to_transfer_rose_1)
+        .expect("failed to grant permission token");
+
+    let _ = iroha_client
+        .submit_blocking(allow_alice_to_transfer_rose_2)
+        .expect_err("permission tokens are not unified");
+}
