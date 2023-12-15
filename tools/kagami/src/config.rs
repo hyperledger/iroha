@@ -75,7 +75,7 @@ mod peer {
         /// Specifies the value of `genesis.file` configuration parameter.
         ///
         /// Note: relative paths are not resolved but included as-is.
-        #[arg(long)]
+        #[arg(long, value_name = "PATH")]
         genesis_file_in_config: Option<PathBuf>,
     }
 
