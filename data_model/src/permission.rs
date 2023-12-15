@@ -25,6 +25,13 @@ pub mod model {
     use super::*;
 
     /// Stored proof of the account having a permission for a certain action.
+    ///
+    /// Since permission token is represented opaque to core
+    /// either executor or client should make sure that tokens are represented uniformly.
+    ///
+    /// So that:
+    /// - payload A is equal to payload B then token A must be equal to token B
+    /// - and if payload A is't equal to B then token A mustn't be equal to token B
     #[derive(
         Debug,
         Clone,
