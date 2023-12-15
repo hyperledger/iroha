@@ -47,7 +47,7 @@ fn impl_token(ident: &syn2::Ident, generics: &syn2::Generics) -> proc_macro2::To
 
 fn impl_try_from_permission_token(ident: &syn2::Ident, generics: &syn2::Generics) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let token_id = quote! { <Self as ::iroha_executor::permission::Token>::name() };
+    let token_id = quote! { <#ident #ty_generics as ::iroha_executor::permission::Token>::name() };
 
     quote! {
         impl #impl_generics ::core::convert::TryFrom<::iroha_executor::data_model::permission::PermissionToken> for #ident #ty_generics #where_clause {
@@ -61,6 +61,19 @@ fn impl_try_from_permission_token(ident: &syn2::Ident, generics: &syn2::Generics
                 }
                 ::serde_json::from_str::<Self>(token.payload())
                     .map_err(::iroha_executor::permission::PermissionTokenConversionError::Deserialize)
+            }
+        }
+
+        impl #impl_generics ::core::convert::From<#ident #ty_generics> for ::iroha_executor::data_model::permission::PermissionToken #where_clause {
+            fn from(token: #ident #ty_generics) -> Self {
+                let definition_id = #token_id;
+
+                let payload = ::iroha_executor::smart_contract::debug::DebugExpectExt::dbg_expect(
+                    ::serde_json::to_value::<#ident #ty_generics>(token),
+                    "failed to serialize concrete permission token type. This is a bug."
+                );
+
+                ::iroha_executor::data_model::permission::PermissionToken::new(definition_id, &payload)
             }
         }
     }
