@@ -13,8 +13,8 @@ case $1 in
             exit 1
         };;
     "peer")
-        cargo run --release --bin kagami -- config peer | diff - configs/peer/config.json || {
-            echo 'Please re-generate peer config with `cargo run --release --bin kagami -- config peer > configs/peer/config.json`'
+        cargo run --release --bin kagami -- config peer --genesis-file-in-config ./genesis.json | diff - configs/peer/config.json || {
+            echo 'Please re-generate peer config with `cargo run --release --bin kagami -- config peer  --genesis-file-in-config ./genesis.json > configs/peer/config.json`'
             exit 1
         };;
     "schema")

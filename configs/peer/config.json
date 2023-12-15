@@ -42,7 +42,7 @@
   "GENESIS": {
     "PUBLIC_KEY": null,
     "PRIVATE_KEY": null,
-    "FILE": null
+    "FILE": "./genesis.json"
   },
   "WSV": {
     "ASSET_METADATA_LIMITS": {

@@ -6,13 +6,13 @@ use iroha_primitives::small::SmallStr;
 
 use super::*;
 
-#[derive(Parser, Debug, Clone, Copy)]
+#[derive(Parser, Debug, Clone)]
 pub struct Args {
     #[clap(subcommand)]
     mode: Mode,
 }
 
-#[derive(Subcommand, Debug, Clone, Copy)]
+#[derive(Subcommand, Debug, Clone)]
 pub enum Mode {
     Client(client::Args),
     Peer(peer::Args),
@@ -64,16 +64,31 @@ mod client {
 }
 
 mod peer {
+    use std::path::PathBuf;
+
     use iroha_config::iroha::ConfigurationProxy as IrohaConfigurationProxy;
 
     use super::*;
 
-    #[derive(ClapArgs, Debug, Clone, Copy)]
-    pub struct Args;
+    #[derive(ClapArgs, Debug, Clone)]
+    pub struct Args {
+        /// Specifies the value of `genesis.file` configuration parameter.
+        ///
+        /// Note: relative paths are not resolved but included as-is.
+        #[arg(long)]
+        genesis_file_in_config: Option<PathBuf>,
+    }
 
     impl<T: Write> RunArgs<T> for Args {
         fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-            let config = IrohaConfigurationProxy::default();
+            let mut config = IrohaConfigurationProxy::default();
+
+            if let Some(path) = self.genesis_file_in_config {
+                config.genesis.as_mut().map(|genesis| {
+                    genesis.file = Some(Some(path));
+                });
+            }
+
             writeln!(writer, "{}", serde_json::to_string_pretty(&config)?)
                 .wrap_err("Failed to write serialized peer configuration to the buffer.")
         }
