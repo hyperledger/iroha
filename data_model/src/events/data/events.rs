@@ -566,6 +566,7 @@ mod executor {
 
         #[derive(
             Debug,
+            Copy,
             Clone,
             PartialEq,
             Eq,
@@ -586,6 +587,23 @@ mod executor {
         }
 
         /// Filter for [`ExecutorEvent`].
+        #[derive(
+            Debug,
+            Copy,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            parity_scale_codec::Decode,
+            parity_scale_codec::Encode,
+            serde::Deserialize,
+            serde::Serialize,
+            iroha_schema::IntoSchema,
+        )]
+        #[non_exhaustive]
+        #[serde(untagged)] // Unaffected by #3330, as single unit variant
+        #[repr(transparent)]
         pub enum ExecutorFilter {
             Upgraded,
         }

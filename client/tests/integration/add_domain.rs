@@ -2,9 +2,8 @@ use std::thread;
 
 use eyre::Result;
 use iroha_client::{client, data_model::prelude::*};
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 #[test]
 fn client_add_domain_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()>
@@ -16,11 +15,11 @@ fn client_add_domain_with_name_length_more_than_limit_should_not_commit_transact
     // Given
 
     let normal_domain_id: DomainId = "sora".parse()?;
-    let create_domain = RegisterExpr::new(Domain::new(normal_domain_id.clone()));
+    let create_domain = Register::domain(Domain::new(normal_domain_id.clone()));
     test_client.submit(create_domain)?;
 
     let too_long_domain_name: DomainId = "0".repeat(2_usize.pow(14)).parse()?;
-    let create_domain = RegisterExpr::new(Domain::new(too_long_domain_name.clone()));
+    let create_domain = Register::domain(Domain::new(too_long_domain_name.clone()));
     test_client.submit(create_domain)?;
 
     thread::sleep(pipeline_time * 2);

@@ -2,11 +2,10 @@
 
 use std::sync::Arc;
 
-use eyre::{Result, WrapErr};
+use eyre::Result;
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     block::SignedBlock,
-    evaluate::ExpressionEvaluator,
     prelude::*,
     query::{
         error::{FindError, QueryExecutionFail},
@@ -66,7 +65,7 @@ impl ValidQuery for FindAllTransactions {
                 .flat_map(BlockTransactionIter::new)
                 .map(|tx| TransactionQueryOutput {
                     block_hash: tx.block_hash(),
-                    transaction: tx.value(),
+                    transaction: Box::new(tx.value()),
                 }),
         ))
     }
@@ -78,10 +77,7 @@ impl ValidQuery for FindTransactionsByAccountId {
         &self,
         wsv: &'wsv WorldStateView,
     ) -> Result<Box<dyn Iterator<Item = TransactionQueryOutput> + 'wsv>, QueryExecutionFail> {
-        let account_id = wsv
-            .evaluate(&self.account_id)
-            .wrap_err("Failed to get account id")
-            .map_err(|e| QueryExecutionFail::Evaluate(e.to_string()))?;
+        let account_id = self.account_id.clone();
 
         Ok(Box::new(
             wsv.all_blocks()
@@ -89,7 +85,7 @@ impl ValidQuery for FindTransactionsByAccountId {
                 .filter(move |tx| *tx.authority() == account_id)
                 .map(|tx| TransactionQueryOutput {
                     block_hash: tx.block_hash(),
-                    transaction: tx.value(),
+                    transaction: Box::new(tx.value()),
                 }),
         ))
     }
@@ -98,10 +94,7 @@ impl ValidQuery for FindTransactionsByAccountId {
 impl ValidQuery for FindTransactionByHash {
     #[metrics(+"find_transaction_by_hash")]
     fn execute(&self, wsv: &WorldStateView) -> Result<TransactionQueryOutput, QueryExecutionFail> {
-        let tx_hash = wsv
-            .evaluate(&self.hash)
-            .wrap_err("Failed to get hash")
-            .map_err(|e| QueryExecutionFail::Evaluate(e.to_string()))?;
+        let tx_hash = self.hash;
         iroha_logger::trace!(%tx_hash);
         if !wsv.has_transaction(tx_hash) {
             return Err(FindError::Transaction(tx_hash).into());
@@ -118,6 +111,7 @@ impl ValidQuery for FindTransactionByHash {
             .iter()
             .find(|transaction| transaction.value.hash() == tx_hash)
             .cloned()
+            .map(Box::new)
             .map(|transaction| TransactionQueryOutput {
                 block_hash,
                 transaction,

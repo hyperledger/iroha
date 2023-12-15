@@ -12,7 +12,6 @@ use iroha_data_model::prelude::*;
 
 mod config;
 mod crypto;
-mod docs;
 mod genesis;
 mod schema;
 
@@ -54,8 +53,6 @@ enum Args {
     Genesis(genesis::Args),
     /// Generate the default client/peer configuration
     Config(config::Args),
-    /// Generate a Markdown reference of configuration parameters
-    Docs(Box<docs::Args>),
 }
 
 impl<T: Write> RunArgs<T> for Args {
@@ -67,7 +64,6 @@ impl<T: Write> RunArgs<T> for Args {
             Schema(args) => args.run(writer),
             Genesis(args) => args.run(writer),
             Config(args) => args.run(writer),
-            Docs(args) => args.run(writer),
         }
     }
 }

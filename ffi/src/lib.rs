@@ -415,6 +415,7 @@ pub struct Extern {
 /// ```
 pub trait WrapperTypeOf<T> {
     /// Correct return type of `T` in a function generated via [`ffi_import`]
+    // TODO: Is associated type necessary if we already have a generic?
     type Type;
 }
 

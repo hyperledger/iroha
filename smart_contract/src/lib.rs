@@ -4,14 +4,14 @@
 
 extern crate alloc;
 
-use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 
 #[cfg(not(test))]
 use data_model::smart_contract::payloads;
 use data_model::{
     isi::Instruction,
     prelude::*,
-    query::{cursor::ForwardCursor, sorting::Sorting, Pagination, Query, QueryBox},
+    query::{cursor::ForwardCursor, sorting::Sorting, Pagination, Query},
     smart_contract::SmartContractQueryRequest,
     BatchedResponse,
 };
@@ -88,7 +88,7 @@ impl<I: Instruction + Encode + Clone> ExecuteOnHost for I {
         use tests::_iroha_smart_contract_execute_instruction_mock as host_execute_instruction;
 
         // TODO: Redundant conversion into `InstructionExpr`
-        let isi_box: InstructionExpr = self.clone().into();
+        let isi_box: InstructionBox = self.clone().into();
         // Safety: `host_execute_instruction` doesn't take ownership of it's pointer parameter
         unsafe {
             decode_with_length_prefix_from_raw(encode_and_execute(
@@ -351,7 +351,7 @@ impl<T: TryFrom<Value>> Iterator for QueryOutputCursorIterator<T> {
         let mut next_iter = match self.next_batch() {
             Ok(next_iter) => next_iter,
             Err(QueryOutputCursorError::Validation(ValidationFail::QueryFailed(
-                iroha_data_model::query::error::QueryExecutionFail::UnknownCursor,
+                data_model::query::error::QueryExecutionFail::UnknownCursor,
             ))) => return None,
             Err(err) => return Some(Err(err)),
         };
@@ -373,52 +373,6 @@ pub enum QueryOutputCursorError<T> {
 /// World state view of the host
 #[derive(Debug, Clone, Copy)]
 pub struct Host;
-
-impl iroha_data_model::evaluate::ExpressionEvaluator for Host {
-    fn evaluate<E: Evaluate>(
-        &self,
-        expression: &E,
-    ) -> Result<E::Value, iroha_data_model::evaluate::EvaluationError> {
-        expression.evaluate(&Context::new())
-    }
-}
-
-/// Context of expression evaluation
-#[derive(Clone, Default)]
-#[repr(transparent)]
-pub struct Context {
-    values: BTreeMap<Name, Value>,
-}
-
-impl Context {
-    /// Create new [`Self`]
-    pub fn new() -> Self {
-        Self {
-            values: BTreeMap::new(),
-        }
-    }
-}
-
-impl iroha_data_model::evaluate::Context for Context {
-    fn query(&self, query: &QueryBox) -> Result<Value, ValidationFail> {
-        let value_cursor = query.clone().execute()?;
-        match value_cursor.collect() {
-            Ok(value) => Ok(value),
-            Err(QueryOutputCursorError::Validation(err)) => Err(err),
-            Err(QueryOutputCursorError::Conversion(err)) => {
-                panic!("Conversion error during collecting query result: {err:?}")
-            }
-        }
-    }
-
-    fn get(&self, name: &Name) -> Option<&Value> {
-        self.values.get(name)
-    }
-
-    fn update(&mut self, other: impl IntoIterator<Item = (Name, Value)>) {
-        self.values.extend(other)
-    }
-}
 
 /// Get payload for smart contract `main()` entrypoint.
 #[cfg(not(test))]
@@ -481,11 +435,10 @@ mod tests {
         cursor: ForwardCursor::new(None, None),
     });
     const ISI_RESULT: Result<(), ValidationFail> = Ok(());
-    const EXPRESSION_RESULT: NumericValue = NumericValue::U32(5_u32);
 
-    fn get_test_instruction() -> InstructionExpr {
+    fn get_test_instruction() -> InstructionBox {
         let new_account_id = "mad_hatter@wonderland".parse().expect("Valid");
-        let register_isi = RegisterExpr::new(Account::new(new_account_id, []));
+        let register_isi = Register::account(Account::new(new_account_id, []));
 
         register_isi.into()
     }
@@ -495,17 +448,13 @@ mod tests {
         FindAssetQuantityById::new(asset_id).into()
     }
 
-    fn get_test_expression() -> EvaluatesTo<NumericValue> {
-        Add::new(2_u32, 3_u32).into()
-    }
-
     #[no_mangle]
     pub unsafe extern "C" fn _iroha_smart_contract_execute_instruction_mock(
         ptr: *const u8,
         len: usize,
     ) -> *const u8 {
         let bytes = slice::from_raw_parts(ptr, len);
-        let instruction = InstructionExpr::decode_all(&mut &*bytes);
+        let instruction = InstructionBox::decode_all(&mut &*bytes);
         assert_eq!(get_test_instruction(), instruction.unwrap());
 
         ManuallyDrop::new(encode_with_length_prefix(&ISI_RESULT)).as_ptr()
@@ -537,13 +486,5 @@ mod tests {
     #[webassembly_test]
     fn execute_query() {
         assert_eq!(get_test_query().execute(), QUERY_RESULT);
-    }
-
-    #[webassembly_test]
-    fn evaluate_expression() {
-        assert_eq!(
-            get_test_expression().evaluate(&Context::new()),
-            Ok(EXPRESSION_RESULT)
-        );
     }
 }

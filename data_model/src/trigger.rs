@@ -203,7 +203,7 @@ pub mod action {
 
         /// Enumeration of possible repetitions schemes.
         #[derive(
-            Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+            Debug, Copy, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
         )]
         #[ffi_type]
         pub enum Repeats {

@@ -1,7 +1,7 @@
 //! This module contains [`struct@Configuration`] structure and related implementation.
 use std::fmt::Debug;
 
-use iroha_config_base::derive::{view, Documented, Error as ConfigError, Proxy};
+use iroha_config_base::derive::{view, Error as ConfigError, Proxy};
 use iroha_crypto::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,7 @@ use super::*;
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration parameters for a peer
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy, Documented)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_")]
     pub struct Configuration {
@@ -144,11 +144,8 @@ impl ConfigurationProxy {
                     message: "Torii config should have at least `p2p_addr` provided for sumeragi finalisation",
                 });
             }
-            // Finally, if trusted peers were not supplied, we can fall back to inserting itself as
-            // the only trusted one
-            if sumeragi_proxy.trusted_peers.is_none() {
-                sumeragi_proxy.insert_self_as_trusted_peers()
-            }
+
+            sumeragi_proxy.insert_self_as_trusted_peers()
         }
 
         Ok(())
@@ -262,9 +259,9 @@ mod tests {
 
     #[test]
     fn example_json_proxy_builds() {
-        ConfigurationProxy::from_path(CONFIGURATION_PATH).build().unwrap_or_else(|_| panic!("`ConfigurationProxy` specified in {CONFIGURATION_PATH} \
+        ConfigurationProxy::from_path(CONFIGURATION_PATH).build().unwrap_or_else(|err| panic!("`ConfigurationProxy` specified in {CONFIGURATION_PATH} \
                                                                                           failed to build. This probably means that some of the fields there were not updated \
-                                                                                          properly with new changes."));
+                                                                                          properly with new changes. Error: {err}"));
     }
 
     #[test]

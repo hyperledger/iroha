@@ -56,10 +56,8 @@ pub mod account;
 pub mod asset;
 pub mod block;
 pub mod domain;
-pub mod evaluate;
 pub mod events;
 pub mod executor;
-pub mod expression;
 pub mod ipfs;
 pub mod isi;
 pub mod metadata;
@@ -77,39 +75,76 @@ pub mod trigger;
 pub mod visit;
 
 mod seal {
-    use crate::{isi::prelude::*, query::prelude::*};
+    use crate::prelude::*;
 
     pub trait Sealed {}
 
     macro_rules! impl_sealed {
-        ($($ident:ident),+ $(,)?) => { $(
-            impl Sealed for $ident {} )+
+        ($($ident:ident $(< $($generic:ident $(< $inner_generic:ident >)?),+ >)?),+ $(,)?) => { $(
+            impl Sealed for $ident $(< $($generic $(< $inner_generic >)?),+ >)? {} )+
         };
     }
 
     impl_sealed! {
         // Boxed instructions
-        InstructionExpr,
-        SetKeyValueExpr,
-        RemoveKeyValueExpr,
-        RegisterExpr,
-        UnregisterExpr,
-        MintExpr,
-        BurnExpr,
-        TransferExpr,
-        GrantExpr,
-        RevokeExpr,
-        SetParameterExpr,
-        NewParameterExpr,
-        UpgradeExpr,
-        ExecuteTriggerExpr,
-        LogExpr,
+        InstructionBox,
 
-        // Composite instructions
-        SequenceExpr,
-        ConditionalExpr,
-        PairExpr,
+        SetKeyValue<Domain>,
+        SetKeyValue<Account>,
+        SetKeyValue<AssetDefinition>,
+        SetKeyValue<Asset>,
 
+        RemoveKeyValue<Domain>,
+        RemoveKeyValue<Account>,
+        RemoveKeyValue<AssetDefinition>,
+        RemoveKeyValue<Asset>,
+
+        Register<Peer>,
+        Register<Domain>,
+        Register<Account>,
+        Register<AssetDefinition>,
+        Register<Asset>,
+        Register<Role>,
+        Register<Trigger<TriggeringFilterBox> >,
+
+        Unregister<Peer>,
+        Unregister<Domain>,
+        Unregister<Account>,
+        Unregister<AssetDefinition>,
+        Unregister<Asset>,
+        Unregister<Role>,
+        Unregister<Trigger<TriggeringFilterBox> >,
+
+        Mint<PublicKey, Account>,
+        Mint<SignatureCheckCondition, Account>,
+        Mint<u32, Asset>,
+        Mint<u128, Asset>,
+        Mint<Fixed, Asset>,
+        Mint<u32, Trigger<TriggeringFilterBox> >,
+
+        Burn<PublicKey, Account>,
+        Burn<u32, Asset>,
+        Burn<u128, Asset>,
+        Burn<Fixed, Asset>,
+        Burn<u32, Trigger<TriggeringFilterBox> >,
+
+        Transfer<Account, DomainId, Account>,
+        Transfer<Account, AssetDefinitionId, Account>,
+        Transfer<Asset, u32, Account>,
+        Transfer<Asset, u128, Account>,
+        Transfer<Asset, Fixed, Account>,
+
+        Grant<PermissionToken>,
+        Grant<RoleId>,
+
+        Revoke<PermissionToken>,
+        Revoke<RoleId>,
+
+        SetParameter,
+        NewParameter,
+        Upgrade,
+        ExecuteTrigger,
+        Log,
         Fail,
 
         // Boxed queries
@@ -227,6 +262,7 @@ pub mod parameter {
 
     pub use self::model::*;
     use super::*;
+    use crate::isi::InstructionBox;
 
     /// Set of parameter names currently used by iroha
     #[allow(missing_docs)]
@@ -450,27 +486,21 @@ pub mod parameter {
         }
 
         /// Create sequence isi for setting parameters
-        pub fn into_set_parameters(self) -> isi::SequenceExpr {
-            isi::SequenceExpr {
-                instructions: self
-                    .parameters
-                    .into_iter()
-                    .map(isi::SetParameterExpr::new)
-                    .map(Into::into)
-                    .collect(),
-            }
+        pub fn into_set_parameters(self) -> Vec<InstructionBox> {
+            self.parameters
+                .into_iter()
+                .map(isi::SetParameter::new)
+                .map(Into::into)
+                .collect()
         }
 
         /// Create sequence isi for creating parameters
-        pub fn into_create_parameters(self) -> isi::SequenceExpr {
-            isi::SequenceExpr {
-                instructions: self
-                    .parameters
-                    .into_iter()
-                    .map(isi::NewParameterExpr::new)
-                    .map(Into::into)
-                    .collect(),
-            }
+        pub fn into_create_parameters(self) -> Vec<InstructionBox> {
+            self.parameters
+                .into_iter()
+                .map(isi::NewParameter::new)
+                .map(Into::into)
+                .collect()
         }
     }
 
@@ -1828,12 +1858,12 @@ pub mod prelude {
     #[cfg(feature = "std")]
     pub use super::current_time;
     pub use super::{
-        account::prelude::*, asset::prelude::*, domain::prelude::*, evaluate::prelude::*,
-        events::prelude::*, executor::prelude::*, expression::prelude::*, isi::prelude::*,
-        metadata::prelude::*, name::prelude::*, parameter::prelude::*, peer::prelude::*,
-        permission::prelude::*, query::prelude::*, role::prelude::*, transaction::prelude::*,
-        trigger::prelude::*, EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox,
-        LengthLimits, NumericValue, PredicateTrait, RegistrableBox, ToValue, TryAsMut, TryAsRef,
-        TryToValue, UpgradableBox, ValidationFail, Value,
+        account::prelude::*, asset::prelude::*, domain::prelude::*, events::prelude::*,
+        executor::prelude::*, isi::prelude::*, metadata::prelude::*, name::prelude::*,
+        parameter::prelude::*, peer::prelude::*, permission::prelude::*, query::prelude::*,
+        role::prelude::*, transaction::prelude::*, trigger::prelude::*, EnumTryAsError,
+        HasMetadata, IdBox, Identifiable, IdentifiableBox, LengthLimits, NumericValue,
+        PredicateTrait, RegistrableBox, ToValue, TryAsMut, TryAsRef, TryToValue, UpgradableBox,
+        ValidationFail, Value,
     };
 }

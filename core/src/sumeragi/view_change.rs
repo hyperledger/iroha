@@ -1,9 +1,9 @@
 //! Structures related to proofs and reasons of view changes.
 //! Where view change is a process of changing topology due to some faulty network behavior.
-use std::collections::HashSet;
 
 use derive_more::{Deref, DerefMut};
 use eyre::Result;
+use indexmap::IndexSet;
 use iroha_crypto::{HashOf, KeyPair, PublicKey, SignatureOf, SignaturesOf};
 use iroha_data_model::{block::SignedBlock, prelude::PeerId};
 use parity_scale_codec::{Decode, Encode};
@@ -76,7 +76,7 @@ impl SignedProof {
 
     /// Verify if the proof is valid, given the peers in `topology`.
     fn verify(&self, peers: &[PeerId], max_faults: usize) -> bool {
-        let peer_public_keys: HashSet<&PublicKey> =
+        let peer_public_keys: IndexSet<&PublicKey> =
             peers.iter().map(|peer_id| &peer_id.public_key).collect();
 
         let valid_count = self

@@ -1,8 +1,8 @@
 //! Crate with trigger procedural macros.
 
-use proc_macro::TokenStream;
-use quote::quote;
-use syn::{parse_macro_input, parse_quote};
+use iroha_macro_utils::Emitter;
+use manyhow::{emit, manyhow};
+use proc_macro2::TokenStream;
 
 mod entrypoint;
 
@@ -22,7 +22,20 @@ mod entrypoint;
 ///     todo!()
 /// }
 /// ```
+#[manyhow]
 #[proc_macro_attribute]
 pub fn main(attr: TokenStream, item: TokenStream) -> TokenStream {
-    entrypoint::impl_entrypoint(attr, item)
+    let mut emitter = Emitter::new();
+
+    if !attr.is_empty() {
+        emit!(emitter, "#[main] attribute does not accept arguments");
+    }
+
+    let Some(item) = emitter.handle(syn2::parse2(item)) else {
+        return emitter.finish_token_stream();
+    };
+
+    let result = entrypoint::impl_entrypoint(&mut emitter, item);
+
+    emitter.finish_token_stream_with(result)
 }

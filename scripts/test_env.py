@@ -118,14 +118,14 @@ class _Peer:
 
         os.environ["KURA_BLOCK_STORE_PATH"] = str(peer_dir.joinpath("storage"))
         os.environ["SNAPSHOT_DIR_PATH"] = str(peer_dir.joinpath("storage"))
-        os.environ["LOG_FILE_PATH"] = str(peer_dir.joinpath("log.json"))
-        os.environ["MAX_LOG_LEVEL"] = "TRACE"
+        os.environ["LOG_LEVEL"] = "TRACE"
+        os.environ["LOG_FORMAT"] = "\"pretty\""
+        os.environ["LOG_TOKIO_CONSOLE_ADDR"] = f"{self.host_ip}:{self.tokio_console_port}"
         os.environ["IROHA_PUBLIC_KEY"] = self.public_key
         os.environ["IROHA_PRIVATE_KEY"] = self.private_key
         os.environ["SUMERAGI_DEBUG_FORCE_SOFT_FORK"] = "false"
         os.environ["TORII_P2P_ADDR"] = f"{self.host_ip}:{self.p2p_port}"
         os.environ["TORII_API_URL"] = f"{self.host_ip}:{self.api_port}"
-        os.environ["TOKIO_CONSOLE_ADDR"] = f"{self.host_ip}:{self.tokio_console_port}"
 
         genesis_arg = "--submit-genesis" if is_genesis else ""
         # FD never gets closed

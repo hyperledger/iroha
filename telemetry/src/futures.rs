@@ -2,10 +2,10 @@
 use std::{collections::HashMap, marker::Unpin, time::Duration};
 
 use iroha_futures::FuturePollTelemetry;
-use iroha_logger::telemetry::Telemetry;
+use iroha_logger::telemetry::Event as Telemetry;
 use serde::{Deserialize, Serialize};
 use tokio::time;
-use tokio_stream::{Stream, StreamExt};
+use tokio_stream::{wrappers::errors::BroadcastStreamRecvError, Stream, StreamExt};
 
 pub mod post_process {
     //! Module with telemetry post processing
@@ -80,9 +80,10 @@ pub mod post_process {
 
 /// Gets stream of future poll telemetry out of general telemetry stream
 pub fn get_stream(
-    receiver: impl Stream<Item = Telemetry> + Unpin,
+    receiver: impl Stream<Item = Result<Telemetry, BroadcastStreamRecvError>> + Unpin,
 ) -> impl Stream<Item = FuturePollTelemetry> + Unpin {
     receiver
+        .filter_map(Result::ok)
         .map(FuturePollTelemetry::try_from)
         .filter_map(Result::ok)
         .map(

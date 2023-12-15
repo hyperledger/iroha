@@ -3,6 +3,7 @@ use std::str::FromStr as _;
 use eyre::Result;
 use iroha_client::{
     client::{self, QueryResult},
+    crypto::KeyPair,
     data_model::prelude::*,
 };
 use serde_json::json;
@@ -14,7 +15,7 @@ fn register_empty_role() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");
-    let register_role = RegisterExpr::new(Role::new(role_id));
+    let register_role = Register::role(Role::new(role_id));
 
     test_client.submit(register_role)?;
     Ok(())
@@ -29,7 +30,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
     let token = PermissionToken::new("token".parse()?, &json!(null));
     let role = Role::new(role_id).add_permission(token);
 
-    test_client.submit(RegisterExpr::new(role))?;
+    test_client.submit(Register::role(role))?;
     Ok(())
 }
 
@@ -52,8 +53,8 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let mouse_id = AccountId::from_str("mouse@wonderland")?;
 
     // Registering Mouse
-    let mouse_key_pair = iroha_crypto::KeyPair::generate()?;
-    let register_mouse = RegisterExpr::new(Account::new(
+    let mouse_key_pair = KeyPair::generate()?;
+    let register_mouse = Register::account(Account::new(
         mouse_id.clone(),
         [mouse_key_pair.public_key().clone()],
     ));
@@ -70,18 +71,18 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
             "CanRemoveKeyValueInUserAccount".parse()?,
             &json!({ "account_id": mouse_id }),
         ));
-    let register_role = RegisterExpr::new(role);
+    let register_role = Register::role(role);
     test_client.submit_blocking(register_role)?;
 
     // Mouse grants role to Alice
-    let grant_role = GrantExpr::new(role_id.clone(), alice_id.clone());
+    let grant_role = Grant::role(role_id.clone(), alice_id.clone());
     let grant_role_tx = TransactionBuilder::new(mouse_id.clone())
         .with_instructions([grant_role])
         .sign(mouse_key_pair)?;
     test_client.submit_transaction_blocking(&grant_role_tx)?;
 
     // Alice modifies Mouse's metadata
-    let set_key_value = SetKeyValueExpr::new(
+    let set_key_value = SetKeyValue::account(
         mouse_id,
         Name::from_str("key").expect("Valid"),
         Value::String("value".to_owned()),
@@ -107,11 +108,11 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
 
     // Registering Mouse
-    let register_mouse = RegisterExpr::new(Account::new(mouse_id.clone(), []));
+    let register_mouse = Register::account(Account::new(mouse_id.clone(), []));
     test_client.submit_blocking(register_mouse)?;
 
     // Register root role
-    let register_role = RegisterExpr::new(Role::new(role_id.clone()).add_permission(
+    let register_role = Register::role(Role::new(role_id.clone()).add_permission(
         PermissionToken::new(
             "CanSetKeyValueInUserAccount".parse()?,
             &json!({ "account_id": alice_id }),
@@ -120,7 +121,7 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     test_client.submit_blocking(register_role)?;
 
     // Grant root role to Mouse
-    let grant_role = GrantExpr::new(role_id.clone(), mouse_id.clone());
+    let grant_role = Grant::role(role_id.clone(), mouse_id.clone());
     test_client.submit_blocking(grant_role)?;
 
     // Check that Mouse has root role
@@ -130,7 +131,7 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     assert!(found_mouse_roles.contains(&role_id));
 
     // Unregister root role
-    let unregister_role = UnregisterExpr::new(role_id.clone());
+    let unregister_role = Unregister::role(role_id.clone());
     test_client.submit_blocking(unregister_role)?;
 
     // Check that Mouse doesn't have the root role
@@ -155,7 +156,7 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
     ));
 
     let err = test_client
-        .submit_blocking(RegisterExpr::new(role))
+        .submit_blocking(Register::role(role))
         .expect_err("Submitting role with invalid permission token should fail");
 
     let rejection_reason = err
