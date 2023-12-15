@@ -2610,14 +2610,8 @@ dependencies = [
 name = "iroha"
 version = "2.0.0-pre-rc.20"
 dependencies = [
- "async-trait",
  "color-eyre",
- "dashmap",
- "derive_more",
- "displaydoc",
  "eyre",
- "futures",
- "iroha_cli_derive",
  "iroha_config",
  "iroha_core",
  "iroha_crypto",
@@ -2625,37 +2619,19 @@ dependencies = [
  "iroha_futures",
  "iroha_genesis",
  "iroha_logger",
- "iroha_macro",
  "iroha_p2p",
  "iroha_primitives",
- "iroha_schema_gen",
  "iroha_telemetry",
- "iroha_version",
+ "iroha_torii",
  "iroha_wasm_builder",
  "once_cell",
  "owo-colors",
- "parity-scale-codec",
- "serde",
- "serde_json",
  "serial_test",
  "supports-color 2.1.0",
- "tempfile",
- "thiserror",
  "thread-local-panic-hook",
  "tokio",
  "tracing",
  "vergen",
- "warp",
-]
-
-[[package]]
-name = "iroha_cli_derive"
-version = "2.0.0-pre-rc.20"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
- "warp",
 ]
 
 [[package]]
@@ -3238,6 +3214,43 @@ dependencies = [
  "quote",
  "syn 1.0.109",
  "trybuild",
+]
+
+[[package]]
+name = "iroha_torii"
+version = "2.0.0-pre-rc.20"
+dependencies = [
+ "async-trait",
+ "displaydoc",
+ "eyre",
+ "futures",
+ "iroha_config",
+ "iroha_core",
+ "iroha_data_model",
+ "iroha_futures",
+ "iroha_logger",
+ "iroha_macro",
+ "iroha_primitives",
+ "iroha_schema_gen",
+ "iroha_telemetry",
+ "iroha_torii_macro",
+ "iroha_version",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "warp",
+]
+
+[[package]]
+name = "iroha_torii_macro"
+version = "2.0.0-pre-rc.20"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+ "warp",
 ]
 
 [[package]]

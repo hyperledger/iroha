@@ -33,18 +33,15 @@ use iroha_core::{
 use iroha_data_model::prelude::*;
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::actor::LoggerHandle;
+use iroha_torii::Torii;
 use tokio::{
     signal,
     sync::{broadcast, mpsc, Notify},
     task,
 };
-use torii::Torii;
 
-mod event;
 pub mod samples;
-mod stream;
 pub mod style;
-pub mod torii;
 
 /// Arguments for Iroha2.  Configuration for arguments is parsed from
 /// environment variables and then the appropriate object is
