@@ -39,7 +39,6 @@ struct Args {
         value_parser(Path::user_provided_str),
         value_hint(clap::ValueHint::FilePath)
     )]
-    // TODO: use value parser as in client cli
     config: Option<Path>,
     /// Whether to enable ANSI colored output or not
     ///
