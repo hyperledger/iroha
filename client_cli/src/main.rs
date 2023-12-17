@@ -65,11 +65,11 @@ impl MetadataArgs {
 struct Args {
     /// Path to the configuration file, defaults to `config.json`/`config.json5`
     ///
-    /// Supported extensions are `.json` and `.json5`. By default, Iroha looks up for a
-    /// `config` file in the Current Working Directory with both supported extensions.
-    /// If the default config file is not found, Iroha Client will rely on default values and
-    /// environment variables. However, if the config path is set explicitly with this argument
-    /// and the file is not found, Iroha Client will exit with an error.
+    /// Supported extensions are `.json` and `.json5`. By default, Iroha Client looks for a
+    /// `config` file with one of the supported extensions in the current working directory.
+    /// If the default config file is not found, Iroha will rely on default values and environment
+    /// variables. However, if the config path is set explicitly with this argument and the file
+    /// is not found, Iroha Client will exit with an error.
     #[arg(
         short,
         long,
