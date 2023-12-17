@@ -276,7 +276,7 @@ pub enum Error {
     /// Failed to get Prometheus metrics
     Prometheus(#[source] eyre::Report),
     #[cfg(feature = "telemetry")]
-    /// Internal error while getting status
+    /// Failed to get status
     StatusFailure(#[source] eyre::Report),
     /// Failure caused by configuration subsystem
     ConfigurationFailure(#[from] KisoError),
