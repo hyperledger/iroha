@@ -26,8 +26,8 @@ fn default_terminal_colors_str() -> clap::builder::OsStr {
 struct Args {
     /// Path to the configuration file, defaults to `config.json`/`config.json5`
     ///
-    /// Supported extensions are `.json` and `.json5`. By default, Iroha looks up for a
-    /// `config` file in the Current Working Directory with both supported extensions.
+    /// Supported extensions are `.json` and `.json5`. By default, Iroha looks for a
+    /// `config` file with one of the supported extensions in the current working directory.
     /// If the default config file is not found, Iroha will rely on default values and environment
     /// variables. However, if the config path is set explicitly with this argument and the file
     /// is not found, Iroha will exit with an error.
@@ -57,15 +57,15 @@ struct Args {
     terminal_colors: bool,
     /// Whether the current peer should submit the genesis block or not
     ///
-    /// The only one peer in the network should submit the genesis block.
+    /// Only one peer in the network should submit the genesis block.
     ///
     /// This argument must be set alongside with `genesis.file` and `genesis.private_key`
     /// configuration options. If not, Iroha will exit with an error.
     ///
     /// This argument must be set if the amount of trusted peers in the config file
-    /// (`sumeragi.trusted_peers`) is less than 2, i.e. the network consists only from this peer
-    /// itself. Otherwise it would be impossible to receive genesis topology, and Iroha will exit
-    /// with an error.
+    /// (`sumeragi.trusted_peers`) is less than 2, i.e. the network consists only of this one peer.
+    /// If the argument is not set, it will be impossible to receive genesis topology, and Iroha
+    /// will exit with an error.
     #[arg(long)]
     submit_genesis: bool,
 }

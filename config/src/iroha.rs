@@ -20,8 +20,8 @@ view! {
         /// Private key of this peer
         #[view(ignore)]
         pub private_key: PrivateKey,
+        /// **Deprecated**.
         /// Disable coloring of the backtrace and error report on panic.
-        /// It is deprecated.
         pub disable_panic_terminal_colors: Option<bool>,
         /// `Kura` configuration
         #[config(inner)]

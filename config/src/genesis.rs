@@ -36,7 +36,7 @@ impl Default for ConfigurationProxy {
     }
 }
 
-/// Parsed variant of the (user provided) [`Configuration`]
+/// Parsed variant of the user-provided [`Configuration`]
 // TODO: incorporate this struct into the final, parsed configuration
 //       https://github.com/hyperledger/iroha/issues/3500
 pub enum ParsedConfiguration {
@@ -45,7 +45,7 @@ pub enum ParsedConfiguration {
         /// Genesis account public key
         public_key: PublicKey,
     },
-    /// The peer is responsible for submitting of the genesis block
+    /// The peer is responsible for submitting the genesis block
     Submit {
         /// Genesis account key pair
         key_pair: KeyPair,

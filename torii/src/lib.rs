@@ -204,7 +204,7 @@ impl Torii {
                 .with(warp::trace::request()))
     }
 
-    /// Start main api endpoints.
+    /// Start main API endpoints.
     ///
     /// # Errors
     /// Can fail due to listening to network or if http server fails
@@ -268,19 +268,19 @@ pub enum Error {
     Query(#[from] iroha_data_model::ValidationFail),
     /// Failed to accept transaction
     AcceptTransaction(#[from] iroha_core::tx::AcceptTransactionFail),
-    /// Error while getting or setting configuration
+    /// Failed to get or set configuration
     Config(#[source] eyre::Report),
     /// Failed to push into queue
     PushIntoQueue(#[from] Box<queue::Error>),
     #[cfg(feature = "telemetry")]
-    /// Error while getting Prometheus metrics
+    /// Failed to get Prometheus metrics
     Prometheus(#[source] eyre::Report),
     #[cfg(feature = "telemetry")]
     /// Internal error while getting status
     StatusFailure(#[source] eyre::Report),
     /// Failure caused by configuration subsystem
     ConfigurationFailure(#[from] KisoError),
-    /// Cannot find status segment by provided path
+    /// Failed to find status segment by provided path
     StatusSegmentNotFound(#[source] eyre::Report),
 }
 

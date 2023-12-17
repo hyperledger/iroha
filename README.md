@@ -160,7 +160,7 @@ A brief overview on how to configure and maintain an Iroha instance:
 There is a set of configuration parameters that could be passed either through a configuration file or environment variables.
 
 ```shell
-# will look up for `config.json` or `config.json5`, without failing if files are not found
+# look for `config.json` or `config.json5` (won't fail if files are not found)
 iroha 
 
 # Override default config path through CLI or ENV
@@ -209,7 +209,7 @@ prometheus --config.file=configs/prometheus.yml
 
 ### Storage
 
-Iroha stores blocks and snapshots in the `storage` directory, which is created automatically by Iroha in the working directory of the peer. If `kura.block_store_path` is overwritten in the config file, it will be resolved relative to the config file location.
+Iroha stores blocks and snapshots in the `storage` directory, which is created automatically by Iroha in the working directory of the peer. If `kura.block_store_path` is specified in the config file, it overwrites the default one and is resolved relative to the config file location.
 
 **Note:** detailed configuration reference is [work in progress](https://github.com/hyperledger/iroha-2-docs/issues/392).
 
