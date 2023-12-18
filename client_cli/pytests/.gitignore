@@ -7,7 +7,6 @@ __pycache__/
 # Virtual environment
 venv/
 *.venv
-.env
 
 # Pytest cache
 .test_cache/
@@ -34,3 +33,5 @@ venv/
 ehthumbs.db
 Thumbs.db
 /allure-results/
+
+.env
