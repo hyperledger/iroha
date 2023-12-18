@@ -17,21 +17,42 @@ The Iroha 2 Test Model consists of several test categories that cover different 
 
 - **Atomicity:** Test cases for transaction atomicity, including multiple instructions within a single transaction, paired instructions, and invalid instructions.
 
-## How to use
-At first, you need to installed and running [Iroha 2](https://hyperledger.github.io/iroha-2-docs/guide/install.html), and also need to have built [Client CLI](https://hyperledger.github.io/iroha-2-docs/guide/build.html)
+## Usage
 
-## Configuration
+1. Setup test environment using [`test_env.py`](../../scripts/test_env.py):
+	```shell
+	# running from the repo root
+	./scripts/test_env.py setup
+	```
+   This will build `iroha`, `iroha_client_cli`, and `kagami`, and will run 4 peers by default, with their API exposed on ports 8080..8083. This behaviour could be configured, see `./scripts/test_env.py --help`
+2. Configure Poetry according to the [Poetry Configuration section](#poetry-configuration) below.
+3. Configure tests with environment variables or `.env` file in this directory according to the [Tests Configuration section](#tests-configuration) below.
+4. Run tests:
+	```shell
+	poetry run pytest
+	```
+5. Cleanup the test environment:
+	```shell
+	# running from the repo root
+	./scripts/test_env.py cleanup
+	```
 
-To configure the application, you can use a `.env` file in the `client_cli/pytest` directory. The `.env` file should contain the following variables:
+## Tests Configuration
 
-```
+Tests are configured via environment variables, optionally defined in an `.env` file in this directory.
+
+The variables:
+
+- `CLIENT_CLI_DIR` (defaults to `/client_cli`): path to the directory containing `iroha_client_cli` binary and its configuration as `config.json`.
+- `TORII_API_PORT_MIN`/`TORII_API_PORT_MAX` (defaults to `8080`/`8083`): set the range of local ports on which Iroha peers are deployed. Tests will randomly pick one of them for each test.
+
+Example:
+
+```shell
 CLIENT_CLI_DIR=/path/to/iroha_client_cli/with/config.json/dir/
 TORII_API_PORT_MIN=8080
 TORII_API_PORT_MAX=8083
 ```
-Replace `/path/to/iroha_client_cli/dir` with the actual paths to the respective files on your system.
-
-If the `.env` file is not present or these variables are not defined in it
 
 ## Poetry Configuration
 
