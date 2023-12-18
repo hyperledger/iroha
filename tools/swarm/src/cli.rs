@@ -27,7 +27,7 @@ pub struct Cli {
     pub no_banner: bool,
     /// Path to a directory with Iroha configuration. It will be mapped as volume for containers.
     ///
-    /// The directory should contain `config.json` with `genesis.file` parameter specified.
+    /// The directory should contain `config.json` and `genesis.json`
     #[arg(long, short)]
     pub config_dir: PathBuf,
     #[command(flatten)]
