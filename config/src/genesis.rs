@@ -73,7 +73,8 @@ impl Configuration {
                     raw_block,
                 })
             }
-            _ => Err(ParseError::InvalidParametersCombination),
+            (_, _, true) => Err(ParseError::SubmitIsSetButRestAreNot),
+            (_, _, false) => Err(ParseError::SubmitIsNotSetButRestAre),
         }
     }
 }
@@ -81,8 +82,10 @@ impl Configuration {
 /// Error which might occur during [`Configuration::parse()`]
 #[derive(Debug, displaydoc::Display, thiserror::Error)]
 pub enum ParseError {
-    /// `genesis.private_key` and `genesis.file` should be set for the peer that submits the genesis
-    InvalidParametersCombination,
+    /// `--submit-genesis` was provided, but `genesis.private_key` and/or `genesis.file` are missing
+    SubmitIsSetButRestAreNot,
+    /// `--submit-genesis` was not provided, but `genesis.private_key` and/or `genesis.file` are set
+    SubmitIsNotSetButRestAre,
     /// Genesis key pair is invalid
     InvalidKeyPair(#[from] iroha_crypto::error::Error),
     /// Cannot read the genesis block from file `{path}`
