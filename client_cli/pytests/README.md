@@ -19,19 +19,19 @@ The Iroha 2 Test Model consists of several test categories that cover different 
 
 ## Usage
 
-1. Setup test environment using [`test_env.py`](../../scripts/test_env.py):
+1. Set up test environment using [`test_env.py`](../../scripts/test_env.py):
 	```shell
 	# running from the repo root
 	./scripts/test_env.py setup
 	```
-   This will build `iroha`, `iroha_client_cli`, and `kagami`, and will run 4 peers by default, with their API exposed on ports 8080..8083. This behaviour could be configured, see `./scripts/test_env.py --help`
-2. Configure Poetry according to the [Poetry Configuration section](#poetry-configuration) below.
+   By default, this builds `iroha`, `iroha_client_cli`, and `kagami`, and runs 4 peers with their API exposed on ports 8080..8083. This behaviour could be configured, see `./scripts/test_env.py --help` for details.
+2. Configure `Poetry` according to the [Poetry Configuration section](#poetry-configuration) below.
 3. Configure tests with environment variables or `.env` file in this directory according to the [Tests Configuration section](#tests-configuration) below.
 4. Run tests:
 	```shell
 	poetry run pytest
 	```
-5. Cleanup the test environment:
+5. Clean up the test environment:
 	```shell
 	# running from the repo root
 	./scripts/test_env.py cleanup
