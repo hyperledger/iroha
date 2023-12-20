@@ -2656,7 +2656,7 @@ dependencies = [
  "dialoguer",
  "erased-serde",
  "iroha_client",
- "iroha_config",
+ "iroha_config_base",
  "iroha_primitives",
  "json5",
  "once_cell",

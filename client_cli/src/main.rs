@@ -16,13 +16,10 @@ use dialoguer::Confirm;
 use erased_serde::Serialize;
 use iroha_client::{
     client::{Client, QueryResult},
+    config::{path::Path, Configuration as ClientConfiguration, ConfigurationProxy},
     data_model::prelude::*,
 };
-use iroha_config::{
-    base::proxy::{LoadFromDisk, LoadFromEnv, Override},
-    client::{Configuration as ClientConfiguration, ConfigurationProxy},
-    path::Path,
-};
+use iroha_config_base::proxy::{LoadFromDisk, LoadFromEnv, Override};
 use iroha_primitives::addr::SocketAddr;
 
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
