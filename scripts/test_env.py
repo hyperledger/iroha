@@ -29,6 +29,7 @@ class Network:
         self.out_dir = args.out_dir
         peers_dir = args.out_dir.joinpath("peers")
         os.makedirs(peers_dir, exist_ok=True)
+        self.shared_env = {}
 
         self.peers = [_Peer(args, i) for i in range(args.n_peers)]
 
@@ -45,15 +46,15 @@ class Network:
             sys.exit(1)
         copy_or_prompt_build_bin("iroha", args.root_dir, peers_dir)
 
-        os.environ["IROHA_CONFIG"] = str(peers_dir.joinpath("config.json"))
-        os.environ["IROHA_GENESIS_PUBLIC_KEY"] = self.peers[0].public_key
+        self.shared_env["IROHA_CONFIG"] = str(peers_dir.joinpath("config.json"))
+        self.shared_env["IROHA_GENESIS_PUBLIC_KEY"] = self.peers[0].public_key
 
         logging.info("Generating trusted peers...")
         self.trusted_peers = []
         for peer in self.peers:
             peer_entry = {"address": f"{peer.host_ip}:{peer.p2p_port}", "public_key": peer.public_key}
             self.trusted_peers.append(json.dumps(peer_entry))
-        os.environ["SUMERAGI_TRUSTED_PEERS"] = f"[{','.join(self.trusted_peers)}]"
+        self.shared_env["SUMERAGI_TRUSTED_PEERS"] = f"[{','.join(self.trusted_peers)}]"
 
     def wait_for_genesis(self, n_tries: int):
         for i in range(n_tries):
@@ -76,7 +77,7 @@ class Network:
 
     def run(self):
         for i, peer in enumerate(self.peers):
-            peer.run(submit_genesis=(i == 0))
+            peer.run(shared_env=self.shared_env, submit_genesis=(i == 0))
         self.wait_for_genesis(20)
 
 class _Peer:
@@ -115,34 +116,32 @@ class _Peer:
 
         logging.info(f"Peer {self.name} initialized")
 
-    def run(self, submit_genesis: bool = False):
+    def run(self, shared_env: dict(), submit_genesis: bool = False):
         logging.info(f"Running peer {self.name}...")
 
-        os.environ["KURA_BLOCK_STORE_PATH"] = str(self.peer_dir.joinpath("storage"))
-        os.environ["SNAPSHOT_DIR_PATH"] = str(self.peer_dir.joinpath("storage"))
-        os.environ["LOG_LEVEL"] = "INFO"
-        os.environ["LOG_FORMAT"] = "\"pretty\""
-        os.environ["LOG_TOKIO_CONSOLE_ADDR"] = f"{self.host_ip}:{self.tokio_console_port}"
-        os.environ["IROHA_PUBLIC_KEY"] = self.public_key
-        os.environ["IROHA_PRIVATE_KEY"] = self.private_key
-        os.environ["SUMERAGI_DEBUG_FORCE_SOFT_FORK"] = "false"
-        os.environ["TORII_P2P_ADDR"] = f"{self.host_ip}:{self.p2p_port}"
-        os.environ["TORII_API_URL"] = f"{self.host_ip}:{self.api_port}"
+        peer_env = dict(shared_env)
+        peer_env["KURA_BLOCK_STORE_PATH"] = str(self.peer_dir.joinpath("storage"))
+        peer_env["SNAPSHOT_DIR_PATH"] = str(self.peer_dir.joinpath("storage"))
+        peer_env["LOG_LEVEL"] = "INFO"
+        peer_env["LOG_FORMAT"] = "\"pretty\""
+        peer_env["LOG_TOKIO_CONSOLE_ADDR"] = f"{self.host_ip}:{self.tokio_console_port}"
+        peer_env["IROHA_PUBLIC_KEY"] = self.public_key
+        peer_env["IROHA_PRIVATE_KEY"] = self.private_key
+        peer_env["SUMERAGI_DEBUG_FORCE_SOFT_FORK"] = "false"
+        peer_env["TORII_P2P_ADDR"] = f"{self.host_ip}:{self.p2p_port}"
+        peer_env["TORII_API_URL"] = f"{self.host_ip}:{self.api_port}"
 
         if submit_genesis:
-            os.environ["IROHA_GENESIS_PRIVATE_KEY"] = self.private_key
+            peer_env["IROHA_GENESIS_PRIVATE_KEY"] = self.private_key
             # Assuming it was copied to the peer's directory
-            os.environ["IROHA_GENESIS_FILE"] = str(self.peer_dir.joinpath("genesis.json"))
-        else:
-            for x in ["IROHA_GENESIS_PRIVATE_KEY", "IROHA_GENESIS_FILE"]:
-                os.environ.pop(x, None)
+            peer_env["IROHA_GENESIS_FILE"] = str(self.peer_dir.joinpath("genesis.json"))
 
         # FD never gets closed
         stdout_file = open(self.peer_dir.joinpath(".stdout"), "w")
         stderr_file = open(self.peer_dir.joinpath(".stderr"), "w")
         # These processes are created detached from the parent process already
         subprocess.Popen([self.name] + (["--submit-genesis"] if submit_genesis else []),
-                    executable=f"{self.out_dir}/peers/iroha", stdout=stdout_file, stderr=stderr_file)
+                    executable=f"{self.out_dir}/peers/iroha", env=peer_env, stdout=stdout_file, stderr=stderr_file)
 
 def pos_int(arg):
     if int(arg) > 0:
