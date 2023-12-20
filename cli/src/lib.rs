@@ -50,7 +50,7 @@ pub mod samples;
 /// and queries processing, work of consensus and storage.
 ///
 /// # Usage
-/// Construct and then [`Iroha::start()`] or [`Iroha::start_as_task()`]. If you experience
+/// Construct and then use [`Iroha::start()`] or [`Iroha::start_as_task()`]. If you experience
 /// an immediate shutdown after constructing Iroha, then you probably forgot this step.
 #[must_use = "run `.start().await?` to not immediately stop Iroha"]
 pub struct Iroha {

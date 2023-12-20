@@ -209,7 +209,7 @@ prometheus --config.file=configs/prometheus.yml
 
 ### Storage
 
-Iroha stores blocks and snapshots in the `storage` directory, which is created automatically by Iroha in the working directory of the peer. If `kura.block_store_path` is specified in the config file, it overwrites the default one and is resolved relative to the config file location.
+Iroha stores blocks and snapshots in the `storage` directory, which is created automatically by Iroha in the working directory of the peer. If `kura.block_store_path` is specified in the config file, it overrides the default one and is resolved relative to the config file location.
 
 **Note:** detailed configuration reference is [work in progress](https://github.com/hyperledger/iroha-2-docs/issues/392).
 
