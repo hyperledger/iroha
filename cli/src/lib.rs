@@ -638,9 +638,6 @@ mod tests {
             Ok(base)
         }
 
-        // #[test]
-        // fn default_config_works() {}
-
         #[test]
         fn relative_file_paths_resolution() -> Result<()> {
             // Given

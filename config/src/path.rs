@@ -5,8 +5,6 @@ extern crate alloc;
 use alloc::borrow::Cow;
 use std::path::PathBuf;
 
-// TODO: replace with `std::fs::absolute` when it's stable.
-// use path_absolutize::Absolutize as _;
 use InnerPath::*;
 
 /// Allowed configuration file extension that user can provide.
