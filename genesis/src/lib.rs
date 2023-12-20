@@ -394,11 +394,11 @@ mod tests {
 
     #[test]
     fn failed_to_create_genesis_network_without_transactions() {
-        const RAW_JSON: &str = r#"{
-          "transactions": [],
-          "executor": "./exe.wasm"
-        }"#;
-        let raw_block = serde_json::from_str(RAW_JSON).expect("Should be valid JSON raw block");
+        let raw_block: RawGenesisBlock = serde_json::from_value(serde_json::json!({
+            "transactions": [],
+            "executor": "./exe.wasm"
+        }))
+        .expect("Should be a valid raw block");
         let genesis_key_pair = KeyPair::generate().unwrap();
 
         let _err = GenesisNetwork::new(raw_block, &genesis_key_pair)
