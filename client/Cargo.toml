@@ -80,7 +80,7 @@ iroha_wasm_builder = { workspace = true }
 # Additionally there is a dependency on iroha_core in dev-dependencies in telemetry/derive
 # Hopefully, once the integration tests migration is finished these can be removed
 iroha = { workspace = true, features = ["dev-telemetry", "telemetry"] }
-iroha_genesis = { workspace = true, features = ["test-utils"] }
+iroha_genesis = { workspace = true }
 test_network = { workspace = true }
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }

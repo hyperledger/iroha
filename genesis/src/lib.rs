@@ -46,7 +46,6 @@ impl GenesisNetwork {
     ///   than anything else)
     /// - If transactions set is empty
     pub fn new(raw_block: RawGenesisBlock, genesis_key_pair: &KeyPair) -> Result<GenesisNetwork> {
-        #[cfg(not(test))]
         // First instruction should be Executor upgrade.
         // This makes possible to grant permissions to users in genesis.
         let transactions_iter = std::iter::once(GenesisTransactionBuilder {
@@ -58,14 +57,6 @@ impl GenesisNetwork {
         })
         .chain(raw_block.transactions);
 
-        #[cfg(test)]
-        let transactions_iter = {
-            if raw_block.transactions.is_empty() {
-                eyre::bail!("Genesis transaction set is empty");
-            }
-            raw_block.transactions.into_iter()
-        };
-
         let transactions = transactions_iter
             .enumerate()
             .map(|(i, raw_transaction)| {
@@ -75,7 +66,7 @@ impl GenesisNetwork {
                     //        the key pair for a large genesis.
                     .sign(genesis_key_pair.clone())
                     .map(GenesisTransaction)
-                    .wrap_err_with(|| eyre!("Failed to sign transaction #{i}"))
+                    .wrap_err_with(|| eyre!("Failed to sign transaction at index {i}"))
             })
             .collect::<Result<Vec<_>>>()?;
 
@@ -85,13 +76,6 @@ impl GenesisNetwork {
     /// Consume `self` into genesis transactions
     pub fn into_transactions(self) -> Vec<GenesisTransaction> {
         self.transactions
-    }
-
-    #[cfg(feature = "test-utils")]
-    /// Get mutable genesis transactions, which allows to violate the invariant for
-    /// testing purposes
-    pub fn transactions_mut(&mut self) -> &mut Vec<GenesisTransaction> {
-        &mut self.transactions
     }
 }
 
@@ -373,7 +357,9 @@ mod tests {
     use super::*;
 
     fn dummy_executor() -> ExecutorMode {
-        ExecutorMode::Path(ExecutorPath("./executor.wasm".into()))
+        ExecutorMode::Inline(Executor::new(WasmSmartContract::from_compiled(vec![
+            1, 2, 3,
+        ])))
     }
 
     #[test]
@@ -390,19 +376,6 @@ mod tests {
             &genesis_key_pair,
         )?;
         Ok(())
-    }
-
-    #[test]
-    fn failed_to_create_genesis_network_without_transactions() {
-        let raw_block: RawGenesisBlock = serde_json::from_value(serde_json::json!({
-            "transactions": [],
-            "executor": "./exe.wasm"
-        }))
-        .expect("Should be a valid raw block");
-        let genesis_key_pair = KeyPair::generate().unwrap();
-
-        let _err = GenesisNetwork::new(raw_block, &genesis_key_pair)
-            .expect_err("Should fail with empty transactions");
     }
 
     #[test]
