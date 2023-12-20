@@ -410,7 +410,6 @@ impl Peer {
             }),
             public_key: self.key_pair.public_key().clone(),
             private_key: self.key_pair.private_key().clone(),
-            disable_panic_terminal_colors: None,
             ..configuration
         }
     }

@@ -549,13 +549,6 @@ pub fn read_config(
 
     // TODO: move validation logic below to `iroha_config`
 
-    if config.disable_panic_terminal_colors.is_some() {
-        // FIXME: it shouldn't be logged here; it is a part of configuration domain
-        //        this message can be very simply broken by the changes in the configuration
-        //        https://github.com/hyperledger/iroha/issues/3506
-        eprintln!("The configuration parameter `DISABLE_PANIC_TERMINAL_COLORS` is deprecated. Set `TERMINAL_COLORS=false` instead. ")
-    }
-
     if !submit_genesis && config.sumeragi.trusted_peers.peers.len() <= 1 {
         return Err(eyre!("Only peer in network, yet required to receive genesis topology. This is a configuration error."));
     }
