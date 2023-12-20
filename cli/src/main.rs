@@ -57,10 +57,10 @@ struct Args {
     /// This argument must be set alongside with `genesis.file` and `genesis.private_key`
     /// configuration options. If not, Iroha will exit with an error.
     ///
-    /// This argument must be set if the amount of trusted peers in the config file
-    /// (`sumeragi.trusted_peers`) is less than 2, i.e. the network consists only of this one peer.
-    /// If the argument is not set, it will be impossible to receive genesis topology, and Iroha
-    /// will exit with an error.
+    /// In case when the network consists only of this one peer, i.e. the amount of trusted
+    /// peers in the configuration (`sumeragi.trusted_peers`) is less than 2, this peer must
+    /// submit the genesis, since there are no other peers who can provide it. In this case, Iroha
+    /// will exit with an error if `--submit-genesis` is not set.
     #[arg(long)]
     submit_genesis: bool,
 }

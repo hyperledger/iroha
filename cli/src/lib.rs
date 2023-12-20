@@ -549,8 +549,14 @@ pub fn read_config(
 
     // TODO: move validation logic below to `iroha_config`
 
-    if !submit_genesis && config.sumeragi.trusted_peers.peers.len() <= 1 {
-        return Err(eyre!("Only peer in network, yet required to receive genesis topology. This is a configuration error."));
+    if !submit_genesis && config.sumeragi.trusted_peers.peers.len() < 2 {
+        return Err(eyre!("\
+            The network consists from this one peer only (`sumeragi.trusted_peers` is less than 2). \
+            Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
+            Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, \
+            and `genesis.file` configuration parameters, or increase the number of trusted peers in \
+            the network using `sumeragi.trusted_peers` configuration parameter.
+        "));
     }
 
     let genesis = if let ParsedGenesisConfiguration::Submit {
