@@ -192,7 +192,7 @@ fn main() -> Result<()> {
 
     let config = ConfigurationProxy::default();
     let config = if let Some(path) = config_path
-        .unwrap_or_else(|| Path::default(DEFAULT_CONFIG_PATH).expect("Default should be valid"))
+        .unwrap_or_else(|| Path::default(DEFAULT_CONFIG_PATH))
         .try_resolve()
         .wrap_err("Failed to resolve config file")?
     {

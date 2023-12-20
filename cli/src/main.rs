@@ -7,11 +7,6 @@ use iroha_config::path::Path;
 
 const DEFAULT_CONFIG_PATH: &str = "config";
 
-fn default_config_path() -> Path {
-    Path::default(DEFAULT_CONFIG_PATH)
-        .expect("Default config path should not have an extension. It is a bug.")
-}
-
 fn is_colouring_supported() -> bool {
     supports_color::on(supports_color::Stream::Stdout).is_some()
 }
@@ -78,7 +73,9 @@ async fn main() -> Result<()> {
         color_eyre::install()?;
     }
 
-    let config_path = args.config.unwrap_or_else(default_config_path);
+    let config_path = args
+        .config
+        .unwrap_or_else(|| Path::default(DEFAULT_CONFIG_PATH));
 
     let (config, genesis) = iroha::read_config(&config_path, args.submit_genesis)?;
     let logger = iroha_logger::init_global(&config.logger, args.terminal_colors)?;

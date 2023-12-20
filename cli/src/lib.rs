@@ -658,7 +658,7 @@ mod tests {
             std::fs::write(genesis_path, serde_json::to_string(&genesis)?)?;
             std::fs::write(executor_path, "")?;
 
-            let config_path = Path::default(dir.path().join("config/config"))?;
+            let config_path = Path::default(dir.path().join("config/config"));
 
             // When
 

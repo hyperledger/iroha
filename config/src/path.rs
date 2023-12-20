@@ -30,7 +30,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Clone, PartialEq)]
 enum InnerPath {
     /// Contains path without an extension, so that it will try to resolve
-    /// using [`ALLOWED_CONFIG_EXTENSIONS`]. [`Path::try_resolve()`] will not fail if not found.
+    /// using [`ALLOWED_CONFIG_EXTENSIONS`]. [`Path::try_resolve()`] will not fail if file isn't
+    /// found.
     Default(PathBuf),
     /// Contains full path, with extension. [`Path::try_resolve()`] will fail if not found.
     UserProvided(PathBuf),
@@ -62,15 +63,19 @@ impl Path {
     /// Construct new [`Path`] which will try to resolve multiple allowed extensions and will not
     /// fail resolution ([`Self::try_resolve()`]) if file is not found.
     ///
-    /// # Errors
-    /// If `path` contains an extension.
-    pub fn default(path: impl AsRef<std::path::Path>) -> Result<Self> {
-        let path = path.as_ref();
-
-        path.extension().map_or_else(
-            || Ok(Self(Default(path.to_path_buf()))),
-            |ext| Err(Error::InvalidExtension(ext.to_string_lossy().into_owned())),
-        )
+    /// **Note:** make sure to provide `path` without an extension:
+    ///
+    /// ```
+    /// use iroha_config::path::Path;
+    ///
+    /// // Will look for `config.<allowed extensions>`
+    /// let _ = Path::default("config");
+    ///
+    /// // Will look for `config.json.<allowed extensions>`
+    /// let _ = Path::default("config.json");
+    /// ```
+    pub fn default(path: impl AsRef<std::path::Path>) -> Self {
+        Self(Default(path.as_ref().to_path_buf()))
     }
 
     /// Construct new [`Path`] from user-provided `path` which will fail to [`Self::try_resolve()`]
@@ -130,7 +135,7 @@ mod tests {
 
     #[test]
     fn display_multi_extensions() {
-        let path = Path::default("config").expect("Should be valid since doesn't have extension");
+        let path = Path::default("config");
 
         let display = format!("{path}");
 
