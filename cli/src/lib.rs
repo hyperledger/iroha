@@ -498,7 +498,6 @@ macro_rules! mutate_nested_option {
     ($obj:tt, [$field:tt], $func:expr) => {
         mutate_nested_option!($obj, $field, $func)
     };
-
 }
 
 /// Reads configuration from the specified path and validates it.
