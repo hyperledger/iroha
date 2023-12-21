@@ -29,7 +29,6 @@ use iroha_primitives::addr::SocketAddr;
 //        when this type is used inside of modules. I don't know how to fix it.
 pub struct MetadataArgs {
     /// The JSON/JSON5 file with key-value metadata pairs
-Comment
     #[arg(short, long, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
     metadata: Option<PathBuf>,
 }
