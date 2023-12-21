@@ -31,8 +31,6 @@ pub struct Batched<I: IntoIterator> {
     cursor: Option<u64>,
 }
 
-impl<T> Encode for Batched<Vec<T>> {}
-
 /// Unknown cursor error.
 ///
 /// Happens when client sends a cursor that doesn't match any server's cursor.
@@ -41,7 +39,10 @@ impl<T> Encode for Batched<Vec<T>> {}
 pub struct UnknownCursor;
 
 impl<I: IntoIterator + FromIterator<I::Item>> Batched<I> {
-    pub(crate) fn next_batch(
+    /// Temporary expose because of separate storage lack
+    /// # Errors
+    /// Fails if the passed cursor != to `self.cursor`
+    pub fn next_batch(
         &mut self,
         cursor: Option<u64>,
     ) -> Result<(I, Option<NonZeroU64>), UnknownCursor> {

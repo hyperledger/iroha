@@ -1020,6 +1020,7 @@ impl Client {
         retry_count: u32,
         retry_in: Duration,
         pagination: Pagination,
+        fetch_size: FetchSize,
     ) -> Result<Option<SignedTransaction>> {
         let pagination = pagination.into_query_parameters();
         for _ in 0..retry_count {
@@ -1030,22 +1031,28 @@ impl Client {
                     .expect("Valid URI"),
             )
             .params(pagination.clone())
+            .params(fetch_size.into_query_parameters())
             .headers(self.headers.clone())
             .build()?
             .send()?;
 
             if response.status() == StatusCode::OK {
-                let pending_transactions: Vec<SignedTransaction> =
-                    DecodeAll::decode_all(&mut response.body().as_slice())?;
+                let pending_batched_transactions: BatchedResponse<Vec<SignedTransaction>> =
+                    BatchedResponse::decode_all_versioned(response.body()).wrap_err(
+                        "Failed to decode response from Iroha. \
+                         You are likely using a version of the client library \
+                         that is incompatible with the version of the peer software",
+                    )?;
 
-                let transaction = pending_transactions
-                    .into_iter()
-                    .find(|pending_transaction| {
-                        Self::equals_excluding_creation_time(
-                            pending_transaction.payload(),
-                            transaction.payload(),
-                        )
-                    });
+                // The cursor in depleted until the storage for pending transactions is provided
+                let (batch, _) = pending_batched_transactions.into();
+
+                let transaction = batch.into_iter().find(|pending_transaction| {
+                    Self::equals_excluding_creation_time(
+                        pending_transaction.payload(),
+                        transaction.payload(),
+                    )
+                });
                 if transaction.is_some() {
                     return Ok(transaction);
                 }
@@ -1077,6 +1084,7 @@ impl Client {
             retry_count,
             retry_in,
             Pagination::default(),
+            FetchSize::default(),
         )
     }
 

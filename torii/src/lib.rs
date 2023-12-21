@@ -86,11 +86,12 @@ impl Torii {
             .and_then(|| async { Ok::<_, Infallible>(routing::handle_health()) });
 
         let get_router = warp::get().and(
-            endpoint3(
+            endpoint4(
                 routing::handle_pending_transactions,
                 warp::path(uri::PENDING_TRANSACTIONS)
                     .and(add_state!(self.queue, self.sumeragi,))
-                    .and(routing::paginate()),
+                    .and(routing::paginate())
+                    .and(routing::fetch_size()),
             )
             .or(warp::path(uri::CONFIGURATION)
                 .and(add_state!(self.kiso))

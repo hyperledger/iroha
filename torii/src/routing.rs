@@ -10,10 +10,7 @@ use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
 use iroha_config::client_api::ConfigurationDTO;
 use iroha_core::{
-    query::{
-        pagination::Paginate,
-        store::LiveQueryStoreHandle,
-    },
+    query::{pagination::Paginate, store::LiveQueryStoreHandle},
     smartcontracts::query::ValidQueryRequest,
     sumeragi::SumeragiHandle,
 };
@@ -27,7 +24,7 @@ use iroha_data_model::{
         cursor::ForwardCursor, http, sorting::Sorting, Pagination, QueryRequest,
         QueryWithParameters,
     },
-    BatchedResponse,
+    BatchedResponse, BatchedResponseV1,
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
@@ -73,7 +70,7 @@ pub fn paginate() -> impl warp::Filter<Extract = (Pagination,), Error = warp::Re
 }
 
 /// Filter for warp which extracts fetch size
-fn fetch_size() -> impl warp::Filter<Extract = (FetchSize,), Error = warp::Rejection> + Copy {
+pub fn fetch_size() -> impl warp::Filter<Extract = (FetchSize,), Error = warp::Rejection> + Copy {
     warp::query()
 }
 
@@ -153,8 +150,9 @@ pub async fn handle_pending_transactions(
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
     pagination: Pagination,
-    fetch_size: FetchSize,
-) -> Result<Scale<Batched<Vec<SignedTransaction>>>> {
+    // ignore it for now
+    _fetch_size: FetchSize,
+) -> Result<Scale<BatchedResponse<Vec<SignedTransaction>>>> {
     let query_response = sumeragi.apply_wsv(|wsv| {
         queue
             .all_transactions(wsv)
@@ -162,19 +160,13 @@ pub async fn handle_pending_transactions(
             .paginate(pagination)
             .collect::<Vec<_>>()
     });
-    let fetch_size = fetch_size.fetch_size.map_or_else(
-        || {
-            if query_response.len() > 0 {
-                NonZeroU32::new(query_response.len().try_into().unwrap()).unwrap()
-            } else {
-                // no particular reason why 1
-                NonZeroU32::new(1).unwrap()
-            }
-        },
-        |size| size,
-    );
 
-    Ok(Scale(query_response.batched(fetch_size)))
+    let batched_response = BatchedResponseV1 {
+        batch: query_response,
+        cursor: ForwardCursor::default(),
+    };
+
+    Ok(Scale(batched_response.into()))
 }
 
 #[iroha_futures::telemetry_future]
