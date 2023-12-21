@@ -4,10 +4,9 @@ use iroha_client::{
     crypto::KeyPair,
     data_model::{peer::Peer as DataModelPeer, prelude::*},
 };
+use iroha_config::iroha::Configuration;
 use test_network::*;
 use tokio::runtime::Runtime;
-
-use iroha_config::iroha::Configuration;
 
 #[test]
 fn genesis_block_is_committed_with_some_offline_peers() -> Result<()> {
