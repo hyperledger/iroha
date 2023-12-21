@@ -29,7 +29,7 @@ class Network:
         self.out_dir = args.out_dir
         peers_dir = args.out_dir.joinpath("peers")
         os.makedirs(peers_dir, exist_ok=True)
-        self.shared_env = {}
+        self.shared_env = dict(os.environ)
 
         self.peers = [_Peer(args, i) for i in range(args.n_peers)]
 
