@@ -494,7 +494,7 @@ impl FromStr for AssetId {
                                       })?,
                                       account_id.domain_id.clone())
                 } else {
-                    return Err(ParseError { reason: "The `definition_id` part of the `asset_id` failed to parse. Ensure that you have it in the right format: `name#domain_of_asset#account_name@domain_of_account`." });
+                    return Err(ParseError { reason: "The `definition_id` part of the `asset_id` failed to parse. Ensure that you have it in the right format: `name#domain_of_asset#account_name@domain_of_account` or `name##account_name@domain_of_account` in case of same domain" });
                 }
             };
             Ok(Self {

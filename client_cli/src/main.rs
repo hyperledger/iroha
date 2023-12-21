@@ -19,7 +19,7 @@ use iroha_client::{
     config::{path::Path as ConfigPath, Configuration as ClientConfiguration},
     data_model::prelude::*,
 };
-use iroha_primitives::addr::SocketAddr;
+use iroha_primitives::addr::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
 /// Metadata wrapper, which can be captured from cli arguments (from user supplied file).
 #[derive(Debug, Clone)]
@@ -42,6 +42,24 @@ impl FromStr for Metadata {
         let content = fs::read_to_string(file).wrap_err(err_msg)?;
         let metadata: UnlimitedMetadata = json5::from_str(&content).wrap_err(deser_err_msg)?;
         Ok(Self(metadata))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ValueArg(Value);
+
+impl FromStr for ValueArg {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse::<bool>()
+            .map(Value::Bool)
+            .or_else(|_| s.parse::<Ipv4Addr>().map(Value::Ipv4Addr))
+            .or_else(|_| s.parse::<Ipv6Addr>().map(Value::Ipv6Addr))
+            .or_else(|_| s.parse::<NumericValue>().map(Value::Numeric))
+            .or_else(|_| s.parse::<PublicKey>().map(Value::PublicKey))
+            .or_else(|_| serde_json::from_str::<Value>(s).map_err(|e| e.into()))
+            .map(ValueArg)
     }
 }
 
@@ -663,14 +681,17 @@ mod account {
 }
 
 mod asset {
-    use iroha_client::client::{self, asset, Client};
+    use iroha_client::{
+        client::{self, asset, Client},
+        data_model::{asset::AssetDefinition, name::Name},
+    };
 
     use super::*;
 
     /// Subcommand for dealing with asset
     #[derive(StructOpt, Debug)]
     pub enum Args {
-        /// Register subcommand of asset
+        /// Command for Registering a new asset
         Register(Register),
         /// Command for minting asset in existing Iroha account
         Mint(Mint),
@@ -683,13 +704,19 @@ mod asset {
         /// List assets
         #[clap(subcommand)]
         List(List),
+        /// Put a key-value in a store Asset defintion
+        SetKeyValue(SetKeyValue),
+        /// Remove a key-value via key in a store Asset definition
+        RemoveKeyValue(RemoveKeyValue),
+        /// Get a value from store Asset definition via key
+        GetKeyValue(GetKeyValue),
     }
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             match_all!(
                 (self, context),
-                { Args::Register, Args::Mint, Args::Burn, Args::Transfer, Args::Get, Args::List }
+                { Args::Register, Args::Mint, Args::Burn, Args::Transfer, Args::Get, Args::List, Args::SetKeyValue, Args::RemoveKeyValue, Args::GetKeyValue}
             )
         }
     }
@@ -889,6 +916,72 @@ mod asset {
                     .wrap_err("Failed to get filtered assets"),
             }?;
             context.print_data(&vec.collect::<QueryResult<Vec<_>>>()?)?;
+            Ok(())
+        }
+    }
+
+    #[derive(StructOpt, Debug)]
+    pub struct SetKeyValue {
+        /// AssetId for the Store asset (in form of `asset##account@domain_name')
+        #[structopt(long = "asset-id")]
+        pub asset_id: AssetId,
+        /// The key for the store value
+        #[structopt(long)]
+        pub key: Name,
+        /// The value to be associated with the key
+        #[structopt(long)]
+        pub value: ValueArg,
+    }
+
+    impl RunArgs for SetKeyValue {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let Self {
+                asset_id,
+                key,
+                value: ValueArg(value),
+            } = self;
+
+            let set = iroha_client::data_model::isi::SetKeyValue::asset(asset_id, key, value);
+            submit([set], UnlimitedMetadata::default(), context)?;
+            Ok(())
+        }
+    }
+    #[derive(StructOpt, Debug)]
+    pub struct RemoveKeyValue {
+        #[structopt(long = "asset-id")]
+        pub asset_id: AssetId,
+        /// The key for the store value
+        #[structopt(long)]
+        pub key: Name,
+    }
+
+    impl RunArgs for RemoveKeyValue {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let Self { asset_id, key } = self;
+            let remove = iroha_client::data_model::isi::RemoveKeyValue::asset(asset_id, key);
+            submit([remove], UnlimitedMetadata::default(), context)?;
+            Ok(())
+        }
+    }
+
+    #[derive(StructOpt, Debug)]
+    pub struct GetKeyValue {
+        #[structopt(long = "asset-id")]
+        pub asset_id: AssetId,
+        // The key for the store value
+        #[structopt(long)]
+        pub key: Name,
+    }
+
+    impl RunArgs for GetKeyValue {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let Self { asset_id, key } = self;
+            let client = Client::new(context.configuration())?;
+            let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id, key.clone());
+            let asset = client
+                .request(find_key_value)
+                .wrap_err("Failed to get key-value")?;
+            context.print_data(&asset)?;
             Ok(())
         }
     }
