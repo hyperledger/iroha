@@ -48,9 +48,7 @@ pub mod isi {
 
             match wsv.asset(&asset_id) {
                 Err(err) => match err {
-                    QueryExecutionFail::Find(find_err)
-                        if matches!(find_err, FindError::Asset(_)) =>
-                    {
+                    QueryExecutionFail::Find(FindError::Asset(_)) => {
                         assert_can_register(&asset_id.definition_id, wsv, &self.object.value)?;
                         let asset = wsv
                             .asset_or_insert(asset_id.clone(), self.object.value)
@@ -480,10 +478,9 @@ pub mod isi {
 /// Account-related [`Query`] instructions.
 pub mod query {
 
-    use eyre::{Result, WrapErr};
+    use eyre::Result;
     use iroha_data_model::{
         account::Account,
-        evaluate::ExpressionEvaluator,
         permission::PermissionToken,
         query::{error::QueryExecutionFail as Error, MetadataValue},
     };
@@ -496,13 +493,10 @@ pub mod query {
             &self,
             wsv: &'wsv WorldStateView,
         ) -> Result<Box<dyn Iterator<Item = RoleId> + 'wsv>, Error> {
-            let account_id = wsv
-                .evaluate(&self.id)
-                .wrap_err("Failed to evaluate account id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let account_id = &self.id;
             iroha_logger::trace!(%account_id, roles=?wsv.world.roles);
-            wsv.account(&account_id)?;
-            Ok(Box::new(wsv.account_roles(&account_id).cloned()))
+            wsv.account(account_id)?;
+            Ok(Box::new(wsv.account_roles(account_id).cloned()))
         }
     }
 
@@ -512,13 +506,10 @@ pub mod query {
             &self,
             wsv: &'wsv WorldStateView,
         ) -> Result<Box<dyn Iterator<Item = PermissionToken> + 'wsv>, Error> {
-            let account_id = wsv
-                .evaluate(&self.id)
-                .wrap_err("Failed to evaluate account id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let account_id = &self.id;
             iroha_logger::trace!(%account_id, accounts=?wsv.world.domains);
             Ok(Box::new(
-                wsv.account_permission_tokens(&account_id)?.cloned(),
+                wsv.account_permission_tokens(account_id)?.cloned(),
             ))
         }
     }
@@ -541,12 +532,9 @@ pub mod query {
     impl ValidQuery for FindAccountById {
         #[metrics(+"find_account_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Account, Error> {
-            let id = wsv
-                .evaluate(&self.id)
-                .wrap_err("Failed to evaluate id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = &self.id;
             iroha_logger::trace!(%id);
-            wsv.map_account(&id, Clone::clone).map_err(Into::into)
+            wsv.map_account(id, Clone::clone).map_err(Into::into)
         }
     }
 
@@ -556,10 +544,7 @@ pub mod query {
             &self,
             wsv: &'wsv WorldStateView,
         ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
-            let name = wsv
-                .evaluate(&self.name)
-                .wrap_err("Failed to evaluate account name")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let name = self.name.clone();
             iroha_logger::trace!(%name);
             Ok(Box::new(
                 wsv.domains()
@@ -583,30 +568,21 @@ pub mod query {
             &self,
             wsv: &'wsv WorldStateView,
         ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
-            let id = wsv
-                .evaluate(&self.domain_id)
-                .wrap_err("Failed to evaluate domain id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = &self.domain_id;
 
             iroha_logger::trace!(%id);
-            Ok(Box::new(wsv.domain(&id)?.accounts.values().cloned()))
+            Ok(Box::new(wsv.domain(id)?.accounts.values().cloned()))
         }
     }
 
     impl ValidQuery for FindAccountKeyValueByIdAndKey {
         #[metrics(+"find_account_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
-            let id = wsv
-                .evaluate(&self.id)
-                .wrap_err("Failed to evaluate account id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let key = wsv
-                .evaluate(&self.key)
-                .wrap_err("Failed to evaluate key")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = &self.id;
+            let key = &self.key;
             iroha_logger::trace!(%id, %key);
-            wsv.map_account(&id, |account| account.metadata.get(&key).map(Clone::clone))?
-                .ok_or_else(|| FindError::MetadataKey(key).into())
+            wsv.map_account(id, |account| account.metadata.get(key).map(Clone::clone))?
+                .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
                 .map(Into::into)
         }
     }
@@ -617,10 +593,7 @@ pub mod query {
             &self,
             wsv: &'wsv WorldStateView,
         ) -> Result<Box<dyn Iterator<Item = Account> + 'wsv>, Error> {
-            let asset_definition_id = wsv
-                .evaluate(&self.asset_definition_id)
-                .wrap_err("Failed to evaluate asset id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let asset_definition_id = self.asset_definition_id.clone();
             iroha_logger::trace!(%asset_definition_id);
 
             Ok(Box::new(

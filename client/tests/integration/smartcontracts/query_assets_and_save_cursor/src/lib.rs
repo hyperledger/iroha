@@ -26,12 +26,14 @@ fn main(owner: AccountId) {
 
     let (_batch, cursor) = asset_cursor.into_raw_parts();
 
-    SetKeyValueExpr::new(
+    SetKeyValue::account(
         owner,
         parse!("cursor" as Name),
-        serde_json::to_value(cursor)
-            .dbg_expect("Failed to convert cursor to JSON")
-            .to_string(),
+        Value::String(
+            serde_json::to_value(cursor)
+                .dbg_expect("Failed to convert cursor to JSON")
+                .to_string(),
+        ),
     )
     .execute()
     .dbg_expect("Failed to save cursor to the owner's metadata");

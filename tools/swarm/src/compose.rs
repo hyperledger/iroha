@@ -215,7 +215,8 @@ struct FullPeerEnv {
     iroha_genesis_account_public_key: Option<PublicKey>,
     #[serde(skip_serializing_if = "Option::is_none")]
     iroha_genesis_account_private_key: Option<SerializeAsJsonStr<PrivateKey>>,
-    sumeragi_trusted_peers: SerializeAsJsonStr<BTreeSet<PeerId>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sumeragi_trusted_peers: Option<SerializeAsJsonStr<BTreeSet<PeerId>>>,
 }
 
 struct CompactPeerEnv {
@@ -237,7 +238,11 @@ impl From<CompactPeerEnv> for FullPeerEnv {
             iroha_genesis_account_private_key: value.genesis_private_key.map(SerializeAsJsonStr),
             torii_p2p_addr: value.p2p_addr,
             torii_api_url: value.api_addr,
-            sumeragi_trusted_peers: SerializeAsJsonStr(value.trusted_peers),
+            sumeragi_trusted_peers: if value.trusted_peers.is_empty() {
+                None
+            } else {
+                Some(SerializeAsJsonStr(value.trusted_peers))
+            },
         }
     }
 }
@@ -311,7 +316,11 @@ impl DockerComposeBuilder<'_> {
                 peer,
                 service_source.clone(),
                 volumes.clone(),
-                trusted_peers.clone(),
+                trusted_peers
+                    .iter()
+                    .filter(|trusted_peer| trusted_peer.public_key() != peer.key_pair.public_key())
+                    .cloned()
+                    .collect(),
                 Some(genesis_key_pair.public_key().clone()),
                 Some(genesis_key_pair.private_key().clone()),
             );
@@ -325,7 +334,13 @@ impl DockerComposeBuilder<'_> {
                     peer,
                     service_source.clone(),
                     volumes.clone(),
-                    trusted_peers.clone(),
+                    trusted_peers
+                        .iter()
+                        .filter(|trusted_peer| {
+                            trusted_peer.public_key() != peer.key_pair.public_key()
+                        })
+                        .cloned()
+                        .collect(),
                     Some(genesis_key_pair.public_key().clone()),
                     None,
                 );
@@ -615,7 +630,6 @@ mod tests {
                   TORII_API_URL: iroha1:1338
                   IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
                   IROHA_GENESIS_ACCOUNT_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8"}'
-                  SUMERAGI_TRUSTED_PEERS: '[]'
                 ports:
                 - 1337:1337
                 - 8080:8080
@@ -651,7 +665,6 @@ mod tests {
             TORII_P2P_ADDR: iroha0:1337
             TORII_API_URL: iroha0:1337
             IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
-            SUMERAGI_TRUSTED_PEERS: '[]'
         "#]];
         expected.assert_eq(&actual);
     }
@@ -691,7 +704,7 @@ mod tests {
                   TORII_API_URL: iroha0:8080
                   IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   IROHA_GENESIS_ACCOUNT_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9"}'
-                  SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
+                  SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"}]'
                 ports:
                 - 1337:1337
                 - 8080:8080
@@ -708,7 +721,7 @@ mod tests {
                   TORII_P2P_ADDR: iroha1:1338
                   TORII_API_URL: iroha1:8081
                   IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
-                  SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
+                  SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
                 - 1338:1338
                 - 8081:8081
@@ -724,7 +737,7 @@ mod tests {
                   TORII_P2P_ADDR: iroha2:1339
                   TORII_API_URL: iroha2:8082
                   IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
-                  SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
+                  SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
                 - 1339:1339
                 - 8082:8082
@@ -740,7 +753,7 @@ mod tests {
                   TORII_P2P_ADDR: iroha3:1340
                   TORII_API_URL: iroha3:8083
                   IROHA_GENESIS_ACCOUNT_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
-                  SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
+                  SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
                 - 1340:1340
                 - 8083:8083

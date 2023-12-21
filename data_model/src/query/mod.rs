@@ -88,6 +88,7 @@ macro_rules! queries {
             #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
             #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
             #[derive(serde::Deserialize, serde::Serialize)]
+            #[derive(derive_more::Constructor)]
             #[derive(iroha_schema::IntoSchema)]
             $($meta)*
             $item )+
@@ -184,7 +185,7 @@ pub mod model {
         /// The hash of the block to which `tx` belongs to
         pub block_hash: HashOf<SignedBlock>,
         /// Transaction
-        pub transaction: TransactionValue,
+        pub transaction: Box<TransactionValue>,
     }
 
     /// Type returned from [`Metadata`] queries
@@ -220,9 +221,13 @@ pub mod model {
     )]
     #[getset(get = "pub")]
     pub struct QueryWithParameters<Q> {
+        /// The actual query.
         pub query: Q,
+        /// Sorting of the query results.
         pub sorting: Sorting,
+        /// Pagination of the query results.
         pub pagination: Pagination,
+        /// Amount of results to fetch.
         pub fetch_size: FetchSize,
     }
 }
@@ -323,7 +328,7 @@ pub mod role {
         #[ffi_type(unsafe {robust})]
         pub struct FindRoleByRoleId {
             /// `Id` of the [`Role`] to find
-            pub id: EvaluatesTo<RoleId>,
+            pub id: RoleId,
         }
 
         /// [`FindRolesByAccountId`] Iroha Query finds all [`Role`]s for a specified account.
@@ -334,7 +339,7 @@ pub mod role {
         #[ffi_type(unsafe {robust})]
         pub struct FindRolesByAccountId {
             /// `Id` of an account to find.
-            pub id: EvaluatesTo<AccountId>,
+            pub id: AccountId,
         }
     }
 
@@ -352,22 +357,6 @@ pub mod role {
 
     impl Query for FindRoleByRoleId {
         type Output = Role;
-    }
-
-    impl FindRoleByRoleId {
-        /// Construct [`FindRoleByRoleId`].
-        pub fn new(id: impl Into<EvaluatesTo<RoleId>>) -> Self {
-            Self { id: id.into() }
-        }
-    }
-
-    impl FindRolesByAccountId {
-        /// Construct [`FindRolesByAccountId`].
-        pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
-            Self {
-                id: account_id.into(),
-            }
-        }
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
@@ -405,7 +394,7 @@ pub mod permission {
         #[ffi_type(unsafe {robust})]
         pub struct FindPermissionTokensByAccountId {
             /// `Id` of an account to find.
-            pub id: EvaluatesTo<AccountId>,
+            pub id: AccountId,
         }
     }
 
@@ -415,15 +404,6 @@ pub mod permission {
 
     impl Query for FindPermissionTokensByAccountId {
         type Output = Vec<permission::PermissionToken>;
-    }
-
-    impl FindPermissionTokensByAccountId {
-        /// Construct [`FindPermissionTokensByAccountId`].
-        pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
-            Self {
-                id: account_id.into(),
-            }
-        }
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
@@ -459,7 +439,7 @@ pub mod account {
         #[ffi_type(unsafe {robust})]
         pub struct FindAccountById {
             /// `Id` of an account to find.
-            pub id: EvaluatesTo<AccountId>,
+            pub id: AccountId,
         }
 
         /// [`FindAccountKeyValueByIdAndKey`] Iroha Query finds a [`Value`]
@@ -469,9 +449,9 @@ pub mod account {
         #[ffi_type]
         pub struct FindAccountKeyValueByIdAndKey {
             /// `Id` of an account to find.
-            pub id: EvaluatesTo<AccountId>,
+            pub id: AccountId,
             /// Key of the specific key-value in the Account's metadata.
-            pub key: EvaluatesTo<Name>,
+            pub key: Name,
         }
 
         /// [`FindAccountsByName`] Iroha Query gets [`Account`]s name as input and
@@ -483,7 +463,7 @@ pub mod account {
         #[ffi_type(unsafe {robust})]
         pub struct FindAccountsByName {
             /// `name` of accounts to find.
-            pub name: EvaluatesTo<Name>,
+            pub name: Name,
         }
 
 
@@ -496,7 +476,7 @@ pub mod account {
         #[ffi_type(unsafe {robust})]
         pub struct FindAccountsByDomainId {
             /// `Id` of the domain under which accounts should be found.
-            pub domain_id: EvaluatesTo<DomainId>,
+            pub domain_id: DomainId,
         }
 
         /// [`FindAccountsWithAsset`] Iroha Query gets [`AssetDefinition`]s id as input and
@@ -508,7 +488,7 @@ pub mod account {
         #[ffi_type(unsafe {robust})]
         pub struct FindAccountsWithAsset {
             /// `Id` of the definition of the asset which should be stored in founded accounts.
-            pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
+            pub asset_definition_id: AssetDefinitionId,
         }
     }
 
@@ -534,51 +514,6 @@ pub mod account {
 
     impl Query for FindAccountsWithAsset {
         type Output = Vec<Account>;
-    }
-
-    impl FindAccountById {
-        /// Construct [`FindAccountById`].
-        pub fn new(id: impl Into<EvaluatesTo<AccountId>>) -> Self {
-            Self { id: id.into() }
-        }
-    }
-
-    impl FindAccountKeyValueByIdAndKey {
-        /// Construct [`FindAccountById`].
-        pub fn new(
-            id: impl Into<EvaluatesTo<AccountId>>,
-            key: impl Into<EvaluatesTo<Name>>,
-        ) -> Self {
-            Self {
-                id: id.into(),
-                key: key.into(),
-            }
-        }
-    }
-
-    impl FindAccountsByName {
-        /// Construct [`FindAccountsByName`].
-        pub fn new(name: impl Into<EvaluatesTo<Name>>) -> Self {
-            Self { name: name.into() }
-        }
-    }
-
-    impl FindAccountsByDomainId {
-        /// Construct [`FindAccountsByDomainId`].
-        pub fn new(domain_id: impl Into<EvaluatesTo<DomainId>>) -> Self {
-            Self {
-                domain_id: domain_id.into(),
-            }
-        }
-    }
-
-    impl FindAccountsWithAsset {
-        /// Construct [`FindAccountsWithAsset`].
-        pub fn new(asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
-            Self {
-                asset_definition_id: asset_definition_id.into(),
-            }
-        }
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
@@ -627,7 +562,7 @@ pub mod asset {
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetById {
             /// `Id` of an [`Asset`] to find.
-            pub id: EvaluatesTo<AssetId>,
+            pub id: AssetId,
         }
 
         /// [`FindAssetDefinitionById`] Iroha Query finds an [`AssetDefinition`] by it's identification in Iroha [`Peer`].
@@ -638,7 +573,7 @@ pub mod asset {
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetDefinitionById {
             /// `Id` of an [`AssetDefinition`] to find.
-            pub id: EvaluatesTo<AssetDefinitionId>,
+            pub id: AssetDefinitionId,
         }
 
         /// [`FindAssetsByName`] Iroha Query gets [`Asset`]s name as input and
@@ -650,7 +585,7 @@ pub mod asset {
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetsByName {
             /// [`Name`] of [`Asset`]s to find.
-            pub name: EvaluatesTo<Name>,
+            pub name: Name,
         }
 
         /// [`FindAssetsByAccountId`] Iroha Query gets [`AccountId`] as input and find all [`Asset`]s
@@ -662,7 +597,7 @@ pub mod asset {
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetsByAccountId {
             /// [`AccountId`] under which assets should be found.
-            pub account_id: EvaluatesTo<AccountId>,
+            pub account_id: AccountId,
         }
 
         /// [`FindAssetsByAssetDefinitionId`] Iroha Query gets [`AssetDefinitionId`] as input and
@@ -674,7 +609,7 @@ pub mod asset {
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetsByAssetDefinitionId {
             /// [`AssetDefinitionId`] with type of [`Asset`]s should be found.
-            pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
+            pub asset_definition_id: AssetDefinitionId,
         }
 
         /// [`FindAssetsByDomainId`] Iroha Query gets [`Domain`]s id as input and
@@ -686,7 +621,7 @@ pub mod asset {
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetsByDomainId {
             /// `Id` of the domain under which assets should be found.
-            pub domain_id: EvaluatesTo<DomainId>,
+            pub domain_id: DomainId,
         }
 
         /// [`FindAssetsByDomainIdAndAssetDefinitionId`] Iroha Query gets [`DomainId`] and
@@ -697,9 +632,9 @@ pub mod asset {
         #[ffi_type]
         pub struct FindAssetsByDomainIdAndAssetDefinitionId {
             /// `Id` of the domain under which assets should be found.
-            pub domain_id: EvaluatesTo<DomainId>,
+            pub domain_id: DomainId,
             /// [`AssetDefinitionId`] assets of which type should be found.
-            pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
+            pub asset_definition_id: AssetDefinitionId,
         }
 
         /// [`FindAssetQuantityById`] Iroha Query gets [`AssetId`] as input and finds [`Asset::quantity`]
@@ -711,7 +646,7 @@ pub mod asset {
         #[ffi_type(unsafe {robust})]
         pub struct FindAssetQuantityById {
             /// `Id` of an [`Asset`] to find quantity of.
-            pub id: EvaluatesTo<AssetId>,
+            pub id: AssetId,
         }
 
         /// [`FindTotalAssetQuantityByAssetDefinitionId`] Iroha Query gets [`AssetDefinitionId`] as input and finds total [`Asset::quantity`]
@@ -724,7 +659,7 @@ pub mod asset {
         #[ffi_type(unsafe {robust})]
         pub struct FindTotalAssetQuantityByAssetDefinitionId {
             /// `Id` of an [`Asset`] to find quantity of.
-            pub id: EvaluatesTo<AssetDefinitionId>,
+            pub id: AssetDefinitionId,
         }
 
         /// [`FindAssetKeyValueByIdAndKey`] Iroha Query gets [`AssetId`] and key as input and finds [`Value`]
@@ -734,9 +669,9 @@ pub mod asset {
         #[ffi_type]
         pub struct FindAssetKeyValueByIdAndKey {
             /// `Id` of an [`Asset`] acting as [`Store`](crate::asset::AssetValue::Store).
-            pub id: EvaluatesTo<AssetId>,
+            pub id: AssetId,
             /// The key of the key-value pair stored in the asset.
-            pub key: EvaluatesTo<Name>,
+            pub key: Name,
         }
 
         /// [`FindAssetDefinitionKeyValueByIdAndKey`] Iroha Query gets [`AssetDefinitionId`] and key as input and finds [`Value`]
@@ -746,9 +681,9 @@ pub mod asset {
         #[ffi_type]
         pub struct FindAssetDefinitionKeyValueByIdAndKey {
             /// `Id` of an [`Asset`] acting as [`Store`](crate::asset::AssetValue::Store)..
-            pub id: EvaluatesTo<AssetDefinitionId>,
+            pub id: AssetDefinitionId,
             /// The key of the key-value pair stored in the asset.
-            pub key: EvaluatesTo<Name>,
+            pub key: Name,
         }
 
     }
@@ -804,104 +739,6 @@ pub mod asset {
         type Output = MetadataValue;
     }
 
-    impl FindAssetById {
-        /// Construct [`FindAssetById`].
-        pub fn new(id: impl Into<EvaluatesTo<AssetId>>) -> Self {
-            Self { id: id.into() }
-        }
-    }
-
-    impl FindAssetDefinitionById {
-        /// Construct [`FindAssetDefinitionById`].
-        pub fn new(id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
-            Self { id: id.into() }
-        }
-    }
-
-    impl FindAssetsByName {
-        /// Construct [`FindAssetsByName`].
-        pub fn new(name: impl Into<EvaluatesTo<Name>>) -> Self {
-            Self { name: name.into() }
-        }
-    }
-
-    impl FindAssetsByAccountId {
-        /// Construct [`FindAssetsByAccountId`].
-        pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
-            Self {
-                account_id: account_id.into(),
-            }
-        }
-    }
-
-    impl FindAssetsByAssetDefinitionId {
-        /// Construct [`FindAssetsByAssetDefinitionId`].
-        pub fn new(asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
-            Self {
-                asset_definition_id: asset_definition_id.into(),
-            }
-        }
-    }
-
-    impl FindAssetsByDomainId {
-        /// Construct [`FindAssetsByDomainId`].
-        pub fn new(domain_id: impl Into<EvaluatesTo<DomainId>>) -> Self {
-            Self {
-                domain_id: domain_id.into(),
-            }
-        }
-    }
-
-    impl FindAssetsByDomainIdAndAssetDefinitionId {
-        /// Construct [`FindAssetsByDomainIdAndAssetDefinitionId`].
-        pub fn new(
-            domain_id: impl Into<EvaluatesTo<DomainId>>,
-            asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
-        ) -> Self {
-            Self {
-                domain_id: domain_id.into(),
-                asset_definition_id: asset_definition_id.into(),
-            }
-        }
-    }
-
-    impl FindAssetQuantityById {
-        /// Construct [`FindAssetQuantityById`].
-        pub fn new(id: impl Into<EvaluatesTo<AssetId>>) -> Self {
-            Self { id: id.into() }
-        }
-    }
-
-    impl FindTotalAssetQuantityByAssetDefinitionId {
-        /// Construct [`FindTotalAssetQuantityByAssetDefinitionId`]
-        pub fn new(id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
-            Self { id: id.into() }
-        }
-    }
-
-    impl FindAssetKeyValueByIdAndKey {
-        /// Construct [`FindAssetKeyValueByIdAndKey`].
-        pub fn new(id: impl Into<EvaluatesTo<AssetId>>, key: impl Into<EvaluatesTo<Name>>) -> Self {
-            Self {
-                id: id.into(),
-                key: key.into(),
-            }
-        }
-    }
-
-    impl FindAssetDefinitionKeyValueByIdAndKey {
-        /// Construct [`FindAssetDefinitionKeyValueByIdAndKey`].
-        pub fn new(
-            id: impl Into<EvaluatesTo<AssetDefinitionId>>,
-            key: impl Into<EvaluatesTo<Name>>,
-        ) -> Self {
-            Self {
-                id: id.into(),
-                key: key.into(),
-            }
-        }
-    }
-
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
@@ -942,9 +779,8 @@ pub mod domain {
         #[ffi_type(unsafe {robust})]
         pub struct FindDomainById {
             /// `Id` of the domain to find.
-            pub id: EvaluatesTo<DomainId>,
+            pub id: DomainId,
         }
-
 
         /// [`FindDomainKeyValueByIdAndKey`] Iroha Query finds a [`Value`] of the key-value metadata pair
         /// in the specified domain.
@@ -953,9 +789,9 @@ pub mod domain {
         #[ffi_type]
         pub struct FindDomainKeyValueByIdAndKey {
             /// `Id` of an domain to find.
-            pub id: EvaluatesTo<DomainId>,
+            pub id: DomainId,
             /// Key of the specific key-value in the domain's metadata.
-            pub key: EvaluatesTo<Name>,
+            pub key: Name,
         }
     }
 
@@ -969,26 +805,6 @@ pub mod domain {
 
     impl Query for FindDomainKeyValueByIdAndKey {
         type Output = MetadataValue;
-    }
-
-    impl FindDomainById {
-        /// Construct [`FindDomainById`].
-        pub fn new(id: impl Into<EvaluatesTo<DomainId>>) -> Self {
-            Self { id: id.into() }
-        }
-    }
-
-    impl FindDomainKeyValueByIdAndKey {
-        /// Construct [`FindDomainKeyValueByIdAndKey`].
-        pub fn new(
-            id: impl Into<EvaluatesTo<DomainId>>,
-            key: impl Into<EvaluatesTo<Name>>,
-        ) -> Self {
-            Self {
-                id: id.into(),
-                key: key.into(),
-            }
-        }
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
@@ -1014,7 +830,6 @@ pub mod peer {
         #[display(fmt = "Find all peers")]
         #[ffi_type]
         pub struct FindAllPeers;
-
 
         /// [`FindAllParameters`] Iroha Query finds all [`Peer`]s parameters.
         #[derive(Copy, Display)]
@@ -1049,8 +864,7 @@ pub mod trigger {
     use crate::{
         domain::prelude::*,
         events::TriggeringFilterBox,
-        expression::EvaluatesTo,
-        prelude::InstructionExpr,
+        prelude::InstructionBox,
         trigger::{Trigger, TriggerId},
         Executable, Identifiable, Name, Value,
     };
@@ -1063,7 +877,6 @@ pub mod trigger {
         #[ffi_type]
         pub struct FindAllActiveTriggerIds;
 
-
         /// Find Trigger given its ID.
         #[derive(Display)]
         #[display(fmt = "Find `{id}` trigger")]
@@ -1072,7 +885,7 @@ pub mod trigger {
         #[ffi_type(unsafe {robust})]
         pub struct FindTriggerById {
             /// The Identification of the trigger to be found.
-            pub id: EvaluatesTo<TriggerId>,
+            pub id: TriggerId,
         }
 
 
@@ -1082,9 +895,9 @@ pub mod trigger {
         #[ffi_type]
         pub struct FindTriggerKeyValueByIdAndKey {
             /// The Identification of the trigger to be found.
-            pub id: EvaluatesTo<TriggerId>,
+            pub id: TriggerId,
             /// The key inside the metadata dictionary to be returned.
-            pub key: EvaluatesTo<Name>,
+            pub key: Name,
         }
 
 
@@ -1096,7 +909,7 @@ pub mod trigger {
         #[ffi_type(unsafe {robust})]
         pub struct FindTriggersByDomainId {
             /// [`DomainId`] specifies the domain in which to search for triggers.
-            pub domain_id: EvaluatesTo<DomainId>,
+            pub domain_id: DomainId,
         }
     }
 
@@ -1114,35 +927,6 @@ pub mod trigger {
 
     impl Query for FindTriggersByDomainId {
         type Output = Vec<Trigger<TriggeringFilterBox>>;
-    }
-
-    impl FindTriggerById {
-        /// Construct [`FindTriggerById`].
-        pub fn new(id: impl Into<EvaluatesTo<TriggerId>>) -> Self {
-            Self { id: id.into() }
-        }
-    }
-
-    impl FindTriggerKeyValueByIdAndKey {
-        /// Construct [`FindTriggerKeyValueByIdAndKey`].
-        pub fn new(
-            id: impl Into<EvaluatesTo<TriggerId>>,
-            key: impl Into<EvaluatesTo<Name>>,
-        ) -> Self {
-            Self {
-                id: id.into(),
-                key: key.into(),
-            }
-        }
-    }
-
-    impl FindTriggersByDomainId {
-        /// Construct [`FindTriggersByDomainId`].
-        pub fn new(domain_id: impl Into<EvaluatesTo<DomainId>>) -> Self {
-            Self {
-                domain_id: domain_id.into(),
-            }
-        }
     }
 
     pub mod prelude {
@@ -1166,10 +950,7 @@ pub mod transaction {
     use iroha_crypto::HashOf;
 
     use super::{Query, TransactionQueryOutput};
-    use crate::{
-        account::AccountId, expression::EvaluatesTo, prelude::Account,
-        transaction::SignedTransaction,
-    };
+    use crate::{account::AccountId, prelude::Account, transaction::SignedTransaction};
 
     queries! {
         /// [`FindAllTransactions`] Iroha Query lists all transactions included in a blockchain
@@ -1187,19 +968,19 @@ pub mod transaction {
         #[ffi_type(unsafe {robust})]
         pub struct FindTransactionsByAccountId {
             /// Signer's [`AccountId`] under which transactions should be found.
-            pub account_id: EvaluatesTo<AccountId>,
+            pub account_id: AccountId,
         }
 
         /// [`FindTransactionByHash`] Iroha Query finds a transaction (if any)
         /// with corresponding hash value
-        #[derive(Display)]
+        #[derive(Copy, Display)]
         #[display(fmt = "Find transaction with `{hash}` hash")]
         #[repr(transparent)]
         // SAFETY: `FindTransactionByHash` has no trap representation in `EvaluatesTo<HashOf<SignedTransaction>>`
         #[ffi_type(unsafe {robust})]
         pub struct FindTransactionByHash {
             /// Transaction hash.
-            pub hash: EvaluatesTo<HashOf<SignedTransaction>>,
+            pub hash: HashOf<SignedTransaction>,
         }
     }
 
@@ -1213,22 +994,6 @@ pub mod transaction {
 
     impl Query for FindTransactionByHash {
         type Output = TransactionQueryOutput;
-    }
-
-    impl FindTransactionsByAccountId {
-        /// Construct [`FindTransactionsByAccountId`].
-        pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
-            Self {
-                account_id: account_id.into(),
-            }
-        }
-    }
-
-    impl FindTransactionByHash {
-        /// Construct [`FindTransactionByHash`].
-        pub fn new(hash: impl Into<EvaluatesTo<HashOf<SignedTransaction>>>) -> Self {
-            Self { hash: hash.into() }
-        }
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
@@ -1249,10 +1014,7 @@ pub mod block {
     use iroha_crypto::HashOf;
 
     use super::Query;
-    use crate::{
-        block::{BlockHeader, SignedBlock},
-        prelude::EvaluatesTo,
-    };
+    use crate::block::{BlockHeader, SignedBlock};
 
     queries! {
         /// [`FindAllBlocks`] Iroha Query lists all blocks sorted by
@@ -1270,14 +1032,14 @@ pub mod block {
         pub struct FindAllBlockHeaders;
 
         /// [`FindBlockHeaderByHash`] Iroha Query finds block header by block hash
-        #[derive(Display)]
+        #[derive(Copy, Display)]
         #[display(fmt = "Find block header with `{hash}` hash")]
         #[repr(transparent)]
         // SAFETY: `FindBlockHeaderByHash` has no trap representation in `EvaluatesTo<HashOf<SignedBlock>>`
         #[ffi_type(unsafe {robust})]
         pub struct FindBlockHeaderByHash {
             /// Block hash.
-            pub hash: EvaluatesTo<HashOf<SignedBlock>>,
+            pub hash: HashOf<SignedBlock>,
         }
     }
 
@@ -1291,13 +1053,6 @@ pub mod block {
 
     impl Query for FindBlockHeaderByHash {
         type Output = BlockHeader;
-    }
-
-    impl FindBlockHeaderByHash {
-        /// Construct [`FindBlockHeaderByHash`].
-        pub fn new(hash: impl Into<EvaluatesTo<HashOf<SignedBlock>>>) -> Self {
-            Self { hash: hash.into() }
-        }
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
@@ -1534,12 +1289,6 @@ pub mod error {
         pub enum QueryExecutionFail {
             /// Query has the wrong signature: {0}
             Signature(
-                #[skip_from]
-                #[skip_try_from]
-                String,
-            ),
-            /// Query has a malformed expression: {0}
-            Evaluate(
                 #[skip_from]
                 #[skip_try_from]
                 String,

@@ -35,10 +35,10 @@ impl Encode for Uptime {
 /// Response body for GET status request
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Encode)]
 pub struct Status {
-    /// Number of connected peers, except for the reporting peer itself
+    /// Number of currently connected peers excluding the reporting peer
     #[codec(compact)]
     pub peers: u64,
-    /// Number of committed blocks
+    /// Number of committed blocks (blockchain height)
     #[codec(compact)]
     pub blocks: u64,
     /// Number of accepted transactions
@@ -77,9 +77,9 @@ impl<T: Deref<Target = Metrics>> From<&T> for Status {
 pub struct Metrics {
     /// Total number of transactions
     pub txs: IntCounterVec,
-    /// Current block height
+    /// Number of committed blocks (blockchain height)
     pub block_height: IntCounter,
-    /// Total number of currently connected peers
+    /// Number of currently connected peers excluding the reporting peer
     pub connected_peers: GenericGauge<AtomicU64>,
     /// Uptime of the network, starting from commit of the genesis block
     pub uptime_since_genesis_ms: GenericGauge<AtomicU64>,

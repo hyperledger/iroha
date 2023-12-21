@@ -81,7 +81,7 @@ impl<C: BlsConfiguration + ?Sized> PublicKey<C> {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self(
-            C::Generator::from_bytes(bytes).map_err(|e| Error::Parse(format!("{:?}", e)))?,
+            C::Generator::from_bytes(bytes).map_err(|e| Error::Parse(format!("{e:?}")))?,
         ))
     }
 }
@@ -129,7 +129,7 @@ impl<C: BlsConfiguration + ?Sized> Signature<C> {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Signature(
-            C::SignatureGroup::from_bytes(bytes).map_err(|e| Error::Parse(format!("{:?}", e)))?,
+            C::SignatureGroup::from_bytes(bytes).map_err(|e| Error::Parse(format!("{e:?}")))?,
         ))
     }
 }
@@ -140,13 +140,13 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
     fn parse_public_key(pk: &IrohaPublicKey) -> Result<PublicKey<C>, Error> {
         assert_eq!(pk.digest_function, C::ALGORITHM);
         PublicKey::from_bytes(&pk.payload)
-            .map_err(|e| Error::Parse(format!("Failed to parse public key: {}", e)))
+            .map_err(|e| Error::Parse(format!("Failed to parse public key: {e}")))
     }
 
     fn parse_private_key(sk: &IrohaPrivateKey) -> Result<PrivateKey, Error> {
         assert_eq!(sk.digest_function, C::ALGORITHM);
         PrivateKey::from_bytes(&sk.payload)
-            .map_err(|e| Error::Parse(format!("Failed to parse private key: {}", e)))
+            .map_err(|e| Error::Parse(format!("Failed to parse private key: {e}")))
     }
 
     // the names are from an RFC, not a good idea to change them
@@ -165,7 +165,7 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
                     let mut okm = [0u8; PRIVATE_KEY_SIZE];
                     let h = hkdf::Hkdf::<Sha256>::new(Some(&salt[..]), &ikm);
                     h.expand(&info[..], &mut okm).map_err(|err| {
-                        Error::KeyGen(format!("Failed to generate keypair: {}", err))
+                        Error::KeyGen(format!("Failed to generate keypair: {err}"))
                     })?;
                     let private_key: PrivateKey = PrivateKey::from(&okm);
                     (

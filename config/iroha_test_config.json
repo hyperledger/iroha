@@ -57,11 +57,8 @@
     "FUTURE_THRESHOLD_MS": 1000
   },
   "LOGGER": {
-    "MAX_LOG_LEVEL": "INFO",
-    "TELEMETRY_CAPACITY": 1000,
-    "COMPACT_MODE": false,
-    "LOG_FILE_PATH": null,
-    "TERMINAL_COLORS": true,
+    "LEVEL": "INFO",
+    "FORMAT": "full",
     "TOKIO_CONSOLE_ADDR": "127.0.0.1:5555"
   },
   "GENESIS": {

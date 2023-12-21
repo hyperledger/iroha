@@ -1,5 +1,5 @@
 //! Module for `Queue`-related configuration and structs.
-use iroha_config_base::derive::{Documented, Proxy};
+use iroha_config_base::derive::Proxy;
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_MAX_TRANSACTIONS_IN_QUEUE: u32 = 2_u32.pow(16);
@@ -8,7 +8,7 @@ const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 24 * 60 * 60 * 1000; // 24 hour
 const DEFAULT_FUTURE_THRESHOLD_MS: u64 = 1000;
 
 /// `Queue` configuration.
-#[derive(Copy, Clone, Deserialize, Serialize, Debug, Documented, Proxy, PartialEq, Eq)]
+#[derive(Copy, Clone, Deserialize, Serialize, Debug, Proxy, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "QUEUE_")]
 pub struct Configuration {

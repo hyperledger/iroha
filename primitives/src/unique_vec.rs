@@ -335,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "removal index (is 3) should be < len (is 3)")]
     fn remove_out_of_bounds_panics() {
         let mut unique_vec = unique_vec![1, 2, 3];
         unique_vec.remove(3);

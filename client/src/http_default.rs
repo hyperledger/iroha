@@ -6,10 +6,8 @@ use attohttpc::{
 };
 use eyre::{eyre, Error, Result, WrapErr};
 use http::header::HeaderName;
-use tokio_tungstenite::tungstenite::{
-    client::IntoClientRequest, stream::MaybeTlsStream, WebSocket,
-};
-pub use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
+use tungstenite::{client::IntoClientRequest, stream::MaybeTlsStream, WebSocket};
+pub use tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
 use url::Url;
 
 use crate::http::{Method, RequestBuilder, Response};
@@ -137,7 +135,7 @@ pub struct DefaultWebSocketStreamRequest(http::Request<()>);
 impl DefaultWebSocketStreamRequest {
     /// Open [`WebSocketStream`] synchronously.
     pub fn connect(self) -> Result<WebSocketStream> {
-        let (stream, _) = tokio_tungstenite::tungstenite::connect(self.0)?;
+        let (stream, _) = tungstenite::connect(self.0)?;
         Ok(stream)
     }
 

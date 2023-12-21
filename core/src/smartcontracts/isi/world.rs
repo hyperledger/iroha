@@ -214,10 +214,10 @@ pub mod isi {
         }
     }
 
-    impl Execute for Upgrade<Executor> {
+    impl Execute for Upgrade {
         #[metrics(+"upgrade_executor")]
         fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-            let raw_executor = self.object;
+            let raw_executor = self.executor;
 
             // Cloning executor to avoid multiple mutable borrows of `wsv`.
             // Also it's a cheap operation.
@@ -303,13 +303,11 @@ pub mod query {
     impl ValidQuery for FindRoleByRoleId {
         #[metrics(+"find_role_by_role_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Role, Error> {
-            let role_id = wsv
-                .evaluate(&self.id)
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let role_id = &self.id;
             iroha_logger::trace!(%role_id);
 
-            wsv.world.roles.get(&role_id).map_or_else(
-                || Err(Error::Find(FindError::Role(role_id))),
+            wsv.world.roles.get(role_id).map_or_else(
+                || Err(Error::Find(FindError::Role(role_id.clone()))),
                 |role_ref| Ok(role_ref.clone()),
             )
         }

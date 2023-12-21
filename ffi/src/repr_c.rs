@@ -606,11 +606,11 @@ impl<R: ReprC> CTypeConvert<'_, Robust, R> for R {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut ()) -> R {
+    fn into_repr_c(self, (): &mut ()) -> R {
         self
     }
 
-    unsafe fn try_from_repr_c(source: R, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: R, (): &mut ()) -> Result<Self> {
         Ok(source)
     }
 }
@@ -622,7 +622,7 @@ impl<R: ReprC, const N: usize> CTypeConvert<'_, Robust, *mut [R; N]> for [R; N] 
         store.insert(self)
     }
 
-    unsafe fn try_from_repr_c(source: *mut [R; N], _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: *mut [R; N], (): &mut ()) -> Result<Self> {
         if source.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
@@ -660,7 +660,7 @@ impl<R: ReprC> CTypeConvert<'_, Box<Robust>, *mut R> for Box<R> {
         &mut **store.insert(self)
     }
 
-    unsafe fn try_from_repr_c(source: *mut R, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: *mut R, (): &mut ()) -> Result<Self> {
         if source.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
@@ -699,7 +699,7 @@ impl<R: ReprC> CTypeConvert<'_, Box<[Robust]>, SliceMut<R>> for Box<[R]> {
         SliceMut::from_slice(Some(store.as_mut()))
     }
 
-    unsafe fn try_from_repr_c(source: SliceMut<R>, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: SliceMut<R>, (): &mut ()) -> Result<Self> {
         source
             .into_rust()
             .ok_or(FfiReturn::ArgIsNull)
@@ -741,11 +741,11 @@ impl<R: ReprC> CTypeConvert<'_, &[Robust], SliceRef<R>> for &[R] {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut ()) -> SliceRef<R> {
+    fn into_repr_c(self, (): &mut ()) -> SliceRef<R> {
         SliceRef::from_slice(Some(self))
     }
 
-    unsafe fn try_from_repr_c(source: SliceRef<R>, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: SliceRef<R>, (): &mut ()) -> Result<Self> {
         source.into_rust().ok_or(FfiReturn::ArgIsNull)
     }
 }
@@ -779,11 +779,11 @@ impl<R: ReprC> CTypeConvert<'_, &mut [Robust], SliceMut<R>> for &mut [R] {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut ()) -> SliceMut<R> {
+    fn into_repr_c(self, (): &mut ()) -> SliceMut<R> {
         SliceMut::from_slice(Some(self))
     }
 
-    unsafe fn try_from_repr_c(source: SliceMut<R>, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: SliceMut<R>, (): &mut ()) -> Result<Self> {
         source.into_rust().ok_or(FfiReturn::ArgIsNull)
     }
 }
@@ -814,7 +814,7 @@ impl<R: ReprC> CTypeConvert<'_, Vec<Robust>, SliceMut<R>> for Vec<R> {
         SliceMut::from_slice(Some(store))
     }
 
-    unsafe fn try_from_repr_c(source: SliceMut<R>, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: SliceMut<R>, (): &mut ()) -> Result<Self> {
         source
             .into_rust()
             .ok_or(FfiReturn::ArgIsNull)
@@ -865,10 +865,10 @@ impl<R> CTypeConvert<'_, Opaque, *mut R> for R {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut ()) -> *mut R {
+    fn into_repr_c(self, (): &mut ()) -> *mut R {
         Box::into_raw(Box::new(self))
     }
-    unsafe fn try_from_repr_c(source: *mut R, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: *mut R, (): &mut ()) -> Result<Self> {
         if source.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
@@ -893,11 +893,11 @@ impl<R> CTypeConvert<'_, Box<Opaque>, *mut R> for Box<R> {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut ()) -> *mut R {
+    fn into_repr_c(self, (): &mut ()) -> *mut R {
         Box::into_raw(self)
     }
 
-    unsafe fn try_from_repr_c(source: *mut R, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: *mut R, (): &mut ()) -> Result<Self> {
         if source.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
@@ -932,7 +932,7 @@ impl<R> CTypeConvert<'_, Box<[Opaque]>, SliceMut<*mut R>> for Box<[R]> {
         SliceMut::from_slice(Some(store))
     }
 
-    unsafe fn try_from_repr_c(source: SliceMut<*mut R>, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: SliceMut<*mut R>, (): &mut ()) -> Result<Self> {
         source
             .into_rust()
             .ok_or(FfiReturn::ArgIsNull)?
@@ -1064,7 +1064,7 @@ impl<R> CTypeConvert<'_, Vec<Opaque>, SliceMut<*mut R>> for Vec<R> {
         SliceMut::from_slice(Some(store))
     }
 
-    unsafe fn try_from_repr_c(source: SliceMut<*mut R>, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: SliceMut<*mut R>, (): &mut ()) -> Result<Self> {
         source
             .into_rust()
             .ok_or(FfiReturn::ArgIsNull)?
@@ -1098,7 +1098,7 @@ impl<R, const N: usize> CTypeConvert<'_, [Opaque; N], [*mut R; N]> for [R; N] {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut Self::RustStore) -> [*mut R; N] {
+    fn into_repr_c(self, (): &mut Self::RustStore) -> [*mut R; N] {
         let array = self
             .into_iter()
             .map(Box::new)
@@ -1110,7 +1110,7 @@ impl<R, const N: usize> CTypeConvert<'_, [Opaque; N], [*mut R; N]> for [R; N] {
         unsafe { array.unwrap_unchecked() }
     }
 
-    unsafe fn try_from_repr_c(source: [*mut R; N], _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: [*mut R; N], (): &mut ()) -> Result<Self> {
         Ok(source
             .into_iter()
             .map(|item| {
@@ -1133,7 +1133,7 @@ impl<R, const N: usize> CTypeConvert<'_, [Opaque; N], *mut [*mut R; N]> for [R; 
         store.insert(self.into_repr_c(&mut ()))
     }
 
-    unsafe fn try_from_repr_c(source: *mut [*mut R; N], _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: *mut [*mut R; N], (): &mut ()) -> Result<Self> {
         if source.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }
@@ -1229,11 +1229,11 @@ impl<R: External> CTypeConvert<'_, Box<Extern>, *mut Extern> for Box<R> {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, _: &mut ()) -> *mut Extern {
+    fn into_repr_c(self, (): &mut ()) -> *mut Extern {
         ManuallyDrop::new(*self).as_extern_ptr_mut()
     }
 
-    unsafe fn try_from_repr_c(source: *mut Extern, _: &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: *mut Extern, (): &mut ()) -> Result<Self> {
         if source.is_null() {
             return Err(FfiReturn::ArgIsNull);
         }

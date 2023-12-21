@@ -49,7 +49,7 @@ pub mod payloads {
         /// Height of the latest block in the blockchain
         pub block_height: u64,
         /// Operation to be validated
-        pub to_validate: T,
+        pub target: T,
     }
 }
 

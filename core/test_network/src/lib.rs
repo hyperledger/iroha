@@ -26,7 +26,7 @@ use iroha_primitives::{
     unique_vec,
     unique_vec::UniqueVec,
 };
-use rand::seq::IteratorRandom;
+use rand::{seq::IteratorRandom, thread_rng};
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::{
@@ -118,7 +118,7 @@ impl TestGenesis for GenesisNetwork {
             upgrade_executor_permission,
         ] {
             first_transaction
-                .append_instruction(GrantExpr::new(permission, alice_id.clone()).into());
+                .append_instruction(Grant::permission_token(permission, alice_id.clone()).into());
         }
 
         if submit_genesis {
@@ -170,7 +170,7 @@ impl Network {
         start_port: Option<u16>,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
-        configuration.logger.max_log_level = Level::INFO.into();
+        configuration.logger.level = Level::INFO;
         let network = Network::new_with_offline_peers(
             Some(configuration),
             n_peers,
@@ -179,7 +179,12 @@ impl Network {
         )
         .await
         .expect("Failed to init peers");
-        let client = Client::test(&network.genesis.api_address);
+        let client = Client::test(
+            &Network::peers(&network)
+                .choose(&mut thread_rng())
+                .unwrap()
+                .api_address,
+        );
         (network, client)
     }
 
@@ -197,7 +202,12 @@ impl Network {
     /// Adds peer to network and waits for it to start block
     /// synchronization.
     pub async fn add_peer(&self) -> (Peer, Client) {
-        let genesis_client = Client::test(&self.genesis.api_address);
+        let client = Client::test(
+            &Network::peers(self)
+                .choose(&mut thread_rng())
+                .unwrap()
+                .api_address,
+        );
 
         let mut config = Configuration::test();
         config.sumeragi.trusted_peers.peers =
@@ -211,14 +221,11 @@ impl Network {
 
         time::sleep(Configuration::pipeline_time() + Configuration::block_sync_gossip_time()).await;
 
-        let add_peer = RegisterExpr::new(DataModelPeer::new(peer.id.clone()));
-        genesis_client
-            .submit(add_peer)
-            .expect("Failed to add new peer.");
+        let add_peer = Register::peer(DataModelPeer::new(peer.id.clone()));
+        client.submit(add_peer).expect("Failed to add new peer.");
 
-        let client = Client::test(&peer.api_address);
-
-        (peer, client)
+        let peer_client = Client::test(&peer.api_address);
+        (peer, peer_client)
     }
 
     /// Creates new network with some offline peers
@@ -323,7 +330,7 @@ impl Network {
 /// When unsuccessful after `MAX_RETRIES`.
 pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
     const POLL_PERIOD: Duration = Duration::from_millis(1000);
-    const MAX_RETRIES: u32 = 30;
+    const MAX_RETRIES: u32 = 40;
 
     for _ in 0..MAX_RETRIES {
         let without_genesis_peers = clients.iter().fold(0_u32, |acc, client| {
@@ -359,7 +366,7 @@ pub struct Peer {
     pub iroha: Option<Iroha>,
     /// Temporary directory
     // Note: last field to be dropped after Iroha (struct fields drops in FIFO RFC 1857)
-    temp_dir: Option<Arc<TempDir>>,
+    pub temp_dir: Option<Arc<TempDir>>,
 }
 
 impl From<Peer> for Box<iroha_core::tx::Peer> {
@@ -414,22 +421,18 @@ impl Peer {
         temp_dir: Arc<TempDir>,
     ) {
         let mut configuration = self.get_config(configuration);
-        configuration
-            .kura
-            .block_store_path(temp_dir.path())
-            .expect("block store path not readable");
+        configuration.kura.block_store_path = temp_dir.path().to_str().unwrap().into();
         let info_span = iroha_logger::info_span!(
             "test-peer",
             p2p_addr = %self.p2p_address,
             api_addr = %self.api_address,
         );
-        let telemetry =
-            iroha_logger::init(&configuration.logger).expect("Failed to initialize telemetry");
+        let logger = iroha_logger::test_logger();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
 
         let handle = task::spawn(
             async move {
-                let mut iroha = Iroha::with_genesis(genesis, configuration, telemetry)
+                let mut iroha = Iroha::with_genesis(genesis, configuration, logger)
                     .await
                     .expect("Failed to start iroha");
                 let job_handle = iroha.start_as_task().unwrap();
@@ -560,7 +563,7 @@ impl PeerBuilder {
     /// Set Iroha configuration
     #[must_use]
     pub fn with_configuration(mut self, configuration: Configuration) -> Self {
-        self.configuration.replace(configuration);
+        self.configuration = Some(configuration);
         self
     }
 
@@ -708,7 +711,7 @@ pub trait TestClient: Sized {
     /// If predicate is not satisfied, after maximum retries.
     fn submit_all_till<R: Query + Debug + Clone>(
         &self,
-        instructions: Vec<InstructionExpr>,
+        instructions: Vec<InstructionBox>,
         request: R,
         f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
     ) -> eyre::Result<()>
@@ -840,7 +843,7 @@ impl TestClient for Client {
 
     fn submit_all_till<R: Query + Debug + Clone>(
         &self,
-        instructions: Vec<InstructionExpr>,
+        instructions: Vec<InstructionBox>,
         request: R,
         f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
     ) -> eyre::Result<()>

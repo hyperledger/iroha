@@ -29,7 +29,7 @@ fn find_roles() -> Result<()> {
     let register_roles = role_ids
         .iter()
         .cloned()
-        .map(|role_id| RegisterExpr::new(Role::new(role_id)))
+        .map(|role_id| Register::role(Role::new(role_id)))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_roles)?;
 
@@ -61,7 +61,7 @@ fn find_role_ids() -> Result<()> {
     let register_roles = role_ids
         .iter()
         .cloned()
-        .map(|role_id| RegisterExpr::new(Role::new(role_id)))
+        .map(|role_id| Register::role(Role::new(role_id)))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_roles)?;
 
@@ -87,7 +87,7 @@ fn find_role_by_id() -> Result<()> {
     let new_role = Role::new(role_id.clone());
 
     // Registering role
-    let register_role = RegisterExpr::new(new_role.clone());
+    let register_role = Register::role(new_role.clone());
     test_client.submit_blocking(register_role)?;
 
     let found_role = test_client.request(client::role::by_id(role_id))?;
@@ -130,7 +130,7 @@ fn find_roles_by_account_id() -> Result<()> {
         .iter()
         .cloned()
         .map(|role_id| {
-            RegisterExpr::new(Role::new(role_id).add_permission(PermissionToken::new(
+            Register::role(Role::new(role_id).add_permission(PermissionToken::new(
                 "CanSetKeyValueInUserAccount".parse().unwrap(),
                 &json!({ "account_id": alice_id }),
             )))
@@ -142,7 +142,7 @@ fn find_roles_by_account_id() -> Result<()> {
     let grant_roles = role_ids
         .iter()
         .cloned()
-        .map(|role_id| GrantExpr::new(role_id, alice_id.clone()))
+        .map(|role_id| Grant::role(role_id, alice_id.clone()))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(grant_roles)?;
 

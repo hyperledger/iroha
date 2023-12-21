@@ -6,10 +6,9 @@ use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use iroha::samples::{construct_executor, get_config};
 use iroha_client::{
     client::{asset, Client},
+    crypto::KeyPair,
     data_model::prelude::*,
 };
-use iroha_config::base::runtime_upgrades::Reload;
-use iroha_crypto::KeyPair;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use iroha_version::Encode;
@@ -40,29 +39,31 @@ fn query_requests(criterion: &mut Criterion) {
     .expect("genesis creation failed");
 
     let builder = PeerBuilder::new()
-        .with_configuration(configuration.clone())
+        .with_configuration(configuration)
         .with_into_genesis(genesis);
 
     rt.block_on(builder.start_with_peer(&mut peer));
-    configuration
-        .logger
-        .max_log_level
-        .reload(iroha_client::data_model::Level::ERROR)
-        .expect("Should not fail");
+    rt.block_on(async {
+        iroha_logger::test_logger()
+            .reload_level(iroha_client::data_model::Level::ERROR)
+            .await
+            .unwrap()
+    });
     let mut group = criterion.benchmark_group("query-requests");
     let domain_id: DomainId = "domain".parse().expect("Valid");
-    let create_domain = RegisterExpr::new(Domain::new(domain_id.clone()));
+    let create_domain = Register::domain(Domain::new(domain_id.clone()));
     let account_id = AccountId::new("account".parse().expect("Valid"), domain_id.clone());
     let (public_key, _) = KeyPair::generate()
         .expect("Failed to generate KeyPair")
         .into();
-    let create_account = RegisterExpr::new(Account::new(account_id.clone(), [public_key]));
+    let create_account = Register::account(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id = AssetDefinitionId::new("xor".parse().expect("Valid"), domain_id);
-    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let create_asset =
+        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
     let quantity: u32 = 200;
-    let mint_asset = MintExpr::new(
-        quantity.to_value(),
-        IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
+    let mint_asset = Mint::asset_quantity(
+        quantity,
+        AssetId::new(asset_definition_id, account_id.clone()),
     );
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
 
@@ -71,7 +72,7 @@ fn query_requests(criterion: &mut Criterion) {
     let iroha_client = Client::new(&client_config).expect("Invalid client configuration");
     thread::sleep(std::time::Duration::from_millis(5000));
 
-    let instructions: [InstructionExpr; 4] = [
+    let instructions: [InstructionBox; 4] = [
         create_domain.into(),
         create_account.into(),
         create_asset.into(),
@@ -140,12 +141,12 @@ fn instruction_submits(criterion: &mut Criterion) {
     rt.block_on(builder.start_with_peer(&mut peer));
     let mut group = criterion.benchmark_group("instruction-requests");
     let domain_id: DomainId = "domain".parse().expect("Valid");
-    let create_domain = RegisterExpr::new(Domain::new(domain_id.clone()));
+    let create_domain: InstructionBox = Register::domain(Domain::new(domain_id.clone())).into();
     let account_id = AccountId::new("account".parse().expect("Valid"), domain_id.clone());
     let (public_key, _) = KeyPair::generate()
         .expect("Failed to generate Key-pair.")
         .into();
-    let create_account = RegisterExpr::new(Account::new(account_id.clone(), [public_key]));
+    let create_account = Register::account(Account::new(account_id.clone(), [public_key])).into();
     let asset_definition_id = AssetDefinitionId::new("xor".parse().expect("Valid"), domain_id);
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
     client_config.torii_api_url = format!("http://{}", peer.api_address).parse().unwrap();
@@ -160,12 +161,9 @@ fn instruction_submits(criterion: &mut Criterion) {
     let _dropable = group.bench_function("instructions", |b| {
         b.iter(|| {
             let quantity: u32 = 200;
-            let mint_asset = MintExpr::new(
-                quantity.to_value(),
-                IdBox::AssetId(AssetId::new(
-                    asset_definition_id.clone(),
-                    account_id.clone(),
-                )),
+            let mint_asset = Mint::asset_quantity(
+                quantity,
+                AssetId::new(asset_definition_id.clone(), account_id.clone()),
             );
             match iroha_client.submit(mint_asset) {
                 Ok(_) => success_count += 1,

@@ -1,6 +1,6 @@
 //! Module for `SnapshotMaker`-related configuration and structs.
 
-use iroha_config_base::derive::{Documented, Proxy};
+use iroha_config_base::derive::Proxy;
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_SNAPSHOT_PATH: &str = "./storage";
@@ -9,7 +9,7 @@ const DEFAULT_SNAPSHOT_CREATE_EVERY_MS: u64 = 1000 * 60;
 const DEFAULT_ENABLED: bool = true;
 
 /// Configuration for `SnapshotMaker`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "SNAPSHOT_")]
 pub struct Configuration {

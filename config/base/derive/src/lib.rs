@@ -2,13 +2,12 @@
 
 use proc_macro::TokenStream;
 
-pub(crate) mod documented;
 pub(crate) mod proxy;
 pub(crate) mod utils;
 pub(crate) mod view;
 
 /// Derive for config loading. More details in `iroha_config_base` reexport
-#[proc_macro_derive(Override)]
+#[proc_macro_derive(Override, attributes(config))]
 pub fn override_derive(input: TokenStream) -> TokenStream {
     let ast = syn::parse_macro_input!(input as utils::StructWithFields);
     proxy::impl_override(&ast)
@@ -37,17 +36,10 @@ pub fn load_from_disk_derive(input: TokenStream) -> TokenStream {
 }
 
 /// Derive for config querying and setting. More details in `iroha_config_base` reexport
-#[proc_macro_derive(Proxy)]
+#[proc_macro_derive(Proxy, attributes(config))]
 pub fn proxy_derive(input: TokenStream) -> TokenStream {
     let ast = syn::parse_macro_input!(input as utils::StructWithFields);
     proxy::impl_proxy(ast)
-}
-
-/// Derive for config querying and setting. More details in `iroha_config_base` reexport
-#[proc_macro_derive(Documented, attributes(config))]
-pub fn documented_derive(input: TokenStream) -> TokenStream {
-    let ast = syn::parse_macro_input!(input as utils::StructWithFields);
-    documented::impl_documented(&ast)
 }
 
 /// Generate view for given struct and convert from type to its view.
