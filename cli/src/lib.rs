@@ -559,7 +559,7 @@ pub fn read_config(
         "));
     }
 
-    let genesis = if let ParsedGenesisConfiguration::Submit {
+    let genesis = if let ParsedGenesisConfiguration::Full {
         key_pair,
         raw_block,
     } = config

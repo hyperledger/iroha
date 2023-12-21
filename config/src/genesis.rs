@@ -41,12 +41,12 @@ impl Default for ConfigurationProxy {
 //       https://github.com/hyperledger/iroha/issues/3500
 pub enum ParsedConfiguration {
     /// The peer can only observe the genesis block
-    Default {
+    Partial {
         /// Genesis account public key
         public_key: PublicKey,
     },
     /// The peer is responsible for submitting the genesis block
-    Submit {
+    Full {
         /// Genesis account key pair
         key_pair: KeyPair,
         /// Raw genesis block
@@ -61,14 +61,14 @@ impl Configuration {
     /// See [`ParseError`]
     pub fn parse(self, submit: bool) -> Result<ParsedConfiguration, ParseError> {
         match (self.private_key, self.file, submit) {
-            (None, None, false) => Ok(ParsedConfiguration::Default {
+            (None, None, false) => Ok(ParsedConfiguration::Partial {
                 public_key: self.public_key,
             }),
             (Some(private_key), Some(path), true) => {
                 let raw_block = RawGenesisBlock::from_path(&path)
                     .map_err(|report| ParseError::File { path, report })?;
 
-                Ok(ParsedConfiguration::Submit {
+                Ok(ParsedConfiguration::Full {
                     key_pair: KeyPair::new(self.public_key, private_key)?,
                     raw_block,
                 })
