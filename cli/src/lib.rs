@@ -524,6 +524,7 @@ pub fn read_config(
         // careful here: `genesis.file` might be a path relative to the config file.
         // we need to resolve it before proceeding
         // TODO: move this logic into `iroha_config`
+        //       https://github.com/hyperledger/iroha/issues/4161
         let join_to_config_dir = |x: &mut PathBuf| {
             *x = config_dir.join(&x);
         };
