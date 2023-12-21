@@ -235,13 +235,15 @@ struct CompactPeerEnv {
 
 impl From<CompactPeerEnv> for FullPeerEnv {
     fn from(value: CompactPeerEnv) -> Self {
-        let (iroha_genesis_private_key, iroha_genesis_file) = match value.genesis_private_key {
-            Some(private_key) => (
-                Some(private_key).map(SerializeAsJsonStr),
-                Some(PATH_TO_GENESIS.to_string()),
-            ),
-            None => (None, None),
-        };
+        let (iroha_genesis_private_key, iroha_genesis_file) =
+            value
+                .genesis_private_key
+                .map_or((None, None), |private_key| {
+                    (
+                        Some(private_key).map(SerializeAsJsonStr),
+                        Some(PATH_TO_GENESIS.to_string()),
+                    )
+                });
 
         Self {
             iroha_config: PATH_TO_CONFIG.to_string(),
