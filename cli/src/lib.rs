@@ -500,10 +500,20 @@ macro_rules! mutate_nested_option {
     };
 }
 
-/// Reads configuration from the specified path and validates it.
+/// Read and parse Iroha configuration and genesis block.
+///
+/// The pipeline of configuration reading is as follows:
+///
+/// 1. Construct a layer with default values
+/// 2. If [`Path`] resolves, construct a layer from the file and merge it into the previous one
+/// 3. Construct a layer from ENV vars and merge it into the previous one
+/// 4. Check whether the final layer contains the complete configuration
+///
+/// After reading it, this function ensures validity of genesis configuration and constructs the
+/// [`GenesisNetwork`] according to it.
 ///
 /// # Errors
-/// - If config fails to build
+/// - If provided user configuration is invalid or incomplete
 /// - If genesis config is invalid
 pub fn read_config(
     path: &Path,
