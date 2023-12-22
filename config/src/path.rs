@@ -63,19 +63,16 @@ impl Path {
     /// Construct new [`Path`] which will try to resolve multiple allowed extensions and will not
     /// fail resolution ([`Self::try_resolve()`]) if file is not found.
     ///
-    /// **Note:** make sure to provide `path` without an extension:
+    /// The path should not have an extension.
     ///
-    /// ```
-    /// use iroha_config::path::Path;
-    ///
-    /// // Will look for `config.<allowed extensions>`
-    /// let _ = Path::default("config");
-    ///
-    /// // Will look for `config.json.<allowed extensions>`
-    /// let _ = Path::default("config.json");
-    /// ```
+    /// # Panics
+    /// If the path has an extension.
     pub fn default(path: impl AsRef<std::path::Path>) -> Self {
-        Self(Default(path.as_ref().to_path_buf()))
+        let path = path.as_ref().to_path_buf();
+        if path.extension().is_some() {
+            panic!("Default config path is not supposed to have an extension. It is a bug.")
+        }
+        Self(Default(path))
     }
 
     /// Construct new [`Path`] from user-provided `path` which will fail to [`Self::try_resolve()`]
