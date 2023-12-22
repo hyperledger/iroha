@@ -611,6 +611,7 @@ mod tests {
     }
 
     mod config_integration {
+        use assertables::{assert_contains, assert_contains_as_result};
         use iroha_crypto::KeyPair;
         use iroha_genesis::{ExecutorMode, ExecutorPath};
         use iroha_primitives::addr::socket_addr;
@@ -721,9 +722,9 @@ mod tests {
 
             let report = read_config(&config_path, false).unwrap_err();
 
-            assert_eq!(
+            assert_contains!(
                 format!("{report}"),
-                "Only peer in network, yet required to receive genesis topology. This is a configuration error."
+                "The network consists from this one peer only"
             );
 
             Ok(())
