@@ -17,12 +17,23 @@ use tokio::runtime::Runtime;
 
 const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
 
+// assumes that config is having a complete genesis key pair
+fn get_genesis_key_pair(config: &iroha_config::iroha::Configuration) -> KeyPair {
+    if let (public_key, Some(private_key)) =
+        (&config.genesis.public_key, &config.genesis.private_key)
+    {
+        KeyPair::new(public_key.clone(), private_key.clone()).expect("Should be valid")
+    } else {
+        panic!("Cannot get genesis key pair from the config. Probably a bug.")
+    }
+}
+
 fn query_requests(criterion: &mut Criterion) {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
     let configuration = get_config(unique_vec![peer.id.clone()], Some(get_key_pair()));
 
     let rt = Runtime::test();
-    let genesis = GenesisNetwork::from_configuration(
+    let genesis = GenesisNetwork::new(
         RawGenesisBlockBuilder::default()
             .domain("wonderland".parse().expect("Valid"))
             .account(
@@ -34,7 +45,7 @@ fn query_requests(criterion: &mut Criterion) {
                 construct_executor("../default_executor").expect("Failed to construct executor"),
             )
             .build(),
-        Some(&configuration.genesis),
+        &get_genesis_key_pair(&configuration),
     )
     .expect("genesis creation failed");
 
@@ -120,7 +131,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     let rt = Runtime::test();
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
     let configuration = get_config(unique_vec![peer.id.clone()], Some(get_key_pair()));
-    let genesis = GenesisNetwork::from_configuration(
+    let genesis = GenesisNetwork::new(
         RawGenesisBlockBuilder::default()
             .domain("wonderland".parse().expect("Valid"))
             .account(
@@ -132,7 +143,7 @@ fn instruction_submits(criterion: &mut Criterion) {
                 construct_executor("../default_executor").expect("Failed to construct executor"),
             )
             .build(),
-        Some(&configuration.genesis),
+        &get_genesis_key_pair(&configuration),
     )
     .expect("failed to create genesis");
     let builder = PeerBuilder::new()

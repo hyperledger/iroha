@@ -20,8 +20,6 @@ view! {
         /// Private key of this peer
         #[view(ignore)]
         pub private_key: PrivateKey,
-        /// Disable coloring of the backtrace and error report on panic
-        pub disable_panic_terminal_colors: bool,
         /// `Kura` configuration
         #[config(inner)]
         pub kura: Box<kura::Configuration>,
@@ -68,7 +66,6 @@ impl Default for ConfigurationProxy {
         Self {
             public_key: None,
             private_key: None,
-            disable_panic_terminal_colors: Some(bool::default()),
             kura: Some(Box::default()),
             sumeragi: Some(Box::default()),
             torii: Some(Box::default()),
@@ -169,6 +166,8 @@ impl ConfigurationProxy {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use proptest::prelude::*;
 
     use super::*;
@@ -204,7 +203,6 @@ mod tests {
     prop_compose! {
         fn arb_proxy()(
             (public_key, private_key) in arb_keys(),
-            disable_panic_terminal_colors in prop::option::of(Just(true)),
             kura in prop::option::of(kura::tests::arb_proxy().prop_map(Box::new)),
             sumeragi in (prop::option::of(sumeragi::tests::arb_proxy().prop_map(Box::new))),
             torii in (prop::option::of(torii::tests::arb_proxy().prop_map(Box::new))),
@@ -218,7 +216,7 @@ mod tests {
             snapshot in prop::option::of(snapshot::tests::arb_proxy().prop_map(Box::new)),
             live_query_store in prop::option::of(live_query_store::tests::arb_proxy()),
             ) -> ConfigurationProxy {
-            ConfigurationProxy { public_key, private_key, disable_panic_terminal_colors, kura, sumeragi, torii, block_sync, queue,
+            ConfigurationProxy { public_key, private_key, kura, sumeragi, torii, block_sync, queue,
                                  logger, genesis, wsv, network, telemetry, snapshot, live_query_store }
         }
     }
@@ -244,7 +242,7 @@ mod tests {
     fn parse_example_json() {
         let cfg_proxy = ConfigurationProxy::from_path(CONFIGURATION_PATH);
         assert_eq!(
-            "./storage",
+            PathBuf::from("./storage"),
             cfg_proxy.kura.unwrap().block_store_path.unwrap()
         );
         assert_eq!(

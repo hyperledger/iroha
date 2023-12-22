@@ -359,14 +359,7 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
     );
 
     // Registering trigger in genesis
-    let mut genesis = GenesisNetwork::test(true).expect("Expected genesis");
-    let tx_ref = &mut genesis.transactions[0].0;
-    match &mut tx_ref.payload_mut().instructions {
-        Executable::Instructions(instructions) => {
-            instructions.push(Register::trigger(trigger).into());
-        }
-        Executable::Wasm(_) => panic!("Expected instructions"),
-    }
+    let genesis = GenesisNetwork::test_with_instructions([Register::trigger(trigger).into()]);
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new()
         .with_genesis(genesis)

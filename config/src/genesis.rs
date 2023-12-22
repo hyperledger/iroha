@@ -1,6 +1,10 @@
 //! Module with genesis configuration logic.
+use std::path::PathBuf;
+
+use eyre::Report;
 use iroha_config_base::derive::{view, Proxy};
-use iroha_crypto::{PrivateKey, PublicKey};
+use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
+use iroha_genesis::RawGenesisBlock;
 use serde::{Deserialize, Serialize};
 
 // Generate `ConfigurationView` without the private key
@@ -12,20 +16,86 @@ view! {
     pub struct Configuration {
         /// The public key of the genesis account, should be supplied to all peers.
         #[config(serde_as_str)]
-        pub account_public_key: PublicKey,
+        pub public_key: PublicKey,
         /// The private key of the genesis account, only needed for the peer that submits the genesis block.
         #[view(ignore)]
-        pub account_private_key: Option<PrivateKey>,
+        pub private_key: Option<PrivateKey>,
+        /// Path to the genesis file
+        #[config(serde_as_str)]
+        pub file: Option<PathBuf>
     }
 }
 
 impl Default for ConfigurationProxy {
     fn default() -> Self {
         Self {
-            account_public_key: None,
-            account_private_key: Some(None),
+            public_key: None,
+            private_key: Some(None),
+            file: None,
         }
     }
+}
+
+/// Parsed variant of the user-provided [`Configuration`]
+// TODO: incorporate this struct into the final, parsed configuration
+//       https://github.com/hyperledger/iroha/issues/3500
+pub enum ParsedConfiguration {
+    /// The peer can only observe the genesis block
+    Partial {
+        /// Genesis account public key
+        public_key: PublicKey,
+    },
+    /// The peer is responsible for submitting the genesis block
+    Full {
+        /// Genesis account key pair
+        key_pair: KeyPair,
+        /// Raw genesis block
+        raw_block: RawGenesisBlock,
+    },
+}
+
+impl Configuration {
+    /// Parses user configuration into a stronger-typed structure [`ParsedConfiguration`]
+    ///
+    /// # Errors
+    /// See [`ParseError`]
+    pub fn parse(self, submit: bool) -> Result<ParsedConfiguration, ParseError> {
+        match (self.private_key, self.file, submit) {
+            (None, None, false) => Ok(ParsedConfiguration::Partial {
+                public_key: self.public_key,
+            }),
+            (Some(private_key), Some(path), true) => {
+                let raw_block = RawGenesisBlock::from_path(&path)
+                    .map_err(|report| ParseError::File { path, report })?;
+
+                Ok(ParsedConfiguration::Full {
+                    key_pair: KeyPair::new(self.public_key, private_key)?,
+                    raw_block,
+                })
+            }
+            (_, _, true) => Err(ParseError::SubmitIsSetButRestAreNot),
+            (_, _, false) => Err(ParseError::SubmitIsNotSetButRestAre),
+        }
+    }
+}
+
+/// Error which might occur during [`Configuration::parse()`]
+#[derive(Debug, displaydoc::Display, thiserror::Error)]
+pub enum ParseError {
+    /// `--submit-genesis` was provided, but `genesis.private_key` and/or `genesis.file` are missing
+    SubmitIsSetButRestAreNot,
+    /// `--submit-genesis` was not provided, but `genesis.private_key` and/or `genesis.file` are set
+    SubmitIsNotSetButRestAre,
+    /// Genesis key pair is invalid
+    InvalidKeyPair(#[from] iroha_crypto::error::Error),
+    /// Cannot read the genesis block from file `{path}`
+    File {
+        /// Original error report
+        #[source]
+        report: Report,
+        /// Path to the file
+        path: PathBuf,
+    },
 }
 
 #[cfg(test)]
@@ -61,10 +131,11 @@ pub mod tests {
     prop_compose! {
         pub fn arb_proxy()
             (
-                (account_public_key, account_private_key) in arb_keys(),
+                (public_key, private_key) in arb_keys(),
+                file in prop::option::of(Just(None))
             )
             -> ConfigurationProxy {
-            ConfigurationProxy { account_public_key, account_private_key }
+            ConfigurationProxy { public_key, private_key, file }
         }
     }
 }

@@ -55,6 +55,7 @@ iroha_torii = { workspace = true }
 iroha_genesis = { workspace = true }
 iroha_wasm_builder = { workspace = true }
 
+clap = { workspace = true, features = ["derive", "env", "string"] }
 color-eyre = { workspace = true }
 eyre = { workspace = true }
 tracing = { workspace = true }
@@ -67,6 +68,11 @@ thread-local-panic-hook = { version = "0.1.0", optional = true }
 
 [dev-dependencies]
 serial_test = "2.0.0"
+tempfile = { workspace = true }
+serde_json = { workspace = true }
+futures = { workspace = true }
+path-absolutize = { workspace = true }
+assertables = "7"
 
 [build-dependencies]
 iroha_wasm_builder = { workspace = true }
