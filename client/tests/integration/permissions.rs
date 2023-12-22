@@ -17,20 +17,11 @@ fn genesis_transactions_are_validated() {
 
     // Setting up genesis
 
-    let mut genesis = GenesisNetwork::test(true).expect("Expected genesis");
-
-    let grant_invalid_token = Grant::permission_token(
+    let genesis = GenesisNetwork::test_with_instructions([Grant::permission_token(
         PermissionToken::new("InvalidToken".parse().unwrap(), &json!(null)),
         AccountId::from_str("alice@wonderland").unwrap(),
-    );
-
-    let tx_ref = &mut genesis.transactions.last_mut().unwrap().0;
-    match &mut tx_ref.payload_mut().instructions {
-        Executable::Instructions(instructions) => {
-            instructions.push(grant_invalid_token.into());
-        }
-        Executable::Wasm(_) => panic!("Expected instructions"),
-    }
+    )
+    .into()]);
 
     // Starting peer
     let (_rt, _peer, test_client) = <PeerBuilder>::new()

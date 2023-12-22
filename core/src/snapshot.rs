@@ -41,7 +41,7 @@ pub struct SnapshotMaker {
     /// Frequency at which snapshot is made
     snapshot_create_every: Duration,
     /// Path to the directory where snapshots are stored
-    snapshot_dir: String,
+    snapshot_dir: PathBuf,
     /// Flag to enable/disable snapshot creation
     snapshot_creation_enabled: bool,
     /// Flag to signal that new wsv is available for taking snapshot

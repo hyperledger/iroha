@@ -242,7 +242,7 @@ impl Sumeragi {
         assert_eq!(self.wsv.latest_block_hash(), None);
 
         let transactions: Vec<_> = genesis_network
-            .transactions
+            .into_transactions()
             .into_iter()
             .map(AcceptedTransaction::accept_genesis)
             .collect();

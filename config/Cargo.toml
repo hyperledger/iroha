@@ -15,6 +15,7 @@ iroha_config_base = { workspace = true }
 iroha_data_model = { workspace = true }
 iroha_primitives = { workspace = true }
 iroha_crypto = { workspace = true }
+iroha_genesis = { workspace = true }
 
 eyre = { workspace = true }
 tracing = { workspace = true }
@@ -29,7 +30,6 @@ thiserror = { workspace = true }
 displaydoc = { workspace = true }
 derive_more = { workspace = true }
 cfg-if = { workspace = true }
-path-absolutize = { workspace = true }
 once_cell = { workspace = true }
 
 [dev-dependencies]

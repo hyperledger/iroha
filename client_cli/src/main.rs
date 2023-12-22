@@ -1,52 +1,63 @@
 //! iroha client command line
 use std::{
-    fmt,
     fs::{self, read as read_file},
     io::{stdin, stdout},
+    path::PathBuf,
     str::FromStr,
     time::Duration,
 };
 
-use clap::StructOpt;
 use color_eyre::{
-    eyre::{ContextCompat as _, Error, WrapErr},
+    eyre::{eyre, Error, WrapErr},
     Result,
 };
+// FIXME: sync with `kagami` (it uses `inquiry`, migrate both to something single)
 use dialoguer::Confirm;
 use erased_serde::Serialize;
 use iroha_client::{
     client::{Client, QueryResult},
-    config::{path::Path as ConfigPath, Configuration as ClientConfiguration},
+    config::{path::Path, Configuration as ClientConfiguration, ConfigurationProxy},
     data_model::prelude::*,
 };
+use iroha_config_base::proxy::{LoadFromDisk, LoadFromEnv, Override};
 use iroha_primitives::addr::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
-/// Metadata wrapper, which can be captured from cli arguments (from user supplied file).
-#[derive(Debug, Clone)]
-pub struct Metadata(pub UnlimitedMetadata);
-
-impl fmt::Display for Metadata {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
+/// Re-usable clap `--metadata <PATH>` (`-m`) argument.
+/// Should be combined with `#[command(flatten)]` attr.
+#[derive(clap::Args, Debug, Clone)]
+// FIXME: `pub` is needed because Rust complains about "leaking private types"
+//        when this type is used inside of modules. I don't know how to fix it.
+pub struct MetadataArgs {
+    /// The JSON/JSON5 file with key-value metadata pairs
+    #[arg(short, long, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
+    metadata: Option<PathBuf>,
 }
 
-impl FromStr for Metadata {
-    type Err = Error;
-    fn from_str(file: &str) -> Result<Self> {
-        if file.is_empty() {
-            return Ok(Self(UnlimitedMetadata::default()));
-        }
-        let err_msg = format!("Failed to open the metadata file {}.", &file);
-        let deser_err_msg = format!("Failed to deserialize metadata from file: {}", &file);
-        let content = fs::read_to_string(file).wrap_err(err_msg)?;
-        let metadata: UnlimitedMetadata = json5::from_str(&content).wrap_err(deser_err_msg)?;
-        Ok(Self(metadata))
+impl MetadataArgs {
+    fn load(self) -> Result<UnlimitedMetadata> {
+        let value: Option<UnlimitedMetadata> = self
+            .metadata
+            .map(|path| {
+                let content = fs::read_to_string(&path).wrap_err_with(|| {
+                    eyre!("Failed to read the metadata file `{}`", path.display())
+                })?;
+                let metadata: UnlimitedMetadata =
+                    json5::from_str(&content).wrap_err_with(|| {
+                        eyre!(
+                            "Failed to deserialize metadata from file `{}`",
+                            path.display()
+                        )
+                    })?;
+                Ok::<_, color_eyre::Report>(metadata)
+            })
+            .transpose()?;
+
+        Ok(value.unwrap_or_default())
     }
 }
-
+/// Wrapper around Value to accept possible values and fallback to json
 #[derive(Debug, Clone)]
-struct ValueArg(Value);
+pub struct ValueArg(Value);
 
 impl FromStr for ValueArg {
     type Err = Error;
@@ -63,42 +74,39 @@ impl FromStr for ValueArg {
     }
 }
 
-/// Client configuration wrapper. Allows getting itself from arguments from cli (from user supplied file).
-#[derive(Debug, Clone)]
-struct Configuration(pub ClientConfiguration);
-
-impl FromStr for Configuration {
-    type Err = Error;
-    fn from_str(file: &str) -> Result<Self> {
-        let deser_err_msg = format!("Failed to decode config file {} ", &file);
-        let err_msg = format!("Failed to open config file {}", &file);
-        let content = fs::read_to_string(file).wrap_err(err_msg)?;
-        let cfg = json5::from_str(&content).wrap_err(deser_err_msg)?;
-        Ok(Self(cfg))
-    }
-}
-
 /// Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.
-#[derive(StructOpt, Debug)]
-#[structopt(name = "iroha_client_cli", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
+#[derive(clap::Parser, Debug)]
+#[command(name = "iroha_client_cli", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
 struct Args {
-    /// Sets a config file path
-    #[structopt(short, long)]
-    config: Option<Configuration>,
+    /// Path to the configuration file, defaults to `config.json`/`config.json5`
+    ///
+    /// Supported extensions are `.json` and `.json5`. By default, Iroha Client looks for a
+    /// `config` file with one of the supported extensions in the current working directory.
+    /// If the default config file is not found, Iroha will rely on default values and environment
+    /// variables. However, if the config path is set explicitly with this argument and the file
+    /// is not found, Iroha Client will exit with an error.
+    #[arg(
+        short,
+        long,
+        value_name("PATH"),
+        value_hint(clap::ValueHint::FilePath),
+        value_parser(Path::user_provided_str)
+    )]
+    config: Option<Path>,
     /// More verbose output
-    #[structopt(short, long)]
+    #[arg(short, long)]
     verbose: bool,
     /// Skip MST check. By setting this flag searching similar transactions on the server can be omitted.
     /// Thus if you don't use multisignature transactions you should use this flag as it will increase speed of submitting transactions.
     /// Also setting this flag could be useful when `iroha_client_cli` is used to submit the same transaction multiple times (like mint for example) in short period of time.
-    #[structopt(long)]
+    #[arg(long)]
     skip_mst_check: bool,
     /// Subcommands of client cli
-    #[structopt(subcommand)]
+    #[command(subcommand)]
     subcommand: Subcommand,
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(clap::Subcommand, Debug)]
 enum Subcommand {
     /// The subcommand related to domains
     #[clap(subcommand)]
@@ -188,32 +196,33 @@ impl RunArgs for Subcommand {
 const RETRY_COUNT_MST: u32 = 1;
 const RETRY_IN_MST: Duration = Duration::from_millis(100);
 
-static DEFAULT_CONFIG_PATH: once_cell::sync::Lazy<&'static std::path::Path> =
-    once_cell::sync::Lazy::new(|| std::path::Path::new("config"));
+static DEFAULT_CONFIG_PATH: &str = "config";
 
 fn main() -> Result<()> {
     color_eyre::install()?;
     let Args {
-        config: config_opt,
+        config: config_path,
         subcommand,
         verbose,
         skip_mst_check,
     } = clap::Parser::parse();
-    let config = if let Some(config) = config_opt {
-        config
-    } else {
-        let config_path = ConfigPath::default(&DEFAULT_CONFIG_PATH);
-        Configuration::from_str(
-            config_path
-                .first_existing_path()
-                .wrap_err("Configuration file does not exist")?
-                .as_ref()
-                .to_string_lossy()
-                .as_ref(),
-        )?
-    };
 
-    let Configuration(config) = config;
+    let config = ConfigurationProxy::default();
+    let config = if let Some(path) = config_path
+        .unwrap_or_else(|| Path::default(DEFAULT_CONFIG_PATH))
+        .try_resolve()
+        .wrap_err("Failed to resolve config file")?
+    {
+        config.override_with(ConfigurationProxy::from_path(&*path))
+    } else {
+        config
+    };
+    let config = config.override_with(
+        ConfigurationProxy::from_std_env().wrap_err("Failed to read config from ENV")?,
+    );
+    let config = config
+        .build()
+        .wrap_err("Failed to finalize configuration")?;
 
     if verbose {
         eprintln!(
@@ -305,7 +314,7 @@ mod events {
     use super::*;
 
     /// Get event stream from iroha peer
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(clap::Subcommand, Debug, Clone, Copy)]
     pub enum Args {
         /// Gets pipeline events
         Pipeline,
@@ -345,7 +354,7 @@ mod blocks {
     use super::*;
 
     /// Get block stream from iroha peer
-    #[derive(StructOpt, Debug, Clone, Copy)]
+    #[derive(clap::Args, Debug, Clone, Copy)]
     pub struct Args {
         /// Block height from which to start streaming blocks
         height: NonZeroU64,
@@ -393,29 +402,25 @@ mod domain {
     }
 
     /// Add subcommand for domain
-    #[derive(Debug, StructOpt)]
+    #[derive(Debug, clap::Args)]
     pub struct Register {
         /// Domain name as double-quoted string
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub id: DomainId,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Register {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self {
-                id,
-                metadata: Metadata(metadata),
-            } = self;
+            let Self { id, metadata } = self;
             let create_domain = iroha_client::data_model::isi::Register::domain(Domain::new(id));
-            submit([create_domain], metadata, context).wrap_err("Failed to create domain")
+            submit([create_domain], metadata.load()?, context).wrap_err("Failed to create domain")
         }
     }
 
     /// List domains with this command
-    #[derive(StructOpt, Debug, Clone)]
+    #[derive(clap::Subcommand, Debug, Clone)]
     pub enum List {
         /// All domains
         All,
@@ -443,20 +448,19 @@ mod domain {
     }
 
     /// Transfer a domain between accounts
-    #[derive(Debug, StructOpt)]
+    #[derive(Debug, clap::Args)]
     pub struct Transfer {
         /// Domain name as double-quited string
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub id: DomainId,
         /// Account from which to transfer (in form `name@domain_name')
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub from: AccountId,
         /// Account to which to transfer (in form `name@domain_name')
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub to: AccountId,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Transfer {
@@ -465,10 +469,11 @@ mod domain {
                 id,
                 from,
                 to,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let transfer_domain = iroha_client::data_model::isi::Transfer::domain(from, id, to);
-            submit([transfer_domain], metadata, context).wrap_err("Failed to transfer domain")
+            submit([transfer_domain], metadata.load()?, context)
+                .wrap_err("Failed to transfer domain")
         }
     }
 }
@@ -481,15 +486,15 @@ mod account {
     use super::*;
 
     /// subcommands for account subcommand
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Subcommand, Debug)]
     pub enum Args {
         /// Register account
         Register(Register),
         /// Set something in account
-        #[clap(subcommand)]
+        #[command(subcommand)]
         Set(Set),
         /// List accounts
-        #[clap(subcommand)]
+        #[command(subcommand)]
         List(List),
         /// Grant a permission to the account
         Grant(Grant),
@@ -510,34 +515,30 @@ mod account {
     }
 
     /// Register account
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Register {
         /// Id of account in form `name@domain_name'
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub id: AccountId,
         /// Its public key
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub key: PublicKey,
-        /// /// The JSON file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Register {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self {
-                id,
-                key,
-                metadata: Metadata(metadata),
-            } = self;
+            let Self { id, key, metadata } = self;
             let create_account =
                 iroha_client::data_model::isi::Register::account(Account::new(id, [key]));
-            submit([create_account], metadata, context).wrap_err("Failed to register account")
+            submit([create_account], metadata.load()?, context)
+                .wrap_err("Failed to register account")
         }
     }
 
     /// Set subcommand of account
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Subcommand, Debug)]
     pub enum Set {
         /// Signature condition
         SignatureCondition(SignatureCondition),
@@ -549,7 +550,7 @@ mod account {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct Signature(SignatureCheckCondition);
 
     impl FromStr for Signature {
@@ -566,13 +567,12 @@ mod account {
     }
 
     /// Set accounts signature condition
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct SignatureCondition {
         /// Signature condition file
         pub condition: Signature,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for SignatureCondition {
@@ -580,15 +580,16 @@ mod account {
             let account_id = context.configuration().account_id.clone();
             let Self {
                 condition: Signature(condition),
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let mint_box = Mint::account_signature_check_condition(condition, account_id);
-            submit([mint_box], metadata, context).wrap_err("Failed to set signature condition")
+            submit([mint_box], metadata.load()?, context)
+                .wrap_err("Failed to set signature condition")
         }
     }
 
     /// List accounts with this command
-    #[derive(StructOpt, Debug, Clone)]
+    #[derive(clap::Subcommand, Debug, Clone)]
     pub enum List {
         /// All accounts
         All,
@@ -615,21 +616,20 @@ mod account {
         }
     }
 
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Grant {
         /// Account id
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub id: AccountId,
         /// The JSON/JSON5 file with a permission token
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub permission: Permission,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     /// [`PermissionToken`] wrapper implementing [`FromStr`]
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct Permission(PermissionToken);
 
     impl FromStr for Permission {
@@ -651,19 +651,19 @@ mod account {
             let Self {
                 id,
                 permission,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let grant = iroha_client::data_model::isi::Grant::permission_token(permission.0, id);
-            submit([grant], metadata, context)
+            submit([grant], metadata.load()?, context)
                 .wrap_err("Failed to grant the permission to the account")
         }
     }
 
     /// List all account permissions
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct ListPermissions {
         /// Account id
-        #[structopt(short, long)]
+        #[arg(short, long)]
         id: AccountId,
     }
 
@@ -689,7 +689,7 @@ mod asset {
     use super::*;
 
     /// Subcommand for dealing with asset
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Subcommand, Debug)]
     pub enum Args {
         /// Command for Registering a new asset
         Register(Register),
@@ -704,9 +704,9 @@ mod asset {
         /// List assets
         #[clap(subcommand)]
         List(List),
-        /// Put a key-value in a store Asset defintion
+        /// Put a key-value entry in a store Asset
         SetKeyValue(SetKeyValue),
-        /// Remove a key-value via key in a store Asset definition
+        /// Remove a key-value entry via key in a store Asset
         RemoveKeyValue(RemoveKeyValue),
         /// Get a value from store Asset definition via key
         GetKeyValue(GetKeyValue),
@@ -722,20 +722,19 @@ mod asset {
     }
 
     /// Register subcommand of asset
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Register {
         /// Asset id for registering (in form of `name#domain_name')
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub id: AssetDefinitionId,
         /// Mintability of asset
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub unmintable: bool,
         /// Value type stored in asset
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub value_type: AssetValueType,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Register {
@@ -744,7 +743,7 @@ mod asset {
                 id,
                 value_type,
                 unmintable,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let mut asset_definition = match value_type {
                 AssetValueType::Quantity => AssetDefinition::quantity(id),
@@ -757,26 +756,25 @@ mod asset {
             }
             let create_asset_definition =
                 iroha_client::data_model::isi::Register::asset_definition(asset_definition);
-            submit([create_asset_definition], metadata, context)
+            submit([create_asset_definition], metadata.load()?, context)
                 .wrap_err("Failed to register asset")
         }
     }
 
     /// Command for minting asset in existing Iroha account
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Mint {
         /// Account id where asset is stored (in form of `name@domain_name')
-        #[structopt(long)]
+        #[arg(long)]
         pub account: AccountId,
         /// Asset id from which to mint (in form of `name#domain_name')
-        #[structopt(long)]
+        #[arg(long)]
         pub asset: AssetDefinitionId,
         /// Quantity to mint
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub quantity: u32,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Mint {
@@ -785,32 +783,31 @@ mod asset {
                 account,
                 asset,
                 quantity,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let mint_asset = iroha_client::data_model::isi::Mint::asset_quantity(
                 quantity,
                 AssetId::new(asset, account),
             );
-            submit([mint_asset], metadata, context)
+            submit([mint_asset], metadata.load()?, context)
                 .wrap_err("Failed to mint asset of type `NumericValue::U32`")
         }
     }
 
     /// Command for minting asset in existing Iroha account
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Burn {
         /// Account id where asset is stored (in form of `name@domain_name')
-        #[structopt(long)]
+        #[arg(long)]
         pub account: AccountId,
         /// Asset id from which to mint (in form of `name#domain_name')
-        #[structopt(long)]
+        #[arg(long)]
         pub asset: AssetDefinitionId,
         /// Quantity to mint
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub quantity: u32,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Burn {
@@ -819,35 +816,34 @@ mod asset {
                 account,
                 asset,
                 quantity,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let burn_asset = iroha_client::data_model::isi::Burn::asset_quantity(
                 quantity,
                 AssetId::new(asset, account),
             );
-            submit([burn_asset], metadata, context)
+            submit([burn_asset], metadata.load()?, context)
                 .wrap_err("Failed to burn asset of type `NumericValue::U32`")
         }
     }
 
     /// Transfer asset between accounts
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Transfer {
         /// Account from which to transfer (in form `name@domain_name')
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub from: AccountId,
         /// Account to which to transfer (in form `name@domain_name')
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub to: AccountId,
         /// Asset id to transfer (in form like `name#domain_name')
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub asset_id: AssetDefinitionId,
         /// Quantity of asset as number
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub quantity: u32,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Transfer {
@@ -857,25 +853,25 @@ mod asset {
                 to,
                 asset_id,
                 quantity,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let transfer_asset = iroha_client::data_model::isi::Transfer::asset_quantity(
                 AssetId::new(asset_id, from),
                 quantity,
                 to,
             );
-            submit([transfer_asset], metadata, context).wrap_err("Failed to transfer asset")
+            submit([transfer_asset], metadata.load()?, context).wrap_err("Failed to transfer asset")
         }
     }
 
     /// Get info of asset
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Get {
         /// Account where asset is stored (in form of `name@domain_name')
-        #[structopt(long)]
+        #[arg(long)]
         pub account: AccountId,
         /// Asset name to lookup (in form of `name#domain_name')
-        #[structopt(long)]
+        #[arg(long)]
         pub asset: AssetDefinitionId,
     }
 
@@ -893,7 +889,7 @@ mod asset {
     }
 
     /// List assets with this command
-    #[derive(StructOpt, Debug, Clone)]
+    #[derive(clap::Subcommand, Debug, Clone)]
     pub enum List {
         /// All assets
         All,
@@ -920,16 +916,16 @@ mod asset {
         }
     }
 
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct SetKeyValue {
         /// AssetId for the Store asset (in form of `asset##account@domain_name')
-        #[structopt(long = "asset-id")]
+        #[clap(long = "asset-id")]
         pub asset_id: AssetId,
         /// The key for the store value
-        #[structopt(long)]
+        #[clap(long)]
         pub key: Name,
         /// The value to be associated with the key
-        #[structopt(long)]
+        #[clap(long)]
         pub value: ValueArg,
     }
 
@@ -946,12 +942,13 @@ mod asset {
             Ok(())
         }
     }
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct RemoveKeyValue {
-        #[structopt(long = "asset-id")]
+        /// AssetId for the Store asset (in form of `asset##account@domain_name')
+        #[clap(long = "asset-id")]
         pub asset_id: AssetId,
         /// The key for the store value
-        #[structopt(long)]
+        #[clap(long)]
         pub key: Name,
     }
 
@@ -964,12 +961,13 @@ mod asset {
         }
     }
 
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct GetKeyValue {
-        #[structopt(long = "asset-id")]
+        /// AssetId for the Store asset (in form of `asset##account@domain_name')
+        #[clap(long = "asset-id")]
         pub asset_id: AssetId,
-        // The key for the store value
-        #[structopt(long)]
+        /// The key for the store value
+        #[clap(long)]
         pub key: Name,
     }
 
@@ -977,7 +975,7 @@ mod asset {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { asset_id, key } = self;
             let client = Client::new(context.configuration())?;
-            let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id, key.clone());
+            let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id, key);
             let asset = client
                 .request(find_key_value)
                 .wrap_err("Failed to get key-value")?;
@@ -991,7 +989,7 @@ mod peer {
     use super::*;
 
     /// Subcommand for dealing with peer
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Subcommand, Debug)]
     pub enum Args {
         /// Register subcommand of peer
         Register(Register),
@@ -1009,17 +1007,16 @@ mod peer {
     }
 
     /// Register subcommand of peer
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Register {
         /// P2P address of the peer e.g. `127.0.0.1:1337`
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub address: SocketAddr,
         /// Public key of the peer
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub key: PublicKey,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Register {
@@ -1027,27 +1024,26 @@ mod peer {
             let Self {
                 address,
                 key,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let register_peer = iroha_client::data_model::isi::Register::peer(Peer::new(
                 PeerId::new(&address, &key),
             ));
-            submit([register_peer], metadata, context).wrap_err("Failed to register peer")
+            submit([register_peer], metadata.load()?, context).wrap_err("Failed to register peer")
         }
     }
 
     /// Unregister subcommand of peer
-    #[derive(StructOpt, Debug)]
+    #[derive(clap::Args, Debug)]
     pub struct Unregister {
         /// P2P address of the peer e.g. `127.0.0.1:1337`
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub address: SocketAddr,
         /// Public key of the peer
-        #[structopt(short, long)]
+        #[arg(short, long)]
         pub key: PublicKey,
-        /// The JSON/JSON5 file with key-value metadata pairs
-        #[structopt(short, long, default_value = "")]
-        pub metadata: super::Metadata,
+        #[command(flatten)]
+        pub metadata: MetadataArgs,
     }
 
     impl RunArgs for Unregister {
@@ -1055,11 +1051,12 @@ mod peer {
             let Self {
                 address,
                 key,
-                metadata: Metadata(metadata),
+                metadata,
             } = self;
             let unregister_peer =
                 iroha_client::data_model::isi::Unregister::peer(PeerId::new(&address, &key));
-            submit([unregister_peer], metadata, context).wrap_err("Failed to unregister peer")
+            submit([unregister_peer], metadata.load()?, context)
+                .wrap_err("Failed to unregister peer")
         }
     }
 }
@@ -1070,10 +1067,10 @@ mod wasm {
     use super::*;
 
     /// Subcommand for dealing with Wasm
-    #[derive(Debug, StructOpt)]
+    #[derive(Debug, clap::Args)]
     pub struct Args {
         /// Specify a path to the Wasm file or skip this flag to read from stdin
-        #[structopt(short, long)]
+        #[arg(short, long)]
         path: Option<PathBuf>,
     }
 
@@ -1105,7 +1102,7 @@ mod json {
     use super::*;
 
     /// Subcommand for submitting multi-instructions
-    #[derive(Clone, Copy, Debug, StructOpt)]
+    #[derive(Clone, Copy, Debug, clap::Args)]
     pub struct Args;
 
     impl RunArgs for Args {
@@ -1118,6 +1115,337 @@ mod json {
             let instructions: Vec<InstructionBox> = json5::from_str(&string_content)?;
             submit(instructions, UnlimitedMetadata::new(), context)
                 .wrap_err("Failed to submit parsed instructions")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use iroha_client::{
+        config::{Configuration as ClientConfiguration, ConfigurationProxy},
+        data_model::{
+            asset::{AssetDefinitionId, AssetId},
+            domain::DomainId,
+            name::Name,
+        },
+    };
+
+    use super::*;
+    use crate::asset::{RemoveKeyValue, SetKeyValue};
+
+    struct TestContext {
+        config: ClientConfiguration,
+        skip_mst_check: bool,
+    }
+
+    impl RunContext for TestContext {
+        fn configuration(&self) -> &ClientConfiguration {
+            &self.config
+        }
+
+        fn print_data(&mut self, _data: &dyn Serialize) -> Result<()> {
+            Ok(())
+        }
+
+        fn skip_mst_check(&self) -> bool {
+            self.skip_mst_check
+        }
+    }
+
+    fn initialize_test_context() -> Result<TestContext> {
+        let config = ConfigurationProxy::default();
+        let binding = Path::default(DEFAULT_CONFIG_PATH);
+        let path = binding;
+        let path = path
+            .try_resolve()
+            .wrap_err("Failed to resolve config file")?;
+
+        let config = match path {
+            Some(p) => config.override_with(ConfigurationProxy::from_path(&*p)),
+            None => config,
+        };
+        // Build the final configuration
+        let config = config
+            .build()
+            .wrap_err("Failed to finalize configuration")?;
+
+        Ok(TestContext {
+            config,
+            skip_mst_check: false,
+        })
+    }
+
+    fn initialize_test_store(context: &mut TestContext, def_str: &str) -> Result<()> {
+        let asset_definition_id = AssetDefinitionId::new(
+            Name::from_str(def_str).unwrap(),
+            DomainId::new(Name::from_str("wonderland").unwrap()),
+        );
+
+        let asset_definition = AssetDefinition::store(asset_definition_id);
+        // Register the asset definition
+        let create_asset_definition =
+            iroha_client::data_model::isi::Register::asset_definition(asset_definition);
+        submit(
+            [create_asset_definition],
+            UnlimitedMetadata::default(),
+            context,
+        )
+        .wrap_err("Failed to create store asset")?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_key_values_without_errors() {
+        let mut context = initialize_test_context().expect("Failed to initialize test context");
+        initialize_test_store(&mut context, "test_store").expect("Failed to register asset");
+        let asset_id =
+            AssetId::from_str("test_store##alice@wonderland").expect("Invalid AssetId format");
+
+        // Setting a Numeric Value
+        let key_name1 = Name::from_str("test_key1").expect("Invalid Name format");
+        let test_value1 = ValueArg(Value::Numeric(NumericValue::from_str("17_u32").unwrap()));
+
+        let set_key_value1 = SetKeyValue {
+            asset_id: asset_id.clone(),
+            key: key_name1,
+            value: test_value1,
+        };
+
+        set_key_value1
+            .run(&mut context)
+            .expect("Failed to run SetKeyValue for Numeric Value");
+
+        // Setting an IPv4 Address
+        let key_name2 = Name::from_str("test_key2").expect("Invalid Name format");
+        let test_value2 = ValueArg(Value::Ipv4Addr(Ipv4Addr::from_str("127.0.0.1").unwrap()));
+
+        let set_key_value2 = SetKeyValue {
+            asset_id: asset_id.clone(),
+            key: key_name2,
+            value: test_value2,
+        };
+
+        set_key_value2
+            .run(&mut context)
+            .expect("Failed to run SetKeyValue for IPv4 Address");
+
+        // Setting a Boolean Value
+        let key_name3 = Name::from_str("test_key3").expect("Invalid Name format");
+        let test_value3 = ValueArg(Value::Bool(true));
+
+        let set_key_value3 = SetKeyValue {
+            asset_id: asset_id.clone(),
+            key: key_name3,
+            value: test_value3,
+        };
+
+        set_key_value3
+            .run(&mut context)
+            .expect("Failed to run SetKeyValue for Boolean Value");
+
+        let key_name4 = Name::from_str("test_key4").expect("Invalid Name format");
+        let json_data = r#"{ "Vec": [{"String": "a"}, {"String": "b"}] }"#;
+        let test_value4 = ValueArg(serde_json::from_str(json_data).unwrap());
+
+        let set_key_value4 = SetKeyValue {
+            asset_id: asset_id.clone(),
+            key: key_name4,
+            value: test_value4,
+        };
+
+        set_key_value4
+            .run(&mut context)
+            .expect("Failed to run SetKeyValue for JSON Value");
+
+        // Setting an IPv6 Address
+        let key_name5 = Name::from_str("test_key5").expect("Invalid Name format");
+        let ipv6_addr = Ipv6Addr::from_str("::1").expect("Invalid IPv6 format");
+        let test_value5 = ValueArg(Value::Ipv6Addr(ipv6_addr));
+
+        let set_key_value5 = SetKeyValue {
+            asset_id: asset_id.clone(),
+            key: key_name5,
+            value: test_value5,
+        };
+
+        set_key_value5
+            .run(&mut context)
+            .expect("Failed to run SetKeyValue for IPv6 Address");
+
+        let key_name6 = Name::from_str("test_key6").expect("Invalid Name format");
+        let public_key_str =
+            "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0";
+        let pub_key = PublicKey::from_str(public_key_str).expect("Invalid public key");
+        let test_value6 = ValueArg(Value::PublicKey(pub_key));
+        let set_key_value6 = SetKeyValue {
+            asset_id,
+            key: key_name6,
+            value: test_value6,
+        };
+
+        set_key_value6
+            .run(&mut context)
+            .expect("Failed to run SetKeyValue for PublicKey");
+    }
+
+    #[test]
+    fn test_remove_value_without_errors() {
+        let mut context = initialize_test_context().expect("Failed to initialize test context");
+        initialize_test_store(&mut context, "test_store2").expect("Failed to register asset");
+        let mut context = initialize_test_context().expect("Failed to initialize test context");
+        let asset_id =
+            AssetId::from_str("test_store2##alice@wonderland").expect("Invalid AssetId format");
+
+        // Setting a Numeric Value
+        let key_name1 = Name::from_str("test_key1").expect("Invalid Name format");
+        let test_value1 = ValueArg(Value::Numeric(NumericValue::from_str("17_u32").unwrap()));
+
+        let set_key_value1 = SetKeyValue {
+            asset_id: asset_id.clone(),
+            key: key_name1.clone(),
+            value: test_value1,
+        };
+
+        set_key_value1
+            .run(&mut context)
+            .expect("Failed to run SetKeyValue for Numeric Value");
+
+        let remove_key_value = RemoveKeyValue {
+            asset_id,
+            key: key_name1.clone(),
+        };
+
+        remove_key_value
+            .run(&mut context)
+            .unwrap_or_else(|_| panic!("Failed to run RemoveKeyValue for key {key_name1}"))
+    }
+
+    #[test]
+    fn test_set_get_values() {
+        let mut context = initialize_test_context().expect("Failed to initialize test context");
+        let client = Client::new(context.configuration()).unwrap();
+
+        initialize_test_store(&mut context, "test_store3").expect("Failed to register asset");
+        let asset_id =
+            AssetId::from_str("test_store3##alice@wonderland").expect("Invalid AssetId format");
+
+        // Setting a Numeric Value
+        let key_name1 = Name::from_str("test_key1").expect("Invalid Name format");
+        let test_value1 = ValueArg(Value::Numeric(NumericValue::from_str("17_u32").unwrap()));
+
+        let set_key_value1 = SetKeyValue {
+            asset_id: asset_id.clone(),
+            key: key_name1.clone(),
+            value: test_value1,
+        };
+
+        set_key_value1
+            .run(&mut context)
+            .expect("Failed to run SetKeyValue for Numeric Value");
+
+        let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id.clone(), key_name1);
+        let asset = client
+            .request(find_key_value)
+            .wrap_err("Failed to get key-value")
+            .unwrap();
+
+        assert_eq!(
+            serde_json::to_string(&asset).expect("Failed to deserialize asset"),
+            r#""17_u32""#
+        );
+
+        // Setting an IPv4 Address
+        let key_name2 = Name::from_str("test_key2").expect("Invalid Name format");
+        let test_value2 = ValueArg(Value::Ipv4Addr(Ipv4Addr::from_str("127.0.0.1").unwrap()));
+
+        let set_key_value2 = SetKeyValue {
+            asset_id: asset_id.clone(),
+            key: key_name2.clone(),
+            value: test_value2,
+        };
+
+        set_key_value2
+            .run(&mut context)
+            .expect("Failed to run SetKeyValue for IPv4 Address");
+
+        let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id.clone(), key_name2);
+        let asset = client
+            .request(find_key_value)
+            .wrap_err("Failed to get key-value")
+            .unwrap();
+
+        assert_eq!(
+            serde_json::to_string(&asset).expect("Failed to deserialize asset"),
+            r#"{"Ipv4Addr":"127.0.0.1"}"#
+        );
+
+        // Setting a Boolean Value
+        let key_name3 = Name::from_str("test_key3").expect("Invalid Name format");
+        let test_value3 = ValueArg(Value::Bool(true));
+
+        let set_key_value3 = SetKeyValue {
+            asset_id: asset_id.clone(),
+            key: key_name3.clone(),
+            value: test_value3,
+        };
+
+        set_key_value3
+            .run(&mut context)
+            .expect("Failed to run SetKeyValue for Boolean Value");
+
+        let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id.clone(), key_name3);
+        let asset = client
+            .request(find_key_value)
+            .wrap_err("Failed to get key-value")
+            .unwrap();
+
+        assert_eq!(
+            serde_json::to_string(&asset).expect("Failed to deserialize asset"),
+            r#"{"Bool":true}"#
+        );
+
+        let key_name4 = Name::from_str("test_key4").expect("Invalid Name format");
+        let json_data = r#"{"Vec":[{"String":"a"},{"String":"b"}]}"#;
+        let test_value4 = ValueArg(serde_json::from_str(json_data).unwrap());
+
+        let set_key_value4 = SetKeyValue {
+            asset_id: asset_id.clone(),
+            key: key_name4.clone(),
+            value: test_value4,
+        };
+
+        set_key_value4
+            .run(&mut context)
+            .expect("Failed to run SetKeyValue for JSON Value");
+
+        let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id, key_name4);
+        let asset = client
+            .request(find_key_value)
+            .wrap_err("Failed to get key-value")
+            .unwrap();
+
+        assert_eq!(
+            serde_json::to_string(&asset).expect("Failed to deserialize asset"),
+            r#"{"Vec":[{"String":"a"},{"String":"b"}]}"#
+        );
+    }
+
+    #[test]
+    fn test_error_for_asset_id() {
+        let invalid_asset_id = AssetId::from_str("store#alice@wonderland");
+
+        match invalid_asset_id {
+            Ok(_) => panic!("Expected an error, but the operation succeeded"),
+            Err(e) => {
+                let error_msg = e.to_string();
+                let expected_pattern1 = "name#domain_of_asset#account_name@domain_of_account";
+                let expected_pattern2 = "name##account_name@domain_of_account";
+                assert!(
+                    error_msg.contains(expected_pattern1) && error_msg.contains(expected_pattern2),
+                    "Error message did not contain the expected pattern"
+                );
+            }
         }
     }
 }
