@@ -74,7 +74,7 @@ impl SnapshotMaker {
                     // Offload snapshot creation into blocking thread
                     self.create_snapshot().await;
                 },
-                _ = self.sumeragi.finalized_wsv_updated() => {
+                () = self.sumeragi.finalized_wsv_updated() => {
                     self.sumeragi.apply_finalized_wsv(|finalized_wsv| self.new_wsv_available = finalized_wsv.height() > 0);
                 }
                 _ = message_receiver.recv() => {

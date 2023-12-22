@@ -5,8 +5,6 @@
   "KURA": {
     "INIT_MODE": "strict",
     "BLOCK_STORE_PATH": "./storage",
-    "BLOCKS_PER_STORAGE_FILE": 1000,
-    "ACTOR_CHANNEL_CAPACITY": 100,
     "DEBUG_OUTPUT_NEW_BLOCKS": false
   },
   "SUMERAGI": {
@@ -38,11 +36,8 @@
     "FUTURE_THRESHOLD_MS": 1000
   },
   "LOGGER": {
-    "MAX_LOG_LEVEL": "INFO",
-    "TELEMETRY_CAPACITY": 1000,
-    "COMPACT_MODE": false,
-    "LOG_FILE_PATH": null,
-    "TERMINAL_COLORS": true
+    "LEVEL": "INFO",
+    "FORMAT": "full"
   },
   "GENESIS": {
     "ACCOUNT_PUBLIC_KEY": null,

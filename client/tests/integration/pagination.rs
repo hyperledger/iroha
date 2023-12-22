@@ -46,11 +46,11 @@ fn fetch_size_should_work() -> Result<()> {
 }
 
 fn register_assets(client: &Client) -> Result<()> {
-    let register: Vec<InstructionExpr> = ('a'..='z')
+    let register: Vec<InstructionBox> = ('a'..='z')
         .map(|c| c.to_string())
         .map(|name| (name + "#wonderland").parse().expect("Valid"))
         .map(|asset_definition_id| {
-            RegisterExpr::new(AssetDefinition::quantity(asset_definition_id)).into()
+            Register::asset_definition(AssetDefinition::quantity(asset_definition_id)).into()
         })
         .collect();
     let _ = client.submit_all_blocking(register)?;

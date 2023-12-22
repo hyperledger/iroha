@@ -29,19 +29,19 @@ pub struct OutBoxedSlice<C>(*mut C, usize);
 impl<C> Copy for SliceRef<C> {}
 impl<C> Clone for SliceRef<C> {
     fn clone(&self) -> Self {
-        Self(self.0, self.1)
+        *self
     }
 }
 impl<C> Copy for SliceMut<C> {}
 impl<C> Clone for SliceMut<C> {
     fn clone(&self) -> Self {
-        Self(self.0, self.1)
+        *self
     }
 }
 impl<C> Copy for OutBoxedSlice<C> {}
 impl<C> Clone for OutBoxedSlice<C> {
     fn clone(&self) -> Self {
-        Self(self.0, self.1)
+        *self
     }
 }
 

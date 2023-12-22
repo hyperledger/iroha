@@ -4,6 +4,7 @@ use std::str::FromStr as _;
 
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
+use iroha_config::kura::Configuration;
 use iroha_core::{
     block::*,
     kura::{BlockStore, LockStatus},
@@ -22,11 +23,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let bob_id = AccountId::from_str("bob@test").expect("tested");
     let xor_id = AssetDefinitionId::from_str("xor#test").expect("tested");
     let alice_xor_id = AssetId::new(xor_id, alice_id);
-    let transfer = TransferExpr::new(
-        IdBox::AssetId(alice_xor_id),
-        10_u32.to_value(),
-        IdBox::AccountId(bob_id),
-    );
+    let transfer = Transfer::asset_quantity(alice_xor_id, 10_u32, bob_id);
     let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let tx = TransactionBuilder::new(AccountId::from_str("alice@wonderland").expect("checked"))
         .with_instructions([transfer])
@@ -39,8 +36,12 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let tx = AcceptedTransaction::accept(tx, &transaction_limits)
         .expect("Failed to accept Transaction.");
     let dir = tempfile::tempdir().expect("Could not create tempfile.");
-    let kura =
-        iroha_core::kura::Kura::new(iroha_config::kura::Mode::Strict, dir.path(), false).unwrap();
+    let cfg = Configuration {
+        init_mode: iroha_config::kura::Mode::Strict,
+        debug_output_new_blocks: false,
+        block_store_path: dir.path().to_str().unwrap().into(),
+    };
+    let kura = iroha_core::kura::Kura::new(&cfg).unwrap();
     let _thread_handle = iroha_core::kura::Kura::start(kura.clone());
 
     let query_handle = LiveQueryStore::test().start();

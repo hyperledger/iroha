@@ -2,7 +2,7 @@
 use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
-use iroha_config_base::derive::{view, Documented, Proxy};
+use iroha_config_base::derive::{view, Proxy};
 use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
 use iroha_primitives::{unique_vec, unique_vec::UniqueVec};
@@ -36,7 +36,7 @@ view! {
     /// `Sumeragi` configuration.
     /// [`struct@Configuration`] provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and a list of `TRUSTED_PEERS`.
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy, Documented)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "SUMERAGI_")]
     pub struct Configuration {
@@ -94,11 +94,16 @@ impl ConfigurationProxy {
     pub fn insert_self_as_trusted_peers(&mut self) {
         let peer_id = self
             .peer_id
-            .clone()
+            .as_ref()
             .expect("Insertion of `self` as `trusted_peers` implies that `peer_id` field should be initialized");
-        self.trusted_peers = Some(TrustedPeers {
-            peers: unique_vec![peer_id],
-        });
+        self.trusted_peers = if let Some(mut trusted_peers) = self.trusted_peers.take() {
+            trusted_peers.peers.push(peer_id.clone());
+            Some(trusted_peers)
+        } else {
+            Some(TrustedPeers {
+                peers: unique_vec![peer_id.clone()],
+            })
+        };
     }
 }
 

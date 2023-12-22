@@ -18,14 +18,13 @@ New to our project? [Make your first contribution](#your-first-code-contribution
 
 ### TL;DR
 
-* Find [ZenHub](https://app.zenhub.com/workspaces/iroha-v2-60ddb820813b9100181fc060/board?repos=181739240).
-* Fork [Iroha](https://github.com/hyperledger/iroha/tree/iroha2-dev).
-* Fix your issue of choice.
-* Ensure you follow our [style guides](#style-guides) for code and documentation.
-* Write [tests](https://doc.rust-lang.org/cargo/commands/cargo-test.html). Ensure they all pass (`cargo test`).
-* Fix [`clippy`](https://lib.rs/crates/cargo-lints) warnings: `cargo lints clippy --workspace --benches --tests --examples --all-features`.
-* Format code `cargo +nightly fmt --all` and generate docs `cargo run --bin kagami -- docs >"docs/source/references/config.md" && git add "docs/source/references/config.md"`.
-* With the `upstream` set to track [Hyperledger Iroha repository](https://github.com/hyperledger/iroha), `git pull -r upstream iroha2-dev`, `git commit -s`, `git push <your-fork>`, and [create a pull request](https://github.com/hyperledger/iroha/compare) to the `iroha2-dev` branch. Ensure the PR has the `[type] #<issue number>: Description` [title](#pull-request-titles).
+- Find [ZenHub](https://app.zenhub.com/workspaces/iroha-v2-60ddb820813b9100181fc060/board?repos=181739240).
+- Fork [Iroha](https://github.com/hyperledger/iroha/tree/iroha2-dev).
+- Fix your issue of choice.
+- Ensure you follow our [style guides](#style-guides) for code and documentation.
+- Write [tests](https://doc.rust-lang.org/cargo/commands/cargo-test.html). Ensure they all pass (`cargo test --workspace`).
+- Perform pre-commit routine like formatting & artifacts regeneration (see [`pre-commit.sample`](./hooks/pre-commit.sample))
+- With the `upstream` set to track [Hyperledger Iroha repository](https://github.com/hyperledger/iroha), `git pull -r upstream iroha2-dev`, `git commit -s`, `git push <your-fork>`, and [create a pull request](https://github.com/hyperledger/iroha/compare) to the `iroha2-dev` branch. Ensure the PR has the `[type] #<issue number>: Description` [title](#pull-request-titles).
 
 ### Reporting Bugs
 
@@ -231,7 +230,7 @@ Follow these commit guidelines:
 
 <details> <summary> Expand to learn how to change the log level or write logs to a JSON.</summary>
 
-If one of your tests is failing, you may want to decrease the maximum logging level. By default, Iroha only logs `INFO` level messages, but retains the ability to produce both `DEBUG` and `TRACE` level logs. This setting can be changed either using the `MAX_LOG_LEVEL` environment variable for code-based tests, or using the `/configuration` endpoint on one of the peers in a deployed network.
+If one of your tests is failing, you may want to decrease the maximum logging level. By default, Iroha only logs `INFO` level messages, but retains the ability to produce both `DEBUG` and `TRACE` level logs. This setting can be changed either using the `LOG_LEVEL` environment variable for code-based tests, or using the `/configuration` endpoint on one of the peers in a deployed network.
 
 While logs printed in the `stdout` are sufficient, you may find it more convenient to produce `json`-formatted logs into a separate file and parse them using either [node-bunyan](https://www.npmjs.com/package/bunyan) or [rust-bunyan](https://crates.io/crates/bunyan).
 
@@ -251,8 +250,8 @@ In this case you should compile iroha with support of tokio console like that:
 RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
 ```
 
-Port for tokio console can by configured through `TOKIO_CONSOLE_ADDR` configuration parameter (or environment variable).
-Using tokio console require log level to be `TRACE`, can be enabled through configuration parameter or environment variable `MAX_LOG_LEVEL`.
+Port for tokio console can by configured through `LOG_TOKIO_CONSOLE_ADDR` configuration parameter (or environment variable).
+Using tokio console require log level to be `TRACE`, can be enabled through configuration parameter or environment variable `LOG_LEVEL`.
 
 Example of running iroha with tokio console support using `scripts/test_env.sh`:
 
@@ -260,7 +259,7 @@ Example of running iroha with tokio console support using `scripts/test_env.sh`:
 # 1. Compile iroha
 RUSTFLAGS="--cfg tokio_unstable" cargo build --features tokio-console
 # 2. Run iroha with TRACE log level
-MAX_LOG_LEVEL=TRACE ./scripts/test_env.sh setup
+LOG_LEVEL=TRACE ./scripts/test_env.sh setup
 # 3. Access iroha. Peers will be available on ports 5555, 5556, ...
 tokio-console http://127.0.0.1:5555
 ```

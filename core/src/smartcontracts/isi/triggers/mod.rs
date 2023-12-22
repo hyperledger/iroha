@@ -1,9 +1,7 @@
 //! This module contains implementations of smart-contract traits and
 //! instructions for triggers in Iroha.
 
-use iroha_data_model::{
-    evaluate::ExpressionEvaluator, isi::error::MathError, prelude::*, query::error::FindError,
-};
+use iroha_data_model::{isi::error::MathError, prelude::*, query::error::FindError};
 use iroha_telemetry::metrics;
 
 pub mod set;
@@ -154,13 +152,13 @@ pub mod isi {
         }
     }
 
-    impl Execute for ExecuteTriggerExpr {
+    impl Execute for ExecuteTrigger {
         #[metrics(+"execute_trigger")]
         fn execute(self, authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-            let id = wsv.evaluate(&self.trigger_id)?;
+            let id = &self.trigger_id;
 
             wsv.triggers()
-                .inspect_by_id(&id, |action| -> Result<(), Error> {
+                .inspect_by_id(id, |action| -> Result<(), Error> {
                     let allow_execute = if let TriggeringFilterBox::ExecuteTrigger(filter) =
                         action.clone_and_box().filter
                     {
@@ -186,7 +184,7 @@ pub mod isi {
                 .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))
                 .and_then(core::convert::identity)?;
 
-            wsv.execute_trigger(id, authority);
+            wsv.execute_trigger(id.clone(), authority);
 
             Ok(())
         }
@@ -217,43 +215,37 @@ pub mod query {
     impl ValidQuery for FindTriggerById {
         #[metrics(+"find_trigger_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Trigger<TriggeringFilterBox>, Error> {
-            let id = wsv
-                .evaluate(&self.id)
-                .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
+            let id = &self.id;
             iroha_logger::trace!(%id);
             // Can't use just `LoadedActionTrait::clone_and_box` cause this will trigger lifetime mismatch
             #[allow(clippy::redundant_closure_for_method_calls)]
             let loaded_action = wsv
                 .triggers()
-                .inspect_by_id(&id, |action| action.clone_and_box())
+                .inspect_by_id(id, |action| action.clone_and_box())
                 .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))?;
 
             let action = wsv.triggers().get_original_action(loaded_action);
 
             // TODO: Should we redact the metadata if the account is not the authority/owner?
-            Ok(Trigger::new(id, action))
+            Ok(Trigger::new(id.clone(), action))
         }
     }
 
     impl ValidQuery for FindTriggerKeyValueByIdAndKey {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
-            let id = wsv
-                .evaluate(&self.id)
-                .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {e}")))?;
-            let key = wsv
-                .evaluate(&self.key)
-                .map_err(|e| Error::Evaluate(format!("Failed to evaluate key. {e}")))?;
+            let id = &self.id;
+            let key = &self.key;
             iroha_logger::trace!(%id, %key);
             wsv.triggers()
-                .inspect_by_id(&id, |action| {
+                .inspect_by_id(id, |action| {
                     action
                         .metadata()
-                        .get(&key)
+                        .get(key)
                         .cloned()
                         .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
                 })
-                .ok_or_else(|| Error::Find(FindError::Trigger(id)))?
+                .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))?
                 .map(Into::into)
         }
     }
@@ -265,13 +257,11 @@ pub mod query {
             wsv: &'wsv WorldStateView,
         ) -> eyre::Result<Box<dyn Iterator<Item = Trigger<TriggeringFilterBox>> + 'wsv>, Error>
         {
-            let domain_id = wsv
-                .evaluate(&self.domain_id)
-                .map_err(|e| Error::Evaluate(format!("Failed to evaluate domain id. {e}")))?;
+            let domain_id = &self.domain_id;
 
             Ok(Box::new(
                 wsv.triggers()
-                    .inspect_by_domain_id(&domain_id, |trigger_id, action| {
+                    .inspect_by_domain_id(domain_id, |trigger_id, action| {
                         (trigger_id.clone(), action.clone_and_box())
                     })
                     .map(|(trigger_id, action)| {

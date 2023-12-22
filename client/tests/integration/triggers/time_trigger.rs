@@ -44,8 +44,8 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
 
     let schedule =
         TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(PERIOD_MS));
-    let instruction = MintExpr::new(1_u32, asset_id.clone());
-    let register_trigger = RegisterExpr::new(Trigger::new(
+    let instruction = Mint::asset_quantity(1_u32, asset_id.clone());
+    let register_trigger = Register::trigger(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
             vec![instruction],
@@ -98,8 +98,8 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
 
     let schedule = TimeSchedule::starting_at(start_time + Duration::from_millis(PERIOD_MS));
     let instruction =
-        SetKeyValueExpr::new(asset_definition_id.clone(), key.clone(), 3_u32.to_value());
-    let register_trigger = RegisterExpr::new(Trigger::new(
+        SetKeyValue::asset_definition(asset_definition_id.clone(), key.clone(), 3_u32.to_value());
+    let register_trigger = Register::trigger(Trigger::new(
         "change_rose_metadata".parse().expect("Valid"),
         Action::new(
             vec![instruction],
@@ -119,8 +119,8 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
 
     let value = test_client
         .request(FindAssetDefinitionKeyValueByIdAndKey {
-            id: asset_definition_id.into(),
-            key: key.into(),
+            id: asset_definition_id,
+            key,
         })?
         .into();
     assert!(matches!(value, Value::Numeric(NumericValue::U32(3_u32))));
@@ -144,8 +144,8 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     // Start listening BEFORE submitting any transaction not to miss any block committed event
     let event_listener = get_block_committed_event_listener(&test_client)?;
 
-    let instruction = MintExpr::new(1_u32, asset_id.clone());
-    let register_trigger = RegisterExpr::new(Trigger::new(
+    let instruction = Mint::asset_quantity(1_u32, asset_id.clone());
+    let register_trigger = Register::trigger(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
             vec![instruction],
@@ -162,7 +162,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
         prev_value = new_value;
 
         // ISI just to create a new block
-        let sample_isi = SetKeyValueExpr::new(
+        let sample_isi = SetKeyValue::account(
             account_id.clone(),
             "key".parse::<Name>()?,
             String::from("value"),
@@ -196,7 +196,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
         .iter()
         .skip(1) // Alice has already been registered in genesis
         .cloned()
-        .map(|account_id| RegisterExpr::new(Account::new(account_id, [])))
+        .map(|account_id| Register::account(Account::new(account_id, [])))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 
@@ -220,7 +220,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     let start_time = current_time();
     let schedule =
         TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(TRIGGER_PERIOD_MS));
-    let register_trigger = RegisterExpr::new(Trigger::new(
+    let register_trigger = Register::trigger(Trigger::new(
         "mint_nft_for_all".parse()?,
         Action::new(
             WasmSmartContract::from_compiled(wasm),
@@ -295,7 +295,7 @@ fn submit_sample_isi_on_every_block_commit(
     for _ in block_committed_event_listener.take(times) {
         std::thread::sleep(timeout);
         // ISI just to create a new block
-        let sample_isi = SetKeyValueExpr::new(
+        let sample_isi = SetKeyValue::account(
             account_id.clone(),
             "key".parse::<Name>()?,
             String::from("value"),

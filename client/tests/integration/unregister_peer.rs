@@ -3,15 +3,14 @@ use std::thread;
 use eyre::Result;
 use iroha_client::{
     client::{self, QueryResult},
+    crypto::KeyPair,
     data_model::{
         parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
         prelude::*,
     },
 };
-use iroha_crypto::KeyPair;
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 // Note the test is marked as `unstable`,  not the network.
 #[ignore = "ignore, more in #2851"]
@@ -34,7 +33,7 @@ fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
     // Then the new peer should already have the mint result.
     check_assets(&peer_client, &account_id, &asset_definition_id, 100);
     // Also, when a peer is unregistered
-    let remove_peer = UnregisterExpr::new(IdBox::PeerId(peer.id.clone()));
+    let remove_peer = Unregister::peer(peer.id.clone());
     genesis_client.submit(remove_peer)?;
     thread::sleep(pipeline_time * 2);
     // We can mint without error.
@@ -82,12 +81,9 @@ fn mint(
     pipeline_time: std::time::Duration,
     quantity: u32,
 ) -> Result<u32, color_eyre::Report> {
-    let mint_asset = MintExpr::new(
-        quantity.to_value(),
-        IdBox::AssetId(AssetId::new(
-            asset_definition_id.clone(),
-            account_id.clone(),
-        )),
+    let mint_asset = Mint::asset_quantity(
+        quantity,
+        AssetId::new(asset_definition_id.clone(), account_id.clone()),
     );
     client.submit(mint_asset)?;
     thread::sleep(pipeline_time * 5);
@@ -103,24 +99,27 @@ fn init() -> Result<(
     AccountId,
     AssetDefinitionId,
 )> {
-    let (rt, network, client) = <Network>::start_test_with_runtime(4, Some(10_925));
+    let (rt, network, client) = Network::start_test_with_runtime(4, Some(10_925));
     let pipeline_time = Configuration::pipeline_time();
     iroha_logger::info!("Started");
     let parameters = ParametersBuilder::new()
         .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?
         .into_set_parameters();
-    let create_domain = RegisterExpr::new(Domain::new("domain".parse()?));
+    let create_domain = Register::domain(Domain::new("domain".parse()?));
     let account_id: AccountId = "account@domain".parse()?;
     let (public_key, _) = KeyPair::generate()?.into();
-    let create_account = RegisterExpr::new(Account::new(account_id.clone(), [public_key]));
+    let create_account = Register::account(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
-    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
-    let instructions: [InstructionExpr; 4] = [
-        parameters.into(),
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-    ];
+    let create_asset =
+        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+    let instructions = parameters.into_iter().chain(
+        [
+            create_domain.into(),
+            create_account.into(),
+            create_asset.into(),
+        ]
+        .into_iter(),
+    );
     client.submit_all_blocking(instructions)?;
     iroha_logger::info!("Init");
     Ok((

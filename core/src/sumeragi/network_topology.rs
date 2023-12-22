@@ -1,7 +1,7 @@
 //! Structures formalising the peer topology (e.g. which peers have which predefined roles).
-use std::collections::HashSet;
 
 use derive_more::Display;
+use indexmap::IndexSet;
 use iroha_crypto::{PublicKey, SignatureOf};
 use iroha_data_model::{block::SignedBlock, prelude::PeerId};
 use iroha_logger::trace;
@@ -88,7 +88,7 @@ impl Topology {
         roles: &[Role],
         signatures: I,
     ) -> Vec<SignatureOf<T>> {
-        let mut public_keys: HashSet<&PublicKey> = HashSet::with_capacity(self.ordered_peers.len());
+        let mut public_keys = IndexSet::with_capacity(self.ordered_peers.len());
         for role in roles {
             match (role, self.is_non_empty(), self.is_consensus_required()) {
                 (Role::Leader, Some(topology), _) => {

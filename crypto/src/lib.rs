@@ -367,10 +367,7 @@ impl FromStr for PublicKey {
 #[cfg(not(feature = "ffi_import"))]
 impl PublicKey {
     fn normalize(&self) -> String {
-        let multihash: &multihash::Multihash = &self
-            .clone()
-            .try_into()
-            .expect("Failed to get multihash representation.");
+        let multihash: &multihash::Multihash = &self.clone().into();
         let bytes = Vec::try_from(multihash).expect("Failed to convert multihash to bytes.");
 
         let mut bytes_iter = bytes.into_iter();

@@ -409,6 +409,7 @@ mod state {
     }
 
     impl ConnectedTo {
+        #[allow(clippy::similar_names)]
         pub(super) async fn send_client_hello<K: Kex, E: Enc>(
             Self {
                 peer_addr,
@@ -452,6 +453,7 @@ mod state {
     }
 
     impl ConnectedFrom {
+        #[allow(clippy::similar_names)]
         pub(super) async fn read_client_hello<K: Kex, E: Enc>(
             Self {
                 peer_addr,

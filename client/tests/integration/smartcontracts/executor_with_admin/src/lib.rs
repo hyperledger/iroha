@@ -6,23 +6,22 @@
 #[cfg(not(test))]
 extern crate panic_halt;
 
-use iroha_executor::{parse, prelude::*, smart_contract};
+use iroha_executor::{parse, prelude::*};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 
 #[global_allocator]
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
-#[derive(Constructor, ValidateEntrypoints, ExpressionEvaluator, Validate, Visit)]
+#[derive(Constructor, ValidateEntrypoints, Validate, Visit)]
 #[visit(custom(visit_instruction))]
 struct Executor {
     verdict: Result,
     block_height: u64,
-    host: smart_contract::Host,
 }
 
-fn visit_instruction(executor: &mut Executor, authority: &AccountId, isi: &InstructionExpr) {
+fn visit_instruction(executor: &mut Executor, authority: &AccountId, isi: &InstructionBox) {
     if parse!("admin@admin" as AccountId) == *authority {
-        pass!(executor);
+        execute!(executor, isi);
     }
 
     iroha_executor::default::visit_instruction(executor, authority, isi);

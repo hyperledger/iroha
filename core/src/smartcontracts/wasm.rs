@@ -13,7 +13,7 @@ use iroha_config::{
 use iroha_data_model::{
     account::AccountId,
     executor::{self, MigrationResult},
-    isi::InstructionExpr,
+    isi::InstructionBox,
     permission::PermissionTokenSchema,
     prelude::*,
     query::{QueryBox, QueryId, QueryRequest, QueryWithParameters},
@@ -87,7 +87,7 @@ mod import {
             /// Execute `instruction` on host
             #[codec::wrap_trait_fn]
             fn execute_instruction(
-                instruction: InstructionExpr,
+                instruction: InstructionBox,
                 state: &mut S,
             ) -> Result<(), ValidationFail>;
         }
@@ -100,7 +100,7 @@ mod import {
             fn get_validate_transaction_payload(state: &S) -> Validate<SignedTransaction>;
 
             #[codec::wrap_trait_fn]
-            fn get_validate_instruction_payload(state: &S) -> Validate<InstructionExpr>;
+            fn get_validate_instruction_payload(state: &S) -> Validate<InstructionBox>;
 
             #[codec::wrap_trait_fn]
             fn get_validate_query_payload(state: &S) -> Validate<QueryBox>;
@@ -328,9 +328,8 @@ impl LimitsExecutor {
 pub mod state {
     //! All supported states for [`Runtime`](super::Runtime)
 
-    use std::collections::HashSet;
-
     use derive_more::Constructor;
+    use indexmap::IndexSet;
 
     use super::*;
 
@@ -360,7 +359,7 @@ pub mod state {
         pub(super) store_limits: StoreLimits,
         /// Span inside of which all logs are recorded for this smart contract
         pub(super) log_span: Span,
-        pub(super) executed_queries: HashSet<QueryId>,
+        pub(super) executed_queries: IndexSet<QueryId>,
         /// Borrowed [`WorldStateView`] kind
         pub(super) wsv: W,
         /// Concrete state for specific executable
@@ -380,14 +379,14 @@ pub mod state {
                 authority,
                 store_limits: store_limits_from_config(&config),
                 log_span,
-                executed_queries: HashSet::new(),
+                executed_queries: IndexSet::new(),
                 wsv,
                 specific_state,
             }
         }
 
         /// Take executed queries leaving an empty set
-        pub fn take_executed_queries(&mut self) -> HashSet<QueryId> {
+        pub fn take_executed_queries(&mut self) -> IndexSet<QueryId> {
             std::mem::take(&mut self.executed_queries)
         }
     }
@@ -481,7 +480,7 @@ pub mod state {
             pub type ValidateQuery = Validate<QueryBox>;
 
             /// State kind for executing `validate_instruction()` entrypoint of executor
-            pub type ValidateInstruction = Validate<InstructionExpr>;
+            pub type ValidateInstruction = Validate<InstructionBox>;
 
             /// State kind for executing `migrate()` entrypoint of executor
             #[derive(Copy, Clone)]
@@ -803,7 +802,7 @@ where
 
 impl<'wrld, S> Runtime<state::CommonState<state::wsv::WithMut<'wrld>, S>> {
     fn default_execute_instruction(
-        instruction: InstructionExpr,
+        instruction: InstructionBox,
         state: &mut state::CommonState<state::wsv::WithMut<'wrld>, S>,
     ) -> Result<(), ValidationFail> {
         debug!(%instruction, "Executing");
@@ -913,7 +912,7 @@ impl<'wrld> import::traits::ExecuteOperations<state::SmartContract<'wrld>>
 
     #[codec::wrap]
     fn execute_instruction(
-        instruction: InstructionExpr,
+        instruction: InstructionBox,
         state: &mut state::SmartContract<'wrld>,
     ) -> Result<(), ValidationFail> {
         if let Some(limits_executor) = state.specific_state.limits_executor.as_mut() {
@@ -985,7 +984,7 @@ impl<'wrld> import::traits::ExecuteOperations<state::Trigger<'wrld>>
 
     #[codec::wrap]
     fn execute_instruction(
-        instruction: InstructionExpr,
+        instruction: InstructionBox,
         state: &mut state::Trigger<'wrld>,
     ) -> Result<(), ValidationFail> {
         Self::default_execute_instruction(instruction, state)
@@ -1016,7 +1015,7 @@ where
 
     #[codec::wrap]
     fn execute_instruction(
-        instruction: InstructionExpr,
+        instruction: InstructionBox,
         state: &mut state::CommonState<state::wsv::WithMut<'wrld>, S>,
     ) -> Result<(), ValidationFail> {
         debug!(%instruction, "Executing as executor");
@@ -1103,14 +1102,14 @@ impl<'wrld> import::traits::GetExecutorPayloads<state::executor::ValidateTransac
         Validate {
             authority: state.authority.clone(),
             block_height: state.wsv.0.height(),
-            to_validate: state.specific_state.to_validate.clone(),
+            target: state.specific_state.to_validate.clone(),
         }
     }
 
     #[codec::wrap]
     fn get_validate_instruction_payload(
         _state: &state::executor::ValidateTransaction<'wrld>,
-    ) -> Validate<InstructionExpr> {
+    ) -> Validate<InstructionBox> {
         panic!("Executor `validate_transaction()` entrypoint should not query payload for `validate_instruction()` entrypoint")
     }
 
@@ -1142,7 +1141,7 @@ impl<'wrld> Runtime<state::executor::ValidateInstruction<'wrld>> {
         wsv: &'wrld mut WorldStateView,
         authority: &AccountId,
         module: &wasmtime::Module,
-        instruction: InstructionExpr,
+        instruction: InstructionBox,
     ) -> Result<executor::Result> {
         let span = wasm_log_span!("Running `validate_instruction()`");
 
@@ -1185,11 +1184,11 @@ impl<'wrld> import::traits::GetExecutorPayloads<state::executor::ValidateInstruc
     #[codec::wrap]
     fn get_validate_instruction_payload(
         state: &state::executor::ValidateInstruction<'wrld>,
-    ) -> Validate<InstructionExpr> {
+    ) -> Validate<InstructionBox> {
         Validate {
             authority: state.authority.clone(),
             block_height: state.wsv.0.height(),
-            to_validate: state.specific_state.to_validate.clone(),
+            target: state.specific_state.to_validate.clone(),
         }
     }
 
@@ -1254,7 +1253,7 @@ impl<'wrld> import::traits::ExecuteOperations<state::executor::ValidateQuery<'wr
 
     #[codec::wrap]
     fn execute_instruction(
-        _instruction: InstructionExpr,
+        _instruction: InstructionBox,
         _state: &mut state::executor::ValidateQuery<'wrld>,
     ) -> Result<(), ValidationFail> {
         panic!("Executor `validate_query()` entrypoint should not execute instructions")
@@ -1279,7 +1278,7 @@ impl<'wrld> import::traits::GetExecutorPayloads<state::executor::ValidateQuery<'
     #[codec::wrap]
     fn get_validate_instruction_payload(
         _state: &state::executor::ValidateQuery<'wrld>,
-    ) -> Validate<InstructionExpr> {
+    ) -> Validate<InstructionBox> {
         panic!("Executor `validate_query()` entrypoint should not query payload for `validate_instruction()` entrypoint")
     }
 
@@ -1290,7 +1289,7 @@ impl<'wrld> import::traits::GetExecutorPayloads<state::executor::ValidateQuery<'
         Validate {
             authority: state.authority.clone(),
             block_height: state.wsv.0.height(),
-            to_validate: state.specific_state.to_validate.clone(),
+            target: state.specific_state.to_validate.clone(),
         }
     }
 }
@@ -1378,7 +1377,7 @@ impl<'wrld> import::traits::GetExecutorPayloads<state::executor::Migrate<'wrld>>
     #[codec::wrap]
     fn get_validate_instruction_payload(
         _state: &state::executor::Migrate<'wrld>,
-    ) -> Validate<InstructionExpr> {
+    ) -> Validate<InstructionBox> {
         panic!("Executor `migrate()` entrypoint should not query payload for `validate_instruction()` entrypoint")
     }
 
@@ -1716,8 +1715,8 @@ mod tests {
 
         let isi_hex = {
             let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
-            let register_isi = RegisterExpr::new(Account::new(new_authority, []));
-            encode_hex(InstructionExpr::from(register_isi))
+            let register_isi = Register::account(Account::new(new_authority, []));
+            encode_hex(InstructionBox::from(register_isi))
         };
 
         let wat = format!(
@@ -1802,8 +1801,8 @@ mod tests {
 
         let isi_hex = {
             let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
-            let register_isi = RegisterExpr::new(Account::new(new_authority, []));
-            encode_hex(InstructionExpr::from(register_isi))
+            let register_isi = Register::account(Account::new(new_authority, []));
+            encode_hex(InstructionBox::from(register_isi))
         };
 
         let wat = format!(
@@ -1851,8 +1850,8 @@ mod tests {
 
         let isi_hex = {
             let new_authority = AccountId::from_str("mad_hatter@wonderland").expect("Valid");
-            let register_isi = RegisterExpr::new(Account::new(new_authority, []));
-            encode_hex(InstructionExpr::from(register_isi))
+            let register_isi = Register::account(Account::new(new_authority, []));
+            encode_hex(InstructionBox::from(register_isi))
         };
 
         let wat = format!(

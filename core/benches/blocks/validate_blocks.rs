@@ -1,6 +1,6 @@
 use eyre::Result;
 use iroha_core::prelude::*;
-use iroha_data_model::{isi::InstructionExpr, prelude::*};
+use iroha_data_model::{isi::InstructionBox, prelude::*};
 
 #[path = "./common.rs"]
 mod common;
@@ -10,7 +10,7 @@ use common::*;
 #[derive(Clone)]
 pub struct WsvValidateBlocks {
     wsv: WorldStateView,
-    instructions: Vec<Vec<InstructionExpr>>,
+    instructions: Vec<Vec<InstructionBox>>,
     key_pair: KeyPair,
     account_id: AccountId,
 }

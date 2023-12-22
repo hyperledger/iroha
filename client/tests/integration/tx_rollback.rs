@@ -16,16 +16,13 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
     let account_id = AccountId::from_str("alice@wonderland")?;
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland")?;
     let wrong_asset_definition_id = AssetDefinitionId::from_str("ksor#wonderland")?;
-    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id));
+    let create_asset = Register::asset_definition(AssetDefinition::quantity(asset_definition_id));
     let quantity: u32 = 200;
-    let mint_asset = MintExpr::new(
-        quantity.to_value(),
-        IdBox::AssetId(AssetId::new(
-            wrong_asset_definition_id.clone(),
-            account_id.clone(),
-        )),
+    let mint_asset = Mint::asset_quantity(
+        quantity,
+        AssetId::new(wrong_asset_definition_id.clone(), account_id.clone()),
     );
-    let instructions: [InstructionExpr; 2] = [create_asset.into(), mint_asset.into()];
+    let instructions: [InstructionBox; 2] = [create_asset.into(), mint_asset.into()];
     let _ = client.submit_all_blocking(instructions);
 
     //Then

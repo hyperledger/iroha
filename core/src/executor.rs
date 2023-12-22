@@ -4,7 +4,7 @@ use derive_more::DebugCustom;
 use iroha_data_model::{
     account::AccountId,
     executor as data_model_executor,
-    isi::InstructionExpr,
+    isi::InstructionBox,
     query::QueryBox,
     transaction::{Executable, SignedTransaction},
     ValidationFail,
@@ -181,7 +181,7 @@ impl Executor {
         &self,
         wsv: &mut WorldStateView,
         authority: &AccountId,
-        instruction: InstructionExpr,
+        instruction: InstructionBox,
     ) -> Result<(), ValidationFail> {
         trace!("Running instruction validation");
 

@@ -265,14 +265,14 @@ mod tests {
         wsv.config.transaction_limits = limits;
 
         let valid_tx = {
-            let instructions: [InstructionExpr; 0] = [];
+            let instructions: [InstructionBox; 0] = [];
             let tx = TransactionBuilder::new(ALICE_ID.clone())
                 .with_instructions(instructions)
                 .sign(ALICE_KEYS.clone())?;
             AcceptedTransaction::accept(tx, &limits)?
         };
         let invalid_tx = {
-            let isi = Fail::new("fail");
+            let isi = Fail::new("fail".to_owned());
             let tx = TransactionBuilder::new(ALICE_ID.clone())
                 .with_instructions([isi.clone(), isi])
                 .sign(ALICE_KEYS.clone())?;
@@ -413,7 +413,7 @@ mod tests {
         let query_handle = LiveQueryStore::test().start();
         let mut wsv = WorldStateView::new(world_with_test_domains(), kura.clone(), query_handle);
 
-        let instructions: [InstructionExpr; 0] = [];
+        let instructions: [InstructionBox; 0] = [];
         let tx = TransactionBuilder::new(ALICE_ID.clone())
             .with_instructions(instructions)
             .sign(ALICE_KEYS.clone())?;
@@ -432,9 +432,7 @@ mod tests {
         kura.store_block(vcb);
 
         let unapplied_tx = TransactionBuilder::new(ALICE_ID.clone())
-            .with_instructions([UnregisterExpr::new(
-                "account@domain".parse::<AccountId>().unwrap(),
-            )])
+            .with_instructions([Unregister::account("account@domain".parse().unwrap())])
             .sign(ALICE_KEYS.clone())?;
         let wrong_hash = unapplied_tx.hash();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);

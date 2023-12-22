@@ -8,37 +8,15 @@ use test_network::*;
 
 use crate::wasm::utils::wasm_template;
 
-fn produce_instructions() -> Vec<InstructionExpr> {
+fn produce_instructions() -> Vec<InstructionBox> {
     let domains = (0..4)
         .map(|domain_index: usize| Domain::new(domain_index.to_string().parse().expect("Valid")));
 
-    let registers: [InstructionExpr; 4] = domains
+    domains
         .into_iter()
-        .map(RegisterExpr::new)
-        .map(InstructionExpr::from)
+        .map(Register::domain)
+        .map(InstructionBox::from)
         .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
-
-    // TODO: should we re-introduce the DSL?
-    vec![
-        // domain "0"
-        // pair
-        //      domain "1"
-        //      if false fail else sequence
-        //          domain "2"
-        //          domain "3"
-        registers[0].clone(),
-        PairExpr::new(
-            registers[1].clone(),
-            ConditionalExpr::with_otherwise(
-                false,
-                Fail::new("unreachable"),
-                SequenceExpr::new([registers[2].clone(), registers[3].clone()]),
-            ),
-        )
-        .into(),
-    ]
 }
 
 #[test]
@@ -69,7 +47,7 @@ fn wasm_execution_should_produce_events() -> Result<()> {
             ptr_len = ptr_len / 2,
         )?;
 
-        ptr_offset = ptr_len;
+        ptr_offset += ptr_len;
     }
 
     let wat = format!(
@@ -121,8 +99,10 @@ fn transaction_execution_should_produce_events(
     client.submit_transaction_blocking(&transaction)?;
 
     // assertion
+    iroha_logger::info!("Listening for events");
     for i in 0..4_usize {
         let event: DataEvent = event_receiver.recv()??.try_into()?;
+        iroha_logger::info!("Event: {:?}", event);
         assert!(matches!(event, DataEvent::Domain(_)));
         if let DataEvent::Domain(domain_event) = event {
             assert!(matches!(domain_event, DomainEvent::Created(_)));
@@ -174,16 +154,16 @@ fn produce_multiple_events() -> Result<()> {
     let role = iroha_client::data_model::role::Role::new(role_id.clone())
         .add_permission(token_1.clone())
         .add_permission(token_2.clone());
-    let instructions = [RegisterExpr::new(role.clone())];
+    let instructions = [Register::role(role.clone())];
     client.submit_all_blocking(instructions)?;
 
     // Grants role to Bob
     let bob_id = AccountId::from_str("bob@wonderland")?;
-    let grant_role = GrantExpr::new(role_id.clone(), bob_id.clone());
+    let grant_role = Grant::role(role_id.clone(), bob_id.clone());
     client.submit_blocking(grant_role)?;
 
     // Unregister role
-    let unregister_role = UnregisterExpr::new(role_id.clone());
+    let unregister_role = Unregister::role(role_id.clone());
     client.submit_blocking(unregister_role)?;
 
     // Inspect produced events
