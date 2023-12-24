@@ -3176,10 +3176,11 @@ name = "iroha_telemetry_derive"
 version = "2.0.0-pre-rc.20"
 dependencies = [
  "iroha_core",
- "proc-macro-error",
+ "iroha_macro_utils",
+ "manyhow",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.41",
  "trybuild",
 ]
 
