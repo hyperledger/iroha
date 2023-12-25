@@ -7,7 +7,7 @@ use std::{
 };
 
 pub use iroha_futures_derive::*;
-use iroha_logger::telemetry::{Telemetry, TelemetryFields};
+use iroha_logger::telemetry::{Event as Telemetry, Fields as TelemetryFields};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

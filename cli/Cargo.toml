@@ -25,13 +25,13 @@ bridge = ["iroha_core/bridge"]
 # Support Decentralised Exchange, including functionality for atomic exchange instruction
 dex = ["iroha_core/dex"]
 # Support lightweight telemetry, including diagnostics
-telemetry = ["iroha_telemetry", "iroha_core/telemetry"]
+telemetry = ["iroha_telemetry", "iroha_core/telemetry", "iroha_torii/telemetry"]
 # Support developer-specific telemetry.
 # Should not be enabled on production builds.
 dev-telemetry = ["iroha_core/dev-telemetry", "iroha_telemetry"]
 # Support schema generation from the `schema` endpoint in the local binary.
 # Useful for debugging issues with decoding in SDKs.
-schema-endpoint = ["iroha_schema_gen"]
+schema-endpoint = ["iroha_torii/schema"]
 # Support internal testing infrastructure for integration tests.
 # Disable in production.
 test-network = ["thread-local-panic-hook"]
@@ -43,45 +43,36 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 iroha_core = { workspace = true }
-iroha_macro = { workspace = true }
 iroha_logger = { workspace = true }
 iroha_futures = { workspace = true }
 iroha_data_model = { workspace = true, features = ["http"] }
 iroha_primitives = { workspace = true }
 iroha_telemetry = { workspace = true, optional = true }
-iroha_version = { workspace = true, features = ["http"] }
 iroha_config = { workspace = true }
 iroha_crypto = { workspace = true }
 iroha_p2p = { workspace = true }
-iroha_schema_gen = { workspace = true, optional = true }
-iroha_cli_derive = { workspace = true }
+iroha_torii = { workspace = true }
 iroha_genesis = { workspace = true }
 iroha_wasm_builder = { workspace = true }
 
-
-derive_more = { workspace = true }
-async-trait = { workspace = true }
+clap = { workspace = true, features = ["derive", "env", "string"] }
 color-eyre = { workspace = true }
 eyre = { workspace = true }
 tracing = { workspace = true }
-futures = { workspace = true, features = ["std", "async-await"] }
-parity-scale-codec = { workspace = true, features = ["derive"] }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
-displaydoc = { workspace = true }
-tokio = { workspace = true, features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs", "signal"] }
-warp = { workspace = true, features = ["multipart", "websocket"] }
+tokio = { workspace = true, features = ["macros", "signal"] }
 once_cell = { workspace = true }
 owo-colors = { workspace = true, features = ["supports-colors"] }
 supports-color = { workspace = true }
-tempfile = { workspace = true }
-dashmap = { workspace = true }
 
 thread-local-panic-hook = { version = "0.1.0", optional = true }
 
 [dev-dependencies]
 serial_test = "2.0.0"
+tempfile = { workspace = true }
+serde_json = { workspace = true }
+futures = { workspace = true }
+path-absolutize = { workspace = true }
+assertables = "7"
 
 [build-dependencies]
 iroha_wasm_builder = { workspace = true }
@@ -91,10 +82,10 @@ vergen = { workspace = true, features = ["cargo"] }
 
 [package.metadata.cargo-all-features]
 denylist = [
-"bridge",
-"dex",
-"schema-endpoint",
-"telemetry",
-"test-network"
+  "bridge",
+  "dex",
+  "schema-endpoint",
+  "telemetry",
+  "test-network",
 ] # TODO: remove `dex` and `bridge` once there's code for them.
 skip_optional_dependencies = true

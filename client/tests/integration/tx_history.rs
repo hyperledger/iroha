@@ -5,11 +5,12 @@ use std::{
 };
 
 use eyre::Result;
-use iroha_client::client::{transaction, QueryResult};
-use iroha_data_model::{prelude::*, query::Pagination};
+use iroha_client::{
+    client::{transaction, QueryResult},
+    data_model::{prelude::*, query::Pagination},
+};
+use iroha_config::iroha::Configuration;
 use test_network::*;
-
-use super::Configuration;
 
 #[ignore = "ignore, more in #2851"]
 #[test]
@@ -22,19 +23,20 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
     // Given
     let account_id = AccountId::from_str("alice@wonderland")?;
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland")?;
-    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let create_asset =
+        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
     client.submit_blocking(create_asset)?;
 
     //When
     let quantity: u32 = 200;
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
-    let mint_existed_asset = MintExpr::new(quantity.to_value(), IdBox::AssetId(asset_id));
-    let mint_not_existed_asset = MintExpr::new(
-        quantity.to_value(),
-        IdBox::AssetId(AssetId::new(
+    let mint_existed_asset = Mint::asset_quantity(quantity, asset_id);
+    let mint_not_existed_asset = Mint::asset_quantity(
+        quantity,
+        AssetId::new(
             AssetDefinitionId::from_str("foo#wonderland")?,
             account_id.clone(),
-        )),
+        ),
     );
 
     let transactions_count = 100;
@@ -45,7 +47,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
         } else {
             &mint_not_existed_asset
         };
-        let instructions: Vec<InstructionExpr> = vec![mint_asset.clone().into()];
+        let instructions: Vec<InstructionBox> = vec![mint_asset.clone().into()];
         let transaction = client.build_transaction(instructions, UnlimitedMetadata::new())?;
         client.submit_transaction(&transaction)?;
     }

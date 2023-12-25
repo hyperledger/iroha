@@ -1,6 +1,6 @@
 //! `Torii` configuration as well as the default values for the URLs used for the main endpoints: `p2p`, `telemetry`, but not `api`.
 
-use iroha_config_base::derive::{Documented, Proxy};
+use iroha_config_base::derive::Proxy;
 use iroha_primitives::addr::{socket_addr, SocketAddr};
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +14,7 @@ pub const DEFAULT_TORII_MAX_CONTENT_LENGTH: u32 = 2_u32.pow(12) * 4000;
 /// Structure that defines the configuration parameters of `Torii` which is the routing module.
 /// For example the `p2p_addr`, which is used for consensus and block-synchronisation purposes,
 /// as well as `max_transaction_size`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "TORII_")]
 pub struct Configuration {

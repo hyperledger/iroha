@@ -1,8 +1,10 @@
 use std::{collections::HashSet, str::FromStr as _};
 
 use eyre::Result;
-use iroha_client::client::{self, QueryResult};
-use iroha_data_model::prelude::*;
+use iroha_client::{
+    client::{self, QueryResult},
+    data_model::prelude::*,
+};
 use test_network::*;
 
 #[test]
@@ -13,7 +15,7 @@ fn find_accounts_with_asset() -> Result<()> {
     // Registering new asset definition
     let definition_id = AssetDefinitionId::from_str("test_coin#wonderland").expect("Valid");
     let asset_definition = AssetDefinition::quantity(definition_id.clone());
-    test_client.submit_blocking(RegisterExpr::new(asset_definition.clone()))?;
+    test_client.submit_blocking(Register::asset_definition(asset_definition.clone()))?;
 
     // Checking results before all
     let received_asset_definition =
@@ -38,7 +40,7 @@ fn find_accounts_with_asset() -> Result<()> {
         .iter()
         .skip(1) // Alice has already been registered in genesis
         .cloned()
-        .map(|account_id| RegisterExpr::new(Account::new(account_id, [])))
+        .map(|account_id| Register::account(Account::new(account_id, [])))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 
@@ -46,7 +48,7 @@ fn find_accounts_with_asset() -> Result<()> {
         .iter()
         .cloned()
         .map(|account_id| AssetId::new(definition_id.clone(), account_id))
-        .map(|asset_id| MintExpr::new(1_u32, asset_id))
+        .map(|asset_id| Mint::asset_quantity(1_u32, asset_id))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(mint_asset)?;
 

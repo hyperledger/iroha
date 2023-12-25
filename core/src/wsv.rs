@@ -1,15 +1,12 @@
 //! This module provides the [`WorldStateView`] — an in-memory representation of the current blockchain
 //! state.
 use std::{
-    borrow::Borrow,
-    collections::{BTreeSet, HashMap},
-    fmt::Debug,
-    marker::PhantomData,
-    sync::Arc,
+    borrow::Borrow, collections::BTreeSet, fmt::Debug, marker::PhantomData, sync::Arc,
     time::Duration,
 };
 
 use eyre::Result;
+use indexmap::IndexMap;
 use iroha_config::{
     base::proxy::Builder,
     wsv::{Configuration, ConfigurationProxy},
@@ -277,7 +274,7 @@ pub struct WorldStateView {
     /// Blockchain.
     pub block_hashes: Vec<HashOf<SignedBlock>>,
     /// Hashes of transactions mapped onto block height where they stored
-    pub transactions: HashMap<HashOf<SignedTransaction>, u64>,
+    pub transactions: IndexMap<HashOf<SignedTransaction>, u64>,
     /// Buffer containing events generated during `WorldStateView::apply`. Renewed on every block commit.
     #[serde(skip)]
     pub events_buffer: Vec<Event>,
@@ -559,12 +556,15 @@ impl WorldStateView {
                         continue;
                     }
                 }
+                let wsv = self.clone();
                 let event = match self.process_trigger(&id, &action, event) {
-                    Ok(_) => {
+                    Ok(()) => {
                         succeed.push(id.clone());
                         TriggerCompletedEvent::new(id, TriggerCompletedOutcome::Success)
                     }
                     Err(error) => {
+                        // Revert to previous state on failure inside trigger
+                        *self = wsv;
                         let event = TriggerCompletedEvent::new(
                             id,
                             TriggerCompletedOutcome::Failure(error.to_string()),
@@ -602,7 +602,7 @@ impl WorldStateView {
 
     fn process_instructions(
         &mut self,
-        instructions: impl IntoIterator<Item = InstructionExpr>,
+        instructions: impl IntoIterator<Item = InstructionBox>,
         authority: &AccountId,
     ) -> Result<()> {
         instructions.into_iter().try_for_each(|instruction| {
@@ -855,12 +855,6 @@ impl WorldStateView {
         &mut self.world
     }
 
-    /// Returns reference for trusted peer ids
-    #[inline]
-    pub fn peers_ids(&self) -> &PeersIds {
-        &self.world.trusted_peers_ids
-    }
-
     /// Return an iterator over blockchain block hashes starting with the block of the given `height`
     pub fn block_hashes_from_height(&self, height: usize) -> Vec<HashOf<SignedBlock>> {
         self.block_hashes
@@ -939,7 +933,7 @@ impl WorldStateView {
         Self {
             world,
             config,
-            transactions: HashMap::new(),
+            transactions: IndexMap::new(),
             block_hashes: Vec::new(),
             events_buffer: Vec::new(),
             new_tx_amounts: Arc::new(Mutex::new(Vec::new())),
@@ -1258,7 +1252,7 @@ impl WorldStateView {
     /// The function puts events produced by iterator into `events_buffer`.
     /// Events should be produced in the order of expanding scope: from specific to general.
     /// Example: account events before domain events.
-    pub fn emit_events<I: IntoIterator<Item = T>, T: Into<WorldEvent>>(&mut self, world_events: I) {
+    pub fn emit_events<I: IntoIterator<Item = T>, T: Into<DataEvent>>(&mut self, world_events: I) {
         Self::emit_events_impl(
             &mut self.world.triggers,
             &mut self.events_buffer,
@@ -1269,7 +1263,7 @@ impl WorldStateView {
     /// Implementation of [`Self::emit_events()`].
     ///
     /// Usable when you can't call [`Self::emit_events()`] due to mutable reference to self.
-    fn emit_events_impl<I: IntoIterator<Item = T>, T: Into<WorldEvent>>(
+    fn emit_events_impl<I: IntoIterator<Item = T>, T: Into<DataEvent>>(
         triggers: &mut TriggerSet,
         events_buffer: &mut Vec<Event>,
         world_events: I,
@@ -1277,7 +1271,7 @@ impl WorldStateView {
         let data_events: SmallVec<[DataEvent; 3]> = world_events
             .into_iter()
             .map(Into::into)
-            .flat_map(WorldEvent::flatten)
+            .map(Into::into)
             .collect();
 
         for event in data_events.iter() {
@@ -1291,7 +1285,7 @@ impl WorldStateView {
     /// Produces [`PermissionTokenSchemaUpdateEvent`].
     pub fn set_permission_token_schema(&mut self, schema: PermissionTokenSchema) {
         let old_schema = std::mem::replace(&mut self.world.permission_token_schema, schema.clone());
-        self.emit_events(std::iter::once(WorldEvent::PermissionTokenSchemaUpdate(
+        self.emit_events(std::iter::once(DataEvent::PermissionToken(
             PermissionTokenSchemaUpdateEvent {
                 old_schema,
                 new_schema: schema,

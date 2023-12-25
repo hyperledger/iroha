@@ -17,4 +17,3 @@ debug = ["iroha_smart_contract/debug"]
 iroha_smart_contract_utils.workspace = true
 iroha_smart_contract.workspace = true
 iroha_trigger_derive.workspace = true
-iroha_data_model.workspace = true

@@ -1,10 +1,12 @@
 use std::str::FromStr as _;
 
 use eyre::{bail, Result};
-use iroha_client::client::{self, ClientQueryError};
-use iroha_data_model::{
-    prelude::*,
-    query::{cursor::ForwardCursor, error::QueryExecutionFail, MAX_FETCH_SIZE},
+use iroha_client::{
+    client::{self, ClientQueryError},
+    data_model::{
+        prelude::*,
+        query::{cursor::ForwardCursor, error::QueryExecutionFail, MAX_FETCH_SIZE},
+    },
 };
 use test_network::*;
 

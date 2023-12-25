@@ -157,9 +157,18 @@ A brief overview on how to configure and maintain an Iroha instance:
 
 ### Configuration
 
-You can provide configuration parameters either as a `config.json` or using environment variables. Refer to the [detailed list](./docs/source/references/config.md) of all available configuration parameters.
+There is a set of configuration parameters that could be passed either through a configuration file or environment variables.
 
-Configuration example you may use as a reference point: [cli/src/samples.rs](./cli/src/samples.rs)
+```shell
+# look for `config.json` or `config.json5` (won't fail if files are not found)
+iroha 
+
+# Override default config path through CLI or ENV
+iroha --config /path/to/config.json
+IROHA_CONFIG=/path/to/config.json iroha
+```
+
+**Note:** detailed configuration reference is [work in progress](https://github.com/hyperledger/iroha-2-docs/issues/392).
 
 ### Endpoints
 
@@ -169,7 +178,7 @@ For a list of all endpoints, available operations, and ways to customize them wi
 
 By default, Iroha provides logs in a human-readable format and prints them out to `stdout`.
 
-The logging level can be changed either via a [configuration option](./docs/source/references/config.md#loggermax_log_level) or at run-time using the `configuration` endpoint.
+The logging level can be changed either via the `logger.level` configuration parameter or at run-time using the `configuration` endpoint.
 
 <details><summary>Example: changing log level</summary>
 
@@ -178,17 +187,13 @@ For example, if your Iroha instance is running at `127.0.0.1:8080` and you want 
 curl -X POST \
     -H 'content-type: application/json' \
     http://127.0.0.1:8080/configuration \
-    -d '{"LogLevel": "DEBUG"}' -i
+    -d '{"logger": {"level": "DEBUG"}}' -i
 ```
 </details>
 
-#### JSON Logging Mode
+The log format might be configured via the `logger.format` configuration parameter. Possible values are: `full` (default), `compact`, `pretty`, and `json`.
 
-Additionally, Iroha supports a JSON logging mode.
-
-To enable it, provide the [logging file](./docs/source/references/config.md#loggerlog_file_path) to store the logs in. On UNIX, you can also specify `/dev/stdout` or `/dev/stderr` if you prefer to pipe the output to [`bunyan`](https://www.npmjs.com/package/bunyan).
-
-[Log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the responsibility of the peer administrator.
+Output goes to `/dev/stdout`. Piping to files or [log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the responsibility of the peer administrator.
 
 ### Monitoring
 
@@ -204,9 +209,9 @@ prometheus --config.file=configs/prometheus.yml
 
 ### Storage
 
-The blocks are written to the `blocks` sub-folder, which is created automatically by Iroha in the working directory of the peer. Additionally, if specified, the logging file must also be stored in a user-specified directory.
+Iroha stores blocks and snapshots in the `storage` directory, which is created automatically by Iroha in the working directory of the peer. If `kura.block_store_path` is specified in the config file, it overrides the default one and is resolved relative to the config file location.
 
-No additional storage is necessary.
+**Note:** detailed configuration reference is [work in progress](https://github.com/hyperledger/iroha-2-docs/issues/392).
 
 ### Scalability
 
@@ -222,7 +227,7 @@ We encourage you to check out our [Iroha 2 Tutorial](https://hyperledger.github.
   * [Glossary](https://hyperledger.github.io/iroha-2-docs/guide/glossary)
   * [Iroha Special Instructions](https://hyperledger.github.io/iroha-2-docs/guide/blockchain/instructions)
   * [API Reference](https://hyperledger.github.io/iroha-2-docs/api/torii-endpoints)
-* [Configuration Reference](./docs/source/references/config.md)
+<!-- * [Configuration Reference](./docs/source/references/config.md) -->
 * [Iroha 2 Whitepaper](./docs/source/iroha_2_whitepaper.md)
 
 Iroha SDKs:

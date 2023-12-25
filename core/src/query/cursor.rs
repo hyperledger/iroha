@@ -62,11 +62,7 @@ impl<I: IntoIterator + FromIterator<I::Item>> Batched<I> {
 
         self.cursor = if let Some(cursor) = self.cursor {
             if batch_size >= self.batch_size.get() {
-                let batch_size = self
-                    .batch_size
-                    .get()
-                    .try_into()
-                    .expect("usize should fit in u64");
+                let batch_size = self.batch_size.get().into();
                 Some(
                     cursor
                         .checked_add(batch_size)
@@ -76,12 +72,7 @@ impl<I: IntoIterator + FromIterator<I::Item>> Batched<I> {
                 None
             }
         } else if batch_size >= self.batch_size.get() {
-            Some(
-                self.batch_size
-                    .get()
-                    .try_into()
-                    .expect("usize should fit in u64"),
-            )
+            Some(self.batch_size.get().into())
         } else {
             None
         };

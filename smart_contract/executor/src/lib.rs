@@ -7,18 +7,15 @@ extern crate self as iroha_executor;
 
 use alloc::vec::Vec;
 
-pub use iroha_data_model as data_model;
-use iroha_data_model::{
-    executor::Result, permission::PermissionTokenId, visit::Visit, ValidationFail,
-};
+use data_model::{executor::Result, permission::PermissionTokenId, visit::Visit, ValidationFail};
 #[cfg(not(test))]
-use iroha_data_model::{prelude::*, smart_contract::payloads};
+use data_model::{prelude::*, smart_contract::payloads};
 pub use iroha_schema::MetaMap;
 pub use iroha_smart_contract as smart_contract;
 pub use iroha_smart_contract_utils::{debug, encode_with_length_prefix};
 #[cfg(not(test))]
 use iroha_smart_contract_utils::{decode_with_length_prefix_from_raw, encode_and_execute};
-pub use smart_contract::parse;
+pub use smart_contract::{data_model, parse};
 
 pub mod default;
 pub mod permission;
@@ -52,7 +49,7 @@ pub fn get_validate_transaction_payload() -> payloads::Validate<SignedTransactio
 /// Host side will generate a trap if this function was called not from a
 /// executor `validate_instruction()` entrypoint.
 #[cfg(not(test))]
-pub fn get_validate_instruction_payload() -> payloads::Validate<InstructionExpr> {
+pub fn get_validate_instruction_payload() -> payloads::Validate<InstructionBox> {
     // Safety: ownership of the returned result is transferred into `_decode_from_raw`
     unsafe { decode_with_length_prefix_from_raw(host::get_validate_instruction_payload()) }
 }
@@ -134,20 +131,23 @@ mod host {
     }
 }
 
-/// Shortcut for `return Ok(())`.
+/// Execute instruction if verdict is [`Ok`], deny if execution failed and return.
+///
+/// Convention is that you have no checks left if you decided to execute instruction.
 #[macro_export]
-macro_rules! pass {
-    ($executor:ident) => {{
-        #[cfg(debug_assertions)]
-        if let Err(_error) = $executor.verdict() {
-            unreachable!("Executor already denied");
+macro_rules! execute {
+    ($executor:ident, $isi:ident) => {{
+        if $executor.verdict().is_ok() {
+            if let Err(err) = $isi.execute() {
+                $executor.deny(err);
+            }
         }
 
         return;
     }};
 }
 
-/// Shortcut for `return Err(ValidationFail)`.
+/// Shortcut for setting verdict to [`Err`] and return.
 ///
 /// Supports [`format!`](alloc::fmt::format) syntax as well as any expression returning [`String`](alloc::string::String).
 #[macro_export]
@@ -221,17 +221,17 @@ pub mod prelude {
 
     pub use alloc::vec::Vec;
 
-    pub use iroha_data_model::{
-        executor::{MigrationError, MigrationResult, Result},
-        prelude::*,
-        visit::Visit,
-        ValidationFail,
-    };
     pub use iroha_executor_derive::{
-        entrypoint, Constructor, ExpressionEvaluator, Token, Validate, ValidateEntrypoints,
-        ValidateGrantRevoke, Visit,
+        entrypoint, Constructor, Token, Validate, ValidateEntrypoints, ValidateGrantRevoke, Visit,
     };
-    pub use iroha_smart_contract::{prelude::*, Context};
+    pub use iroha_smart_contract::prelude::*;
 
-    pub use super::{deny, pass, PermissionTokenSchema, Validate};
+    pub use super::{
+        data_model::{
+            executor::{MigrationError, MigrationResult, Result},
+            visit::Visit,
+            ValidationFail,
+        },
+        deny, execute, PermissionTokenSchema, Validate,
+    };
 }

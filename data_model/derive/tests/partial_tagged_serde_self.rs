@@ -18,7 +18,7 @@ fn partially_tagged_serde() {
         Negate(Box::new(Atom(42))),
         Negate(Box::new(Negate(Box::new(Atom(42))))),
     ];
-    let serialized_values = [r#"42"#, r#"{"Negate":42}"#, r#"{"Negate":{"Negate":42}}"#];
+    let serialized_values = [r"42", r#"{"Negate":42}"#, r#"{"Negate":{"Negate":42}}"#];
 
     for (value, serialized_value) in values.iter().zip(serialized_values.iter()) {
         let serialized = serde_json::to_string(value)

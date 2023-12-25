@@ -16,7 +16,8 @@ categories = ["cryptography::cryptocurrencies"]
 [workspace.dependencies]
 iroha = { path = "cli" }
 iroha_dsl = { version = "=2.0.0-pre-rc.20", path = "dsl" }
-iroha_cli_derive = { version = "=2.0.0-pre-rc.20", path = "cli/derive" }
+iroha_torii = { version = "=2.0.0-pre-rc.20", path = "torii" }
+iroha_torii_macro = { version = "=2.0.0-pre-rc.20", path = "torii/macro" }
 iroha_macro_utils = { version = "=2.0.0-pre-rc.20", path = "macro/utils" }
 iroha_telemetry = { version = "=2.0.0-pre-rc.20", path = "telemetry" }
 iroha_telemetry_derive = { version = "=2.0.0-pre-rc.20", path = "telemetry/derive" }
@@ -69,6 +70,7 @@ futures = { version = "0.3.28", default-features = false }
 tokio = "1.33.0"
 tokio-stream = "0.1.14"
 tokio-tungstenite = "0.20.1"
+tungstenite = "0.20.1"
 
 crossbeam = "0.8.2"
 crossbeam-queue = "0.3.8"
@@ -204,7 +206,6 @@ clippy.wildcard_dependencies = "deny"
 resolver = "2"
 members = [
   "cli",
-  "cli/derive",
   "client",
   "client_cli",
   "config",
@@ -217,7 +218,6 @@ members = [
   "genesis",
   "primitives",
   "primitives/derive",
-  "dsl",
   "ffi",
   "ffi/derive",
   "futures",
@@ -245,6 +245,8 @@ members = [
   "tools/swarm",
   "tools/wasm_builder_cli",
   "tools/wasm_test_runner",
+  "torii",
+  "torii/macro",
   "version",
   "version/derive",
   "wasm_codec",

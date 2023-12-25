@@ -12,7 +12,7 @@ use iroha_core::{
     tx::TransactionExecutor,
     wsv::World,
 };
-use iroha_data_model::{prelude::*, transaction::TransactionLimits};
+use iroha_data_model::{isi::InstructionBox, prelude::*, transaction::TransactionLimits};
 use iroha_primitives::unique_vec::UniqueVec;
 
 const START_DOMAIN: &str = "start";
@@ -26,23 +26,25 @@ const TRANSACTION_LIMITS: TransactionLimits = TransactionLimits {
 fn build_test_transaction(keys: KeyPair) -> SignedTransaction {
     let domain_name = "domain";
     let domain_id = DomainId::from_str(domain_name).expect("does not panic");
-    let create_domain = RegisterExpr::new(Domain::new(domain_id));
+    let create_domain: InstructionBox = Register::domain(Domain::new(domain_id)).into();
     let account_name = "account";
     let (public_key, _) = KeyPair::generate()
         .expect("Failed to generate KeyPair.")
         .into();
-    let create_account = RegisterExpr::new(Account::new(
+    let create_account = Register::account(Account::new(
         AccountId::new(
             account_name.parse().expect("Valid"),
             domain_name.parse().expect("Valid"),
         ),
         [public_key],
-    ));
+    ))
+    .into();
     let asset_definition_id = AssetDefinitionId::new(
         "xor".parse().expect("Valid"),
         domain_name.parse().expect("Valid"),
     );
-    let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id));
+    let create_asset =
+        Register::asset_definition(AssetDefinition::quantity(asset_definition_id)).into();
     let instructions = [create_domain, create_account, create_asset];
 
     TransactionBuilder::new(AccountId::new(
@@ -82,7 +84,7 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
             .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_executor.display()));
         let executor = Executor::new(WasmSmartContract::from_compiled(wasm));
         let authority = "genesis@genesis".parse().expect("Valid");
-        UpgradeExpr::new(executor)
+        Upgrade::new(executor)
             .execute(&authority, &mut wsv)
             .expect("Failed to load executor");
     }

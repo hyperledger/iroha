@@ -1,11 +1,8 @@
 //! Crate with executor-related derive macros.
 
 use iroha_macro_utils::Emitter;
-use manyhow::manyhow;
-use proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
-use quote::quote;
-use syn::{parse_macro_input, parse_quote, DeriveInput};
+use manyhow::{emit, manyhow, Result};
+use proc_macro2::TokenStream;
 
 mod conversion;
 mod default;
@@ -46,9 +43,25 @@ mod validate;
 ///     todo!()
 /// }
 /// ```
+#[manyhow]
 #[proc_macro_attribute]
 pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
-    entrypoint::impl_entrypoint(attr, item)
+    let mut emitter = Emitter::new();
+
+    if !attr.is_empty() {
+        emit!(
+            emitter,
+            "`#[entrypoint]` macro for Executor entrypoints accepts no attributes"
+        );
+    }
+
+    let Some(item) = emitter.handle(syn2::parse2(item)) else {
+        return emitter.finish_token_stream();
+    };
+
+    let result = entrypoint::impl_entrypoint(&mut emitter, item);
+
+    emitter.finish_token_stream_with(result)
 }
 
 /// Derive macro for `Token` trait.
@@ -79,9 +92,12 @@ pub fn entrypoint(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     }.is_owned_by(&authority)
 /// }
 /// ```
+#[manyhow]
 #[proc_macro_derive(Token)]
-pub fn derive_token(input: TokenStream) -> TokenStream {
-    token::impl_derive_token(input)
+pub fn derive_token(input: TokenStream) -> Result<TokenStream> {
+    let input = syn2::parse2(input)?;
+
+    Ok(token::impl_derive_token(&input))
 }
 
 /// Derive macro for `ValidateGrantRevoke` trait.
@@ -144,12 +160,14 @@ pub fn derive_token(input: TokenStream) -> TokenStream {
 //     ...
 // }
 // ```
+#[manyhow]
 #[proc_macro_derive(
     ValidateGrantRevoke,
     attributes(validate, validate_grant, validate_revoke)
 )]
-pub fn derive_validate_grant_revoke(input: TokenStream) -> TokenStream {
-    validate::impl_derive_validate_grant_revoke(input)
+pub fn derive_validate_grant_revoke(input: TokenStream) -> Result<TokenStream> {
+    let input = syn2::parse2(input)?;
+    validate::impl_derive_validate_grant_revoke(&input)
 }
 
 /// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
@@ -159,9 +177,14 @@ pub fn derive_validate_grant_revoke(input: TokenStream) -> TokenStream {
 ///
 /// Implements [`From`] for `permission::asset_definition::Owner`
 /// and not [`Into`] for your type. [`Into`] will be implemented automatically.
+#[manyhow]
 #[proc_macro_derive(RefIntoAssetDefinitionOwner)]
-pub fn derive_ref_into_asset_definition_owner(input: TokenStream) -> TokenStream {
-    conversion::impl_derive_ref_into_asset_definition_owner(input)
+pub fn derive_ref_into_asset_definition_owner(input: TokenStream) -> Result<TokenStream> {
+    let input = syn2::parse2(input)?;
+
+    Ok(conversion::impl_derive_ref_into_asset_definition_owner(
+        &input,
+    ))
 }
 
 /// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
@@ -171,9 +194,12 @@ pub fn derive_ref_into_asset_definition_owner(input: TokenStream) -> TokenStream
 ///
 /// Implements [`From`] for `permission::asset::Owner`
 /// and not [`Into`] for your type. [`Into`] will be implemented automatically.
+#[manyhow]
 #[proc_macro_derive(RefIntoAssetOwner)]
-pub fn derive_ref_into_asset_owner(input: TokenStream) -> TokenStream {
-    conversion::impl_derive_ref_into_asset_owner(input)
+pub fn derive_ref_into_asset_owner(input: TokenStream) -> Result<TokenStream> {
+    let input = syn2::parse2(input)?;
+
+    Ok(conversion::impl_derive_ref_into_asset_owner(&input))
 }
 
 /// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
@@ -183,9 +209,12 @@ pub fn derive_ref_into_asset_owner(input: TokenStream) -> TokenStream {
 ///
 /// Implements [`From`] for `permission::asset::Owner`
 /// and not [`Into`] for your type. [`Into`] will be implemented automatically.
+#[manyhow]
 #[proc_macro_derive(RefIntoAccountOwner)]
-pub fn derive_ref_into_account_owner(input: TokenStream) -> TokenStream {
-    conversion::impl_derive_ref_into_account_owner(input)
+pub fn derive_ref_into_account_owner(input: TokenStream) -> Result<TokenStream> {
+    let input = syn2::parse2(input)?;
+
+    Ok(conversion::impl_derive_ref_into_account_owner(&input))
 }
 
 /// Should be used together with [`ValidateGrantRevoke`] derive macro to derive a conversion
@@ -195,15 +224,16 @@ pub fn derive_ref_into_account_owner(input: TokenStream) -> TokenStream {
 ///
 /// Implements [`From`] for `permission::domain::Owner`
 /// and not [`Into`] for your type. [`Into`] will be implemented automatically.
+#[manyhow]
 #[proc_macro_derive(RefIntoDomainOwner)]
-pub fn derive_ref_into_domain_owner(input: TokenStream) -> TokenStream {
-    conversion::impl_derive_ref_into_domain_owner(input)
+pub fn derive_ref_into_domain_owner(input: TokenStream) -> Result<TokenStream> {
+    let input = syn2::parse2(input)?;
+
+    Ok(conversion::impl_derive_ref_into_domain_owner(&input))
 }
 
 /// Implements the `iroha_executor::Validate` trait for the given `Executor` struct. As
-/// this trait has a `iroha_executor::prelude::Visit`, and the latter has an
-/// `iroha_executor::iroha_data_model::evaluate::ExpressionEvaluator`
-/// bound, at least these two should be implemented as well.
+/// this trait has a `iroha_executor::prelude::Visit` at least this one should be implemented as well.
 ///
 /// Emits a compile error if the struct didn't have all the expected fields with corresponding
 /// types, i.e. `verdict`: `iroha_executor::prelude::Result`, `block_height`: `u64` and
@@ -211,7 +241,7 @@ pub fn derive_ref_into_domain_owner(input: TokenStream) -> TokenStream {
 /// `block_height` are needed. The types can be unqualified, but not aliased.
 #[manyhow]
 #[proc_macro_derive(Validate)]
-pub fn derive_validate(input: TokenStream2) -> TokenStream2 {
+pub fn derive_validate(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
     let Some(input) = emitter.handle(syn2::parse2(input)) else {
@@ -239,7 +269,7 @@ pub fn derive_validate(input: TokenStream2) -> TokenStream2 {
 /// ```ignore
 /// use iroha_executor::{smart_contract, prelude::*};
 ///
-/// #[derive(Constructor, Entrypoints, ExpressionEvaluator, Validate, Visit)]
+/// #[derive(Constructor, Entrypoints, Validate, Visit)]
 /// #[visit(custom(visit_query)]
 /// pub struct Executor {
 ///    verdict: Result,
@@ -256,7 +286,7 @@ pub fn derive_validate(input: TokenStream2) -> TokenStream2 {
 /// ```
 #[manyhow]
 #[proc_macro_derive(Visit, attributes(visit))]
-pub fn derive_visit(input: TokenStream2) -> TokenStream2 {
+pub fn derive_visit(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
     let Some(input) = emitter.handle(syn2::parse2(input)) else {
@@ -286,7 +316,7 @@ pub fn derive_visit(input: TokenStream2) -> TokenStream2 {
 /// ```ignore
 /// use iroha_executor::{smart_contract, prelude::*};
 ///
-/// #[derive(Constructor, Entrypoints, ExpressionEvaluator, Validate, Visit)]
+/// #[derive(Constructor, Entrypoints, Validate, Visit)]
 /// #[entrypoints(custom(validate_query))]
 /// pub struct Executor {
 ///    verdict: Result,
@@ -297,7 +327,7 @@ pub fn derive_visit(input: TokenStream2) -> TokenStream2 {
 /// ```
 #[manyhow]
 #[proc_macro_derive(ValidateEntrypoints, attributes(entrypoints))]
-pub fn derive_entrypoints(input: TokenStream2) -> TokenStream2 {
+pub fn derive_entrypoints(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
     let Some(input) = emitter.handle(syn2::parse2(input)) else {
@@ -305,27 +335,6 @@ pub fn derive_entrypoints(input: TokenStream2) -> TokenStream2 {
     };
 
     let result = default::impl_derive_entrypoints(&mut emitter, &input);
-
-    emitter.finish_token_stream_with(result)
-}
-
-/// Implements `iroha_executor::iroha_data_model::evaluate::ExpressionEvaluator` trait
-/// for the given `Executor` struct.
-///
-/// Emits a compile error if the struct didn't have all the expected fields with corresponding
-/// types, i.e. `verdict`: `iroha_executor::prelude::Result`, `block_height`: `u64` and
-/// `host`: `iroha_executor::smart_contract::Host`, though technically only `host` is needed.
-/// The types can be unqualified, but not aliased.
-#[manyhow]
-#[proc_macro_derive(ExpressionEvaluator)]
-pub fn derive_expression_evaluator(input: TokenStream2) -> TokenStream2 {
-    let mut emitter = Emitter::new();
-
-    let Some(input) = emitter.handle(syn2::parse2(input)) else {
-        return emitter.finish_token_stream();
-    };
-
-    let result = default::impl_derive_expression_evaluator(&mut emitter, &input);
 
     emitter.finish_token_stream_with(result)
 }
@@ -340,7 +349,7 @@ pub fn derive_expression_evaluator(input: TokenStream2) -> TokenStream2 {
 /// `host`: `iroha_executor::smart_contract::Host`. The types can be unqualified, but not aliased.
 #[manyhow]
 #[proc_macro_derive(Constructor)]
-pub fn derive_constructor(input: TokenStream2) -> TokenStream2 {
+pub fn derive_constructor(input: TokenStream) -> TokenStream {
     let mut emitter = Emitter::new();
 
     let Some(input) = emitter.handle(syn2::parse2(input)) else {

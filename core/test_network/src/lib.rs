@@ -7,7 +7,10 @@ use std::{collections::BTreeMap, path::Path, sync::Arc, thread};
 use eyre::Result;
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha::Iroha;
-use iroha_client::client::{Client, QueryOutput};
+use iroha_client::{
+    client::{Client, QueryOutput},
+    data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query, Level},
+};
 use iroha_config::{
     base::proxy::{LoadFromEnv, Override},
     client::Configuration as ClientConfiguration,
@@ -16,9 +19,6 @@ use iroha_config::{
     torii::Configuration as ToriiConfiguration,
 };
 use iroha_crypto::prelude::*;
-use iroha_data_model::{
-    isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query, Level,
-};
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
 use iroha_primitives::{
@@ -26,7 +26,7 @@ use iroha_primitives::{
     unique_vec,
     unique_vec::UniqueVec,
 };
-use rand::seq::IteratorRandom;
+use rand::{seq::IteratorRandom, thread_rng};
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::{
@@ -68,13 +68,17 @@ pub fn get_key_pair() -> KeyPair {
 
 /// Trait used to differentiate a test instance of `genesis`.
 pub trait TestGenesis: Sized {
-    /// Construct Iroha genesis network and optionally submit genesis
-    /// from the given peer.
-    fn test(submit_genesis: bool) -> Option<Self>;
+    /// Construct Iroha genesis network
+    fn test() -> Self {
+        Self::test_with_instructions([])
+    }
+
+    /// Construct genesis network with additional instructions
+    fn test_with_instructions(extra_isi: impl IntoIterator<Item = InstructionBox>) -> Self;
 }
 
 impl TestGenesis for GenesisNetwork {
-    fn test(submit_genesis: bool) -> Option<Self> {
+    fn test_with_instructions(extra_isi: impl IntoIterator<Item = InstructionBox>) -> Self {
         let cfg = Configuration::test();
 
         // TODO: Fix this somehow. Probably we need to make `kagami` a library (#3253).
@@ -118,17 +122,19 @@ impl TestGenesis for GenesisNetwork {
             upgrade_executor_permission,
         ] {
             first_transaction
-                .append_instruction(GrantExpr::new(permission, alice_id.clone()).into());
+                .append_instruction(Grant::permission_token(permission, alice_id.clone()).into());
         }
 
-        if submit_genesis {
-            return Some(
-                GenesisNetwork::from_configuration(genesis, Some(&cfg.genesis))
-                    .expect("Failed to init genesis"),
-            );
+        for isi in extra_isi.into_iter() {
+            first_transaction.append_instruction(isi);
         }
 
-        None
+        let key_pair = KeyPair::new(
+            cfg.genesis.public_key.clone(),
+            cfg.genesis.private_key.expect("Should be"),
+        )
+        .expect("Genesis key pair should be valid");
+        GenesisNetwork::new(genesis, &key_pair).expect("Failed to init genesis")
     }
 }
 
@@ -170,7 +176,7 @@ impl Network {
         start_port: Option<u16>,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
-        configuration.logger.max_log_level = Level::INFO.into();
+        configuration.logger.level = Level::INFO;
         let network = Network::new_with_offline_peers(
             Some(configuration),
             n_peers,
@@ -179,7 +185,12 @@ impl Network {
         )
         .await
         .expect("Failed to init peers");
-        let client = Client::test(&network.genesis.api_address);
+        let client = Client::test(
+            &Network::peers(&network)
+                .choose(&mut thread_rng())
+                .unwrap()
+                .api_address,
+        );
         (network, client)
     }
 
@@ -197,7 +208,12 @@ impl Network {
     /// Adds peer to network and waits for it to start block
     /// synchronization.
     pub async fn add_peer(&self) -> (Peer, Client) {
-        let genesis_client = Client::test(&self.genesis.api_address);
+        let client = Client::test(
+            &Network::peers(self)
+                .choose(&mut thread_rng())
+                .unwrap()
+                .api_address,
+        );
 
         let mut config = Configuration::test();
         config.sumeragi.trusted_peers.peers =
@@ -205,20 +221,17 @@ impl Network {
 
         let peer = PeerBuilder::new()
             .with_configuration(config)
-            .with_into_genesis(GenesisNetwork::test(false))
+            .with_genesis(GenesisNetwork::test())
             .start()
             .await;
 
         time::sleep(Configuration::pipeline_time() + Configuration::block_sync_gossip_time()).await;
 
-        let add_peer = RegisterExpr::new(DataModelPeer::new(peer.id.clone()));
-        genesis_client
-            .submit(add_peer)
-            .expect("Failed to add new peer.");
+        let add_peer = Register::peer(DataModelPeer::new(peer.id.clone()));
+        client.submit(add_peer).expect("Failed to add new peer.");
 
-        let client = Client::test(&peer.api_address);
-
-        (peer, client)
+        let peer_client = Client::test(&peer.api_address);
+        (peer, peer_client)
     }
 
     /// Creates new network with some offline peers
@@ -249,7 +262,7 @@ impl Network {
                     (n, builder)
                 }
             })
-            .map(|(n, builder)| builder.with_into_genesis(GenesisNetwork::test(n == 0)))
+            .map(|(n, builder)| builder.with_into_genesis((n == 0).then(GenesisNetwork::test)))
             .take(n_peers as usize)
             .collect::<Vec<_>>();
         let mut peers = builders
@@ -323,7 +336,7 @@ impl Network {
 /// When unsuccessful after `MAX_RETRIES`.
 pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
     const POLL_PERIOD: Duration = Duration::from_millis(1000);
-    const MAX_RETRIES: u32 = 30;
+    const MAX_RETRIES: u32 = 40;
 
     for _ in 0..MAX_RETRIES {
         let without_genesis_peers = clients.iter().fold(0_u32, |acc, client| {
@@ -359,7 +372,7 @@ pub struct Peer {
     pub iroha: Option<Iroha>,
     /// Temporary directory
     // Note: last field to be dropped after Iroha (struct fields drops in FIFO RFC 1857)
-    temp_dir: Option<Arc<TempDir>>,
+    pub temp_dir: Option<Arc<TempDir>>,
 }
 
 impl From<Peer> for Box<iroha_core::tx::Peer> {
@@ -401,7 +414,6 @@ impl Peer {
             }),
             public_key: self.key_pair.public_key().clone(),
             private_key: self.key_pair.private_key().clone(),
-            disable_panic_terminal_colors: true,
             ..configuration
         }
     }
@@ -414,22 +426,18 @@ impl Peer {
         temp_dir: Arc<TempDir>,
     ) {
         let mut configuration = self.get_config(configuration);
-        configuration
-            .kura
-            .block_store_path(temp_dir.path())
-            .expect("block store path not readable");
+        configuration.kura.block_store_path = temp_dir.path().to_str().unwrap().into();
         let info_span = iroha_logger::info_span!(
             "test-peer",
             p2p_addr = %self.p2p_address,
             api_addr = %self.api_address,
         );
-        let telemetry =
-            iroha_logger::init(&configuration.logger).expect("Failed to initialize telemetry");
+        let logger = iroha_logger::test_logger();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
 
         let handle = task::spawn(
             async move {
-                let mut iroha = Iroha::with_genesis(genesis, configuration, telemetry)
+                let mut iroha = Iroha::new(configuration, genesis, logger)
                     .await
                     .expect("Failed to start iroha");
                 let job_handle = iroha.start_as_task().unwrap();
@@ -553,14 +561,14 @@ impl PeerBuilder {
 
     /// Set the test genesis network.
     #[must_use]
-    pub fn with_test_genesis(self, submit_genesis: bool) -> Self {
-        self.with_into_genesis(GenesisNetwork::test(submit_genesis))
+    pub fn with_test_genesis(self) -> Self {
+        self.with_into_genesis(GenesisNetwork::test())
     }
 
     /// Set Iroha configuration
     #[must_use]
     pub fn with_configuration(mut self, configuration: Configuration) -> Self {
-        self.configuration.replace(configuration);
+        self.configuration = Some(configuration);
         self
     }
 
@@ -600,7 +608,7 @@ impl PeerBuilder {
             config
         });
         let genesis = match self.genesis {
-            WithGenesis::Default => GenesisNetwork::test(true),
+            WithGenesis::Default => Some(GenesisNetwork::test()),
             WithGenesis::None => None,
             WithGenesis::Has(genesis) => Some(genesis),
         };
@@ -708,7 +716,7 @@ pub trait TestClient: Sized {
     /// If predicate is not satisfied, after maximum retries.
     fn submit_all_till<R: Query + Debug + Clone>(
         &self,
-        instructions: Vec<InstructionExpr>,
+        instructions: Vec<InstructionBox>,
         request: R,
         f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
     ) -> eyre::Result<()>
@@ -840,7 +848,7 @@ impl TestClient for Client {
 
     fn submit_all_till<R: Query + Debug + Clone>(
         &self,
-        instructions: Vec<InstructionExpr>,
+        instructions: Vec<InstructionBox>,
         request: R,
         f: impl Fn(<R::Output as QueryOutput>::Target) -> bool,
     ) -> eyre::Result<()>

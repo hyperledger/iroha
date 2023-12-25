@@ -29,29 +29,32 @@ class Network:
         self.out_dir = args.out_dir
         peers_dir = args.out_dir.joinpath("peers")
         os.makedirs(peers_dir, exist_ok=True)
+        self.shared_env = dict(os.environ)
+
+        self.peers = [_Peer(args, i) for i in range(args.n_peers)]
+
         try:
             shutil.copy2(f"{args.root_dir}/configs/peer/config.json", peers_dir)
-            shutil.copy2(f"{args.root_dir}/configs/peer/genesis.json", peers_dir)
-            shutil.copy2(f"{args.root_dir}/configs/peer/executor.wasm", peers_dir)
+            # genesis should be supplied only for the first peer
+            peer_0_dir = self.peers[0].peer_dir
+            shutil.copy2(f"{args.root_dir}/configs/peer/genesis.json", peer_0_dir)
+            # assuming that `genesis.json` contains path to the executor as `./executor.wasm`
+            shutil.copy2(f"{args.root_dir}/configs/peer/executor.wasm", peer_0_dir)
         except FileNotFoundError:
             logging.error(f"Some of the config files are missing. \
                           Please provide them in the `{args.root_dir}/configs/peer` directory")
             sys.exit(1)
         copy_or_prompt_build_bin("iroha", args.root_dir, peers_dir)
 
-        self.peers = [_Peer(args, i) for i in range(args.n_peers)]
-
-        os.environ["IROHA2_CONFIG_PATH"] = str(peers_dir.joinpath("config.json"))
-        os.environ["IROHA2_GENESIS_PATH"] = str(peers_dir.joinpath("genesis.json"))
-        os.environ["IROHA_GENESIS_ACCOUNT_PUBLIC_KEY"] = self.peers[0].public_key
-        os.environ["IROHA_GENESIS_ACCOUNT_PRIVATE_KEY"] = self.peers[0].private_key
+        self.shared_env["IROHA_CONFIG"] = str(peers_dir.joinpath("config.json"))
+        self.shared_env["IROHA_GENESIS_PUBLIC_KEY"] = self.peers[0].public_key
 
         logging.info("Generating trusted peers...")
         self.trusted_peers = []
         for peer in self.peers:
             peer_entry = {"address": f"{peer.host_ip}:{peer.p2p_port}", "public_key": peer.public_key}
             self.trusted_peers.append(json.dumps(peer_entry))
-        os.environ["SUMERAGI_TRUSTED_PEERS"] = f"[{','.join(self.trusted_peers)}]"
+        self.shared_env["SUMERAGI_TRUSTED_PEERS"] = f"[{','.join(self.trusted_peers)}]"
 
     def wait_for_genesis(self, n_tries: int):
         for i in range(n_tries):
@@ -73,9 +76,8 @@ class Network:
         sys.exit(2)
 
     def run(self):
-        self.peers[0].run(is_genesis=True)
-        for peer in self.peers[1:]:
-            peer.run()
+        for i, peer in enumerate(self.peers):
+            peer.run(shared_env=self.shared_env, submit_genesis=(i == 0))
         self.wait_for_genesis(20)
 
 class _Peer:
@@ -91,6 +93,7 @@ class _Peer:
         self.tokio_console_port = 5555 + nth
         self.out_dir = args.out_dir
         self.root_dir = args.root_dir
+        self.peer_dir = self.out_dir.joinpath(f"peers/{self.name}")
         self.host_ip = args.host_ip
 
         logging.info(f"Peer {self.name} generating key pair...")
@@ -108,31 +111,37 @@ class _Peer:
         self.public_key = json_keypair['public_key']
         self.private_key = json.dumps(json_keypair['private_key'])
 
+        os.makedirs(self.peer_dir, exist_ok=True)
+        os.makedirs(self.peer_dir.joinpath("storage"), exist_ok=True)
+
         logging.info(f"Peer {self.name} initialized")
 
-    def run(self, is_genesis: bool = False):
+    def run(self, shared_env: dict(), submit_genesis: bool = False):
         logging.info(f"Running peer {self.name}...")
-        peer_dir = self.out_dir.joinpath(f"peers/{self.name}")
-        os.makedirs(peer_dir, exist_ok=True)
-        os.makedirs(peer_dir.joinpath("storage"), exist_ok=True)
 
-        os.environ["KURA_BLOCK_STORE_PATH"] = str(peer_dir.joinpath("storage"))
-        os.environ["SNAPSHOT_DIR_PATH"] = str(peer_dir.joinpath("storage"))
-        os.environ["LOG_FILE_PATH"] = str(peer_dir.joinpath("log.json"))
-        os.environ["MAX_LOG_LEVEL"] = "TRACE"
-        os.environ["IROHA_PUBLIC_KEY"] = self.public_key
-        os.environ["IROHA_PRIVATE_KEY"] = self.private_key
-        os.environ["SUMERAGI_DEBUG_FORCE_SOFT_FORK"] = "false"
-        os.environ["TORII_P2P_ADDR"] = f"{self.host_ip}:{self.p2p_port}"
-        os.environ["TORII_API_URL"] = f"{self.host_ip}:{self.api_port}"
-        os.environ["TOKIO_CONSOLE_ADDR"] = f"{self.host_ip}:{self.tokio_console_port}"
+        peer_env = dict(shared_env)
+        peer_env["KURA_BLOCK_STORE_PATH"] = str(self.peer_dir.joinpath("storage"))
+        peer_env["SNAPSHOT_DIR_PATH"] = str(self.peer_dir.joinpath("storage"))
+        peer_env["LOG_LEVEL"] = "INFO"
+        peer_env["LOG_FORMAT"] = "\"pretty\""
+        peer_env["LOG_TOKIO_CONSOLE_ADDR"] = f"{self.host_ip}:{self.tokio_console_port}"
+        peer_env["IROHA_PUBLIC_KEY"] = self.public_key
+        peer_env["IROHA_PRIVATE_KEY"] = self.private_key
+        peer_env["SUMERAGI_DEBUG_FORCE_SOFT_FORK"] = "false"
+        peer_env["TORII_P2P_ADDR"] = f"{self.host_ip}:{self.p2p_port}"
+        peer_env["TORII_API_URL"] = f"{self.host_ip}:{self.api_port}"
 
-        genesis_arg = "--submit-genesis" if is_genesis else ""
+        if submit_genesis:
+            peer_env["IROHA_GENESIS_PRIVATE_KEY"] = self.private_key
+            # Assuming it was copied to the peer's directory
+            peer_env["IROHA_GENESIS_FILE"] = str(self.peer_dir.joinpath("genesis.json"))
+
         # FD never gets closed
-        log_file = open(peer_dir.joinpath(".log"), "w")
+        stdout_file = open(self.peer_dir.joinpath(".stdout"), "w")
+        stderr_file = open(self.peer_dir.joinpath(".stderr"), "w")
         # These processes are created detached from the parent process already
-        subprocess.Popen([self.name, genesis_arg], executable=f"{self.out_dir}/peers/iroha",
-                    stdout=log_file, stderr=subprocess.STDOUT)
+        subprocess.Popen([self.name] + (["--submit-genesis"] if submit_genesis else []),
+                    executable=f"{self.out_dir}/peers/iroha", env=peer_env, stdout=stdout_file, stderr=stderr_file)
 
 def pos_int(arg):
     if int(arg) > 0:

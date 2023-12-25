@@ -1,8 +1,10 @@
 use std::str::FromStr;
 
 use eyre::Result;
-use iroha_client::client::{self, QueryResult};
-use iroha_data_model::prelude::*;
+use iroha_client::{
+    client::{self, QueryResult},
+    data_model::prelude::*,
+};
 use test_network::*;
 
 #[test]
@@ -12,7 +14,7 @@ fn can_change_parameter_value() -> Result<()> {
 
     let parameter = Parameter::from_str("?BlockTime=4000")?;
     let parameter_id = ParameterId::from_str("BlockTime")?;
-    let param_box = SetParameterExpr::new(parameter);
+    let param_box = SetParameter::new(parameter);
 
     let old_params = test_client
         .request(client::parameter::all())?
@@ -44,13 +46,13 @@ fn parameter_propagated() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let too_long_domain_name: DomainId = "0".repeat(2_usize.pow(8)).parse()?;
-    let create_domain = RegisterExpr::new(Domain::new(too_long_domain_name));
+    let create_domain = Register::domain(Domain::new(too_long_domain_name));
     let _ = test_client
         .submit_blocking(create_domain.clone())
         .expect_err("Should fail before ident length limits update");
 
     let parameter = Parameter::from_str("?WSVIdentLengthLimits=1,256_LL")?;
-    let param_box = SetParameterExpr::new(parameter);
+    let param_box = SetParameter::new(parameter);
     test_client.submit_blocking(param_box)?;
 
     test_client

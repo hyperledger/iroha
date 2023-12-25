@@ -5,13 +5,16 @@ use std::{
 };
 
 use eyre::{Result, WrapErr as _};
-use iroha_client::client::{self, QueryResult};
-use iroha_data_model::{
-    account::Account,
-    predicate::{string, value, PredicateBox},
-    prelude::*,
-    query::{Pagination, Sorting},
+use iroha_client::{
+    client::{self, QueryResult},
+    data_model::{
+        account::Account,
+        predicate::{string, value, PredicateBox},
+        prelude::*,
+        query::{Pagination, Sorting},
+    },
 };
+use iroha_data_model::isi::InstructionBox;
 use test_network::*;
 
 #[test]
@@ -44,8 +47,9 @@ fn correct_pagination_assets_after_creating_new_one() {
 
         assets.push(asset.clone());
 
-        let create_asset_definition = RegisterExpr::new(asset_definition);
-        let create_asset = RegisterExpr::new(asset);
+        let create_asset_definition: InstructionBox =
+            Register::asset_definition(asset_definition).into();
+        let create_asset = Register::asset(asset).into();
 
         instructions.push(create_asset_definition);
         instructions.push(create_asset);
@@ -92,8 +96,9 @@ fn correct_pagination_assets_after_creating_new_one() {
         AssetValue::Store(new_asset_metadata),
     );
 
-    let create_asset_definition = RegisterExpr::new(new_asset_definition);
-    let create_asset = RegisterExpr::new(new_asset.clone());
+    let create_asset_definition: InstructionBox =
+        Register::asset_definition(new_asset_definition).into();
+    let create_asset = Register::asset(new_asset.clone()).into();
 
     test_client
         .submit_all_blocking([create_asset_definition, create_asset])
@@ -151,7 +156,7 @@ fn correct_sorting_of_entities() {
         metadata_of_assets.push(asset_metadata);
         asset_definitions.push(asset_definition_id);
 
-        let create_asset_definition = RegisterExpr::new(asset_definition);
+        let create_asset_definition = Register::asset_definition(asset_definition);
         instructions.push(create_asset_definition);
     }
 
@@ -201,7 +206,7 @@ fn correct_sorting_of_entities() {
         accounts.push(account_id);
         metadata_of_accounts.push(account_metadata);
 
-        let create_account = RegisterExpr::new(account);
+        let create_account = Register::account(account);
         instructions.push(create_account);
     }
 
@@ -247,7 +252,7 @@ fn correct_sorting_of_entities() {
         domains.push(domain_id);
         metadata_of_domains.push(domain_metadata);
 
-        let create_account = RegisterExpr::new(domain);
+        let create_account = Register::domain(domain);
         instructions.push(create_account);
     }
 
@@ -292,7 +297,7 @@ fn correct_sorting_of_entities() {
         domains.push(domain_id);
         metadata_of_domains.push(domain_metadata);
 
-        let create_account = RegisterExpr::new(domain);
+        let create_account = Register::domain(domain);
         instructions.push(create_account);
     }
     test_client
@@ -354,7 +359,7 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
             account
         };
 
-        let create_account = RegisterExpr::new(account);
+        let create_account = Register::account(account);
         instructions.push(create_account);
     }
 

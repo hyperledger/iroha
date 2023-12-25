@@ -1,8 +1,10 @@
 use std::num::{NonZeroU32, NonZeroU64};
 
 use eyre::Result;
-use iroha_client::client::{asset, Client, QueryResult};
-use iroha_data_model::{asset::AssetDefinition, prelude::*, query::Pagination};
+use iroha_client::{
+    client::{asset, Client, QueryResult},
+    data_model::{asset::AssetDefinition, prelude::*, query::Pagination},
+};
 use test_network::*;
 
 #[test]
@@ -44,11 +46,11 @@ fn fetch_size_should_work() -> Result<()> {
 }
 
 fn register_assets(client: &Client) -> Result<()> {
-    let register: Vec<InstructionExpr> = ('a'..='z')
+    let register: Vec<InstructionBox> = ('a'..='z')
         .map(|c| c.to_string())
         .map(|name| (name + "#wonderland").parse().expect("Valid"))
         .map(|asset_definition_id| {
-            RegisterExpr::new(AssetDefinition::quantity(asset_definition_id)).into()
+            Register::asset_definition(AssetDefinition::quantity(asset_definition_id)).into()
         })
         .collect();
     let _ = client.submit_all_blocking(register)?;

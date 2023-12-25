@@ -42,4 +42,14 @@ pub enum Enum {
     FortyTwo,
 }
 
+pub trait Trait {
+    type Assoc;
+}
+
+#[derive(IntoSchema)]
+#[schema(bounds = "T: Trait, T::Assoc: IntoSchema")]
+pub struct WithComplexGeneric<T: Trait> {
+    _value: T::Assoc,
+}
+
 pub fn main() {}

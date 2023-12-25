@@ -5,9 +5,11 @@
             "Instructions": [
                 {
                     "Mint": {
-                        "object": "1_u32",
-                        "destination_id": {
-                            "AssetId": "rose##alice@wonderland"
+                        "Asset": {
+                            "Quantity": {
+                                "object": 1,
+                                "destination_id": "rose##alice@wonderland"
+                            }
                         }
                     }
                 }
@@ -17,7 +19,12 @@
         "authority": "alice@wonderland",
         "filter": {
             "Data": {
-                "ByAccount": "AcceptAll"
+                "ByDomain": {
+                    "origin_filter": "AcceptAll",
+                    "event_filter": {
+                        "ByAccount": "AcceptAll"
+                    }
+                }
             }
         },
         "metadata": {}

@@ -6,18 +6,21 @@
 //! should be constructed externally: (see `main.rs`).
 #[cfg(debug_assertions)]
 use core::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use iroha_config::{
     base::proxy::{LoadFromDisk, LoadFromEnv, Override},
+    genesis::ParsedConfiguration as ParsedGenesisConfiguration,
     iroha::{Configuration, ConfigurationProxy},
-    path::Path as ConfigPath,
+    path::Path,
+    telemetry::Configuration as TelemetryConfiguration,
 };
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
     gossiper::{TransactionGossiper, TransactionGossiperHandle},
     handler::ThreadHandler,
+    kiso::KisoHandle,
     kura::Kura,
     prelude::{World, WorldStateView},
     query::store::LiveQueryStore,
@@ -30,49 +33,16 @@ use iroha_core::{
 };
 use iroha_data_model::prelude::*;
 use iroha_genesis::GenesisNetwork;
+use iroha_logger::actor::LoggerHandle;
+use iroha_torii::Torii;
 use tokio::{
     signal,
     sync::{broadcast, mpsc, Notify},
     task,
 };
-use torii::Torii;
 
-mod event;
+// FIXME: move from CLI
 pub mod samples;
-mod stream;
-pub mod style;
-pub mod torii;
-
-/// Arguments for Iroha2.  Configuration for arguments is parsed from
-/// environment variables and then the appropriate object is
-/// constructed.
-#[derive(Debug)]
-pub struct Arguments {
-    /// Set this flag on the peer that should submit genesis on the network initial start.
-    pub submit_genesis: bool,
-    /// Set custom genesis file path. `None` if `submit_genesis` set to `false`.
-    pub genesis_path: Option<ConfigPath>,
-    /// Set custom config file path.
-    pub config_path: ConfigPath,
-}
-
-/// Default configuration path
-static CONFIGURATION_PATH: once_cell::sync::Lazy<&'static std::path::Path> =
-    once_cell::sync::Lazy::new(|| std::path::Path::new("config"));
-
-/// Default genesis path
-static GENESIS_PATH: once_cell::sync::Lazy<&'static std::path::Path> =
-    once_cell::sync::Lazy::new(|| std::path::Path::new("genesis"));
-
-impl Default for Arguments {
-    fn default() -> Self {
-        Self {
-            submit_genesis: false,
-            genesis_path: Some(ConfigPath::default(&GENESIS_PATH)),
-            config_path: ConfigPath::default(&CONFIGURATION_PATH),
-        }
-    }
-}
 
 /// Iroha is an
 /// [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29)
@@ -80,11 +50,12 @@ impl Default for Arguments {
 /// and queries processing, work of consensus and storage.
 ///
 /// # Usage
-/// Construct and then `start` or `start_as_task`. If you experience
-/// an immediate shutdown after constructing Iroha, then you probably
-/// forgot this step.
+/// Construct and then use [`Iroha::start()`] or [`Iroha::start_as_task()`]. If you experience
+/// an immediate shutdown after constructing Iroha, then you probably forgot this step.
 #[must_use = "run `.start().await?` to not immediately stop Iroha"]
 pub struct Iroha {
+    /// Actor responsible for the configuration
+    pub kiso: KisoHandle,
     /// Queue of transactions
     pub queue: Arc<Queue>,
     /// Sumeragi consensus
@@ -137,7 +108,7 @@ impl NetworkRelay {
             tokio::select! {
                 // Receive message from network
                 Some(msg) = receiver.recv() => self.handle_message(msg).await,
-                _ = self.shutdown_notify.notified() => {
+                () = self.shutdown_notify.notified() => {
                     iroha_logger::info!("NetworkRelay is being shut down.");
                     break;
                 }
@@ -214,18 +185,21 @@ impl Iroha {
         }));
     }
 
-    /// Create Iroha with specified broker, config, and genesis.
+    /// Create new Iroha instance.
     ///
     /// # Errors
     /// - Reading telemetry configs
-    /// - telemetry setup
-    /// - Initialization of [`Sumeragi`]
+    /// - Telemetry setup
+    /// - Initialization of [`Sumeragi`] and [`Kura`]
+    ///
+    /// # Side Effects
+    /// - Sets global panic hook
     #[allow(clippy::too_many_lines)]
     #[iroha_logger::log(name = "init", skip_all)] // This is actually easier to understand as a linear sequence of init statements.
-    pub async fn with_genesis(
-        genesis: Option<GenesisNetwork>,
+    pub async fn new(
         config: Configuration,
-        telemetry: Option<iroha_logger::Telemetries>,
+        genesis: Option<GenesisNetwork>,
+        logger: LoggerHandle,
     ) -> Result<Self> {
         let listen_addr = config.torii.p2p_addr.clone();
         let network = IrohaNetwork::start(listen_addr, config.sumeragi.key_pair.clone())
@@ -234,15 +208,11 @@ impl Iroha {
 
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(
-            [genesis_domain(&config)],
+            [genesis_domain(config.genesis.public_key.clone())],
             config.sumeragi.trusted_peers.peers.clone(),
         );
 
-        let kura = Kura::new(
-            config.kura.init_mode,
-            std::path::Path::new(&config.kura.block_store_path),
-            config.kura.debug_output_new_blocks,
-        )?;
+        let kura = Kura::new(&config.kura)?;
         let live_query_store_handle =
             LiveQueryStore::from_configuration(config.live_query_store).start();
 
@@ -273,11 +243,10 @@ impl Iroha {
         );
 
         let queue = Arc::new(Queue::from_configuration(&config.queue));
-        if Self::start_telemetry(telemetry, &config).await? {
-            iroha_logger::info!("Telemetry started")
-        } else {
-            iroha_logger::warn!("Telemetry not started")
-        }
+        match Self::start_telemetry(&logger, &config.telemetry).await? {
+            TelemetryStartStatus::Started => iroha_logger::info!("Telemetry started"),
+            TelemetryStartStatus::NotStarted => iroha_logger::warn!("Telemetry not started"),
+        };
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
@@ -328,8 +297,11 @@ impl Iroha {
         let snapshot_maker =
             SnapshotMaker::from_configuration(&config.snapshot, sumeragi.clone()).start();
 
-        let torii = Torii::from_configuration(
-            config.clone(),
+        let kiso = KisoHandle::new(config.clone());
+
+        let torii = Torii::new(
+            kiso.clone(),
+            &config.torii,
             Arc::clone(&queue),
             events_sender,
             Arc::clone(&notify_shutdown),
@@ -338,12 +310,15 @@ impl Iroha {
             Arc::clone(&kura),
         );
 
+        Self::spawn_configuration_updates_broadcasting(kiso.clone(), logger.clone());
+
         Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
 
         Self::prepare_panic_hook(notify_shutdown);
 
         let torii = Some(torii);
         Ok(Self {
+            kiso,
             queue,
             sumeragi,
             kura,
@@ -389,37 +364,46 @@ impl Iroha {
 
     #[cfg(feature = "telemetry")]
     async fn start_telemetry(
-        telemetry: Option<(
-            iroha_logger::SubstrateTelemetry,
-            iroha_logger::FutureTelemetry,
-        )>,
-        config: &Configuration,
-    ) -> Result<bool> {
+        logger: &LoggerHandle,
+        config: &TelemetryConfiguration,
+    ) -> Result<TelemetryStartStatus> {
         #[allow(unused)]
-        if let Some((substrate_telemetry, telemetry_future)) = telemetry {
-            #[cfg(feature = "dev-telemetry")]
-            {
-                iroha_telemetry::dev::start(&config.telemetry, telemetry_future)
+        let (config_for_regular, config_for_dev) = config.parse();
+
+        #[cfg(feature = "dev-telemetry")]
+        {
+            if let Some(config) = config_for_dev {
+                let receiver = logger
+                    .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Future)
+                    .await
+                    .wrap_err("Failed to subscribe on telemetry")?;
+                let _handle = iroha_telemetry::dev::start(config, receiver)
                     .await
                     .wrap_err("Failed to setup telemetry for futures")?;
             }
-            iroha_telemetry::ws::start(&config.telemetry, substrate_telemetry)
+        }
+
+        if let Some(config) = config_for_regular {
+            let receiver = logger
+                .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Regular)
                 .await
-                .wrap_err("Failed to setup telemetry for websocket communication")
+                .wrap_err("Failed to subscribe on telemetry")?;
+            let _handle = iroha_telemetry::ws::start(config, receiver)
+                .await
+                .wrap_err("Failed to setup telemetry for websocket communication")?;
+
+            Ok(TelemetryStartStatus::Started)
         } else {
-            Ok(false)
+            Ok(TelemetryStartStatus::NotStarted)
         }
     }
 
     #[cfg(not(feature = "telemetry"))]
     async fn start_telemetry(
-        _telemetry: Option<(
-            iroha_logger::SubstrateTelemetry,
-            iroha_logger::FutureTelemetry,
-        )>,
-        _config: &Configuration,
-    ) -> Result<bool> {
-        Ok(false)
+        _logger: &LoggerHandle,
+        _config: &TelemetryConfiguration,
+    ) -> Result<TelemetryStartStatus> {
+        Ok(TelemetryStartStatus::NotStarted)
     }
 
     #[allow(clippy::redundant_pub_crate)]
@@ -448,77 +432,312 @@ impl Iroha {
 
         Ok(handle)
     }
+
+    /// Spawns a task which subscribes on updates from configuration actor
+    /// and broadcasts them further to interested actors. This way, neither config actor nor other ones know
+    /// about each other, achieving loose coupling of code and system.
+    fn spawn_configuration_updates_broadcasting(
+        kiso: KisoHandle,
+        logger: LoggerHandle,
+    ) -> task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut log_level_update = kiso
+                .subscribe_on_log_level()
+                .await
+                // FIXME: don't like neither the message nor inability to throw Result to the outside
+                .expect("Cannot proceed without working subscriptions");
+
+            loop {
+                tokio::select! {
+                    Ok(()) = log_level_update.changed() => {
+                        let value = *log_level_update.borrow_and_update();
+                        if let Err(error) = logger.reload_level(value).await {
+                            iroha_logger::error!("Failed to reload log level: {error}");
+                        };
+                    }
+                };
+            }
+        })
+    }
 }
 
-fn genesis_account(public_key: iroha_crypto::PublicKey) -> Account {
+enum TelemetryStartStatus {
+    Started,
+    NotStarted,
+}
+
+fn genesis_account(public_key: PublicKey) -> Account {
     Account::new(iroha_genesis::GENESIS_ACCOUNT_ID.clone(), [public_key])
         .build(&iroha_genesis::GENESIS_ACCOUNT_ID)
 }
 
-fn genesis_domain(configuration: &Configuration) -> Domain {
-    let account_public_key = &configuration.genesis.account_public_key;
-
+fn genesis_domain(public_key: PublicKey) -> Domain {
     let mut domain = Domain::new(iroha_genesis::GENESIS_DOMAIN_ID.clone())
         .build(&iroha_genesis::GENESIS_ACCOUNT_ID);
 
     domain.accounts.insert(
         iroha_genesis::GENESIS_ACCOUNT_ID.clone(),
-        genesis_account(account_public_key.clone()),
+        genesis_account(public_key),
     );
 
     domain
 }
 
-/// Combine configuration proxies from several locations, preferring `ENV` vars over config file
-///
-/// # Errors
-/// - if config fails to build
-pub fn combine_configs(args: &Arguments) -> color_eyre::eyre::Result<Configuration> {
-    args.config_path
-        .first_existing_path()
-        .map_or_else(
-            || {
-                eprintln!("Configuration file not found. Using environment variables as fallback.");
-                ConfigurationProxy::default()
-            },
-            |path| {
-                let path_proxy = ConfigurationProxy::from_path(&path.as_path());
-                // Override the default to ensure that the variables
-                // not specified in the config file don't have to be
-                // explicitly specified in the env.
-                ConfigurationProxy::default().override_with(path_proxy)
-            },
-        )
-        .override_with(
-            ConfigurationProxy::from_std_env()
-                .wrap_err("Failed to build configuration from env")?,
-        )
-        .build()
-        .map_err(Into::into)
+macro_rules! mutate_nested_option {
+    ($obj:expr, self, $func:expr) => {
+        $obj.as_mut().map($func)
+    };
+    ($obj:expr, $field:ident, $func:expr) => {
+        $obj.$field.as_mut().map($func)
+    };
+    ($obj:expr, [$field:ident, $($rest:tt)+], $func:expr) => {
+        $obj.$field.as_mut().map(|x| {
+            mutate_nested_option!(x, [$($rest)+], $func)
+        })
+    };
+    ($obj:tt, [$field:tt], $func:expr) => {
+        mutate_nested_option!($obj, $field, $func)
+    };
 }
 
-#[cfg(not(feature = "test-network"))]
+/// Read and parse Iroha configuration and genesis block.
+///
+/// The pipeline of configuration reading is as follows:
+///
+/// 1. Construct a layer with default values
+/// 2. If [`Path`] resolves, construct a layer from the file and merge it into the previous one
+/// 3. Construct a layer from ENV vars and merge it into the previous one
+/// 4. Check whether the final layer contains the complete configuration
+///
+/// After reading it, this function ensures validity of genesis configuration and constructs the
+/// [`GenesisNetwork`] according to it.
+///
+/// # Errors
+/// - If provided user configuration is invalid or incomplete
+/// - If genesis config is invalid
+pub fn read_config(
+    path: &Path,
+    submit_genesis: bool,
+) -> Result<(Configuration, Option<GenesisNetwork>)> {
+    let config = ConfigurationProxy::default();
+
+    let config = if let Some(actual_config_path) = path
+        .try_resolve()
+        .wrap_err("Failed to resolve configuration file")?
+    {
+        let mut cfg = config.override_with(ConfigurationProxy::from_path(&*actual_config_path));
+        let config_dir = actual_config_path
+            .parent()
+            .expect("If config file was read, than it should has a parent. It is a bug.");
+
+        // careful here: `genesis.file` might be a path relative to the config file.
+        // we need to resolve it before proceeding
+        // TODO: move this logic into `iroha_config`
+        //       https://github.com/hyperledger/iroha/issues/4161
+        let join_to_config_dir = |x: &mut PathBuf| {
+            *x = config_dir.join(&x);
+        };
+        mutate_nested_option!(cfg, [genesis, file, self], join_to_config_dir);
+        mutate_nested_option!(cfg, [snapshot, dir_path], join_to_config_dir);
+        mutate_nested_option!(cfg, [kura, block_store_path], join_to_config_dir);
+        mutate_nested_option!(cfg, [telemetry, file, self], join_to_config_dir);
+
+        cfg
+    } else {
+        config
+    };
+
+    // it is not chained to the previous expressions so that config proxy from env is evaluated
+    // after reading a file
+    let config = config.override_with(
+        ConfigurationProxy::from_std_env().wrap_err("Failed to build configuration from env")?,
+    );
+
+    let config = config
+        .build()
+        .wrap_err("Failed to finalize configuration")?;
+
+    // TODO: move validation logic below to `iroha_config`
+
+    if !submit_genesis && config.sumeragi.trusted_peers.peers.len() < 2 {
+        return Err(eyre!("\
+            The network consists from this one peer only (`sumeragi.trusted_peers` is less than 2). \
+            Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
+            Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, \
+            and `genesis.file` configuration parameters, or increase the number of trusted peers in \
+            the network using `sumeragi.trusted_peers` configuration parameter.
+        "));
+    }
+
+    let genesis = if let ParsedGenesisConfiguration::Full {
+        key_pair,
+        raw_block,
+    } = config
+        .genesis
+        .clone()
+        .parse(submit_genesis)
+        .wrap_err("Invalid genesis configuration")?
+    {
+        Some(
+            GenesisNetwork::new(raw_block, &key_pair)
+                .wrap_err("Failed to construct the genesis")?,
+        )
+    } else {
+        None
+    };
+
+    Ok((config, genesis))
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{iter::repeat, panic, thread};
-
-    use futures::future::join_all;
-    use serial_test::serial;
+    use iroha_genesis::RawGenesisBlockBuilder;
 
     use super::*;
 
-    #[tokio::test]
-    #[serial]
-    async fn iroha_should_notify_on_panic() {
-        let notify = Arc::new(Notify::new());
-        let hook = panic::take_hook();
-        <crate::Iroha>::prepare_panic_hook(Arc::clone(&notify));
-        let waiters: Vec<_> = repeat(()).take(10).map(|_| Arc::clone(&notify)).collect();
-        let handles: Vec<_> = waiters.iter().map(|waiter| waiter.notified()).collect();
-        thread::spawn(move || {
-            panic!("Test panic");
-        });
-        join_all(handles).await;
-        panic::set_hook(hook);
+    #[cfg(not(feature = "test-network"))]
+    mod no_test_network {
+        use std::{iter::repeat, panic, thread};
+
+        use futures::future::join_all;
+        use serial_test::serial;
+
+        use super::*;
+
+        #[tokio::test]
+        #[serial]
+        async fn iroha_should_notify_on_panic() {
+            let notify = Arc::new(Notify::new());
+            let hook = panic::take_hook();
+            <crate::Iroha>::prepare_panic_hook(Arc::clone(&notify));
+            let waiters: Vec<_> = repeat(()).take(10).map(|_| Arc::clone(&notify)).collect();
+            let handles: Vec<_> = waiters.iter().map(|waiter| waiter.notified()).collect();
+            thread::spawn(move || {
+                panic!("Test panic");
+            });
+            join_all(handles).await;
+            panic::set_hook(hook);
+        }
+    }
+
+    mod config_integration {
+        use assertables::{assert_contains, assert_contains_as_result};
+        use iroha_crypto::KeyPair;
+        use iroha_genesis::{ExecutorMode, ExecutorPath};
+        use iroha_primitives::addr::socket_addr;
+        use path_absolutize::Absolutize as _;
+
+        use super::*;
+
+        fn config_factory() -> Result<ConfigurationProxy> {
+            let mut base = ConfigurationProxy::default();
+
+            let key_pair = KeyPair::generate()?;
+
+            base.public_key = Some(key_pair.public_key().clone());
+            base.private_key = Some(key_pair.private_key().clone());
+
+            let torii = base.torii.as_mut().unwrap();
+            torii.p2p_addr = Some(socket_addr!(127.0.0.1:1337));
+            torii.api_url = Some(socket_addr!(127.0.0.1:1337));
+
+            let genesis = base.genesis.as_mut().unwrap();
+            genesis.private_key = Some(Some(key_pair.private_key().clone()));
+            genesis.public_key = Some(key_pair.public_key().clone());
+
+            Ok(base)
+        }
+
+        #[test]
+        fn relative_file_paths_resolution() -> Result<()> {
+            // Given
+
+            let genesis = RawGenesisBlockBuilder::default()
+                .executor(ExecutorMode::Path(ExecutorPath("./executor.wasm".into())))
+                .build();
+
+            let config = {
+                let mut cfg = config_factory()?;
+                cfg.genesis.as_mut().unwrap().file = Some(Some("./genesis/gen.json".into()));
+                cfg.kura.as_mut().unwrap().block_store_path = Some("../storage".into());
+                cfg.snapshot.as_mut().unwrap().dir_path = Some("../snapshots".into());
+                cfg.telemetry.as_mut().unwrap().file = Some(Some("../logs/telemetry".into()));
+                cfg
+            };
+
+            let dir = tempfile::tempdir()?;
+            let genesis_path = dir.path().join("config/genesis/gen.json");
+            let executor_path = dir.path().join("config/genesis/executor.wasm");
+            let config_path = dir.path().join("config/config.json5");
+            std::fs::create_dir(dir.path().join("config"))?;
+            std::fs::create_dir(dir.path().join("config/genesis"))?;
+            std::fs::write(config_path, serde_json::to_string(&config)?)?;
+            std::fs::write(genesis_path, serde_json::to_string(&genesis)?)?;
+            std::fs::write(executor_path, "")?;
+
+            let config_path = Path::default(dir.path().join("config/config"));
+
+            // When
+
+            let (config, genesis) = read_config(&config_path, true)?;
+
+            // Then
+
+            // No need to check whether genesis.file is resolved - if not, genesis wouldn't be read
+            assert!(genesis.is_some());
+
+            assert_eq!(
+                config.kura.block_store_path.absolutize()?,
+                dir.path().join("storage")
+            );
+            assert_eq!(
+                config.snapshot.dir_path.absolutize()?,
+                dir.path().join("snapshots")
+            );
+            assert_eq!(
+                config.telemetry.file.expect("Should be set").absolutize()?,
+                dir.path().join("logs/telemetry")
+            );
+
+            Ok(())
+        }
+
+        #[test]
+        fn fails_with_no_trusted_peers_and_submit_role() -> Result<()> {
+            // Given
+
+            let genesis = RawGenesisBlockBuilder::default()
+                .executor(ExecutorMode::Path(ExecutorPath("./executor.wasm".into())))
+                .build();
+
+            let config = {
+                let mut cfg = config_factory()?;
+                cfg.genesis.as_mut().unwrap().file = Some(Some("./genesis.json".into()));
+                cfg
+            };
+
+            let dir = tempfile::tempdir()?;
+            std::fs::write(
+                dir.path().join("config.json"),
+                serde_json::to_string(&config)?,
+            )?;
+            std::fs::write(
+                dir.path().join("genesis.json"),
+                serde_json::to_string(&genesis)?,
+            )?;
+            std::fs::write(dir.path().join("executor.wasm"), "")?;
+            let config_path = Path::user_provided(dir.path().join("config.json"))?;
+
+            // When & Then
+
+            let report = read_config(&config_path, false).unwrap_err();
+
+            assert_contains!(
+                format!("{report}"),
+                "The network consists from this one peer only"
+            );
+
+            Ok(())
+        }
     }
 }

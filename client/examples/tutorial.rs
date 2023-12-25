@@ -3,9 +3,8 @@
 use std::fs::File;
 
 use eyre::{Error, WrapErr};
+use iroha_client::config::Configuration;
 // #region rust_config_crates
-use iroha_config::client::Configuration;
-use iroha_data_model::TryToValue;
 // #endregion rust_config_crates
 
 fn main() {
@@ -47,10 +46,12 @@ fn json_config_client_test(config: &Configuration) -> Result<(), Error> {
 
 fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region domain_register_example_crates
-    use iroha_client::client::Client;
-    use iroha_data_model::{
-        metadata::UnlimitedMetadata,
-        prelude::{Domain, DomainId, InstructionExpr, RegisterExpr},
+    use iroha_client::{
+        client::Client,
+        data_model::{
+            metadata::UnlimitedMetadata,
+            prelude::{Domain, DomainId, InstructionBox, Register},
+        },
     };
     // #endregion domain_register_example_crates
 
@@ -61,7 +62,7 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
 
     // #region domain_register_example_create_isi
     // Create an ISI
-    let create_looking_glass = RegisterExpr::new(Domain::new(looking_glass));
+    let create_looking_glass = Register::domain(Domain::new(looking_glass));
     // #endregion domain_register_example_create_isi
 
     // #region rust_client_create
@@ -72,7 +73,7 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region domain_register_example_prepare_tx
     // Prepare a transaction
     let metadata = UnlimitedMetadata::default();
-    let instructions: Vec<InstructionExpr> = vec![create_looking_glass.into()];
+    let instructions: Vec<InstructionBox> = vec![create_looking_glass.into()];
     let tx = iroha_client
         .build_transaction(instructions, metadata)
         .wrap_err("Error building a domain registration transaction")?;
@@ -91,9 +92,9 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
 
 fn account_definition_test() -> Result<(), Error> {
     // #region account_definition_comparison
-    use iroha_data_model::prelude::AccountId;
+    use iroha_client::data_model::prelude::AccountId;
 
-    // Create an `iroha_data_model::AccountId` instance
+    // Create an `iroha_client::data_model::AccountId` instance
     // with a DomainId instance and a Domain ID for an account
     let longhand_account_id = AccountId::new("white_rabbit".parse()?, "looking_glass".parse()?);
     let account_id: AccountId = "white_rabbit@looking_glass"
@@ -111,11 +112,13 @@ fn account_definition_test() -> Result<(), Error> {
 
 fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region register_account_crates
-    use iroha_client::client::Client;
-    use iroha_crypto::KeyPair;
-    use iroha_data_model::{
-        metadata::UnlimitedMetadata,
-        prelude::{Account, AccountId, InstructionExpr, RegisterExpr},
+    use iroha_client::{
+        client::Client,
+        crypto::KeyPair,
+        data_model::{
+            metadata::UnlimitedMetadata,
+            prelude::{Account, AccountId, InstructionBox, Register},
+        },
     };
     // #endregion register_account_crates
 
@@ -137,14 +140,14 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
 
     // #region register_account_generate
     // Generate a new account
-    let create_account = RegisterExpr::new(Account::new(account_id, [public_key]));
+    let create_account = Register::account(Account::new(account_id, [public_key]));
     // #endregion register_account_generate
 
     // #region register_account_prepare_tx
     // Prepare a transaction using the
-    // Account's RegisterExpr
+    // Account's RegisterBox
     let metadata = UnlimitedMetadata::new();
-    let instructions: Vec<InstructionExpr> = vec![create_account.into()];
+    let instructions: Vec<InstructionBox> = vec![create_account.into()];
     let tx = iroha_client.build_transaction(instructions, metadata)?;
     // #endregion register_account_prepare_tx
 
@@ -161,9 +164,11 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region register_asset_crates
     use std::str::FromStr as _;
 
-    use iroha_client::client::Client;
-    use iroha_data_model::prelude::{
-        AccountId, AssetDefinition, AssetDefinitionId, AssetId, IdBox, MintExpr, RegisterExpr,
+    use iroha_client::{
+        client::Client,
+        data_model::prelude::{
+            AccountId, AssetDefinition, AssetDefinitionId, AssetId, Mint, Register,
+        },
     };
     // #endregion register_asset_crates
 
@@ -179,7 +184,7 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
     // #region register_asset_init_submit
     // Initialise the registration time
     let register_time =
-        RegisterExpr::new(AssetDefinition::fixed(asset_def_id.clone()).mintable_once());
+        Register::asset_definition(AssetDefinition::fixed(asset_def_id.clone()).mintable_once());
 
     // Submit a registration time
     iroha_client.submit(register_time)?;
@@ -191,10 +196,10 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
         .expect("Valid, because the string contains no whitespace, has a single '@' character and is not empty after");
 
     // #region register_asset_mint_submit
-    // Create a MintExpr using a previous asset and account
-    let mint = MintExpr::new(
-        12.34_f64.try_to_value()?,
-        IdBox::AssetId(AssetId::new(asset_def_id, account_id)),
+    // Create a MintBox using a previous asset and account
+    let mint = Mint::asset_fixed(
+        12.34_f64.try_into()?,
+        AssetId::new(asset_def_id, account_id),
     );
 
     // Submit a minting transaction
@@ -209,10 +214,9 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
     // #region mint_asset_crates
     use std::str::FromStr;
 
-    use iroha_client::client::Client;
-    use iroha_data_model::{
-        prelude::{AccountId, AssetDefinitionId, AssetId, MintExpr, ToValue},
-        IdBox,
+    use iroha_client::{
+        client::Client,
+        data_model::prelude::{AccountId, AssetDefinitionId, AssetId, Mint},
     };
     // #endregion mint_asset_crates
 
@@ -229,10 +233,7 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
 
     // Mint the Asset instance
     // #region mint_asset_mint
-    let mint_roses = MintExpr::new(
-        42_u32.to_value(),
-        IdBox::AssetId(AssetId::new(roses, alice)),
-    );
+    let mint_roses = Mint::asset_quantity(42_u32, AssetId::new(roses, alice));
     // #endregion mint_asset_mint
 
     // #region mint_asset_submit_tx
@@ -247,10 +248,7 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
     // or `roses.to_string() + "#" + alice.to_string()`.
     // The `##` is a short-hand for the rose `which belongs to the same domain as the account
     // to which it belongs to.
-    let mint_roses_alt = MintExpr::new(
-        10_u32.to_value(),
-        IdBox::AssetId("rose##alice@wonderland".parse()?),
-    );
+    let mint_roses_alt = Mint::asset_quantity(10_u32, "rose##alice@wonderland".parse()?);
     // #endregion mint_asset_mint_alt
 
     // #region mint_asset_submit_tx_alt
@@ -267,10 +265,9 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
     // #region burn_asset_crates
     use std::str::FromStr;
 
-    use iroha_client::client::Client;
-    use iroha_data_model::{
-        prelude::{AccountId, AssetDefinitionId, AssetId, BurnExpr, ToValue},
-        IdBox,
+    use iroha_client::{
+        client::Client,
+        data_model::prelude::{AccountId, AssetDefinitionId, AssetId, Burn},
     };
     // #endregion burn_asset_crates
 
@@ -287,10 +284,7 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
 
     // #region burn_asset_burn
     // Burn the Asset instance
-    let burn_roses = BurnExpr::new(
-        10_u32.to_value(),
-        IdBox::AssetId(AssetId::new(roses, alice)),
-    );
+    let burn_roses = Burn::asset_quantity(10_u32, AssetId::new(roses, alice));
     // #endregion burn_asset_burn
 
     // #region burn_asset_submit_tx
@@ -305,10 +299,7 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
     // or `roses.to_string() + "#" + alice.to_string()`.
     // The `##` is a short-hand for the rose `which belongs to the same domain as the account
     // to which it belongs to.
-    let burn_roses_alt = BurnExpr::new(
-        10_u32.to_value(),
-        IdBox::AssetId("rose##alice@wonderland".parse()?),
-    );
+    let burn_roses_alt = Burn::asset_quantity(10_u32, "rose##alice@wonderland".parse()?);
     // #endregion burn_asset_burn_alt
 
     // #region burn_asset_submit_tx_alt

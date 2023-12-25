@@ -11,13 +11,14 @@ use std::{
 };
 
 use eyre::{Result, WrapErr};
-use iroha_client::client::Client;
-use iroha_data_model::{
-    parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
-    prelude::*,
+use iroha_client::{
+    client::Client,
+    data_model::{
+        parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
+        prelude::*,
+    },
 };
 use serde::Deserialize;
-use serde_json::json;
 use test_network::*;
 
 pub type Tps = f64;
@@ -55,11 +56,11 @@ impl Config {
 
     pub fn measure(self) -> Result<Tps> {
         // READY
-        let (_rt, network, client) = <Network>::start_test_with_runtime(self.peers, None);
+        let (_rt, network, client) = Network::start_test_with_runtime(self.peers, None);
         let clients = network.clients();
         wait_for_genesis_committed(&clients, 0);
 
-        client.submit_blocking(
+        client.submit_all_blocking(
             ParametersBuilder::new()
                 .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, self.max_txs_per_block)?
                 .into_set_parameters(),
@@ -68,13 +69,12 @@ impl Config {
         let unit_names = (UnitName::MIN..).take(self.peers as usize);
         let units = clients
             .into_iter()
-            .zip(unit_names.clone().zip(unit_names.cycle().skip(1)))
-            .map(|(client, pair)| {
+            .zip(unit_names)
+            .map(|(client, name)| {
                 let unit = MeasurerUnit {
                     config: self,
                     client,
-                    name: pair.0,
-                    next_name: pair.1,
+                    name,
                 };
                 unit.ready()
             })
@@ -153,7 +153,6 @@ struct MeasurerUnit {
     pub config: Config,
     pub client: Client,
     pub name: UnitName,
-    pub next_name: UnitName,
 }
 
 type UnitName = u32;
@@ -164,37 +163,17 @@ impl MeasurerUnit {
 
     /// Submit initial transactions for measurement
     fn ready(self) -> Result<Self> {
-        let keypair = iroha_crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
+        let keypair =
+            iroha_client::crypto::KeyPair::generate().expect("Failed to generate KeyPair.");
 
         let account_id = account_id(self.name);
-        let alice_id = AccountId::from_str("alice@wonderland")?;
         let asset_id = asset_id(self.name);
 
-        let register_me = RegisterExpr::new(Account::new(
-            account_id.clone(),
-            [keypair.public_key().clone()],
-        ));
+        let register_me =
+            Register::account(Account::new(account_id, [keypair.public_key().clone()]));
         self.client.submit_blocking(register_me)?;
 
-        let can_burn_my_asset = PermissionToken::new(
-            "CanBurnUserAsset".parse().unwrap(),
-            &json!({ "asset_id": asset_id }),
-        );
-        let allow_alice_to_burn_my_asset = GrantExpr::new(can_burn_my_asset, alice_id.clone());
-        let can_transfer_my_asset = PermissionToken::new(
-            "CanTransferUserAsset".parse().unwrap(),
-            &json!({ "asset_id": asset_id }),
-        );
-        let allow_alice_to_transfer_my_asset = GrantExpr::new(can_transfer_my_asset, alice_id);
-        let grant_tx = TransactionBuilder::new(account_id)
-            .with_instructions([
-                allow_alice_to_burn_my_asset,
-                allow_alice_to_transfer_my_asset,
-            ])
-            .sign(keypair)?;
-        self.client.submit_transaction_blocking(&grant_tx)?;
-
-        let mint_a_rose = MintExpr::new(1_u32, asset_id);
+        let mint_a_rose = Mint::asset_quantity(1_u32, asset_id);
         self.client.submit_blocking(mint_a_rose)?;
 
         Ok(self)
@@ -265,42 +244,12 @@ impl MeasurerUnit {
         })
     }
 
-    fn instructions(&self) -> impl Iterator<Item = InstructionExpr> {
-        [self.mint_or_burn(), self.relay_a_rose()]
-            .into_iter()
-            .cycle()
+    fn instructions(&self) -> impl Iterator<Item = InstructionBox> {
+        std::iter::once(self.mint()).cycle()
     }
 
-    fn mint_or_burn(&self) -> InstructionExpr {
-        let is_running_out = Less::new(
-            EvaluatesTo::new_unchecked(Expression::Query(
-                FindAssetQuantityById::new(asset_id(self.name)).into(),
-            )),
-            100_u32,
-        );
-        let supply_roses = MintExpr::new(100_u32.to_value(), asset_id(self.name));
-        let burn_a_rose = BurnExpr::new(1_u32.to_value(), asset_id(self.name));
-
-        ConditionalExpr::with_otherwise(is_running_out, supply_roses, burn_a_rose).into()
-    }
-
-    fn relay_a_rose(&self) -> InstructionExpr {
-        // Save at least one rose
-        // because if asset value hits 0 it's automatically deleted from account
-        // and query `FindAssetQuantityById` return error
-        let enough_to_transfer = Greater::new(
-            EvaluatesTo::new_unchecked(Expression::Query(
-                FindAssetQuantityById::new(asset_id(self.name)).into(),
-            )),
-            1_u32,
-        );
-        let transfer_rose = TransferExpr::new(
-            asset_id(self.name),
-            1_u32.to_value(),
-            account_id(self.next_name),
-        );
-
-        ConditionalExpr::new(enough_to_transfer, transfer_rose).into()
+    fn mint(&self) -> InstructionBox {
+        Mint::asset_quantity(1_u32, asset_id(self.name)).into()
     }
 }
 

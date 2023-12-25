@@ -54,7 +54,7 @@ pub fn impl_derive_entrypoints(emitter: &mut Emitter, input: &syn2::DeriveInput)
             #[::iroha_executor::prelude::entrypoint]
             pub fn validate_instruction(
                 authority: ::iroha_executor::prelude::AccountId,
-                instruction: ::iroha_executor::prelude::InstructionExpr,
+                instruction: ::iroha_executor::prelude::InstructionBox,
                 block_height: u64,
                 #(#custom_args),*
             ) -> ::iroha_executor::prelude::Result {
@@ -107,54 +107,63 @@ pub fn impl_derive_entrypoints(emitter: &mut Emitter, input: &syn2::DeriveInput)
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream2 {
     let Some(input) = emitter.handle(ExecutorDeriveInput::from_derive_input(input)) else {
         return quote!();
     };
     let ExecutorDeriveInput { ident, custom, .. } = &input;
     let default_visit_sigs: Vec<syn2::Signature> = [
-        "fn visit_unsupported<T: core::fmt::Debug>(operation: T)",
         "fn visit_transaction(operation: &SignedTransaction)",
-        "fn visit_instruction(operation: &InstructionExpr)",
-        "fn visit_expression<V>(operation: &EvaluatesTo<V>)",
-        "fn visit_sequence(operation: &SequenceExpr)",
-        "fn visit_if(operation: &ConditionalExpr)",
-        "fn visit_pair(operation: &PairExpr)",
-        "fn visit_unregister_peer(operation: Unregister<Peer>)",
-        "fn visit_unregister_domain(operation: Unregister<Domain>)",
-        "fn visit_transfer_domain(operation: Transfer<Account, DomainId, Account>)",
-        "fn visit_set_domain_key_value(operation: SetKeyValue<Domain>)",
-        "fn visit_remove_domain_key_value(operation: RemoveKeyValue<Domain>)",
-        "fn visit_unregister_account(operation: Unregister<Account>)",
-        "fn visit_mint_account_public_key(operation: Mint<PublicKey, Account>)",
-        "fn visit_burn_account_public_key(operation: Burn<PublicKey, Account>)",
-        "fn visit_mint_account_signature_check_condition(operation: Mint<SignatureCheckCondition, Account>)",
-        "fn visit_set_account_key_value(operation: SetKeyValue<Account>)",
-        "fn visit_remove_account_key_value(operation: RemoveKeyValue<Account>)",
-        "fn visit_register_asset(operation: Register<Asset>)",
-        "fn visit_unregister_asset(operation: Unregister<Asset>)",
-        "fn visit_mint_asset(operation: Mint<NumericValue, Asset>)",
-        "fn visit_burn_asset(operation: Burn<NumericValue, Asset>)",
-        "fn visit_transfer_asset(operation: Transfer<Asset, NumericValue, Account>)",
-        "fn visit_set_asset_key_value(operation: SetKeyValue<Asset>)",
-        "fn visit_remove_asset_key_value(operation: RemoveKeyValue<Asset>)",
-        "fn visit_unregister_asset_definition(operation: Unregister<AssetDefinition>)",
-        "fn visit_transfer_asset_definition(operation: Transfer<Account, AssetDefinitionId, Account>)",
-        "fn visit_set_asset_definition_key_value(operation: SetKeyValue<AssetDefinition>)",
-        "fn visit_remove_asset_definition_key_value(operation: RemoveKeyValue<AssetDefinition>)",
-        "fn visit_grant_account_permission(operation: Grant<PermissionToken>)",
-        "fn visit_revoke_account_permission(operation: Revoke<PermissionToken>)",
-        "fn visit_register_role(operation: Register<Role>)",
-        "fn visit_unregister_role(operation: Unregister<Role>)",
-        "fn visit_grant_account_role(operation: Grant<RoleId>)",
-        "fn visit_revoke_account_role(operation: Revoke<RoleId>)",
-        "fn visit_unregister_trigger(operation: Unregister<Trigger<TriggeringFilterBox>>)",
-        "fn visit_mint_trigger_repetitions(operation: Mint<u32, Trigger<TriggeringFilterBox>>)",
-        "fn visit_burn_trigger_repetitions(operation: Burn<u32, Trigger<TriggeringFilterBox>>)",
-        "fn visit_execute_trigger(operation: ExecuteTrigger)",
-        "fn visit_set_parameter(operation: SetParameter)",
-        "fn visit_new_parameter(operation: NewParameter)",
-        "fn visit_upgrade_executor(operation: Upgrade<iroha_executor::data_model::executor::Executor>)",
+        "fn visit_instruction(operation: &InstructionBox)",
+        "fn visit_register_peer(operation: &Register<Peer>)",
+        "fn visit_unregister_peer(operation: &Unregister<Peer>)",
+        "fn visit_register_domain(operation: &Register<Domain>)",
+        "fn visit_unregister_domain(operation: &Unregister<Domain>)",
+        "fn visit_transfer_domain(operation: &Transfer<Account, DomainId, Account>)",
+        "fn visit_set_domain_key_value(operation: &SetKeyValue<Domain>)",
+        "fn visit_remove_domain_key_value(operation: &RemoveKeyValue<Domain>)",
+        "fn visit_register_account(operation: &Register<Account>)",
+        "fn visit_unregister_account(operation: &Unregister<Account>)",
+        "fn visit_mint_account_public_key(operation: &Mint<PublicKey, Account>)",
+        "fn visit_burn_account_public_key(operation: &Burn<PublicKey, Account>)",
+        "fn visit_mint_account_signature_check_condition(operation: &Mint<SignatureCheckCondition, Account>)",
+        "fn visit_set_account_key_value(operation: &SetKeyValue<Account>)",
+        "fn visit_remove_account_key_value(operation: &RemoveKeyValue<Account>)",
+        "fn visit_register_asset(operation: &Register<Asset>)",
+        "fn visit_unregister_asset(operation: &Unregister<Asset>)",
+        "fn visit_mint_asset_quantity(operation: &Mint<u32, Asset>)",
+        "fn visit_burn_asset_quantity(operation: &Burn<u32, Asset>)",
+        "fn visit_mint_asset_big_quantity(operation: &Mint<u128, Asset>)",
+        "fn visit_burn_asset_big_quantity(operation: &Burn<u128, Asset>)",
+        "fn visit_mint_asset_fixed(operation: &Mint<Fixed, Asset>)",
+        "fn visit_burn_asset_fixed(operation: &Burn<Fixed, Asset>)",
+        "fn visit_transfer_asset_quantity(operation: &Transfer<Asset, u32, Account>)",
+        "fn visit_transfer_asset_big_quantity(operation: &Transfer<Asset, u128, Account>)",
+        "fn visit_transfer_asset_fixed(operation: &Transfer<Asset, Fixed, Account>)",
+        "fn visit_set_asset_key_value(operation: &SetKeyValue<Asset>)",
+        "fn visit_remove_asset_key_value(operation: &RemoveKeyValue<Asset>)",
+        "fn visit_register_asset_definition(operation: &Register<AssetDefinition>)",
+        "fn visit_unregister_asset_definition(operation: &Unregister<AssetDefinition>)",
+        "fn visit_transfer_asset_definition(operation: &Transfer<Account, AssetDefinitionId, Account>)",
+        "fn visit_set_asset_definition_key_value(operation: &SetKeyValue<AssetDefinition>)",
+        "fn visit_remove_asset_definition_key_value(operation: &RemoveKeyValue<AssetDefinition>)",
+        "fn visit_grant_account_permission(operation: &Grant<PermissionToken>)",
+        "fn visit_revoke_account_permission(operation: &Revoke<PermissionToken>)",
+        "fn visit_register_role(operation: &Register<Role>)",
+        "fn visit_unregister_role(operation: &Unregister<Role>)",
+        "fn visit_grant_account_role(operation: &Grant<RoleId>)",
+        "fn visit_revoke_account_role(operation: &Revoke<RoleId>)",
+        "fn visit_register_trigger(operation: &Register<Trigger<TriggeringFilterBox>>)",
+        "fn visit_unregister_trigger(operation: &Unregister<Trigger<TriggeringFilterBox>>)",
+        "fn visit_mint_trigger_repetitions(operation: &Mint<u32, Trigger<TriggeringFilterBox>>)",
+        "fn visit_burn_trigger_repetitions(operation: &Burn<u32, Trigger<TriggeringFilterBox>>)",
+        "fn visit_execute_trigger(operation: &ExecuteTrigger)",
+        "fn visit_set_parameter(operation: &SetParameter)",
+        "fn visit_new_parameter(operation: &NewParameter)",
+        "fn visit_upgrade(operation: &Upgrade)",
+        "fn visit_log(operation: &Log)",
+        "fn visit_fail(operation: &Fail)",
     ]
     .into_iter()
     .map(|item| {
@@ -228,29 +237,6 @@ pub fn impl_derive_validate(emitter: &mut Emitter, input: &syn2::DeriveInput) ->
     }
 }
 
-pub fn impl_derive_expression_evaluator(
-    emitter: &mut Emitter,
-    input: &syn2::DeriveInput,
-) -> TokenStream2 {
-    let Some(input) = emitter.handle(ExecutorDeriveInput::from_derive_input(input)) else {
-        return quote!();
-    };
-    let ExecutorDeriveInput { ident, data, .. } = &input;
-    check_required_fields(data, emitter);
-    quote! {
-        impl ::iroha_executor::data_model::evaluate::ExpressionEvaluator for #ident {
-            fn evaluate<E: ::iroha_executor::prelude::Evaluate>(
-                &self,
-                expression: &E,
-            ) -> ::core::result::Result<E::Value, ::iroha_executor::smart_contract::data_model::evaluate::EvaluationError>
-            {
-                self.host.evaluate(expression)
-            }
-        }
-
-    }
-}
-
 pub fn impl_derive_constructor(emitter: &mut Emitter, input: &syn2::DeriveInput) -> TokenStream2 {
     let Some(input) = emitter.handle(ExecutorDeriveInput::from_derive_input(input)) else {
         return quote!();
@@ -268,7 +254,6 @@ pub fn impl_derive_constructor(emitter: &mut Emitter, input: &syn2::DeriveInput)
                 Self {
                     verdict: Ok(()),
                     block_height,
-                    host: ::iroha_executor::smart_contract::Host,
                     #(#custom_idents),*
                 }
             }
@@ -278,7 +263,8 @@ pub fn impl_derive_constructor(emitter: &mut Emitter, input: &syn2::DeriveInput)
 }
 
 fn check_required_fields(ast: &ExecutorData, emitter: &mut Emitter) {
-    let required_fields: syn2::FieldsNamed = parse_quote!({ verdict: ::iroha_executor::prelude::Result, block_height: u64, host: ::iroha_executor::smart_contract::Host });
+    let required_fields: syn2::FieldsNamed =
+        parse_quote!({ verdict: ::iroha_executor::prelude::Result, block_height: u64 });
     let struct_fields = ast
         .as_ref()
         .take_struct()
@@ -328,7 +314,7 @@ fn check_type_equivalence(full_ty: &syn2::Type, given_ty: &syn2::Type) -> bool {
 /// Processes an `Executor` by draining it of default fields and returning the idents of the
 /// custom fields and the corresponding function arguments for use in the constructor
 fn custom_field_idents_and_fn_args(ast: &ExecutorData) -> (Vec<&Ident>, Vec<syn2::FnArg>) {
-    let required_idents: Vec<Ident> = ["verdict", "block_height", "host"]
+    let required_idents: Vec<Ident> = ["verdict", "block_height"]
         .iter()
         .map(|s| Ident::new(s, Span::call_site()))
         .collect();

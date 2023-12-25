@@ -1,13 +1,14 @@
 use core::sync::atomic::Ordering;
 use std::thread;
 
-use iroha_client::client::{self, Client, QueryResult};
-use iroha_data_model::{prelude::*, Level};
+use iroha_client::{
+    client::{self, Client, QueryResult},
+    data_model::{prelude::*, Level},
+};
+use iroha_config::iroha::Configuration;
 use rand::seq::SliceRandom;
 use test_network::*;
 use tokio::runtime::Runtime;
-
-use super::Configuration;
 
 const MAX_TRANSACTIONS_IN_BLOCK: u32 = 5;
 
@@ -53,12 +54,12 @@ fn unstable_network(
     let (network, iroha_client) = rt.block_on(async {
         let mut configuration = Configuration::test();
         configuration.sumeragi.max_transactions_in_block = MAX_TRANSACTIONS_IN_BLOCK;
-        configuration.logger.max_log_level = Level::INFO.into();
+        configuration.logger.level = Level::INFO;
         #[cfg(debug_assertions)]
         {
             configuration.sumeragi.debug_force_soft_fork = force_soft_fork;
         }
-        let network = <Network>::new_with_offline_peers(
+        let network = Network::new_with_offline_peers(
             Some(configuration),
             n_peers + n_offline_peers,
             0,
@@ -75,7 +76,8 @@ fn unstable_network(
 
     let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
-    let register_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let register_asset =
+        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
     iroha_client
         .submit_blocking(register_asset)
         .expect("Failed to register asset");
@@ -97,12 +99,9 @@ fn unstable_network(
         }
 
         let quantity = 1;
-        let mint_asset = MintExpr::new(
-            quantity.to_value(),
-            IdBox::AssetId(AssetId::new(
-                asset_definition_id.clone(),
-                account_id.clone(),
-            )),
+        let mint_asset = Mint::asset_quantity(
+            quantity,
+            AssetId::new(asset_definition_id.clone(), account_id.clone()),
         );
         iroha_client
             .submit(mint_asset)
