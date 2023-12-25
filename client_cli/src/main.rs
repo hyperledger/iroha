@@ -463,13 +463,13 @@ mod domain {
     }
 
     mod metadata {
-        use iroha_data_model::domain::DomainId;
+        use iroha_client::data_model::{self, domain::DomainId};
 
         use super::*;
 
         /// A value wrapper that can be parsed from CLI arguments
         #[derive(Debug, Clone)]
-        pub struct MetadataValue(iroha_data_model::Value);
+        pub struct MetadataValue(data_model::Value);
 
         impl FromStr for MetadataValue {
             type Err = Error;
@@ -497,16 +497,16 @@ mod domain {
         }
 
         /// Set metadata into domain
-        #[derive(Debug, Clone, StructOpt)]
+        #[derive(Debug, Clone, clap::Args)]
         pub struct Set {
             /// A domain id from which metadata is to be removed
-            #[structopt(short, long)]
+            #[arg(short, long)]
             id: DomainId,
             /// A key of metadata
-            #[structopt(short, long)]
+            #[arg(short, long)]
             key: Name,
             /// A value of metadata
-            #[structopt(short, long)]
+            #[arg(short, long)]
             value: MetadataValue,
         }
 
@@ -517,105 +517,28 @@ mod domain {
                     key,
                     value: MetadataValue(value),
                 } = self;
-                let set_key_value_expr = SetKeyValueExpr::new(id, key, value);
-                submit([set_key_value_expr], UnlimitedMetadata::new(), context)
+                let set_key_value = SetKeyValue::domain(id, key, value);
+                submit([set_key_value], UnlimitedMetadata::new(), context)
+                    .wrap_err("Failed to submit Set instruction")
             }
         }
 
         /// Remove metadata into domain by key
-        #[derive(Debug, Clone, StructOpt)]
+        #[derive(Debug, Clone, clap::Args)]
         pub struct Remove {
             /// A domain id from which metadata is to be removed
-            #[structopt(short, long)]
+            #[arg(short, long)]
             id: DomainId,
-            #[structopt(short, long)]
+            #[arg(short, long)]
             key: Name,
         }
 
         impl RunArgs for Remove {
             fn run(self, context: &mut dyn RunContext) -> Result<()> {
                 let Self { id, key } = self;
-                let remove_key_value_expr = RemoveKeyValueExpr::new(id, key);
-                submit([remove_key_value_expr], UnlimitedMetadata::new(), context)
-            }
-        }
-    }
-
-    mod metadata {
-        use iroha_data_model::domain::DomainId;
-
-        use super::*;
-
-        /// A value wrapper that can be parsed from CLI arguments
-        #[derive(Debug, Clone)]
-        pub struct MetadataValue(iroha_data_model::Value);
-
-        impl FromStr for MetadataValue {
-            type Err = Error;
-
-            fn from_str(s: &str) -> Result<Self> {
-                let deser_err_msg = format!("Failed to deserialize `{s}` into value.");
-                let metadata: Value = json5::from_str(s).wrap_err(deser_err_msg)?;
-                Ok(Self(metadata))
-            }
-        }
-
-        /// Edit domain subcommands
-        #[derive(Debug, Clone, clap::Subcommand)]
-        pub enum Args {
-            /// Set metadata into domain
-            Set(Set),
-            /// Remove metadata into domain
-            Remove(Remove),
-        }
-
-        impl RunArgs for Args {
-            fn run(self, context: &mut dyn RunContext) -> Result<()> {
-                match_all!((self, context), { Args::Set, Args::Remove, })
-            }
-        }
-
-        /// Set metadata into domain
-        #[derive(Debug, Clone, StructOpt)]
-        pub struct Set {
-            /// A domain id from which metadata is to be removed
-            #[structopt(short, long)]
-            id: DomainId,
-            /// A key of metadata
-            #[structopt(short, long)]
-            key: Name,
-            /// A value of metadata
-            #[structopt(short, long)]
-            value: MetadataValue,
-        }
-
-        impl RunArgs for Set {
-            fn run(self, context: &mut dyn RunContext) -> Result<()> {
-                let Self {
-                    id,
-                    key,
-                    value: MetadataValue(value),
-                } = self;
-                let set_key_value_expr = SetKeyValueExpr::new(id, key, value);
-                submit([set_key_value_expr], UnlimitedMetadata::new(), context)
-            }
-        }
-
-        /// Remove metadata into domain by key
-        #[derive(Debug, Clone, StructOpt)]
-        pub struct Remove {
-            /// A domain id from which metadata is to be removed
-            #[structopt(short, long)]
-            id: DomainId,
-            #[structopt(short, long)]
-            key: Name,
-        }
-
-        impl RunArgs for Remove {
-            fn run(self, context: &mut dyn RunContext) -> Result<()> {
-                let Self { id, key } = self;
-                let remove_key_value_expr = RemoveKeyValueExpr::new(id, key);
-                submit([remove_key_value_expr], UnlimitedMetadata::new(), context)
+                let remove_key_value = RemoveKeyValue::domain(id, key);
+                submit([remove_key_value], UnlimitedMetadata::new(), context)
+                    .wrap_err("Failed to submit Remove instruction")
             }
         }
     }
