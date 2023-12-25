@@ -20,8 +20,15 @@ fn must_execute_both_triggers() -> Result<()> {
             [instruction.clone()],
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggeringFilterBox::Data(BySome(DataEntityFilter::ByAccount(BySome(
-                AccountFilter::new(AcceptAll, BySome(AccountEventFilter::ByCreated)),
+            // FIXME: rewrite the filters using the builder DSL https://github.com/hyperledger/iroha/issues/3068
+            TriggeringFilterBox::Data(BySome(DataEntityFilter::ByDomain(BySome(
+                DomainFilter::new(
+                    AcceptAll,
+                    BySome(DomainEventFilter::ByAccount(BySome(AccountFilter::new(
+                        AcceptAll,
+                        BySome(AccountEventFilter::ByCreated),
+                    )))),
+                ),
             )))),
         ),
     ));
@@ -86,8 +93,15 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
             [Mint::asset_quantity(1_u32, asset_id.clone())],
             Repeats::Indefinitely,
             account_id,
-            TriggeringFilterBox::Data(BySome(DataEntityFilter::ByAccount(BySome(
-                AccountFilter::new(AcceptAll, BySome(AccountEventFilter::ByCreated)),
+            // FIXME: rewrite the filters using the builder DSL https://github.com/hyperledger/iroha/issues/3068
+            TriggeringFilterBox::Data(BySome(DataEntityFilter::ByDomain(BySome(
+                DomainFilter::new(
+                    AcceptAll,
+                    BySome(DomainEventFilter::ByAccount(BySome(AccountFilter::new(
+                        AcceptAll,
+                        BySome(AccountEventFilter::ByCreated),
+                    )))),
+                ),
             )))),
         ),
     ));

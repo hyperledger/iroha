@@ -1252,7 +1252,7 @@ impl WorldStateView {
     /// The function puts events produced by iterator into `events_buffer`.
     /// Events should be produced in the order of expanding scope: from specific to general.
     /// Example: account events before domain events.
-    pub fn emit_events<I: IntoIterator<Item = T>, T: Into<WorldEvent>>(&mut self, world_events: I) {
+    pub fn emit_events<I: IntoIterator<Item = T>, T: Into<DataEvent>>(&mut self, world_events: I) {
         Self::emit_events_impl(
             &mut self.world.triggers,
             &mut self.events_buffer,
@@ -1263,7 +1263,7 @@ impl WorldStateView {
     /// Implementation of [`Self::emit_events()`].
     ///
     /// Usable when you can't call [`Self::emit_events()`] due to mutable reference to self.
-    fn emit_events_impl<I: IntoIterator<Item = T>, T: Into<WorldEvent>>(
+    fn emit_events_impl<I: IntoIterator<Item = T>, T: Into<DataEvent>>(
         triggers: &mut TriggerSet,
         events_buffer: &mut Vec<Event>,
         world_events: I,
@@ -1271,7 +1271,7 @@ impl WorldStateView {
         let data_events: SmallVec<[DataEvent; 3]> = world_events
             .into_iter()
             .map(Into::into)
-            .flat_map(WorldEvent::flatten)
+            .map(Into::into)
             .collect();
 
         for event in data_events.iter() {
@@ -1285,7 +1285,7 @@ impl WorldStateView {
     /// Produces [`PermissionTokenSchemaUpdateEvent`].
     pub fn set_permission_token_schema(&mut self, schema: PermissionTokenSchema) {
         let old_schema = std::mem::replace(&mut self.world.permission_token_schema, schema.clone());
-        self.emit_events(std::iter::once(WorldEvent::PermissionTokenSchemaUpdate(
+        self.emit_events(std::iter::once(DataEvent::PermissionToken(
             PermissionTokenSchemaUpdateEvent {
                 old_schema,
                 new_schema: schema,
