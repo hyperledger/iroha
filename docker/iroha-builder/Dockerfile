@@ -44,7 +44,7 @@ RUN curl -fL https://golang.org/dl/go1.14.2.linux-$(dpkg --print-architecture).t
 ENV GOPATH=/opt/gopath
 RUN mkdir ${GOPATH}
 ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
-RUN go get github.com/golang/protobuf/protoc-gen-go
+RUN go get -u google.golang.org/grpc
 
 ## Rust-lang stuff for iroha+ursa
 ENV RUSTUP_HOME=/opt/rust
