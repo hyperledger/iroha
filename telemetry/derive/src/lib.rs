@@ -1,7 +1,6 @@
 //! Attribute-like macro for instrumenting `isi` for `prometheus`
 //! metrics. See [`macro@metrics`] for more details.
 
-// use proc_macro::TokenStream;
 use iroha_macro_utils::Emitter;
 use manyhow::{emit, manyhow, Result};
 use proc_macro2::TokenStream;
@@ -177,7 +176,7 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
     emitter.finish_token_stream_with(result)
 }
 
-fn impl_metrics(emitter: &mut Emitter, attr: &MetricSpecs, func: &syn2::ItemFn) -> TokenStream {
+fn impl_metrics(emitter: &mut Emitter, _specs: &MetricSpecs, func: &syn2::ItemFn) -> TokenStream {
     let syn2::ItemFn {
         attrs,
         vis,
@@ -200,7 +199,7 @@ fn impl_metrics(emitter: &mut Emitter, attr: &MetricSpecs, func: &syn2::ItemFn) 
                     emit!(
                         emitter,
                         type_name,
-                        "Should return `Result`. Found `{:?}`",
+                        "Should return `Result`. Found {}",
                         type_name
                     );
                 }
@@ -213,7 +212,6 @@ fn impl_metrics(emitter: &mut Emitter, attr: &MetricSpecs, func: &syn2::ItemFn) 
         },
     }
 
-    let _specs: &MetricSpecs = attr;
     // Again this may seem fragile, but if we move the metrics from
     // the `WorldStateView`, we'd need to refactor many things anyway
     let _metric_arg_ident = match arg_metrics(&sig.inputs) {
