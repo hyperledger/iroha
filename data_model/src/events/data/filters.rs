@@ -52,12 +52,6 @@ pub mod model {
         ByPeer(FilterOpt<PeerFilter>),
         /// Filter by Domain entity. `AcceptAll` value will accept all `Domain` events
         ByDomain(FilterOpt<DomainFilter>),
-        /// Filter by Account entity. `AcceptAll` value will accept all `Account` events
-        ByAccount(FilterOpt<AccountFilter>),
-        /// Filter by AssetDefinition entity. `AcceptAll` value will accept all `AssetDefinition` events
-        ByAssetDefinition(FilterOpt<AssetDefinitionFilter>),
-        /// Filter by Asset entity. `AcceptAll` value will accept all `Asset` events
-        ByAsset(FilterOpt<AssetFilter>),
         /// Filter by Trigger entity. `AcceptAll` value will accept all `Trigger` events
         ByTrigger(FilterOpt<TriggerFilter>),
         /// Filter by Role entity. `AcceptAll` value will accept all `Role` events
@@ -145,13 +139,9 @@ impl Filter for DataEntityFilter {
         match (self, event) {
             (Self::ByPeer(filter_opt), DataEvent::Peer(peer)) => filter_opt.matches(peer),
             (Self::ByDomain(filter_opt), DataEvent::Domain(domain)) => filter_opt.matches(domain),
-            (Self::ByAccount(filter_opt), DataEvent::Account(account)) => {
-                filter_opt.matches(account)
+            (Self::ByTrigger(filter_opt), DataEvent::Trigger(trigger)) => {
+                filter_opt.matches(trigger)
             }
-            (Self::ByAssetDefinition(filter_opt), DataEvent::AssetDefinition(asset_definition)) => {
-                filter_opt.matches(asset_definition)
-            }
-            (Self::ByAsset(filter_opt), DataEvent::Asset(asset)) => filter_opt.matches(asset),
             (Self::ByRole(filter_opt), DataEvent::Role(role)) => filter_opt.matches(role),
             _ => false,
         }
@@ -241,22 +231,60 @@ mod tests {
             metadata: Metadata::default(),
         };
         let asset_id = AssetId::new(
-            AssetDefinitionId::new(asset_name, domain_id),
+            AssetDefinitionId::new(asset_name, domain_id.clone()),
             account_id.clone(),
         );
-        let asset = Asset::new(asset_id, 0u32);
+        let asset = Asset::new(asset_id.clone(), 0u32);
 
-        let domain_created = DomainEvent::Created(domain);
-        let account_created = AccountEvent::Created(account);
-        let asset_created = AssetEvent::Created(asset);
-        let account_asset_created = AccountEvent::Asset(asset_created.clone());
-        let account_filter = BySome(DataEntityFilter::ByAccount(BySome(AccountFilter::new(
-            BySome(OriginFilter(account_id)),
+        // Create three events with three levels of nesting
+        // the first one is just a domain event
+        // the second one is an account event with a domain event inside
+        // the third one is an asset event with an account event with a domain event inside
+        let domain_created = DomainEvent::Created(domain).into();
+        let account_created = DomainEvent::Account(AccountEvent::Created(account)).into();
+        let asset_created =
+            DomainEvent::Account(AccountEvent::Asset(AssetEvent::Created(asset))).into();
+
+        // test how the differently nested filters with with the events
+        // FIXME: rewrite the filters using the builder DSL https://github.com/hyperledger/iroha/issues/3068
+        let domain_filter = BySome(DataEntityFilter::ByDomain(BySome(DomainFilter::new(
+            BySome(OriginFilter(domain_id)),
             AcceptAll,
         ))));
-        assert!(!account_filter.matches(&domain_created.into()));
-        assert!(!account_filter.matches(&asset_created.into()));
-        assert!(account_filter.matches(&account_created.into()));
-        assert!(account_filter.matches(&account_asset_created.into()));
+        let account_filter = BySome(DataEntityFilter::ByDomain(BySome(DomainFilter::new(
+            // kind of unfortunately, we have to specify the domain id filter,
+            // even though we will filter it with the account id filter (account id contains domain id with and account name)
+            // FIXME: maybe make this more orthogonal by introducing a partial id (in account event filter only by account name)
+            AcceptAll,
+            BySome(DomainEventFilter::ByAccount(BySome(AccountFilter::new(
+                BySome(OriginFilter(account_id)),
+                AcceptAll,
+            )))),
+        ))));
+        let asset_filter = BySome(DataEntityFilter::ByDomain(BySome(DomainFilter::new(
+            AcceptAll,
+            BySome(DomainEventFilter::ByAccount(BySome(AccountFilter::new(
+                AcceptAll,
+                BySome(AccountEventFilter::ByAsset(BySome(AssetFilter::new(
+                    BySome(OriginFilter(asset_id)),
+                    AcceptAll,
+                )))),
+            )))),
+        ))));
+
+        // domain filter matches all of those, because all of those events happened in the same domain
+        assert!(domain_filter.matches(&domain_created));
+        assert!(domain_filter.matches(&account_created));
+        assert!(domain_filter.matches(&asset_created));
+
+        // account event does not match the domain created event, as it is not an account event
+        assert!(!account_filter.matches(&domain_created));
+        assert!(account_filter.matches(&account_created));
+        assert!(account_filter.matches(&asset_created));
+
+        // asset event matches only the domain->account->asset event
+        assert!(!asset_filter.matches(&domain_created));
+        assert!(!asset_filter.matches(&account_created));
+        assert!(asset_filter.matches(&asset_created));
     }
 }

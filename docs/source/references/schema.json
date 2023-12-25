@@ -877,28 +877,13 @@
         "type": "FilterOpt<DomainFilter>"
       },
       {
-        "tag": "ByAccount",
-        "discriminant": 2,
-        "type": "FilterOpt<AccountFilter>"
-      },
-      {
-        "tag": "ByAssetDefinition",
-        "discriminant": 3,
-        "type": "FilterOpt<AssetDefinitionFilter>"
-      },
-      {
-        "tag": "ByAsset",
-        "discriminant": 4,
-        "type": "FilterOpt<AssetFilter>"
-      },
-      {
         "tag": "ByTrigger",
-        "discriminant": 5,
+        "discriminant": 2,
         "type": "FilterOpt<TriggerFilter>"
       },
       {
         "tag": "ByRole",
-        "discriminant": 6,
+        "discriminant": 3,
         "type": "FilterOpt<RoleFilter>"
       }
     ]
@@ -916,43 +901,28 @@
         "type": "DomainEvent"
       },
       {
-        "tag": "Account",
-        "discriminant": 2,
-        "type": "AccountEvent"
-      },
-      {
-        "tag": "AssetDefinition",
-        "discriminant": 3,
-        "type": "AssetDefinitionEvent"
-      },
-      {
-        "tag": "Asset",
-        "discriminant": 4,
-        "type": "AssetEvent"
-      },
-      {
         "tag": "Trigger",
-        "discriminant": 5,
+        "discriminant": 2,
         "type": "TriggerEvent"
       },
       {
         "tag": "Role",
-        "discriminant": 6,
+        "discriminant": 3,
         "type": "RoleEvent"
       },
       {
         "tag": "PermissionToken",
-        "discriminant": 7,
+        "discriminant": 4,
         "type": "PermissionTokenSchemaUpdateEvent"
       },
       {
         "tag": "Configuration",
-        "discriminant": 8,
+        "discriminant": 5,
         "type": "ConfigurationEvent"
       },
       {
         "tag": "Executor",
-        "discriminant": 9,
+        "discriminant": 6,
         "type": "ExecutorEvent"
       }
     ]
