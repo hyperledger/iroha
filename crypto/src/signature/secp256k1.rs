@@ -148,8 +148,8 @@ mod test {
     #[test]
     fn secp256k1_load_keys() {
         let secret = PrivateKey::from_hex(ALGORITHM, PRIVATE_KEY).unwrap();
-        let sres = EcdsaSecp256k1Sha256::keypair(Some(KeyGenOption::FromPrivateKey(secret)));
-        assert!(sres.is_ok());
+        let _sres =
+            EcdsaSecp256k1Sha256::keypair(Some(KeyGenOption::FromPrivateKey(secret))).unwrap();
     }
 
     #[test]
@@ -158,16 +158,14 @@ mod test {
         let (p, s) =
             EcdsaSecp256k1Sha256::keypair(Some(KeyGenOption::FromPrivateKey(secret))).unwrap();
 
-        let sk = secp256k1::SecretKey::from_slice(s.payload());
-        assert!(sk.is_ok());
-        let pk = secp256k1::PublicKey::from_slice(p.payload());
-        assert!(pk.is_ok());
+        let _sk = secp256k1::SecretKey::from_slice(s.payload()).unwrap();
+        let _pk = secp256k1::PublicKey::from_slice(p.payload()).unwrap();
 
         let openssl_group = EcGroup::from_curve_name(Nid::SECP256K1).unwrap();
         let mut ctx = BigNumContext::new().unwrap();
-        let openssl_point =
-            EcPoint::from_bytes(&openssl_group, &public_key_uncompressed(&p)[..], &mut ctx);
-        assert!(openssl_point.is_ok());
+        let _openssl_point =
+            EcPoint::from_bytes(&openssl_group, &public_key_uncompressed(&p)[..], &mut ctx)
+                .unwrap();
     }
 
     #[test]
@@ -179,7 +177,8 @@ mod test {
             hex::decode(SIGNATURE_1).unwrap().as_slice(),
             &p,
         );
-        assert!(result.is_ok());
+        // we are returning a `Result<bool>`
+        // unwrap will catch the `Err(_)`, and assert will catch the `false`
         assert!(result.unwrap());
 
         let context = secp256k1::Secp256k1::new();
@@ -189,13 +188,11 @@ mod test {
         let h = sha2::Sha256::digest(MESSAGE_1);
         let msg = secp256k1::Message::from_digest_slice(h.as_slice()).unwrap();
 
-        //Check if signatures produced here can be verified by secp256k1
-        let mut signature =
+        // Check if signatures produced here can be verified by secp256k1
+        let signature =
             secp256k1::ecdsa::Signature::from_compact(&hex::decode(SIGNATURE_1).unwrap()[..])
                 .unwrap();
-        signature.normalize_s();
-        let result = context.verify_ecdsa(&msg, &signature, &pk);
-        assert!(result.is_ok());
+        context.verify_ecdsa(&msg, &signature, &pk).unwrap();
 
         let openssl_group = EcGroup::from_curve_name(Nid::SECP256K1).unwrap();
         let mut ctx = BigNumContext::new().unwrap();
@@ -209,19 +206,19 @@ mod test {
         let openssl_s = BigNum::from_hex_str(s).unwrap();
         let openssl_sig = EcdsaSig::from_private_components(openssl_r, openssl_s).unwrap();
         let openssl_result = openssl_sig.verify(h.as_slice(), &openssl_pkey);
-        assert!(openssl_result.is_ok());
         assert!(openssl_result.unwrap());
     }
 
     #[test]
     fn secp256k1_sign() {
         let secret = PrivateKey::from_hex(ALGORITHM, PRIVATE_KEY).unwrap();
-        let (p, s) =
+        let (pk, sk) =
             EcdsaSecp256k1Sha256::keypair(Some(KeyGenOption::FromPrivateKey(secret))).unwrap();
 
-        let sig = EcdsaSecp256k1Sha256::sign(MESSAGE_1, &s).unwrap();
-        let result = EcdsaSecp256k1Sha256::verify(MESSAGE_1, &sig, &p);
-        assert!(result.is_ok());
+        let sig = EcdsaSecp256k1Sha256::sign(MESSAGE_1, &sk).unwrap();
+        let result = EcdsaSecp256k1Sha256::verify(MESSAGE_1, &sig, &pk);
+        // we are returning a `Result<bool>`
+        // unwrap will catch the `Err(_)`, and assert will catch the `false`
         assert!(result.unwrap());
 
         assert_eq!(sig.len(), 64);
@@ -237,16 +234,13 @@ mod test {
         let msg = secp256k1::Message::from_digest_slice(h.as_slice()).unwrap();
         let sig_1 = context.sign_ecdsa(&msg, &sk).serialize_compact();
 
-        let result = EcdsaSecp256k1Sha256::verify(MESSAGE_1, &sig_1, &p);
-
-        assert!(result.is_ok());
+        let result = EcdsaSecp256k1Sha256::verify(MESSAGE_1, &sig_1, &pk);
         assert!(result.unwrap());
 
         let openssl_group = EcGroup::from_curve_name(Nid::SECP256K1).unwrap();
         let mut ctx = BigNumContext::new().unwrap();
         let openssl_point =
-            EcPoint::from_bytes(&openssl_group, &public_key_uncompressed(&p)[..], &mut ctx)
-                .unwrap();
+            EcPoint::from_bytes(&openssl_group, &public_key_uncompressed(&pk), &mut ctx).unwrap();
         let openssl_public_key = EcKey::from_public_key(&openssl_group, &openssl_point).unwrap();
         let openssl_secret_key = EcKey::from_private_components(
             &openssl_group,
@@ -257,23 +251,41 @@ mod test {
 
         let openssl_sig = EcdsaSig::sign(h.as_slice(), &openssl_secret_key).unwrap();
         let openssl_result = openssl_sig.verify(h.as_slice(), &openssl_public_key);
-        assert!(openssl_result.is_ok());
         assert!(openssl_result.unwrap());
-        let mut temp_sig = Vec::new();
-        temp_sig.extend(openssl_sig.r().to_vec());
-        temp_sig.extend(openssl_sig.s().to_vec());
 
-        // secp256k1 expects normalized "s"'s.
-        // scheme.normalize_s(temp_sig.as_mut_slice()).unwrap();
-        // k256 seems to be normalizing always now
-        let result = EcdsaSecp256k1Sha256::verify(MESSAGE_1, temp_sig.as_slice(), &p);
-        assert!(result.is_ok());
+        let openssl_sig = {
+            use std::ops::{Shr, Sub};
+
+            // ensure the S value is "low" (see BIP-0062) https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki#user-content-Low_S_values_in_signatures
+            // this is required for k256 to successfully verify the signature, as it will fail verification of any signature with a High S value
+            // Based on https://github.com/bitcoin/bitcoin/blob/v0.9.3/src/key.cpp#L202-L227
+            // this is only required for interoperability with OpenSSL
+            // if we are only using signatures from iroha_crypto, all of this dance is not necessary
+            let mut s = openssl_sig.s().to_owned().unwrap();
+            let mut order = BigNum::new().unwrap();
+            openssl_group.order(&mut order, &mut ctx).unwrap();
+            let half_order = order.shr(1);
+
+            // if the S is "high" (s > half_order), convert it to "low" form (order - s)
+            if s.cmp(&half_order) == std::cmp::Ordering::Greater {
+                s = order.sub(&s);
+            }
+
+            let r = openssl_sig.r();
+
+            // serialize the key
+            let mut res = Vec::new();
+            res.extend(r.to_vec());
+            res.extend(s.to_vec());
+            res
+        };
+
+        let result = EcdsaSecp256k1Sha256::verify(MESSAGE_1, openssl_sig.as_slice(), &pk);
         assert!(result.unwrap());
 
         let (p, s) = EcdsaSecp256k1Sha256::keypair(None).unwrap();
         let signed = EcdsaSecp256k1Sha256::sign(MESSAGE_1, &s).unwrap();
         let result = EcdsaSecp256k1Sha256::verify(MESSAGE_1, &signed, &p);
-        assert!(result.is_ok());
         assert!(result.unwrap());
     }
 }
