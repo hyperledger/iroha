@@ -20,20 +20,6 @@ use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
 use iroha_primitives::addr::SocketAddr;
 
-/// A value wrapper that can be parsed from CLI arguments
-#[derive(Debug, Clone)]
-pub struct MetadataValue(iroha_data_model::Value);
-
-impl FromStr for MetadataValue {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self> {
-        json5::from_str(s)
-            .map(Self)
-            .wrap_err("Failed to deserialize a value")
-    }
-}
-
 /// Metadata wrapper, which can be captured from CLI arguments (from user supplied file).
 #[derive(Debug, Clone)]
 pub struct Metadata(pub UnlimitedMetadata);
@@ -474,6 +460,20 @@ mod domain {
         use iroha_data_model::domain::DomainId;
 
         use super::*;
+
+        /// A value wrapper that can be parsed from CLI arguments
+        #[derive(Debug, Clone)]
+        pub struct MetadataValue(iroha_data_model::Value);
+
+        impl FromStr for MetadataValue {
+            type Err = Error;
+
+            fn from_str(s: &str) -> Result<Self> {
+                let deser_err_msg = format!("Failed to deserialize `{s}` into value.");
+                let metadata: Value = json5::from_str(s).wrap_err(deser_err_msg)?;
+                Ok(Self(metadata))
+            }
+        }
 
         /// Edit domain subcommands
         #[derive(Debug, Clone, clap::Subcommand)]
