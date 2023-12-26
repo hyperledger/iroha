@@ -45,7 +45,7 @@ ENV GOPATH=/opt/gopath
 RUN mkdir ${GOPATH}
 ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
 # RUN go get -u google.golang.org/grpc
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go
 
 ## Rust-lang stuff for iroha+ursa
 ENV RUSTUP_HOME=/opt/rust
