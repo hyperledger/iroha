@@ -529,6 +529,7 @@ mod domain {
             /// A domain id from which metadata is to be removed
             #[arg(short, long)]
             id: DomainId,
+            /// A key of metadata
             #[arg(short, long)]
             key: Name,
         }
