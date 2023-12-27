@@ -2,7 +2,7 @@
 
 use std::str::FromStr as _;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use iroha_core::{
     block::*,
     prelude::*,
@@ -56,7 +56,6 @@ fn build_test_transaction(keys: KeyPair, chain_id: ChainId) -> SignedTransaction
     )
     .with_instructions(instructions)
     .sign(keys)
-    .expect("Failed to sign.")
 }
 
 fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
@@ -119,15 +118,18 @@ fn sign_transaction(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let transaction = build_test_transaction(keys, chain_id);
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let mut success_count = 0;
-    let mut failures_count = 0;
+    let mut count = 0;
     let _ = criterion.bench_function("sign", |b| {
-        b.iter(|| match transaction.clone().sign(key_pair.clone()) {
-            Ok(_) => success_count += 1,
-            Err(_) => failures_count += 1,
-        });
+        b.iter_batched(
+            || transaction.clone(),
+            |transaction| {
+                let _: SignedTransaction = transaction.sign(key_pair.clone());
+                count += 1;
+            },
+            BatchSize::SmallInput,
+        );
     });
-    println!("Success count: {success_count}, Failures count: {failures_count}");
+    println!("Count: {count}");
 }
 
 fn validate_transaction(criterion: &mut Criterion) {
@@ -172,18 +174,21 @@ fn sign_blocks(criterion: &mut Criterion) {
     let mut wsv = WorldStateView::new(World::new(), kura, query_handle);
     let topology = Topology::new(UniqueVec::new());
 
-    let mut success_count = 0;
-    let mut failures_count = 0;
+    let mut count = 0;
 
     let block = BlockBuilder::new(vec![transaction], topology, Vec::new()).chain(0, &mut wsv);
 
     let _ = criterion.bench_function("sign_block", |b| {
-        b.iter(|| match block.clone().sign(key_pair.clone()) {
-            Ok(_) => success_count += 1,
-            Err(_) => failures_count += 1,
-        });
+        b.iter_batched(
+            || block.clone(),
+            |block| {
+                let _: ValidBlock = block.sign(key_pair.clone());
+                count += 1;
+            },
+            BatchSize::SmallInput,
+        );
     });
-    println!("Success count: {success_count}, Failures count: {failures_count}");
+    println!("Count: {count}");
 }
 
 criterion_group!(

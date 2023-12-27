@@ -31,19 +31,19 @@ pub use base64;
 #[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
 pub use blake2;
-use derive_more::{DebugCustom, Display};
-use error::{Error, NoSuchAlgorithm};
-use getset::{CopyGetters, Getters};
+use derive_more::Display;
+use error::{Error, NoSuchAlgorithm, ParseError};
+use getset::Getters;
 pub use hash::*;
 use iroha_macro::ffi_impl_opaque;
 use iroha_primitives::const_vec::ConstVec;
-use iroha_schema::IntoSchema;
+use iroha_schema::{Declaration, IntoSchema, MetaMap, Metadata, NamedFieldsMeta, TypeId};
 pub use merkle::MerkleTree;
 #[cfg(not(feature = "ffi_import"))]
 use parity_scale_codec::{Decode, Encode};
 #[cfg(feature = "std")]
 use serde::Deserialize;
-use serde::Serialize;
+use serde::{ser::SerializeStruct, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::signature::*;
@@ -185,18 +185,17 @@ impl KeyPair {
 impl KeyPair {
     /// Digest function
     pub fn digest_function(&self) -> Algorithm {
-        self.private_key.digest_function()
+        self.private_key.algorithm()
     }
 
-    /// Construct `KeyPair`
-    ///
+    /// Construct a [`KeyPair`]
     /// # Errors
     /// If public and private key don't match, i.e. if they don't make a pair
     #[cfg(any(feature = "std", feature = "ffi_import"))]
     pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Result<Self, Error> {
-        let algorithm = private_key.digest_function();
+        let algorithm = private_key.algorithm();
 
-        if algorithm != public_key.digest_function() {
+        if algorithm != public_key.algorithm() {
             #[cfg(not(feature = "std"))]
             use alloc::borrow::ToOwned as _;
             return Err(Error::KeyGen("Mismatch of key algorithms".to_owned()));
@@ -227,19 +226,50 @@ impl KeyPair {
             (_, key_gen_option) => key_gen_option,
         };
 
-        let (public_key, private_key) = match configuration.algorithm {
-            Algorithm::Ed25519 => signature::ed25519::Ed25519Sha512::keypair(key_gen_option),
+        Ok(match configuration.algorithm {
+            Algorithm::Ed25519 => signature::ed25519::Ed25519Sha512::keypair(key_gen_option).into(),
             Algorithm::Secp256k1 => {
-                signature::secp256k1::EcdsaSecp256k1Sha256::keypair(key_gen_option)
+                signature::secp256k1::EcdsaSecp256k1Sha256::keypair(key_gen_option).into()
             }
-            Algorithm::BlsNormal => signature::bls::BlsNormal::keypair(key_gen_option),
-            Algorithm::BlsSmall => signature::bls::BlsSmall::keypair(key_gen_option),
-        }?;
-
-        Ok(Self {
-            public_key,
-            private_key,
+            Algorithm::BlsNormal => signature::bls::BlsNormal::keypair(key_gen_option).into(),
+            Algorithm::BlsSmall => signature::bls::BlsSmall::keypair(key_gen_option).into(),
         })
+    }
+}
+
+impl From<(ed25519::PublicKey, ed25519::PrivateKey)> for KeyPair {
+    fn from((public_key, private_key): (ed25519::PublicKey, ed25519::PrivateKey)) -> Self {
+        Self {
+            public_key: PublicKey::Ed25519(public_key),
+            private_key: PrivateKey::Ed25519(Box::new(private_key)),
+        }
+    }
+}
+
+impl From<(secp256k1::PublicKey, secp256k1::PrivateKey)> for KeyPair {
+    fn from((public_key, private_key): (secp256k1::PublicKey, secp256k1::PrivateKey)) -> Self {
+        Self {
+            public_key: PublicKey::Secp256k1(public_key),
+            private_key: PrivateKey::Secp256k1(private_key),
+        }
+    }
+}
+
+impl From<(bls::BlsNormalPublicKey, bls::PrivateKey)> for KeyPair {
+    fn from((public_key, private_key): (bls::BlsNormalPublicKey, bls::PrivateKey)) -> Self {
+        Self {
+            public_key: PublicKey::BlsNormal(public_key),
+            private_key: PrivateKey::BlsNormal(private_key),
+        }
+    }
+}
+
+impl From<(bls::BlsSmallPublicKey, bls::PrivateKey)> for KeyPair {
+    fn from((public_key, private_key): (bls::BlsSmallPublicKey, bls::PrivateKey)) -> Self {
+        Self {
+            public_key: PublicKey::BlsSmall(Box::new(public_key)),
+            private_key: PrivateKey::BlsSmall(private_key),
+        }
     }
 }
 
@@ -274,89 +304,185 @@ impl From<KeyPair> for (PublicKey, PrivateKey) {
 
 ffi::ffi_item! {
     /// Public Key used in signatures.
-    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, CopyGetters)]
-    #[cfg_attr(not(feature="ffi_import"), derive(DebugCustom, Display, Hash, DeserializeFromStr, SerializeDisplay, Decode, Encode, IntoSchema))]
-    #[cfg_attr(not(feature="ffi_import"), debug(fmt = "{{digest: {digest_function}, payload: {}}}", "self.normalize()"))]
-    #[cfg_attr(not(feature="ffi_import"), display(fmt = "{}", "self.normalize()"))]
-    pub struct PublicKey {
-        /// Digest function
-        #[getset(get_copy = "pub")]
-        digest_function: Algorithm,
-        /// Key payload
-        payload: ConstVec<u8>,
+    #[derive(Clone, PartialEq, Eq)]
+    #[cfg_attr(not(feature="ffi_import"), derive(DeserializeFromStr, SerializeDisplay))]
+    #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), ffi_type(opaque))]
+    #[allow(missing_docs)]
+    pub enum PublicKey {
+        Ed25519(ed25519::PublicKey),
+        Secp256k1(secp256k1::PublicKey),
+        BlsNormal(bls::BlsNormalPublicKey),
+        BlsSmall(Box<bls::BlsSmallPublicKey>),
     }
 }
 
 #[ffi_impl_opaque]
 impl PublicKey {
     /// Creates a new public key from raw bytes received from elsewhere
-    pub fn from_raw(algorithm: Algorithm, payload: ConstVec<u8>) -> Self {
-        Self {
-            digest_function: algorithm,
-            payload,
+    pub fn from_raw(algorithm: Algorithm, payload: &[u8]) -> Result<Self, ParseError> {
+        match algorithm {
+            Algorithm::Ed25519 => {
+                ed25519::Ed25519Sha512::parse_public_key(payload).map(Self::Ed25519)
+            }
+            Algorithm::Secp256k1 => {
+                secp256k1::EcdsaSecp256k1Sha256::parse_public_key(payload).map(Self::Secp256k1)
+            }
+            Algorithm::BlsNormal => bls::BlsNormal::parse_public_key(payload).map(Self::BlsNormal),
+            Algorithm::BlsSmall => bls::BlsSmall::parse_public_key(payload)
+                .map(Box::new)
+                .map(Self::BlsSmall),
         }
     }
 
-    /// Extracts the raw bytes from public key
-    pub fn into_raw(self) -> (Algorithm, ConstVec<u8>) {
-        (self.digest_function, self.payload)
+    /// Extracts the raw bytes from public key, copying the payload.
+    ///
+    /// `into_raw()` without copying is not provided because underlying crypto
+    /// libraries do not provide move functionality.
+    pub fn to_raw(&self) -> (Algorithm, Vec<u8>) {
+        (self.algorithm(), self.payload())
     }
 
     /// Key payload
-    // TODO: Derive with getset once FFI impl is fixed
-    pub fn payload(&self) -> &[u8] {
-        self.payload.as_ref()
+    fn payload(&self) -> Vec<u8> {
+        match self {
+            PublicKey::Ed25519(key) => key.as_bytes().to_vec(),
+            PublicKey::Secp256k1(key) => key.to_sec1_bytes().to_vec(),
+            PublicKey::BlsNormal(key) => key.to_bytes(),
+            PublicKey::BlsSmall(key) => key.to_bytes(),
+        }
     }
 
-    #[cfg(feature = "std")]
-    fn try_from_private(private_key: PrivateKey) -> Result<PublicKey, Error> {
-        let digest_function = private_key.digest_function();
-        let key_gen_option = Some(KeyGenOption::FromPrivateKey(private_key));
-
-        let (public_key, _) = match digest_function {
-            Algorithm::Ed25519 => signature::ed25519::Ed25519Sha512::keypair(key_gen_option),
-            Algorithm::Secp256k1 => {
-                signature::secp256k1::EcdsaSecp256k1Sha256::keypair(key_gen_option)
-            }
-            Algorithm::BlsNormal => signature::bls::BlsNormal::keypair(key_gen_option),
-            Algorithm::BlsSmall => signature::bls::BlsSmall::keypair(key_gen_option),
-        }?;
-
-        Ok(public_key)
-    }
-
-    /// Construct `PrivateKey` from hex encoded string
-    ///
+    /// Construct [`PublicKey`] from hex encoded string
     /// # Errors
     ///
     /// - If the given payload is not hex encoded
     /// - If the given payload is not a valid private key
     #[cfg(feature = "std")]
-    pub fn from_hex(digest_function: Algorithm, payload: &str) -> Result<Self, Error> {
+    pub fn from_hex(digest_function: Algorithm, payload: &str) -> Result<Self, ParseError> {
         let payload = hex_decode(payload)?;
-        let payload = ConstVec::new(payload);
 
-        // NOTE: PrivateKey does some validation by generating a public key from the provided bytes
-        // we can't really do this for PublicKey
-        // this can be solved if the keys used here would be actually aware of the underlying crypto primitive types
-        // instead of just being raw bytes
-        Ok(Self {
-            digest_function,
-            payload,
+        Self::from_raw(digest_function, &payload)
+    }
+
+    /// Get the digital signature algorithm of the public key
+    pub fn algorithm(&self) -> Algorithm {
+        match self {
+            Self::Ed25519(_) => Algorithm::Ed25519,
+            Self::Secp256k1(_) => Algorithm::Secp256k1,
+            Self::BlsNormal(_) => Algorithm::BlsNormal,
+            Self::BlsSmall(_) => Algorithm::BlsSmall,
+        }
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl fmt::Debug for PublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple(self.algorithm().as_static_str())
+            .field(&self.normalize())
+            .finish()
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl fmt::Display for PublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.normalize())
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl core::hash::Hash for PublicKey {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        (self.algorithm(), self.payload()).hash(state)
+    }
+}
+
+impl PartialOrd for PublicKey {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PublicKey {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        (self.algorithm(), self.payload()).cmp(&(other.algorithm(), other.payload()))
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl Encode for PublicKey {
+    fn size_hint(&self) -> usize {
+        self.algorithm().size_hint() + self.payload().size_hint()
+    }
+
+    fn encode_to<W: parity_scale_codec::Output + ?Sized>(&self, dest: &mut W) {
+        self.algorithm().encode_to(dest);
+        self.payload().encode_to(dest);
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl Decode for PublicKey {
+    fn decode<I: parity_scale_codec::Input>(
+        input: &mut I,
+    ) -> Result<Self, parity_scale_codec::Error> {
+        let digest_function = Algorithm::decode(input)?;
+        let payload = <ConstVec<u8>>::decode(input)?;
+        Self::from_raw(digest_function, &payload).map_err(|_| {
+            parity_scale_codec::Error::from(
+                "Failed to construct public key from digest function and payload",
+            )
         })
     }
 }
 
+#[cfg(not(feature = "ffi_import"))]
+impl IntoSchema for PublicKey {
+    fn type_name() -> String {
+        Self::id()
+    }
+
+    fn update_schema_map(metamap: &mut MetaMap) {
+        if !metamap.contains_key::<Self>() {
+            if !metamap.contains_key::<Algorithm>() {
+                <Algorithm as iroha_schema::IntoSchema>::update_schema_map(metamap);
+            }
+            if !metamap.contains_key::<ConstVec<u8>>() {
+                <ConstVec<u8> as iroha_schema::IntoSchema>::update_schema_map(metamap);
+            }
+
+            metamap.insert::<Self>(Metadata::Struct(NamedFieldsMeta {
+                declarations: vec![
+                    Declaration {
+                        name: String::from("algorithm"),
+                        ty: core::any::TypeId::of::<Algorithm>(),
+                    },
+                    Declaration {
+                        name: String::from("payload"),
+                        ty: core::any::TypeId::of::<ConstVec<u8>>(),
+                    },
+                ],
+            }));
+        }
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl TypeId for PublicKey {
+    fn id() -> String {
+        "PublicKey".to_owned()
+    }
+}
+
 impl FromStr for PublicKey {
-    type Err = Error;
+    type Err = ParseError;
 
     // TODO: Can we check the key is valid?
     fn from_str(key: &str) -> Result<Self, Self::Err> {
-        let bytes = hex_decode(key).map_err(|err| Error::Parse(err.to_string()))?;
+        let bytes = hex_decode(key)?;
 
-        multihash::Multihash::try_from(bytes)
-            .map_err(|err| Error::Parse(err.to_string()))
-            .map(Into::into)
+        multihash::Multihash::try_from(bytes).map(Into::into)
     }
 }
 
@@ -380,71 +506,113 @@ impl PublicKey {
 #[cfg(not(feature = "ffi_import"))]
 impl From<PrivateKey> for PublicKey {
     fn from(private_key: PrivateKey) -> Self {
-        Self::try_from_private(private_key).expect("can't fail for valid `PrivateKey`")
+        let digest_function = private_key.algorithm();
+        let key_gen_option = Some(KeyGenOption::FromPrivateKey(private_key));
+
+        match digest_function {
+            Algorithm::Ed25519 => {
+                PublicKey::Ed25519(ed25519::Ed25519Sha512::keypair(key_gen_option).0)
+            }
+            Algorithm::Secp256k1 => {
+                PublicKey::Secp256k1(secp256k1::EcdsaSecp256k1Sha256::keypair(key_gen_option).0)
+            }
+            Algorithm::BlsNormal => PublicKey::BlsNormal(bls::BlsNormal::keypair(key_gen_option).0),
+            Algorithm::BlsSmall => {
+                PublicKey::BlsSmall(Box::new(bls::BlsSmall::keypair(key_gen_option).0))
+            }
+        }
     }
 }
 
 ffi::ffi_item! {
     /// Private Key used in signatures.
-    #[derive(Clone, PartialEq, Eq, CopyGetters)]
-    #[cfg_attr(not(feature="ffi_import"), derive(DebugCustom, Display, Serialize))]
-    #[cfg_attr(not(feature="ffi_import"), debug(fmt = "{{digest: {digest_function}, payload: {}}}", "hex::encode_upper(payload)"))]
-    #[cfg_attr(not(feature="ffi_import"), display(fmt = "{}", "hex::encode_upper(payload)"))]
-    pub struct PrivateKey {
-        /// Digest function
-        #[getset(get_copy = "pub")]
-        digest_function: Algorithm,
-        /// Key payload
-        #[serde(with = "hex::serde")]
-        payload: ConstVec<u8>,
-    }
-}
-
-#[ffi_impl_opaque]
-impl PrivateKey {
-    /// Key payload
-    // TODO: Derive with getset once FFI impl is fixed
-    pub fn payload(&self) -> &[u8] {
-        self.payload.as_ref()
+    #[derive(Clone, PartialEq, Eq)]
+    #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), ffi_type(opaque))]
+    #[allow(missing_docs)]
+    pub enum PrivateKey {
+        Ed25519(Box<ed25519::PrivateKey>),
+        Secp256k1(secp256k1::PrivateKey),
+        BlsNormal(bls::PrivateKey),
+        BlsSmall(bls::PrivateKey),
     }
 }
 
 impl PrivateKey {
-    /// Construct `PrivateKey` from hex encoded string without validating the key
+    /// Creates a new public key from raw bytes received from elsewhere
     ///
     /// # Errors
     ///
-    /// If the given payload is not hex encoded
-    pub fn from_hex_unchecked(
-        digest_function: Algorithm,
-        payload: &(impl AsRef<[u8]> + ?Sized),
-    ) -> Result<Self, Error> {
-        Ok(Self {
-            digest_function,
-            payload: crate::hex_decode(payload).map(ConstVec::new)?,
-        })
+    /// - If the given payload is not a valid private key for the given digest function
+    pub fn from_raw(algorithm: Algorithm, payload: &[u8]) -> Result<Self, ParseError> {
+        match algorithm {
+            Algorithm::Ed25519 => ed25519::Ed25519Sha512::parse_private_key(payload)
+                .map(Box::new)
+                .map(Self::Ed25519),
+            Algorithm::Secp256k1 => {
+                secp256k1::EcdsaSecp256k1Sha256::parse_private_key(payload).map(Self::Secp256k1)
+            }
+            Algorithm::BlsNormal => bls::BlsNormal::parse_private_key(payload).map(Self::BlsNormal),
+            Algorithm::BlsSmall => bls::BlsSmall::parse_private_key(payload).map(Self::BlsSmall),
+        }
     }
 
-    /// Construct `PrivateKey` from hex encoded string
+    /// Construct [`PrivateKey`] from hex encoded string
     ///
     /// # Errors
     ///
     /// - If the given payload is not hex encoded
     /// - If the given payload is not a valid private key
     #[cfg(feature = "std")]
-    pub fn from_hex(digest_function: Algorithm, payload: &str) -> Result<Self, Error> {
+    pub fn from_hex(algorithm: Algorithm, payload: &str) -> Result<Self, ParseError> {
         let payload = hex_decode(payload)?;
         let payload = ConstVec::new(payload);
 
-        let private_key_candidate = Self {
-            digest_function,
-            payload: payload.clone(),
-        };
+        Self::from_raw(algorithm, &payload)
+    }
 
-        PublicKey::try_from_private(private_key_candidate).map(|_| Self {
-            digest_function,
-            payload,
-        })
+    /// Get the digital signature algorithm of the private key
+    pub fn algorithm(&self) -> Algorithm {
+        match self {
+            Self::Ed25519(_) => Algorithm::Ed25519,
+            Self::Secp256k1(_) => Algorithm::Secp256k1,
+            Self::BlsNormal(_) => Algorithm::BlsNormal,
+            Self::BlsSmall(_) => Algorithm::BlsSmall,
+        }
+    }
+
+    /// Key payload
+    fn payload(&self) -> Vec<u8> {
+        match self {
+            Self::Ed25519(key) => key.to_keypair_bytes().to_vec(),
+            Self::Secp256k1(key) => key.to_bytes().to_vec(),
+            Self::BlsNormal(key) | Self::BlsSmall(key) => key.to_bytes(),
+        }
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl std::fmt::Debug for PrivateKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple(self.algorithm().as_static_str())
+            .field(&hex::encode_upper(self.payload()))
+            .finish()
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl std::fmt::Display for PrivateKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&hex::encode_upper(self.payload()))
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl Serialize for PrivateKey {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut state = serializer.serialize_struct("PublicKey", 2)?;
+        state.serialize_field("digest_function", &self.algorithm())?;
+        state.serialize_field("payload", &hex::encode(self.payload()))?;
+        state.end()
     }
 }
 
@@ -480,8 +648,8 @@ impl SessionKey {
 }
 
 /// Shim for decoding hexadecimal strings
-pub(crate) fn hex_decode<T: AsRef<[u8]> + ?Sized>(payload: &T) -> Result<Vec<u8>, Error> {
-    hex::decode(payload).map_err(|err| Error::Parse(err.to_string()))
+pub(crate) fn hex_decode<T: AsRef<[u8]> + ?Sized>(payload: &T) -> Result<Vec<u8>, ParseError> {
+    hex::decode(payload).map_err(|err| ParseError(err.to_string()))
 }
 
 pub mod error {
@@ -496,6 +664,14 @@ pub mod error {
     #[cfg(feature = "std")]
     impl std::error::Error for NoSuchAlgorithm {}
 
+    /// Error parsing a key
+    #[derive(Debug, Display, Clone, serde::Deserialize, PartialEq, Eq)]
+    #[display(fmt = "{_0}")]
+    pub struct ParseError(pub(crate) String);
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for ParseError {}
+
     /// Error when dealing with cryptographic functions
     #[derive(Debug, Display, serde::Deserialize, PartialEq, Eq)]
     pub enum Error {
@@ -504,10 +680,13 @@ pub mod error {
         NoSuchAlgorithm(String),
         /// Occurs during deserialization of a private or public key
         #[display(fmt = "Key could not be parsed. {_0}")]
-        Parse(String),
+        Parse(ParseError),
         /// Returned when an error occurs during the signing process
         #[display(fmt = "Signing failed. {_0}")]
         Signing(String),
+        /// Returned when an error occurs during the signature verification process
+        #[display(fmt = "Signature verification failed")]
+        BadSignature,
         /// Returned when an error occurs during key generation
         #[display(fmt = "Key generation failed. {_0}")]
         KeyGen(String),
@@ -526,6 +705,13 @@ pub mod error {
     impl From<NoSuchAlgorithm> for Error {
         fn from(source: NoSuchAlgorithm) -> Self {
             Self::NoSuchAlgorithm(source.to_string())
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl From<ParseError> for Error {
+        fn from(source: ParseError) -> Self {
+            Self::Parse(source)
         }
     }
 
@@ -606,10 +792,6 @@ mod tests {
     use serde::Deserialize;
 
     use super::*;
-
-    fn parse_const_bytes(hex: &str) -> ConstVec<u8> {
-        ConstVec::new(hex_decode(hex).expect("Failed to decode hex bytes"))
-    }
 
     #[test]
     fn algorithm_serialize_deserialize_consistent() {
@@ -758,48 +940,44 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                PublicKey {
-                    digest_function: Algorithm::Ed25519,
-                    payload: parse_const_bytes(
-                        "1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
-                    )
-                }
+                PublicKey::from_hex(
+                    Algorithm::Ed25519,
+                    "1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
+                )
+                .unwrap()
             ),
             "ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
         );
         assert_eq!(
             format!(
                 "{}",
-                PublicKey {
-                    digest_function: Algorithm::Secp256k1,
-                    payload: parse_const_bytes(
-                        "0312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC"
-                    )
-                }
+                PublicKey::from_hex(
+                    Algorithm::Secp256k1,
+                    "0312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC"
+                )
+                .unwrap()
             ),
             "e701210312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC"
         );
         assert_eq!(
             format!(
                 "{}",
-                PublicKey {
-                    digest_function: Algorithm::BlsNormal,
-                    payload: parse_const_bytes(
+                PublicKey::from_hex(
+                    Algorithm::BlsNormal,
+
                         "04175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7"
-                    )
-                }
+                ).unwrap()
             ),
             "ea016104175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7"
         );
         assert_eq!(
             format!(
                 "{}",
-                PublicKey {
-                    digest_function: Algorithm::BlsSmall,
-                    payload: parse_const_bytes(
+                PublicKey::from_hex(
+                    Algorithm::BlsSmall,
+
                         "040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
-                    )
-                }
+                ).unwrap()
             ),
             "eb01c1040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
         );
@@ -823,16 +1001,15 @@ mod tests {
                 }
             }").expect("Failed to deserialize."),
             TestJson {
-                public_key: PublicKey {
-                    digest_function: Algorithm::Ed25519,
-                    payload: parse_const_bytes(
+                public_key: PublicKey::from_hex(
+                    Algorithm::Ed25519,
+
                         "1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
-                    )
-                },
-                private_key: PrivateKey {
-                    digest_function: Algorithm::Ed25519,
-                    payload: parse_const_bytes("3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"),
-                }
+                ).unwrap(),
+                private_key: PrivateKey::from_hex(
+                    Algorithm::Ed25519,
+                    "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4",
+                ).unwrap()
             }
         );
     }
@@ -849,16 +1026,15 @@ mod tests {
                 }
             }").expect("Failed to deserialize."),
             TestJson {
-                public_key: PublicKey {
-                    digest_function: Algorithm::Secp256k1,
-                    payload: parse_const_bytes(
+                public_key: PublicKey::from_hex(
+                    Algorithm::Secp256k1,
+
                         "0312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC"
-                    )
-                },
-                private_key: PrivateKey {
-                    digest_function: Algorithm::Secp256k1,
-                    payload: parse_const_bytes("4DF4FCA10762D4B529FE40A2188A60CA4469D2C50A825B5F33ADC2CB78C69445"),
-                }
+                ).unwrap(),
+                private_key: PrivateKey::from_hex(
+                    Algorithm::Secp256k1,
+                    "4DF4FCA10762D4B529FE40A2188A60CA4469D2C50A825B5F33ADC2CB78C69445",
+                ).unwrap()
             }
         );
     }
@@ -875,16 +1051,15 @@ mod tests {
                 }
             }").expect("Failed to deserialize."),
             TestJson {
-                public_key: PublicKey {
-                    digest_function: Algorithm::BlsNormal,
-                    payload: parse_const_bytes(
+                public_key: PublicKey::from_hex(
+                    Algorithm::BlsNormal,
+
                         "04175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7"
-                    )
-                },
-                private_key: PrivateKey {
-                    digest_function: Algorithm::BlsNormal,
-                    payload: parse_const_bytes("000000000000000000000000000000002F57460183837EFBAC6AA6AB3B8DBB7CFFCFC59E9448B7860A206D37D470CBA3"),
-                }
+                ).unwrap(),
+                private_key: PrivateKey::from_hex(
+                    Algorithm::BlsNormal,
+                    "000000000000000000000000000000002F57460183837EFBAC6AA6AB3B8DBB7CFFCFC59E9448B7860A206D37D470CBA3",
+                ).unwrap()
             }
         );
         assert_eq!(
@@ -896,17 +1071,16 @@ mod tests {
                 }
             }").expect("Failed to deserialize."),
             TestJson {
-                public_key: PublicKey {
-                    digest_function: Algorithm::BlsSmall,
-                    payload: parse_const_bytes(
+                public_key: PublicKey::from_hex(
+                    Algorithm::BlsSmall,
+
                             "040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
-                        )
-                },
-                private_key: PrivateKey {
-                    digest_function: Algorithm::BlsSmall,
-                    payload: parse_const_bytes(
-                        "0000000000000000000000000000000060F3C1AC9ADDBBED8DB83BC1B2EF22139FB049EECB723A557A41CA1A4B1FED63"),
-                }
+                ).unwrap(),
+                private_key: PrivateKey::from_hex(
+                    Algorithm::BlsSmall,
+
+                        "0000000000000000000000000000000060F3C1AC9ADDBBED8DB83BC1B2EF22139FB049EECB723A557A41CA1A4B1FED63",
+                    ).unwrap()
             }
         );
     }

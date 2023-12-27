@@ -11,10 +11,7 @@ use sha2::Sha256;
 pub(super) const MESSAGE_CONTEXT: &[u8; 20] = b"for signing messages";
 
 use super::PRIVATE_KEY_SIZE;
-use crate::{
-    Algorithm, ConstVec, Error, KeyGenOption, PrivateKey as IrohaPrivateKey,
-    PublicKey as IrohaPublicKey,
-};
+use crate::{Algorithm, Error, KeyGenOption, ParseError};
 
 /// This is a simple alias so the consumer can just use `PrivateKey::random`() to generate a new one
 /// instead of wrapping it as a private field
@@ -26,12 +23,14 @@ pub trait BlsConfiguration {
     const SIG_SIZE: usize;
     type Generator: GroupElement + Eq + PartialEq + Hash;
     type SignatureGroup: GroupElement + Eq + PartialEq + Hash;
+
     fn ate_2_pairing_is_one(
         g: &Self::Generator,
         sig: &Self::SignatureGroup,
         pk: &Self::Generator,
         hash: &Self::SignatureGroup,
     ) -> bool;
+
     fn set_pairs(p: &(Self::Generator, Self::SignatureGroup)) -> (&G1, &G2);
 
     /// Creates a new BLS key pair
@@ -61,6 +60,8 @@ pub trait BlsConfiguration {
         let ctx: &[u8] = context.unwrap_or(PUBLICKEY_CONTEXT);
         Self::hash_to_point(pk.to_bytes(), ctx)
     }
+
+    fn extract_private_key(private_key: &crate::PrivateKey) -> Option<&PrivateKey>;
 }
 
 pub struct PublicKey<C: BlsConfiguration + ?Sized>(C::Generator);
@@ -76,10 +77,47 @@ impl<C: BlsConfiguration + ?Sized> PublicKey<C> {
         self.0.to_bytes(false)
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
         Ok(Self(
-            C::Generator::from_bytes(bytes).map_err(|e| Error::Parse(format!("{e:?}")))?,
+            C::Generator::from_bytes(bytes).map_err(|e| ParseError(format!("{e:?}")))?,
         ))
+    }
+}
+
+impl<C> core::fmt::Debug for PublicKey<C>
+where
+    C: BlsConfiguration + ?Sized,
+    C::Generator: core::fmt::Debug,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("PublicKey").field(&self.0).finish()
+    }
+}
+
+impl<C> PartialEq for PublicKey<C>
+where
+    C: BlsConfiguration + ?Sized,
+    C::Generator: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<C> Eq for PublicKey<C>
+where
+    C: BlsConfiguration + ?Sized,
+    C::Generator: Eq,
+{
+}
+
+impl<C> Clone for PublicKey<C>
+where
+    C: BlsConfiguration + ?Sized,
+    C::Generator: Clone,
+{
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
     }
 }
 
@@ -124,9 +162,9 @@ impl<C: BlsConfiguration + ?Sized> Signature<C> {
         self.0.to_bytes(false)
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
         Ok(Signature(
-            C::SignatureGroup::from_bytes(bytes).map_err(|e| Error::Parse(format!("{e:?}")))?,
+            C::SignatureGroup::from_bytes(bytes).map_err(|e| ParseError(format!("{e:?}")))?,
         ))
     }
 }
@@ -134,25 +172,12 @@ impl<C: BlsConfiguration + ?Sized> Signature<C> {
 pub struct BlsImpl<C: BlsConfiguration + ?Sized>(PhantomData<C>);
 
 impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
-    fn parse_public_key(pk: &IrohaPublicKey) -> Result<PublicKey<C>, Error> {
-        assert_eq!(pk.digest_function, C::ALGORITHM);
-        PublicKey::from_bytes(&pk.payload)
-            .map_err(|e| Error::Parse(format!("Failed to parse public key: {e}")))
-    }
-
-    fn parse_private_key(sk: &IrohaPrivateKey) -> Result<PrivateKey, Error> {
-        assert_eq!(sk.digest_function, C::ALGORITHM);
-        PrivateKey::from_bytes(&sk.payload)
-            .map_err(|e| Error::Parse(format!("Failed to parse private key: {e}")))
-    }
-
     // the names are from an RFC, not a good idea to change them
     #[allow(clippy::similar_names)]
-    pub fn keypair(
-        options: Option<KeyGenOption>,
-    ) -> Result<(IrohaPublicKey, IrohaPrivateKey), Error> {
-        let (public_key, private_key) = match options {
-            Some(option) => match option {
+    pub fn keypair(option: Option<KeyGenOption>) -> (PublicKey<C>, PrivateKey) {
+        option.map_or_else(
+            || C::generate(&C::Generator::generator()),
+            |o| match o {
                 // Follows https://datatracker.ietf.org/doc/draft-irtf-cfrg-bls-signature/?include_text=1
                 KeyGenOption::UseSeed(ref seed) => {
                     let salt = b"BLS-SIG-KEYGEN-SALT-";
@@ -161,9 +186,8 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
                     ikm[..seed.len()].copy_from_slice(seed); // IKM || I2OSP(0, 1)
                     let mut okm = [0u8; PRIVATE_KEY_SIZE];
                     let h = hkdf::Hkdf::<Sha256>::new(Some(&salt[..]), &ikm);
-                    h.expand(&info[..], &mut okm).map_err(|err| {
-                        Error::KeyGen(format!("Failed to generate keypair: {err}"))
-                    })?;
+                    h.expand(&info[..], &mut okm)
+                        .expect("`okm` has the correct length");
                     let private_key: PrivateKey = PrivateKey::from(&okm);
                     (
                         PublicKey::new(&private_key, &C::Generator::generator()),
@@ -171,38 +195,41 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
                     )
                 }
                 KeyGenOption::FromPrivateKey(ref key) => {
-                    let private_key = Self::parse_private_key(key)?;
+                    let private_key = C::extract_private_key(key).unwrap_or_else(|| {
+                        panic!(
+                            "Wrong private key type for {} algorithm, got {key:?}",
+                            C::ALGORITHM,
+                        )
+                    });
                     (
-                        PublicKey::new(&private_key, &C::Generator::generator()),
-                        private_key,
+                        PublicKey::new(private_key, &C::Generator::generator()),
+                        private_key.clone(),
                     )
                 }
             },
-            None => C::generate(&C::Generator::generator()),
-        };
-        Ok((
-            IrohaPublicKey {
-                digest_function: C::ALGORITHM,
-                payload: ConstVec::new(public_key.to_bytes()),
-            },
-            IrohaPrivateKey {
-                digest_function: C::ALGORITHM,
-                payload: ConstVec::new(private_key.to_bytes()),
-            },
-        ))
+        )
     }
 
-    pub fn sign(message: &[u8], sk: &IrohaPrivateKey) -> Result<Vec<u8>, Error> {
-        let sk = Self::parse_private_key(sk)?;
-
-        Ok(Signature::<C>::new(message, None, &sk).to_bytes())
+    pub fn sign(message: &[u8], sk: &PrivateKey) -> Vec<u8> {
+        Signature::<C>::new(message, None, sk).to_bytes()
     }
 
-    pub fn verify(message: &[u8], signature: &[u8], pk: &IrohaPublicKey) -> Result<bool, Error> {
-        let pk = Self::parse_public_key(pk)?;
+    pub fn verify(message: &[u8], signature: &[u8], pk: &PublicKey<C>) -> Result<(), Error> {
+        let signature = Signature::<C>::from_bytes(signature)
+            .map_err(|_| ParseError("Failed to parse signature.".to_owned()))?;
 
-        Ok(Signature::<C>::from_bytes(signature)
-            .map_err(|_| Error::Parse("Failed to parse signature.".to_string()))?
-            .verify(message, None, &pk, &C::Generator::generator()))
+        if !signature.verify(message, None, pk, &C::Generator::generator()) {
+            return Err(Error::BadSignature);
+        }
+
+        Ok(())
+    }
+
+    pub fn parse_public_key(payload: &[u8]) -> Result<PublicKey<C>, ParseError> {
+        PublicKey::from_bytes(payload).map_err(|err| ParseError(err.to_string()))
+    }
+
+    pub fn parse_private_key(payload: &[u8]) -> Result<PrivateKey, ParseError> {
+        PrivateKey::from_bytes(payload).map_err(|err| ParseError(err.to_string()))
     }
 }

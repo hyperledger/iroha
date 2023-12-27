@@ -171,7 +171,7 @@ pub mod isi {
                         )));
                     }
                     if !account.remove_signatory(&public_key) {
-                        return Err(FindError::PublicKey(public_key).into());
+                        return Err(FindError::PublicKey(Box::new(public_key)).into());
                     }
                     Ok(())
                 })?;

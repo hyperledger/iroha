@@ -120,7 +120,7 @@ impl ConfigurationProxy {
             if let Some(torii_proxy) = &mut self.torii {
                 if sumeragi_proxy.peer_id.is_none() {
                     sumeragi_proxy.peer_id = Some(iroha_data_model::prelude::PeerId::new(
-                        &torii_proxy
+                        torii_proxy
                             .p2p_addr
                             .clone()
                             .ok_or(ConfigError::MissingField {
@@ -128,7 +128,7 @@ impl ConfigurationProxy {
                                 message:
                                     "`p2p_addr` should not be set to `null` or `None` explicitly.",
                             })?,
-                        &self.public_key.clone().expect(
+                        self.public_key.clone().expect(
                             "Iroha `public_key` should have been initialized above at the latest",
                         ),
                     ));

@@ -92,6 +92,33 @@ impl<T: IntoSchema> IntoSchema for ConstVec<T> {
     }
 }
 
+impl<T> IntoIterator for ConstVec<T> {
+    type Item = T;
+
+    type IntoIter = <Vec<T> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_vec().into_iter()
+    }
+}
+
+/// Trait to extend `[T]` with a method to convert it to `ConstVec<T>` by analogy with `[T]::to_vec()`.
+pub trait ToConstVecExt {
+    /// The type of the items in the slice.
+    type Item;
+
+    /// Copies `self` into a new [`ConstVec`].
+    fn to_const_vec(&self) -> ConstVec<Self::Item>;
+}
+
+impl<T: Clone> ToConstVecExt for [T] {
+    type Item = T;
+
+    fn to_const_vec(&self) -> ConstVec<Self::Item> {
+        ConstVec::new(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use parity_scale_codec::{Decode, Encode};

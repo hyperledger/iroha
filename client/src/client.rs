@@ -63,30 +63,17 @@ pub type QueryResult<T> = core::result::Result<T, ClientQueryError>;
 /// Trait for signing transactions
 pub trait Sign {
     /// Sign transaction with provided key pair.
-    ///
-    /// # Errors
-    ///
-    /// Fails if signature creation fails
-    fn sign(
-        self,
-        key_pair: crate::crypto::KeyPair,
-    ) -> Result<SignedTransaction, crate::crypto::error::Error>;
+    fn sign(self, key_pair: crate::crypto::KeyPair) -> SignedTransaction;
 }
 
 impl Sign for TransactionBuilder {
-    fn sign(
-        self,
-        key_pair: crate::crypto::KeyPair,
-    ) -> Result<SignedTransaction, crate::crypto::error::Error> {
+    fn sign(self, key_pair: crate::crypto::KeyPair) -> SignedTransaction {
         self.sign(key_pair)
     }
 }
 
 impl Sign for SignedTransaction {
-    fn sign(
-        self,
-        key_pair: crate::crypto::KeyPair,
-    ) -> Result<SignedTransaction, crate::crypto::error::Error> {
+    fn sign(self, key_pair: crate::crypto::KeyPair) -> SignedTransaction {
         self.sign(key_pair)
     }
 }
@@ -468,7 +455,7 @@ impl Client {
         &self,
         instructions: impl Into<Executable>,
         metadata: UnlimitedMetadata,
-    ) -> Result<SignedTransaction> {
+    ) -> SignedTransaction {
         let tx_builder = TransactionBuilder::new(self.chain_id.clone(), self.account_id.clone());
 
         let mut tx_builder = match instructions.into() {
@@ -487,27 +474,22 @@ impl Client {
         tx_builder
             .with_metadata(metadata)
             .sign(self.key_pair.clone())
-            .wrap_err("Failed to sign transaction")
     }
 
     /// Signs transaction
     ///
     /// # Errors
     /// Fails if signature generation fails
-    pub fn sign_transaction<Tx: Sign>(&self, transaction: Tx) -> Result<SignedTransaction> {
-        transaction
-            .sign(self.key_pair.clone())
-            .wrap_err("Failed to sign transaction")
+    pub fn sign_transaction<Tx: Sign>(&self, transaction: Tx) -> SignedTransaction {
+        transaction.sign(self.key_pair.clone())
     }
 
     /// Signs query
     ///
     /// # Errors
     /// Fails if signature generation fails
-    pub fn sign_query(&self, query: QueryBuilder) -> Result<SignedQuery> {
-        query
-            .sign(self.key_pair.clone())
-            .wrap_err("Failed to sign query")
+    pub fn sign_query(&self, query: QueryBuilder) -> SignedQuery {
+        query.sign(self.key_pair.clone())
     }
 
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
@@ -557,7 +539,7 @@ impl Client {
         instructions: impl IntoIterator<Item = impl Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<TransactionPayload>> {
-        self.submit_transaction(&self.build_transaction(instructions, metadata)?)
+        self.submit_transaction(&self.build_transaction(instructions, metadata))
     }
 
     /// Submit a prebuilt transaction.
@@ -746,14 +728,11 @@ impl Client {
         instructions: impl IntoIterator<Item = impl Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<TransactionPayload>> {
-        let transaction = self.build_transaction(instructions, metadata)?;
+        let transaction = self.build_transaction(instructions, metadata);
         self.submit_transaction_blocking(&transaction)
     }
 
     /// Lower-level Query API entry point. Prepares an http-request and returns it with an http-response handler.
-    ///
-    /// # Errors
-    /// Fails if query signing fails.
     ///
     /// # Examples
     ///
@@ -817,12 +796,12 @@ impl Client {
         pagination: Pagination,
         sorting: Sorting,
         fetch_size: FetchSize,
-    ) -> Result<(DefaultRequestBuilder, QueryResponseHandler<R::Output>)>
+    ) -> (DefaultRequestBuilder, QueryResponseHandler<R::Output>)
     where
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         let query_builder = QueryBuilder::new(request, self.account_id.clone()).with_filter(filter);
-        let request = self.sign_query(query_builder)?.encode_versioned();
+        let request = self.sign_query(query_builder).encode_versioned();
 
         let query_request = QueryRequest {
             torii_url: self.torii_url.clone(),
@@ -834,10 +813,10 @@ impl Client {
             ),
         };
 
-        Ok((
+        (
             query_request.clone().assemble(),
             QueryResponseHandler::new(query_request),
-        ))
+        )
     }
 
     /// Create a request with pagination, sorting and add the filter.
@@ -858,7 +837,7 @@ impl Client {
     {
         iroha_logger::trace!(?request, %pagination, ?sorting, ?filter);
         let (req, mut resp_handler) =
-            self.prepare_query_request::<R>(request, filter, pagination, sorting, fetch_size)?;
+            self.prepare_query_request::<R>(request, filter, pagination, sorting, fetch_size);
 
         let response = req.build()?.send()?;
         let value = resp_handler.handle(&response)?;
@@ -1646,11 +1625,8 @@ mod tests {
         .expect("Client config should build as all required fields were provided");
         let client = Client::new(&cfg).expect("Invalid client configuration");
 
-        let build_transaction = || {
-            client
-                .build_transaction(Vec::<InstructionBox>::new(), UnlimitedMetadata::new())
-                .unwrap()
-        };
+        let build_transaction =
+            || client.build_transaction(Vec::<InstructionBox>::new(), UnlimitedMetadata::new());
         let tx1 = build_transaction();
         let tx2 = build_transaction();
         assert_ne!(tx1.payload().hash(), tx2.payload().hash());
@@ -1669,7 +1645,7 @@ mod tests {
                 tx.set_ttl(transaction_ttl);
             }
 
-            client.sign_transaction(tx).unwrap()
+            client.sign_transaction(tx)
         };
         assert_eq!(tx1.payload().hash(), tx2.payload().hash());
     }

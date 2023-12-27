@@ -106,7 +106,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
     );
     let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
-    let tx = test_client.build_transaction(instructions, metadata)?;
+    let tx = test_client.build_transaction(instructions, metadata);
     test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
@@ -137,7 +137,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
     );
     let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
-    let tx = test_client.build_transaction(instructions, metadata)?;
+    let tx = test_client.build_transaction(instructions, metadata);
     test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
@@ -169,7 +169,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
     );
     let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
-    let tx = test_client.build_transaction(instructions, metadata)?;
+    let tx = test_client.build_transaction(instructions, metadata);
     test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
         let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
@@ -281,8 +281,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         let grant_asset_transfer_tx =
             TransactionBuilder::new(chain_id, asset_id.account_id().clone())
                 .with_instructions([allow_alice_to_transfer_asset])
-                .sign(owner_keypair)
-                .expect("Failed to sign seller transaction");
+                .sign(owner_keypair);
 
         test_client
             .submit_transaction_blocking(&grant_asset_transfer_tx)

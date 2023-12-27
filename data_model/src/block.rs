@@ -200,12 +200,12 @@ impl SignedBlock {
     /// If given signature doesn't match block hash
     #[cfg(feature = "std")]
     #[cfg(feature = "transparent_api")]
-    pub fn sign(mut self, key_pair: KeyPair) -> Result<Self, iroha_crypto::error::Error> {
-        iroha_crypto::SignatureOf::new(key_pair, self.payload()).map(|signature| {
-            let SignedBlock::V1(block) = &mut self;
-            block.signatures.insert(signature);
-            self
-        })
+    #[must_use]
+    pub fn sign(mut self, key_pair: KeyPair) -> Self {
+        let signature = iroha_crypto::SignatureOf::new(key_pair, self.payload());
+        let SignedBlock::V1(block) = &mut self;
+        block.signatures.insert(signature);
+        self
     }
 
     /// Add additional signatures to this block

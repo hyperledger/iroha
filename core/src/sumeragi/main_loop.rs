@@ -292,8 +292,7 @@ impl Sumeragi {
         let mut new_wsv = self.wsv.clone();
         let genesis = BlockBuilder::new(transactions, self.current_topology.clone(), vec![])
             .chain(0, &mut new_wsv)
-            .sign(self.key_pair.clone())
-            .expect("Genesis signing failed");
+            .sign(self.key_pair.clone());
 
         let genesis_msg = BlockCreated::from(genesis.clone()).into();
 
@@ -423,9 +422,7 @@ impl Sumeragi {
             }
         };
 
-        let signed_block = block
-            .sign(self.key_pair.clone())
-            .expect("Block signing failed");
+        let signed_block = block.sign(self.key_pair.clone());
 
         Some(VotingBlock::new(signed_block, new_wsv))
     }
@@ -645,20 +642,13 @@ impl Sumeragi {
                         // TODO: properly process triggers!
                         let mut new_wsv = self.wsv.clone();
                         let event_recommendations = Vec::new();
-                        let new_block = match BlockBuilder::new(
+                        let new_block = BlockBuilder::new(
                             transactions,
                             self.current_topology.clone(),
                             event_recommendations,
                         )
                         .chain(current_view_change_index, &mut new_wsv)
-                        .sign(self.key_pair.clone())
-                        {
-                            Ok(block) => block,
-                            Err(error) => {
-                                error!(?error, "Failed to sign block");
-                                return;
-                            }
-                        };
+                        .sign(self.key_pair.clone());
 
                         if let Some(current_topology) = current_topology.is_consensus_required() {
                             info!(%addr, block_payload_hash=%new_block.payload().hash(), "Block created");
@@ -937,8 +927,7 @@ pub(crate) fn run(
 
                 let suspect_proof =
                     ProofBuilder::new(sumeragi.wsv.latest_block_hash(), current_view_change_index)
-                        .sign(sumeragi.key_pair.clone())
-                        .expect("Proof signing failed");
+                        .sign(sumeragi.key_pair.clone());
 
                 view_change_proof_chain
                     .insert_proof(
@@ -1215,8 +1204,7 @@ mod tests {
         // Making two transactions that have the same instruction
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_box])
-            .sign(alice_keys.clone())
-            .expect("Valid");
+            .sign(alice_keys.clone());
         let tx = AcceptedTransaction::accept(
             tx,
             chain_id,
@@ -1227,8 +1215,7 @@ mod tests {
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx.clone(), tx], topology.clone(), Vec::new())
             .chain(0, &mut wsv)
-            .sign(leader_key_pair.clone())
-            .expect("Block is valid");
+            .sign(leader_key_pair.clone());
 
         let genesis = block.commit(topology).expect("Block is valid");
         wsv.apply(&genesis).expect("Failed to apply block");
@@ -1244,8 +1231,7 @@ mod tests {
 
         let tx1 = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([create_asset_definition1])
-            .sign(alice_keys.clone())
-            .expect("Valid");
+            .sign(alice_keys.clone());
         let tx1 = AcceptedTransaction::accept(
             tx1,
             chain_id,
@@ -1255,8 +1241,7 @@ mod tests {
         .expect("Valid");
         let tx2 = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions([create_asset_definition2])
-            .sign(alice_keys)
-            .expect("Valid");
+            .sign(alice_keys);
         let tx2 = AcceptedTransaction::accept(
             tx2,
             chain_id,
@@ -1268,8 +1253,7 @@ mod tests {
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx1, tx2], topology.clone(), Vec::new())
             .chain(0, &mut wsv.clone())
-            .sign(leader_key_pair)
-            .expect("Block is valid");
+            .sign(leader_key_pair);
 
         (wsv, kura, block.into())
     }
@@ -1281,8 +1265,8 @@ mod tests {
 
         let leader_key_pair = KeyPair::generate().unwrap();
         let topology = Topology::new(unique_vec![PeerId::new(
-            &"127.0.0.1:8080".parse().unwrap(),
-            leader_key_pair.public_key(),
+            "127.0.0.1:8080".parse().unwrap(),
+            leader_key_pair.public_key().clone(),
         )]);
         let (finalized_wsv, _, mut block) =
             create_data_for_test(&chain_id, &topology, leader_key_pair);
@@ -1301,8 +1285,8 @@ mod tests {
 
         let leader_key_pair = KeyPair::generate().unwrap();
         let topology = Topology::new(unique_vec![PeerId::new(
-            &"127.0.0.1:8080".parse().unwrap(),
-            leader_key_pair.public_key(),
+            "127.0.0.1:8080".parse().unwrap(),
+            leader_key_pair.public_key().clone(),
         )]);
         let (finalized_wsv, kura, mut block) =
             create_data_for_test(&chain_id, &topology, leader_key_pair);
@@ -1359,8 +1343,8 @@ mod tests {
 
         let leader_key_pair = KeyPair::generate().unwrap();
         let topology = Topology::new(unique_vec![PeerId::new(
-            &"127.0.0.1:8080".parse().unwrap(),
-            leader_key_pair.public_key(),
+            "127.0.0.1:8080".parse().unwrap(),
+            leader_key_pair.public_key().clone(),
         )]);
         let (finalized_wsv, _, block) = create_data_for_test(&chain_id, &topology, leader_key_pair);
         let wsv = finalized_wsv.clone();
@@ -1374,8 +1358,8 @@ mod tests {
 
         let leader_key_pair = KeyPair::generate().unwrap();
         let topology = Topology::new(unique_vec![PeerId::new(
-            &"127.0.0.1:8080".parse().unwrap(),
-            leader_key_pair.public_key(),
+            "127.0.0.1:8080".parse().unwrap(),
+            leader_key_pair.public_key().clone(),
         )]);
         let (finalized_wsv, kura, mut block) =
             create_data_for_test(&chain_id, &topology, leader_key_pair);
@@ -1402,8 +1386,8 @@ mod tests {
 
         let leader_key_pair = KeyPair::generate().unwrap();
         let topology = Topology::new(unique_vec![PeerId::new(
-            &"127.0.0.1:8080".parse().unwrap(),
-            leader_key_pair.public_key(),
+            "127.0.0.1:8080".parse().unwrap(),
+            leader_key_pair.public_key().clone(),
         )]);
         let (finalized_wsv, kura, mut block) =
             create_data_for_test(&chain_id, &topology, leader_key_pair);

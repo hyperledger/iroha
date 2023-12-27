@@ -1,3 +1,7 @@
+pub use implementation::PrivateKey;
+pub use normal::{NormalBls as BlsNormal, NormalPublicKey as BlsNormalPublicKey};
+pub use small::{SmallBls as BlsSmall, SmallPublicKey as BlsSmallPublicKey};
+
 // Do not expose the [implementation] module & the [implementation::BlsConfiguration] trait
 mod implementation;
 
@@ -29,6 +33,7 @@ mod normal {
 
     #[derive(Debug, Clone, Copy)]
     pub struct NormalConfiguration;
+
     impl BlsConfiguration for NormalConfiguration {
         const ALGORITHM: Algorithm = Algorithm::BlsNormal;
         const PK_SIZE: usize = GroupG1_SIZE;
@@ -48,12 +53,19 @@ mod normal {
         fn set_pairs((g1, g2): &(Self::Generator, Self::SignatureGroup)) -> (&G1, &G2) {
             (g1, g2)
         }
+
+        fn extract_private_key(private_key: &crate::PrivateKey) -> Option<&super::PrivateKey> {
+            if let crate::PrivateKey::BlsNormal(key) = private_key {
+                Some(key)
+            } else {
+                None
+            }
+        }
     }
 
     pub type NormalBls = implementation::BlsImpl<NormalConfiguration>;
     #[cfg(test)]
     pub type NormalSignature = implementation::Signature<NormalConfiguration>;
-    #[cfg(test)]
     pub type NormalPublicKey = implementation::PublicKey<NormalConfiguration>;
 }
 
@@ -105,17 +117,21 @@ mod small {
         fn set_pairs((g2, g1): &(Self::Generator, Self::SignatureGroup)) -> (&G1, &G2) {
             (g1, g2)
         }
+
+        fn extract_private_key(private_key: &crate::PrivateKey) -> Option<&super::PrivateKey> {
+            if let crate::PrivateKey::BlsSmall(key) = private_key {
+                Some(key)
+            } else {
+                None
+            }
+        }
     }
 
     pub type SmallBls = implementation::BlsImpl<SmallConfiguration>;
     #[cfg(test)]
     pub type SmallSignature = implementation::Signature<SmallConfiguration>;
-    #[cfg(test)]
     pub type SmallPublicKey = implementation::PublicKey<SmallConfiguration>;
 }
-
-pub use normal::NormalBls as BlsNormal;
-pub use small::SmallBls as BlsSmall;
 
 #[cfg(test)]
 mod tests;

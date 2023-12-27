@@ -55,8 +55,8 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     client_configuration.private_key = private_key1;
     let client = Client::new(&client_configuration)?;
     let instructions = [mint_asset.clone()];
-    let transaction = client.build_transaction(instructions, UnlimitedMetadata::new())?;
-    client.submit_transaction(&client.sign_transaction(transaction)?)?;
+    let transaction = client.build_transaction(instructions, UnlimitedMetadata::new());
+    client.submit_transaction(&client.sign_transaction(transaction))?;
     thread::sleep(pipeline_time);
 
     //Then
@@ -81,12 +81,12 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     client_configuration.private_key = private_key2;
     let client_2 = Client::new(&client_configuration)?;
     let instructions = [mint_asset];
-    let transaction = client_2.build_transaction(instructions, UnlimitedMetadata::new())?;
+    let transaction = client_2.build_transaction(instructions, UnlimitedMetadata::new());
     let transaction = client_2
         .get_original_matching_transactions(&transaction, 3, Duration::from_millis(100))?
         .pop()
         .expect("Found no pending transaction for this account.");
-    client_2.submit_transaction(&client_2.sign_transaction(transaction)?)?;
+    client_2.submit_transaction(&client_2.sign_transaction(transaction))?;
     thread::sleep(pipeline_time);
     let assets = client_1
         .request(request)?

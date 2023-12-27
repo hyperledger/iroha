@@ -9,7 +9,6 @@ use core::{
 };
 
 use derive_more::Display;
-use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
 use iroha_primitives::addr::SocketAddr;
 use iroha_schema::IntoSchema;
@@ -27,19 +26,15 @@ pub mod model {
     ///
     /// Equality is tested by `public_key` field only.
     /// Each peer should have a unique public key.
-    #[derive(
-        Debug, Display, Clone, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
-    )]
+    #[derive(Debug, Display, Clone, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[display(fmt = "{public_key}@@{address}")]
-    #[getset(get = "pub")]
     #[ffi_type]
     pub struct PeerId {
         /// Address of the [`Peer`]'s entrypoint.
         // TODO: Derive with getset once FFI impl is fixed
-        #[getset(skip)]
         pub address: SocketAddr,
         /// Public Key of the [`Peer`].
-        pub public_key: PublicKey,
+        pub public_key: Box<PublicKey>,
     }
 
     /// Representation of other Iroha Peer instances running in separate processes.
@@ -58,20 +53,19 @@ pub mod model {
 }
 
 impl PeerId {
-    /// Construct `PeerId` given `public_key` and `address`.
+    /// Construct [`PeerId`] given `public_key` and `address`.
     #[inline]
-    pub fn new(address: &SocketAddr, public_key: &PublicKey) -> Self {
+    pub fn new(address: SocketAddr, public_key: PublicKey) -> Self {
         Self {
-            address: address.clone(),
-            public_key: public_key.clone(),
+            address,
+            public_key: Box::new(public_key),
         }
     }
-    /// Serialize the data contained in this Id for use in hashing.
-    pub fn payload(&self) -> Vec<u8> {
-        let mut data = Vec::new();
-        data.extend(self.address.payload());
-        data.extend(self.public_key.payload());
-        data
+
+    /// Get public key of the peer.
+    #[inline]
+    pub fn public_key(&self) -> &PublicKey {
+        &self.public_key
     }
 }
 

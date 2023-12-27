@@ -8,6 +8,7 @@ use iroha_client::{
 };
 use iroha_config::iroha::Configuration;
 use iroha_crypto::KeyPair;
+use iroha_primitives::addr::socket_addr;
 use test_network::*;
 use tokio::runtime::Runtime;
 
@@ -51,10 +52,10 @@ fn register_offline_peer() -> Result<()> {
 
     check_status(&peer_clients, 1);
 
-    let address = "128.0.0.2:8085".parse()?;
+    let address = socket_addr!(128.0.0.2:8085);
     let key_pair = KeyPair::generate().unwrap();
     let public_key = key_pair.public_key().clone();
-    let peer_id = PeerId::new(&address, &public_key);
+    let peer_id = PeerId::new(address, public_key);
     let register_peer = Register::peer(DataModelPeer::new(peer_id));
 
     // Wait for some time to allow peers to connect

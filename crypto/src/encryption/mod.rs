@@ -68,10 +68,8 @@ fn random_bytes<T: ArrayLength<u8>>() -> Result<GenericArray<u8, T>, Error> {
 /// let encryptor = SymmetricEncryptor::<ChaCha20Poly1305>::new_with_key(&key);
 /// let aad = b"Using ChaCha20Poly1305 to encrypt data";
 /// let message = b"Hidden message";
-/// let res = encryptor.encrypt_easy(aad.as_ref(), message.as_ref());
-/// assert!(res.is_ok());
+/// let ciphertext = encryptor.encrypt_easy(aad.as_ref(), message.as_ref()).unwrap();
 ///
-/// let ciphertext = res.unwrap();
 /// let res = encryptor.decrypt_easy(aad.as_ref(), ciphertext.as_slice());
 /// assert_eq!(res.unwrap().as_slice(), message);
 /// ```

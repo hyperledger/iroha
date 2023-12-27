@@ -23,7 +23,12 @@ struct WithContext<'ctx, 'a, T: ?Sized> {
 
 impl<T: ?Sized> WithContext<'_, '_, T> {
     fn type_name(&self, type_id: TypeId) -> &String {
-        &self.context.0[&type_id].0
+        &self
+            .context
+            .0
+            .get(&type_id)
+            .unwrap_or_else(|| panic!("Failed to find type id `{:?}`", type_id))
+            .0
     }
 }
 

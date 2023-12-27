@@ -403,8 +403,7 @@ mod tests {
             AccountId::from_str(account_id).expect("Valid"),
         )
         .with_instructions(instructions)
-        .sign(key)
-        .expect("Failed to sign.");
+        .sign(key);
         let limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
@@ -526,12 +525,9 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
         let fully_signed_tx: AcceptedTransaction = {
-            let mut signed_tx = tx
-                .clone()
-                .sign(key_pairs[0].clone())
-                .expect("Failed to sign.");
+            let mut signed_tx = tx.clone().sign(key_pairs[0].clone());
             for key_pair in &key_pairs[1..] {
-                signed_tx = signed_tx.sign(key_pair.clone()).expect("Failed to sign");
+                signed_tx = signed_tx.sign(key_pair.clone());
             }
             AcceptedTransaction::accept(signed_tx, &chain_id, &tx_limits)
                 .expect("Failed to accept Transaction.")
@@ -543,12 +539,8 @@ mod tests {
         ));
 
         let get_tx = |key_pair| {
-            AcceptedTransaction::accept(
-                tx.clone().sign(key_pair).expect("Failed to sign."),
-                &chain_id,
-                &tx_limits,
-            )
-            .expect("Failed to accept Transaction.")
+            AcceptedTransaction::accept(tx.clone().sign(key_pair), &chain_id, &tx_limits)
+                .expect("Failed to accept Transaction.")
         };
         for key_pair in key_pairs {
             let partially_signed_tx: AcceptedTransaction = get_tx(key_pair);
@@ -778,7 +770,7 @@ mod tests {
         )
         .with_instructions(instructions);
         tx.set_ttl(Duration::from_millis(10));
-        let tx = tx.sign(alice_key).expect("Failed to sign.");
+        let tx = tx.sign(alice_key);
         let limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
@@ -904,7 +896,7 @@ mod tests {
 
             new_tx.set_creation_time(tx.0.payload().creation_time_ms + 2 * future_threshold_ms);
 
-            let new_tx = new_tx.sign(alice_key).expect("Failed to sign.");
+            let new_tx = new_tx.sign(alice_key);
             let limits = TransactionLimits {
                 max_instruction_number: 4096,
                 max_wasm_size_bytes: 0,

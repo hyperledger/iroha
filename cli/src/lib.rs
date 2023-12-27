@@ -274,7 +274,7 @@ impl Iroha {
             &config.block_sync,
             sumeragi.clone(),
             Arc::clone(&kura),
-            PeerId::new(&config.torii.p2p_addr, &config.public_key),
+            PeerId::new(config.torii.p2p_addr.clone(), config.public_key.clone()),
             network.clone(),
         )
         .start();
@@ -459,7 +459,8 @@ impl Iroha {
                 // FIXME: don't like neither the message nor inability to throw Result to the outside
                 .expect("Cannot proceed without working subscriptions");
 
-            // NOTE: Triggered by tokio::select
+            // See https://github.com/tokio-rs/tokio/issues/5616 and
+            // https://github.com/rust-lang/rust-clippy/issues/10636
             #[allow(clippy::redundant_pub_crate)]
             loop {
                 tokio::select! {

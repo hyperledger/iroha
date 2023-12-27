@@ -31,8 +31,7 @@ pub fn create_block(
 
     let transaction = TransactionBuilder::new(chain_id.clone(), account_id)
         .with_instructions(instructions)
-        .sign(key_pair.clone())
-        .unwrap();
+        .sign(key_pair.clone());
     let limits = wsv.transaction_executor().transaction_limits;
 
     let topology = Topology::new(UniqueVec::new());
@@ -43,7 +42,6 @@ pub fn create_block(
     )
     .chain(0, wsv)
     .sign(key_pair)
-    .unwrap()
     .commit(&topology)
     .unwrap();
 

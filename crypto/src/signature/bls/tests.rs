@@ -34,9 +34,13 @@ fn size_check() {
     assert_eq!(sig.to_bytes().len(), GroupG1_SIZE);
 }
 
-fn signature_generation_from_seed<C: BlsConfiguration>() {
-    let keypair_1 = BlsImpl::<C>::keypair(Some(KeyGenOption::UseSeed(SEED.to_vec()))).unwrap();
-    let keypair_2 = BlsImpl::<C>::keypair(Some(KeyGenOption::UseSeed(SEED.to_vec()))).unwrap();
+fn signature_generation_from_seed<C>()
+where
+    C: BlsConfiguration,
+    C::Generator: core::fmt::Debug,
+{
+    let keypair_1 = BlsImpl::<C>::keypair(Some(KeyGenOption::UseSeed(SEED.to_vec())));
+    let keypair_2 = BlsImpl::<C>::keypair(Some(KeyGenOption::UseSeed(SEED.to_vec())));
     assert_eq!(keypair_1, keypair_2);
 }
 

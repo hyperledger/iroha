@@ -10,6 +10,7 @@ use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::prelude::PeerId;
 use iroha_logger::prelude::*;
 use iroha_primitives::addr::SocketAddr;
+use parity_scale_codec::Encode as _;
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{mpsc, watch},
@@ -282,12 +283,12 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
 
     fn set_current_topology(&mut self, UpdateTopology(topology): UpdateTopology) {
         iroha_logger::debug!(?topology, "Network receive new topology");
-        let self_public_key_hash = blake2b_hash(self.key_pair.public_key().payload());
+        let self_public_key_hash = blake2b_hash(self.key_pair.public_key().encode());
         let topology = topology
             .into_iter()
             .map(|peer_id| {
                 // Determine who is responsible for connecting
-                let peer_public_key_hash = blake2b_hash(peer_id.public_key().payload());
+                let peer_public_key_hash = blake2b_hash(peer_id.public_key().encode());
                 let is_active = self_public_key_hash > peer_public_key_hash;
                 (peer_id, is_active)
             })
@@ -302,7 +303,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             // Peer is not connected but should
             .filter_map(|(peer, is_active)| (
                 !self.peers.contains_key(&peer.public_key)
-                    && !self.connecting_peers.values().any(|public_key| peer.public_key == *public_key)
+                    && !self.connecting_peers.values().any(|public_key| peer.public_key() == public_key)
                     && *is_active
             ).then_some(peer))
             .cloned()
@@ -320,7 +321,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         }
 
         for public_key in to_disconnect {
-            self.disconnect_peer(&public_key)
+            self.disconnect_peer(public_key)
         }
     }
 
@@ -343,14 +344,14 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         );
     }
 
-    fn disconnect_peer(&mut self, public_key: &PublicKey) {
-        let peer = match self.peers.remove(public_key) {
+    fn disconnect_peer(&mut self, public_key: PublicKey) {
+        let peer = match self.peers.remove(&public_key) {
             Some(peer) => peer,
             _ => return iroha_logger::warn!(?public_key, "Not found peer to disconnect"),
         };
         iroha_logger::debug!(listen_addr = %self.listen_addr, %peer.conn_id, "Disconnecting peer");
 
-        let peer_id = PeerId::new(&peer.p2p_addr, public_key);
+        let peer_id = PeerId::new(peer.p2p_addr, public_key);
         Self::remove_online_peer(&self.online_peers_sender, &peer_id);
     }
 
@@ -393,7 +394,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
             disambiguator,
         };
         let _ = peer_message_sender.send(self.peer_message_sender.clone());
-        self.peers.insert(peer_id.public_key.clone(), ref_peer);
+        self.peers.insert(peer_id.public_key().clone(), ref_peer);
         self.connecting_peers.remove(&connection_id);
         Self::add_online_peer(&self.online_peers_sender, peer_id);
     }
@@ -421,7 +422,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
                     Self::remove_online_peer(&self.online_peers_sender, &peer_id);
                 }
             }
-            None if &peer_id.public_key == self.key_pair.public_key() => {
+            None if peer_id.public_key() == self.key_pair.public_key() => {
                 #[cfg(debug_assertions)]
                 iroha_logger::trace!("Not sending message to myself")
             }
@@ -438,7 +439,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         } = self;
         peers.retain(|public_key, ref_peer| {
             if ref_peer.handle.post(data.clone()).is_err() {
-                let peer_id = PeerId::new(&ref_peer.p2p_addr, public_key);
+                let peer_id = PeerId::new(ref_peer.p2p_addr.clone(), public_key.clone());
                 iroha_logger::error!(peer=%peer_id, "Failed to send message to peer");
                 Self::remove_online_peer(online_peers_sender, &peer_id);
                 false

@@ -92,19 +92,19 @@ impl Topology {
         for role in roles {
             match (role, self.is_non_empty(), self.is_consensus_required()) {
                 (Role::Leader, Some(topology), _) => {
-                    public_keys.insert(&topology.leader().public_key);
+                    public_keys.insert(topology.leader().public_key());
                 }
                 (Role::ProxyTail, _, Some(topology)) => {
                     public_keys.insert(&topology.proxy_tail().public_key);
                 }
                 (Role::ValidatingPeer, _, Some(topology)) => {
                     for peer in topology.validating_peers() {
-                        public_keys.insert(&peer.public_key);
+                        public_keys.insert(peer.public_key());
                     }
                 }
                 (Role::ObservingPeer, _, Some(topology)) => {
                     for peer in topology.observing_peers() {
-                        public_keys.insert(&peer.public_key);
+                        public_keys.insert(peer.public_key());
                     }
                 }
                 _ => {}
@@ -265,7 +265,7 @@ macro_rules! test_peers {
     }};
     ($($id:literal),+$(,)?: $key_pair_iter:expr) => {
         ::iroha_primitives::unique_vec![
-            $(PeerId::new(&(([0, 0, 0, 0], $id).into()), $key_pair_iter.next().expect("Not enough key pairs").public_key())),+
+            $(PeerId::new(([0, 0, 0, 0], $id).into(), $key_pair_iter.next().expect("Not enough key pairs").public_key().clone())),+
         ]
     };
 }
@@ -344,7 +344,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =
@@ -386,7 +386,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =
@@ -419,7 +419,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =
@@ -453,7 +453,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =
@@ -488,7 +488,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =

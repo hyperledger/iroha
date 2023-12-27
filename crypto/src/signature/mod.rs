@@ -64,46 +64,36 @@ impl Signature {
     /// # Errors
     /// Fails if signing fails
     #[cfg(any(feature = "std", feature = "import_ffi"))]
-    pub fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Self, Error> {
+    pub fn new(key_pair: KeyPair, payload: &[u8]) -> Self {
         let (public_key, private_key) = key_pair.into();
 
-        let algorithm: crate::Algorithm = private_key.digest_function();
-
-        let signature = match algorithm {
-            crate::Algorithm::Ed25519 => ed25519::Ed25519Sha512::sign(payload, &private_key),
-            crate::Algorithm::Secp256k1 => {
-                secp256k1::EcdsaSecp256k1Sha256::sign(payload, &private_key)
-            }
-            crate::Algorithm::BlsSmall => bls::BlsSmall::sign(payload, &private_key),
-            crate::Algorithm::BlsNormal => bls::BlsNormal::sign(payload, &private_key),
-        }?;
-        Ok(Self {
+        let signature = match private_key {
+            crate::PrivateKey::Ed25519(sk) => ed25519::Ed25519Sha512::sign(payload, &sk),
+            crate::PrivateKey::Secp256k1(sk) => secp256k1::EcdsaSecp256k1Sha256::sign(payload, &sk),
+            crate::PrivateKey::BlsSmall(sk) => bls::BlsSmall::sign(payload, &sk),
+            crate::PrivateKey::BlsNormal(sk) => bls::BlsNormal::sign(payload, &sk),
+        };
+        Self {
             public_key,
             payload: ConstVec::new(signature),
-        })
+        }
     }
 
-    /// Verify `message` using signed data and [`KeyPair::public_key`].
+    /// Verify `payload` using signed data and [`KeyPair::public_key`].
     ///
     /// # Errors
     /// Fails if message didn't pass verification
     #[cfg(any(feature = "std", feature = "import_ffi"))]
     pub fn verify(&self, payload: &[u8]) -> Result<(), Error> {
-        let algorithm: crate::Algorithm = self.public_key.digest_function();
-
-        match algorithm {
-            crate::Algorithm::Ed25519 => {
-                ed25519::Ed25519Sha512::verify(payload, self.payload(), &self.public_key)
+        match &self.public_key {
+            crate::PublicKey::Ed25519(pk) => {
+                ed25519::Ed25519Sha512::verify(payload, self.payload(), pk)
             }
-            crate::Algorithm::Secp256k1 => {
-                secp256k1::EcdsaSecp256k1Sha256::verify(payload, self.payload(), &self.public_key)
+            crate::PublicKey::Secp256k1(pk) => {
+                secp256k1::EcdsaSecp256k1Sha256::verify(payload, self.payload(), pk)
             }
-            crate::Algorithm::BlsSmall => {
-                bls::BlsSmall::verify(payload, self.payload(), &self.public_key)
-            }
-            crate::Algorithm::BlsNormal => {
-                bls::BlsNormal::verify(payload, self.payload(), &self.public_key)
-            }
+            crate::PublicKey::BlsSmall(pk) => bls::BlsSmall::verify(payload, self.payload(), pk),
+            crate::PublicKey::BlsNormal(pk) => bls::BlsNormal::verify(payload, self.payload(), pk),
         }?;
 
         Ok(())
@@ -215,8 +205,8 @@ impl<T> SignatureOf<T> {
     /// # Errors
     /// Fails if signing fails
     #[cfg(any(feature = "std", feature = "import_ffi"))]
-    fn from_hash(key_pair: KeyPair, hash: HashOf<T>) -> Result<Self, Error> {
-        Signature::new(key_pair, hash.as_ref()).map(|signature| Self(signature, PhantomData))
+    fn from_hash(key_pair: KeyPair, hash: HashOf<T>) -> Self {
+        Self(Signature::new(key_pair, hash.as_ref()), PhantomData)
     }
 
     /// Verify signature for this hash
@@ -238,7 +228,7 @@ impl<T: parity_scale_codec::Encode> SignatureOf<T> {
     ///
     /// # Errors
     /// Fails if signing fails
-    pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
+    pub fn new(key_pair: KeyPair, value: &T) -> Self {
         Self::from_hash(key_pair, HashOf::new(value))
     }
 
@@ -490,8 +480,8 @@ impl<T: Encode> SignaturesOf<T> {
     ///
     /// # Errors
     /// Forwards [`SignatureOf::new`] errors
-    pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
-        SignatureOf::new(key_pair, value).map(Self::from)
+    pub fn new(key_pair: KeyPair, value: &T) -> Self {
+        SignatureOf::new(key_pair, value).into()
     }
 
     /// Verifies all signatures
@@ -553,10 +543,9 @@ mod tests {
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
-        let signature =
-            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
+        let signature = Signature::new(key_pair.clone(), message);
         assert!(*signature.public_key() == *key_pair.public_key());
-        assert!(signature.verify(message).is_ok());
+        signature.verify(message).unwrap();
     }
 
     #[test]
@@ -567,10 +556,9 @@ mod tests {
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
-        let signature =
-            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
+        let signature = Signature::new(key_pair.clone(), message);
         assert!(*signature.public_key() == *key_pair.public_key());
-        assert!(signature.verify(message).is_ok());
+        signature.verify(message).unwrap();
     }
 
     #[test]
@@ -581,10 +569,9 @@ mod tests {
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
-        let signature =
-            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
+        let signature = Signature::new(key_pair.clone(), message);
         assert!(*signature.public_key() == *key_pair.public_key());
-        assert!(signature.verify(message).is_ok());
+        signature.verify(message).unwrap();
     }
 
     #[test]
@@ -595,10 +582,9 @@ mod tests {
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
-        let signature =
-            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
+        let signature = Signature::new(key_pair.clone(), message);
         assert!(*signature.public_key() == *key_pair.public_key());
-        assert!(signature.verify(message).is_ok());
+        signature.verify(message).unwrap();
     }
 
     #[test]
@@ -607,9 +593,9 @@ mod tests {
     fn signatures_of_deduplication_by_public_key() {
         let key_pair = KeyPair::generate().expect("Failed to generate keys");
         let signatures = [
-            SignatureOf::new(key_pair.clone(), &1).expect("Failed to sign"),
-            SignatureOf::new(key_pair.clone(), &2).expect("Failed to sign"),
-            SignatureOf::new(key_pair, &3).expect("Failed to sign"),
+            SignatureOf::new(key_pair.clone(), &1),
+            SignatureOf::new(key_pair.clone(), &2),
+            SignatureOf::new(key_pair, &3),
         ]
         .into_iter()
         .collect::<SignaturesOf<u8>>();
@@ -631,7 +617,7 @@ mod tests {
                 .flat_map(|key| {
                     core::iter::repeat_with(move || key.clone())
                         .zip(0..)
-                        .map(|(key, i)| SignatureOf::new(key, &i).expect("Failed to sign"))
+                        .map(|(key, i)| SignatureOf::new(key, &i))
                         .take(signatures_per_key)
                 })
                 .map(SignatureWrapperOf)

@@ -422,7 +422,7 @@ mod peer_generator {
 
     impl Peer {
         pub fn id(&self) -> PeerId {
-            PeerId::new(&self.addr(self.port_p2p), self.key_pair.public_key())
+            PeerId::new(self.addr(self.port_p2p), self.key_pair.public_key().clone())
         }
 
         pub fn addr(&self, port: u16) -> SocketAddr {

@@ -56,7 +56,7 @@ impl<T: Write> RunArgs<T> for Args {
             let key_pair = self.key_pair()?;
             writeln!(writer, "{}", &key_pair.public_key())?;
             writeln!(writer, "{}", &key_pair.private_key())?;
-            writeln!(writer, "{}", &key_pair.public_key().digest_function())?;
+            writeln!(writer, "{}", &key_pair.public_key().algorithm())?;
         } else {
             let key_pair = self.key_pair()?;
             writeln!(
@@ -67,7 +67,7 @@ impl<T: Write> RunArgs<T> for Args {
             writeln!(
                 writer,
                 "Private key ({}): \"{}\"",
-                &key_pair.public_key().digest_function(),
+                &key_pair.public_key().algorithm(),
                 &key_pair.private_key()
             )?;
         }
