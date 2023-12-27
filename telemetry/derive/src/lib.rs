@@ -165,6 +165,7 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
             func.sig,
             "Function must have at least one argument of type `WorldStateView`."
         );
+        return emitter.finish_token_stream();
     }
 
     let Some(metric_specs): Option<MetricSpecs> = emitter.handle(syn2::parse2(attr)) else {
