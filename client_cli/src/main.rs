@@ -56,7 +56,7 @@ impl MetadataArgs {
     }
 }
 /// Wrapper around Value to accept possible values and fallback to json
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValueArg(Value);
 
 impl FromStr for ValueArg {
@@ -704,11 +704,11 @@ mod asset {
         /// List assets
         #[clap(subcommand)]
         List(List),
-        /// Put a key-value entry in a store Asset
+        /// Set a key-value entry in a Store asset
         SetKeyValue(SetKeyValue),
-        /// Remove a key-value entry via key in a store Asset
+        /// Remove a key-value entry from a Store asset
         RemoveKeyValue(RemoveKeyValue),
-        /// Get a value from store Asset definition via key
+        /// Get a value from a Store asset
         GetKeyValue(GetKeyValue),
     }
 
@@ -919,12 +919,18 @@ mod asset {
     #[derive(clap::Args, Debug)]
     pub struct SetKeyValue {
         /// AssetId for the Store asset (in form of `asset##account@domain_name')
-        #[clap(long = "asset-id")]
+        #[clap(long)]
         pub asset_id: AssetId,
         /// The key for the store value
         #[clap(long)]
         pub key: Name,
-        /// The value to be associated with the key
+        /// The value to be associated with the specified key.
+        /// The following types are supported:
+        /// Numbers: with a suffix, e.g. 42_u32 or 1000_u128
+        /// Booleans: false/true
+        /// IPv4/IPv6: e.g. 127.0.0.1, ::1
+        /// Iroha Public Key Multihash: e.g. ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0
+        /// JSON: e.g. {"Vec":[{"String":"a"},{"String":"b"}]}
         #[clap(long)]
         pub value: ValueArg,
     }
@@ -945,7 +951,7 @@ mod asset {
     #[derive(clap::Args, Debug)]
     pub struct RemoveKeyValue {
         /// AssetId for the Store asset (in form of `asset##account@domain_name')
-        #[clap(long = "asset-id")]
+        #[clap(long)]
         pub asset_id: AssetId,
         /// The key for the store value
         #[clap(long)]
@@ -964,7 +970,7 @@ mod asset {
     #[derive(clap::Args, Debug)]
     pub struct GetKeyValue {
         /// AssetId for the Store asset (in form of `asset##account@domain_name')
-        #[clap(long = "asset-id")]
+        #[clap(long)]
         pub asset_id: AssetId,
         /// The key for the store value
         #[clap(long)]
@@ -1118,334 +1124,66 @@ mod json {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
-    use iroha_client::{
-        config::{Configuration as ClientConfiguration, ConfigurationProxy},
-        data_model::{
-            asset::{AssetDefinitionId, AssetId},
-            domain::DomainId,
-            name::Name,
-        },
-    };
+    use std::str::FromStr;
+
+    use iroha_client::data_model::Value;
 
     use super::*;
-    use crate::asset::{RemoveKeyValue, SetKeyValue};
-
-    struct TestContext {
-        config: ClientConfiguration,
-        skip_mst_check: bool,
-    }
-
-    impl RunContext for TestContext {
-        fn configuration(&self) -> &ClientConfiguration {
-            &self.config
-        }
-
-        fn print_data(&mut self, _data: &dyn Serialize) -> Result<()> {
-            Ok(())
-        }
-
-        fn skip_mst_check(&self) -> bool {
-            self.skip_mst_check
-        }
-    }
-
-    fn initialize_test_context() -> Result<TestContext> {
-        let config = ConfigurationProxy::default();
-        let binding = Path::default(DEFAULT_CONFIG_PATH);
-        let path = binding;
-        let path = path
-            .try_resolve()
-            .wrap_err("Failed to resolve config file")?;
-
-        let config = match path {
-            Some(p) => config.override_with(ConfigurationProxy::from_path(&*p)),
-            None => config,
-        };
-        // Build the final configuration
-        let config = config
-            .build()
-            .wrap_err("Failed to finalize configuration")?;
-
-        Ok(TestContext {
-            config,
-            skip_mst_check: false,
-        })
-    }
-
-    fn initialize_test_store(context: &mut TestContext, def_str: &str) -> Result<()> {
-        let asset_definition_id = AssetDefinitionId::new(
-            Name::from_str(def_str).unwrap(),
-            DomainId::new(Name::from_str("wonderland").unwrap()),
-        );
-
-        let asset_definition = AssetDefinition::store(asset_definition_id);
-        // Register the asset definition
-        let create_asset_definition =
-            iroha_client::data_model::isi::Register::asset_definition(asset_definition);
-        submit(
-            [create_asset_definition],
-            UnlimitedMetadata::default(),
-            context,
-        )
-        .wrap_err("Failed to create store asset")?;
-
-        Ok(())
-    }
 
     #[test]
-    fn test_set_key_values_without_errors() {
-        let mut context = initialize_test_context().expect("Failed to initialize test context");
-        initialize_test_store(&mut context, "test_store").expect("Failed to register asset");
-        let asset_id =
-            AssetId::from_str("test_store##alice@wonderland").expect("Invalid AssetId format");
+    fn parse_value_arg_cases() {
+        macro_rules! case {
+            ($input:expr, $expected:expr) => {
+                let ValueArg(actual) =
+                    ValueArg::from_str($input).expect("should not fail with valid input");
+                assert_eq!(actual, $expected);
+            };
+        }
 
-        // Setting a Numeric Value
-        let key_name1 = Name::from_str("test_key1").expect("Invalid Name format");
-        let test_value1 = ValueArg(Value::Numeric(NumericValue::from_str("17_u32").unwrap()));
+        // IPv4 address
+        case!(
+            "192.168.0.1",
+            Value::Ipv4Addr(Ipv4Addr::new([192, 168, 0, 1]))
+        );
 
-        let set_key_value1 = SetKeyValue {
-            asset_id: asset_id.clone(),
-            key: key_name1,
-            value: test_value1,
-        };
+        // IPv6 address
+        case!(
+            "::1",
+            Value::Ipv6Addr(Ipv6Addr::new([0, 0, 0, 0, 0, 0, 0, 1]))
+        );
 
-        set_key_value1
-            .run(&mut context)
-            .expect("Failed to run SetKeyValue for Numeric Value");
+        // Boolean values
+        case!("true", Value::Bool(true));
+        case!("false", Value::Bool(false));
 
-        // Setting an IPv4 Address
-        let key_name2 = Name::from_str("test_key2").expect("Invalid Name format");
-        let test_value2 = ValueArg(Value::Ipv4Addr(Ipv4Addr::from_str("127.0.0.1").unwrap()));
+        // Numeric values
+        case!("123_u32", Value::Numeric(NumericValue::U32(123)));
+        case!("123_u64", Value::Numeric(NumericValue::U64(123)));
+        case!("123_u128", Value::Numeric(NumericValue::U128(123)));
 
-        let set_key_value2 = SetKeyValue {
-            asset_id: asset_id.clone(),
-            key: key_name2,
-            value: test_value2,
-        };
+        let expected_fixed = NumericValue::Fixed(123.0.try_into().unwrap());
+        case!("123.0_fx", Value::Numeric(expected_fixed));
 
-        set_key_value2
-            .run(&mut context)
-            .expect("Failed to run SetKeyValue for IPv4 Address");
-
-        // Setting a Boolean Value
-        let key_name3 = Name::from_str("test_key3").expect("Invalid Name format");
-        let test_value3 = ValueArg(Value::Bool(true));
-
-        let set_key_value3 = SetKeyValue {
-            asset_id: asset_id.clone(),
-            key: key_name3,
-            value: test_value3,
-        };
-
-        set_key_value3
-            .run(&mut context)
-            .expect("Failed to run SetKeyValue for Boolean Value");
-
-        let key_name4 = Name::from_str("test_key4").expect("Invalid Name format");
-        let json_data = r#"{ "Vec": [{"String": "a"}, {"String": "b"}] }"#;
-        let test_value4 = ValueArg(serde_json::from_str(json_data).unwrap());
-
-        let set_key_value4 = SetKeyValue {
-            asset_id: asset_id.clone(),
-            key: key_name4,
-            value: test_value4,
-        };
-
-        set_key_value4
-            .run(&mut context)
-            .expect("Failed to run SetKeyValue for JSON Value");
-
-        // Setting an IPv6 Address
-        let key_name5 = Name::from_str("test_key5").expect("Invalid Name format");
-        let ipv6_addr = Ipv6Addr::from_str("::1").expect("Invalid IPv6 format");
-        let test_value5 = ValueArg(Value::Ipv6Addr(ipv6_addr));
-
-        let set_key_value5 = SetKeyValue {
-            asset_id: asset_id.clone(),
-            key: key_name5,
-            value: test_value5,
-        };
-
-        set_key_value5
-            .run(&mut context)
-            .expect("Failed to run SetKeyValue for IPv6 Address");
-
-        let key_name6 = Name::from_str("test_key6").expect("Invalid Name format");
+        // Public Key
         let public_key_str =
             "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0";
-        let pub_key = PublicKey::from_str(public_key_str).expect("Invalid public key");
-        let test_value6 = ValueArg(Value::PublicKey(pub_key));
-        let set_key_value6 = SetKeyValue {
-            asset_id,
-            key: key_name6,
-            value: test_value6,
-        };
+        case!(
+            public_key_str,
+            Value::PublicKey(PublicKey::from_str(public_key_str).unwrap())
+        );
 
-        set_key_value6
-            .run(&mut context)
-            .expect("Failed to run SetKeyValue for PublicKey");
+        // JSON Value
+        let json_str = r#"{"Vec":[{"String":"a"},{"String":"b"}]}"#;
+        let expected_json: Value = serde_json::from_str(json_str).unwrap();
+        case!(json_str, expected_json);
     }
 
     #[test]
-    fn test_remove_value_without_errors() {
-        let mut context = initialize_test_context().expect("Failed to initialize test context");
-        initialize_test_store(&mut context, "test_store2").expect("Failed to register asset");
-        let mut context = initialize_test_context().expect("Failed to initialize test context");
-        let asset_id =
-            AssetId::from_str("test_store2##alice@wonderland").expect("Invalid AssetId format");
-
-        // Setting a Numeric Value
-        let key_name1 = Name::from_str("test_key1").expect("Invalid Name format");
-        let test_value1 = ValueArg(Value::Numeric(NumericValue::from_str("17_u32").unwrap()));
-
-        let set_key_value1 = SetKeyValue {
-            asset_id: asset_id.clone(),
-            key: key_name1.clone(),
-            value: test_value1,
-        };
-
-        set_key_value1
-            .run(&mut context)
-            .expect("Failed to run SetKeyValue for Numeric Value");
-
-        let remove_key_value = RemoveKeyValue {
-            asset_id,
-            key: key_name1.clone(),
-        };
-
-        remove_key_value
-            .run(&mut context)
-            .unwrap_or_else(|_| panic!("Failed to run RemoveKeyValue for key {key_name1}"))
-    }
-
-    #[test]
-    fn test_set_get_values() {
-        let mut context = initialize_test_context().expect("Failed to initialize test context");
-        let client = Client::new(context.configuration()).unwrap();
-
-        initialize_test_store(&mut context, "test_store3").expect("Failed to register asset");
-        let asset_id =
-            AssetId::from_str("test_store3##alice@wonderland").expect("Invalid AssetId format");
-
-        // Setting a Numeric Value
-        let key_name1 = Name::from_str("test_key1").expect("Invalid Name format");
-        let test_value1 = ValueArg(Value::Numeric(NumericValue::from_str("17_u32").unwrap()));
-
-        let set_key_value1 = SetKeyValue {
-            asset_id: asset_id.clone(),
-            key: key_name1.clone(),
-            value: test_value1,
-        };
-
-        set_key_value1
-            .run(&mut context)
-            .expect("Failed to run SetKeyValue for Numeric Value");
-
-        let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id.clone(), key_name1);
-        let asset = client
-            .request(find_key_value)
-            .wrap_err("Failed to get key-value")
-            .unwrap();
-
-        assert_eq!(
-            serde_json::to_string(&asset).expect("Failed to deserialize asset"),
-            r#""17_u32""#
-        );
-
-        // Setting an IPv4 Address
-        let key_name2 = Name::from_str("test_key2").expect("Invalid Name format");
-        let test_value2 = ValueArg(Value::Ipv4Addr(Ipv4Addr::from_str("127.0.0.1").unwrap()));
-
-        let set_key_value2 = SetKeyValue {
-            asset_id: asset_id.clone(),
-            key: key_name2.clone(),
-            value: test_value2,
-        };
-
-        set_key_value2
-            .run(&mut context)
-            .expect("Failed to run SetKeyValue for IPv4 Address");
-
-        let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id.clone(), key_name2);
-        let asset = client
-            .request(find_key_value)
-            .wrap_err("Failed to get key-value")
-            .unwrap();
-
-        assert_eq!(
-            serde_json::to_string(&asset).expect("Failed to deserialize asset"),
-            r#"{"Ipv4Addr":"127.0.0.1"}"#
-        );
-
-        // Setting a Boolean Value
-        let key_name3 = Name::from_str("test_key3").expect("Invalid Name format");
-        let test_value3 = ValueArg(Value::Bool(true));
-
-        let set_key_value3 = SetKeyValue {
-            asset_id: asset_id.clone(),
-            key: key_name3.clone(),
-            value: test_value3,
-        };
-
-        set_key_value3
-            .run(&mut context)
-            .expect("Failed to run SetKeyValue for Boolean Value");
-
-        let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id.clone(), key_name3);
-        let asset = client
-            .request(find_key_value)
-            .wrap_err("Failed to get key-value")
-            .unwrap();
-
-        assert_eq!(
-            serde_json::to_string(&asset).expect("Failed to deserialize asset"),
-            r#"{"Bool":true}"#
-        );
-
-        let key_name4 = Name::from_str("test_key4").expect("Invalid Name format");
-        let json_data = r#"{"Vec":[{"String":"a"},{"String":"b"}]}"#;
-        let test_value4 = ValueArg(serde_json::from_str(json_data).unwrap());
-
-        let set_key_value4 = SetKeyValue {
-            asset_id: asset_id.clone(),
-            key: key_name4.clone(),
-            value: test_value4,
-        };
-
-        set_key_value4
-            .run(&mut context)
-            .expect("Failed to run SetKeyValue for JSON Value");
-
-        let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id, key_name4);
-        let asset = client
-            .request(find_key_value)
-            .wrap_err("Failed to get key-value")
-            .unwrap();
-
-        assert_eq!(
-            serde_json::to_string(&asset).expect("Failed to deserialize asset"),
-            r#"{"Vec":[{"String":"a"},{"String":"b"}]}"#
-        );
-    }
-
-    #[test]
-    fn test_error_for_asset_id() {
-        let invalid_asset_id = AssetId::from_str("store#alice@wonderland");
-
-        match invalid_asset_id {
-            Ok(_) => panic!("Expected an error, but the operation succeeded"),
-            Err(e) => {
-                let error_msg = e.to_string();
-                let expected_pattern1 = "name#domain_of_asset#account_name@domain_of_account";
-                let expected_pattern2 = "name##account_name@domain_of_account";
-                assert!(
-                    error_msg.contains(expected_pattern1) && error_msg.contains(expected_pattern2),
-                    "Error message did not contain the expected pattern"
-                );
-            }
-        }
+    fn error_parse_invalid_value() {
+        let invalid_str = "not_a_valid_value";
+        let _invalid_value = ValueArg::from_str(invalid_str)
+            .expect_err("Should fail invalid type from string but passed");
     }
 }

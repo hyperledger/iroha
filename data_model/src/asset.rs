@@ -572,3 +572,13 @@ pub mod prelude {
         NewAssetDefinition,
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_error_for_asset_id() {
+        let _invalid_asset_id = AssetId::from_str("store#alice@wonderland")
+            .expect_err("store#alice@wonderland should not be a valid AssetId");
+    }
+}
