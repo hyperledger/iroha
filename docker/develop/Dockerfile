@@ -44,8 +44,8 @@ RUN curl https://dl.google.com/go/go1.14.2.linux-$(dpkg --print-architecture).ta
 ENV GOPATH=/opt/gopath
 RUN mkdir ${GOPATH}
 ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
-# RUN go get -u google.golang.org/grpc
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go
+RUN go install github.com/golang/protobuf/protoc-gen-go
+RUN export PATH="$PATH:$(go env GOPATH)/bin" # according to: https://grpc.io/docs/languages/go/quickstart/
 
 ## pip3 contains fresher versions of packages than apt
 RUN pip3 install --no-cache-dir cmake ninja
