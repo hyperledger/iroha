@@ -40,7 +40,7 @@ RUN set -e; \
     fi
 
 # golang stuff
-RUN curl https://dl.google.com/go/go1.14.2.linux-$(dpkg --print-architecture).tar.gz | tar -C /opt -xz
+RUN curl https://dl.google.com/go/go1.17.2.linux-$(dpkg --print-architecture).tar.gz | tar -C /opt -xz
 ENV GOPATH=/opt/gopath
 RUN mkdir ${GOPATH}
 ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin

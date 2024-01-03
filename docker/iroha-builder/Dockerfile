@@ -40,7 +40,7 @@ RUN cd /opt/ && \
     PREFIX="/usr/local" make install
 
 ## golang stuff for iroha+burrow
-RUN curl -fL https://golang.org/dl/go1.14.2.linux-$(dpkg --print-architecture).tar.gz | tar -C /opt -xz
+RUN curl -fL https://golang.org/dl/go1.17.2.linux-$(dpkg --print-architecture).tar.gz | tar -C /opt -xz
 ENV GOPATH=/opt/gopath
 RUN mkdir ${GOPATH}
 ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
