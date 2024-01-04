@@ -112,21 +112,19 @@ pub trait ExecuteOnHost: Instruction {
     fn execute(&self) -> Result<(), ValidationFail>;
 }
 
-// TODO: Remove the Clone bound. It can be done by custom serialization to InstructionExpr
-impl<I: Instruction + Encode + Clone> ExecuteOnHost for I {
+impl<I: Instruction + Encode> ExecuteOnHost for I {
     fn execute(&self) -> Result<(), ValidationFail> {
         #[cfg(not(test))]
         use host::execute_instruction as host_execute_instruction;
         #[cfg(test)]
         use tests::_iroha_smart_contract_execute_instruction_mock as host_execute_instruction;
 
-        // TODO: Redundant conversion into `InstructionExpr`
-        let isi_box: InstructionBox = self.clone().into();
+        let bytes = self.encode_as_instruction_box();
         // Safety: `host_execute_instruction` doesn't take ownership of it's pointer parameter
         unsafe {
-            decode_with_length_prefix_from_raw(encode_and_execute(
-                &isi_box,
-                host_execute_instruction,
+            decode_with_length_prefix_from_raw(host_execute_instruction(
+                bytes.as_ptr(),
+                bytes.len(),
             ))
         }
     }

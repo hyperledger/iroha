@@ -31,7 +31,7 @@ use events::TriggeringFilterBox;
 use getset::Getters;
 use iroha_crypto::{HashOf, PublicKey};
 use iroha_data_model_derive::{
-    model, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize,
+    model, EnumRef, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize,
 };
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_primitives::{
@@ -612,6 +612,7 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
+        EnumRef,
         FromVariant,
         Decode,
         Encode,
@@ -619,6 +620,7 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
+    #[enum_ref(derive(Encode, FromVariant))]
     #[allow(clippy::enum_variant_names)]
     #[ffi_type(local)]
     pub enum IdBox {
@@ -654,6 +656,7 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
+        EnumRef,
         FromVariant,
         Decode,
         Encode,
@@ -661,6 +664,7 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
+    #[enum_ref(derive(Encode, FromVariant))]
     #[ffi_type]
     pub enum RegistrableBox {
         /// [`Peer`](`peer::Peer`) variant.
@@ -695,6 +699,7 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
+        EnumRef,
         FromVariant,
         Decode,
         Encode,
@@ -702,6 +707,7 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
+    #[enum_ref(derive(Encode, FromVariant))]
     #[ffi_type]
     pub enum IdentifiableBox {
         /// [`NewDomain`](`domain::NewDomain`) variant.
@@ -739,6 +745,7 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
+        EnumRef,
         FromVariant,
         Decode,
         Encode,
@@ -746,6 +753,7 @@ pub mod model {
         Serialize,
         IntoSchema,
     )]
+    #[enum_ref(derive(Encode, FromVariant))]
     // SAFETY: `UpgradableBox` has no trap representations in `executor::Executor`
     #[ffi_type(unsafe {robust})]
     #[serde(untagged)] // Unaffected by #3330, because stores binary data with no `u128`
@@ -1022,6 +1030,99 @@ pub mod model {
         /// in the next request to continue fetching results of the original query
         pub cursor: crate::query::cursor::ForwardCursor,
     }
+}
+
+macro_rules! impl_encode_as_id_box {
+    ($($ty:ty),+ $(,)?) => { $(
+        impl $ty {
+            /// [`Encode`] [`Self`] as [`IdBox`].
+            ///
+            /// Used to avoid an unnecessary clone
+            pub fn encode_as_id_box(&self) -> Vec<u8> {
+                IdBoxRef::from(self).encode()
+            }
+        } )+
+    }
+}
+
+macro_rules! impl_encode_as_identifiable_box {
+    ($($ty:ty),+ $(,)?) => { $(
+        impl $ty {
+            /// [`Encode`] [`Self`] as [`IdentifiableBox`].
+            ///
+            /// Used to avoid an unnecessary clone
+            pub fn encode_as_identifiable_box(&self) -> Vec<u8> {
+                IdentifiableBoxRef::from(self).encode()
+            }
+        } )+
+    }
+}
+
+macro_rules! impl_encode_as_registrable_box {
+    ($($ty:ty),+ $(,)?) => { $(
+        impl $ty {
+            /// [`Encode`] [`Self`] as [`RegistrableBox`].
+            ///
+            /// Used to avoid an unnecessary clone
+            pub fn encode_as_registrable_box(&self) -> Vec<u8> {
+                RegistrableBoxRef::from(self).encode()
+            }
+        } )+
+    }
+}
+
+macro_rules! impl_encode_as_upgradable_box {
+    ($($ty:ty),+ $(,)?) => { $(
+        impl $ty {
+            /// [`Encode`] [`Self`] as [`UpgradableBox`].
+            ///
+            /// Used to avoid an unnecessary clone
+            pub fn encode_as_upgradable_box(&self) -> Vec<u8> {
+                UpgradableBoxRef::from(self).encode()
+            }
+        } )+
+    }
+}
+
+impl_encode_as_id_box! {
+    peer::PeerId,
+    domain::DomainId,
+    account::AccountId,
+    asset::AssetDefinitionId,
+    asset::AssetId,
+    trigger::TriggerId,
+    permission::PermissionTokenId,
+    role::RoleId,
+    parameter::ParameterId,
+}
+
+impl_encode_as_identifiable_box! {
+    peer::Peer,
+    domain::NewDomain,
+    account::NewAccount,
+    asset::NewAssetDefinition,
+    role::NewRole,
+    domain::Domain,
+    account::Account,
+    asset::AssetDefinition,
+    asset::Asset,
+    trigger::Trigger<TriggeringFilterBox>,
+    role::Role,
+    parameter::Parameter,
+}
+
+impl_encode_as_registrable_box! {
+    peer::Peer,
+    domain::NewDomain,
+    account::NewAccount,
+    asset::NewAssetDefinition,
+    asset::Asset,
+    trigger::Trigger<TriggeringFilterBox>,
+    role::NewRole,
+}
+
+impl_encode_as_upgradable_box! {
+    executor::Executor,
 }
 
 impl Decode for ChainId {

@@ -1,4 +1,5 @@
 //! A crate containing various derive macros for `data_model`
+mod enum_ref;
 mod filter;
 mod has_origin;
 mod id;
@@ -8,6 +9,49 @@ mod partially_tagged;
 use iroha_macro_utils::Emitter;
 use manyhow::{emit, manyhow, Result};
 use proc_macro2::TokenStream;
+
+/// Construct a matching enum with references in place of enum variant fields
+///
+/// # Example
+///
+/// ```rust
+/// use iroha_data_model_derive::EnumRef;
+/// use parity_scale_codec::Encode;
+///
+/// #[derive(EnumRef)]
+/// enum InnerEnum {
+///     A(u32),
+///     B(i32)
+/// }
+///
+/// #[derive(EnumRef)]
+/// #[enum_ref(derive(Encode))]
+/// enum OuterEnum {
+///     A(String),
+///     #[enum_ref(transparent)]
+///     B(InnerEnum),
+/// }
+///
+/// /* will produce:
+///
+/// enum InnerEnumRef<'a> {
+///     A(&'a u32),
+///     B(&'a i32),
+/// }
+///
+/// enum OuterEnumRef<'a> {
+///     A(&'a String),
+///     B(InnerEnumRef<'a>),
+/// }
+/// */
+/// ```
+///
+#[manyhow]
+#[proc_macro_derive(EnumRef, attributes(enum_ref))]
+pub fn enum_ref(input: TokenStream) -> Result<TokenStream> {
+    let input = syn2::parse2(input)?;
+    enum_ref::impl_enum_ref(&input)
+}
 
 /// Macro which controls how to export item's API. The behaviour is controlled with `transparent_api`
 /// feature flag. If the flag is active, item's public fields will be exposed as public, however, if

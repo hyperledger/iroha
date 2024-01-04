@@ -38,16 +38,14 @@ macro_rules! declare_tokens {
         /// Enum with every default token
         #[allow(clippy::enum_variant_names)]
         #[derive(Clone)]
-        pub(crate) enum AnyPermissionToken {
-            $(
-                $token_ty($($token_path::)+$token_ty),
-            )*
+        pub(crate) enum AnyPermissionToken { $(
+            $token_ty($($token_path::)+$token_ty), )*
         }
 
-        impl TryFrom<$crate::data_model::permission::PermissionToken> for AnyPermissionToken {
+        impl TryFrom<&$crate::data_model::permission::PermissionToken> for AnyPermissionToken {
             type Error = $crate::permission::PermissionTokenConversionError;
 
-            fn try_from(token: $crate::data_model::permission::PermissionToken) -> Result<Self, Self::Error> {
+            fn try_from(token: &$crate::data_model::permission::PermissionToken) -> Result<Self, Self::Error> {
                 match token.definition_id().as_ref() { $(
                     stringify!($token_ty) => {
                         let token = <$($token_path::)+$token_ty>::try_from(token)?;
@@ -60,29 +58,22 @@ macro_rules! declare_tokens {
 
         impl From<AnyPermissionToken> for $crate::data_model::permission::PermissionToken {
             fn from(token: AnyPermissionToken) -> Self {
-                match token {
-                    $(
-                        AnyPermissionToken::$token_ty(token) => Self::from(token),
-                    )*
+                match token { $(
+                    AnyPermissionToken::$token_ty(token) => Self::from(token), )*
                 }
             }
         }
 
         impl $crate::permission::ValidateGrantRevoke for AnyPermissionToken {
             fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
-                match self {
-                    $(
-                        AnyPermissionToken::$token_ty(token) => token.validate_grant(authority, block_height),
-                    )*
+                match self { $(
+                    AnyPermissionToken::$token_ty(token) => token.validate_grant(authority, block_height), )*
                 }
-
             }
 
             fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
-                match self {
-                    $(
-                        AnyPermissionToken::$token_ty(token) => token.validate_revoke(authority, block_height),
-                    )*
+                match self { $(
+                    AnyPermissionToken::$token_ty(token) => token.validate_revoke(authority, block_height), )*
                 }
             }
         }

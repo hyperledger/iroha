@@ -38,7 +38,7 @@ fn impl_token(ident: &syn2::Ident, generics: &syn2::Generics) -> proc_macro2::To
                         res,
                         "Failed to get permission token from cursor"
                     ))
-                    .filter_map(|token| Self::try_from(token).ok())
+                    .filter_map(|token| Self::try_from(&token).ok())
                     .any(|token| self == &token)
             }
         }
@@ -50,10 +50,10 @@ fn impl_try_from_permission_token(ident: &syn2::Ident, generics: &syn2::Generics
     let token_id = quote! { <#ident #ty_generics as ::iroha_executor::permission::Token>::name() };
 
     quote! {
-        impl #impl_generics ::core::convert::TryFrom<::iroha_executor::data_model::permission::PermissionToken> for #ident #ty_generics #where_clause {
+        impl #impl_generics ::core::convert::TryFrom<&::iroha_executor::data_model::permission::PermissionToken> for #ident #ty_generics #where_clause {
             type Error = ::iroha_executor::permission::PermissionTokenConversionError;
 
-            fn try_from(token: ::iroha_executor::data_model::permission::PermissionToken) -> ::core::result::Result<Self, Self::Error> {
+            fn try_from(token: &::iroha_executor::data_model::permission::PermissionToken) -> ::core::result::Result<Self, Self::Error> {
                 if #token_id != *token.definition_id() {
                     return Err(::iroha_executor::permission::PermissionTokenConversionError::Id(
                         ToOwned::to_owned(token.definition_id())

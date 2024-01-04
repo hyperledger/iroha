@@ -766,10 +766,9 @@ mod test {
             port: 9019,
         });
 
-        let kita = &serde_json::to_string(&v6).unwrap();
-        println!("{kita}");
-        let kara = serde_json::from_str::<SocketAddr>(kita).unwrap();
-        assert_eq!(kara, v6);
+        let addr_str = &serde_json::to_string(&v6).unwrap();
+        let addr = serde_json::from_str::<SocketAddr>(addr_str).unwrap();
+        assert_eq!(addr, v6);
 
         let host = SocketAddr::Host(SocketAddrHost {
             host: "localhost".into(),
