@@ -1,12 +1,12 @@
-//! This crate provides [`wrap`] and [`wrap_signature`] attribute macros to wrap a host-defined
 //! function into another function which signature will be compatible with `wasmtime` crate to be
+//! This crate provides [`wrap`] and [`wrap_signature`] attribute macros to wrap a host-defined
 //! successfully exported.
 
 use std::ops::Deref;
 
-use proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
-use proc_macro_error::{abort, diagnostic, proc_macro_error, Diagnostic, Level, OptionExt as _};
+use iroha_macro_utils::Emitter;
+use manyhow::{bail, emit, manyhow, Result};
+use proc_macro2::TokenStream;
 use quote::quote;
 use syn2::{parse_quote, punctuated::Punctuated};
 
@@ -56,83 +56,128 @@ impl syn2::parse::Parse for StateAttr {
 ///
 /// You can pass an attribute in the form of `#[wrap(state = "YourStateType")]`.
 /// This is needed in cases when it's impossible to infer the state type from the function signature.
-#[proc_macro_error]
+#[manyhow]
 #[proc_macro_attribute]
 pub fn wrap(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let state_attr_opt = if attr.is_empty() {
+    let mut emitter = Emitter::new();
+
+    let state_attr_opt: Option<StateAttr> = if attr.is_empty() {
         None
+    } else if let Some(v) = emitter.handle(syn2::parse2(attr)) {
+        Some(v)
     } else {
-        Some(syn2::parse_macro_input!(attr as StateAttr))
+        return emitter.finish_token_stream();
     };
-    let mut fn_item = syn2::parse_macro_input!(item as syn2::ItemFn);
+
+    let Some(fn_item): Option<syn2::ItemFn> = emitter.handle(syn2::parse2(item)) else {
+        return emitter.finish_token_stream();
+    };
+
+    let parsing_result = impl_wrap_fn(&mut emitter, &state_attr_opt, fn_item);
+
+    if let Some(result) = parsing_result {
+        emitter.finish_token_stream_with(result)
+    } else {
+        emitter.finish_token_stream()
+    }
+}
+
+fn impl_wrap_fn(
+    emitter: &mut Emitter,
+    state_attr_opt: &Option<StateAttr>,
+    mut fn_item: syn2::ItemFn,
+) -> Option<TokenStream> {
     let ident = &fn_item.sig.ident;
 
     let mut inner_fn_item = fn_item.clone();
     let inner_fn_ident = syn2::Ident::new(&format!("__{ident}_inner"), ident.span());
     inner_fn_item.sig.ident = inner_fn_ident.clone();
 
-    let fn_class = classify_fn(&fn_item.sig);
+    let fn_class = classify_fn(emitter, &fn_item.sig)?;
 
     fn_item.sig.inputs = gen_params(
+        emitter,
         &fn_class,
         state_attr_opt.as_ref().map(|state_attr| &state_attr.ty),
         true,
-    );
+    )?;
 
     let output = gen_output(&fn_class);
     fn_item.sig.output = parse_quote! {-> #output};
 
     let body = gen_body(
+        emitter,
         &inner_fn_ident,
         &fn_class,
         state_attr_opt.as_ref().map(|state_attr| &state_attr.ty),
-    );
+    )?;
     fn_item.block = parse_quote!({#body});
 
-    quote! {
+    Some(quote! {
         #inner_fn_item
 
         #fn_item
-    }
-    .into()
+    })
 }
 
 /// Macro to wrap trait function signature with normal parameters and return value
 /// to another one which will meet `wasmtime` specifications.
 ///
 /// See [`wrap`] for more details.
-#[proc_macro_error]
+#[manyhow]
 #[proc_macro_attribute]
 pub fn wrap_trait_fn(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let state_attr_opt = if attr.is_empty() {
+    let mut emitter = Emitter::new();
+
+    let state_attr_opt: Option<StateAttr> = if attr.is_empty() {
         None
+    } else if let Some(v) = emitter.handle(syn2::parse2(attr)) {
+        Some(v)
     } else {
-        Some(syn2::parse_macro_input!(attr as StateAttr))
+        return emitter.finish_token_stream();
     };
-    let mut fn_item = syn2::parse_macro_input!(item as syn2::TraitItemFn);
+
+    let Some(fn_item): Option<syn2::TraitItemFn> = emitter.handle(syn2::parse2(item)) else {
+        return emitter.finish_token_stream();
+    };
+
+    let parsing_result = impl_wrap_trait_fn(&mut emitter, &state_attr_opt, fn_item);
+
+    if let Some(result) = parsing_result {
+        emitter.finish_token_stream_with(result)
+    } else {
+        emitter.finish_token_stream()
+    }
+}
+
+fn impl_wrap_trait_fn(
+    emitter: &mut Emitter,
+    state_attr_opt: &Option<StateAttr>,
+    mut fn_item: syn2::TraitItemFn,
+) -> Option<TokenStream> {
     let ident = &fn_item.sig.ident;
 
     let mut inner_fn_item = fn_item.clone();
     let inner_fn_ident = syn2::Ident::new(&format!("__{ident}_inner"), ident.span());
     inner_fn_item.sig.ident = inner_fn_ident;
 
-    let fn_class = classify_fn(&fn_item.sig);
+    let fn_class = classify_fn(emitter, &fn_item.sig)?;
 
     fn_item.sig.inputs = gen_params(
+        emitter,
         &fn_class,
         state_attr_opt.as_ref().map(|state_attr| &state_attr.ty),
         false,
-    );
+    )?;
 
     let output = gen_output(&fn_class);
     fn_item.sig.output = parse_quote! {-> #output};
 
-    quote! {
+    Some(quote! {
         #inner_fn_item
 
         #fn_item
-    }
-    .into()
+    })
 }
 
 /// `with_body` parameter specifies if end function will have a body or not.
@@ -140,6 +185,7 @@ pub fn wrap_trait_fn(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// This is required because
 /// [patterns are not allowed in functions without body ](https://github.com/rust-lang/rust/issues/35203).
 fn gen_params(
+    emitter: &mut Emitter,
     FnClass {
         param,
         state: state_ty_from_fn_sig,
@@ -147,10 +193,11 @@ fn gen_params(
     }: &FnClass,
     state_ty_from_attr: Option<&syn2::Type>,
     with_body: bool,
-) -> Punctuated<syn2::FnArg, syn2::Token![,]> {
+) -> Option<Punctuated<syn2::FnArg, syn2::Token![,]>> {
     let mut params = Punctuated::new();
     if state_ty_from_fn_sig.is_some() || param.is_some() || return_type.is_some() {
-        let state_ty = retrieve_state_ty(state_ty_from_attr, state_ty_from_fn_sig.as_ref());
+        let state_ty =
+            retrieve_state_ty(emitter, state_ty_from_attr, state_ty_from_fn_sig.as_ref())?;
         let mutability = if with_body {
             quote! {mut}
         } else {
@@ -170,7 +217,7 @@ fn gen_params(
         });
     }
 
-    params
+    Some(params)
 }
 
 fn gen_output(
@@ -189,25 +236,26 @@ fn gen_output(
     }
 }
 
-/// [`TokenStream2`] wrapper which will be lazily evaluated
+/// [`TokenStream`] wrapper which will be lazily evaluated
 ///
 /// Implements [`quote::ToTokens`] trait
-struct LazyTokenStream<F>(once_cell::unsync::Lazy<TokenStream2, F>);
+struct LazyTokenStream<F>(once_cell::unsync::Lazy<TokenStream, F>);
 
-impl<F: FnOnce() -> TokenStream2> LazyTokenStream<F> {
+impl<F: FnOnce() -> TokenStream> LazyTokenStream<F> {
     pub fn new(f: F) -> Self {
         Self(once_cell::unsync::Lazy::new(f))
     }
 }
 
-impl<F: FnOnce() -> TokenStream2> quote::ToTokens for LazyTokenStream<F> {
-    fn to_tokens(&self, tokens: &mut TokenStream2) {
+impl<F: FnOnce() -> TokenStream> quote::ToTokens for LazyTokenStream<F> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
         let inner = &*self.0;
         inner.to_tokens(tokens);
     }
 }
 
 fn gen_body(
+    emitter: &mut Emitter,
     inner_fn_ident: &syn2::Ident,
     FnClass {
         param,
@@ -215,7 +263,7 @@ fn gen_body(
         return_type,
     }: &FnClass,
     state_ty_from_attr: Option<&syn2::Type>,
-) -> TokenStream2 {
+) -> Option<TokenStream> {
     let decode_param = param.as_ref().map_or_else(
         || quote! {},
         |param_ty| quote! {
@@ -229,21 +277,23 @@ fn gen_body(
         quote! {}
     };
 
+    let memory_state_ty =
+        retrieve_state_ty(emitter, state_ty_from_attr, state_ty_from_fn_sig.as_ref())?;
     let get_memory = LazyTokenStream::new(|| {
-        let state_ty = retrieve_state_ty(state_ty_from_attr, state_ty_from_fn_sig.as_ref());
         quote! {
-            let memory = Runtime::<#state_ty>::get_memory(&mut caller).expect("Checked at instantiation step");
+            let memory = Runtime::<#memory_state_ty>::get_memory(&mut caller).expect("Checked at instantiation step");
         }
     });
 
+    let alloc_state_ty =
+        retrieve_state_ty(emitter, state_ty_from_attr, state_ty_from_fn_sig.as_ref())?;
     let get_alloc = LazyTokenStream::new(|| {
-        let state_ty = retrieve_state_ty(state_ty_from_attr, state_ty_from_fn_sig.as_ref());
         quote! {
-            let alloc_fn = Runtime::<#state_ty>::get_alloc_fn(&mut caller).expect("Checked at instantiation step");
+            let alloc_fn = Runtime::<#alloc_state_ty>::get_alloc_fn(&mut caller).expect("Checked at instantiation step");
         }
     });
 
-    match (param, return_type) {
+    let output = match (param, return_type) {
         // foo() =>
         // foo()
         //
@@ -314,7 +364,9 @@ fn gen_body(
                 ::iroha_wasm_codec::encode_into_memory(&value, &memory, &alloc_fn, &mut caller)
             }
         }
-    }
+    };
+
+    Some(output)
 }
 
 /// Classified function
@@ -346,31 +398,31 @@ enum ErrType {
     Other(syn2::Type),
 }
 
-fn classify_fn(fn_sig: &syn2::Signature) -> FnClass {
+fn classify_fn(emitter: &mut Emitter, fn_sig: &syn2::Signature) -> Option<FnClass> {
     let params = &fn_sig.inputs;
-    let (param, state) = classify_params_and_state(params);
+    let (param, state) = classify_params_and_state(emitter, params)?;
 
     let output = &fn_sig.output;
 
     let output_ty = match output {
         syn2::ReturnType::Default => {
-            return FnClass {
+            return Some(FnClass {
                 param,
                 state,
                 return_type: None,
-            }
+            })
         }
         syn2::ReturnType::Type(_, ref ty) => ty,
     };
 
-    let output_type_path = unwrap_path(output_ty);
-    let output_last_segment = last_segment(output_type_path);
+    let output_type_path = unwrap_path(emitter, output_ty)?;
+    let output_last_segment = last_segment(emitter, output_type_path)?;
     if output_last_segment.ident != "Result" {
-        return FnClass {
+        return Some(FnClass {
             param,
             state,
             return_type: Some(ReturnType::Other(*output_ty.clone())),
-        };
+        });
     }
 
     let syn2::PathArguments::AngleBracketed(syn2::AngleBracketedGenericArguments {
@@ -378,89 +430,88 @@ fn classify_fn(fn_sig: &syn2::Signature) -> FnClass {
         ..
     }) = &output_last_segment.arguments
     else {
-        abort!(
+        emit!(
+            emitter,
             output_last_segment.arguments,
             "`Result` return type should have generic arguments"
         );
+        return None;
     };
 
-    let ok_type = classify_ok_type(generics);
-    let err_type = extract_err_type(generics);
+    let ok_type = emitter.handle(classify_ok_type(generics))?;
+    let err_type = extract_err_type(emitter, generics)?;
 
-    let err_type_path = unwrap_path(err_type);
-    let err_type_last_segment = last_segment(err_type_path);
+    let err_type_path = unwrap_path(emitter, err_type)?;
+    let err_type_last_segment = last_segment(emitter, err_type_path)?;
     let err_type = if err_type_last_segment.ident == "WasmtimeError" {
         ErrType::WasmtimeError
     } else {
         ErrType::Other(err_type.clone())
     };
 
-    FnClass {
+    Some(FnClass {
         param,
         state,
         return_type: Some(ReturnType::Result(ok_type, err_type)),
+    })
+}
+
+fn extract_type_from_fn_arg(emitter: &mut Emitter, fn_arg: syn2::FnArg) -> Option<syn2::PatType> {
+    if let syn2::FnArg::Typed(pat_type) = fn_arg {
+        Some(pat_type)
+    } else {
+        emit!(emitter, fn_arg, "`self` arguments are forbidden");
+        None
     }
 }
 
-fn extract_type_from_fn_arg(fn_arg: syn2::FnArg) -> syn2::PatType {
-    let syn2::FnArg::Typed(pat_type) = fn_arg else {
-        abort!(fn_arg, "`self` arguments are forbidden");
-    };
-
-    pat_type
-}
-
 fn classify_params_and_state(
+    emitter: &mut Emitter,
     params: &Punctuated<syn2::FnArg, syn2::Token![,]>,
-) -> (Option<syn2::Type>, Option<syn2::Type>) {
+) -> Option<(Option<syn2::Type>, Option<syn2::Type>)> {
     match params.len() {
-        0 => (None, None),
+        0 => Some((None, None)),
         1 => {
             let mut params_iter = params.iter();
-            let first_param = extract_type_from_fn_arg(params_iter.next().unwrap().clone());
+            let first_param =
+                extract_type_from_fn_arg(emitter, params_iter.next().unwrap().clone())?;
 
             if let Ok(state_ty) = parse_state_param(&first_param) {
-                (None, Some(state_ty.clone()))
+                Some((None, Some(state_ty.clone())))
             } else {
-                (Some(first_param.ty.deref().clone()), None)
+                Some((Some(first_param.ty.deref().clone()), None))
             }
         }
         2 => {
             let mut params_iter = params.iter();
-            let first_param = extract_type_from_fn_arg(params_iter.next().unwrap().clone());
+            let first_param =
+                extract_type_from_fn_arg(emitter, params_iter.next().unwrap().clone())?;
 
-            let second_param = extract_type_from_fn_arg(params_iter.next().unwrap().clone());
-            match parse_state_param(&second_param) {
-                Ok(state_ty) => (Some(first_param.ty.deref().clone()), Some(state_ty.clone())),
-                Err(diagnostic) => diagnostic.abort(),
-            }
+            let second_param =
+                extract_type_from_fn_arg(emitter, params_iter.next().unwrap().clone())?;
+
+            let Some(state_ty) = emitter.handle(parse_state_param(&second_param)) else {
+                return None;
+            };
+            Some((Some(first_param.ty.deref().clone()), Some(state_ty.clone())))
         }
-        _ => abort!(params, "No more than 2 parameters are allowed"),
+        _ => {
+            emit!(emitter, params, "No more than 2 parameters are allowed");
+            None
+        }
     }
 }
 
-fn parse_state_param(param: &syn2::PatType) -> Result<&syn2::Type, Diagnostic> {
+fn parse_state_param(param: &syn2::PatType) -> Result<&syn2::Type> {
     let syn2::Pat::Ident(pat_ident) = &*param.pat else {
-        return Err(diagnostic!(
-            param,
-            Level::Error,
-            "State parameter should be an ident"
-        ));
+        bail!(param, "State parameter should be an ident");
     };
     if !["state", "_state"].contains(&&*pat_ident.ident.to_string()) {
-        return Err(diagnostic!(
-            param,
-            Level::Error,
-            "State parameter should be named `state` or `_state`"
-        ));
+        bail!(param, "State parameter should be named `state` or `_state`");
     }
 
     let syn2::Type::Reference(ty_ref) = &*param.ty else {
-        return Err(diagnostic!(
-            param.ty,
-            Level::Error,
-            "State parameter should be either reference or mutable reference"
-        ));
+        bail!(param.ty, "State parameter should be either reference or mutable reference");
     };
 
     Ok(&*ty_ref.elem)
@@ -468,57 +519,71 @@ fn parse_state_param(param: &syn2::PatType) -> Result<&syn2::Type, Diagnostic> {
 
 fn classify_ok_type(
     generics: &Punctuated<syn2::GenericArgument, syn2::Token![,]>,
-) -> Option<syn2::Type> {
-    let ok_generic = generics
-        .first()
-        .expect_or_abort("First generic argument expected in `Result` return type");
+) -> Result<Option<syn2::Type>> {
+    let Some(ok_generic) = generics
+        .first() else {
+            bail!("First generic argument expected in `Result` return type");
+        };
     let syn2::GenericArgument::Type(ok_type) = ok_generic else {
-        abort!(
-            ok_generic,
-            "First generic of `Result` return type expected to be a type"
-        );
+        bail!(ok_generic, "First generic of `Result` return type expected to be a type");
     };
 
     if let syn2::Type::Tuple(syn2::TypeTuple { elems, .. }) = ok_type {
-        (!elems.is_empty()).then_some(ok_type.clone())
+        Ok((!elems.is_empty()).then_some(ok_type.clone()))
     } else {
-        Some(ok_type.clone())
+        Ok(Some(ok_type.clone()))
     }
 }
 
-fn extract_err_type(generics: &Punctuated<syn2::GenericArgument, syn2::Token![,]>) -> &syn2::Type {
-    let err_generic = generics
+fn extract_err_type<'arg>(
+    emitter: &mut Emitter,
+    generics: &'arg Punctuated<syn2::GenericArgument, syn2::Token![,]>,
+) -> Option<&'arg syn2::Type> {
+    let Some(err_generic) = generics
         .iter()
-        .nth(1)
-        .expect_or_abort("Second generic argument expected in `Result` return type");
-    let syn2::GenericArgument::Type(err_type) = err_generic else {
-        abort!(
+        .nth(1) else {
+            emit!(emitter, "Second generic of `Result` return type expected to be a type");
+            return None;
+        };
+
+    if let syn2::GenericArgument::Type(err_type) = err_generic {
+        Some(err_type)
+    } else {
+        emit!(
+            emitter,
             err_generic,
             "Second generic of `Result` return type expected to be a type"
         );
-    };
-    err_type
+        None
+    }
 }
 
-fn unwrap_path(ty: &syn2::Type) -> &syn2::Path {
-    let syn2::Type::Path(syn2::TypePath { ref path, .. }) = *ty else {
-        abort!(ty, "Expected path");
-    };
-
-    path
+fn unwrap_path<'ty>(emitter: &mut Emitter, ty: &'ty syn2::Type) -> Option<&'ty syn2::Path> {
+    if let syn2::Type::Path(syn2::TypePath { ref path, .. }) = ty {
+        Some(path)
+    } else {
+        emit!(emitter, ty, "Expected path");
+        None
+    }
 }
 
-fn last_segment(path: &syn2::Path) -> &syn2::PathSegment {
-    path.segments
-        .last()
-        .expect_or_abort("At least one path segment expected")
+fn last_segment<'path>(
+    emitter: &mut Emitter,
+    path: &'path syn2::Path,
+) -> Option<&'path syn2::PathSegment> {
+    path.segments.last().or_else(|| {
+        emit!(emitter, "At least one path segment expected");
+        None
+    })
 }
 
 fn retrieve_state_ty<'ty>(
+    emitter: &mut Emitter,
     state_ty_from_attr: Option<&'ty syn2::Type>,
     state_ty_from_fn_sig: Option<&'ty syn2::Type>,
-) -> &'ty syn2::Type {
-    state_ty_from_attr
-        .or(state_ty_from_fn_sig)
-        .expect_or_abort("`state` attribute is required")
+) -> Option<&'ty syn2::Type> {
+    state_ty_from_attr.or(state_ty_from_fn_sig).or_else(|| {
+        emit!(emitter, "`state` attribute is required");
+        None
+    })
 }
