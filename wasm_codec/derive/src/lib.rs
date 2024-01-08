@@ -8,24 +8,24 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro_error::{abort, diagnostic, proc_macro_error, Diagnostic, Level, OptionExt as _};
 use quote::quote;
-use syn::{parse_quote, punctuated::Punctuated};
+use syn2::{parse_quote, punctuated::Punctuated};
 
 mod kw {
-    syn::custom_keyword!(state);
+    syn2::custom_keyword!(state);
 }
 
 struct StateAttr {
     _state: kw::state,
-    _equal: syn::Token![=],
-    ty: syn::Type,
+    _equal: syn2::Token![=],
+    ty: syn2::Type,
 }
 
-impl syn::parse::Parse for StateAttr {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+impl syn2::parse::Parse for StateAttr {
+    fn parse(input: syn2::parse::ParseStream) -> syn2::Result<Self> {
         let state = input.parse()?;
         let equal = input.parse()?;
-        let type_str: syn::LitStr = input.parse()?;
-        let ty = syn::parse_str(&type_str.value())?;
+        let type_str: syn2::LitStr = input.parse()?;
+        let ty = syn2::parse_str(&type_str.value())?;
         Ok(Self {
             _state: state,
             _equal: equal,
@@ -62,13 +62,13 @@ pub fn wrap(attr: TokenStream, item: TokenStream) -> TokenStream {
     let state_attr_opt = if attr.is_empty() {
         None
     } else {
-        Some(syn::parse_macro_input!(attr as StateAttr))
+        Some(syn2::parse_macro_input!(attr as StateAttr))
     };
-    let mut fn_item = syn::parse_macro_input!(item as syn::ItemFn);
+    let mut fn_item = syn2::parse_macro_input!(item as syn2::ItemFn);
     let ident = &fn_item.sig.ident;
 
     let mut inner_fn_item = fn_item.clone();
-    let inner_fn_ident = syn::Ident::new(&format!("__{ident}_inner"), ident.span());
+    let inner_fn_ident = syn2::Ident::new(&format!("__{ident}_inner"), ident.span());
     inner_fn_item.sig.ident = inner_fn_ident.clone();
 
     let fn_class = classify_fn(&fn_item.sig);
@@ -107,13 +107,13 @@ pub fn wrap_trait_fn(attr: TokenStream, item: TokenStream) -> TokenStream {
     let state_attr_opt = if attr.is_empty() {
         None
     } else {
-        Some(syn::parse_macro_input!(attr as StateAttr))
+        Some(syn2::parse_macro_input!(attr as StateAttr))
     };
-    let mut fn_item = syn::parse_macro_input!(item as syn::TraitItemMethod);
+    let mut fn_item = syn2::parse_macro_input!(item as syn2::TraitItemFn);
     let ident = &fn_item.sig.ident;
 
     let mut inner_fn_item = fn_item.clone();
-    let inner_fn_ident = syn::Ident::new(&format!("__{ident}_inner"), ident.span());
+    let inner_fn_ident = syn2::Ident::new(&format!("__{ident}_inner"), ident.span());
     inner_fn_item.sig.ident = inner_fn_ident;
 
     let fn_class = classify_fn(&fn_item.sig);
@@ -145,9 +145,9 @@ fn gen_params(
         state: state_ty_from_fn_sig,
         return_type,
     }: &FnClass,
-    state_ty_from_attr: Option<&syn::Type>,
+    state_ty_from_attr: Option<&syn2::Type>,
     with_body: bool,
-) -> Punctuated<syn::FnArg, syn::Token![,]> {
+) -> Punctuated<syn2::FnArg, syn2::Token![,]> {
     let mut params = Punctuated::new();
     if state_ty_from_fn_sig.is_some() || param.is_some() || return_type.is_some() {
         let state_ty = retrieve_state_ty(state_ty_from_attr, state_ty_from_fn_sig.as_ref());
@@ -177,7 +177,7 @@ fn gen_output(
     FnClass {
         param, return_type, ..
     }: &FnClass,
-) -> syn::Type {
+) -> syn2::Type {
     match (param, return_type) {
         (None, None) => parse_quote! { () },
         (Some(_), None | Some(ReturnType::Result(None, ErrType::WasmtimeError))) => parse_quote! {
@@ -208,13 +208,13 @@ impl<F: FnOnce() -> TokenStream2> quote::ToTokens for LazyTokenStream<F> {
 }
 
 fn gen_body(
-    inner_fn_ident: &syn::Ident,
+    inner_fn_ident: &syn2::Ident,
     FnClass {
         param,
         state: state_ty_from_fn_sig,
         return_type,
     }: &FnClass,
-    state_ty_from_attr: Option<&syn::Type>,
+    state_ty_from_attr: Option<&syn2::Type>,
 ) -> TokenStream2 {
     let decode_param = param.as_ref().map_or_else(
         || quote! {},
@@ -320,9 +320,9 @@ fn gen_body(
 /// Classified function
 struct FnClass {
     /// Input parameter
-    param: Option<syn::Type>,
+    param: Option<syn2::Type>,
     /// Does function require state explicitly?
-    state: Option<syn::Type>,
+    state: Option<syn2::Type>,
     /// Return type.
     /// [`None`] means `()`
     return_type: Option<ReturnType>,
@@ -331,10 +331,10 @@ struct FnClass {
 /// Classified return type
 enum ReturnType {
     /// [`Result`] type with [`Ok`] and [`Err`]  types respectively
-    Result(Option<syn::Type>, ErrType),
+    Result(Option<syn2::Type>, ErrType),
     /// Something other than [`Result`]
     #[allow(unused_tuple_struct_fields)] // May be used in future
-    Other(syn::Type),
+    Other(syn2::Type),
 }
 
 /// Classified error type
@@ -343,24 +343,24 @@ enum ErrType {
     WasmtimeError,
     /// Something other than `wasmtime::Error`
     #[allow(unused_tuple_struct_fields)] // May be used in future
-    Other(syn::Type),
+    Other(syn2::Type),
 }
 
-fn classify_fn(fn_sig: &syn::Signature) -> FnClass {
+fn classify_fn(fn_sig: &syn2::Signature) -> FnClass {
     let params = &fn_sig.inputs;
     let (param, state) = classify_params_and_state(params);
 
     let output = &fn_sig.output;
 
     let output_ty = match output {
-        syn::ReturnType::Default => {
+        syn2::ReturnType::Default => {
             return FnClass {
                 param,
                 state,
                 return_type: None,
             }
         }
-        syn::ReturnType::Type(_, ref ty) => ty,
+        syn2::ReturnType::Type(_, ref ty) => ty,
     };
 
     let output_type_path = unwrap_path(output_ty);
@@ -373,7 +373,7 @@ fn classify_fn(fn_sig: &syn::Signature) -> FnClass {
         };
     }
 
-    let syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+    let syn2::PathArguments::AngleBracketed(syn2::AngleBracketedGenericArguments {
         args: generics,
         ..
     }) = &output_last_segment.arguments
@@ -402,8 +402,8 @@ fn classify_fn(fn_sig: &syn::Signature) -> FnClass {
     }
 }
 
-fn extract_type_from_fn_arg(fn_arg: syn::FnArg) -> syn::PatType {
-    let syn::FnArg::Typed(pat_type) = fn_arg else {
+fn extract_type_from_fn_arg(fn_arg: syn2::FnArg) -> syn2::PatType {
+    let syn2::FnArg::Typed(pat_type) = fn_arg else {
         abort!(fn_arg, "`self` arguments are forbidden");
     };
 
@@ -411,8 +411,8 @@ fn extract_type_from_fn_arg(fn_arg: syn::FnArg) -> syn::PatType {
 }
 
 fn classify_params_and_state(
-    params: &Punctuated<syn::FnArg, syn::Token![,]>,
-) -> (Option<syn::Type>, Option<syn::Type>) {
+    params: &Punctuated<syn2::FnArg, syn2::Token![,]>,
+) -> (Option<syn2::Type>, Option<syn2::Type>) {
     match params.len() {
         0 => (None, None),
         1 => {
@@ -439,8 +439,8 @@ fn classify_params_and_state(
     }
 }
 
-fn parse_state_param(param: &syn::PatType) -> Result<&syn::Type, Diagnostic> {
-    let syn::Pat::Ident(pat_ident) = &*param.pat else {
+fn parse_state_param(param: &syn2::PatType) -> Result<&syn2::Type, Diagnostic> {
+    let syn2::Pat::Ident(pat_ident) = &*param.pat else {
         return Err(diagnostic!(
             param,
             Level::Error,
@@ -455,7 +455,7 @@ fn parse_state_param(param: &syn::PatType) -> Result<&syn::Type, Diagnostic> {
         ));
     }
 
-    let syn::Type::Reference(ty_ref) = &*param.ty else {
+    let syn2::Type::Reference(ty_ref) = &*param.ty else {
         return Err(diagnostic!(
             param.ty,
             Level::Error,
@@ -467,31 +467,31 @@ fn parse_state_param(param: &syn::PatType) -> Result<&syn::Type, Diagnostic> {
 }
 
 fn classify_ok_type(
-    generics: &Punctuated<syn::GenericArgument, syn::Token![,]>,
-) -> Option<syn::Type> {
+    generics: &Punctuated<syn2::GenericArgument, syn2::Token![,]>,
+) -> Option<syn2::Type> {
     let ok_generic = generics
         .first()
         .expect_or_abort("First generic argument expected in `Result` return type");
-    let syn::GenericArgument::Type(ok_type) = ok_generic else {
+    let syn2::GenericArgument::Type(ok_type) = ok_generic else {
         abort!(
             ok_generic,
             "First generic of `Result` return type expected to be a type"
         );
     };
 
-    if let syn::Type::Tuple(syn::TypeTuple { elems, .. }) = ok_type {
+    if let syn2::Type::Tuple(syn2::TypeTuple { elems, .. }) = ok_type {
         (!elems.is_empty()).then_some(ok_type.clone())
     } else {
         Some(ok_type.clone())
     }
 }
 
-fn extract_err_type(generics: &Punctuated<syn::GenericArgument, syn::Token![,]>) -> &syn::Type {
+fn extract_err_type(generics: &Punctuated<syn2::GenericArgument, syn2::Token![,]>) -> &syn2::Type {
     let err_generic = generics
         .iter()
         .nth(1)
         .expect_or_abort("Second generic argument expected in `Result` return type");
-    let syn::GenericArgument::Type(err_type) = err_generic else {
+    let syn2::GenericArgument::Type(err_type) = err_generic else {
         abort!(
             err_generic,
             "Second generic of `Result` return type expected to be a type"
@@ -500,24 +500,24 @@ fn extract_err_type(generics: &Punctuated<syn::GenericArgument, syn::Token![,]>)
     err_type
 }
 
-fn unwrap_path(ty: &syn::Type) -> &syn::Path {
-    let syn::Type::Path(syn::TypePath { ref path, .. }) = *ty else {
+fn unwrap_path(ty: &syn2::Type) -> &syn2::Path {
+    let syn2::Type::Path(syn2::TypePath { ref path, .. }) = *ty else {
         abort!(ty, "Expected path");
     };
 
     path
 }
 
-fn last_segment(path: &syn::Path) -> &syn::PathSegment {
+fn last_segment(path: &syn2::Path) -> &syn2::PathSegment {
     path.segments
         .last()
         .expect_or_abort("At least one path segment expected")
 }
 
 fn retrieve_state_ty<'ty>(
-    state_ty_from_attr: Option<&'ty syn::Type>,
-    state_ty_from_fn_sig: Option<&'ty syn::Type>,
-) -> &'ty syn::Type {
+    state_ty_from_attr: Option<&'ty syn2::Type>,
+    state_ty_from_fn_sig: Option<&'ty syn2::Type>,
+) -> &'ty syn2::Type {
     state_ty_from_attr
         .or(state_ty_from_fn_sig)
         .expect_or_abort("`state` attribute is required")
