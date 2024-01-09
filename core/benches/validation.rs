@@ -23,7 +23,7 @@ const TRANSACTION_LIMITS: TransactionLimits = TransactionLimits {
     max_wasm_size_bytes: 0,
 };
 
-fn build_test_transaction(keys: KeyPair) -> SignedTransaction {
+fn build_test_transaction(keys: KeyPair, chain_id: ChainId) -> SignedTransaction {
     let domain_name = "domain";
     let domain_id = DomainId::from_str(domain_name).expect("does not panic");
     let create_domain: InstructionBox = Register::domain(Domain::new(domain_id)).into();
@@ -47,10 +47,13 @@ fn build_test_transaction(keys: KeyPair) -> SignedTransaction {
         Register::asset_definition(AssetDefinition::quantity(asset_definition_id)).into();
     let instructions = [create_domain, create_account, create_asset];
 
-    TransactionBuilder::new(AccountId::new(
-        START_ACCOUNT.parse().expect("Valid"),
-        START_DOMAIN.parse().expect("Valid"),
-    ))
+    TransactionBuilder::new(
+        chain_id,
+        AccountId::new(
+            START_ACCOUNT.parse().expect("Valid"),
+            START_DOMAIN.parse().expect("Valid"),
+        ),
+    )
     .with_instructions(instructions)
     .sign(keys)
     .expect("Failed to sign.")
@@ -93,24 +96,28 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
 }
 
 fn accept_transaction(criterion: &mut Criterion) {
+    let chain_id = ChainId::new("0");
+
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction = build_test_transaction(keys);
+    let transaction = build_test_transaction(keys, chain_id.clone());
     let mut success_count = 0;
     let mut failures_count = 0;
     let _ = criterion.bench_function("accept", |b| {
-        b.iter(
-            || match AcceptedTransaction::accept(transaction.clone(), &TRANSACTION_LIMITS) {
+        b.iter(|| {
+            match AcceptedTransaction::accept(transaction.clone(), &chain_id, &TRANSACTION_LIMITS) {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
-            },
-        );
+            }
+        });
     });
     println!("Success count: {success_count}, Failures count: {failures_count}");
 }
 
 fn sign_transaction(criterion: &mut Criterion) {
+    let chain_id = ChainId::new("0");
+
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction = build_test_transaction(keys);
+    let transaction = build_test_transaction(keys, chain_id);
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let mut success_count = 0;
     let mut failures_count = 0;
@@ -124,10 +131,15 @@ fn sign_transaction(criterion: &mut Criterion) {
 }
 
 fn validate_transaction(criterion: &mut Criterion) {
+    let chain_id = ChainId::new("0");
+
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction =
-        AcceptedTransaction::accept(build_test_transaction(keys.clone()), &TRANSACTION_LIMITS)
-            .expect("Failed to accept transaction.");
+    let transaction = AcceptedTransaction::accept(
+        build_test_transaction(keys.clone(), chain_id.clone()),
+        &chain_id,
+        &TRANSACTION_LIMITS,
+    )
+    .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failure_count = 0;
     let wsv = build_test_and_transient_wsv(keys);
@@ -145,10 +157,15 @@ fn validate_transaction(criterion: &mut Criterion) {
 }
 
 fn sign_blocks(criterion: &mut Criterion) {
+    let chain_id = ChainId::new("0");
+
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction =
-        AcceptedTransaction::accept(build_test_transaction(keys), &TRANSACTION_LIMITS)
-            .expect("Failed to accept transaction.");
+    let transaction = AcceptedTransaction::accept(
+        build_test_transaction(keys, chain_id.clone()),
+        &chain_id,
+        &TRANSACTION_LIMITS,
+    )
+    .expect("Failed to accept transaction.");
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::test().start();

@@ -277,10 +277,12 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             alice_id.clone(),
         );
 
-        let grant_asset_transfer_tx = TransactionBuilder::new(asset_id.account_id().clone())
-            .with_instructions([allow_alice_to_transfer_asset])
-            .sign(owner_keypair)
-            .expect("Failed to sign seller transaction");
+        let chain_id = ChainId::new("0");
+        let grant_asset_transfer_tx =
+            TransactionBuilder::new(chain_id, asset_id.account_id().clone())
+                .with_instructions([allow_alice_to_transfer_asset])
+                .sign(owner_keypair)
+                .expect("Failed to sign seller transaction");
 
         test_client
             .submit_transaction_blocking(&grant_asset_transfer_tx)

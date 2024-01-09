@@ -12,6 +12,8 @@ use test_network::*;
 
 #[test]
 fn executor_upgrade_should_work() -> Result<()> {
+    let chain_id = ChainId::new("0");
+
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_795).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
@@ -30,7 +32,7 @@ fn executor_upgrade_should_work() -> Result<()> {
     let alice_rose: AssetId = "rose##alice@wonderland".parse()?;
     let admin_rose: AccountId = "admin@admin".parse()?;
     let transfer_alice_rose = Transfer::asset_quantity(alice_rose, 1_u32, admin_rose);
-    let transfer_rose_tx = TransactionBuilder::new(admin_id.clone())
+    let transfer_rose_tx = TransactionBuilder::new(chain_id.clone(), admin_id.clone())
         .with_instructions([transfer_alice_rose.clone()])
         .sign(admin_keypair.clone())?;
     let _ = client
@@ -44,7 +46,7 @@ fn executor_upgrade_should_work() -> Result<()> {
 
     // Check that admin can transfer alice's rose now
     // Creating new transaction instead of cloning, because we need to update it's creation time
-    let transfer_rose_tx = TransactionBuilder::new(admin_id)
+    let transfer_rose_tx = TransactionBuilder::new(chain_id, admin_id)
         .with_instructions([transfer_alice_rose])
         .sign(admin_keypair)?;
     client

@@ -41,6 +41,7 @@ mod client {
     impl<T: Write> RunArgs<T> for Args {
         fn run(self, writer: &mut BufWriter<T>) -> Outcome {
             let config = ConfigurationProxy {
+                    chain_id: Some(ChainId::new("00000000-0000-0000-0000-000000000000")),
                     torii_api_url: Some(format!("http://{DEFAULT_API_ADDR}").parse()?),
                     account_id: Some("alice@wonderland".parse()?),
                     basic_auth: Some(Some(BasicAuth {

@@ -17,6 +17,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 
 class Network:
@@ -46,6 +47,7 @@ class Network:
             sys.exit(1)
         copy_or_prompt_build_bin("iroha", args.root_dir, peers_dir)
 
+        self.shared_env["IROHA_CHAIN_ID"] = str(uuid.uuid4())
         self.shared_env["IROHA_CONFIG"] = str(peers_dir.joinpath("config.json"))
         self.shared_env["IROHA_GENESIS_PUBLIC_KEY"] = self.peers[0].public_key
 
@@ -123,7 +125,7 @@ class _Peer:
         peer_env["KURA_BLOCK_STORE_PATH"] = str(self.peer_dir.joinpath("storage"))
         peer_env["SNAPSHOT_DIR_PATH"] = str(self.peer_dir.joinpath("storage"))
         peer_env["LOG_LEVEL"] = "INFO"
-        peer_env["LOG_FORMAT"] = "\"pretty\""
+        peer_env["LOG_FORMAT"] = '"pretty"'
         peer_env["LOG_TOKIO_CONSOLE_ADDR"] = f"{self.host_ip}:{self.tokio_console_port}"
         peer_env["IROHA_PUBLIC_KEY"] = self.public_key
         peer_env["IROHA_PRIVATE_KEY"] = self.private_key
