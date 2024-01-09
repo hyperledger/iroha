@@ -11,8 +11,8 @@ RUN pacman -Syu --noconfirm --disable-download-timeout
 
 # Set up Rust toolchain
 RUN pacman -S rustup mold musl rust-musl wget --noconfirm --disable-download-timeout
-RUN rustup toolchain install nightly-2023-06-25
-RUN rustup default nightly-2023-06-25
+RUN rustup toolchain install nightly-2024-01-12
+RUN rustup default nightly-2024-01-12
 RUN rustup target add x86_64-unknown-linux-musl wasm32-unknown-unknown
 RUN rustup component add rust-src
 
@@ -33,7 +33,7 @@ RUN cargo build --target x86_64-unknown-linux-musl --profile deploy
 
 
 # final image
-FROM alpine:3.18
+FROM alpine:3.19
 
 ARG  STORAGE=/storage
 ARG  TARGET_DIR=/iroha/target/x86_64-unknown-linux-musl/deploy
