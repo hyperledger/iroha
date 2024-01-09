@@ -12,7 +12,7 @@
 use iroha_data_model::Level;
 use serde::{Deserialize, Serialize};
 
-use super::{iroha::Configuration as BaseConfiguration, logger::Configuration as BaseLogger};
+use super::parameters::{logger::Config as BaseLogger, Config as BaseConfiguration};
 
 /// Subset of [`super::iroha`] configuration.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -24,7 +24,7 @@ pub struct ConfigurationDTO {
 impl From<&'_ BaseConfiguration> for ConfigurationDTO {
     fn from(value: &'_ BaseConfiguration) -> Self {
         Self {
-            logger: value.logger.as_ref().into(),
+            logger: (&value.logger).into(),
         }
     }
 }

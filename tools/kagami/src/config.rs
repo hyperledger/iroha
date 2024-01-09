@@ -29,7 +29,7 @@ impl<T: Write> RunArgs<T> for Args {
 
 mod client {
     use iroha_config::{
-        client::{BasicAuth, ConfigurationProxy, WebLogin},
+        r#mod::{BasicAuth, ConfigurationProxy, WebLogin},
         torii::uri::DEFAULT_API_ADDR,
     };
 

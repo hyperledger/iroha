@@ -13,8 +13,8 @@ use iroha_client::{
 };
 use iroha_config::{
     base::proxy::{LoadFromEnv, Override},
-    client::Configuration as ClientConfiguration,
     iroha::{Configuration, ConfigurationProxy},
+    r#mod::Configuration as ClientConfiguration,
     sumeragi::Configuration as SumeragiConfiguration,
     torii::Configuration as ToriiConfiguration,
 };

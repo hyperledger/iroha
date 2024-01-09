@@ -21,6 +21,7 @@ eyre = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
 url = { workspace = true, features = ["serde"] }
+drop_bomb = { workspace = true }
 
 serde = { workspace = true, features = ["derive"] }
 strum = { workspace = true, features = ["derive"] }
@@ -31,11 +32,16 @@ displaydoc = { workspace = true }
 derive_more = { workspace = true }
 cfg-if = { workspace = true }
 once_cell = { workspace = true }
+nonzero_ext = "0.3.0"
+toml = "0.8.8"
+parse-display = "0.8.2"
 
 [dev-dependencies]
 proptest = "1.3.1"
 stacker = "0.1.15"
 expect-test = { workspace = true }
+trybuild = { workspace = true }
+hex = { workspace = true }
 
 [features]
 tokio-console = []

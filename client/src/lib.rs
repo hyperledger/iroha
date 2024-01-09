@@ -42,7 +42,7 @@ pub mod samples {
 pub mod config {
     //! Module for client-related configuration and structs
 
-    pub use iroha_config::{client::*, client_api as api, path, torii::uri as torii};
+    pub use iroha_config::{client_api as api, path, r#mod::*, torii::uri as torii};
 }
 
 pub use iroha_crypto as crypto;

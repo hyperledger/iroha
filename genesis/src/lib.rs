@@ -82,6 +82,7 @@ pub struct RawGenesisBlock {
     /// Transactions
     transactions: Vec<GenesisTransactionBuilder>,
     /// Runtime Executor
+    // TODO `RawGenesisBlock` should have evaluated executor, i.e. loaded
     executor: ExecutorMode,
 }
 
@@ -93,7 +94,7 @@ impl RawGenesisBlock {
     ///
     /// # Errors
     /// If file not found or deserialization from file fails.
-    pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Self> {
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
         let file = File::open(&path)
             .wrap_err_with(|| eyre!("Failed to open {}", path.as_ref().display()))?;
         let size = file
@@ -104,8 +105,12 @@ impl RawGenesisBlock {
             eprintln!("Genesis is quite large, it will take some time to apply it (size = {}, threshold = {})", size, Self::WARN_ON_GENESIS_GTE);
         }
         let reader = BufReader::new(file);
-        let mut raw_genesis_block: Self = serde_json::from_reader(reader)
-            .wrap_err_with(|| eyre!("Failed to deserialize raw genesis block from {:?}", &path))?;
+        let mut raw_genesis_block: Self = serde_json::from_reader(reader).wrap_err_with(|| {
+            eyre!(
+                "Failed to deserialize raw genesis block from {:?}",
+                path.as_ref().display()
+            )
+        })?;
         raw_genesis_block.executor.set_genesis_path(path);
         Ok(raw_genesis_block)
     }

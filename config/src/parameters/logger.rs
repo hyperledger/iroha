@@ -2,11 +2,12 @@
 //! configuration, as well as run-time reloading of the log-level.
 use core::fmt::Debug;
 
-use iroha_config_base::derive::Proxy;
 pub use iroha_data_model::Level;
 #[cfg(feature = "tokio-console")]
 use iroha_primitives::addr::{socket_addr, SocketAddr};
 use serde::{Deserialize, Serialize};
+
+use crate::{Complete, CompleteError, CompleteResult, FromEnvDefaultFallback};
 
 #[cfg(feature = "tokio-console")]
 const DEFAULT_TOKIO_CONSOLE_ADDR: SocketAddr = socket_addr!(127.0.0.1:5555);
@@ -23,14 +24,23 @@ pub fn into_tracing_level(level: Level) -> tracing::Level {
 }
 
 /// 'Logger' configuration.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy)]
-#[serde(rename_all = "UPPERCASE")]
-#[config(env_prefix = "LOG_")]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
 // `tokio_console_addr` is not `Copy`, but warning appears without `tokio-console` feature
 #[allow(missing_copy_implementations)]
-pub struct Configuration {
+#[serde(deny_unknown_fields)]
+pub struct UserLayer {
     /// Level of logging verbosity
-    #[config(serde_as_str)]
+    pub level: Option<Level>,
+    /// Output format
+    pub format: Option<Format>,
+    #[cfg(feature = "tokio-console")]
+    /// Address of tokio console (only available under "tokio-console" feature)
+    pub tokio_console_addr: Option<SocketAddr>,
+}
+
+#[derive(Debug)]
+pub struct Config {
+    /// Level of logging verbosity
     pub level: Level,
     /// Output format
     pub format: Format,
@@ -40,10 +50,11 @@ pub struct Configuration {
 }
 
 /// Reflects formatters in [`tracing_subscriber::fmt::format`]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum Format {
     /// See [`tracing_subscriber::fmt::format::Full`]
+    #[default]
     Full,
     /// See [`tracing_subscriber::fmt::format::Compact`]
     Compact,
@@ -53,44 +64,27 @@ pub enum Format {
     Json,
 }
 
-impl Default for Format {
-    fn default() -> Self {
-        Self::Full
+impl Complete for UserLayer {
+    type Output = Config;
+
+    fn complete(self) -> CompleteResult<Self::Output> {
+        Ok(Config {
+            level: self.level.unwrap_or_default(),
+            format: self.format.unwrap_or_default(),
+            #[cfg(feature = "tokio-console")]
+            tokio_console_addr: self
+                .tokio_console_addr
+                .unwrap_or_else(|| DEFAULT_TOKIO_CONSOLE_ADDR.clone()),
+        })
     }
 }
 
-impl Default for ConfigurationProxy {
-    fn default() -> Self {
-        Self {
-            level: Some(Level::default()),
-            format: Some(Format::default()),
-            #[cfg(feature = "tokio-console")]
-            tokio_console_addr: Some(DEFAULT_TOKIO_CONSOLE_ADDR),
-        }
-    }
-}
+impl FromEnvDefaultFallback for UserLayer {}
 
 #[cfg(test)]
 pub mod tests {
-    use proptest::prelude::*;
 
     use super::*;
-
-    #[must_use = "strategies do nothing unless used"]
-    pub fn arb_proxy() -> impl proptest::strategy::Strategy<Value = ConfigurationProxy> {
-        let strat = (
-            (prop::option::of(Just(Level::default()))),
-            (prop::option::of(Just(Format::default()))),
-            #[cfg(feature = "tokio-console")]
-            (prop::option::of(Just(DEFAULT_TOKIO_CONSOLE_ADDR))),
-        );
-        proptest::strategy::Strategy::prop_map(strat, move |strat| ConfigurationProxy {
-            level: strat.0,
-            format: strat.1,
-            #[cfg(feature = "tokio-console")]
-            tokio_console_addr: strat.2,
-        })
-    }
 
     #[test]
     fn serialize_pretty_format_in_lowercase() {
