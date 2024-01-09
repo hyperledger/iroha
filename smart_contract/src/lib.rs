@@ -47,7 +47,7 @@ unsafe extern "C" fn _iroha_smart_contract_dealloc(offset: *mut u8, len: usize) 
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use iroha_smart_contract::{prelude::*, parse};
 ///
 /// let account_id = parse!("alice@wonderland" as AccountId);

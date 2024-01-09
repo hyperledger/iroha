@@ -181,46 +181,46 @@ fn produce_multiple_events() -> Result<()> {
     }
 
     let expected_domain_events: Vec<DataEvent> = [
-        WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
+        DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
                 permission_id: token_1.definition_id.clone(),
             },
         ))),
-        WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
+        DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
                 permission_id: token_2.definition_id.clone(),
             },
         ))),
-        WorldEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(
+        DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(
             AccountRoleChanged {
                 account_id: bob_id.clone(),
                 role_id: role_id.clone(),
             },
         ))),
-        WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
+        DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
                 permission_id: token_1.definition_id,
             },
         ))),
-        WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
+        DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
                 permission_id: token_2.definition_id,
             },
         ))),
-        WorldEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(
+        DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(
             AccountRoleChanged {
                 account_id: bob_id,
                 role_id: role_id.clone(),
             },
         ))),
-        WorldEvent::Role(RoleEvent::Deleted(role_id)),
+        DataEvent::Role(RoleEvent::Deleted(role_id)),
     ]
     .into_iter()
-    .flat_map(WorldEvent::flatten)
+    .map(Into::into)
     .collect();
 
     for expected_event in expected_domain_events {

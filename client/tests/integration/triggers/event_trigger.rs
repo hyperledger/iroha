@@ -24,10 +24,16 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
             vec![instruction],
             Repeats::Indefinitely,
             account_id,
-            TriggeringFilterBox::Data(BySome(DataEntityFilter::ByAssetDefinition(BySome(
-                AssetDefinitionFilter::new(
+            // FIXME: rewrite the filters using the builder DSL https://github.com/hyperledger/iroha/issues/3068
+            TriggeringFilterBox::Data(BySome(DataEntityFilter::ByDomain(BySome(
+                DomainFilter::new(
                     AcceptAll,
-                    BySome(AssetDefinitionEventFilter::ByCreated),
+                    BySome(DomainEventFilter::ByAssetDefinition(BySome(
+                        AssetDefinitionFilter::new(
+                            AcceptAll,
+                            BySome(AssetDefinitionEventFilter::ByCreated),
+                        ),
+                    ))),
                 ),
             )))),
         ),

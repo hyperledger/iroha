@@ -68,13 +68,17 @@ pub fn get_key_pair() -> KeyPair {
 
 /// Trait used to differentiate a test instance of `genesis`.
 pub trait TestGenesis: Sized {
-    /// Construct Iroha genesis network and optionally submit genesis
-    /// from the given peer.
-    fn test(submit_genesis: bool) -> Option<Self>;
+    /// Construct Iroha genesis network
+    fn test() -> Self {
+        Self::test_with_instructions([])
+    }
+
+    /// Construct genesis network with additional instructions
+    fn test_with_instructions(extra_isi: impl IntoIterator<Item = InstructionBox>) -> Self;
 }
 
 impl TestGenesis for GenesisNetwork {
-    fn test(submit_genesis: bool) -> Option<Self> {
+    fn test_with_instructions(extra_isi: impl IntoIterator<Item = InstructionBox>) -> Self {
         let cfg = Configuration::test();
 
         // TODO: Fix this somehow. Probably we need to make `kagami` a library (#3253).
@@ -121,14 +125,16 @@ impl TestGenesis for GenesisNetwork {
                 .append_instruction(Grant::permission_token(permission, alice_id.clone()).into());
         }
 
-        if submit_genesis {
-            return Some(
-                GenesisNetwork::from_configuration(genesis, Some(&cfg.genesis))
-                    .expect("Failed to init genesis"),
-            );
+        for isi in extra_isi.into_iter() {
+            first_transaction.append_instruction(isi);
         }
 
-        None
+        let key_pair = KeyPair::new(
+            cfg.genesis.public_key.clone(),
+            cfg.genesis.private_key.expect("Should be"),
+        )
+        .expect("Genesis key pair should be valid");
+        GenesisNetwork::new(genesis, &key_pair).expect("Failed to init genesis")
     }
 }
 
@@ -215,7 +221,7 @@ impl Network {
 
         let peer = PeerBuilder::new()
             .with_configuration(config)
-            .with_into_genesis(GenesisNetwork::test(false))
+            .with_genesis(GenesisNetwork::test())
             .start()
             .await;
 
@@ -256,7 +262,7 @@ impl Network {
                     (n, builder)
                 }
             })
-            .map(|(n, builder)| builder.with_into_genesis(GenesisNetwork::test(n == 0)))
+            .map(|(n, builder)| builder.with_into_genesis((n == 0).then(GenesisNetwork::test)))
             .take(n_peers as usize)
             .collect::<Vec<_>>();
         let mut peers = builders
@@ -408,7 +414,6 @@ impl Peer {
             }),
             public_key: self.key_pair.public_key().clone(),
             private_key: self.key_pair.private_key().clone(),
-            disable_panic_terminal_colors: true,
             ..configuration
         }
     }
@@ -432,7 +437,7 @@ impl Peer {
 
         let handle = task::spawn(
             async move {
-                let mut iroha = Iroha::with_genesis(genesis, configuration, logger)
+                let mut iroha = Iroha::new(configuration, genesis, logger)
                     .await
                     .expect("Failed to start iroha");
                 let job_handle = iroha.start_as_task().unwrap();
@@ -556,8 +561,8 @@ impl PeerBuilder {
 
     /// Set the test genesis network.
     #[must_use]
-    pub fn with_test_genesis(self, submit_genesis: bool) -> Self {
-        self.with_into_genesis(GenesisNetwork::test(submit_genesis))
+    pub fn with_test_genesis(self) -> Self {
+        self.with_into_genesis(GenesisNetwork::test())
     }
 
     /// Set Iroha configuration
@@ -603,7 +608,7 @@ impl PeerBuilder {
             config
         });
         let genesis = match self.genesis {
-            WithGenesis::Default => GenesisNetwork::test(true),
+            WithGenesis::Default => Some(GenesisNetwork::test()),
             WithGenesis::None => None,
             WithGenesis::Has(genesis) => Some(genesis),
         };

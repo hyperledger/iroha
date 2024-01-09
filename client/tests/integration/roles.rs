@@ -172,3 +172,42 @@ fn role_with_invalid_permissions_is_not_accepted() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+#[allow(deprecated)]
+fn role_permissions_unified() {
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_235).start_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let allow_alice_to_transfer_rose_1 = PermissionToken::from_str_unchecked(
+        "CanTransferUserAsset".parse().unwrap(),
+        // NOTE: Introduced additional whitespaces in the serialized form
+        "{ \"asset_id\" : \"rose#wonderland#alice@wonderland\" }",
+    );
+
+    let allow_alice_to_transfer_rose_2 = PermissionToken::from_str_unchecked(
+        "CanTransferUserAsset".parse().unwrap(),
+        // NOTE: Introduced additional whitespaces in the serialized form
+        "{ \"asset_id\" : \"rose##alice@wonderland\" }",
+    );
+
+    let role_id: RoleId = "role_id".parse().expect("Valid");
+    let role = Role::new(role_id.clone())
+        .add_permission(allow_alice_to_transfer_rose_1)
+        .add_permission(allow_alice_to_transfer_rose_2);
+
+    test_client
+        .submit_blocking(Register::role(role))
+        .expect("failed to register role");
+
+    let role = test_client
+        .request(FindRoleByRoleId::new(role_id))
+        .expect("failed to find role");
+
+    // Permission tokens are unified so only one token left
+    assert_eq!(
+        role.permissions().len(),
+        1,
+        "permission tokens for role aren't deduplicated"
+    );
+}

@@ -1,4 +1,4 @@
-//! This module contains the sample configurations used for testing and benchmarking throghout Iroha.
+//! This module contains the sample configurations used for testing and benchmarking throughout Iroha.
 use std::{collections::HashSet, path::Path, str::FromStr};
 
 use iroha_config::{
@@ -79,8 +79,9 @@ pub fn get_config_proxy(peers: UniqueVec<PeerId>, key_pair: Option<KeyPair>) -> 
             ..iroha_config::queue::ConfigurationProxy::default()
         }),
         genesis: Some(Box::new(iroha_config::genesis::ConfigurationProxy {
-            account_private_key: Some(Some(private_key)),
-            account_public_key: Some(public_key),
+            private_key: Some(Some(private_key)),
+            public_key: Some(public_key),
+            file: Some(Some("./genesis.json".into())),
         })),
         ..ConfigurationProxy::default()
     }

@@ -931,6 +931,8 @@ pub mod parameter {
 }
 
 pub mod role {
+    use iroha_smart_contract::data_model::role::Role;
+
     use super::*;
 
     macro_rules! impl_validate {
@@ -981,13 +983,16 @@ pub mod role {
     ) {
         let role = isi.object().inner();
 
+        // Unify permission tokens inside role and deduplicate them
+        let mut new_role = Role::new(role.id().clone());
         let mut unknown_tokens = Vec::new();
         for token in role.permissions() {
             iroha_smart_contract::debug!(&format!("Checking `{token:?}`"));
 
             macro_rules! try_from_token {
                 ($token:ident) => {
-                    let _token = $token;
+                    let token = PermissionToken::from($token);
+                    new_role = new_role.add_permission(token);
                     continue;
                 };
             }
@@ -1005,6 +1010,7 @@ pub mod role {
             );
         }
 
+        let isi = Register::role(new_role);
         execute!(executor, isi);
     }
 
@@ -1168,14 +1174,17 @@ pub mod permission_token {
     use super::*;
 
     macro_rules! impl_validate {
-        ($executor:ident, $authority:ident, $isi:ident, $method:ident) => {
+        ($executor:ident, $authority:ident, $isi:ident, $method:ident, $isi_type:ty) => {
             // TODO: https://github.com/hyperledger/iroha/issues/4082
             let token = $isi.object().clone();
+            let account_id = $isi.destination_id().clone();
 
             macro_rules! visit_internal {
                 ($token:ident) => {
+                    let token = PermissionToken::from($token.clone());
+                    let isi = <$isi_type>::permission_token(token, account_id);
                     if is_genesis($executor) {
-                        execute!($executor, $isi);
+                        execute!($executor, isi);
                     }
                     if let Err(error) = permission::ValidateGrantRevoke::$method(
                         &$token,
@@ -1185,7 +1194,7 @@ pub mod permission_token {
                         deny!($executor, error);
                     }
 
-                    execute!($executor, $isi);
+                    execute!($executor, isi);
                 };
             }
 
@@ -1203,7 +1212,13 @@ pub mod permission_token {
         authority: &AccountId,
         isi: &Grant<PermissionToken>,
     ) {
-        impl_validate!(executor, authority, isi, validate_grant);
+        impl_validate!(
+            executor,
+            authority,
+            isi,
+            validate_grant,
+            Grant<PermissionToken>
+        );
     }
 
     pub fn visit_revoke_account_permission<V: Validate + ?Sized>(
@@ -1211,7 +1226,13 @@ pub mod permission_token {
         authority: &AccountId,
         isi: &Revoke<PermissionToken>,
     ) {
-        impl_validate!(executor, authority, isi, validate_revoke);
+        impl_validate!(
+            executor,
+            authority,
+            isi,
+            validate_revoke,
+            Revoke<PermissionToken>
+        );
     }
 }
 

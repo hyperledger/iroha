@@ -17,20 +17,11 @@ fn genesis_transactions_are_validated() {
 
     // Setting up genesis
 
-    let mut genesis = GenesisNetwork::test(true).expect("Expected genesis");
-
-    let grant_invalid_token = Grant::permission_token(
+    let genesis = GenesisNetwork::test_with_instructions([Grant::permission_token(
         PermissionToken::new("InvalidToken".parse().unwrap(), &json!(null)),
         AccountId::from_str("alice@wonderland").unwrap(),
-    );
-
-    let tx_ref = &mut genesis.transactions.last_mut().unwrap().0;
-    match &mut tx_ref.payload_mut().instructions {
-        Executable::Instructions(instructions) => {
-            instructions.push(grant_invalid_token.into());
-        }
-        Executable::Wasm(_) => panic!("Expected instructions"),
-    }
+    )
+    .into()]);
 
     // Starting peer
     let (_rt, _peer, test_client) = <PeerBuilder>::new()
@@ -337,4 +328,40 @@ fn stored_vs_granted_token_payload() -> Result<()> {
         .expect("Failed to mint asset for mouse.");
 
     Ok(())
+}
+
+#[test]
+#[allow(deprecated)]
+fn permission_tokens_are_unified() {
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(11_230).start_with_runtime();
+    wait_for_genesis_committed(&[iroha_client.clone()], 0);
+
+    // Given
+    let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+
+    let allow_alice_to_transfer_rose_1 = Grant::permission_token(
+        PermissionToken::from_str_unchecked(
+            "CanTransferUserAsset".parse().unwrap(),
+            // NOTE: Introduced additional whitespaces in the serialized form
+            "{ \"asset_id\" : \"rose#wonderland#alice@wonderland\" }",
+        ),
+        alice_id.clone(),
+    );
+
+    let allow_alice_to_transfer_rose_2 = Grant::permission_token(
+        PermissionToken::from_str_unchecked(
+            "CanTransferUserAsset".parse().unwrap(),
+            // NOTE: Introduced additional whitespaces in the serialized form
+            "{ \"asset_id\" : \"rose##alice@wonderland\" }",
+        ),
+        alice_id,
+    );
+
+    iroha_client
+        .submit_blocking(allow_alice_to_transfer_rose_1)
+        .expect("failed to grant permission token");
+
+    let _ = iroha_client
+        .submit_blocking(allow_alice_to_transfer_rose_2)
+        .expect_err("permission tokens are not unified");
 }
