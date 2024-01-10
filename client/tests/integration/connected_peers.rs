@@ -46,7 +46,7 @@ fn register_new_peer() -> Result<()> {
         PeerBuilder::new()
             .with_configuration(configuration)
             .with_into_genesis(WithGenesis::None)
-            .with_port(11_200)
+            .with_port(11_225)
             .start(),
     );
 
