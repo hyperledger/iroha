@@ -1,5 +1,5 @@
-//! function into another function which signature will be compatible with `wasmtime` crate to be
 //! This crate provides [`wrap`] and [`wrap_signature`] attribute macros to wrap a host-defined
+//! function into another function which signature will be compatible with `wasmtime` crate to be
 //! successfully exported.
 
 use std::ops::Deref;
