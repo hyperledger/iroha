@@ -79,13 +79,12 @@ impl Complete for UserLayer {
 
         let regular = match (name, url) {
             (Some(name), Some(url)) => Some(RegularTelemetryConfig {
-                name: name.clone(),
-                url: url.clone(),
+                name,
+                url,
                 max_retry_delay_exponent: max_retry_delay_exponent
                     .unwrap_or(DEFAULT_MAX_RETRY_DELAY_EXPONENT),
                 min_retry_period: min_retry_period
-                    .map(UserDuration::get)
-                    .unwrap_or(DEFAULT_MIN_RETRY_PERIOD),
+                    .map_or(DEFAULT_MIN_RETRY_PERIOD, UserDuration::get),
             }),
             (None, None) => None,
             // TODO improve error detail

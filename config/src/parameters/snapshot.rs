@@ -40,8 +40,7 @@ impl Complete for UserLayer {
             creation_enabled: self.creation_enabled.unwrap_or(DEFAULT_ENABLED),
             create_every_ms: self
                 .create_every_ms
-                .map(UserDuration::get)
-                .unwrap_or(DEFAULT_SNAPSHOT_CREATE_EVERY_MS),
+                .map_or(DEFAULT_SNAPSHOT_CREATE_EVERY_MS, UserDuration::get),
             store_path: self
                 .store_path
                 .unwrap_or_else(|| PathBuf::from(DEFAULT_SNAPSHOT_PATH)),

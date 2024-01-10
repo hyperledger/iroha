@@ -16,7 +16,7 @@ fn parse_env(raw: impl AsRef<str>) -> HashMap<String, String> {
     raw.as_ref()
         .lines()
         .map(|line| {
-            let mut items = line.split("=");
+            let mut items = line.split('=');
             let key = items
                 .next()
                 .expect("line should be in {key}={value} format");
@@ -151,7 +151,7 @@ fn missing_fields() -> Result<()> {
 }
 
 #[test]
-fn extra_fields() -> Result<()> {
+fn extra_fields() {
     let error = UserLayer::from_toml(fixtures_dir().join("extra_fields.toml"))
         .expect_err("should fail with extra fields");
 
@@ -163,8 +163,6 @@ fn extra_fields() -> Result<()> {
         unknown field `i_am_unknown`, expected one of `iroha`, `genesis`, `kura`, `sumeragi`, `logger`, `queue`, `snapshot`, `telemetry`, `torii`, `chain_wide`
     "#]];
     expected.assert_eq(&format!("{error:#}"));
-
-    Ok(())
 }
 
 #[test]
@@ -188,7 +186,7 @@ fn full_env_config() -> Result<()> {
     let env = {
         let path = fixtures_dir().join(".full_config_in.env");
         let contents = fs::read_to_string(path)?;
-        let map = parse_env(&contents);
+        let map = parse_env(contents);
         TestEnv::with_map(map)
     };
 

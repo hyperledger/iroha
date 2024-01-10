@@ -83,7 +83,8 @@ impl UserLayer {
         patch!(self.telemetry.dev.file);
     }
 
-    pub fn merge(self, other: Self) -> Self {
+    #[must_use]
+    pub fn merge(self, _other: Self) -> Self {
         todo!()
     }
 }
@@ -136,8 +137,6 @@ impl Complete for UserLayer {
 
 impl FromEnv for UserLayer {
     fn from_env(env: &impl ReadEnv) -> FromEnvResult<Self> {
-        let mut emitter = Emitter::new();
-
         fn from_env_nested<T: FromEnv>(
             env: &impl ReadEnv,
             emitter: &mut Emitter<Report>,
@@ -150,6 +149,8 @@ impl FromEnv for UserLayer {
                 }
             }
         }
+
+        let mut emitter = Emitter::new();
 
         let iroha = from_env_nested(env, &mut emitter);
         let genesis = from_env_nested(env, &mut emitter);

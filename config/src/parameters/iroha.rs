@@ -49,7 +49,7 @@ impl Complete for UserLayer {
             }
         };
 
-        if let None = self.p2p_address {
+        if self.p2p_address.is_none() {
             emitter.emit_missing_field("iroha.p2p_address");
         }
 
@@ -88,11 +88,13 @@ pub(crate) fn private_key_from_env(
                         &payload_env
                     )
                 })
-                .map(ParseEnvResult::Value)
-                .unwrap_or_else(|report| {
-                    emitter.emit(report);
-                    ParseEnvResult::ParseError
-                })
+                .map_or_else(
+                    |report| {
+                        emitter.emit(report);
+                        ParseEnvResult::ParseError
+                    },
+                    ParseEnvResult::Value,
+                )
         }
         (ParseEnvResult::None, None) | (ParseEnvResult::ParseError, _) => ParseEnvResult::None,
         (ParseEnvResult::Value(_), None) => {

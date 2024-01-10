@@ -38,11 +38,10 @@ impl Complete for UserLayer {
                 .ok_or_else(|| CompleteError::missing_field("torii.address"))?,
             max_content_len: self
                 .max_content_len
-                .unwrap_or_else(|| ByteSize(DEFAULT_MAX_CONTENT_LENGTH)),
+                .unwrap_or(ByteSize(DEFAULT_MAX_CONTENT_LENGTH)),
             query_idle_time: self
                 .query_idle_time
-                .map(UserDuration::get)
-                .unwrap_or(DEFAULT_QUERY_IDLE_TIME),
+                .map_or(DEFAULT_QUERY_IDLE_TIME, UserDuration::get),
         })
     }
 }

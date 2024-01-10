@@ -48,18 +48,16 @@ impl Complete for UserLayer {
         Ok(Config {
             block_gossip_period: self
                 .block_gossip_period
-                .map(UserDuration::get)
-                .unwrap_or(DEFAULT_BLOCK_GOSSIP_PERIOD),
+                .map_or(DEFAULT_BLOCK_GOSSIP_PERIOD, UserDuration::get),
             max_blocks_per_gossip: self
                 .max_blocks_per_gossip
-                .unwrap_or_else(|| DEFAULT_MAX_BLOCKS_PER_GOSSIP.into()),
+                .unwrap_or(DEFAULT_MAX_BLOCKS_PER_GOSSIP),
             max_transactions_per_gossip: self
                 .max_transactions_per_gossip
-                .unwrap_or_else(|| DEFAULT_MAX_TRANSACTIONS_PER_GOSSIP.into()),
+                .unwrap_or(DEFAULT_MAX_TRANSACTIONS_PER_GOSSIP),
             transaction_gossip_period: self
                 .transaction_gossip_period
-                .map(UserDuration::get)
-                .unwrap_or(DEFAULT_TRANSACTION_GOSSIP_PERIOD),
+                .map_or(DEFAULT_TRANSACTION_GOSSIP_PERIOD, UserDuration::get),
             trusted_peers: self.trusted_peers.unwrap_or_default(),
         })
     }

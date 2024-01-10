@@ -93,10 +93,11 @@ impl<T: Debug> Emitter<T> {
 
     fn finish(mut self) -> Result<(), ErrorsCollection<T>> {
         self.bomb.defuse();
-        if !self.errors.is_empty() {
-            Err(ErrorsCollection(self.errors))
-        } else {
+
+        if self.errors.is_empty() {
             Ok(())
+        } else {
+            Err(ErrorsCollection(self.errors))
         }
     }
 }
@@ -138,7 +139,7 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for (i, item) in self.0.iter().enumerate() {
             if i > 0 {
-                write!(f, "\n")?;
+                writeln!(f)?;
             }
             write!(f, "{item}")?;
         }
@@ -153,7 +154,7 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for (i, item) in self.0.iter().enumerate() {
             if i > 0 {
-                write!(f, "\n")?;
+                writeln!(f)?;
             }
             write!(f, "{item:?}")?;
         }
@@ -191,6 +192,7 @@ impl TestEnv {
         Self { map, ..Self::new() }
     }
 
+    #[must_use]
     pub fn set(mut self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self {
         self.map
             .insert(key.as_ref().to_string(), value.as_ref().to_string());
@@ -207,35 +209,7 @@ impl TestEnv {
 impl ReadEnv for TestEnv {
     fn get(&self, key: impl AsRef<str>) -> Option<&str> {
         self.visited.borrow_mut().insert(key.as_ref().to_string());
-        self.map.get(key.as_ref()).map(|x| x.as_str())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn single_missing_field() {
-        let mut emitter = Emitter::new();
-
-        emitter.emit(CompleteError::missing_field("foo".to_string()));
-
-        let err = emitter.finish().unwrap_err();
-
-        assert_eq!(format!("{err}"), "Missing field: foo")
-    }
-
-    #[test]
-    fn multiple_missing_fields() {
-        let mut emitter = Emitter::new();
-
-        emitter.emit(CompleteError::missing_field("foo".to_string()));
-        emitter.emit(CompleteError::missing_field("bar".to_string()));
-
-        let err = emitter.finish().unwrap_err();
-
-        assert_eq!(format!("{err}"), "Missing field: foo\nMissing field: bar")
+        self.map.get(key.as_ref()).map(std::string::String::as_str)
     }
 }
 
@@ -280,19 +254,36 @@ where
 impl<T> From<ParseEnvResult<T>> for Option<T> {
     fn from(value: ParseEnvResult<T>) -> Self {
         match value {
-            ParseEnvResult::None => None,
-            ParseEnvResult::ParseError => None,
+            ParseEnvResult::None | ParseEnvResult::ParseError => None,
             ParseEnvResult::Value(x) => Some(x),
         }
     }
 }
 
-// impl<T> From<Result<Option<T>>> for ParseEnvResult<T> {
-//     fn from(value: Result<Option<T>>) -> Self {
-//         match value {
-//             Ok(Some(value)) => Self::Value(value),
-//             Ok(None) => Self::None,
-//             Err(report) =>
-//         }
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_missing_field() {
+        let mut emitter = Emitter::new();
+
+        emitter.emit(CompleteError::missing_field("foo"));
+
+        let err = emitter.finish().unwrap_err();
+
+        assert_eq!(format!("{err}"), "Missing field: foo")
+    }
+
+    #[test]
+    fn multiple_missing_fields() {
+        let mut emitter = Emitter::new();
+
+        emitter.emit(CompleteError::missing_field("foo"));
+        emitter.emit(CompleteError::missing_field("bar"));
+
+        let err = emitter.finish().unwrap_err();
+
+        assert_eq!(format!("{err}"), "Missing field: foo\nMissing field: bar")
+    }
+}

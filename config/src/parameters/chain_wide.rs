@@ -75,12 +75,10 @@ impl Complete for UserLayer {
             max_transactions_in_block: self.max_transactions_in_block.unwrap_or(DEFAULT_MAX_TXS),
             block_time: self
                 .block_time
-                .map(UserDuration::get)
-                .unwrap_or(DEFAULT_BLOCK_TIME),
+                .map_or(DEFAULT_BLOCK_TIME, UserDuration::get),
             commit_time: self
                 .commit_time
-                .map(UserDuration::get)
-                .unwrap_or(DEFAULT_COMMIT_TIME_LIMIT),
+                .map_or(DEFAULT_COMMIT_TIME_LIMIT, UserDuration::get),
             transactions_limits: self
                 .transactions_limits
                 .unwrap_or(DEFAULT_TRANSACTION_LIMITS),

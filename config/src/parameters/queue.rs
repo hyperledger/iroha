@@ -47,18 +47,16 @@ impl Complete for UserLayer {
         Ok(Config {
             max_transactions_in_queue: self
                 .max_transactions_in_queue
-                .unwrap_or_else(|| DEFAULT_MAX_TRANSACTIONS_IN_QUEUE),
+                .unwrap_or(DEFAULT_MAX_TRANSACTIONS_IN_QUEUE),
             max_transactions_in_queue_per_user: self
                 .max_transactions_in_queue_per_user
-                .unwrap_or_else(|| DEFAULT_MAX_TRANSACTIONS_IN_QUEUE),
+                .unwrap_or(DEFAULT_MAX_TRANSACTIONS_IN_QUEUE),
             transaction_time_to_live_ms: self
                 .transaction_time_to_live_ms
-                .map(UserDuration::get)
-                .unwrap_or(DEFAULT_TRANSACTION_TIME_TO_LIVE),
+                .map_or(DEFAULT_TRANSACTION_TIME_TO_LIVE, UserDuration::get),
             future_threshold_ms: self
                 .future_threshold_ms
-                .map(UserDuration::get)
-                .unwrap_or(DEFAULT_FUTURE_THRESHOLD),
+                .map_or(DEFAULT_FUTURE_THRESHOLD, UserDuration::get),
         })
     }
 }
