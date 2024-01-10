@@ -43,6 +43,7 @@ iroha_ffi = { workspace = true, optional = true }
 
 parity-scale-codec = { workspace = true, features = ["derive"] }
 derive_more = { workspace = true, features = ["as_ref", "display", "constructor", "from_str", "from", "into"] }
+parse-display = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_with = { workspace = true, features = ["macros"] }
 serde_json = { workspace = true }

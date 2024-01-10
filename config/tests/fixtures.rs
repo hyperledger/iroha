@@ -179,8 +179,6 @@ fn inconsistent_genesis_config() -> Result<()> {
 
 /// Aims the purpose of checking that every single provided env variable is consumed and parsed
 /// into a valid config.
-///
-/// TODO: define all variables
 #[test]
 fn full_env_config() -> Result<()> {
     let env = {
@@ -211,14 +209,22 @@ fn full_env_config() -> Result<()> {
                 public_key: Some(
                     {digest: ed25519, payload: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
                 ),
-                private_key: None,
+                private_key: Some(
+                    {digest: ed25519, payload: 8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
+                ),
                 file: None,
             },
             kura: UserLayer {
-                init_mode: None,
-                block_store_path: None,
+                init_mode: Some(
+                    Strict,
+                ),
+                block_store_path: Some(
+                    "/store/path/from/env",
+                ),
                 debug: DebugUserConfig {
-                    output_new_blocks: None,
+                    output_new_blocks: Some(
+                        false,
+                    ),
                 },
             },
             sumeragi: UserLayer {
@@ -229,8 +235,12 @@ fn full_env_config() -> Result<()> {
                 trusted_peers: None,
             },
             logger: UserLayer {
-                level: None,
-                format: None,
+                level: Some(
+                    DEBUG,
+                ),
+                format: Some(
+                    Pretty,
+                ),
             },
             queue: UserLayer {
                 max_transactions_in_queue: None,
@@ -240,8 +250,12 @@ fn full_env_config() -> Result<()> {
             },
             snapshot: UserLayer {
                 create_every_ms: None,
-                store_path: None,
-                creation_enabled: None,
+                store_path: Some(
+                    "/snapshot/path/from/env",
+                ),
+                creation_enabled: Some(
+                    false,
+                ),
             },
             telemetry: UserLayer {
                 name: None,

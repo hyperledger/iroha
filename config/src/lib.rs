@@ -10,15 +10,17 @@ use std::{
     fmt::{Debug, Display, Formatter},
     io::Read,
     ops::Sub,
+    result,
     str::FromStr,
     time::Duration,
 };
 
 use eyre::{eyre, Report, Result, WrapErr};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub mod client_api;
 pub mod parameters;
+mod util;
 
 /// User-provided duration
 #[derive(Debug, Copy, Clone, Deserialize, Serialize)]

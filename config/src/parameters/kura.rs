@@ -1,14 +1,10 @@
 //! Module for kura-related configuration and structs
 
-use std::{path::PathBuf, str::FromStr};
+use std::{fmt::Display, path::PathBuf, str::FromStr};
 
-use derive_more::FromStr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{
-    Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, ParseEnvResult,
-    ReadEnv,
-};
+use crate::{Complete, CompleteResult, Emitter, FromEnv, FromEnvResult, ParseEnvResult, ReadEnv};
 
 const DEFAULT_BLOCK_STORE_PATH: &str = "./storage";
 
@@ -97,30 +93,11 @@ pub enum Mode {
     Fast,
 }
 
-impl Serialize for Mode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.collect_str(&self)
-    }
-}
-
-impl<'de> Deserialize<'de> for Mode {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        String::deserialize(deserializer)?
-            .parse()
-            .map_err(serde::de::Error::custom)
-    }
-}
+crate::util::impl_serialize_display!(Mode);
+crate::util::impl_deserialize_from_str!(Mode);
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{from_value, json};
-
     use super::*;
 
     #[test]
@@ -129,16 +106,5 @@ mod tests {
         assert_eq!(format!("{}", Mode::Fast), "fast");
         assert_eq!("strict".parse::<Mode>().unwrap(), Mode::Strict);
         assert_eq!("fast".parse::<Mode>().unwrap(), Mode::Fast);
-    }
-
-    #[test]
-    fn init_mode_serde_uses_display() {
-        let sample = [Mode::Strict, Mode::Fast];
-        let json = json!(["strict", "fast"]);
-
-        assert_eq!(serde_json::to_string(&sample).unwrap(), json.to_string());
-
-        let encoded: [Mode; 2] = from_value(json).expect("should parse");
-        assert_eq!(encoded, sample);
     }
 }

@@ -979,6 +979,7 @@ pub mod model {
         Decode,
         FromRepr,
         IntoSchema,
+        parse_display::FromStr,
     )]
     #[allow(clippy::upper_case_acronyms)]
     #[repr(u8)]
@@ -1025,6 +1026,19 @@ impl Decode for ChainId {
     ) -> Result<Self, parity_scale_codec::Error> {
         let boxed: String = parity_scale_codec::Decode::decode(input)?;
         Ok(Self::new(&boxed))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn parse_level_from_str() {
+        assert_eq!(
+            "INFO".parse::<crate::model::Level>().unwrap(),
+            crate::model::Level::INFO
+        );
     }
 }
 

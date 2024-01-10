@@ -180,7 +180,7 @@ mod tests {
             `PRIVATE_KEY_DIGEST` env was provided, but `PRIVATE_KEY_PAYLOAD` was not
 
             Location:
-                config/src/parameters/iroha.rs:97:26"#]];
+                config/src/parameters/iroha.rs:99:26"#]];
         expected.assert_eq(&format!("{error:?}"));
     }
 
@@ -192,7 +192,7 @@ mod tests {
             `PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_DIGEST` was not
 
             Location:
-                config/src/parameters/iroha.rs:105:26"#]];
+                config/src/parameters/iroha.rs:107:26"#]];
         expected.assert_eq(&format!("{error:?}"));
     }
 
@@ -231,7 +231,7 @@ mod tests {
                 Algorithm not supported
 
             Location:
-                config/src/lib.rs:263:14"#]];
+                config/src/lib.rs:239:14"#]];
         expected.assert_eq(&format!("{error:?}"));
     }
 }

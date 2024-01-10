@@ -5,9 +5,13 @@ use core::fmt::Debug;
 pub use iroha_data_model::Level;
 #[cfg(feature = "tokio-console")]
 use iroha_primitives::addr::{socket_addr, SocketAddr};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{Complete, CompleteError, CompleteResult, FromEnvDefaultFallback};
+use crate::{
+    util::{impl_deserialize_from_str, impl_serialize_display},
+    Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, ParseEnvResult,
+    ReadEnv,
+};
 
 #[cfg(feature = "tokio-console")]
 const DEFAULT_TOKIO_CONSOLE_ADDR: SocketAddr = socket_addr!(127.0.0.1:5555);
@@ -50,8 +54,10 @@ pub struct Config {
 }
 
 /// Reflects formatters in [`tracing_subscriber::fmt::format`]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Deserialize, Serialize, Default)]
-#[serde(rename_all = "snake_case")]
+#[derive(
+    Debug, Copy, Clone, Eq, PartialEq, parse_display::Display, parse_display::FromStr, Default,
+)]
+#[display(style = "snake_case")]
 pub enum Format {
     /// See [`tracing_subscriber::fmt::format::Full`]
     #[default]
@@ -63,6 +69,9 @@ pub enum Format {
     /// See [`tracing_subscriber::fmt::format::Json`]
     Json,
 }
+
+impl_serialize_display!(Format);
+impl_deserialize_from_str!(Format);
 
 impl Complete for UserLayer {
     type Output = Config;
@@ -79,7 +88,27 @@ impl Complete for UserLayer {
     }
 }
 
-impl FromEnvDefaultFallback for UserLayer {}
+impl FromEnv for UserLayer {
+    fn from_env(env: &impl ReadEnv) -> FromEnvResult<Self>
+    where
+        Self: Sized,
+    {
+        let mut emitter = Emitter::new();
+
+        let level =
+            ParseEnvResult::parse_simple(&mut emitter, env, "LOG_LEVEL", "logger.level").into();
+        let format =
+            ParseEnvResult::parse_simple(&mut emitter, env, "LOG_FORMAT", "logger.format").into();
+
+        emitter.finish()?;
+
+        Ok(Self {
+            level,
+            format,
+            ..Self::default()
+        })
+    }
+}
 
 #[cfg(test)]
 pub mod tests {

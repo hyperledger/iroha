@@ -34,7 +34,7 @@ cfg-if = { workspace = true }
 once_cell = { workspace = true }
 nonzero_ext = "0.3.0"
 toml = "0.8.8"
-parse-display = "0.8.2"
+parse-display = { workspace = true }
 
 [dev-dependencies]
 proptest = "1.3.1"
