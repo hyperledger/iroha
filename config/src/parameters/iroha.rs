@@ -3,7 +3,7 @@
 use std::{error::Error, str::FromStr};
 
 use eyre::{eyre, Context, Report};
-use iroha_crypto::{Algorithm, PrivateKey, PublicKey};
+use iroha_crypto::{Algorithm, KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::ChainId;
 use iroha_primitives::addr::SocketAddr;
 use serde::{Deserialize, Serialize};
@@ -28,23 +28,35 @@ impl Complete for UserLayer {
     fn complete(self) -> CompleteResult<Config> {
         let mut emitter = super::Emitter::<CompleteError>::new();
 
-        if let None = self.public_key {
-            emitter.emit_missing_field("public_key");
-        }
-
-        if let None = self.private_key {
-            emitter.emit_missing_field("private_key");
-        }
+        let key_pair = match (self.public_key, self.private_key) {
+            (Some(public_key), Some(private_key)) => {
+                KeyPair::new(public_key, private_key)
+                    .map(Some)
+                    .wrap_err("failed to construct a key pair from `iroha.public_key` and `iroha.private_key` configuration parameters")
+                    .unwrap_or_else(|report| {
+                        emitter.emit(CompleteError::Custom(report));
+                        None
+                    })
+            },
+            (public_key, private_key) => {
+                if public_key.is_none() {
+                    emitter.emit_missing_field("iroha.public_key");
+                }
+                if private_key.is_none() {
+                    emitter.emit_missing_field("iroha.private_key");
+                }
+                None
+            }
+        };
 
         if let None = self.p2p_address {
-            emitter.emit_missing_field("p2p_address");
+            emitter.emit_missing_field("iroha.p2p_address");
         }
 
         emitter.finish()?;
 
         Ok(Config {
-            public_key: self.public_key.unwrap(),
-            private_key: self.private_key.unwrap(),
+            key_pair: key_pair.unwrap(),
             p2p_address: self.p2p_address.unwrap(),
         })
     }
@@ -134,8 +146,7 @@ impl FromEnv for UserLayer {
 #[derive(Debug)]
 pub struct Config {
     pub chain_id: ChainId,
-    pub public_key: PublicKey,
-    pub private_key: PrivateKey,
+    pub key_pair: KeyPair,
     pub p2p_address: SocketAddr,
 }
 
@@ -167,7 +178,7 @@ mod tests {
             `PRIVATE_KEY_DIGEST` env was provided, but `PRIVATE_KEY_PAYLOAD` was not
 
             Location:
-                config/src/parameters/iroha.rs:125:65"#]];
+                config/src/parameters/iroha.rs:97:26"#]];
         expected.assert_eq(&format!("{error:?}"));
     }
 
@@ -179,7 +190,7 @@ mod tests {
             `PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_DIGEST` was not
 
             Location:
-                config/src/parameters/iroha.rs:126:64"#]];
+                config/src/parameters/iroha.rs:105:26"#]];
         expected.assert_eq(&format!("{error:?}"));
     }
 
@@ -198,7 +209,7 @@ mod tests {
                 Key could not be parsed. Odd number of digits
 
             Location:
-                config/src/parameters/iroha.rs:118:26"#]];
+                config/src/parameters/iroha.rs:81:18"#]];
         expected.assert_eq(&format!("{error:?}"));
     }
 
@@ -218,7 +229,7 @@ mod tests {
                 Algorithm not supported
 
             Location:
-                config/src/parameters/iroha.rs:95:25"#]];
+                config/src/lib.rs:263:14"#]];
         expected.assert_eq(&format!("{error:?}"));
     }
 }

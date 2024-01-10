@@ -30,8 +30,8 @@ pub enum Config {
     Full {
         /// Genesis account key pair
         key_pair: KeyPair,
-        /// Raw genesis block
-        raw_block: RawGenesisBlock,
+        /// Path to the [`RawGenesisBlock`]
+        file: PathBuf,
     },
 }
 
@@ -41,24 +41,17 @@ impl Complete for UserLayer {
     fn complete(self) -> CompleteResult<Config> {
         let public_key = self
             .public_key
-            .ok_or_else(|| CompleteError::missing_field("public_key"))?;
+            .ok_or_else(|| CompleteError::missing_field("genesis.public_key"))?;
 
         match (self.private_key, self.file) {
             (None, None) => Ok(Config::Partial { public_key }),
-            (Some(private_key), Some(path)) => {
-                let raw_block = RawGenesisBlock::from_path(&path)
-                    .map_err(|report| GenesisConfigError::File { path, report })
-                    .wrap_err("FIXME don't know how to wrap error here")
-                    .map_err(CompleteError::Custom)?;
-
-                Ok(Config::Full {
-                    key_pair: KeyPair::new(public_key, private_key)
-                        .map_err(GenesisConfigError::from)
-                        .wrap_err("FIXME")
-                        .map_err(CompleteError::Custom)?,
-                    raw_block,
-                })
-            }
+            (Some(private_key), Some(file)) => Ok(Config::Full {
+                key_pair: KeyPair::new(public_key, private_key)
+                    .map_err(GenesisConfigError::from)
+                    .wrap_err("FIXME")
+                    .map_err(CompleteError::Custom)?,
+                file,
+            }),
             _ => Err(GenesisConfigError::Inconsistent)
                 .wrap_err("FIXME")
                 .map_err(CompleteError::Custom)?,
@@ -100,19 +93,10 @@ impl FromEnv for UserLayer {
     }
 }
 
-/// Error which might occur during [`Configuration::parse()`]
 #[derive(Debug, displaydoc::Display, thiserror::Error)]
 pub enum GenesisConfigError {
     /// `genesis.file` and `genesis.private_key` should be set together
     Inconsistent,
-    /// invalid genesis key pair
+    /// failed to construct the genesis's keypair using `genesis.public_key` and `genesis.private_key` configuration parameters
     KeyPair(#[from] iroha_crypto::error::Error),
-    /// cannot read the genesis block from file "`{path}`"
-    File {
-        /// Original error report
-        #[source]
-        report: Report,
-        /// Path to the file
-        path: PathBuf,
-    },
 }

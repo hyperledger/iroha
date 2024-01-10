@@ -37,8 +37,10 @@ fn minimal_config_snapshot() -> Result<()> {
     let expected = expect_test::expect![[r#"
         Config {
             iroha: Config {
-                public_key: {digest: ed25519, payload: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
-                private_key: {digest: ed25519, payload: 8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
+                key_pair: KeyPair {
+                    public_key: {digest: ed25519, payload: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
+                    private_key: {digest: ed25519, payload: 8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
+                },
                 p2p_address: 127.0.0.1:1337,
             },
             genesis: Partial {
@@ -138,11 +140,11 @@ fn missing_fields() -> Result<()> {
         .expect_err("should fail with missing fields");
 
     let expected = expect_test::expect![[r#"
-        Missing field: public_key
-        Missing field: private_key
-        Missing field: p2p_address
-        Missing field: public_key
-        Missing field: address"#]];
+        Missing field: iroha.public_key
+        Missing field: iroha.private_key
+        Missing field: iroha.p2p_address
+        Missing field: genesis.public_key
+        Missing field: torii.address"#]];
     expected.assert_eq(&format!("{error:#}"));
 
     Ok(())
@@ -279,6 +281,7 @@ fn full_env_config() -> Result<()> {
 }
 
 #[test]
+#[ignore]
 fn multiple_env_parsing_errors() {
     todo!("put invalid data into multiple ENV variables in different modules and check the error report")
 }

@@ -33,9 +33,9 @@ impl Complete for UserLayer {
 
     fn complete(self) -> CompleteResult<Self::Output> {
         Ok(Config {
-            address: self.address.ok_or_else(|| CompleteError::MissingField {
-                path: "address".to_string(),
-            })?,
+            address: self
+                .address
+                .ok_or_else(|| CompleteError::missing_field("torii.address"))?,
             max_content_len: self
                 .max_content_len
                 .unwrap_or_else(|| ByteSize(DEFAULT_MAX_CONTENT_LENGTH)),
