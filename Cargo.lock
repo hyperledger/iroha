@@ -3214,9 +3214,10 @@ dependencies = [
 name = "iroha_torii_macro"
 version = "2.0.0-pre-rc.20"
 dependencies = [
+ "manyhow",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.41",
  "warp",
 ]
 
