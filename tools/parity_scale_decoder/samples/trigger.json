@@ -19,7 +19,12 @@
         "authority": "alice@wonderland",
         "filter": {
             "Data": {
-                "ByAccount": "AcceptAll"
+                "ByDomain": {
+                    "origin_filter": "AcceptAll",
+                    "event_filter": {
+                        "ByAccount": "AcceptAll"
+                    }
+                }
             }
         },
         "metadata": {}

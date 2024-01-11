@@ -237,7 +237,6 @@ members = [
   "smart_contract/utils",
   "smart_contract/executor",
   "smart_contract/executor/derive",
-  "substrate",
   "telemetry",
   "tools/kagami",
   "tools/kura_inspector",

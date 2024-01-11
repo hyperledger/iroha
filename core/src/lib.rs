@@ -6,7 +6,6 @@ pub mod executor;
 pub mod gossiper;
 pub mod kiso;
 pub mod kura;
-pub mod modules;
 pub mod query;
 pub mod queue;
 pub mod smartcontracts;

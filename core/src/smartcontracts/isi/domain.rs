@@ -179,7 +179,7 @@ pub mod isi {
 
             domain.remove_asset_total_quantity(&asset_definition_id);
 
-            events.push(WorldEvent::from(DomainEvent::AssetDefinition(
+            events.push(DataEvent::from(DomainEvent::AssetDefinition(
                 AssetDefinitionEvent::Deleted(asset_definition_id),
             )));
 

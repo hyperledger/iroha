@@ -229,11 +229,14 @@ impl SumeragiHandle {
     fn replay_block(
         block: &SignedBlock,
         wsv: &mut WorldStateView,
-        current_topology: &Topology,
+        mut current_topology: Topology,
     ) -> Topology {
-        let block = ValidBlock::validate(block.clone(), current_topology, wsv)
+        // NOTE: topology need to be updated up to block's view_change_index
+        current_topology.rotate_all_n(block.payload().header.view_change_index);
+
+        let block = ValidBlock::validate(block.clone(), &current_topology, wsv)
             .expect("Kura blocks should be valid")
-            .commit(current_topology)
+            .commit(&current_topology)
             .expect("Kura blocks should be valid");
 
         if block.payload().header.is_genesis() {
@@ -293,14 +296,14 @@ impl SumeragiHandle {
         let block_iter_except_last =
             (&mut blocks_iter).take(block_count.saturating_sub(skip_block_count + 1));
         for block in block_iter_except_last {
-            current_topology = Self::replay_block(&block, &mut wsv, &current_topology);
+            current_topology = Self::replay_block(&block, &mut wsv, current_topology);
         }
 
         // finalized_wsv is one block behind
         let finalized_wsv = wsv.clone();
 
         if let Some(block) = blocks_iter.next() {
-            current_topology = Self::replay_block(&block, &mut wsv, &current_topology);
+            current_topology = Self::replay_block(&block, &mut wsv, current_topology);
         }
 
         info!("Sumeragi has finished loading blocks and setting up the WSV");

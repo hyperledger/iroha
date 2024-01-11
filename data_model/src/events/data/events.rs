@@ -3,7 +3,6 @@
 
 use getset::Getters;
 use iroha_data_model_derive::{model, Filter, HasOrigin};
-use iroha_primitives::small::SmallVec;
 
 pub use self::model::*;
 use super::*;
@@ -61,22 +60,6 @@ pub mod model {
         pub value: Box<Value>,
     }
 
-    /// World event
-    ///
-    /// Does not participate in `Event`, but useful for events warranties when modifying `wsv`
-    #[derive(
-        Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
-    )]
-    pub enum WorldEvent {
-        Peer(peer::PeerEvent),
-        Domain(domain::DomainEvent),
-        Role(role::RoleEvent),
-        Trigger(trigger::TriggerEvent),
-        PermissionTokenSchemaUpdate(permission::PermissionTokenSchemaUpdateEvent),
-        Configuration(config::ConfigurationEvent),
-        Executor(executor::ExecutorEvent),
-    }
-
     /// Event
     #[derive(
         Debug,
@@ -98,12 +81,6 @@ pub mod model {
         Peer(peer::PeerEvent),
         /// Domain event
         Domain(domain::DomainEvent),
-        /// Account event
-        Account(account::AccountEvent),
-        /// Asset definition event
-        AssetDefinition(asset::AssetDefinitionEvent),
-        /// Asset event
-        Asset(asset::AssetEvent),
         /// Trigger event
         Trigger(trigger::TriggerEvent),
         /// Role event
@@ -629,65 +606,19 @@ pub trait HasOrigin {
     fn origin_id(&self) -> &<Self::Origin as Identifiable>::Id;
 }
 
-impl WorldEvent {
-    /// Unfold [`Self`] and return vector of [`Event`]s in the expanding scope order: from specific to general.
-    /// E.g [`AssetEvent`] -> [`AccountEvent`] -> [`DomainEvent`]
-    pub fn flatten(self) -> SmallVec<[DataEvent; 3]> {
-        let mut events = SmallVec::new();
-
-        match self {
-            WorldEvent::Domain(domain_event) => {
-                match &domain_event {
-                    DomainEvent::Account(account_event) => {
-                        if let AccountEvent::Asset(asset_event) = account_event {
-                            events.push(DataEvent::Asset(asset_event.clone()));
-                        }
-                        events.push(DataEvent::Account(account_event.clone()));
-                    }
-                    DomainEvent::AssetDefinition(asset_definition_event) => {
-                        events.push(DataEvent::AssetDefinition(asset_definition_event.clone()));
-                    }
-                    _ => (),
-                }
-                events.push(DataEvent::Domain(domain_event));
-            }
-            WorldEvent::Peer(peer_event) => {
-                events.push(DataEvent::Peer(peer_event));
-            }
-            WorldEvent::Role(role_event) => {
-                events.push(DataEvent::Role(role_event));
-            }
-            WorldEvent::Trigger(trigger_event) => {
-                events.push(DataEvent::Trigger(trigger_event));
-            }
-            WorldEvent::PermissionTokenSchemaUpdate(token_event) => {
-                events.push(DataEvent::PermissionToken(token_event));
-            }
-            WorldEvent::Configuration(config_event) => {
-                events.push(DataEvent::Configuration(config_event));
-            }
-            WorldEvent::Executor(executor_event) => {
-                events.push(DataEvent::Executor(executor_event));
-            }
-        }
-
-        events
-    }
-}
-
-impl From<AccountEvent> for WorldEvent {
+impl From<AccountEvent> for DataEvent {
     fn from(value: AccountEvent) -> Self {
         DomainEvent::Account(value).into()
     }
 }
 
-impl From<AssetDefinitionEvent> for WorldEvent {
+impl From<AssetDefinitionEvent> for DataEvent {
     fn from(value: AssetDefinitionEvent) -> Self {
         DomainEvent::AssetDefinition(value).into()
     }
 }
 
-impl From<AssetEvent> for WorldEvent {
+impl From<AssetEvent> for DataEvent {
     fn from(value: AssetEvent) -> Self {
         AccountEvent::Asset(value).into()
     }
@@ -698,9 +629,6 @@ impl DataEvent {
     pub fn domain_id(&self) -> Option<&DomainId> {
         match self {
             Self::Domain(event) => Some(event.origin_id()),
-            Self::Account(event) => Some(&event.origin_id().domain_id),
-            Self::AssetDefinition(event) => Some(&event.origin_id().domain_id),
-            Self::Asset(event) => Some(&event.origin_id().definition_id.domain_id),
             Self::Trigger(event) => event.origin_id().domain_id.as_ref(),
             Self::Peer(_)
             | Self::Configuration(_)
@@ -731,6 +659,6 @@ pub mod prelude {
         trigger::{
             TriggerEvent, TriggerEventFilter, TriggerFilter, TriggerNumberOfExecutionsChanged,
         },
-        DataEvent, HasOrigin, MetadataChanged, WorldEvent,
+        DataEvent, HasOrigin, MetadataChanged,
     };
 }

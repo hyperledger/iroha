@@ -9,9 +9,9 @@
 //! trigger hooks.
 
 use core::cmp::min;
-use std::fmt;
+use std::{fmt, num::NonZeroU64};
 
-use indexmap::IndexMap;
+use indexmap::{map::Entry, IndexMap};
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     events::Filter as EventFilter,
@@ -56,6 +56,15 @@ pub struct LoadedAction<F> {
     pub filter: F,
     /// Metadata used as persistent storage for trigger data.
     pub metadata: Metadata,
+}
+
+impl<F> LoadedAction<F> {
+    fn extract_blob_hash(&self) -> Option<HashOf<WasmSmartContract>> {
+        match self.executable {
+            LoadedExecutable::Wasm(LoadedWasm { blob_hash, .. }) => Some(blob_hash),
+            LoadedExecutable::Instructions(_) => None,
+        }
+    }
 }
 
 /// Trait common for all `LoadedAction`s
@@ -133,6 +142,10 @@ impl<F: Filter + Into<TriggeringFilterBox> + Clone> LoadedActionTrait for Loaded
     }
 }
 
+/// [`WasmSmartContract`]s by [`TriggerId`].
+/// Stored together with number to count triggers with identical [`WasmSmartContract`].
+type WasmSmartContractMap = IndexMap<HashOf<WasmSmartContract>, (WasmSmartContract, NonZeroU64)>;
+
 /// Specialized structure that maps event filters to Triggers.
 // NB: `Set` has custom `Serialize` and `DeserializeSeed` implementations
 // which need to be manually updated when changing the struct
@@ -149,7 +162,7 @@ pub struct Set {
     /// Trigger ids with type of events they process
     ids: IndexMap<TriggerId, TriggeringEventType>,
     /// Original [`WasmSmartContract`]s by [`TriggerId`] for querying purposes.
-    original_contracts: IndexMap<HashOf<WasmSmartContract>, WasmSmartContract>,
+    original_contracts: WasmSmartContractMap,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     matched_ids: Vec<(Event, TriggerId)>,
@@ -159,7 +172,7 @@ pub struct Set {
 struct TriggersWithContext<'s, F> {
     /// Triggers being serialized
     triggers: &'s IndexMap<TriggerId, LoadedAction<F>>,
-    /// Containing Set, used for looking up origignal [`WasmSmartContract`]s
+    /// Containing Set, used for looking up original [`WasmSmartContract`]s
     /// during serialization.
     set: &'s Set,
 }
@@ -189,24 +202,33 @@ impl Serialize for Set {
     where
         S: serde::Serializer,
     {
+        let &Self {
+            data_triggers,
+            pipeline_triggers,
+            time_triggers,
+            by_call_triggers,
+            ids,
+            original_contracts: _original_contracts,
+            matched_ids: _matched_ids,
+        } = &self;
         let mut set = serializer.serialize_struct("Set", 6)?;
         set.serialize_field(
             "data_triggers",
-            &TriggersWithContext::new(&self.data_triggers, self),
+            &TriggersWithContext::new(data_triggers, self),
         )?;
         set.serialize_field(
             "pipeline_triggers",
-            &TriggersWithContext::new(&self.pipeline_triggers, self),
+            &TriggersWithContext::new(pipeline_triggers, self),
         )?;
         set.serialize_field(
             "time_triggers",
-            &TriggersWithContext::new(&self.time_triggers, self),
+            &TriggersWithContext::new(time_triggers, self),
         )?;
         set.serialize_field(
             "by_call_triggers",
-            &TriggersWithContext::new(&self.by_call_triggers, self),
+            &TriggersWithContext::new(by_call_triggers, self),
         )?;
-        set.serialize_field("ids", &self.ids)?;
+        set.serialize_field("ids", ids)?;
         set.end()
     }
 }
@@ -411,7 +433,16 @@ impl Set {
                     blob_hash: hash,
                 });
                 // Store original executable representation to respond to queries with.
-                self.original_contracts.insert(hash, bytes);
+                self.original_contracts
+                    .entry(hash)
+                    .and_modify(|(_, count)| {
+                        // Considering 1 trigger registration takes 1 second,
+                        // it would take 584 942 417 355 years to overflow.
+                        *count = count.checked_add(1).expect(
+                            "There is no way someone could register 2^64 amount of same triggers",
+                        )
+                    })
+                    .or_insert((bytes, NonZeroU64::MIN));
                 loaded
             }
             Executable::Instructions(instructions) => LoadedExecutable::Instructions(instructions),
@@ -438,7 +469,9 @@ impl Set {
         &self,
         hash: &HashOf<WasmSmartContract>,
     ) -> Option<&WasmSmartContract> {
-        self.original_contracts.get(hash)
+        self.original_contracts
+            .get(hash)
+            .map(|(contract, _)| contract)
     }
 
     /// Convert [`LoadedAction`] to original [`Action`] by retrieving original
@@ -633,50 +666,84 @@ impl Set {
     /// Remove a trigger from the [`Set`].
     ///
     /// Return `false` if [`Set`] doesn't contain the trigger with the given `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics on inconsistent state of [`Set`]. This is a bug.
     pub fn remove(&mut self, id: &TriggerId) -> bool {
-        // Used in a map that requires this signature
-        #[allow(clippy::needless_pass_by_value)]
-        fn extract_blob_hash<F>(action: LoadedAction<F>) -> Option<HashOf<WasmSmartContract>> {
-            match action.executable {
-                LoadedExecutable::Wasm(LoadedWasm { blob_hash, .. }) => Some(blob_hash),
-                LoadedExecutable::Instructions(_) => None,
-            }
-        }
-
         let Some(event_type) = self.ids.remove(id) else {
             return false;
         };
 
-        let blob_hash = match event_type {
-            TriggeringEventType::Data => self
-                .data_triggers
-                .remove(id)
-                .map(extract_blob_hash)
-                .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
-            TriggeringEventType::Pipeline => self
-                .pipeline_triggers
-                .remove(id)
-                .map(extract_blob_hash)
-                .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug"),
-            TriggeringEventType::Time => self
-                .time_triggers
-                .remove(id)
-                .map(extract_blob_hash)
-                .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
-            TriggeringEventType::ExecuteTrigger => self
-                .by_call_triggers
-                .remove(id)
-                .map(extract_blob_hash)
-                .expect("`Set::by_call_triggers` doesn't contain required id. This is a bug"),
+        let removed = match event_type {
+            TriggeringEventType::Data => {
+                Self::remove_from(&mut self.original_contracts, &mut self.data_triggers, id)
+            }
+            TriggeringEventType::Pipeline => Self::remove_from(
+                &mut self.original_contracts,
+                &mut self.pipeline_triggers,
+                id,
+            ),
+            TriggeringEventType::Time => {
+                Self::remove_from(&mut self.original_contracts, &mut self.time_triggers, id)
+            }
+            TriggeringEventType::ExecuteTrigger => {
+                Self::remove_from(&mut self.original_contracts, &mut self.by_call_triggers, id)
+            }
         };
 
-        if let Some(blob_hash) = blob_hash {
-            self.original_contracts
-                .remove(&blob_hash)
-                .expect("`Set::original_contracts` doesn't contain required hash. This is a bug");
-        }
+        assert!(
+            removed,
+            "`Set`'s `ids` and typed trigger collections are inconsistent. This is a bug"
+        );
 
         true
+    }
+
+    /// Remove trigger from `triggers` and decrease the counter of the original [`WasmSmartContract`].
+    ///
+    /// Note that this function doesn't remove the trigger from [`Set::ids`].
+    ///
+    /// Returns `true` if trigger was removed and `false` otherwise.
+    fn remove_from<F: Filter>(
+        original_contracts: &mut WasmSmartContractMap,
+        triggers: &mut IndexMap<TriggerId, LoadedAction<F>>,
+        trigger_id: &TriggerId,
+    ) -> bool {
+        triggers
+            .remove(trigger_id)
+            .map(|loaded_action| {
+                if let Some(blob_hash) = loaded_action.extract_blob_hash() {
+                    Self::remove_original_trigger(original_contracts, blob_hash);
+                }
+            })
+            .is_some()
+    }
+
+    /// Decrease the counter of the original [`WasmSmartContract`] by `blob_hash`
+    /// or remove it if the counter reaches zero.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `blob_hash` is not in the [`Set::original_contracts`].
+    fn remove_original_trigger(
+        original_contracts: &mut WasmSmartContractMap,
+        blob_hash: HashOf<WasmSmartContract>,
+    ) {
+        #[allow(clippy::option_if_let_else)] // More readable this way
+        match original_contracts.entry(blob_hash) {
+            Entry::Occupied(mut entry) => {
+                let count = &mut entry.get_mut().1;
+                if let Some(new_count) = NonZeroU64::new(count.get() - 1) {
+                    *count = new_count;
+                } else {
+                    entry.remove();
+                }
+            }
+            Entry::Vacant(_) => {
+                panic!("`Set::original_contracts` doesn't contain required hash. This is a bug")
+            }
+        }
     }
 
     /// Check if [`Set`] contains `id`.
@@ -807,35 +874,35 @@ impl Set {
             time_triggers,
             by_call_triggers,
             ids,
+            original_contracts,
             ..
         } = self;
-        Self::remove_zeros(ids, data_triggers);
-        Self::remove_zeros(ids, pipeline_triggers);
-        Self::remove_zeros(ids, time_triggers);
-        Self::remove_zeros(ids, by_call_triggers);
+        Self::remove_zeros(ids, original_contracts, data_triggers);
+        Self::remove_zeros(ids, original_contracts, pipeline_triggers);
+        Self::remove_zeros(ids, original_contracts, time_triggers);
+        Self::remove_zeros(ids, original_contracts, by_call_triggers);
     }
 
     /// Remove actions with zero execution count from `triggers`
     fn remove_zeros<F: Filter>(
         ids: &mut IndexMap<TriggerId, TriggeringEventType>,
+        original_contracts: &mut WasmSmartContractMap,
         triggers: &mut IndexMap<TriggerId, LoadedAction<F>>,
     ) {
         let to_remove: Vec<TriggerId> = triggers
             .iter()
             .filter_map(|(id, action)| {
-                if let Repeats::Exactly(repeats) = action.repeats {
-                    if repeats == 0 {
-                        return Some(id.clone());
-                    }
+                if let Repeats::Exactly(0) = action.repeats {
+                    return Some(id.clone());
                 }
                 None
             })
             .collect();
 
         for id in to_remove {
-            triggers.remove(&id).and_then(|_| ids.remove(&id)).expect(
-                "Removing existing keys from `Set` should be always possible. This is a bug",
-            );
+            ids.remove(&id)
+                .and_then(|_| Self::remove_from(original_contracts, triggers, &id).then_some(()))
+                .expect("`Set`'s `ids`, `original_contracts` and typed trigger collections are inconsistent. This is a bug")
         }
     }
 
