@@ -140,7 +140,6 @@ Iroha project mainly consists of the following crates:
 * [`iroha_macro`](macro) provides the convenience macros.
 * [`iroha_p2p`](p2p) defines peer creation and handshake logic.
 * [`iroha_default_executor`](default_executor) defines runtime validation logic.
-* [`iroha_substrate`](substrate) is the bridge substrate `XClaim` external module.
 * [`iroha_telemetry`](telemetry) is used for monitoring and analysis of telemetry data.
 * [`iroha_version`](version) provides message versioning for non-simultaneous system updates.
 
