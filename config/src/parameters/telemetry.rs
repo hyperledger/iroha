@@ -6,6 +6,7 @@ use std::{
 };
 
 use eyre::eyre;
+use merge::Merge;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -14,29 +15,29 @@ use crate::{
         DEFAULT_MAX_RETRY_DELAY_EXPONENT, DEFAULT_MIN_RETRY_PERIOD,
     },
     Complete, CompleteError, CompleteResult, FromEnv, FromEnvDefaultFallback, FromEnvResult,
-    ReadEnv, UserDuration,
+    ReadEnv, UserDuration, UserField,
 };
 
-#[derive(Clone, Deserialize, Serialize, Debug, Default)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
+#[serde(deny_unknown_fields, default)]
 pub struct UserLayer {
     /// The node's name to be seen on the telemetry
-    pub name: Option<String>,
+    pub name: UserField<String>,
     /// The url of the telemetry, e.g., ws://127.0.0.1:8001/submit
-    pub url: Option<Url>,
+    pub url: UserField<Url>,
     /// The minimum period of time in seconds to wait before reconnecting
-    pub min_retry_period: Option<UserDuration>,
+    pub min_retry_period: UserField<UserDuration>,
     /// The maximum exponent of 2 that is used for increasing delay between reconnections
-    pub max_retry_delay_exponent: Option<NonZeroU8>,
+    pub max_retry_delay_exponent: UserField<NonZeroU8>,
     /// Dev telemetry configuration
     #[serde(default)]
-    pub dev: UserDevConfig,
+    pub dev: DevUserLayer,
 }
 
-#[derive(Clone, Deserialize, Serialize, Debug, Default)]
-pub struct UserDevConfig {
+#[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
+pub struct DevUserLayer {
     /// The filepath that to write dev-telemetry to
-    pub file: Option<PathBuf>,
+    pub file: UserField<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -74,16 +75,18 @@ impl Complete for UserLayer {
             url,
             max_retry_delay_exponent,
             min_retry_period,
-            dev: UserDevConfig { file },
+            dev: DevUserLayer { file },
         } = self;
 
-        let regular = match (name, url) {
+        let regular = match (name.get(), url.get()) {
             (Some(name), Some(url)) => Some(RegularTelemetryConfig {
                 name,
                 url,
                 max_retry_delay_exponent: max_retry_delay_exponent
+                    .get()
                     .unwrap_or(DEFAULT_MAX_RETRY_DELAY_EXPONENT),
                 min_retry_period: min_retry_period
+                    .get()
                     .map_or(DEFAULT_MIN_RETRY_PERIOD, UserDuration::get),
             }),
             (None, None) => None,

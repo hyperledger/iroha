@@ -5,12 +5,13 @@ use core::fmt::Debug;
 pub use iroha_data_model::Level;
 #[cfg(feature = "tokio-console")]
 use iroha_primitives::addr::{socket_addr, SocketAddr};
+use merge::Merge;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
     util::{impl_deserialize_from_str, impl_serialize_display},
     Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, ParseEnvResult,
-    ReadEnv,
+    ReadEnv, UserField,
 };
 
 #[cfg(feature = "tokio-console")]
@@ -28,18 +29,18 @@ pub fn into_tracing_level(level: Level) -> tracing::Level {
 }
 
 /// 'Logger' configuration.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default, Merge)]
 // `tokio_console_addr` is not `Copy`, but warning appears without `tokio-console` feature
 #[allow(missing_copy_implementations)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 pub struct UserLayer {
     /// Level of logging verbosity
-    pub level: Option<Level>,
+    pub level: UserField<Level>,
     /// Output format
-    pub format: Option<Format>,
+    pub format: UserField<Format>,
     #[cfg(feature = "tokio-console")]
     /// Address of tokio console (only available under "tokio-console" feature)
-    pub tokio_console_addr: Option<SocketAddr>,
+    pub tokio_console_addr: UserField<SocketAddr>,
 }
 
 #[derive(Debug)]

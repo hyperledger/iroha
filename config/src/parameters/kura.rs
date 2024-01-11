@@ -2,6 +2,7 @@
 
 use std::{fmt::Display, path::PathBuf, str::FromStr};
 
+use merge::Merge;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{Complete, CompleteResult, Emitter, FromEnv, FromEnvResult, ParseEnvResult, ReadEnv};
@@ -9,15 +10,15 @@ use crate::{Complete, CompleteResult, Emitter, FromEnv, FromEnvResult, ParseEnvR
 const DEFAULT_BLOCK_STORE_PATH: &str = "./storage";
 
 /// `Kura` configuration.
-#[derive(Clone, Deserialize, Serialize, Debug, Default)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
+#[serde(deny_unknown_fields, default)]
 pub struct UserLayer {
     pub init_mode: Option<Mode>,
     pub block_store_path: Option<PathBuf>,
     pub debug: DebugUserConfig,
 }
 
-#[derive(Clone, Deserialize, Serialize, Debug, Default)]
+#[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
 pub struct DebugUserConfig {
     output_new_blocks: Option<bool>,
 }

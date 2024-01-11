@@ -7,6 +7,7 @@ use std::{
 };
 
 use eyre::{eyre, Context, Report, Result};
+use merge::Merge;
 use serde::{Deserialize, Serialize};
 
 use crate::{Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, ReadEnv};
@@ -22,8 +23,8 @@ pub mod sumeragi;
 pub mod telemetry;
 pub mod torii;
 
-#[derive(Deserialize, Serialize, Debug, Default)]
-#[serde(deny_unknown_fields)]
+#[derive(Deserialize, Serialize, Debug, Default, Merge)]
+#[serde(deny_unknown_fields, default)]
 pub struct UserLayer {
     #[serde(default)]
     iroha: iroha::UserLayer,
@@ -83,9 +84,10 @@ impl UserLayer {
         patch!(self.telemetry.dev.file);
     }
 
-    #[must_use]
-    pub fn merge(self, _other: Self) -> Self {
-        todo!()
+    // FIXME workaround the inconvenient way `Merge::merge` works
+    pub fn merge_chain(mut self, other: Self) -> Self {
+        self.merge(other);
+        self
     }
 }
 
@@ -192,4 +194,25 @@ pub struct Config {
     pub telemetry: telemetry::Config,
     pub torii: torii::Config,
     pub chain_wide: chain_wide::Config,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn deserialize_empty_input_works() {
+        let _layer: UserLayer = toml::from_str("").unwrap();
+    }
+
+    #[test]
+    fn deserialize_iroha_namespace_with_not_all_fields_works() {
+        let _layer: UserLayer = toml::from_str(
+            r#"
+            [iroha]
+            p2p_address = "127.0.0.1:8080"
+        "#,
+        )
+        .unwrap();
+    }
 }

@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use eyre::Result;
@@ -26,6 +26,12 @@ fn parse_env(raw: impl AsRef<str>) -> HashMap<String, String> {
             (key.to_string(), value.to_string())
         })
         .collect()
+}
+
+fn test_env_from_file(p: impl AsRef<Path>) -> TestEnv {
+    let contents = fs::read_to_string(p).expect("the path should be valid");
+    let map = parse_env(contents);
+    TestEnv::with_map(map)
 }
 
 /// This test not only asserts that the minimal set of fields is enough;
@@ -180,13 +186,8 @@ fn inconsistent_genesis_config() -> Result<()> {
 /// Aims the purpose of checking that every single provided env variable is consumed and parsed
 /// into a valid config.
 #[test]
-fn full_env_config() -> Result<()> {
-    let env = {
-        let path = fixtures_dir().join(".full_config_in.env");
-        let contents = fs::read_to_string(path)?;
-        let map = parse_env(contents);
-        TestEnv::with_map(map)
-    };
+fn full_envs_set_is_consumed() -> Result<()> {
+    let env = test_env_from_file(fixtures_dir().join("full.env"));
 
     let layer = UserLayer::from_env(&env)?;
 
@@ -232,7 +233,9 @@ fn full_env_config() -> Result<()> {
                 max_blocks_per_gossip: None,
                 max_transactions_per_gossip: None,
                 transaction_gossip_period: None,
-                trusted_peers: None,
+                trusted_peers: UserTrustedPeers {
+                    peers: [],
+                },
             },
             logger: UserLayer {
                 level: Some(
@@ -262,7 +265,7 @@ fn full_env_config() -> Result<()> {
                 url: None,
                 min_retry_period: None,
                 max_retry_delay_exponent: None,
-                dev: UserDevConfig {
+                dev: DevUserLayer {
                     file: None,
                 },
             },
@@ -296,4 +299,15 @@ fn full_env_config() -> Result<()> {
 #[ignore]
 fn multiple_env_parsing_errors() {
     todo!("put invalid data into multiple ENV variables in different modules and check the error report")
+}
+
+#[test]
+fn config_from_file_and_env() -> Result<()> {
+    let env = test_env_from_file(fixtures_dir().join("config_and_env.env"));
+
+    let _config = UserLayer::from_toml(fixtures_dir().join("config_and_env.toml"))?
+        .merge_chain(UserLayer::from_env(&env)?)
+        .complete()?;
+
+    Ok(())
 }

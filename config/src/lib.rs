@@ -10,12 +10,12 @@ use std::{
     fmt::{Debug, Display, Formatter},
     io::Read,
     ops::Sub,
-    result,
     str::FromStr,
     time::Duration,
 };
 
 use eyre::{eyre, Report, Result, WrapErr};
+use merge::Merge;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub mod client_api;
@@ -41,8 +41,6 @@ pub trait Complete {
 
     fn complete(self) -> CompleteResult<Self::Output>;
 }
-
-// struct StandardEnv;
 
 pub trait ReadEnv {
     fn get(&self, key: impl AsRef<str>) -> Option<&str>;
@@ -262,6 +260,53 @@ impl<T> From<ParseEnvResult<T>> for Option<T> {
     }
 }
 
+#[derive(
+    Serialize,
+    Deserialize,
+    Ord,
+    PartialOrd,
+    Eq,
+    PartialEq,
+    derive_more::From,
+    Clone,
+    derive_more::Deref,
+    derive_more::DerefMut,
+)]
+pub struct UserField<T>(Option<T>);
+
+impl<T: Debug> Debug for UserField<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<T> Default for UserField<T> {
+    fn default() -> Self {
+        Self(None)
+    }
+}
+
+impl<T> Merge for UserField<T> {
+    fn merge(&mut self, mut other: Self) {
+        if let Some(value) = other.0 {
+            self.0 = Some(value)
+        }
+    }
+}
+
+impl<T> UserField<T> {
+    pub fn get(self) -> Option<T> {
+        self.0
+    }
+}
+
+impl<T> From<ParseEnvResult<T>> for UserField<T> {
+    fn from(value: ParseEnvResult<T>) -> Self {
+        let option: Option<T> = value.into();
+        option.into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -287,5 +332,20 @@ mod tests {
         let err = emitter.finish().unwrap_err();
 
         assert_eq!(format!("{err}"), "Missing field: foo\nMissing field: bar")
+    }
+
+    #[test]
+    fn merging_user_fields_overrides_old_value() {
+        let mut field = UserField(None);
+        field.merge(UserField(Some(4)));
+        assert_eq!(field, UserField(Some(4)));
+
+        let mut field = UserField(Some(4));
+        field.merge(UserField(Some(5)));
+        assert_eq!(field, UserField(Some(5)));
+
+        let mut field = UserField(Some(4));
+        field.merge(UserField(None));
+        assert_eq!(field, UserField(Some(4)));
     }
 }

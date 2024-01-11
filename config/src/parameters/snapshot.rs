@@ -2,11 +2,12 @@
 
 use std::{path::PathBuf, time::Duration};
 
+use merge::Merge;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, ParseEnvResult,
-    ReadEnv, UserDuration,
+    ReadEnv, UserDuration, UserField,
 };
 
 const DEFAULT_SNAPSHOT_PATH: &str = "./storage";
@@ -14,15 +15,15 @@ const DEFAULT_SNAPSHOT_PATH: &str = "./storage";
 const DEFAULT_SNAPSHOT_CREATE_EVERY_MS: Duration = Duration::from_secs(60);
 const DEFAULT_ENABLED: bool = true;
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, Merge)]
+#[serde(deny_unknown_fields, default)]
 pub struct UserLayer {
     /// The period of time to wait between attempts to create new snapshot.
-    pub create_every_ms: Option<UserDuration>,
+    pub create_every_ms: UserField<UserDuration>,
     /// Path to the directory where snapshots should be stored
-    pub store_path: Option<PathBuf>,
+    pub store_path: UserField<PathBuf>,
     /// Flag to enable or disable snapshot creation
-    pub creation_enabled: Option<bool>,
+    pub creation_enabled: UserField<bool>,
 }
 
 #[derive(Debug)]
@@ -40,9 +41,11 @@ impl Complete for UserLayer {
             creation_enabled: self.creation_enabled.unwrap_or(DEFAULT_ENABLED),
             create_every_ms: self
                 .create_every_ms
+                .get()
                 .map_or(DEFAULT_SNAPSHOT_CREATE_EVERY_MS, UserDuration::get),
             store_path: self
                 .store_path
+                .get()
                 .unwrap_or_else(|| PathBuf::from(DEFAULT_SNAPSHOT_PATH)),
         })
     }

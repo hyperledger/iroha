@@ -4,12 +4,13 @@ use std::{
     time::Duration,
 };
 
+use merge::Merge;
 use nonzero_ext::nonzero;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     Complete, CompleteError, CompleteResult, FromEnv, FromEnvDefaultFallback, FromEnvResult,
-    ReadEnv, UserDuration,
+    ReadEnv, UserDuration, UserField,
 };
 
 const DEFAULT_MAX_TRANSACTIONS_IN_QUEUE: NonZeroU32 = nonzero!(2_u32.pow(16));
@@ -17,18 +18,18 @@ const DEFAULT_MAX_TRANSACTIONS_IN_QUEUE_PER_USER: NonZeroU32 = nonzero!(2_u32.po
 const DEFAULT_TRANSACTION_TIME_TO_LIVE: Duration = Duration::from_secs(24 * 60 * 60); // 24 hours
 const DEFAULT_FUTURE_THRESHOLD: Duration = Duration::from_secs(1);
 
-#[derive(Deserialize, Serialize, Debug, Default)]
-#[serde(deny_unknown_fields)]
+#[derive(Deserialize, Serialize, Debug, Default, Merge)]
+#[serde(deny_unknown_fields, default)]
 pub struct UserLayer {
     /// The upper limit of the number of transactions waiting in the queue.
-    pub max_transactions_in_queue: Option<NonZeroU32>,
+    pub max_transactions_in_queue: UserField<NonZeroU32>,
     /// The upper limit of the number of transactions waiting in the queue for single user.
     /// Use this option to apply throttling.
-    pub max_transactions_in_queue_per_user: Option<NonZeroU32>,
+    pub max_transactions_in_queue_per_user: UserField<NonZeroU32>,
     /// The transaction will be dropped after this time if it is still in the queue.
-    pub transaction_time_to_live_ms: Option<UserDuration>,
+    pub transaction_time_to_live_ms: UserField<UserDuration>,
     /// The threshold to determine if a transaction has been tampered to have a future timestamp.
-    pub future_threshold_ms: Option<UserDuration>,
+    pub future_threshold_ms: UserField<UserDuration>,
 }
 
 /// `Queue` configuration.

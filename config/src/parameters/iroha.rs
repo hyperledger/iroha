@@ -6,29 +6,30 @@ use eyre::{eyre, Context, Report};
 use iroha_crypto::{Algorithm, KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::ChainId;
 use iroha_primitives::addr::SocketAddr;
+use merge::Merge;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, ParseEnvResult,
-    ReadEnv,
+    ReadEnv, UserField,
 };
 
-#[derive(Deserialize, Serialize, Debug, Default)]
-#[serde(deny_unknown_fields)]
+#[derive(Deserialize, Serialize, Debug, Default, Merge)]
+#[serde(deny_unknown_fields, default)]
 pub struct UserLayer {
     pub chain_id: Option<ChainId>,
-    pub public_key: Option<PublicKey>,
-    pub private_key: Option<PrivateKey>,
-    pub p2p_address: Option<SocketAddr>,
+    pub public_key: UserField<PublicKey>,
+    pub private_key: UserField<PrivateKey>,
+    pub p2p_address: UserField<SocketAddr>,
 }
 
 impl Complete for UserLayer {
     type Output = Config;
 
     fn complete(self) -> CompleteResult<Config> {
-        let mut emitter = super::Emitter::<CompleteError>::new();
+        let mut emitter = Emitter::<CompleteError>::new();
 
-        let key_pair = match (self.public_key, self.private_key) {
+        let key_pair = match (self.public_key.get(), self.private_key.get()) {
             (Some(public_key), Some(private_key)) => {
                 KeyPair::new(public_key, private_key)
                     .map(Some)
@@ -57,7 +58,7 @@ impl Complete for UserLayer {
 
         Ok(Config {
             key_pair: key_pair.unwrap(),
-            p2p_address: self.p2p_address.unwrap(),
+            p2p_address: self.p2p_address.get().unwrap(),
         })
     }
 }
@@ -166,6 +167,7 @@ mod tests {
         let private_key = UserLayer::from_env(&env)
             .expect("input is valid, should not fail")
             .private_key
+            .get()
             .expect("private key is provided, should not fail");
 
         assert_eq!(private_key.digest_function(), "ed25519".parse().unwrap());
@@ -180,7 +182,7 @@ mod tests {
             `PRIVATE_KEY_DIGEST` env was provided, but `PRIVATE_KEY_PAYLOAD` was not
 
             Location:
-                config/src/parameters/iroha.rs:99:26"#]];
+                config/src/parameters/iroha.rs:100:26"#]];
         expected.assert_eq(&format!("{error:?}"));
     }
 
@@ -192,7 +194,7 @@ mod tests {
             `PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_DIGEST` was not
 
             Location:
-                config/src/parameters/iroha.rs:107:26"#]];
+                config/src/parameters/iroha.rs:108:26"#]];
         expected.assert_eq(&format!("{error:?}"));
     }
 
@@ -211,7 +213,7 @@ mod tests {
                 Key could not be parsed. Odd number of digits
 
             Location:
-                config/src/parameters/iroha.rs:81:18"#]];
+                config/src/parameters/iroha.rs:82:18"#]];
         expected.assert_eq(&format!("{error:?}"));
     }
 
@@ -231,7 +233,7 @@ mod tests {
                 Algorithm not supported
 
             Location:
-                config/src/lib.rs:239:14"#]];
+                config/src/lib.rs:237:14"#]];
         expected.assert_eq(&format!("{error:?}"));
     }
 }

@@ -9,12 +9,13 @@ use std::{
 };
 
 use iroha_data_model::{prelude::MetadataLimits, transaction::TransactionLimits, LengthLimits};
+use merge::Merge;
 use nonzero_ext::nonzero;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     ByteSize, Complete, CompleteError, CompleteResult, FromEnv, FromEnvDefaultFallback,
-    FromEnvResult, ReadEnv, UserDuration,
+    FromEnvResult, ReadEnv, UserDuration, UserField,
 };
 
 const DEFAULT_MAX_TXS: NonZeroU32 = nonzero!(2_u32.pow(9));
@@ -36,20 +37,20 @@ const DEFAULT_MAX_WASM_SIZE_BYTES: u64 = 4 * 2_u64.pow(20); // 4 MiB
 const DEFAULT_TRANSACTION_LIMITS: TransactionLimits =
     TransactionLimits::new(DEFAULT_MAX_INSTRUCTION_NUMBER, DEFAULT_MAX_WASM_SIZE_BYTES);
 
-#[derive(Deserialize, Serialize, Debug, Default)]
-#[serde(deny_unknown_fields)]
+#[derive(Deserialize, Serialize, Debug, Default, Merge)]
+#[serde(deny_unknown_fields, default)]
 pub struct UserLayer {
-    pub max_transactions_in_block: Option<NonZeroU32>,
-    pub block_time: Option<UserDuration>,
-    pub commit_time: Option<UserDuration>,
-    pub transactions_limits: Option<TransactionLimits>,
-    pub asset_metadata_limits: Option<MetadataLimits>,
-    pub asset_definition_metadata_limits: Option<MetadataLimits>,
-    pub account_metadata_limits: Option<MetadataLimits>,
-    pub domain_metadata_limits: Option<MetadataLimits>,
-    pub identifier_length_limits: Option<LengthLimits>,
-    pub wasm_fuel_limit: Option<NonZeroU64>,
-    pub wasm_max_memory: Option<ByteSize>,
+    pub max_transactions_in_block: UserField<NonZeroU32>,
+    pub block_time: UserField<UserDuration>,
+    pub commit_time: UserField<UserDuration>,
+    pub transactions_limits: UserField<TransactionLimits>,
+    pub asset_metadata_limits: UserField<MetadataLimits>,
+    pub asset_definition_metadata_limits: UserField<MetadataLimits>,
+    pub account_metadata_limits: UserField<MetadataLimits>,
+    pub domain_metadata_limits: UserField<MetadataLimits>,
+    pub identifier_length_limits: UserField<LengthLimits>,
+    pub wasm_fuel_limit: UserField<NonZeroU64>,
+    pub wasm_max_memory: UserField<ByteSize>,
 }
 
 #[derive(Debug)]

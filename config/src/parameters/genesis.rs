@@ -1,22 +1,24 @@
 //! Module with genesis configuration logic.
-use std::path::PathBuf;
+use std::{ops::Deref, path::PathBuf};
 
 use eyre::{eyre, Context, Report};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_genesis::RawGenesisBlock;
+use merge::Merge;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvDefaultFallback,
-    FromEnvResult, ParseEnvResult, ReadEnv,
+    FromEnvResult, ParseEnvResult, ReadEnv, UserField,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default, Merge)]
+#[serde(deny_unknown_fields, default)]
 pub struct UserLayer {
-    pub public_key: Option<PublicKey>,
-    pub private_key: Option<PrivateKey>,
-    pub file: Option<PathBuf>,
+    pub public_key: UserField<PublicKey>,
+    pub private_key: UserField<PrivateKey>,
+    #[serde(default)]
+    pub file: UserField<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -41,9 +43,10 @@ impl Complete for UserLayer {
     fn complete(self) -> CompleteResult<Config> {
         let public_key = self
             .public_key
+            .get()
             .ok_or_else(|| CompleteError::missing_field("genesis.public_key"))?;
 
-        match (self.private_key, self.file) {
+        match (self.private_key.get(), self.file.get()) {
             (None, None) => Ok(Config::Partial { public_key }),
             (Some(private_key), Some(file)) => Ok(Config::Full {
                 key_pair: KeyPair::new(public_key, private_key)

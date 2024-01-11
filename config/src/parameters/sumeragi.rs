@@ -1,12 +1,16 @@
 //! `Sumeragi` configuration. Contains both block commit and Gossip-related configuration.
 use std::{fmt::Debug, fs::File, io::BufReader, num::NonZeroU32, path::Path, time::Duration};
 
+use eyre::eyre;
 use iroha_data_model::prelude::*;
 use iroha_primitives::unique_vec::UniqueVec;
+use merge::Merge;
 use serde::{Deserialize, Serialize};
 
 use self::default::*;
-use crate::{Complete, CompleteError, CompleteResult, FromEnvDefaultFallback, UserDuration};
+use crate::{
+    Complete, CompleteError, CompleteResult, FromEnvDefaultFallback, UserDuration, UserField,
+};
 
 /// Module with a set of default values.
 pub mod default {
@@ -31,14 +35,14 @@ pub mod default {
     //     DEFAULT_BLOCK_TIME_MS + (DEFAULT_COMMIT_TIME_LIMIT_MS / 2);
 }
 
-#[derive(Deserialize, Serialize, Debug, Default)]
-#[serde(deny_unknown_fields)]
+#[derive(Deserialize, Serialize, Debug, Default, Merge)]
+#[serde(deny_unknown_fields, default)]
 pub struct UserLayer {
-    pub block_gossip_period: Option<UserDuration>,
-    pub max_blocks_per_gossip: Option<NonZeroU32>,
-    pub max_transactions_per_gossip: Option<NonZeroU32>,
-    pub transaction_gossip_period: Option<UserDuration>,
-    pub trusted_peers: Option<TrustedPeers>,
+    pub block_gossip_period: UserField<UserDuration>,
+    pub max_blocks_per_gossip: UserField<NonZeroU32>,
+    pub max_transactions_per_gossip: UserField<NonZeroU32>,
+    pub transaction_gossip_period: UserField<UserDuration>,
+    pub trusted_peers: UserTrustedPeers,
 }
 
 impl Complete for UserLayer {
@@ -58,7 +62,10 @@ impl Complete for UserLayer {
             transaction_gossip_period: self
                 .transaction_gossip_period
                 .map_or(DEFAULT_TRANSACTION_GOSSIP_PERIOD, UserDuration::get),
-            trusted_peers: self.trusted_peers.unwrap_or_default(),
+            trusted_peers: TrustedPeers {
+                peers: construct_unique_vec(self.trusted_peers.peers)
+                    .map_err(CompleteError::Custom)?,
+            },
         })
     }
 }
@@ -72,17 +79,36 @@ pub struct Config {
     pub trusted_peers: TrustedPeers,
 }
 
-/// Part of the [`Configuration`]. It is separated from the main structure in order to be able
-/// to load it from a separate file (see [`TrustedPeers::from_path`]).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "UPPERCASE")]
-#[serde(transparent)]
-#[repr(transparent)]
+#[derive(Debug)]
 pub struct TrustedPeers {
-    /// Optional list of predefined trusted peers. Must contain unique
-    /// entries. Custom deserializer raises error if duplicates found.
-    #[serde(deserialize_with = "UniqueVec::display_deserialize_failing_on_duplicates")]
     pub peers: UniqueVec<PeerId>,
 }
 
+#[derive(Deserialize, Serialize, Default, PartialEq, Eq, Debug, Clone)]
+#[serde(transparent)]
+pub struct UserTrustedPeers {
+    // FIXME: doesn't raise an error on finding duplicates during deserialization
+    pub peers: Vec<PeerId>,
+}
+
+impl Merge for UserTrustedPeers {
+    fn merge(&mut self, mut other: Self) {
+        self.peers.append(other.peers.as_mut())
+    }
+}
+
 impl FromEnvDefaultFallback for UserLayer {}
+
+// FIXME: handle duplicates properly, not here, and with details
+fn construct_unique_vec<T: Debug + PartialEq>(
+    unchecked: Vec<T>,
+) -> Result<UniqueVec<T>, eyre::Report> {
+    let mut unique = UniqueVec::new();
+    for x in unchecked.into_iter() {
+        let pushed = unique.push(x);
+        if !pushed {
+            Err(eyre!("found duplicate"))?
+        }
+    }
+    Ok(unique)
+}

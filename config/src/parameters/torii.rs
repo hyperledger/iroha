@@ -3,22 +3,23 @@
 use std::time::Duration;
 
 use iroha_primitives::addr::{socket_addr, SocketAddr};
+use merge::Merge;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     ByteSize, Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult,
-    ParseEnvResult, ReadEnv, UserDuration,
+    ParseEnvResult, ReadEnv, UserDuration, UserField,
 };
 
 const DEFAULT_MAX_CONTENT_LENGTH: u64 = 2_u64.pow(20) * 16;
 const DEFAULT_QUERY_IDLE_TIME: Duration = Duration::from_secs(30);
 
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, Merge)]
+#[serde(deny_unknown_fields, default)]
 pub struct UserLayer {
-    pub address: Option<SocketAddr>,
-    pub max_content_len: Option<ByteSize>,
-    pub query_idle_time: Option<UserDuration>,
+    pub address: UserField<SocketAddr>,
+    pub max_content_len: UserField<ByteSize>,
+    pub query_idle_time: UserField<UserDuration>,
 }
 
 #[derive(Debug)]
@@ -35,9 +36,11 @@ impl Complete for UserLayer {
         Ok(Config {
             address: self
                 .address
+                .get()
                 .ok_or_else(|| CompleteError::missing_field("torii.address"))?,
             max_content_len: self
                 .max_content_len
+                .get()
                 .unwrap_or(ByteSize(DEFAULT_MAX_CONTENT_LENGTH)),
             query_idle_time: self
                 .query_idle_time
