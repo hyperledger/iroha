@@ -22,17 +22,17 @@ The results of the compilation can be found in `<IROHA REPO ROOT>/target/release
 
 ### Add features
 
-To add optional features, use ``--features``. For example, to add the support for _dex_, run:
+To add optional features, use ``--features``. For example, to add the support for _dev_telemetry_, run:
 
 ```bash
-cargo build --release --features dex
+cargo build --release --features dev-telemetry
 ```
 
 A full list of features can be found in the [cargo manifest file](Cargo.toml) for this crate.
 
 ### Disable default features
 
-By default, the Iroha binary is compiled with the `bridge`, `telemetry`, and `schema-endpoint` features. If you wish to remove those features, add `--no-default-features` to the command.
+By default, the Iroha binary is compiled with the `telemetry`, and `schema-endpoint` features. If you wish to remove those features, add `--no-default-features` to the command.
 
 ```bash
 cargo build --release --no-default-features

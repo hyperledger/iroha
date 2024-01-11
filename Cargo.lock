@@ -3125,10 +3125,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha_substrate"
-version = "2.0.0-pre-rc.20"
-
-[[package]]
 name = "iroha_swarm"
 version = "2.0.0-pre-rc.20"
 dependencies = [
