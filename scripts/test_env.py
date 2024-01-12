@@ -47,7 +47,7 @@ class Network:
             sys.exit(1)
         copy_or_prompt_build_bin("iroha", args.root_dir, peers_dir)
 
-        self.shared_env["IROHA_CHAIN_ID"] = str(uuid.uuid4())
+        self.shared_env["IROHA_CHAIN_ID"] = "00000000-0000-0000-0000-000000000000"
         self.shared_env["IROHA_CONFIG"] = str(peers_dir.joinpath("config.json"))
         self.shared_env["IROHA_GENESIS_PUBLIC_KEY"] = self.peers[0].public_key
 
