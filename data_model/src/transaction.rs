@@ -163,12 +163,11 @@ pub mod model {
     #[cfg_attr(not(feature = "std"), display(fmt = "Signed transaction"))]
     #[cfg_attr(feature = "std", display(fmt = "{}", "self.hash()"))]
     #[ffi_type]
-    // TODO: All fields in this struct should be private
     pub struct SignedTransactionV1 {
         /// [`iroha_crypto::SignatureOf`]<[`TransactionPayload`]>.
-        pub signatures: SignaturesOf<TransactionPayload>,
+        pub(super) signatures: SignaturesOf<TransactionPayload>,
         /// [`Transaction`] payload.
-        pub payload: TransactionPayload,
+        pub(super) payload: TransactionPayload,
     }
 
     /// Transaction Value used in Instructions and Queries
@@ -265,21 +264,6 @@ impl SignedTransaction {
     pub fn payload(&self) -> &TransactionPayload {
         let SignedTransaction::V1(tx) = self;
         &tx.payload
-    }
-
-    /// Used to inject faulty payload for testing
-    #[cfg(feature = "transparent_api")]
-    pub fn payload_mut(&mut self) -> &mut TransactionPayload {
-        let SignedTransaction::V1(tx) = self;
-        &mut tx.payload
-    }
-
-    /// Used to inject faulty payload for testing
-    #[cfg(debug_assertions)]
-    #[cfg(not(feature = "transparent_api"))]
-    pub fn payload_mut(&mut self) -> &mut TransactionPayload {
-        let SignedTransaction::V1(tx) = self;
-        &mut tx.payload
     }
 
     /// Return transaction signatures
@@ -719,6 +703,12 @@ mod http {
             self
         }
 
+        /// Set executable for this transaction
+        pub fn with_executable(mut self, executable: Executable) -> Self {
+            self.payload.instructions = executable;
+            self
+        }
+
         /// Adds metadata to the `Transaction`
         pub fn with_metadata(mut self, metadata: UnlimitedMetadata) -> Self {
             self.payload.metadata = metadata;
@@ -745,6 +735,12 @@ mod http {
                 Some(NonZeroU64::new(ttl).expect("Can't be 0"))
             };
 
+            self
+        }
+
+        /// Set creation time of transaction
+        pub fn set_creation_time(&mut self, creation_time_ms: u64) -> &mut Self {
+            self.payload.creation_time_ms = creation_time_ms;
             self
         }
 

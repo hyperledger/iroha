@@ -1691,16 +1691,25 @@ mod tests {
                 .unwrap()
         };
         let tx1 = build_transaction();
-        let mut tx2 = build_transaction();
+        let tx2 = build_transaction();
         assert_ne!(tx1.payload().hash(), tx2.payload().hash());
 
-        tx2.payload_mut().creation_time_ms = tx1
-            .payload()
-            .creation_time()
-            .as_millis()
-            .try_into()
-            .expect("Valid");
-        tx2.payload_mut().nonce = tx1.payload().nonce;
+        let tx2 = {
+            let mut tx =
+                TransactionBuilder::new(client.chain_id.clone(), client.account_id.clone())
+                    .with_executable(tx1.payload().instructions.clone())
+                    .with_metadata(tx1.payload().metadata.clone());
+
+            tx.set_creation_time(tx1.payload().creation_time_ms);
+            if let Some(nonce) = tx1.payload().nonce {
+                tx.set_nonce(nonce);
+            }
+            if let Some(transaction_ttl) = client.transaction_ttl {
+                tx.set_ttl(transaction_ttl);
+            }
+
+            client.sign_transaction(tx).unwrap()
+        };
         assert_eq!(tx1.payload().hash(), tx2.payload().hash());
     }
 

@@ -874,6 +874,7 @@ mod tests {
     async fn push_tx_in_future() {
         let future_threshold_ms = 1000;
 
+        let alice_id = "alice@wonderland";
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
@@ -890,10 +891,27 @@ mod tests {
                 .expect("Default queue config should always build")
         });
 
-        let mut tx = accepted_tx("alice@wonderland", alice_key);
+        let tx = accepted_tx(alice_id, alice_key.clone());
         assert!(queue.push(tx.clone(), &wsv).is_ok());
-        // tamper timestamp
-        tx.0.payload_mut().creation_time_ms += 2 * future_threshold_ms;
+        // create the same tx but with timestamp in the future
+        let tx = {
+            let chain_id = ChainId::new("0");
+            let mut new_tx = TransactionBuilder::new(
+                chain_id.clone(),
+                AccountId::from_str(alice_id).expect("Valid"),
+            )
+            .with_executable(tx.0.payload().instructions.clone());
+
+            new_tx.set_creation_time(tx.0.payload().creation_time_ms + 2 * future_threshold_ms);
+
+            let new_tx = new_tx.sign(alice_key).expect("Failed to sign.");
+            let limits = TransactionLimits {
+                max_instruction_number: 4096,
+                max_wasm_size_bytes: 0,
+            };
+            AcceptedTransaction::accept(new_tx, &chain_id, &limits)
+                .expect("Failed to accept Transaction.")
+        };
         assert!(matches!(
             queue.push(tx, &wsv),
             Err(Failure {
