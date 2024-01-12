@@ -795,9 +795,9 @@ mod asset {
     /// Register subcommand of asset
     #[derive(clap::Args, Debug)]
     pub struct Register {
-        /// Asset id for registering (in form of `name#domain_name')
+        /// Asset definition id for registering (in form of `name#domain_name')
         #[arg(short, long)]
-        pub id: AssetDefinitionId,
+        pub definition_id: AssetDefinitionId,
         /// Mintability of asset
         #[arg(short, long)]
         pub unmintable: bool,
@@ -811,16 +811,16 @@ mod asset {
     impl RunArgs for Register {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
-                id,
+                definition_id,
                 value_type,
                 unmintable,
                 metadata,
             } = self;
             let mut asset_definition = match value_type {
-                AssetValueType::Quantity => AssetDefinition::quantity(id),
-                AssetValueType::BigQuantity => AssetDefinition::big_quantity(id),
-                AssetValueType::Fixed => AssetDefinition::fixed(id),
-                AssetValueType::Store => AssetDefinition::store(id),
+                AssetValueType::Quantity => AssetDefinition::quantity(definition_id),
+                AssetValueType::BigQuantity => AssetDefinition::big_quantity(definition_id),
+                AssetValueType::Fixed => AssetDefinition::fixed(definition_id),
+                AssetValueType::Store => AssetDefinition::store(definition_id),
             };
             if unmintable {
                 asset_definition = asset_definition.mintable_once();
@@ -835,12 +835,9 @@ mod asset {
     /// Command for minting asset in existing Iroha account
     #[derive(clap::Args, Debug)]
     pub struct Mint {
-        /// Account id where asset is stored (in form of `name@domain_name')
+        /// AssetId for the asset (in form of `asset##account@domain_name')
         #[arg(long)]
-        pub account: AccountId,
-        /// Asset id from which to mint (in form of `name#domain_name')
-        #[arg(long)]
-        pub asset: AssetDefinitionId,
+        pub asset_id: AssetId,
         /// Quantity to mint
         #[arg(short, long)]
         pub quantity: u32,
@@ -851,15 +848,12 @@ mod asset {
     impl RunArgs for Mint {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
-                account,
-                asset,
+                asset_id,
                 quantity,
                 metadata,
             } = self;
-            let mint_asset = iroha_client::data_model::isi::Mint::asset_quantity(
-                quantity,
-                AssetId::new(asset, account),
-            );
+            let mint_asset =
+                iroha_client::data_model::isi::Mint::asset_quantity(quantity, asset_id);
             submit([mint_asset], metadata.load()?, context)
                 .wrap_err("Failed to mint asset of type `NumericValue::U32`")
         }
@@ -868,12 +862,9 @@ mod asset {
     /// Command for minting asset in existing Iroha account
     #[derive(clap::Args, Debug)]
     pub struct Burn {
-        /// Account id where asset is stored (in form of `name@domain_name')
+        /// AssetId for the asset (in form of `asset##account@domain_name')
         #[arg(long)]
-        pub account: AccountId,
-        /// Asset id from which to mint (in form of `name#domain_name')
-        #[arg(long)]
-        pub asset: AssetDefinitionId,
+        pub asset_id: AssetId,
         /// Quantity to mint
         #[arg(short, long)]
         pub quantity: u32,
@@ -884,15 +875,12 @@ mod asset {
     impl RunArgs for Burn {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
-                account,
-                asset,
+                asset_id,
                 quantity,
                 metadata,
             } = self;
-            let burn_asset = iroha_client::data_model::isi::Burn::asset_quantity(
-                quantity,
-                AssetId::new(asset, account),
-            );
+            let burn_asset =
+                iroha_client::data_model::isi::Burn::asset_quantity(quantity, asset_id);
             submit([burn_asset], metadata.load()?, context)
                 .wrap_err("Failed to burn asset of type `NumericValue::U32`")
         }
@@ -901,15 +889,12 @@ mod asset {
     /// Transfer asset between accounts
     #[derive(clap::Args, Debug)]
     pub struct Transfer {
-        /// Account from which to transfer (in form `name@domain_name')
-        #[arg(short, long)]
-        pub from: AccountId,
         /// Account to which to transfer (in form `name@domain_name')
         #[arg(short, long)]
         pub to: AccountId,
-        /// Asset id to transfer (in form like `name#domain_name')
-        #[arg(short, long)]
-        pub asset_id: AssetDefinitionId,
+        /// Asset id to transfer (in form like `asset##account@domain_name')
+        #[arg(long)]
+        pub asset_id: AssetId,
         /// Quantity of asset as number
         #[arg(short, long)]
         pub quantity: u32,
@@ -920,17 +905,13 @@ mod asset {
     impl RunArgs for Transfer {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
-                from,
                 to,
                 asset_id,
                 quantity,
                 metadata,
             } = self;
-            let transfer_asset = iroha_client::data_model::isi::Transfer::asset_quantity(
-                AssetId::new(asset_id, from),
-                quantity,
-                to,
-            );
+            let transfer_asset =
+                iroha_client::data_model::isi::Transfer::asset_quantity(asset_id, quantity, to);
             submit([transfer_asset], metadata.load()?, context).wrap_err("Failed to transfer asset")
         }
     }
@@ -938,19 +919,15 @@ mod asset {
     /// Get info of asset
     #[derive(clap::Args, Debug)]
     pub struct Get {
-        /// Account where asset is stored (in form of `name@domain_name')
+        /// AssetId for the asset (in form of `asset##account@domain_name')
         #[arg(long)]
-        pub account: AccountId,
-        /// Asset name to lookup (in form of `name#domain_name')
-        #[arg(long)]
-        pub asset: AssetDefinitionId,
+        pub asset_id: AssetId,
     }
 
     impl RunArgs for Get {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self { account, asset } = self;
+            let Self { asset_id } = self;
             let iroha_client = Client::new(context.configuration())?;
-            let asset_id = AssetId::new(asset, account);
             let asset = iroha_client
                 .request(asset::by_id(asset_id))
                 .wrap_err("Failed to get asset.")?;
