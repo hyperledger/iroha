@@ -15,7 +15,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           push: true
-          tags: hyperledger/iroha2-ci:nightly-2023-06-25
+          tags: hyperledger/iroha2-ci:nightly-2024-01-12
           labels: commit=${{ github.sha }}
           file: Dockerfile.build
           # This context specification is required

@@ -11,7 +11,7 @@ jobs:
   registry:
     runs-on: [self-hosted, Linux, iroha2-dev-push]
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - uses: actions/checkout@v4
       - uses: docker/login-action@v3
@@ -49,7 +49,7 @@ jobs:
   archive_binaries_and_schema:
     runs-on: ubuntu-latest
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
@@ -85,7 +85,7 @@ jobs:
     if: false
     runs-on: ubuntu-latest
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
