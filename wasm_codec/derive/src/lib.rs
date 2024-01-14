@@ -95,22 +95,28 @@ fn impl_wrap_fn(
 
     let fn_class = classify_fn(emitter, &fn_item.sig)?;
 
-    fn_item.sig.inputs = gen_params(
+    let maybe_sig_inputs = gen_params(
         emitter,
         &fn_class,
         state_attr_opt.as_ref().map(|state_attr| &state_attr.ty),
         true,
-    )?;
+    );
 
-    let output = gen_output(&fn_class);
-    fn_item.sig.output = parse_quote! {-> #output};
-
-    let body = gen_body(
+    let maybe_body = gen_body(
         emitter,
         &inner_fn_ident,
         &fn_class,
         state_attr_opt.as_ref().map(|state_attr| &state_attr.ty),
-    )?;
+    );
+
+    let (Some(sig_inputs), Some(body)) = (maybe_sig_inputs, maybe_body) else {
+        return None;
+    };
+
+    let output = gen_output(&fn_class);
+    fn_item.sig.output = parse_quote! {-> #output};
+
+    fn_item.sig.inputs = sig_inputs;
     fn_item.block = parse_quote!({#body});
 
     Some(quote! {
@@ -400,6 +406,8 @@ enum ErrType {
 
 fn classify_fn(emitter: &mut Emitter, fn_sig: &syn2::Signature) -> Option<FnClass> {
     let params = &fn_sig.inputs;
+
+    // It does not make sense to check further if the next function fails
     let (param, state) = classify_params_and_state(emitter, params)?;
 
     let output = &fn_sig.output;
@@ -438,11 +446,17 @@ fn classify_fn(emitter: &mut Emitter, fn_sig: &syn2::Signature) -> Option<FnClas
         return None;
     };
 
-    let ok_type = emitter.handle(classify_ok_type(generics))?;
-    let err_type = extract_err_type(emitter, generics)?;
+    let maybe_ok_type = emitter.handle(classify_ok_type(generics));
 
+    let err_type = extract_err_type(emitter, generics)?;
     let err_type_path = unwrap_path(emitter, err_type)?;
-    let err_type_last_segment = last_segment(emitter, err_type_path)?;
+    let maybe_err_type_last_segment = last_segment(emitter, err_type_path);
+
+    let (Some(ok_type), Some(err_type_last_segment)) = (maybe_ok_type, maybe_err_type_last_segment)
+    else {
+        return None;
+    };
+
     let err_type = if err_type_last_segment.ident == "WasmtimeError" {
         ErrType::WasmtimeError
     } else {
@@ -484,13 +498,17 @@ fn classify_params_and_state(
         }
         2 => {
             let mut params_iter = params.iter();
-            let first_param =
-                extract_type_from_fn_arg(emitter, params_iter.next().unwrap().clone())?;
+            let maybe_first_param =
+                extract_type_from_fn_arg(emitter, params_iter.next().unwrap().clone());
 
             let second_param =
                 extract_type_from_fn_arg(emitter, params_iter.next().unwrap().clone())?;
 
             let Some(state_ty) = emitter.handle(parse_state_param(&second_param)) else {
+                return None;
+            };
+
+            let Some(first_param) = maybe_first_param else {
                 return None;
             };
             Some((Some(first_param.ty.deref().clone()), Some(state_ty.clone())))
@@ -511,7 +529,10 @@ fn parse_state_param(param: &syn2::PatType) -> Result<&syn2::Type> {
     }
 
     let syn2::Type::Reference(ty_ref) = &*param.ty else {
-        bail!(param.ty, "State parameter should be either reference or mutable reference");
+        bail!(
+            param.ty,
+            "State parameter should be either reference or mutable reference"
+        );
     };
 
     Ok(&*ty_ref.elem)
@@ -520,12 +541,14 @@ fn parse_state_param(param: &syn2::PatType) -> Result<&syn2::Type> {
 fn classify_ok_type(
     generics: &Punctuated<syn2::GenericArgument, syn2::Token![,]>,
 ) -> Result<Option<syn2::Type>> {
-    let Some(ok_generic) = generics
-        .first() else {
-            bail!("First generic argument expected in `Result` return type");
-        };
+    let Some(ok_generic) = generics.first() else {
+        bail!("First generic argument expected in `Result` return type");
+    };
     let syn2::GenericArgument::Type(ok_type) = ok_generic else {
-        bail!(ok_generic, "First generic of `Result` return type expected to be a type");
+        bail!(
+            ok_generic,
+            "First generic of `Result` return type expected to be a type"
+        );
     };
 
     if let syn2::Type::Tuple(syn2::TypeTuple { elems, .. }) = ok_type {
@@ -539,12 +562,13 @@ fn extract_err_type<'arg>(
     emitter: &mut Emitter,
     generics: &'arg Punctuated<syn2::GenericArgument, syn2::Token![,]>,
 ) -> Option<&'arg syn2::Type> {
-    let Some(err_generic) = generics
-        .iter()
-        .nth(1) else {
-            emit!(emitter, "Second generic of `Result` return type expected to be a type");
-            return None;
-        };
+    let Some(err_generic) = generics.iter().nth(1) else {
+        emit!(
+            emitter,
+            "Second generic of `Result` return type expected to be a type"
+        );
+        return None;
+    };
 
     if let syn2::GenericArgument::Type(err_type) = err_generic {
         Some(err_type)
