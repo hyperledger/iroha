@@ -18,12 +18,8 @@ categories.workspace = true
 workspace = true
 
 [features]
-default = ["bridge", "telemetry", "schema-endpoint"]
+default = ["telemetry", "schema-endpoint"]
 
-# Support interoperability with popular blockchain networks (Substrate, Ether, etc.)
-bridge = ["iroha_core/bridge"]
-# Support Decentralised Exchange, including functionality for atomic exchange instruction
-dex = ["iroha_core/dex"]
 # Support lightweight telemetry, including diagnostics
 telemetry = ["iroha_telemetry", "iroha_core/telemetry", "iroha_torii/telemetry"]
 # Support developer-specific telemetry.
@@ -82,10 +78,8 @@ vergen = { workspace = true, features = ["cargo"] }
 
 [package.metadata.cargo-all-features]
 denylist = [
-  "bridge",
-  "dex",
   "schema-endpoint",
   "telemetry",
   "test-network",
-] # TODO: remove `dex` and `bridge` once there's code for them.
+]
 skip_optional_dependencies = true

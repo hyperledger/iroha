@@ -1091,6 +1091,7 @@ impl Client {
                 .join(crate::config::torii::CONFIGURATION)
                 .expect("Valid URI"),
         )
+        .headers(&self.headers)
         .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
         .build()?
         .send()?;
@@ -1116,6 +1117,7 @@ impl Client {
             .join(crate::config::torii::CONFIGURATION)
             .expect("Valid URI");
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
+            .headers(&self.headers)
             .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
             .body(body)
             .build()?
