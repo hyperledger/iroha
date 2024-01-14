@@ -10,6 +10,9 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+debug = []
+
 [dependencies]
 iroha_data_model.workspace = true
 

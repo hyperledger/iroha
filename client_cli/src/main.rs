@@ -20,7 +20,7 @@ use iroha_client::{
     data_model::prelude::*,
 };
 use iroha_config_base::proxy::{LoadFromDisk, LoadFromEnv, Override};
-use iroha_primitives::addr::SocketAddr;
+use iroha_primitives::addr::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
 /// Should be combined with `#[command(flatten)]` attr.
@@ -53,6 +53,24 @@ impl MetadataArgs {
             .transpose()?;
 
         Ok(value.unwrap_or_default())
+    }
+}
+/// Wrapper around Value to accept possible values and fallback to json
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValueArg(Value);
+
+impl FromStr for ValueArg {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse::<bool>()
+            .map(Value::Bool)
+            .or_else(|_| s.parse::<Ipv4Addr>().map(Value::Ipv4Addr))
+            .or_else(|_| s.parse::<Ipv6Addr>().map(Value::Ipv6Addr))
+            .or_else(|_| s.parse::<NumericValue>().map(Value::Numeric))
+            .or_else(|_| s.parse::<PublicKey>().map(Value::PublicKey))
+            .or_else(|_| serde_json::from_str::<Value>(s).map_err(|e| e.into()))
+            .map(ValueArg)
     }
 }
 
@@ -748,14 +766,17 @@ mod account {
 }
 
 mod asset {
-    use iroha_client::client::{self, asset, Client};
+    use iroha_client::{
+        client::{self, asset, Client},
+        data_model::{asset::AssetDefinition, name::Name},
+    };
 
     use super::*;
 
     /// Subcommand for dealing with asset
     #[derive(clap::Subcommand, Debug)]
     pub enum Args {
-        /// Register subcommand of asset
+        /// Command for Registering a new asset
         Register(Register),
         /// Command for minting asset in existing Iroha account
         Mint(Mint),
@@ -768,13 +789,19 @@ mod asset {
         /// List assets
         #[clap(subcommand)]
         List(List),
+        /// Set a key-value entry in a Store asset
+        SetKeyValue(SetKeyValue),
+        /// Remove a key-value entry from a Store asset
+        RemoveKeyValue(RemoveKeyValue),
+        /// Get a value from a Store asset
+        GetKeyValue(GetKeyValue),
     }
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             match_all!(
                 (self, context),
-                { Args::Register, Args::Mint, Args::Burn, Args::Transfer, Args::Get, Args::List }
+                { Args::Register, Args::Mint, Args::Burn, Args::Transfer, Args::Get, Args::List, Args::SetKeyValue, Args::RemoveKeyValue, Args::GetKeyValue}
             )
         }
     }
@@ -973,6 +1000,80 @@ mod asset {
             Ok(())
         }
     }
+
+    #[derive(clap::Args, Debug)]
+    pub struct SetKeyValue {
+        /// AssetId for the Store asset (in form of `asset##account@domain_name')
+        #[clap(long)]
+        pub asset_id: AssetId,
+        /// The key for the store value
+        #[clap(long)]
+        pub key: Name,
+        /// The value to be associated with the specified key.
+        /// The following types are supported:
+        /// Numbers: with a suffix, e.g. 42_u32 or 1000_u128
+        /// Booleans: false/true
+        /// IPv4/IPv6: e.g. 127.0.0.1, ::1
+        /// Iroha Public Key Multihash: e.g. ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0
+        /// JSON: e.g. {"Vec":[{"String":"a"},{"String":"b"}]}
+        #[clap(long)]
+        pub value: ValueArg,
+    }
+
+    impl RunArgs for SetKeyValue {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let Self {
+                asset_id,
+                key,
+                value: ValueArg(value),
+            } = self;
+
+            let set = iroha_client::data_model::isi::SetKeyValue::asset(asset_id, key, value);
+            submit([set], UnlimitedMetadata::default(), context)?;
+            Ok(())
+        }
+    }
+    #[derive(clap::Args, Debug)]
+    pub struct RemoveKeyValue {
+        /// AssetId for the Store asset (in form of `asset##account@domain_name')
+        #[clap(long)]
+        pub asset_id: AssetId,
+        /// The key for the store value
+        #[clap(long)]
+        pub key: Name,
+    }
+
+    impl RunArgs for RemoveKeyValue {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let Self { asset_id, key } = self;
+            let remove = iroha_client::data_model::isi::RemoveKeyValue::asset(asset_id, key);
+            submit([remove], UnlimitedMetadata::default(), context)?;
+            Ok(())
+        }
+    }
+
+    #[derive(clap::Args, Debug)]
+    pub struct GetKeyValue {
+        /// AssetId for the Store asset (in form of `asset##account@domain_name')
+        #[clap(long)]
+        pub asset_id: AssetId,
+        /// The key for the store value
+        #[clap(long)]
+        pub key: Name,
+    }
+
+    impl RunArgs for GetKeyValue {
+        fn run(self, context: &mut dyn RunContext) -> Result<()> {
+            let Self { asset_id, key } = self;
+            let client = Client::new(context.configuration())?;
+            let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id, key);
+            let asset = client
+                .request(find_key_value)
+                .wrap_err("Failed to get key-value")?;
+            context.print_data(&asset)?;
+            Ok(())
+        }
+    }
 }
 
 mod peer {
@@ -1106,5 +1207,68 @@ mod json {
             submit(instructions, UnlimitedMetadata::new(), context)
                 .wrap_err("Failed to submit parsed instructions")
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use iroha_client::data_model::Value;
+
+    use super::*;
+
+    #[test]
+    fn parse_value_arg_cases() {
+        macro_rules! case {
+            ($input:expr, $expected:expr) => {
+                let ValueArg(actual) =
+                    ValueArg::from_str($input).expect("should not fail with valid input");
+                assert_eq!(actual, $expected);
+            };
+        }
+
+        // IPv4 address
+        case!(
+            "192.168.0.1",
+            Value::Ipv4Addr(Ipv4Addr::new([192, 168, 0, 1]))
+        );
+
+        // IPv6 address
+        case!(
+            "::1",
+            Value::Ipv6Addr(Ipv6Addr::new([0, 0, 0, 0, 0, 0, 0, 1]))
+        );
+
+        // Boolean values
+        case!("true", Value::Bool(true));
+        case!("false", Value::Bool(false));
+
+        // Numeric values
+        case!("123_u32", Value::Numeric(NumericValue::U32(123)));
+        case!("123_u64", Value::Numeric(NumericValue::U64(123)));
+        case!("123_u128", Value::Numeric(NumericValue::U128(123)));
+
+        let expected_fixed = NumericValue::Fixed(123.0.try_into().unwrap());
+        case!("123.0_fx", Value::Numeric(expected_fixed));
+
+        // Public Key
+        let public_key_str =
+            "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0";
+        case!(
+            public_key_str,
+            Value::PublicKey(PublicKey::from_str(public_key_str).unwrap())
+        );
+
+        // JSON Value
+        let json_str = r#"{"Vec":[{"String":"a"},{"String":"b"}]}"#;
+        let expected_json: Value = serde_json::from_str(json_str).unwrap();
+        case!(json_str, expected_json);
+    }
+
+    #[test]
+    fn error_parse_invalid_value() {
+        let invalid_str = "not_a_valid_value";
+        let _invalid_value = ValueArg::from_str(invalid_str)
+            .expect_err("Should fail invalid type from string but passed");
     }
 }

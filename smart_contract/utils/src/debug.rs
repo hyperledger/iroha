@@ -1,5 +1,7 @@
 //! WASM debugging utilities
 
+#[cfg(feature = "debug")]
+use alloc::format;
 use core::fmt::Debug;
 
 #[cfg(not(test))]
@@ -30,9 +32,9 @@ pub fn dbg<T: Debug + ?Sized>(_obj: &T) {
         use tests::_dbg_mock as host_dbg;
 
         #[allow(clippy::used_underscore_binding)]
-        let s = format!("{:?}", _obj);
+        let s = format!("{_obj:?}");
         // Safety: `host_dbg` doesn't take ownership of it's pointer parameter
-        unsafe { iroha_smart_contract_utils::encode_and_execute(&s, host_dbg) }
+        unsafe { crate::encode_and_execute(&s, host_dbg) }
     }
 }
 
@@ -89,6 +91,7 @@ impl<T> DebugUnwrapExt for Option<T> {
         return self.unwrap();
 
         #[cfg(feature = "debug")]
+        #[allow(clippy::single_match_else, clippy::option_if_let_else)]
         {
             match self {
                 Some(out) => out,
