@@ -69,7 +69,7 @@ impl FromStr for ValueArg {
             .or_else(|_| s.parse::<Ipv6Addr>().map(Value::Ipv6Addr))
             .or_else(|_| s.parse::<NumericValue>().map(Value::Numeric))
             .or_else(|_| s.parse::<PublicKey>().map(Value::PublicKey))
-            .or_else(|_| serde_json::from_str::<Value>(s).map_err(|e| e.into()))
+            .or_else(|_| serde_json::from_str::<Value>(s).map_err(std::convert::Into::into))
             .map(ValueArg)
     }
 }
@@ -481,23 +481,9 @@ mod domain {
     }
 
     mod metadata {
-        use iroha_client::data_model::{self, domain::DomainId};
+        use iroha_client::data_model::domain::DomainId;
 
         use super::*;
-
-        /// A value wrapper that can be parsed from CLI arguments
-        #[derive(Debug, Clone)]
-        pub struct MetadataValue(data_model::Value);
-
-        impl FromStr for MetadataValue {
-            type Err = Error;
-
-            fn from_str(s: &str) -> Result<Self> {
-                let deser_err_msg = format!("Failed to deserialize `{s}` into value.");
-                let metadata: Value = json5::from_str(s).wrap_err(deser_err_msg)?;
-                Ok(Self(metadata))
-            }
-        }
 
         /// Edit domain subcommands
         #[derive(Debug, Clone, clap::Subcommand)]
@@ -525,7 +511,7 @@ mod domain {
             key: Name,
             /// A value of metadata
             #[arg(short, long)]
-            value: MetadataValue,
+            value: ValueArg,
         }
 
         impl RunArgs for Set {
@@ -533,7 +519,7 @@ mod domain {
                 let Self {
                     id,
                     key,
-                    value: MetadataValue(value),
+                    value: ValueArg(value),
                 } = self;
                 let set_key_value = SetKeyValue::domain(id, key, value);
                 submit([set_key_value], UnlimitedMetadata::new(), context)
