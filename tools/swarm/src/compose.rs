@@ -240,7 +240,7 @@ impl From<CompactPeerEnv> for FullPeerEnv {
                 .genesis_private_key
                 .map_or((None, None), |private_key| {
                     (
-                        Some(private_key).map(SerializeAsJsonStr),
+                        Some(SerializeAsJsonStr(private_key)),
                         Some(PATH_TO_GENESIS.to_string()),
                     )
                 });
@@ -515,7 +515,7 @@ mod tests {
             let json = serde_json::to_string(&peer_env).expect("Must be serializable");
             let env: HashMap<_, _> =
                 serde_json::from_str(&json).expect("Must be deserializable into a hash map");
-            let untouched = env.keys().map(Clone::clone).collect();
+            let untouched = env.keys().cloned().collect();
             Self {
                 env,
                 untouched: RefCell::new(untouched),
@@ -537,11 +537,7 @@ mod tests {
                 .to_str()
                 .ok_or_else(|| VarError::NotUnicode(key.as_ref().into()))?;
 
-            let res = self
-                .env
-                .get(key_str)
-                .ok_or(VarError::NotPresent)
-                .map(std::clone::Clone::clone);
+            let res = self.env.get(key_str).ok_or(VarError::NotPresent).cloned();
 
             if res.is_ok() {
                 self.untouched.borrow_mut().remove(key_str);

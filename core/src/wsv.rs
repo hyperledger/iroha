@@ -770,7 +770,7 @@ impl WorldStateView {
                     .assets
                     .get(id)
                     .ok_or_else(|| QueryExecutionFail::from(FindError::Asset(id.clone())))
-                    .map(Clone::clone)
+                    .cloned()
             },
         )?
     }
@@ -779,7 +779,6 @@ impl WorldStateView {
     ///
     /// # Errors
     /// - There is no account with such name.
-    #[allow(clippy::missing_panics_doc)]
     pub fn asset_or_insert(
         &mut self,
         asset_id: AssetId,
@@ -1102,7 +1101,7 @@ impl WorldStateView {
             .asset_definitions
             .get(asset_id)
             .ok_or_else(|| FindError::AssetDefinition(asset_id.clone()))
-            .map(Clone::clone)
+            .cloned()
     }
 
     /// Get total amount of [`Asset`].

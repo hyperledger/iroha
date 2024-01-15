@@ -3,8 +3,6 @@
 
 // Clippy bug
 #![allow(clippy::items_after_test_module)]
-// in no_std some code gets cfg-ed out, so we silence the warnings
-#![cfg_attr(not(feature = "std"), allow(unused, unused_tuple_struct_fields))]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(feature = "std"))]
