@@ -2,6 +2,7 @@
 
 /// Module with iroha client itself
 pub mod client;
+pub mod config;
 /// Module with general communication primitives like an HTTP request builder.
 pub mod http;
 mod http_default;
@@ -37,12 +38,6 @@ pub mod samples {
         .build()
         .expect("Client config should build as all required fields were provided")
     }
-}
-
-pub mod config {
-    //! Module for client-related configuration and structs
-
-    pub use iroha_config::{client_api as api, path, r#mod::*, torii::uri as torii};
 }
 
 pub use iroha_crypto as crypto;

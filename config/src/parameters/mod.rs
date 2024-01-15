@@ -7,10 +7,10 @@ use std::{
 };
 
 use eyre::{eyre, Context, Report, Result};
-use merge::Merge;
+use iroha_config_base::{
+    Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, Merge, ReadEnv,
+};
 use serde::{Deserialize, Serialize};
-
-use crate::{Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, ReadEnv};
 
 pub mod chain_wide;
 pub mod genesis;
@@ -99,7 +99,7 @@ impl Complete for UserLayer {
 
         macro_rules! complete_nested {
             ($item:expr) => {
-                match $crate::Complete::complete($item) {
+                match iroha_config_base::Complete::complete($item) {
                     Ok(value) => Some(value),
                     Err(error) => {
                         emitter.emit_collection(error);

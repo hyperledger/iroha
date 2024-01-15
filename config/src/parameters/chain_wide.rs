@@ -8,33 +8,32 @@ use std::{
     time::Duration,
 };
 
+use iroha_config_base::{
+    ByteSize, Complete, CompleteError, CompleteResult, FromEnv, FromEnvDefaultFallback,
+    FromEnvResult, Merge, ReadEnv, UserDuration, UserField,
+};
 use iroha_data_model::{prelude::MetadataLimits, transaction::TransactionLimits, LengthLimits};
-use merge::Merge;
 use nonzero_ext::nonzero;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    ByteSize, Complete, CompleteError, CompleteResult, FromEnv, FromEnvDefaultFallback,
-    FromEnvResult, ReadEnv, UserDuration, UserField,
-};
-
-const DEFAULT_MAX_TXS: NonZeroU32 = nonzero!(2_u32.pow(9));
-const DEFAULT_BLOCK_TIME: Duration = Duration::from_secs(2);
-const DEFAULT_COMMIT_TIME_LIMIT: Duration = Duration::from_secs(4);
-const DEFAULT_WASM_FUEL_LIMIT: NonZeroU64 = nonzero!(30_000_000u64);
-const DEFAULT_WASM_MAX_MEMORY: u64 = 500 * 2_u64.pow(20); // 500 MiB
+pub const DEFAULT_MAX_TXS: NonZeroU32 = nonzero!(2_u32.pow(9));
+pub const DEFAULT_BLOCK_TIME: Duration = Duration::from_secs(2);
+pub const DEFAULT_COMMIT_TIME_LIMIT: Duration = Duration::from_secs(4);
+pub const DEFAULT_WASM_FUEL_LIMIT: NonZeroU64 = nonzero!(30_000_000u64);
+pub const DEFAULT_WASM_MAX_MEMORY: u64 = 500 * 2_u64.pow(20); // 500 MiB
 
 /// Default limits for metadata
-const DEFAULT_METADATA_LIMITS: MetadataLimits = MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
+pub const DEFAULT_METADATA_LIMITS: MetadataLimits =
+    MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
 /// Default limits for ident length
-const DEFAULT_IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
+pub const DEFAULT_IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
 /// Default maximum number of instructions and expressions per transaction
-const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
+pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
 /// Default maximum number of instructions and expressions per transaction
-const DEFAULT_MAX_WASM_SIZE_BYTES: u64 = 4 * 2_u64.pow(20); // 4 MiB
+pub const DEFAULT_MAX_WASM_SIZE_BYTES: u64 = 4 * 2_u64.pow(20); // 4 MiB
 
 /// Default transaction limits
-const DEFAULT_TRANSACTION_LIMITS: TransactionLimits =
+pub const DEFAULT_TRANSACTION_LIMITS: TransactionLimits =
     TransactionLimits::new(DEFAULT_MAX_INSTRUCTION_NUMBER, DEFAULT_MAX_WASM_SIZE_BYTES);
 
 #[derive(Deserialize, Serialize, Debug, Default, Merge)]

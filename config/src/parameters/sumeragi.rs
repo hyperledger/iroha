@@ -2,15 +2,14 @@
 use std::{fmt::Debug, fs::File, io::BufReader, num::NonZeroU32, path::Path, time::Duration};
 
 use eyre::eyre;
+use iroha_config_base::{
+    Complete, CompleteError, CompleteResult, FromEnvDefaultFallback, Merge, UserDuration, UserField,
+};
 use iroha_data_model::prelude::*;
 use iroha_primitives::unique_vec::UniqueVec;
-use merge::Merge;
 use serde::{Deserialize, Serialize};
 
 use self::default::*;
-use crate::{
-    Complete, CompleteError, CompleteResult, FromEnvDefaultFallback, UserDuration, UserField,
-};
 
 /// Module with a set of default values.
 pub mod default {

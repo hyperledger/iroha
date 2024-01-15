@@ -2,17 +2,14 @@
 //! configuration, as well as run-time reloading of the log-level.
 use core::fmt::Debug;
 
+use iroha_config_base::{
+    impl_deserialize_from_str, impl_serialize_display, Complete, CompleteError, CompleteResult,
+    Emitter, FromEnv, FromEnvResult, Merge, ParseEnvResult, ReadEnv, UserField,
+};
 pub use iroha_data_model::Level;
 #[cfg(feature = "tokio-console")]
 use iroha_primitives::addr::{socket_addr, SocketAddr};
-use merge::Merge;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use crate::{
-    util::{impl_deserialize_from_str, impl_serialize_display},
-    Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, ParseEnvResult,
-    ReadEnv, UserField,
-};
 
 #[cfg(feature = "tokio-console")]
 const DEFAULT_TOKIO_CONSOLE_ADDR: SocketAddr = socket_addr!(127.0.0.1:5555);
@@ -84,6 +81,7 @@ impl Complete for UserLayer {
             #[cfg(feature = "tokio-console")]
             tokio_console_addr: self
                 .tokio_console_addr
+                .get()
                 .unwrap_or_else(|| DEFAULT_TOKIO_CONSOLE_ADDR.clone()),
         })
     }

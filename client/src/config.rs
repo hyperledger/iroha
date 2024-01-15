@@ -1,10 +1,10 @@
 //! Module for client-related configuration and structs
 use core::str::FromStr;
-use std::num::NonZeroU64;
+use std::{num::NonZeroU64, time::Duration};
 
 use derive_more::Display;
 use eyre::{Result, WrapErr};
-use iroha_config_base::derive::{Error as ConfigError, Proxy};
+use iroha_config::base::{UserDuration, UserField};
 use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, ChainId};
 use iroha_primitives::small::SmallStr;
@@ -63,9 +63,7 @@ pub struct BasicAuth {
 }
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
-#[derive(Debug, Clone, Deserialize, Serialize, Proxy, PartialEq, Eq)]
-#[serde(rename_all = "UPPERCASE")]
-#[config(env_prefix = "IROHA_")]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Configuration {
     /// Unique id of the blockchain. Used for simple replay attack protection.
     pub chain_id: ChainId,
@@ -86,6 +84,89 @@ pub struct Configuration {
     pub transaction_status_timeout_ms: u64,
     /// If `true` add nonce, which make different hashes for transactions which occur repeatedly and simultaneously
     pub add_transaction_nonce: bool,
+}
+
+mod user_layers {
+    use iroha_config::base::{Complete, CompleteResult, Merge, UserDuration, UserField};
+    use iroha_crypto::{PrivateKey, PublicKey};
+    use iroha_data_model::account::AccountId;
+    use serde::{Deserialize, Deserializer};
+    use url::Url;
+
+    use crate::config::BasicAuth;
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
+    #[serde(deny_unknown_fields, default)]
+    pub struct Root {
+        pub account: Account,
+        pub api: Api,
+        pub transaction: Transaction,
+    }
+
+    impl Complete for Root {
+        type Output = super::Config;
+
+        fn complete(self) -> CompleteResult<Self::Output> {
+            // TODO: tx timeout should be smaller than ttl
+            todo!()
+        }
+    }
+
+    impl Merge for Root {
+        fn merge(&mut self, other: Self) {
+            todo!()
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
+    #[serde(deny_unknown_fields, default)]
+    pub struct Api {
+        pub torii_url: UserField<OnlyHttpUrl>,
+        pub basic_auth: UserField<BasicAuth>,
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
+    #[serde(deny_unknown_fields, default)]
+    pub struct Account {
+        pub id: UserField<AccountId>,
+        pub public_key: UserField<PublicKey>,
+        pub private_key: UserField<PrivateKey>,
+    }
+
+    #[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
+    #[serde(deny_unknown_fields, default)]
+    pub struct Transaction {
+        pub time_to_live: UserField<UserDuration>,
+        pub status_timeout: UserField<UserDuration>,
+        pub add_nonce: UserField<bool>,
+    }
+
+    #[derive(Debug, Clone, Eq, PartialEq)]
+    pub struct OnlyHttpUrl(Url);
+
+    impl<'de> Deserialize<'de> for OnlyHttpUrl {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            let url = Url::deserialize(deserializer)?;
+            if url.scheme() == "http" {
+                Err(serde::de::Error::custom("only HTTP is supported"))
+            } else {
+                Ok(Self(url))
+            }
+        }
+    }
+}
+
+pub struct Config {
+    pub account_id: AccountId,
+    pub key_pair: KeyPair,
+    pub basic_auth: Option<BasicAuth>,
+    pub torii_api_url: Url,
+    pub transaction_ttl: Duration,
+    pub transaction_status_timeout: Duration,
+    pub transaction_add_nonce: bool,
 }
 
 impl Default for ConfigurationProxy {
@@ -162,75 +243,5 @@ impl ConfigurationProxy {
         self.finish()?;
         <Self as iroha_config_base::proxy::Builder>::build(self)
             .wrap_err("Failed to build `Configuration` from `ConfigurationProxy`")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use iroha_config_base::proxy::LoadFromDisk;
-    use iroha_crypto::KeyGenConfiguration;
-    use proptest::prelude::*;
-
-    use super::*;
-    use crate::torii::uri::DEFAULT_API_ADDR;
-
-    const CONFIGURATION_PATH: &str = "../configs/client/config.json";
-
-    prop_compose! {
-        // TODO: make tests to check generated key validity
-        fn arb_keys_from_seed()
-            (seed in prop::collection::vec(any::<u8>(), 33..64)) -> (PublicKey, PrivateKey) {
-                let (public_key, private_key) = KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(seed)).expect("Seed was invalid").into();
-                (public_key, private_key)
-            }
-    }
-
-    prop_compose! {
-        fn arb_keys_with_option()
-            (keys in arb_keys_from_seed())
-            ((a, b) in (prop::option::of(Just(keys.0)), prop::option::of(Just(keys.1))))
-            -> (Option<PublicKey>, Option<PrivateKey>) {
-                (a, b)
-            }
-    }
-
-    fn placeholder_account() -> AccountId {
-        AccountId::from_str("alice@wonderland").expect("Invalid account Id ")
-    }
-
-    prop_compose! {
-        fn arb_proxy()
-            (
-                chain_id in prop::option::of(Just(crate::iroha::tests::placeholder_chain_id())),
-                (public_key, private_key) in arb_keys_with_option(),
-                account_id in prop::option::of(Just(placeholder_account())),
-                basic_auth in prop::option::of(Just(None)),
-                torii_api_url in prop::option::of(Just(format!("http://{DEFAULT_API_ADDR}").parse().unwrap())),
-                transaction_time_to_live_ms in prop::option::of(Just(Some(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS))),
-                transaction_status_timeout_ms in prop::option::of(Just(DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS)),
-                add_transaction_nonce in prop::option::of(Just(DEFAULT_ADD_TRANSACTION_NONCE)),
-            )
-            -> ConfigurationProxy {
-            ConfigurationProxy { chain_id, public_key, private_key, account_id, basic_auth, torii_api_url, transaction_time_to_live_ms, transaction_status_timeout_ms, add_transaction_nonce }
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn client_proxy_build_fails_on_none(proxy in arb_proxy()) {
-            let cfg = proxy.build();
-            if cfg.is_ok() {
-                let example_cfg = ConfigurationProxy::from_path(CONFIGURATION_PATH).build().expect("Failed to build example Iroha config. \
-                                                                                                    This probably means that some of the fields of the `CONFIGURATION PATH` \
-                                                                                                    JSON were not updated properly with new changes.");
-                let arb_cfg = cfg.expect("Config generated by proptest was checked to be ok by the surrounding if clause");
-                // Skipping keys and `basic_auth` check as they're different from the file
-                assert_eq!(arb_cfg.torii_api_url, example_cfg.torii_api_url);
-                assert_eq!(arb_cfg.account_id, example_cfg.account_id);
-                assert_eq!(arb_cfg.transaction_time_to_live_ms, example_cfg.transaction_time_to_live_ms);
-                assert_eq!(arb_cfg.transaction_status_timeout_ms, example_cfg.transaction_status_timeout_ms);
-                assert_eq!(arb_cfg.add_transaction_nonce, example_cfg.add_transaction_nonce);
-            }
-        }
     }
 }

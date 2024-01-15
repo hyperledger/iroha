@@ -5,7 +5,8 @@ use std::{
 };
 
 use eyre::Result;
-use iroha_config::{parameters::UserLayer, Complete as _, FromEnv, TestEnv};
+use iroha_config::parameters::UserLayer;
+use iroha_config_base::{Complete as _, FromEnv, TestEnv};
 
 fn fixtures_dir() -> PathBuf {
     // CWD is the crate's root

@@ -2,15 +2,13 @@
 use std::{ops::Deref, path::PathBuf};
 
 use eyre::{eyre, Context, Report};
+use iroha_config_base::{
+    Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvDefaultFallback,
+    FromEnvResult, Merge, ParseEnvResult, ReadEnv, UserField,
+};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_genesis::RawGenesisBlock;
-use merge::Merge;
 use serde::{Deserialize, Serialize};
-
-use crate::{
-    Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvDefaultFallback,
-    FromEnvResult, ParseEnvResult, ReadEnv, UserField,
-};
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default, Merge)]
 #[serde(deny_unknown_fields, default)]

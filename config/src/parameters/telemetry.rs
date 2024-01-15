@@ -6,16 +6,15 @@ use std::{
 };
 
 use eyre::eyre;
-use merge::Merge;
+use iroha_config_base::{
+    Complete, CompleteError, CompleteResult, FromEnv, FromEnvDefaultFallback, FromEnvResult, Merge,
+    ReadEnv, UserDuration, UserField,
+};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::{
-    parameters::telemetry::retry_period::{
-        DEFAULT_MAX_RETRY_DELAY_EXPONENT, DEFAULT_MIN_RETRY_PERIOD,
-    },
-    Complete, CompleteError, CompleteResult, FromEnv, FromEnvDefaultFallback, FromEnvResult,
-    ReadEnv, UserDuration, UserField,
+use crate::parameters::telemetry::retry_period::{
+    DEFAULT_MAX_RETRY_DELAY_EXPONENT, DEFAULT_MIN_RETRY_PERIOD,
 };
 
 #[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
@@ -28,7 +27,7 @@ pub struct UserLayer {
     /// The minimum period of time in seconds to wait before reconnecting
     pub min_retry_period: UserField<UserDuration>,
     /// The maximum exponent of 2 that is used for increasing delay between reconnections
-    pub max_retry_delay_exponent: UserField<NonZeroU8>,
+    pub max_retry_delay_exponent: UserField<u8>,
     /// Dev telemetry configuration
     #[serde(default)]
     pub dev: DevUserLayer,
@@ -56,7 +55,7 @@ pub struct RegularTelemetryConfig {
     #[allow(missing_docs)]
     pub min_retry_period: Duration,
     #[allow(missing_docs)]
-    pub max_retry_delay_exponent: NonZeroU8,
+    pub max_retry_delay_exponent: u8,
 }
 
 /// Complete configuration needed to start dev telemetry.
@@ -114,8 +113,7 @@ pub mod retry_period {
     use nonzero_ext::nonzero;
 
     /// Default minimal retry period
-    // FIXME: it was `1`. Was it secs of millisecs?
     pub const DEFAULT_MIN_RETRY_PERIOD: Duration = Duration::from_secs(1);
     /// Default maximum exponent for the retry delay
-    pub const DEFAULT_MAX_RETRY_DELAY_EXPONENT: NonZeroU8 = nonzero!(4u8);
+    pub const DEFAULT_MAX_RETRY_DELAY_EXPONENT: u8 = 4;
 }

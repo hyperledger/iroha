@@ -3,16 +3,14 @@
 use std::{error::Error, str::FromStr};
 
 use eyre::{eyre, Context, Report};
+use iroha_config_base::{
+    Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, Merge,
+    ParseEnvResult, ReadEnv, UserField,
+};
 use iroha_crypto::{Algorithm, KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::ChainId;
 use iroha_primitives::addr::SocketAddr;
-use merge::Merge;
 use serde::{Deserialize, Serialize};
-
-use crate::{
-    Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, ParseEnvResult,
-    ReadEnv, UserField,
-};
 
 #[derive(Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
@@ -155,8 +153,9 @@ pub struct Config {
 
 #[cfg(test)]
 mod tests {
+    use iroha_config_base::TestEnv;
+
     use super::*;
-    use crate::TestEnv;
 
     #[test]
     fn parses_private_key_from_env() {

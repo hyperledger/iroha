@@ -21,7 +21,6 @@ eyre = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
 url = { workspace = true, features = ["serde"] }
-drop_bomb = { workspace = true }
 
 serde = { workspace = true, features = ["derive"] }
 strum = { workspace = true, features = ["derive"] }

@@ -2,14 +2,12 @@
 
 use std::time::Duration;
 
-use iroha_primitives::addr::{socket_addr, SocketAddr};
-use merge::Merge;
-use serde::{Deserialize, Serialize};
-
-use crate::{
-    ByteSize, Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult,
+use iroha_config_base::{
+    ByteSize, Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, Merge,
     ParseEnvResult, ReadEnv, UserDuration, UserField,
 };
+use iroha_primitives::addr::{socket_addr, SocketAddr};
+use serde::{Deserialize, Serialize};
 
 const DEFAULT_MAX_CONTENT_LENGTH: u64 = 2_u64.pow(20) * 16;
 const DEFAULT_QUERY_IDLE_TIME: Duration = Duration::from_secs(30);

@@ -2,10 +2,11 @@
 
 use std::{fmt::Display, path::PathBuf, str::FromStr};
 
-use merge::Merge;
+use iroha_config_base::{
+    impl_deserialize_from_str, impl_serialize_display, Complete, CompleteResult, Emitter, FromEnv,
+    FromEnvResult, Merge, ParseEnvResult, ReadEnv,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use crate::{Complete, CompleteResult, Emitter, FromEnv, FromEnvResult, ParseEnvResult, ReadEnv};
 
 const DEFAULT_BLOCK_STORE_PATH: &str = "./storage";
 
@@ -94,8 +95,8 @@ pub enum Mode {
     Fast,
 }
 
-crate::util::impl_serialize_display!(Mode);
-crate::util::impl_deserialize_from_str!(Mode);
+impl_serialize_display!(Mode);
+impl_deserialize_from_str!(Mode);
 
 #[cfg(test)]
 mod tests {

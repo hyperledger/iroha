@@ -1032,20 +1032,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossbeam"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2801af0d36612ae591caa9568261fddce32ce6e08a7275ea334a06a4ad021a2c"
-dependencies = [
- "cfg-if",
- "crossbeam-channel",
- "crossbeam-deque",
- "crossbeam-epoch",
- "crossbeam-queue",
- "crossbeam-utils",
-]
-
-[[package]]
 name = "crossbeam-channel"
 version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2756,17 +2742,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha_client_config"
-version = "2.0.0-pre-rc.20"
-
-[[package]]
 name = "iroha_config"
 version = "2.0.0-pre-rc.20"
 dependencies = [
  "cfg-if",
  "derive_more",
  "displaydoc",
- "drop_bomb",
  "expect-test",
  "eyre",
  "hex",
@@ -2797,14 +2778,11 @@ dependencies = [
 name = "iroha_config_base"
 version = "2.0.0-pre-rc.20"
 dependencies = [
- "crossbeam",
- "displaydoc",
+ "derive_more",
+ "drop_bomb",
  "eyre",
- "iroha_crypto",
- "json5",
- "parking_lot",
+ "merge",
  "serde",
- "serde_json",
  "thiserror",
 ]
 

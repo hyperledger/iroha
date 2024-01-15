@@ -4,14 +4,12 @@ use std::{
     time::Duration,
 };
 
-use merge::Merge;
-use nonzero_ext::nonzero;
-use serde::{Deserialize, Serialize};
-
-use crate::{
-    Complete, CompleteError, CompleteResult, FromEnv, FromEnvDefaultFallback, FromEnvResult,
+use iroha_config_base::{
+    Complete, CompleteError, CompleteResult, FromEnv, FromEnvDefaultFallback, FromEnvResult, Merge,
     ReadEnv, UserDuration, UserField,
 };
+use nonzero_ext::nonzero;
+use serde::{Deserialize, Serialize};
 
 const DEFAULT_MAX_TRANSACTIONS_IN_QUEUE: NonZeroU32 = nonzero!(2_u32.pow(16));
 const DEFAULT_MAX_TRANSACTIONS_IN_QUEUE_PER_USER: NonZeroU32 = nonzero!(2_u32.pow(16));

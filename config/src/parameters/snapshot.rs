@@ -2,13 +2,11 @@
 
 use std::{path::PathBuf, time::Duration};
 
-use merge::Merge;
-use serde::{Deserialize, Serialize};
-
-use crate::{
-    Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, ParseEnvResult,
-    ReadEnv, UserDuration, UserField,
+use iroha_config_base::{
+    Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvResult, Merge,
+    ParseEnvResult, ReadEnv, UserDuration, UserField,
 };
+use serde::{Deserialize, Serialize};
 
 const DEFAULT_SNAPSHOT_PATH: &str = "./storage";
 // Default frequency of making snapshots is 1 minute, need to be adjusted for larger world state view size
