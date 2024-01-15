@@ -13,8 +13,11 @@ use std::{
 
 use actor::LoggerHandle;
 use color_eyre::{eyre::eyre, Report, Result};
-pub use iroha_config::logger::{Configuration, ConfigurationProxy, Format, Level};
-use iroha_config::{base::proxy::Builder, logger::into_tracing_level};
+use iroha_config::parameters::logger::into_tracing_level;
+pub use iroha_config::{
+    base::Complete as _,
+    parameters::logger::{Config, Format, Level, UserLayer as UserConfigLayer},
+};
 use tracing::subscriber::set_global_default;
 pub use tracing::{
     debug, debug_span, error, error_span, info, info_span, instrument as log, trace, trace_span,
@@ -50,7 +53,7 @@ fn try_set_logger() -> Result<()> {
 /// If the logger is already set, raises a generic error.
 // TODO: refactor configuration in a way that `terminal_colors` is part of it
 //       https://github.com/hyperledger/iroha/issues/3500
-pub fn init_global(configuration: &Configuration, terminal_colors: bool) -> Result<LoggerHandle> {
+pub fn init_global(configuration: &Config, terminal_colors: bool) -> Result<LoggerHandle> {
     try_set_logger()?;
 
     let layer = tracing_subscriber::fmt::layer()
@@ -75,15 +78,19 @@ pub fn test_logger() -> LoggerHandle {
 
     LOGGER
         .get_or_init(|| {
+            // let mut config =
             // NOTE: if this config should be changed for some specific tests, consider
             // isolating those tests into a separate process and controlling default logger config
             // with ENV vars rather than by extending `test_logger` signature. This will both remain
             // `test_logger` simple and also will emphasise isolation which is necessary anyway in
             // case of singleton mocking (where the logger is the singleton).
-            let config = Configuration {
-                level: Level::DEBUG,
-                format: Format::Pretty,
-                ..ConfigurationProxy::default().build().unwrap()
+            let config = {
+                let mut layer = UserConfigLayer::default();
+                let _ = layer.level.insert(Level::DEBUG);
+                let _ = layer.format.insert(Format::Pretty);
+                layer
+                    .complete()
+                    .expect("should not fail because other fields have defaults")
             };
 
             init_global(&config, true).expect(
@@ -103,7 +110,7 @@ pub fn disable_global() -> Result<()> {
     try_set_logger()
 }
 
-fn step2<L>(configuration: &Configuration, layer: L) -> Result<LoggerHandle>
+fn step2<L>(configuration: &Config, layer: L) -> Result<LoggerHandle>
 where
     L: tracing_subscriber::Layer<Registry> + Debug + Send + Sync + 'static,
 {
