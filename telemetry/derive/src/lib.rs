@@ -1,15 +1,11 @@
 //! Attribute-like macro for instrumenting `isi` for `prometheus`
 //! metrics. See [`macro@metrics`] for more details.
 
-use proc_macro::TokenStream;
-#[cfg(feature = "metric-instrumentation")]
-use proc_macro2::TokenStream as TokenStream2;
-use proc_macro_error::{abort, proc_macro_error};
+use iroha_macro_utils::Emitter;
+use manyhow::{emit, manyhow, Result};
+use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{
-    parse::Parse, parse_macro_input, punctuated::Punctuated, token::Comma, FnArg, ItemFn, LitStr,
-    Path, Type,
-};
+use syn2::{parse::Parse, punctuated::Punctuated, token::Comma, FnArg, LitStr, Path, Type};
 
 // TODO: export these as soon as proc-macro crates are able to export
 // anything other than proc-macros.
@@ -43,19 +39,19 @@ fn type_has_metrics_field(ty: &Type) -> bool {
 ///
 /// # Errors
 /// If no argument is of type `WorldStateView`.
-fn arg_metrics(input: &Punctuated<FnArg, Comma>) -> Result<syn::Ident, &Punctuated<FnArg, Comma>> {
+fn arg_metrics(input: &Punctuated<FnArg, Comma>) -> Result<syn2::Ident, &Punctuated<FnArg, Comma>> {
     input
         .iter()
         .find(|arg| match arg {
             FnArg::Typed(typ) => match &*typ.ty {
-                syn::Type::Reference(typ) => type_has_metrics_field(&typ.elem),
+                syn2::Type::Reference(typ) => type_has_metrics_field(&typ.elem),
                 _ => false,
             },
             _ => false,
         })
         .and_then(|arg| match arg {
             FnArg::Typed(typ) => match *typ.pat.clone() {
-                syn::Pat::Ident(ident) => Some(ident.ident),
+                syn2::Pat::Ident(ident) => Some(ident.ident),
                 _ => None,
             },
             _ => None,
@@ -67,7 +63,7 @@ fn arg_metrics(input: &Punctuated<FnArg, Comma>) -> Result<syn::Ident, &Punctuat
 struct MetricSpecs(Vec<MetricSpec>); // `HashSet` — idiomatic; slow
 
 impl Parse for MetricSpecs {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+    fn parse(input: syn2::parse::ParseStream) -> syn2::Result<Self> {
         let vars = Punctuated::<MetricSpec, Comma>::parse_terminated(input)?;
         Ok(Self(vars.into_iter().collect()))
     }
@@ -80,14 +76,14 @@ struct MetricSpec {
 }
 
 impl Parse for MetricSpec {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let _timing = <syn::Token![+]>::parse(input).is_ok();
-        let metric_name_lit = syn::Lit::parse(input)?;
+    fn parse(input: syn2::parse::ParseStream) -> syn2::Result<Self> {
+        let _timing = <syn2::Token![+]>::parse(input).is_ok();
+        let metric_name_lit = syn2::Lit::parse(input)?;
 
         let metric_name = match metric_name_lit {
-            syn::Lit::Str(lit_str) => {
+            syn2::Lit::Str(lit_str) => {
                 if lit_str.value().contains(' ') {
-                    return Err(syn::Error::new(
+                    return Err(syn2::Error::new(
                         proc_macro2::Span::call_site(),
                         "Spaces are not allowed. Use underscores '_'",
                     ));
@@ -95,7 +91,7 @@ impl Parse for MetricSpec {
                 lit_str
             }
             _ => {
-                return Err(syn::Error::new(
+                return Err(syn2::Error::new(
                     proc_macro2::Span::call_site(),
                     "Must be a string literal. Format `[+]\"name_of_metric\"`.",
                 ))
@@ -145,54 +141,91 @@ impl ToTokens for MetricSpec {
 ///     Ok(())
 /// }
 /// ```
-#[proc_macro_error]
+#[manyhow]
 #[proc_macro_attribute]
 pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let ItemFn {
+    let mut emitter = Emitter::new();
+
+    let Some(func): Option<syn2::ItemFn> = emitter.handle(syn2::parse2(item)) else {
+        return emitter.finish_token_stream();
+    };
+
+    // This is a good sanity check. Possibly redundant.
+    if func.sig.ident != "execute" {
+        emit!(
+            emitter,
+            func.sig.ident,
+            "Function should be an `impl execute`"
+        );
+    }
+
+    if func.sig.inputs.is_empty() {
+        emit!(
+            emitter,
+            func.sig,
+            "Function must have at least one argument of type `WorldStateView`."
+        );
+        return emitter.finish_token_stream();
+    }
+
+    let Some(metric_specs): Option<MetricSpecs> = emitter.handle(syn2::parse2(attr)) else {
+        return emitter.finish_token_stream();
+    };
+
+    let result = impl_metrics(&mut emitter, &metric_specs, &func);
+
+    emitter.finish_token_stream_with(result)
+}
+
+fn impl_metrics(emitter: &mut Emitter, _specs: &MetricSpecs, func: &syn2::ItemFn) -> TokenStream {
+    let syn2::ItemFn {
         attrs,
         vis,
         sig,
         block,
-    }: ItemFn = parse_macro_input!(item as ItemFn);
+    } = func;
 
-    // This is a good sanity check. Possibly redundant.
-    if sig.ident != "execute" {
-        abort!(sig.ident, "Function should be an `impl execute`");
-    }
     match sig.output.clone() {
-        syn::ReturnType::Default => abort!(
+        syn2::ReturnType::Default => emit!(
+            emitter,
             sig.output,
             "`Fn` must return `Result`. Returns nothing instead. "
         ),
         #[allow(clippy::string_to_string)]
-        syn::ReturnType::Type(_, typ) => match *typ {
+        syn2::ReturnType::Type(_, typ) => match *typ {
             Type::Path(pth) => {
                 let Path { segments, .. } = pth.path;
                 let type_name = &segments.last().expect("non-empty path").ident;
                 if *type_name != "Result" {
-                    abort!(
+                    emit!(
+                        emitter,
                         type_name,
-                        format!("Should return `Result`. Found {type_name}")
+                        "Should return `Result`. Found {}",
+                        type_name
                     );
                 }
             }
-            _ => abort!(
+            _ => emit!(
+                emitter,
                 typ,
                 "Should return `Result`. Non-path result type specification found"
             ),
         },
     }
-    if sig.inputs.is_empty() {
-        abort!(
-            sig,
-            "Function must have at least one argument of type `WorldStateView`."
-        );
-    }
-    let _specs = parse_macro_input!(attr as MetricSpecs);
+
     // Again this may seem fragile, but if we move the metrics from
     // the `WorldStateView`, we'd need to refactor many things anyway
-    let _metric_arg_ident = arg_metrics(&sig.inputs)
-        .unwrap_or_else(|args| abort!(args, "At least one argument must be a `WorldStateView`."));
+    let _metric_arg_ident = match arg_metrics(&sig.inputs) {
+        Ok(ident) => ident,
+        Err(args) => {
+            emit!(
+                emitter,
+                args,
+                "At least one argument must be a `WorldStateView`."
+            );
+            return quote!();
+        }
+    };
 
     #[cfg(feature = "metric-instrumentation")]
     let res = {
@@ -210,8 +243,7 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
                     #successes
                 };
                 res
-        })
-        .into();
+        });
     };
 
     #[cfg(not(feature = "metric-instrumentation"))]
@@ -219,8 +251,7 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
         #(#attrs)* #vis #sig {
             #block
         }
-    )
-    .into();
+    );
     res
 }
 
@@ -228,7 +259,7 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
 fn write_metrics(
     metric_arg_ident: proc_macro2::Ident,
     specs: MetricSpecs,
-) -> (TokenStream2, TokenStream2, TokenStream2) {
+) -> (TokenStream, TokenStream, TokenStream) {
     let inc_metric = |spec: &MetricSpec, kind: &str| {
         quote!(
             #metric_arg_ident
@@ -246,17 +277,17 @@ fn write_metrics(
                 .observe((end_time.as_millis() - start_time.as_millis()) as f64);
         )
     };
-    let totals: TokenStream2 = specs
+    let totals: TokenStream = specs
         .0
         .iter()
         .map(|spec| inc_metric(spec, "total"))
         .collect();
-    let successes: TokenStream2 = specs
+    let successes: TokenStream = specs
         .0
         .iter()
         .map(|spec| inc_metric(spec, "success"))
         .collect();
-    let times: TokenStream2 = specs
+    let times: TokenStream = specs
         .0
         .iter()
         .filter(|spec| spec.timing)
