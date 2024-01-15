@@ -391,7 +391,7 @@ enum ReturnType {
     /// [`Result`] type with [`Ok`] and [`Err`]  types respectively
     Result(Option<syn2::Type>, ErrType),
     /// Something other than [`Result`]
-    #[allow(unused_tuple_struct_fields)] // May be used in future
+    #[allow(dead_code)] // May be used in future
     Other(syn2::Type),
 }
 
@@ -400,7 +400,7 @@ enum ErrType {
     /// `wasmtime::Error` error type
     WasmtimeError,
     /// Something other than `wasmtime::Error`
-    #[allow(unused_tuple_struct_fields)] // May be used in future
+    #[allow(dead_code)] // May be used in future
     Other(syn2::Type),
 }
 
@@ -504,13 +504,10 @@ fn classify_params_and_state(
             let second_param =
                 extract_type_from_fn_arg(emitter, params_iter.next().unwrap().clone())?;
 
-            let Some(state_ty) = emitter.handle(parse_state_param(&second_param)) else {
-                return None;
-            };
+            let state_ty = emitter.handle(parse_state_param(&second_param))?;
 
-            let Some(first_param) = maybe_first_param else {
-                return None;
-            };
+            let first_param = maybe_first_param?;
+
             Some((Some(first_param.ty.deref().clone()), Some(state_ty.clone())))
         }
         _ => {
