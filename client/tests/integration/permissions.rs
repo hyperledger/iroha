@@ -337,3 +337,50 @@ fn stored_vs_granted_token_payload() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn associated_permission_tokens_removed_on_unregister() {
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(11_240).start_with_runtime();
+    wait_for_genesis_committed(&[iroha_client.clone()], 0);
+
+    let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
+    let kingdom_id: DomainId = "kingdom".parse().expect("Valid");
+    let kingdom = Domain::new(kingdom_id.clone());
+
+    // register kingdom and give bob permissions in this domain
+    let register_domain = RegisterExpr::new(kingdom);
+    let bob_to_set_kv_in_domain_token = PermissionToken::new(
+        "CanSetKeyValueInDomain".parse().unwrap(),
+        &json!({ "domain_id": kingdom_id }),
+    );
+    let allow_bob_to_set_kv_in_domain =
+        GrantExpr::new(bob_to_set_kv_in_domain_token.clone(), bob_id.clone());
+
+    iroha_client
+        .submit_all_blocking([
+            InstructionExpr::from(register_domain),
+            allow_bob_to_set_kv_in_domain.into(),
+        ])
+        .expect("failed to register domain and grant permission");
+
+    // check that bob indeed have granted permission
+    assert!(iroha_client
+        .request(client::permission::by_account_id(bob_id.clone()))
+        .and_then(std::iter::Iterator::collect::<QueryResult<Vec<PermissionToken>>>)
+        .expect("failed to get permissions for bob")
+        .into_iter()
+        .any(|token| { token == bob_to_set_kv_in_domain_token }));
+
+    // unregister kingdom
+    iroha_client
+        .submit_blocking(UnregisterExpr::new(kingdom_id))
+        .expect("failed to unregister domain");
+
+    // check that permission is removed from bob
+    assert!(iroha_client
+        .request(client::permission::by_account_id(bob_id))
+        .and_then(std::iter::Iterator::collect::<QueryResult<Vec<PermissionToken>>>)
+        .expect("failed to get permissions for bob")
+        .into_iter()
+        .all(|token| { token != bob_to_set_kv_in_domain_token }));
+}

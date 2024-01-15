@@ -311,7 +311,11 @@ pub mod peer {
 }
 
 pub mod domain {
-    use permission::domain::is_domain_owner;
+    use iroha_smart_contract::data_model::{domain::DomainId, permission::PermissionToken};
+    use permission::{
+        accounts_permission_tokens, domain::is_domain_owner,
+    };
+    use tokens::AnyPermissionToken;
 
     use super::*;
 
@@ -322,19 +326,28 @@ pub mod domain {
     ) {
         let domain_id = isi.object_id;
 
-        if is_genesis(executor) {
+        if is_genesis(executor)
+            || match is_domain_owner(&domain_id, authority) {
+                Err(err) => deny!(executor, err),
+                Ok(is_domain_owner) => is_domain_owner,
+            }
+            || {
+                let can_unregister_domain_token = tokens::domain::CanUnregisterDomain {
+                    domain_id: domain_id.clone(),
+                };
+                can_unregister_domain_token.is_owned_by(authority)
+            }
+        {
+            for (owner_id, permission) in accounts_permission_tokens() {
+                if is_token_domain_associated(&permission, &domain_id) {
+                    let isi = RevokeExpr::new(permission, owner_id.clone());
+                    if let Err(_err) = isi.execute() {
+                        deny!(executor, "Can't revoke associated permission token");
+                    }
+                }
+            }
             pass!(executor);
         }
-        match is_domain_owner(&domain_id, authority) {
-            Err(err) => deny!(executor, err),
-            Ok(true) => pass!(executor),
-            Ok(false) => {}
-        }
-        let can_unregister_domain_token = tokens::domain::CanUnregisterDomain { domain_id };
-        if can_unregister_domain_token.is_owned_by(authority) {
-            pass!(executor);
-        }
-
         deny!(executor, "Can't unregister domain");
     }
 
@@ -404,10 +417,113 @@ pub mod domain {
 
         deny!(executor, "Can't remove key value in domain metadata");
     }
+
+    #[allow(clippy::too_many_lines)]
+    fn is_token_domain_associated(permission: &PermissionToken, domain_id: &DomainId) -> bool {
+        let Ok(permission) = AnyPermissionToken::try_from(permission.clone()) else {
+            return false;
+        };
+        match permission {
+            AnyPermissionToken::CanUnregisterDomain(permission) => {
+                &permission.domain_id == domain_id
+            }
+            AnyPermissionToken::CanSetKeyValueInDomain(permission) => {
+                &permission.domain_id == domain_id
+            }
+            AnyPermissionToken::CanRemoveKeyValueInDomain(permission) => {
+                &permission.domain_id == domain_id
+            }
+            AnyPermissionToken::CanUnregisterAssetDefinition(permission) => {
+                permission.asset_definition_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanSetKeyValueInAssetDefinition(permission) => {
+                permission.asset_definition_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanRemoveKeyValueInAssetDefinition(permission) => {
+                permission.asset_definition_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanRegisterAssetsWithDefinition(permission) => {
+                permission.asset_definition_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanUnregisterAssetsWithDefinition(permission) => {
+                permission.asset_definition_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanBurnAssetsWithDefinition(permission) => {
+                permission.asset_definition_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanMintAssetsWithDefinition(permission) => {
+                permission.asset_definition_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanTransferAssetsWithDefinition(permission) => {
+                permission.asset_definition_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanBurnUserAsset(permission) => {
+                permission.asset_id.definition_id().domain_id() == domain_id
+                    || permission.asset_id.account_id().domain_id() == domain_id
+            }
+            AnyPermissionToken::CanTransferUserAsset(permission) => {
+                permission.asset_id.definition_id().domain_id() == domain_id
+                    || permission.asset_id.account_id().domain_id() == domain_id
+            }
+            AnyPermissionToken::CanUnregisterUserAsset(permission) => {
+                permission.asset_id.definition_id().domain_id() == domain_id
+                    || permission.asset_id.account_id().domain_id() == domain_id
+            }
+            AnyPermissionToken::CanSetKeyValueInUserAsset(permission) => {
+                permission.asset_id.definition_id().domain_id() == domain_id
+                    || permission.asset_id.account_id().domain_id() == domain_id
+            }
+            AnyPermissionToken::CanRemoveKeyValueInUserAsset(permission) => {
+                permission.asset_id.definition_id().domain_id() == domain_id
+                    || permission.asset_id.account_id().domain_id() == domain_id
+            }
+            AnyPermissionToken::CanUnregisterAccount(permission) => {
+                permission.account_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanMintUserPublicKeys(permission) => {
+                permission.account_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanBurnUserPublicKeys(permission) => {
+                permission.account_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanMintUserSignatureCheckConditions(permission) => {
+                permission.account_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanSetKeyValueInUserAccount(permission) => {
+                permission.account_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanRemoveKeyValueInUserAccount(permission) => {
+                permission.account_id.domain_id() == domain_id
+            }
+            AnyPermissionToken::CanUnregisterUserTrigger(permission) => {
+                permission.trigger_id.domain_id().as_ref() == Some(domain_id)
+            }
+            AnyPermissionToken::CanExecuteUserTrigger(permission) => {
+                permission.trigger_id.domain_id().as_ref() == Some(domain_id)
+            }
+            AnyPermissionToken::CanBurnUserTrigger(permission) => {
+                permission.trigger_id.domain_id().as_ref() == Some(domain_id)
+            }
+            AnyPermissionToken::CanMintUserTrigger(permission) => {
+                permission.trigger_id.domain_id().as_ref() == Some(domain_id)
+            }
+            AnyPermissionToken::CanUnregisterAnyPeer(_)
+            | AnyPermissionToken::CanGrantPermissionToCreateParameters(_)
+            | AnyPermissionToken::CanRevokePermissionToCreateParameters(_)
+            | AnyPermissionToken::CanCreateParameters(_)
+            | AnyPermissionToken::CanGrantPermissionToSetParameters(_)
+            | AnyPermissionToken::CanRevokePermissionToSetParameters(_)
+            | AnyPermissionToken::CanSetParameters(_)
+            | AnyPermissionToken::CanUnregisterAnyRole(_)
+            | AnyPermissionToken::CanUpgradeExecutor(_) => false,
+        }
+    }
 }
 
 pub mod account {
-    use permission::account::is_account_owner;
+    use iroha_smart_contract::data_model::permission::PermissionToken;
+    use permission::{account::is_account_owner, accounts_permission_tokens};
+    use tokens::AnyPermissionToken;
 
     use super::*;
 
@@ -418,19 +534,28 @@ pub mod account {
     ) {
         let account_id = isi.object_id;
 
-        if is_genesis(executor) {
+        if is_genesis(executor)
+            || match is_account_owner(&account_id, authority) {
+                Err(err) => deny!(executor, err),
+                Ok(is_account_owner) => is_account_owner,
+            }
+            || {
+                let can_unregister_user_account = tokens::account::CanUnregisterAccount {
+                    account_id: account_id.clone(),
+                };
+                can_unregister_user_account.is_owned_by(authority)
+            }
+        {
+            for (owner_id, permission) in accounts_permission_tokens() {
+                if is_token_account_associated(&permission, &account_id) {
+                    let isi = RevokeExpr::new(permission, owner_id.clone());
+                    if let Err(_err) = isi.execute() {
+                        deny!(executor, "Can't revoke associated permission token");
+                    }
+                }
+            }
             pass!(executor);
         }
-        match is_account_owner(&account_id, authority) {
-            Err(err) => deny!(executor, err),
-            Ok(true) => pass!(executor),
-            Ok(false) => {}
-        }
-        let can_unregister_user_account = tokens::account::CanUnregisterAccount { account_id };
-        if can_unregister_user_account.is_owned_by(authority) {
-            pass!(executor);
-        }
-
         deny!(executor, "Can't unregister another account");
     }
 
@@ -560,10 +685,80 @@ pub mod account {
             "Can't remove value from the metadata of another account"
         );
     }
+
+    fn is_token_account_associated(permission: &PermissionToken, account_id: &AccountId) -> bool {
+        let Ok(permission) = AnyPermissionToken::try_from(permission.clone()) else {
+            return false;
+        };
+        match permission {
+            AnyPermissionToken::CanUnregisterAccount(permission) => {
+                &permission.account_id == account_id
+            }
+            AnyPermissionToken::CanMintUserPublicKeys(permission) => {
+                &permission.account_id == account_id
+            }
+            AnyPermissionToken::CanBurnUserPublicKeys(permission) => {
+                &permission.account_id == account_id
+            }
+            AnyPermissionToken::CanMintUserSignatureCheckConditions(permission) => {
+                &permission.account_id == account_id
+            }
+            AnyPermissionToken::CanSetKeyValueInUserAccount(permission) => {
+                &permission.account_id == account_id
+            }
+            AnyPermissionToken::CanRemoveKeyValueInUserAccount(permission) => {
+                &permission.account_id == account_id
+            }
+            AnyPermissionToken::CanBurnUserAsset(permission) => {
+                permission.asset_id.account_id() == account_id
+            }
+            AnyPermissionToken::CanTransferUserAsset(permission) => {
+                permission.asset_id.account_id() == account_id
+            }
+            AnyPermissionToken::CanUnregisterUserAsset(permission) => {
+                permission.asset_id.account_id() == account_id
+            }
+            AnyPermissionToken::CanSetKeyValueInUserAsset(permission) => {
+                permission.asset_id.account_id() == account_id
+            }
+            AnyPermissionToken::CanRemoveKeyValueInUserAsset(permission) => {
+                permission.asset_id.account_id() == account_id
+            }
+            AnyPermissionToken::CanUnregisterUserTrigger(_)
+            | AnyPermissionToken::CanExecuteUserTrigger(_)
+            | AnyPermissionToken::CanBurnUserTrigger(_)
+            | AnyPermissionToken::CanMintUserTrigger(_)
+            | AnyPermissionToken::CanUnregisterAnyPeer(_)
+            | AnyPermissionToken::CanUnregisterDomain(_)
+            | AnyPermissionToken::CanSetKeyValueInDomain(_)
+            | AnyPermissionToken::CanRemoveKeyValueInDomain(_)
+            | AnyPermissionToken::CanUnregisterAssetDefinition(_)
+            | AnyPermissionToken::CanSetKeyValueInAssetDefinition(_)
+            | AnyPermissionToken::CanRemoveKeyValueInAssetDefinition(_)
+            | AnyPermissionToken::CanRegisterAssetsWithDefinition(_)
+            | AnyPermissionToken::CanUnregisterAssetsWithDefinition(_)
+            | AnyPermissionToken::CanBurnAssetsWithDefinition(_)
+            | AnyPermissionToken::CanMintAssetsWithDefinition(_)
+            | AnyPermissionToken::CanTransferAssetsWithDefinition(_)
+            | AnyPermissionToken::CanGrantPermissionToCreateParameters(_)
+            | AnyPermissionToken::CanRevokePermissionToCreateParameters(_)
+            | AnyPermissionToken::CanCreateParameters(_)
+            | AnyPermissionToken::CanGrantPermissionToSetParameters(_)
+            | AnyPermissionToken::CanRevokePermissionToSetParameters(_)
+            | AnyPermissionToken::CanSetParameters(_)
+            | AnyPermissionToken::CanUnregisterAnyRole(_)
+            | AnyPermissionToken::CanUpgradeExecutor(_) => false,
+        }
+    }
 }
 
 pub mod asset_definition {
-    use permission::{account::is_account_owner, asset_definition::is_asset_definition_owner};
+    use iroha_smart_contract::data_model::{asset::AssetDefinitionId, permission::PermissionToken};
+    use permission::{
+        account::is_account_owner, accounts_permission_tokens,
+        asset_definition::is_asset_definition_owner,
+    };
+    use tokens::AnyPermissionToken;
 
     use super::*;
 
@@ -574,22 +769,29 @@ pub mod asset_definition {
     ) {
         let asset_definition_id = isi.object_id;
 
-        if is_genesis(executor) {
+        if is_genesis(executor)
+            || match is_asset_definition_owner(&asset_definition_id, authority) {
+                Err(err) => deny!(executor, err),
+                Ok(is_asset_definition_owner) => is_asset_definition_owner,
+            }
+            || {
+                let can_unregister_asset_definition_token =
+                    tokens::asset_definition::CanUnregisterAssetDefinition {
+                        asset_definition_id: asset_definition_id.clone(),
+                    };
+                can_unregister_asset_definition_token.is_owned_by(authority)
+            }
+        {
+            for (owner_id, permission) in accounts_permission_tokens() {
+                if is_token_asset_definition_associated(&permission, &asset_definition_id) {
+                    let isi = RevokeExpr::new(permission, owner_id.clone());
+                    if let Err(_err) = isi.execute() {
+                        deny!(executor, "Can't revoke associated permission token");
+                    }
+                }
+            }
             pass!(executor);
         }
-        match is_asset_definition_owner(&asset_definition_id, authority) {
-            Err(err) => deny!(executor, err),
-            Ok(true) => pass!(executor),
-            Ok(false) => {}
-        }
-        let can_unregister_asset_definition_token =
-            tokens::asset_definition::CanUnregisterAssetDefinition {
-                asset_definition_id,
-            };
-        if can_unregister_asset_definition_token.is_owned_by(authority) {
-            pass!(executor);
-        }
-
         deny!(
             executor,
             "Can't unregister assets registered by other accounts"
@@ -680,6 +882,78 @@ pub mod asset_definition {
             executor,
             "Can't remove value from the asset definition metadata created by another account"
         );
+    }
+
+    fn is_token_asset_definition_associated(
+        permission: &PermissionToken,
+        asset_definition_id: &AssetDefinitionId,
+    ) -> bool {
+        let Ok(permission) = AnyPermissionToken::try_from(permission.clone()) else {
+            return false;
+        };
+        match permission {
+            AnyPermissionToken::CanUnregisterAssetDefinition(permission) => {
+                &permission.asset_definition_id == asset_definition_id
+            }
+            AnyPermissionToken::CanSetKeyValueInAssetDefinition(permission) => {
+                &permission.asset_definition_id == asset_definition_id
+            }
+            AnyPermissionToken::CanRemoveKeyValueInAssetDefinition(permission) => {
+                &permission.asset_definition_id == asset_definition_id
+            }
+            AnyPermissionToken::CanRegisterAssetsWithDefinition(permission) => {
+                &permission.asset_definition_id == asset_definition_id
+            }
+            AnyPermissionToken::CanUnregisterAssetsWithDefinition(permission) => {
+                &permission.asset_definition_id == asset_definition_id
+            }
+            AnyPermissionToken::CanBurnAssetsWithDefinition(permission) => {
+                &permission.asset_definition_id == asset_definition_id
+            }
+            AnyPermissionToken::CanMintAssetsWithDefinition(permission) => {
+                &permission.asset_definition_id == asset_definition_id
+            }
+            AnyPermissionToken::CanTransferAssetsWithDefinition(permission) => {
+                &permission.asset_definition_id == asset_definition_id
+            }
+            AnyPermissionToken::CanBurnUserAsset(permission) => {
+                permission.asset_id.definition_id() == asset_definition_id
+            }
+            AnyPermissionToken::CanTransferUserAsset(permission) => {
+                permission.asset_id.definition_id() == asset_definition_id
+            }
+            AnyPermissionToken::CanUnregisterUserAsset(permission) => {
+                permission.asset_id.definition_id() == asset_definition_id
+            }
+            AnyPermissionToken::CanSetKeyValueInUserAsset(permission) => {
+                permission.asset_id.definition_id() == asset_definition_id
+            }
+            AnyPermissionToken::CanRemoveKeyValueInUserAsset(permission) => {
+                permission.asset_id.definition_id() == asset_definition_id
+            }
+            AnyPermissionToken::CanUnregisterAccount(_)
+            | AnyPermissionToken::CanMintUserPublicKeys(_)
+            | AnyPermissionToken::CanBurnUserPublicKeys(_)
+            | AnyPermissionToken::CanMintUserSignatureCheckConditions(_)
+            | AnyPermissionToken::CanSetKeyValueInUserAccount(_)
+            | AnyPermissionToken::CanRemoveKeyValueInUserAccount(_)
+            | AnyPermissionToken::CanUnregisterUserTrigger(_)
+            | AnyPermissionToken::CanExecuteUserTrigger(_)
+            | AnyPermissionToken::CanBurnUserTrigger(_)
+            | AnyPermissionToken::CanMintUserTrigger(_)
+            | AnyPermissionToken::CanUnregisterAnyPeer(_)
+            | AnyPermissionToken::CanUnregisterDomain(_)
+            | AnyPermissionToken::CanSetKeyValueInDomain(_)
+            | AnyPermissionToken::CanRemoveKeyValueInDomain(_)
+            | AnyPermissionToken::CanGrantPermissionToCreateParameters(_)
+            | AnyPermissionToken::CanRevokePermissionToCreateParameters(_)
+            | AnyPermissionToken::CanCreateParameters(_)
+            | AnyPermissionToken::CanGrantPermissionToSetParameters(_)
+            | AnyPermissionToken::CanRevokePermissionToSetParameters(_)
+            | AnyPermissionToken::CanSetParameters(_)
+            | AnyPermissionToken::CanUnregisterAnyRole(_)
+            | AnyPermissionToken::CanUpgradeExecutor(_) => false,
+        }
     }
 }
 
@@ -1058,7 +1332,9 @@ pub mod role {
 }
 
 pub mod trigger {
-    use permission::trigger::is_trigger_owner;
+    use iroha_smart_contract::data_model::{permission::PermissionToken, trigger::TriggerId};
+    use permission::{accounts_permission_tokens, trigger::is_trigger_owner};
+    use tokens::AnyPermissionToken;
 
     use super::*;
 
@@ -1069,20 +1345,28 @@ pub mod trigger {
     ) {
         let trigger_id = isi.object_id;
 
-        if is_genesis(executor) {
+        if is_genesis(executor)
+            || match is_trigger_owner(&trigger_id, authority) {
+                Err(err) => deny!(executor, err),
+                Ok(is_trigger_owner) => is_trigger_owner,
+            }
+            || {
+                let can_unregister_user_trigger_token = tokens::trigger::CanUnregisterUserTrigger {
+                    trigger_id: trigger_id.clone(),
+                };
+                can_unregister_user_trigger_token.is_owned_by(authority)
+            }
+        {
+            for (owner_id, permission) in accounts_permission_tokens() {
+                if is_token_trigger_associated(&permission, &trigger_id) {
+                    let isi = RevokeExpr::new(permission, owner_id.clone());
+                    if let Err(_err) = isi.execute() {
+                        deny!(executor, "Can't revoke associated permission token");
+                    }
+                }
+            }
             pass!(executor);
         }
-        match is_trigger_owner(&trigger_id, authority) {
-            Err(err) => deny!(executor, err),
-            Ok(true) => pass!(executor),
-            Ok(false) => {}
-        }
-        let can_unregister_user_trigger_token =
-            tokens::trigger::CanUnregisterUserTrigger { trigger_id };
-        if can_unregister_user_trigger_token.is_owned_by(authority) {
-            pass!(executor);
-        }
-
         deny!(
             executor,
             "Can't unregister trigger owned by another account"
@@ -1162,6 +1446,57 @@ pub mod trigger {
         }
 
         deny!(executor, "Can't execute trigger owned by another account");
+    }
+
+    fn is_token_trigger_associated(permission: &PermissionToken, trigger_id: &TriggerId) -> bool {
+        let Ok(permission) = AnyPermissionToken::try_from(permission.clone()) else {
+            return false;
+        };
+        match permission {
+            AnyPermissionToken::CanUnregisterUserTrigger(permission) => {
+                &permission.trigger_id == trigger_id
+            }
+            AnyPermissionToken::CanExecuteUserTrigger(permission) => {
+                &permission.trigger_id == trigger_id
+            }
+            AnyPermissionToken::CanBurnUserTrigger(permission) => {
+                &permission.trigger_id == trigger_id
+            }
+            AnyPermissionToken::CanMintUserTrigger(permission) => {
+                &permission.trigger_id == trigger_id
+            }
+            AnyPermissionToken::CanUnregisterAnyPeer(_)
+            | AnyPermissionToken::CanUnregisterDomain(_)
+            | AnyPermissionToken::CanSetKeyValueInDomain(_)
+            | AnyPermissionToken::CanRemoveKeyValueInDomain(_)
+            | AnyPermissionToken::CanUnregisterAccount(_)
+            | AnyPermissionToken::CanMintUserPublicKeys(_)
+            | AnyPermissionToken::CanBurnUserPublicKeys(_)
+            | AnyPermissionToken::CanMintUserSignatureCheckConditions(_)
+            | AnyPermissionToken::CanSetKeyValueInUserAccount(_)
+            | AnyPermissionToken::CanRemoveKeyValueInUserAccount(_)
+            | AnyPermissionToken::CanUnregisterAssetDefinition(_)
+            | AnyPermissionToken::CanSetKeyValueInAssetDefinition(_)
+            | AnyPermissionToken::CanRemoveKeyValueInAssetDefinition(_)
+            | AnyPermissionToken::CanRegisterAssetsWithDefinition(_)
+            | AnyPermissionToken::CanUnregisterAssetsWithDefinition(_)
+            | AnyPermissionToken::CanUnregisterUserAsset(_)
+            | AnyPermissionToken::CanBurnAssetsWithDefinition(_)
+            | AnyPermissionToken::CanBurnUserAsset(_)
+            | AnyPermissionToken::CanMintAssetsWithDefinition(_)
+            | AnyPermissionToken::CanTransferAssetsWithDefinition(_)
+            | AnyPermissionToken::CanTransferUserAsset(_)
+            | AnyPermissionToken::CanSetKeyValueInUserAsset(_)
+            | AnyPermissionToken::CanRemoveKeyValueInUserAsset(_)
+            | AnyPermissionToken::CanGrantPermissionToCreateParameters(_)
+            | AnyPermissionToken::CanRevokePermissionToCreateParameters(_)
+            | AnyPermissionToken::CanCreateParameters(_)
+            | AnyPermissionToken::CanGrantPermissionToSetParameters(_)
+            | AnyPermissionToken::CanRevokePermissionToSetParameters(_)
+            | AnyPermissionToken::CanSetParameters(_)
+            | AnyPermissionToken::CanUnregisterAnyRole(_)
+            | AnyPermissionToken::CanUpgradeExecutor(_) => false,
+        }
     }
 }
 
