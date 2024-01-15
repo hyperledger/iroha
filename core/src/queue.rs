@@ -185,7 +185,6 @@ impl Queue {
     ///
     /// # Errors
     /// See [`enum@Error`]
-    #[allow(clippy::missing_panics_doc)] // NOTE: It's a system invariant, should never happen
     pub fn push(&self, tx: AcceptedTransaction, wsv: &WorldStateView) -> Result<(), Failure> {
         trace!(?tx, "Pushing to the queue");
         if let Err(err) = self.check_tx(&tx, wsv) {
@@ -250,9 +249,8 @@ impl Queue {
         expired_transactions: &mut Vec<AcceptedTransaction>,
     ) -> Option<AcceptedTransaction> {
         loop {
-            let Some(hash) = self.tx_hashes.pop() else {
-                return None;
-            };
+            let hash = self.tx_hashes.pop()?;
+
             let entry = match self.accepted_txs.entry(hash) {
                 Entry::Occupied(entry) => entry,
                 // FIXME: Reachable under high load. Investigate, see if it's a problem.

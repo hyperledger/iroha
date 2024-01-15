@@ -10,10 +10,6 @@ use sha2::Sha256;
 
 pub(super) const MESSAGE_CONTEXT: &[u8; 20] = b"for signing messages";
 
-// it is not unused? Why am I getting the unused lint here?
-#[allow(dead_code)]
-const PUBLICKEY_CONTEXT: &[u8; 47] = b"for signing public keys for proof of possession";
-
 use super::PRIVATE_KEY_SIZE;
 use crate::{
     Algorithm, ConstVec, Error, KeyGenOption, PrivateKey as IrohaPrivateKey,
@@ -61,6 +57,7 @@ pub trait BlsConfiguration {
     }
 
     fn hash_key(pk: &PublicKey<Self>, context: Option<&'static [u8]>) -> Self::SignatureGroup {
+        const PUBLICKEY_CONTEXT: &[u8; 47] = b"for signing public keys for proof of possession";
         let ctx: &[u8] = context.unwrap_or(PUBLICKEY_CONTEXT);
         Self::hash_to_point(pk.to_bytes(), ctx)
     }

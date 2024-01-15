@@ -18,9 +18,7 @@ impl ValidQuery for FindAllBlocks {
         wsv: &'wsv WorldStateView,
     ) -> Result<Box<dyn Iterator<Item = SignedBlock> + 'wsv>, QueryExecutionFail> {
         Ok(Box::new(
-            wsv.all_blocks()
-                .rev()
-                .map(|block| SignedBlock::clone(&block)),
+            wsv.all_blocks().rev().map(|block| (*block).clone()),
         ))
     }
 }

@@ -58,9 +58,7 @@ impl AcceptedTransaction {
         match &transaction.payload().instructions {
             Executable::Instructions(instructions) => {
                 let instruction_count = instructions.len();
-                if u64::try_from(instruction_count).expect("`usize` should always fit into `u64`")
-                    > limits.max_instruction_number
-                {
+                if Self::len_u64(instruction_count) > limits.max_instruction_number {
                     return Err(AcceptTransactionFail::TransactionLimit(
                         TransactionLimitError {
                             reason: format!(
@@ -76,12 +74,8 @@ impl AcceptedTransaction {
             //
             // Should we allow infinite instructions in wasm? And deny only based on fuel and size
             Executable::Wasm(smart_contract) => {
+                let size_bytes = Self::len_u64(smart_contract.size_bytes());
                 let max_wasm_size_bytes = limits.max_wasm_size_bytes;
-
-                let size_bytes: u64 = smart_contract
-                    .size_bytes()
-                    .try_into()
-                    .expect("`u64` should always fit in `u64`");
 
                 if size_bytes > max_wasm_size_bytes {
                     return Err(AcceptTransactionFail::TransactionLimit(
@@ -112,6 +106,10 @@ impl AcceptedTransaction {
 
     pub(crate) fn merge_signatures(&mut self, other: Self) -> bool {
         self.0.merge_signatures(other.0)
+    }
+
+    fn len_u64(instruction_count: usize) -> u64 {
+        u64::try_from(instruction_count).expect("`usize` should always fit into `u64`")
     }
 }
 

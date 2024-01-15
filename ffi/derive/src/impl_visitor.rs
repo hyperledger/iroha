@@ -189,7 +189,7 @@ impl<'ast> FnDescriptor<'ast> {
         Some(Self {
             attrs: visitor.attrs,
             doc: visitor.doc,
-            self_ty: visitor.self_ty.map(Clone::clone),
+            self_ty: visitor.self_ty.cloned(),
 
             sig: visitor.sig.expect("Missing signature").clone(),
 
@@ -270,11 +270,8 @@ impl<'ast, 'emitter> FnVisitor<'ast, 'emitter> {
                 Span::call_site(),
             )
         });
-        self.input_args.push(Arg::new(
-            self.self_ty.map(Clone::clone),
-            arg_name,
-            src_type.clone(),
-        ));
+        self.input_args
+            .push(Arg::new(self.self_ty.cloned(), arg_name, src_type.clone()));
     }
 
     fn add_output_arg(&mut self, src_type: &'ast Type) {
@@ -282,7 +279,7 @@ impl<'ast, 'emitter> FnVisitor<'ast, 'emitter> {
         assert!(self.output_arg.is_none());
 
         let output_arg = Arg::new(
-            self.self_ty.map(Clone::clone),
+            self.self_ty.cloned(),
             Ident::new("__output", Span::call_site()),
             src_type.clone(),
         );
@@ -445,11 +442,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast, '_> {
         );
 
         let handle_name = Ident::new("__handle", Span::call_site());
-        self.receiver = Some(Arg::new(
-            self.self_ty.map(Clone::clone),
-            handle_name,
-            src_type,
-        ));
+        self.receiver = Some(Arg::new(self.self_ty.cloned(), handle_name, src_type));
     }
 
     fn visit_pat_type(&mut self, node: &'ast syn2::PatType) {

@@ -333,7 +333,7 @@ enum ReturnType {
     /// [`Result`] type with [`Ok`] and [`Err`]  types respectively
     Result(Option<syn::Type>, ErrType),
     /// Something other than [`Result`]
-    #[allow(unused_tuple_struct_fields)] // May be used in future
+    #[allow(dead_code)] // May be used in future
     Other(syn::Type),
 }
 
@@ -342,7 +342,7 @@ enum ErrType {
     /// `wasmtime::Error` error type
     WasmtimeError,
     /// Something other than `wasmtime::Error`
-    #[allow(unused_tuple_struct_fields)] // May be used in future
+    #[allow(dead_code)] // May be used in future
     Other(syn::Type),
 }
 

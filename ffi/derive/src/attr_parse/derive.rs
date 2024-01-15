@@ -21,9 +21,7 @@ pub enum RustcDerive {
 
 impl RustcDerive {
     fn try_from_path(path: &syn2::Path) -> Option<Self> {
-        let Some(ident) = path.get_ident() else {
-            return None;
-        };
+        let ident = path.get_ident()?;
 
         match ident.to_string().as_str() {
             "Eq" => Some(Self::Eq),

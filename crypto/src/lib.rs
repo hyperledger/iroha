@@ -113,10 +113,6 @@ impl FromStr for Algorithm {
 
 /// Options for key generation
 #[cfg(not(feature = "ffi_import"))]
-#[cfg_attr(
-    any(not(feature = "std"), feature = "ffi_import"),
-    allow(unused_tuple_struct_fields)
-)]
 #[derive(Debug, Clone)]
 pub enum KeyGenOption {
     /// Use seed
@@ -474,7 +470,6 @@ impl<'de> Deserialize<'de> for PrivateKey {
 }
 
 /// A session key derived from a key exchange. Will usually be used for a symmetric encryption afterwards
-#[allow(unused_tuple_struct_fields)]
 pub struct SessionKey(ConstVec<u8>);
 
 impl SessionKey {
