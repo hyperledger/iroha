@@ -23,6 +23,7 @@ use iroha_core::{
     sumeragi::SumeragiHandle,
     EventsSender,
 };
+use iroha_data_model::ChainId;
 use iroha_primitives::addr::SocketAddr;
 use tokio::{sync::Notify, task};
 use utils::*;
@@ -41,6 +42,7 @@ mod stream;
 
 /// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii {
+    chain_id: Arc<ChainId>,
     kiso: KisoHandle,
     queue: Arc<Queue>,
     events: EventsSender,
@@ -56,6 +58,7 @@ impl Torii {
     /// Construct `Torii`.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        chain_id: ChainId,
         kiso: KisoHandle,
         config: &ToriiConfiguration,
         queue: Arc<Queue>,
@@ -66,6 +69,7 @@ impl Torii {
         kura: Arc<Kura>,
     ) -> Self {
         Self {
+            chain_id: Arc::new(chain_id),
             kiso,
             queue,
             events,
@@ -131,10 +135,10 @@ impl Torii {
 
         let post_router = warp::post()
             .and(
-                endpoint3(
+                endpoint4(
                     routing::handle_transaction,
                     warp::path(uri::TRANSACTION)
-                        .and(add_state!(self.queue, self.sumeragi))
+                        .and(add_state!(self.chain_id, self.queue, self.sumeragi))
                         .and(warp::body::content_length_limit(
                             self.transaction_max_content_length,
                         ))

@@ -46,14 +46,14 @@ This test framework uses [Poetry](https://python-poetry.org/) for dependency man
     poetry install
     ```
 4. Activate the virtual environment:
-	```bash
-	poetry shell
-	```
-	Now, you should be in the virtual environment with all the required dependencies installed. All the subsequent commands (e.g., pytest, allure) should be executed within this virtual environment.
+    ```bash
+    poetry shell
+    ```
+    Now, you should be in the virtual environment with all the required dependencies installed. All the subsequent commands (e.g., pytest, allure) should be executed within this virtual environment.
  5. When you're done working in the virtual environment, deactivate it by running:
-	```bash
-	exit
-	```
+    ```bash
+    exit
+    ```
 
 ## Run tests
 

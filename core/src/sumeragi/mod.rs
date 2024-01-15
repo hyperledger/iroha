@@ -227,6 +227,7 @@ impl SumeragiHandle {
     }
 
     fn replay_block(
+        chain_id: &ChainId,
         block: &SignedBlock,
         wsv: &mut WorldStateView,
         mut current_topology: Topology,
@@ -234,7 +235,7 @@ impl SumeragiHandle {
         // NOTE: topology need to be updated up to block's view_change_index
         current_topology.rotate_all_n(block.payload().header.view_change_index);
 
-        let block = ValidBlock::validate(block.clone(), &current_topology, wsv)
+        let block = ValidBlock::validate(block.clone(), &current_topology, chain_id, wsv)
             .expect("Kura blocks should be valid")
             .commit(&current_topology)
             .expect("Kura blocks should be valid");
@@ -258,6 +259,7 @@ impl SumeragiHandle {
     #[allow(clippy::too_many_lines)]
     pub fn start(
         SumeragiStartArgs {
+            chain_id,
             configuration,
             events_sender,
             mut wsv,
@@ -296,14 +298,14 @@ impl SumeragiHandle {
         let block_iter_except_last =
             (&mut blocks_iter).take(block_count.saturating_sub(skip_block_count + 1));
         for block in block_iter_except_last {
-            current_topology = Self::replay_block(&block, &mut wsv, current_topology);
+            current_topology = Self::replay_block(&chain_id, &block, &mut wsv, current_topology);
         }
 
         // finalized_wsv is one block behind
         let finalized_wsv = wsv.clone();
 
         if let Some(block) = blocks_iter.next() {
-            current_topology = Self::replay_block(&block, &mut wsv, current_topology);
+            current_topology = Self::replay_block(&chain_id, &block, &mut wsv, current_topology);
         }
 
         info!("Sumeragi has finished loading blocks and setting up the WSV");
@@ -318,6 +320,7 @@ impl SumeragiHandle {
         let debug_force_soft_fork = false;
 
         let sumeragi = main_loop::Sumeragi {
+            chain_id,
             key_pair: configuration.key_pair.clone(),
             queue: Arc::clone(&queue),
             peer_id: configuration.peer_id.clone(),
@@ -418,6 +421,7 @@ impl VotingBlock {
 /// Arguments for [`SumeragiHandle::start`] function
 #[allow(missing_docs)]
 pub struct SumeragiStartArgs<'args> {
+    pub chain_id: ChainId,
     pub configuration: &'args Configuration,
     pub events_sender: EventsSender,
     pub wsv: WorldStateView,

@@ -392,19 +392,24 @@ mod tests {
     };
 
     fn accepted_tx(account_id: &str, key: KeyPair) -> AcceptedTransaction {
+        let chain_id = ChainId::new("0");
+
         let message = std::iter::repeat_with(rand::random::<char>)
             .take(16)
             .collect();
         let instructions = [Fail { message }];
-        let tx = TransactionBuilder::new(AccountId::from_str(account_id).expect("Valid"))
-            .with_instructions(instructions)
-            .sign(key)
-            .expect("Failed to sign.");
+        let tx = TransactionBuilder::new(
+            chain_id.clone(),
+            AccountId::from_str(account_id).expect("Valid"),
+        )
+        .with_instructions(instructions)
+        .sign(key)
+        .expect("Failed to sign.");
         let limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        AcceptedTransaction::accept(tx, &limits).expect("Failed to accept Transaction.")
+        AcceptedTransaction::accept(tx, &chain_id, &limits).expect("Failed to accept Transaction.")
     }
 
     pub fn world_with_test_domains(
@@ -481,6 +486,8 @@ mod tests {
 
     #[test]
     async fn push_multisignature_tx() {
+        let chain_id = ChainId::new("0");
+
         let max_txs_in_block = 2;
         let key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
         let kura = Kura::blank_kura_for_testing();
@@ -511,8 +518,9 @@ mod tests {
                 .expect("Default queue config should always build")
         });
         let instructions: [InstructionBox; 0] = [];
-        let tx = TransactionBuilder::new("alice@wonderland".parse().expect("Valid"))
-            .with_instructions(instructions);
+        let tx =
+            TransactionBuilder::new(chain_id.clone(), "alice@wonderland".parse().expect("Valid"))
+                .with_instructions(instructions);
         let tx_limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
@@ -525,7 +533,7 @@ mod tests {
             for key_pair in &key_pairs[1..] {
                 signed_tx = signed_tx.sign(key_pair.clone()).expect("Failed to sign");
             }
-            AcceptedTransaction::accept(signed_tx, &tx_limits)
+            AcceptedTransaction::accept(signed_tx, &chain_id, &tx_limits)
                 .expect("Failed to accept Transaction.")
         };
         // Check that fully signed transaction pass signature check
@@ -537,6 +545,7 @@ mod tests {
         let get_tx = |key_pair| {
             AcceptedTransaction::accept(
                 tx.clone().sign(key_pair).expect("Failed to sign."),
+                &chain_id,
                 &tx_limits,
             )
             .expect("Failed to accept Transaction.")
@@ -742,6 +751,8 @@ mod tests {
 
     #[test]
     async fn custom_expired_transaction_is_rejected() {
+        let chain_id = ChainId::new("0");
+
         let max_txs_in_block = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
@@ -761,16 +772,19 @@ mod tests {
         let instructions = [Fail {
             message: "expired".to_owned(),
         }];
-        let mut tx =
-            TransactionBuilder::new(AccountId::from_str("alice@wonderland").expect("Valid"))
-                .with_instructions(instructions);
+        let mut tx = TransactionBuilder::new(
+            chain_id.clone(),
+            AccountId::from_str("alice@wonderland").expect("Valid"),
+        )
+        .with_instructions(instructions);
         tx.set_ttl(Duration::from_millis(10));
         let tx = tx.sign(alice_key).expect("Failed to sign.");
         let limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        let tx = AcceptedTransaction::accept(tx, &limits).expect("Failed to accept Transaction.");
+        let tx = AcceptedTransaction::accept(tx, &chain_id, &limits)
+            .expect("Failed to accept Transaction.");
         queue
             .push(tx.clone(), &wsv)
             .expect("Failed to push tx into queue");

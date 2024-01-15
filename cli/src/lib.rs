@@ -252,6 +252,7 @@ impl Iroha {
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
         let sumeragi = SumeragiHandle::start(SumeragiStartArgs {
+            chain_id: config.chain_id.clone(),
             configuration: &config.sumeragi,
             events_sender: events_sender.clone(),
             wsv,
@@ -272,6 +273,7 @@ impl Iroha {
         .start();
 
         let gossiper = TransactionGossiper::from_configuration(
+            config.chain_id.clone(),
             &config.sumeragi,
             network.clone(),
             Arc::clone(&queue),
@@ -301,6 +303,7 @@ impl Iroha {
         let kiso = KisoHandle::new(config.clone());
 
         let torii = Torii::new(
+            config.chain_id,
             kiso.clone(),
             &config.torii,
             Arc::clone(&queue),
@@ -583,7 +586,7 @@ pub fn read_config(
         .wrap_err("Invalid genesis configuration")?
     {
         Some(
-            GenesisNetwork::new(raw_block, &key_pair)
+            GenesisNetwork::new(raw_block, &config.chain_id, &key_pair)
                 .wrap_err("Failed to construct the genesis")?,
         )
     } else {
@@ -634,20 +637,23 @@ mod tests {
         use super::*;
 
         fn config_factory() -> Result<ConfigurationProxy> {
-            let mut base = ConfigurationProxy::default();
-
             let key_pair = KeyPair::generate()?;
 
-            base.public_key = Some(key_pair.public_key().clone());
-            base.private_key = Some(key_pair.private_key().clone());
+            let mut base = ConfigurationProxy {
+                chain_id: Some(ChainId::new("0")),
+
+                public_key: Some(key_pair.public_key().clone()),
+                private_key: Some(key_pair.private_key().clone()),
+
+                ..ConfigurationProxy::default()
+            };
+            let genesis = base.genesis.as_mut().unwrap();
+            genesis.private_key = Some(Some(key_pair.private_key().clone()));
+            genesis.public_key = Some(key_pair.public_key().clone());
 
             let torii = base.torii.as_mut().unwrap();
             torii.p2p_addr = Some(socket_addr!(127.0.0.1:1337));
             torii.api_url = Some(socket_addr!(127.0.0.1:1337));
-
-            let genesis = base.genesis.as_mut().unwrap();
-            genesis.private_key = Some(Some(key_pair.private_key().clone()));
-            genesis.public_key = Some(key_pair.public_key().clone());
 
             Ok(base)
         }

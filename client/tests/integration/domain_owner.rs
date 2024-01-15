@@ -104,6 +104,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_085).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
+    let chain_id = ChainId::new("0");
     let kingdom_id: DomainId = "kingdom".parse()?;
     let bob_id: AccountId = "bob@kingdom".parse()?;
     let rabbit_id: AccountId = "rabbit@kingdom".parse()?;
@@ -122,7 +123,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
 
     // register asset definitions by "bob@kingdom" so he is owner of it
     let coin = AssetDefinition::quantity(coin_id.clone());
-    let transaction = TransactionBuilder::new(bob_id.clone())
+    let transaction = TransactionBuilder::new(chain_id, bob_id.clone())
         .with_instructions([Register::asset_definition(coin)])
         .sign(bob_keypair)?;
     test_client.submit_transaction_blocking(&transaction)?;
@@ -161,6 +162,8 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
 
 #[test]
 fn domain_owner_asset_permissions() -> Result<()> {
+    let chain_id = ChainId::new("0");
+
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_090).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
 
@@ -181,7 +184,7 @@ fn domain_owner_asset_permissions() -> Result<()> {
     // register asset definitions by "bob@kingdom" so he is owner of it
     let coin = AssetDefinition::quantity(coin_id.clone());
     let store = AssetDefinition::store(store_id.clone());
-    let transaction = TransactionBuilder::new(bob_id.clone())
+    let transaction = TransactionBuilder::new(chain_id, bob_id.clone())
         .with_instructions([
             Register::asset_definition(coin),
             Register::asset_definition(store),

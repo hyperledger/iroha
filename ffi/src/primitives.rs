@@ -30,8 +30,8 @@ mod wasm {
         type Ref<'itm> = Transparent;
         type RefMut<'itm> = Transparent;
         type Box = Box<Robust>;
-        type SliceRef<'itm> = &'itm [Robust];
-        type SliceRefMut<'itm> = &'itm mut [Robust];
+        type RefSlice<'itm> = &'itm [Robust];
+        type RefMutSlice<'itm> = &'itm mut [Robust];
         type Vec = Vec<Robust>;
         type Arr<const N: usize> = Robust;
     }

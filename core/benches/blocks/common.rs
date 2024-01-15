@@ -15,6 +15,7 @@ use iroha_data_model::{
     isi::InstructionBox,
     prelude::*,
     transaction::TransactionLimits,
+    ChainId,
 };
 use iroha_primitives::unique_vec::UniqueVec;
 use serde_json::json;
@@ -26,7 +27,9 @@ pub fn create_block(
     account_id: AccountId,
     key_pair: KeyPair,
 ) -> CommittedBlock {
-    let transaction = TransactionBuilder::new(account_id)
+    let chain_id = ChainId::new("0");
+
+    let transaction = TransactionBuilder::new(chain_id.clone(), account_id)
         .with_instructions(instructions)
         .sign(key_pair.clone())
         .unwrap();
@@ -34,7 +37,7 @@ pub fn create_block(
 
     let topology = Topology::new(UniqueVec::new());
     let block = BlockBuilder::new(
-        vec![AcceptedTransaction::accept(transaction, &limits).unwrap()],
+        vec![AcceptedTransaction::accept(transaction, &chain_id, &limits).unwrap()],
         topology.clone(),
         Vec::new(),
     )

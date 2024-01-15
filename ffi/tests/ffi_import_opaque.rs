@@ -144,7 +144,7 @@ mod ffi {
     use std::{alloc, collections::BTreeMap};
 
     use iroha_ffi::{
-        def_ffi_fns, slice::SliceMut, FfiConvert, FfiOutPtr, FfiOutPtrWrite, FfiReturn, FfiType,
+        def_ffi_fns, slice::RefMutSlice, FfiConvert, FfiOutPtr, FfiOutPtrWrite, FfiReturn, FfiType,
     };
 
     iroha_ffi::handles! {ExternOpaqueStruct, ExternValue}
@@ -175,7 +175,7 @@ mod ffi {
 
     #[no_mangle]
     unsafe extern "C" fn Value__new(
-        input: SliceMut<u8>,
+        input: RefMutSlice<u8>,
         output: *mut *mut ExternValue,
     ) -> FfiReturn {
         let string = String::from_utf8(input.into_rust().expect("Defined").to_vec());
@@ -205,7 +205,7 @@ mod ffi {
         output: *mut *mut ExternOpaqueStruct,
     ) -> iroha_ffi::FfiReturn {
         let mut handle = *Box::from_raw(handle);
-        let mut store = Vec::default();
+        let mut store = Box::default();
         let params: Vec<(u8, ExternValue)> =
             FfiConvert::try_from_ffi(params, &mut store).expect("Valid");
         handle.params = params.into_iter().collect();

@@ -31,7 +31,7 @@ use crate::{
         prelude::*,
         query::{Pagination, Query, Sorting},
         transaction::TransactionPayload,
-        BatchedResponse, ValidationFail,
+        BatchedResponse, ChainId, ValidationFail,
     },
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
@@ -344,6 +344,8 @@ impl_query_output! {
 )]
 #[display(fmt = "{}@{torii_url}", "key_pair.public_key()")]
 pub struct Client {
+    /// Unique id of the blockchain. Used for simple replay attack protection.
+    pub chain_id: ChainId,
     /// Url for accessing iroha node
     pub torii_url: Url,
     /// Accounts keypair
@@ -440,6 +442,7 @@ impl Client {
         }
 
         Ok(Self {
+            chain_id: configuration.chain_id.clone(),
             torii_url: configuration.torii_api_url.clone(),
             key_pair: KeyPair::new(
                 configuration.public_key.clone(),
@@ -466,7 +469,7 @@ impl Client {
         instructions: impl Into<Executable>,
         metadata: UnlimitedMetadata,
     ) -> Result<SignedTransaction> {
-        let tx_builder = TransactionBuilder::new(self.account_id.clone());
+        let tx_builder = TransactionBuilder::new(self.chain_id.clone(), self.account_id.clone());
 
         let mut tx_builder = match instructions.into() {
             Executable::Instructions(instructions) => tx_builder.with_instructions(instructions),
@@ -1666,6 +1669,7 @@ mod tests {
         let (public_key, private_key) = KeyPair::generate().unwrap().into();
 
         let cfg = ConfigurationProxy {
+            chain_id: Some(ChainId::new("0")),
             public_key: Some(public_key),
             private_key: Some(private_key),
             account_id: Some(
@@ -1708,6 +1712,7 @@ mod tests {
         };
 
         let cfg = ConfigurationProxy {
+            chain_id: Some(ChainId::new("0")),
             public_key: Some(
                 "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
                     .parse()

@@ -25,7 +25,7 @@ use crate::{
     isi::{Instruction, InstructionBox},
     metadata::UnlimitedMetadata,
     name::Name,
-    Value,
+    ChainId, Value,
 };
 
 #[model]
@@ -101,6 +101,9 @@ pub mod model {
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct TransactionPayload {
+        /// Unique id of the blockchain. Used for simple replay attack protection.
+        #[getset(skip)]
+        pub chain_id: ChainId,
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
         pub creation_time_ms: u64,
@@ -676,7 +679,7 @@ mod http {
         /// Construct [`Self`].
         #[inline]
         #[cfg(feature = "std")]
-        pub fn new(authority: AccountId) -> Self {
+        pub fn new(chain_id: ChainId, authority: AccountId) -> Self {
             let creation_time_ms = crate::current_time()
                 .as_millis()
                 .try_into()
@@ -684,6 +687,7 @@ mod http {
 
             Self {
                 payload: TransactionPayload {
+                    chain_id,
                     authority,
                     creation_time_ms,
                     nonce: None,

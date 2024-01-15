@@ -290,12 +290,12 @@ fn get_new_struct_with_params() -> OpaqueStruct {
 #[webassembly_test::webassembly_test]
 #[cfg(feature = "non_robust_ref_mut")]
 fn non_robust_ref_mut() {
-    use iroha_ffi::slice::SliceMut;
+    use iroha_ffi::slice::RefMutSlice;
 
     let mut owned = "queen".to_owned();
     let ffi_struct: &mut str = owned.as_mut();
-    let mut output = MaybeUninit::new(SliceMut::from_raw_parts_mut(core::ptr::null_mut(), 0));
-    let ffi_type: SliceMut<u8> = FfiConvert::into_ffi(ffi_struct, &mut ());
+    let mut output = MaybeUninit::new(RefMutSlice::from_raw_parts_mut(core::ptr::null_mut(), 0));
+    let ffi_type: RefMutSlice<u8> = FfiConvert::into_ffi(ffi_struct, &mut ());
 
     unsafe {
         assert_eq!(
@@ -350,7 +350,7 @@ fn into_iter_item_impl_into() {
     ];
 
     let mut ffi_struct = get_new_struct();
-    let mut tokens_store = Vec::default();
+    let mut tokens_store = Box::default();
     let tokens_ffi = tokens.clone().into_ffi(&mut tokens_store);
 
     let mut output = MaybeUninit::new(core::ptr::null_mut());

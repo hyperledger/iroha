@@ -427,6 +427,28 @@ impl<T: IntoSchema> IntoSchema for Box<T> {
     }
 }
 
+impl TypeId for Box<str> {
+    fn id() -> String {
+        "String".to_owned()
+    }
+}
+impl IntoSchema for Box<str> {
+    fn type_name() -> String {
+        "String".to_owned()
+    }
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            if !map.contains_key::<String>() {
+                String::update_schema_map(map);
+            }
+
+            if let Some(schema) = map.get::<String>() {
+                map.insert::<Self>(schema.clone());
+            }
+        }
+    }
+}
+
 impl<T: TypeId, E: TypeId> TypeId for Result<T, E> {
     fn id() -> String {
         format!("Result<{}, {}>", T::id(), E::id())

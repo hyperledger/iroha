@@ -62,6 +62,8 @@ fn get_assets(iroha_client: &Client, id: &AccountId) -> Vec<Asset> {
 #[test]
 #[ignore = "ignore, more in #2851"]
 fn permissions_disallow_asset_transfer() {
+    let chain_id = ChainId::new("0");
+
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
     wait_for_genesis_committed(&[iroha_client.clone()], 0);
 
@@ -94,7 +96,7 @@ fn permissions_disallow_asset_transfer() {
         quantity,
         alice_id.clone(),
     );
-    let transfer_tx = TransactionBuilder::new(mouse_id)
+    let transfer_tx = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([transfer_asset])
         .sign(mouse_keypair)
         .expect("Failed to sign mouse transaction");
@@ -118,6 +120,8 @@ fn permissions_disallow_asset_transfer() {
 #[test]
 #[ignore = "ignore, more in #2851"]
 fn permissions_disallow_asset_burn() {
+    let chain_id = ChainId::new("0");
+
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_735).start_with_runtime();
 
     let alice_id = "alice@wonderland".parse().expect("Valid");
@@ -144,7 +148,7 @@ fn permissions_disallow_asset_burn() {
         quantity,
         AssetId::new(asset_definition_id, mouse_id.clone()),
     );
-    let burn_tx = TransactionBuilder::new(mouse_id)
+    let burn_tx = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([burn_asset])
         .sign(mouse_keypair)
         .expect("Failed to sign mouse transaction");
@@ -192,6 +196,8 @@ fn account_can_query_only_its_own_domain() -> Result<()> {
 
 #[test]
 fn permissions_differ_not_only_by_names() {
+    let chain_id = ChainId::new("0");
+
     let (_rt, _not_drop, client) = <PeerBuilder>::new().with_port(10_745).start_with_runtime();
 
     let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
@@ -226,7 +232,7 @@ fn permissions_differ_not_only_by_names() {
         alice_id.clone(),
     );
 
-    let grant_hats_access_tx = TransactionBuilder::new(mouse_id.clone())
+    let grant_hats_access_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
         .with_instructions([allow_alice_to_set_key_value_in_hats])
         .sign(mouse_keypair.clone())
         .expect("Failed to sign mouse transaction");
@@ -263,7 +269,7 @@ fn permissions_differ_not_only_by_names() {
         alice_id,
     );
 
-    let grant_shoes_access_tx = TransactionBuilder::new(mouse_id)
+    let grant_shoes_access_tx = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([allow_alice_to_set_key_value_in_shoes])
         .sign(mouse_keypair)
         .expect("Failed to sign mouse transaction");
@@ -281,6 +287,8 @@ fn permissions_differ_not_only_by_names() {
 #[test]
 #[allow(deprecated)]
 fn stored_vs_granted_token_payload() -> Result<()> {
+    let chain_id = ChainId::new("0");
+
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
     wait_for_genesis_committed(&[iroha_client.clone()], 0);
 
@@ -313,7 +321,7 @@ fn stored_vs_granted_token_payload() -> Result<()> {
         alice_id,
     );
 
-    let transaction = TransactionBuilder::new(mouse_id)
+    let transaction = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([allow_alice_to_set_key_value_in_mouse_asset])
         .sign(mouse_keypair)
         .expect("Failed to sign mouse transaction");

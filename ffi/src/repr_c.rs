@@ -10,7 +10,7 @@ use core::{mem::ManuallyDrop, ptr::addr_of_mut};
 
 use crate::{
     ir::{External, Ir, Opaque, Robust, Transmute, Transparent},
-    slice::{OutBoxedSlice, SliceMut, SliceRef},
+    slice::{OutBoxedSlice, RefMutSlice, RefSlice},
     Extern, FfiConvert, FfiOutPtr, FfiOutPtrRead, FfiOutPtrWrite, FfiReturn, FfiType,
     FfiWrapperType, LocalRef, LocalSlice, ReprC, Result, WrapperTypeOf,
 };
@@ -115,11 +115,11 @@ pub trait COutPtrRead<S>: COutPtr<S> + Sized {
 /// # Example
 ///
 /// 1. `&[u8]` implements [`NonLocal`]
-/// This type will be converted to [`SliceRef<u8>`] and during conversion will not make use
-/// of the store (in any direction). The corresponding out-pointer will be `*mut SliceRef<u8>`
+/// This type will be converted to [`RefSlice<u8>`] and during conversion will not make use
+/// of the store (in any direction). The corresponding out-pointer will be `*mut RefSlice<u8>`
 ///
 /// 2. `&[Opaque<T>]` doesn't implement [`NonLocal`]
-/// This type will be converted to [`SliceRef<*const T>`] and during conversion will use the
+/// This type will be converted to [`RefSlice<*const T>`] and during conversion will use the
 /// local store `Vec<*const T>`. The corresponding out-pointer will be `*mut OutBoxedSlice<*const T>`.
 ///
 /// 3. `&(u32, u32)`
@@ -278,7 +278,7 @@ impl<'itm, R: NonLocal<S> + CTypeConvert<'itm, S, R::ReprC> + Clone + 'itm, S: C
     COutPtrWrite<Box<S>> for Box<R>
 {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        let mut store = <(Option<R::ReprC>, R::RustStore)>::default();
+        let mut store = <(_, _)>::default();
         // NOTE: Bypasses the erroneous lifetime check.
         // Correct as long as `R::into_repr_c` doesn't return a reference to the store (`R: NonLocal`)
         let store_borrow = &mut *addr_of_mut!(store);
@@ -301,17 +301,101 @@ impl<'itm, R: NonLocal<S> + CTypeConvert<'itm, S, R::ReprC> + Clone + 'itm, S: C
     }
 }
 
+impl<R: CType<S>, S: Cloned> CType<Box<[S]>> for Box<[R]> {
+    type ReprC = RefMutSlice<R::ReprC>;
+}
+impl<'itm, R: CTypeConvert<'itm, S, C> + Clone, S: Cloned, C: ReprC>
+    CTypeConvert<'itm, Box<[S]>, RefMutSlice<C>> for Box<[R]>
+{
+    type RustStore = (Box<[C]>, Box<[R::RustStore]>);
+    type FfiStore = Box<[R::FfiStore]>;
+
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> RefMutSlice<C> {
+        let boxed_slice = self;
+
+        store.1 = core::iter::repeat_with(Default::default)
+            .take(boxed_slice.len())
+            .collect();
+
+        store.0 = Vec::from(boxed_slice)
+            .into_iter()
+            .zip(&mut *store.1)
+            .map(|(item, substore)| item.into_repr_c(substore))
+            .collect();
+
+        RefMutSlice::from_slice(Some(&mut store.0))
+    }
+    unsafe fn try_from_repr_c(
+        source: RefMutSlice<C>,
+        store: &'itm mut Self::FfiStore,
+    ) -> Result<Self> {
+        let slice = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
+
+        *store = core::iter::repeat_with(Default::default)
+            .take(slice.len())
+            .collect();
+
+        let vec: Box<[_]> = slice
+            .iter()
+            .copied()
+            .zip(&mut **store)
+            .map(|(item, substore)| R::try_from_repr_c(item, substore).map(ManuallyDrop::new))
+            .collect::<core::result::Result<_, _>>()?;
+
+        Ok(vec.iter().cloned().map(ManuallyDrop::into_inner).collect())
+    }
+}
+
+impl<R: CWrapperType<S>, S: Cloned> CWrapperType<Box<[S]>> for Box<[R]> {
+    type InputType = Box<[R::InputType]>;
+    type ReturnType = Box<[R::ReturnType]>;
+}
+impl<R: NonLocal<S>, S: Cloned> COutPtr<Box<[S]>> for Box<[R]> {
+    type OutPtr = OutBoxedSlice<R::ReprC>;
+}
+impl<'itm, R: NonLocal<S> + CTypeConvert<'itm, S, R::ReprC> + Clone + 'itm, S: Cloned + 'itm>
+    COutPtrWrite<Box<[S]>> for Box<[R]>
+{
+    unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
+        let mut store = <(_, _)>::default();
+        // NOTE: Bypasses the erroneous lifetime check.
+        // Correct as long as `R::into_repr_c` doesn't return a reference to the store (`R: NonLocal`)
+        let store_borrow = &mut *addr_of_mut!(store);
+        CTypeConvert::<Box<[S]>, _>::into_repr_c(self, store_borrow);
+        out_ptr.write(OutBoxedSlice::from_boxed_slice(Some(store.0)));
+    }
+}
+impl<'itm, R: NonLocal<S> + CTypeConvert<'itm, S, R::ReprC> + Clone + 'itm, S: Cloned + 'itm>
+    COutPtrRead<Box<[S]>> for Box<[R]>
+{
+    unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
+        let slice = RefMutSlice::from_raw_parts_mut(out_ptr.as_mut_ptr(), out_ptr.len());
+
+        let mut store = Box::default();
+        // NOTE: Bypasses the erroneous lifetime check.
+        // Correct as long as `R::try_from_repr_c` doesn't return a reference to the store (`R: NonLocal`)
+        let store_borrow = &mut *addr_of_mut!(store);
+        let res = Self::try_from_repr_c(slice, store_borrow);
+
+        if !out_ptr.deallocate() {
+            return Err(FfiReturn::TrapRepresentation);
+        }
+
+        res
+    }
+}
+
 // NOTE: `CType` cannot be implemented for `&mut [T]`
 impl<R: CType<S>, S: Cloned> CType<&[S]> for &[R] {
-    type ReprC = SliceRef<R::ReprC>;
+    type ReprC = RefSlice<R::ReprC>;
 }
 impl<'slice, R: CTypeConvert<'slice, S, C> + Clone, S: Cloned, C: ReprC>
-    CTypeConvert<'slice, &'slice [S], SliceRef<C>> for &'slice [R]
+    CTypeConvert<'slice, &'slice [S], RefSlice<C>> for &'slice [R]
 {
-    type RustStore = (Vec<C>, Vec<R::RustStore>);
-    type FfiStore = (Vec<R>, Vec<R::FfiStore>);
+    type RustStore = (Box<[C]>, Box<[R::RustStore]>);
+    type FfiStore = (Box<[R]>, Box<[R::FfiStore]>);
 
-    fn into_repr_c(self, store: &'slice mut Self::RustStore) -> SliceRef<C> {
+    fn into_repr_c(self, store: &'slice mut Self::RustStore) -> RefSlice<C> {
         let slice = self.to_vec();
 
         store.1 = core::iter::repeat_with(Default::default)
@@ -320,26 +404,26 @@ impl<'slice, R: CTypeConvert<'slice, S, C> + Clone, S: Cloned, C: ReprC>
 
         store.0 = slice
             .into_iter()
-            .zip(&mut store.1)
+            .zip(&mut *store.1)
             .map(|(item, substore)| item.into_repr_c(substore))
             .collect();
 
-        SliceRef::from_slice(Some(&store.0))
+        RefSlice::from_slice(Some(&store.0))
     }
 
     unsafe fn try_from_repr_c(
-        source: SliceRef<C>,
+        source: RefSlice<C>,
         store: &'slice mut Self::FfiStore,
     ) -> Result<Self> {
         store.1 = core::iter::repeat_with(Default::default)
             .take(source.len())
             .collect();
 
-        let source: Vec<ManuallyDrop<R>> = source
+        let source: Box<[_]> = source
             .into_rust()
             .ok_or(FfiReturn::ArgIsNull)?
             .iter()
-            .zip(&mut store.1)
+            .zip(&mut *store.1)
             .map(|(&item, substore)| R::try_from_repr_c(item, substore).map(ManuallyDrop::new))
             .collect::<core::result::Result<_, _>>()?;
 
@@ -364,21 +448,21 @@ impl<'itm, R: NonLocal<S> + CTypeConvert<'itm, S, R::ReprC> + Clone, S: Cloned>
     COutPtrWrite<&'itm [S]> for &'itm [R]
 {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        let mut store = <(Vec<R::ReprC>, Vec<R::RustStore>)>::default();
+        let mut store = <(_, _)>::default();
         // NOTE: Bypasses the erroneous lifetime check.
         // Correct as long as `R::into_repr_c` doesn't return a reference to the store (`R: NonLocal`)
         let store_borrow = &mut *addr_of_mut!(store);
         CTypeConvert::<&[S], _>::into_repr_c(self, store_borrow);
-        out_ptr.write(OutBoxedSlice::from_vec(Some(store.0)));
+        out_ptr.write(OutBoxedSlice::from_boxed_slice(Some(store.0)));
     }
 }
 impl<'itm, R: NonLocal<S> + CTypeConvert<'itm, S, R::ReprC> + Clone + 'itm, S: Cloned + 'itm>
     COutPtrRead<&'itm [S]> for LocalSlice<'itm, R>
 {
     unsafe fn try_read_out(out_ptr: OutBoxedSlice<R::ReprC>) -> Result<Self> {
-        let slice = SliceRef::from_raw_parts(out_ptr.as_mut_ptr(), out_ptr.len());
+        let slice = RefSlice::from_raw_parts(out_ptr.as_mut_ptr(), out_ptr.len());
 
-        let mut store = <(Vec<R>, Vec<R::FfiStore>)>::default();
+        let mut store = <(_, _)>::default();
         // NOTE: Bypasses the erroneous lifetime check.
         // Correct as long as `R::try_from_repr_c` doesn't return a reference to the store (`R: NonLocal`)
         let store_borrow = &mut *addr_of_mut!(store);
@@ -394,15 +478,15 @@ impl<'itm, R: NonLocal<S> + CTypeConvert<'itm, S, R::ReprC> + Clone + 'itm, S: C
 }
 
 impl<R: CType<S>, S: Cloned> CType<Vec<S>> for Vec<R> {
-    type ReprC = SliceMut<R::ReprC>;
+    type ReprC = RefMutSlice<R::ReprC>;
 }
 impl<'itm, R: CTypeConvert<'itm, S, C> + Clone, S: Cloned, C: ReprC>
-    CTypeConvert<'itm, Vec<S>, SliceMut<C>> for Vec<R>
+    CTypeConvert<'itm, Vec<S>, RefMutSlice<C>> for Vec<R>
 {
-    type RustStore = (Vec<C>, Vec<R::RustStore>);
-    type FfiStore = Vec<R::FfiStore>;
+    type RustStore = (Box<[C]>, Box<[R::RustStore]>);
+    type FfiStore = Box<[R::FfiStore]>;
 
-    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> SliceMut<C> {
+    fn into_repr_c(self, store: &'itm mut Self::RustStore) -> RefMutSlice<C> {
         let vec = self;
 
         store.1 = core::iter::repeat_with(Default::default)
@@ -411,14 +495,14 @@ impl<'itm, R: CTypeConvert<'itm, S, C> + Clone, S: Cloned, C: ReprC>
 
         store.0 = vec
             .into_iter()
-            .zip(&mut store.1)
+            .zip(&mut *store.1)
             .map(|(item, substore)| item.into_repr_c(substore))
             .collect();
 
-        SliceMut::from_slice(Some(&mut store.0))
+        RefMutSlice::from_slice(Some(&mut store.0))
     }
     unsafe fn try_from_repr_c(
-        source: SliceMut<C>,
+        source: RefMutSlice<C>,
         store: &'itm mut Self::FfiStore,
     ) -> Result<Self> {
         let slice = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
@@ -427,18 +511,14 @@ impl<'itm, R: CTypeConvert<'itm, S, C> + Clone, S: Cloned, C: ReprC>
             .take(slice.len())
             .collect();
 
-        let vec: Vec<ManuallyDrop<R>> = slice
+        let vec: Box<[_]> = slice
             .iter()
             .copied()
-            .zip(store)
+            .zip(&mut **store)
             .map(|(item, substore)| R::try_from_repr_c(item, substore).map(ManuallyDrop::new))
             .collect::<core::result::Result<_, _>>()?;
 
-        Ok(vec
-            .iter()
-            .cloned()
-            .map(ManuallyDrop::into_inner)
-            .collect::<Vec<_>>())
+        Ok(vec.iter().cloned().map(ManuallyDrop::into_inner).collect())
     }
 }
 
@@ -453,21 +533,21 @@ impl<'itm, R: NonLocal<S> + CTypeConvert<'itm, S, R::ReprC> + Clone + 'itm, S: C
     COutPtrWrite<Vec<S>> for Vec<R>
 {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        let mut store = <(Vec<R::ReprC>, Vec<R::RustStore>)>::default();
+        let mut store = <(_, _)>::default();
         // NOTE: Bypasses the erroneous lifetime check.
         // Correct as long as `R::into_repr_c` doesn't return a reference to the store (`R: NonLocal`)
         let store_borrow = &mut *addr_of_mut!(store);
         CTypeConvert::<Vec<S>, _>::into_repr_c(self, store_borrow);
-        out_ptr.write(OutBoxedSlice::from_vec(Some(store.0)));
+        out_ptr.write(OutBoxedSlice::from_boxed_slice(Some(store.0)));
     }
 }
 impl<'itm, R: NonLocal<S> + CTypeConvert<'itm, S, R::ReprC> + Clone + 'itm, S: Cloned + 'itm>
     COutPtrRead<Vec<S>> for Vec<R>
 {
     unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
-        let slice = SliceMut::from_raw_parts_mut(out_ptr.as_mut_ptr(), out_ptr.len());
+        let slice = RefMutSlice::from_raw_parts_mut(out_ptr.as_mut_ptr(), out_ptr.len());
 
-        let mut store = Vec::default();
+        let mut store = Box::default();
         // NOTE: Bypasses the erroneous lifetime check.
         // Correct as long as `R::try_from_repr_c` doesn't return a reference to the store (`R: NonLocal`)
         let store_borrow = &mut *addr_of_mut!(store);
@@ -688,18 +768,18 @@ impl<R: ReprC> COutPtrRead<Box<Robust>> for Box<R> {
 }
 
 impl<R: ReprC> CType<Box<[Robust]>> for Box<[R]> {
-    type ReprC = SliceMut<R>;
+    type ReprC = RefMutSlice<R>;
 }
-impl<R: ReprC> CTypeConvert<'_, Box<[Robust]>, SliceMut<R>> for Box<[R]> {
+impl<R: ReprC> CTypeConvert<'_, Box<[Robust]>, RefMutSlice<R>> for Box<[R]> {
     type RustStore = Self;
     type FfiStore = ();
 
-    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<R> {
+    fn into_repr_c(self, store: &mut Self::RustStore) -> RefMutSlice<R> {
         *store = self;
-        SliceMut::from_slice(Some(store.as_mut()))
+        RefMutSlice::from_slice(Some(store))
     }
 
-    unsafe fn try_from_repr_c(source: SliceMut<R>, (): &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: RefMutSlice<R>, (): &mut ()) -> Result<Self> {
         source
             .into_rust()
             .ok_or(FfiReturn::ArgIsNull)
@@ -723,7 +803,7 @@ impl<R: ReprC> COutPtrWrite<Box<[Robust]>> for Box<[R]> {
 }
 impl<R: ReprC> COutPtrRead<Box<[Robust]>> for Box<[R]> {
     unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
-        let slice = SliceMut::from_raw_parts_mut(out_ptr.as_mut_ptr(), out_ptr.len());
+        let slice = RefMutSlice::from_raw_parts_mut(out_ptr.as_mut_ptr(), out_ptr.len());
         let res = CTypeConvert::<Box<[Robust]>, _>::try_from_repr_c(slice, &mut ());
 
         if !out_ptr.deallocate() {
@@ -735,17 +815,17 @@ impl<R: ReprC> COutPtrRead<Box<[Robust]>> for Box<[R]> {
 }
 
 impl<R: ReprC> CType<&[Robust]> for &[R] {
-    type ReprC = SliceRef<R>;
+    type ReprC = RefSlice<R>;
 }
-impl<R: ReprC> CTypeConvert<'_, &[Robust], SliceRef<R>> for &[R] {
+impl<R: ReprC> CTypeConvert<'_, &[Robust], RefSlice<R>> for &[R] {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, (): &mut ()) -> SliceRef<R> {
-        SliceRef::from_slice(Some(self))
+    fn into_repr_c(self, (): &mut ()) -> RefSlice<R> {
+        RefSlice::from_slice(Some(self))
     }
 
-    unsafe fn try_from_repr_c(source: SliceRef<R>, (): &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: RefSlice<R>, (): &mut ()) -> Result<Self> {
         source.into_rust().ok_or(FfiReturn::ArgIsNull)
     }
 }
@@ -773,17 +853,17 @@ impl<R: ReprC> CWrapperType<&mut [Robust]> for &mut [R] {
     type ReturnType = Self;
 }
 impl<R: ReprC> CType<&mut [Robust]> for &mut [R] {
-    type ReprC = SliceMut<R>;
+    type ReprC = RefMutSlice<R>;
 }
-impl<R: ReprC> CTypeConvert<'_, &mut [Robust], SliceMut<R>> for &mut [R] {
+impl<R: ReprC> CTypeConvert<'_, &mut [Robust], RefMutSlice<R>> for &mut [R] {
     type RustStore = ();
     type FfiStore = ();
 
-    fn into_repr_c(self, (): &mut ()) -> SliceMut<R> {
-        SliceMut::from_slice(Some(self))
+    fn into_repr_c(self, (): &mut ()) -> RefMutSlice<R> {
+        RefMutSlice::from_slice(Some(self))
     }
 
-    unsafe fn try_from_repr_c(source: SliceMut<R>, (): &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: RefMutSlice<R>, (): &mut ()) -> Result<Self> {
         source.into_rust().ok_or(FfiReturn::ArgIsNull)
     }
 }
@@ -803,18 +883,18 @@ impl<R: ReprC> COutPtrRead<&mut [Robust]> for &mut [R] {
 }
 
 impl<R: ReprC> CType<Vec<Robust>> for Vec<R> {
-    type ReprC = SliceMut<R>;
+    type ReprC = RefMutSlice<R>;
 }
-impl<R: ReprC> CTypeConvert<'_, Vec<Robust>, SliceMut<R>> for Vec<R> {
-    type RustStore = Self;
+impl<R: ReprC> CTypeConvert<'_, Vec<Robust>, RefMutSlice<R>> for Vec<R> {
+    type RustStore = Box<[R]>;
     type FfiStore = ();
 
-    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<R> {
-        *store = self;
-        SliceMut::from_slice(Some(store))
+    fn into_repr_c(self, store: &mut Self::RustStore) -> RefMutSlice<R> {
+        *store = self.into_boxed_slice();
+        RefMutSlice::from_slice(Some(store))
     }
 
-    unsafe fn try_from_repr_c(source: SliceMut<R>, (): &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: RefMutSlice<R>, (): &mut ()) -> Result<Self> {
         source
             .into_rust()
             .ok_or(FfiReturn::ArgIsNull)
@@ -831,14 +911,14 @@ impl<R: ReprC> COutPtr<Vec<Robust>> for Vec<R> {
 }
 impl<R: ReprC> COutPtrWrite<Vec<Robust>> for Vec<R> {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        let mut store = Vec::default();
+        let mut store = Box::default();
         CTypeConvert::<Vec<Robust>, _>::into_repr_c(self, &mut store);
-        out_ptr.write(OutBoxedSlice::from_vec(Some(store)));
+        out_ptr.write(OutBoxedSlice::from_boxed_slice(Some(store)));
     }
 }
 impl<R: ReprC> COutPtrRead<Vec<Robust>> for Vec<R> {
     unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
-        let slice = SliceMut::from_raw_parts_mut(out_ptr.as_mut_ptr(), out_ptr.len());
+        let slice = RefMutSlice::from_raw_parts_mut(out_ptr.as_mut_ptr(), out_ptr.len());
         let res = CTypeConvert::<Vec<Robust>, _>::try_from_repr_c(slice, &mut ());
 
         if !out_ptr.deallocate() {
@@ -916,23 +996,23 @@ impl<R> COutPtrWrite<Box<Opaque>> for Box<R> {
 }
 
 impl<R> CType<Box<[Opaque]>> for Box<[R]> {
-    type ReprC = SliceMut<*mut R>;
+    type ReprC = RefMutSlice<*mut R>;
 }
-impl<R> CTypeConvert<'_, Box<[Opaque]>, SliceMut<*mut R>> for Box<[R]> {
+impl<R> CTypeConvert<'_, Box<[Opaque]>, RefMutSlice<*mut R>> for Box<[R]> {
     type RustStore = Box<[*mut R]>;
     type FfiStore = ();
 
-    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<*mut R> {
+    fn into_repr_c(self, store: &mut Self::RustStore) -> RefMutSlice<*mut R> {
         *store = Vec::from(self)
             .into_iter()
-            .map(|a: R| Box::new(a))
+            .map(Box::new)
             .map(Box::into_raw)
             .collect();
 
-        SliceMut::from_slice(Some(store))
+        RefMutSlice::from_slice(Some(store))
     }
 
-    unsafe fn try_from_repr_c(source: SliceMut<*mut R>, (): &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: RefMutSlice<*mut R>, (): &mut ()) -> Result<Self> {
         source
             .into_rust()
             .ok_or(FfiReturn::ArgIsNull)?
@@ -960,21 +1040,21 @@ impl<R> COutPtrWrite<Box<[Opaque]>> for Box<[R]> {
 }
 
 impl<R> CType<&[Opaque]> for &[R] {
-    type ReprC = SliceRef<*const R>;
+    type ReprC = RefSlice<*const R>;
 }
-impl<'slice, R: Clone> CTypeConvert<'slice, &'slice [Opaque], SliceRef<*const R>>
+impl<'slice, R: Clone> CTypeConvert<'slice, &'slice [Opaque], RefSlice<*const R>>
     for &'slice [R]
 {
-    type RustStore = Vec<*const R>;
-    type FfiStore = Vec<R>;
+    type RustStore = Box<[*const R]>;
+    type FfiStore = Box<[R]>;
 
-    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceRef<*const R> {
+    fn into_repr_c(self, store: &mut Self::RustStore) -> RefSlice<*const R> {
         *store = self.iter().map(|item| item as *const R).collect();
-        SliceRef::from_slice(Some(store))
+        RefSlice::from_slice(Some(store))
     }
 
     unsafe fn try_from_repr_c(
-        source: SliceRef<*const R>,
+        source: RefSlice<*const R>,
         store: &'slice mut Self::FfiStore,
     ) -> Result<Self> {
         let source = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
@@ -1000,27 +1080,29 @@ impl<R> COutPtr<&[Opaque]> for &[R] {
 }
 impl<R: Clone> COutPtrWrite<&[Opaque]> for &[R] {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        let mut store = Vec::default();
+        let mut store = Box::default();
         CTypeConvert::<&[Opaque], _>::into_repr_c(self, &mut store);
-        out_ptr.write(OutBoxedSlice::from_vec(Some(store)));
+        out_ptr.write(OutBoxedSlice::from_boxed_slice(Some(store)));
     }
 }
 
 impl<R> CType<&mut [Opaque]> for &mut [R] {
-    type ReprC = SliceMut<*mut R>;
+    type ReprC = RefMutSlice<*mut R>;
 }
-impl<'slice, R: Clone> CTypeConvert<'slice, &mut [Opaque], SliceMut<*mut R>> for &'slice mut [R] {
-    type RustStore = Vec<*mut R>;
-    type FfiStore = Vec<R>;
+impl<'slice, R: Clone> CTypeConvert<'slice, &mut [Opaque], RefMutSlice<*mut R>>
+    for &'slice mut [R]
+{
+    type RustStore = Box<[*mut R]>;
+    type FfiStore = Box<[R]>;
 
-    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<*mut R> {
+    fn into_repr_c(self, store: &mut Self::RustStore) -> RefMutSlice<*mut R> {
         *store = self.iter_mut().map(|item| item as *mut R).collect();
 
-        SliceMut::from_slice(Some(store))
+        RefMutSlice::from_slice(Some(store))
     }
 
     unsafe fn try_from_repr_c(
-        source: SliceMut<*mut R>,
+        source: RefMutSlice<*mut R>,
         store: &'slice mut Self::FfiStore,
     ) -> Result<Self> {
         let source = source.into_rust().ok_or(FfiReturn::ArgIsNull)?;
@@ -1046,25 +1128,25 @@ impl<R> COutPtr<&mut [Opaque]> for &mut [R] {
 }
 impl<R: Clone> COutPtrWrite<&mut [Opaque]> for &mut [R] {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        let mut store = Vec::default();
+        let mut store = Box::default();
         CTypeConvert::<&mut [Opaque], _>::into_repr_c(self, &mut store);
-        out_ptr.write(OutBoxedSlice::from_vec(Some(store)));
+        out_ptr.write(OutBoxedSlice::from_boxed_slice(Some(store)));
     }
 }
 
 impl<R> CType<Vec<Opaque>> for Vec<R> {
-    type ReprC = SliceMut<*mut R>;
+    type ReprC = RefMutSlice<*mut R>;
 }
-impl<R> CTypeConvert<'_, Vec<Opaque>, SliceMut<*mut R>> for Vec<R> {
-    type RustStore = Vec<*mut R>;
+impl<R> CTypeConvert<'_, Vec<Opaque>, RefMutSlice<*mut R>> for Vec<R> {
+    type RustStore = Box<[*mut R]>;
     type FfiStore = ();
 
-    fn into_repr_c(self, store: &mut Self::RustStore) -> SliceMut<*mut R> {
+    fn into_repr_c(self, store: &mut Self::RustStore) -> RefMutSlice<*mut R> {
         *store = self.into_iter().map(Box::new).map(Box::into_raw).collect();
-        SliceMut::from_slice(Some(store))
+        RefMutSlice::from_slice(Some(store))
     }
 
-    unsafe fn try_from_repr_c(source: SliceMut<*mut R>, (): &mut ()) -> Result<Self> {
+    unsafe fn try_from_repr_c(source: RefMutSlice<*mut R>, (): &mut ()) -> Result<Self> {
         source
             .into_rust()
             .ok_or(FfiReturn::ArgIsNull)?
@@ -1085,9 +1167,9 @@ impl<R> COutPtr<Vec<Opaque>> for Vec<R> {
 }
 impl<R> COutPtrWrite<Vec<Opaque>> for Vec<R> {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        let mut store = Vec::default();
+        let mut store = Box::default();
         CTypeConvert::<Vec<Opaque>, _>::into_repr_c(self, &mut store);
-        out_ptr.write(OutBoxedSlice::from_vec(Some(store)));
+        out_ptr.write(OutBoxedSlice::from_boxed_slice(Some(store)));
     }
 }
 
@@ -1440,12 +1522,12 @@ where
     type FfiStore = <&'slice [R::Target] as FfiConvert<'slice, C>>::FfiStore;
 
     fn into_repr_c(self, store: &'slice mut Self::RustStore) -> C {
-        transmute_into_target_slice_ref(self).into_ffi(store)
+        transmute_into_target_ref_slice(self).into_ffi(store)
     }
 
     unsafe fn try_from_repr_c(source: C, store: &'slice mut Self::FfiStore) -> Result<Self> {
         let slice = <&[R::Target]>::try_from_ffi(source, store)?;
-        transmute_from_target_slice_ref(slice)
+        transmute_from_target_ref_slice(slice)
     }
 }
 
@@ -1471,7 +1553,7 @@ where
     &'slice [R::Target]: FfiOutPtrWrite,
 {
     unsafe fn write_out(self, out_ptr: *mut Self::OutPtr) {
-        FfiOutPtrWrite::write_out(transmute_into_target_slice_ref(self), out_ptr);
+        FfiOutPtrWrite::write_out(transmute_into_target_ref_slice(self), out_ptr);
     }
 }
 impl<'itm, R: Transmute> COutPtrRead<&'itm [Transparent]> for &'itm [R]
@@ -1480,7 +1562,7 @@ where
 {
     unsafe fn try_read_out(out_ptr: Self::OutPtr) -> Result<Self> {
         <&[R::Target]>::try_read_out(out_ptr)
-            .and_then(|output| transmute_from_target_slice_ref(output))
+            .and_then(|output| transmute_from_target_ref_slice(output))
     }
 }
 
@@ -1687,12 +1769,12 @@ unsafe fn transmute_from_target_boxed_slice<R: Transmute>(
     )))
 }
 
-fn transmute_into_target_slice_ref<R: Transmute>(source: &[R]) -> &[R::Target] {
+fn transmute_into_target_ref_slice<R: Transmute>(source: &[R]) -> &[R::Target] {
     let (ptr, len) = (source.as_ptr().cast::<R::Target>(), source.len());
     // SAFETY: `R` is guaranteed to be transmutable into `R::Target`
     unsafe { core::slice::from_raw_parts(ptr, len) }
 }
-unsafe fn transmute_from_target_slice_ref<R: Transmute>(source: &[R::Target]) -> Result<&[R]> {
+unsafe fn transmute_from_target_ref_slice<R: Transmute>(source: &[R::Target]) -> Result<&[R]> {
     if !source.iter().all(|item| R::is_valid(item)) {
         return Err(FfiReturn::TrapRepresentation);
     }
