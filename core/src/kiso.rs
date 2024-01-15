@@ -147,7 +147,6 @@ impl Actor {
 }
 
 #[cfg(test)]
-#[allow(unused)]
 mod tests {
     use std::time::Duration;
 

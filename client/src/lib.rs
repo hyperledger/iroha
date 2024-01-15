@@ -12,12 +12,14 @@ pub mod samples {
     use crate::{
         config::{torii::DEFAULT_API_ADDR, Configuration, ConfigurationProxy},
         crypto::KeyPair,
+        data_model::ChainId,
     };
 
     /// Get sample client configuration.
-    pub fn get_client_config(key_pair: &KeyPair) -> Configuration {
+    pub fn get_client_config(chain_id: ChainId, key_pair: &KeyPair) -> Configuration {
         let (public_key, private_key) = key_pair.clone().into();
         ConfigurationProxy {
+            chain_id: Some(chain_id),
             public_key: Some(public_key),
             private_key: Some(private_key),
             account_id: Some(

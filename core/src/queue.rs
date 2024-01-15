@@ -185,7 +185,6 @@ impl Queue {
     ///
     /// # Errors
     /// See [`enum@Error`]
-    #[allow(clippy::missing_panics_doc)] // NOTE: It's a system invariant, should never happen
     pub fn push(&self, tx: AcceptedTransaction, wsv: &WorldStateView) -> Result<(), Failure> {
         trace!(?tx, "Pushing to the queue");
         if let Err(err) = self.check_tx(&tx, wsv) {
@@ -250,9 +249,8 @@ impl Queue {
         expired_transactions: &mut Vec<AcceptedTransaction>,
     ) -> Option<AcceptedTransaction> {
         loop {
-            let Some(hash) = self.tx_hashes.pop() else {
-                return None;
-            };
+            let hash = self.tx_hashes.pop()?;
+
             let entry = match self.accepted_txs.entry(hash) {
                 Entry::Occupied(entry) => entry,
                 // FIXME: Reachable under high load. Investigate, see if it's a problem.
@@ -394,19 +392,24 @@ mod tests {
     };
 
     fn accepted_tx(account_id: &str, key: KeyPair) -> AcceptedTransaction {
+        let chain_id = ChainId::new("0");
+
         let message = std::iter::repeat_with(rand::random::<char>)
             .take(16)
             .collect();
         let instructions = [Fail { message }];
-        let tx = TransactionBuilder::new(AccountId::from_str(account_id).expect("Valid"))
-            .with_instructions(instructions)
-            .sign(key)
-            .expect("Failed to sign.");
+        let tx = TransactionBuilder::new(
+            chain_id.clone(),
+            AccountId::from_str(account_id).expect("Valid"),
+        )
+        .with_instructions(instructions)
+        .sign(key)
+        .expect("Failed to sign.");
         let limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        AcceptedTransaction::accept(tx, &limits).expect("Failed to accept Transaction.")
+        AcceptedTransaction::accept(tx, &chain_id, &limits).expect("Failed to accept Transaction.")
     }
 
     pub fn world_with_test_domains(
@@ -483,6 +486,8 @@ mod tests {
 
     #[test]
     async fn push_multisignature_tx() {
+        let chain_id = ChainId::new("0");
+
         let max_txs_in_block = 2;
         let key_pairs = [KeyPair::generate().unwrap(), KeyPair::generate().unwrap()];
         let kura = Kura::blank_kura_for_testing();
@@ -513,8 +518,9 @@ mod tests {
                 .expect("Default queue config should always build")
         });
         let instructions: [InstructionBox; 0] = [];
-        let tx = TransactionBuilder::new("alice@wonderland".parse().expect("Valid"))
-            .with_instructions(instructions);
+        let tx =
+            TransactionBuilder::new(chain_id.clone(), "alice@wonderland".parse().expect("Valid"))
+                .with_instructions(instructions);
         let tx_limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
@@ -527,7 +533,7 @@ mod tests {
             for key_pair in &key_pairs[1..] {
                 signed_tx = signed_tx.sign(key_pair.clone()).expect("Failed to sign");
             }
-            AcceptedTransaction::accept(signed_tx, &tx_limits)
+            AcceptedTransaction::accept(signed_tx, &chain_id, &tx_limits)
                 .expect("Failed to accept Transaction.")
         };
         // Check that fully signed transaction pass signature check
@@ -539,6 +545,7 @@ mod tests {
         let get_tx = |key_pair| {
             AcceptedTransaction::accept(
                 tx.clone().sign(key_pair).expect("Failed to sign."),
+                &chain_id,
                 &tx_limits,
             )
             .expect("Failed to accept Transaction.")
@@ -744,6 +751,8 @@ mod tests {
 
     #[test]
     async fn custom_expired_transaction_is_rejected() {
+        let chain_id = ChainId::new("0");
+
         let max_txs_in_block = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
@@ -763,16 +772,19 @@ mod tests {
         let instructions = [Fail {
             message: "expired".to_owned(),
         }];
-        let mut tx =
-            TransactionBuilder::new(AccountId::from_str("alice@wonderland").expect("Valid"))
-                .with_instructions(instructions);
+        let mut tx = TransactionBuilder::new(
+            chain_id.clone(),
+            AccountId::from_str("alice@wonderland").expect("Valid"),
+        )
+        .with_instructions(instructions);
         tx.set_ttl(Duration::from_millis(10));
         let tx = tx.sign(alice_key).expect("Failed to sign.");
         let limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
         };
-        let tx = AcceptedTransaction::accept(tx, &limits).expect("Failed to accept Transaction.");
+        let tx = AcceptedTransaction::accept(tx, &chain_id, &limits)
+            .expect("Failed to accept Transaction.");
         queue
             .push(tx.clone(), &wsv)
             .expect("Failed to push tx into queue");
@@ -862,6 +874,7 @@ mod tests {
     async fn push_tx_in_future() {
         let future_threshold_ms = 1000;
 
+        let alice_id = "alice@wonderland";
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
@@ -878,10 +891,27 @@ mod tests {
                 .expect("Default queue config should always build")
         });
 
-        let mut tx = accepted_tx("alice@wonderland", alice_key);
+        let tx = accepted_tx(alice_id, alice_key.clone());
         assert!(queue.push(tx.clone(), &wsv).is_ok());
-        // tamper timestamp
-        tx.0.payload_mut().creation_time_ms += 2 * future_threshold_ms;
+        // create the same tx but with timestamp in the future
+        let tx = {
+            let chain_id = ChainId::new("0");
+            let mut new_tx = TransactionBuilder::new(
+                chain_id.clone(),
+                AccountId::from_str(alice_id).expect("Valid"),
+            )
+            .with_executable(tx.0.payload().instructions.clone());
+
+            new_tx.set_creation_time(tx.0.payload().creation_time_ms + 2 * future_threshold_ms);
+
+            let new_tx = new_tx.sign(alice_key).expect("Failed to sign.");
+            let limits = TransactionLimits {
+                max_instruction_number: 4096,
+                max_wasm_size_bytes: 0,
+            };
+            AcceptedTransaction::accept(new_tx, &chain_id, &limits)
+                .expect("Failed to accept Transaction.")
+        };
         assert!(matches!(
             queue.push(tx, &wsv),
             Err(Failure {

@@ -218,7 +218,7 @@ pub mod message {
                         .take(1 + block_sync.block_batch_size as usize)
                         .map_while(|height| block_sync.kura.get_block_by_height(height))
                         .skip_while(|block| Some(block.hash()) == *latest_hash)
-                        .map(|block| SignedBlock::clone(&block))
+                        .map(|block| (*block).clone())
                         .collect::<Vec<_>>();
 
                     if blocks.is_empty() {

@@ -76,13 +76,14 @@ fn fetch_size() -> impl warp::Filter<Extract = (FetchSize,), Error = warp::Rejec
 
 #[iroha_futures::telemetry_future]
 pub async fn handle_transaction(
+    chain_id: Arc<ChainId>,
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
     transaction: SignedTransaction,
 ) -> Result<Empty> {
     let wsv = sumeragi.wsv_clone();
     let transaction_limits = wsv.config.transaction_limits;
-    let transaction = AcceptedTransaction::accept(transaction, &transaction_limits)
+    let transaction = AcceptedTransaction::accept(transaction, &chain_id, &transaction_limits)
         .map_err(Error::AcceptTransaction)?;
     queue
         .push(transaction, &wsv)

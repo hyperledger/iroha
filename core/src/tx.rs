@@ -11,6 +11,7 @@ use eyre::Result;
 use iroha_crypto::{HashOf, SignatureVerificationFail, SignaturesOf};
 pub use iroha_data_model::prelude::*;
 use iroha_data_model::{
+    isi::error::Mismatch,
     query::error::FindError,
     transaction::{error::TransactionLimitError, TransactionLimits},
 };
@@ -34,12 +35,30 @@ pub enum AcceptTransactionFail {
     SignatureVerification(#[source] SignatureVerificationFail<TransactionPayload>),
     /// The genesis account can only sign transactions in the genesis block
     UnexpectedGenesisAccountSignature,
+    /// Transaction's `chain_id` doesn't correspond to the id of current blockchain
+    ChainIdMismatch(Mismatch<ChainId>),
 }
 
 impl AcceptedTransaction {
     /// Accept genesis transaction. Transition from [`GenesisTransaction`] to [`AcceptedTransaction`].
-    pub fn accept_genesis(tx: GenesisTransaction) -> Self {
-        Self(tx.0)
+    ///
+    /// # Errors
+    ///
+    /// - if transaction chain id doesn't match
+    pub fn accept_genesis(
+        tx: GenesisTransaction,
+        expected_chain_id: &ChainId,
+    ) -> Result<Self, AcceptTransactionFail> {
+        let actual_chain_id = &tx.0.payload().chain_id;
+
+        if expected_chain_id != actual_chain_id {
+            return Err(AcceptTransactionFail::ChainIdMismatch(Mismatch {
+                expected: expected_chain_id.clone(),
+                actual: actual_chain_id.clone(),
+            }));
+        }
+
+        Ok(Self(tx.0))
     }
 
     /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
@@ -48,19 +67,27 @@ impl AcceptedTransaction {
     ///
     /// - if it does not adhere to limits
     pub fn accept(
-        transaction: SignedTransaction,
+        tx: SignedTransaction,
+        expected_chain_id: &ChainId,
         limits: &TransactionLimits,
     ) -> Result<Self, AcceptTransactionFail> {
-        if *iroha_genesis::GENESIS_ACCOUNT_ID == transaction.payload().authority {
+        let actual_chain_id = &tx.payload().chain_id;
+
+        if expected_chain_id != actual_chain_id {
+            return Err(AcceptTransactionFail::ChainIdMismatch(Mismatch {
+                expected: expected_chain_id.clone(),
+                actual: actual_chain_id.clone(),
+            }));
+        }
+
+        if *iroha_genesis::GENESIS_ACCOUNT_ID == tx.payload().authority {
             return Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature);
         }
 
-        match &transaction.payload().instructions {
+        match &tx.payload().instructions {
             Executable::Instructions(instructions) => {
                 let instruction_count = instructions.len();
-                if u64::try_from(instruction_count).expect("`usize` should always fit into `u64`")
-                    > limits.max_instruction_number
-                {
+                if Self::len_u64(instruction_count) > limits.max_instruction_number {
                     return Err(AcceptTransactionFail::TransactionLimit(
                         TransactionLimitError {
                             reason: format!(
@@ -76,12 +103,8 @@ impl AcceptedTransaction {
             //
             // Should we allow infinite instructions in wasm? And deny only based on fuel and size
             Executable::Wasm(smart_contract) => {
+                let size_bytes = Self::len_u64(smart_contract.size_bytes());
                 let max_wasm_size_bytes = limits.max_wasm_size_bytes;
-
-                let size_bytes: u64 = smart_contract
-                    .size_bytes()
-                    .try_into()
-                    .expect("`u64` should always fit in `u64`");
 
                 if size_bytes > max_wasm_size_bytes {
                     return Err(AcceptTransactionFail::TransactionLimit(
@@ -93,7 +116,7 @@ impl AcceptedTransaction {
             }
         }
 
-        Ok(Self(transaction))
+        Ok(Self(tx))
     }
 
     /// Transaction hash
@@ -112,6 +135,10 @@ impl AcceptedTransaction {
 
     pub(crate) fn merge_signatures(&mut self, other: Self) -> bool {
         self.0.merge_signatures(other.0)
+    }
+
+    fn len_u64(instruction_count: usize) -> u64 {
+        u64::try_from(instruction_count).expect("`usize` should always fit into `u64`")
     }
 }
 

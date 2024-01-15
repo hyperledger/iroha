@@ -116,7 +116,7 @@ struct IntoSchemaVariant {
 impl FromVariant for IntoSchemaVariant {
     fn from_variant(variant: &syn2::Variant) -> darling::Result<Self> {
         let ident = variant.ident.clone();
-        let discriminant = variant.discriminant.as_ref().map(|(_, expr)| expr.clone());
+        let discriminant = variant.discriminant.clone().map(|(_, expr)| expr);
         let fields = IntoSchemaFields::try_from(&variant.fields)?;
         let codec_attrs = CodecAttributes::from_attributes(&variant.attrs)?;
 

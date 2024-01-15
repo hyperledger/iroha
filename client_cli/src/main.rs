@@ -69,7 +69,7 @@ impl FromStr for ValueArg {
             .or_else(|_| s.parse::<Ipv6Addr>().map(Value::Ipv6Addr))
             .or_else(|_| s.parse::<NumericValue>().map(Value::Numeric))
             .or_else(|_| s.parse::<PublicKey>().map(Value::PublicKey))
-            .or_else(|_| serde_json::from_str::<Value>(s).map_err(|e| e.into()))
+            .or_else(|_| serde_json::from_str::<Value>(s).map_err(Into::into))
             .map(ValueArg)
     }
 }
@@ -393,11 +393,14 @@ mod domain {
         List(List),
         /// Transfer domain
         Transfer(Transfer),
+        /// Edit domain metadata
+        #[clap(subcommand)]
+        Metadata(metadata::Args),
     }
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            match_all!((self, context), { Args::Register, Args::List, Args::Transfer })
+            match_all!((self, context), { Args::Register, Args::List, Args::Transfer, Args::Metadata,  })
         }
     }
 
@@ -474,6 +477,74 @@ mod domain {
             let transfer_domain = iroha_client::data_model::isi::Transfer::domain(from, id, to);
             submit([transfer_domain], metadata.load()?, context)
                 .wrap_err("Failed to transfer domain")
+        }
+    }
+
+    mod metadata {
+        use iroha_client::data_model::domain::DomainId;
+
+        use super::*;
+
+        /// Edit domain subcommands
+        #[derive(Debug, Clone, clap::Subcommand)]
+        pub enum Args {
+            /// Set domain metadata
+            Set(Set),
+            /// Remove domain metadata
+            Remove(Remove),
+        }
+
+        impl RunArgs for Args {
+            fn run(self, context: &mut dyn RunContext) -> Result<()> {
+                match_all!((self, context), { Args::Set, Args::Remove, })
+            }
+        }
+
+        /// Set metadata into domain
+        #[derive(Debug, Clone, clap::Args)]
+        pub struct Set {
+            /// A domain id from which metadata is to be removed
+            #[arg(short, long)]
+            id: DomainId,
+            /// A key of metadata
+            #[arg(short, long)]
+            key: Name,
+            /// A value of metadata
+            #[arg(short, long)]
+            value: ValueArg,
+        }
+
+        impl RunArgs for Set {
+            fn run(self, context: &mut dyn RunContext) -> Result<()> {
+                let Self {
+                    id,
+                    key,
+                    value: ValueArg(value),
+                } = self;
+                let set_key_value = SetKeyValue::domain(id, key, value);
+                submit([set_key_value], UnlimitedMetadata::new(), context)
+                    .wrap_err("Failed to submit Set instruction")
+            }
+        }
+
+        /// Remove metadata into domain by key
+        #[derive(Debug, Clone, clap::Args)]
+        pub struct Remove {
+            /// A domain id from which metadata is to be removed
+            #[arg(short, long)]
+            id: DomainId,
+            /// A key of metadata
+            #[arg(short, long)]
+            key: Name,
+        }
+
+        impl RunArgs for Remove {
+            fn run(self, context: &mut dyn RunContext) -> Result<()> {
+                let Self { id, key } = self;
+                let remove_key_value = RemoveKeyValue::domain(id, key);
+                submit([remove_key_value], UnlimitedMetadata::new(), context)
+                    .wrap_err("Failed to submit Remove instruction")
+            }
         }
     }
 }

@@ -12,7 +12,6 @@ use iroha_config::iroha::Configuration;
 use test_network::*;
 
 // Needed to re-enable ignored tests.
-#[allow(dead_code)]
 const PEER_COUNT: usize = 7;
 
 #[ignore = "ignore, more in #2851"]
@@ -33,7 +32,6 @@ fn transaction_with_fail_instruction_should_be_rejected() -> Result<()> {
     )
 }
 
-#[allow(dead_code, clippy::needless_range_loop, clippy::needless_pass_by_value)]
 fn test_with_instruction_and_status_and_port(
     instruction: Option<InstructionBox>,
     should_be: PipelineStatusKind,

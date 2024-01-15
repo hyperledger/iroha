@@ -12,7 +12,7 @@ use iroha_client::{
 use iroha_genesis::{GenesisNetwork, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use iroha_version::Encode;
-use test_network::{get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
+use test_network::{get_chain_id, get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
 use tokio::runtime::Runtime;
 
 const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
@@ -30,7 +30,13 @@ fn get_genesis_key_pair(config: &iroha_config::iroha::Configuration) -> KeyPair 
 
 fn query_requests(criterion: &mut Criterion) {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
-    let configuration = get_config(unique_vec![peer.id.clone()], Some(get_key_pair()));
+
+    let chain_id = get_chain_id();
+    let configuration = get_config(
+        unique_vec![peer.id.clone()],
+        Some(chain_id.clone()),
+        Some(get_key_pair()),
+    );
 
     let rt = Runtime::test();
     let genesis = GenesisNetwork::new(
@@ -45,6 +51,7 @@ fn query_requests(criterion: &mut Criterion) {
                 construct_executor("../default_executor").expect("Failed to construct executor"),
             )
             .build(),
+        &chain_id,
         &get_genesis_key_pair(&configuration),
     )
     .expect("genesis creation failed");
@@ -76,7 +83,8 @@ fn query_requests(criterion: &mut Criterion) {
         quantity,
         AssetId::new(asset_definition_id, account_id.clone()),
     );
-    let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
+    let mut client_config =
+        iroha_client::samples::get_client_config(get_chain_id(), &get_key_pair());
 
     client_config.torii_api_url = format!("http://{}", peer.api_address).parse().unwrap();
 
@@ -130,7 +138,13 @@ fn instruction_submits(criterion: &mut Criterion) {
     println!("instruction submits");
     let rt = Runtime::test();
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
-    let configuration = get_config(unique_vec![peer.id.clone()], Some(get_key_pair()));
+
+    let chain_id = get_chain_id();
+    let configuration = get_config(
+        unique_vec![peer.id.clone()],
+        Some(chain_id.clone()),
+        Some(get_key_pair()),
+    );
     let genesis = GenesisNetwork::new(
         RawGenesisBlockBuilder::default()
             .domain("wonderland".parse().expect("Valid"))
@@ -143,6 +157,7 @@ fn instruction_submits(criterion: &mut Criterion) {
                 construct_executor("../default_executor").expect("Failed to construct executor"),
             )
             .build(),
+        &chain_id,
         &get_genesis_key_pair(&configuration),
     )
     .expect("failed to create genesis");
@@ -159,7 +174,8 @@ fn instruction_submits(criterion: &mut Criterion) {
         .into();
     let create_account = Register::account(Account::new(account_id.clone(), [public_key])).into();
     let asset_definition_id = AssetDefinitionId::new("xor".parse().expect("Valid"), domain_id);
-    let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
+    let mut client_config =
+        iroha_client::samples::get_client_config(get_chain_id(), &get_key_pair());
     client_config.torii_api_url = format!("http://{}", peer.api_address).parse().unwrap();
     let iroha_client = Client::new(&client_config).expect("Invalid client configuration");
     thread::sleep(std::time::Duration::from_millis(5000));

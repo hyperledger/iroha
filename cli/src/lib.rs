@@ -103,6 +103,7 @@ impl NetworkRelay {
     async fn run(mut self) {
         let (sender, mut receiver) = mpsc::channel(1);
         self.network.subscribe_to_peers_messages(sender);
+        // NOTE: Triggered by tokio::select
         #[allow(clippy::redundant_pub_crate)]
         loop {
             tokio::select! {
@@ -251,6 +252,7 @@ impl Iroha {
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
         let sumeragi = SumeragiHandle::start(SumeragiStartArgs {
+            chain_id: config.chain_id.clone(),
             configuration: &config.sumeragi,
             events_sender: events_sender.clone(),
             wsv,
@@ -271,6 +273,7 @@ impl Iroha {
         .start();
 
         let gossiper = TransactionGossiper::from_configuration(
+            config.chain_id.clone(),
             &config.sumeragi,
             network.clone(),
             Arc::clone(&queue),
@@ -300,6 +303,7 @@ impl Iroha {
         let kiso = KisoHandle::new(config.clone());
 
         let torii = Torii::new(
+            config.chain_id,
             kiso.clone(),
             &config.torii,
             Arc::clone(&queue),
@@ -406,7 +410,6 @@ impl Iroha {
         Ok(TelemetryStartStatus::NotStarted)
     }
 
-    #[allow(clippy::redundant_pub_crate)]
     fn start_listening_signal(notify_shutdown: Arc<Notify>) -> Result<task::JoinHandle<()>> {
         let (mut sigint, mut sigterm) = signal::unix::signal(signal::unix::SignalKind::interrupt())
             .and_then(|sigint| {
@@ -416,6 +419,8 @@ impl Iroha {
             })
             .wrap_err("Failed to start listening for OS signals")?;
 
+        // NOTE: Triggered by tokio::select
+        #[allow(clippy::redundant_pub_crate)]
         let handle = task::spawn(async move {
             tokio::select! {
                 _ = sigint.recv() => {
@@ -447,6 +452,8 @@ impl Iroha {
                 // FIXME: don't like neither the message nor inability to throw Result to the outside
                 .expect("Cannot proceed without working subscriptions");
 
+            // NOTE: Triggered by tokio::select
+            #[allow(clippy::redundant_pub_crate)]
             loop {
                 tokio::select! {
                     Ok(()) = log_level_update.changed() => {
@@ -528,7 +535,7 @@ pub fn read_config(
         let mut cfg = config.override_with(ConfigurationProxy::from_path(&*actual_config_path));
         let config_dir = actual_config_path
             .parent()
-            .expect("If config file was read, than it should has a parent. It is a bug.");
+            .expect("If config file was read, than it should have a parent. It is a bug.");
 
         // careful here: `genesis.file` might be a path relative to the config file.
         // we need to resolve it before proceeding
@@ -579,7 +586,7 @@ pub fn read_config(
         .wrap_err("Invalid genesis configuration")?
     {
         Some(
-            GenesisNetwork::new(raw_block, &key_pair)
+            GenesisNetwork::new(raw_block, &config.chain_id, &key_pair)
                 .wrap_err("Failed to construct the genesis")?,
         )
     } else {
@@ -630,20 +637,23 @@ mod tests {
         use super::*;
 
         fn config_factory() -> Result<ConfigurationProxy> {
-            let mut base = ConfigurationProxy::default();
-
             let key_pair = KeyPair::generate()?;
 
-            base.public_key = Some(key_pair.public_key().clone());
-            base.private_key = Some(key_pair.private_key().clone());
+            let mut base = ConfigurationProxy {
+                chain_id: Some(ChainId::new("0")),
+
+                public_key: Some(key_pair.public_key().clone()),
+                private_key: Some(key_pair.private_key().clone()),
+
+                ..ConfigurationProxy::default()
+            };
+            let genesis = base.genesis.as_mut().unwrap();
+            genesis.private_key = Some(Some(key_pair.private_key().clone()));
+            genesis.public_key = Some(key_pair.public_key().clone());
 
             let torii = base.torii.as_mut().unwrap();
             torii.p2p_addr = Some(socket_addr!(127.0.0.1:1337));
             torii.api_url = Some(socket_addr!(127.0.0.1:1337));
-
-            let genesis = base.genesis.as_mut().unwrap();
-            genesis.private_key = Some(Some(key_pair.private_key().clone()));
-            genesis.public_key = Some(key_pair.public_key().clone());
 
             Ok(base)
         }

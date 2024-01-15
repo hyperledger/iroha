@@ -31,7 +31,7 @@ use crate::{
         prelude::*,
         query::{Pagination, Query, Sorting},
         transaction::TransactionPayload,
-        BatchedResponse, ValidationFail,
+        BatchedResponse, ChainId, ValidationFail,
     },
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
@@ -344,6 +344,8 @@ impl_query_output! {
 )]
 #[display(fmt = "{}@{torii_url}", "key_pair.public_key()")]
 pub struct Client {
+    /// Unique id of the blockchain. Used for simple replay attack protection.
+    pub chain_id: ChainId,
     /// Url for accessing iroha node
     pub torii_url: Url,
     /// Accounts keypair
@@ -440,6 +442,7 @@ impl Client {
         }
 
         Ok(Self {
+            chain_id: configuration.chain_id.clone(),
             torii_url: configuration.torii_api_url.clone(),
             key_pair: KeyPair::new(
                 configuration.public_key.clone(),
@@ -466,7 +469,7 @@ impl Client {
         instructions: impl Into<Executable>,
         metadata: UnlimitedMetadata,
     ) -> Result<SignedTransaction> {
-        let tx_builder = TransactionBuilder::new(self.account_id.clone());
+        let tx_builder = TransactionBuilder::new(self.chain_id.clone(), self.account_id.clone());
 
         let mut tx_builder = match instructions.into() {
             Executable::Instructions(instructions) => tx_builder.with_instructions(instructions),
@@ -1666,6 +1669,7 @@ mod tests {
         let (public_key, private_key) = KeyPair::generate().unwrap().into();
 
         let cfg = ConfigurationProxy {
+            chain_id: Some(ChainId::new("0")),
             public_key: Some(public_key),
             private_key: Some(private_key),
             account_id: Some(
@@ -1687,16 +1691,25 @@ mod tests {
                 .unwrap()
         };
         let tx1 = build_transaction();
-        let mut tx2 = build_transaction();
+        let tx2 = build_transaction();
         assert_ne!(tx1.payload().hash(), tx2.payload().hash());
 
-        tx2.payload_mut().creation_time_ms = tx1
-            .payload()
-            .creation_time()
-            .as_millis()
-            .try_into()
-            .expect("Valid");
-        tx2.payload_mut().nonce = tx1.payload().nonce;
+        let tx2 = {
+            let mut tx =
+                TransactionBuilder::new(client.chain_id.clone(), client.account_id.clone())
+                    .with_executable(tx1.payload().instructions.clone())
+                    .with_metadata(tx1.payload().metadata.clone());
+
+            tx.set_creation_time(tx1.payload().creation_time_ms);
+            if let Some(nonce) = tx1.payload().nonce {
+                tx.set_nonce(nonce);
+            }
+            if let Some(transaction_ttl) = client.transaction_ttl {
+                tx.set_ttl(transaction_ttl);
+            }
+
+            client.sign_transaction(tx).unwrap()
+        };
         assert_eq!(tx1.payload().hash(), tx2.payload().hash());
     }
 
@@ -1708,6 +1721,7 @@ mod tests {
         };
 
         let cfg = ConfigurationProxy {
+            chain_id: Some(ChainId::new("0")),
             public_key: Some(
                 "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
                     .parse()

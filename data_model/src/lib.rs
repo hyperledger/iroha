@@ -3,8 +3,6 @@
 
 // Clippy bug
 #![allow(clippy::items_after_test_module)]
-// in no_std some code gets cfg-ed out, so we silence the warnings
-#![cfg_attr(not(feature = "std"), allow(unused, unused_tuple_struct_fields))]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(feature = "std"))]
@@ -584,6 +582,15 @@ pub mod parameter {
 pub mod model {
     use super::*;
 
+    /// Unique id of blockchain
+    #[derive(
+        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Deserialize, Serialize, IntoSchema,
+    )]
+    #[repr(transparent)]
+    #[serde(transparent)]
+    #[ffi_type(unsafe {robust})]
+    pub struct ChainId(Box<str>);
+
     /// Sized container for all possible identifications.
     #[derive(
         Debug,
@@ -1001,6 +1008,22 @@ pub mod model {
         /// Index of the next element in the result set. Client will use this value
         /// in the next request to continue fetching results of the original query
         pub cursor: crate::query::cursor::ForwardCursor,
+    }
+
+    impl ChainId {
+        /// Create new [`Self`]
+        pub fn new(inner: &str) -> Self {
+            Self(inner.into())
+        }
+    }
+}
+
+impl Decode for ChainId {
+    fn decode<I: parity_scale_codec::Input>(
+        input: &mut I,
+    ) -> Result<Self, parity_scale_codec::Error> {
+        let boxed: String = parity_scale_codec::Decode::decode(input)?;
+        Ok(Self::new(&boxed))
     }
 }
 
@@ -1861,7 +1884,7 @@ pub mod prelude {
         account::prelude::*, asset::prelude::*, domain::prelude::*, events::prelude::*,
         executor::prelude::*, isi::prelude::*, metadata::prelude::*, name::prelude::*,
         parameter::prelude::*, peer::prelude::*, permission::prelude::*, query::prelude::*,
-        role::prelude::*, transaction::prelude::*, trigger::prelude::*, EnumTryAsError,
+        role::prelude::*, transaction::prelude::*, trigger::prelude::*, ChainId, EnumTryAsError,
         HasMetadata, IdBox, Identifiable, IdentifiableBox, LengthLimits, NumericValue,
         PredicateTrait, RegistrableBox, ToValue, TryAsMut, TryAsRef, TryToValue, UpgradableBox,
         ValidationFail, Value,

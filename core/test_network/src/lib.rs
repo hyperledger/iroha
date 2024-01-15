@@ -19,6 +19,7 @@ use iroha_config::{
     torii::Configuration as ToriiConfiguration,
 };
 use iroha_crypto::prelude::*;
+use iroha_data_model::ChainId;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
 use iroha_primitives::{
@@ -49,21 +50,22 @@ pub struct Network {
     pub peers: BTreeMap<PeerId, Peer>,
 }
 
+/// Get a standardized blockchain id
+pub fn get_chain_id() -> ChainId {
+    ChainId::new("0")
+}
+
 /// Get a standardised key-pair from the hard-coded literals.
-///
-/// # Panics
-/// Programmer error. Given keys must be in proper format.
 pub fn get_key_pair() -> KeyPair {
     KeyPair::new(
         PublicKey::from_str(
             "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0",
-        )
-        .expect("Public key not in mulithash format"),
+        ).unwrap(),
         PrivateKey::from_hex(
             Algorithm::Ed25519,
             "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
-        ).expect("Private key not hex encoded")
-    ).expect("Key pair mismatch")
+        ).unwrap()
+    ).unwrap()
 }
 
 /// Trait used to differentiate a test instance of `genesis`.
@@ -129,12 +131,13 @@ impl TestGenesis for GenesisNetwork {
             first_transaction.append_instruction(isi);
         }
 
+        let chain_id = ChainId::new("0");
         let key_pair = KeyPair::new(
             cfg.genesis.public_key.clone(),
             cfg.genesis.private_key.expect("Should be"),
         )
         .expect("Genesis key pair should be valid");
-        GenesisNetwork::new(genesis, &key_pair).expect("Failed to init genesis")
+        GenesisNetwork::new(genesis, &chain_id, &key_pair).expect("Failed to init genesis")
     }
 }
 
@@ -768,8 +771,11 @@ impl TestRuntime for Runtime {
 
 impl TestConfiguration for Configuration {
     fn test() -> Self {
-        let mut sample_proxy =
-            iroha::samples::get_config_proxy(UniqueVec::new(), Some(get_key_pair()));
+        let mut sample_proxy = iroha::samples::get_config_proxy(
+            UniqueVec::new(),
+            Some(get_chain_id()),
+            Some(get_key_pair()),
+        );
         let env_proxy =
             ConfigurationProxy::from_std_env().expect("Test env variables should parse properly");
         let (public_key, private_key) = KeyPair::generate().unwrap().into();
@@ -791,7 +797,8 @@ impl TestConfiguration for Configuration {
 
 impl TestClientConfiguration for ClientConfiguration {
     fn test(api_url: &SocketAddr) -> Self {
-        let mut configuration = iroha_client::samples::get_client_config(&get_key_pair());
+        let mut configuration =
+            iroha_client::samples::get_client_config(get_chain_id(), &get_key_pair());
         configuration.torii_api_url = format!("http://{api_url}")
             .parse()
             .expect("Should be valid url");

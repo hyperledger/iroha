@@ -14,6 +14,7 @@ use iroha_data_model::{
     asset::AssetDefinition,
     executor::Executor,
     prelude::{Metadata, *},
+    ChainId,
 };
 use iroha_schema::IntoSchema;
 use once_cell::sync::Lazy;
@@ -45,7 +46,11 @@ impl GenesisNetwork {
     /// - If fails to sign a transaction (which means that the `key_pair` is malformed rather
     ///   than anything else)
     /// - If transactions set is empty
-    pub fn new(raw_block: RawGenesisBlock, genesis_key_pair: &KeyPair) -> Result<GenesisNetwork> {
+    pub fn new(
+        raw_block: RawGenesisBlock,
+        chain_id: &ChainId,
+        genesis_key_pair: &KeyPair,
+    ) -> Result<GenesisNetwork> {
         // First instruction should be Executor upgrade.
         // This makes possible to grant permissions to users in genesis.
         let transactions_iter = std::iter::once(GenesisTransactionBuilder {
@@ -64,7 +69,7 @@ impl GenesisNetwork {
                     // FIXME: fix underlying chain of `.sign` so that it doesn't
                     //        consume the key pair unnecessarily. It might be costly to clone
                     //        the key pair for a large genesis.
-                    .sign(genesis_key_pair.clone())
+                    .sign(chain_id.clone(), genesis_key_pair.clone())
                     .map(GenesisTransaction)
                     .wrap_err_with(|| eyre!("Failed to sign transaction at index {i}"))
             })
@@ -188,11 +193,12 @@ impl GenesisTransactionBuilder {
     ///
     /// # Errors
     /// Fails if signing or accepting fails.
-    pub fn sign(
+    fn sign(
         self,
+        chain_id: ChainId,
         genesis_key_pair: KeyPair,
     ) -> core::result::Result<SignedTransaction, iroha_crypto::error::Error> {
-        TransactionBuilder::new(GENESIS_ACCOUNT_ID.clone())
+        TransactionBuilder::new(chain_id, GENESIS_ACCOUNT_ID.clone())
             .with_instructions(self.isi)
             .sign(genesis_key_pair)
     }
@@ -364,8 +370,11 @@ mod tests {
 
     #[test]
     fn load_new_genesis_block() -> Result<()> {
+        let chain_id = ChainId::new("0");
+
         let genesis_key_pair = KeyPair::generate()?;
         let (alice_public_key, _) = KeyPair::generate()?.into();
+
         let _genesis_block = GenesisNetwork::new(
             RawGenesisBlockBuilder::default()
                 .domain("wonderland".parse()?)
@@ -373,6 +382,7 @@ mod tests {
                 .finish_domain()
                 .executor(dummy_executor())
                 .build(),
+            &chain_id,
             &genesis_key_pair,
         )?;
         Ok(())

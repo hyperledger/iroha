@@ -223,7 +223,7 @@ pub struct LocalRef<'data, R>(R, core::marker::PhantomData<&'data ()>);
 /// ```
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct LocalSlice<'data, R>(alloc::vec::Vec<R>, core::marker::PhantomData<&'data ()>);
+pub struct LocalSlice<'data, R>(alloc::boxed::Box<[R]>, core::marker::PhantomData<&'data ()>);
 
 /// Result of execution of an FFI function
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]

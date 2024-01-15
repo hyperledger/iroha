@@ -816,6 +816,7 @@
       }
     ]
   },
+  "ChainId": "String",
   "ConfigurationEvent": {
     "Enum": [
       {
@@ -2418,14 +2419,7 @@
   "MerkleTree<SignedTransaction>": {
     "Vec": "HashOf<SignedTransaction>"
   },
-  "Metadata": {
-    "Struct": [
-      {
-        "name": "map",
-        "type": "SortedMap<Name, Value>"
-      }
-    ]
-  },
+  "Metadata": "SortedMap<Name, Value>",
   "MetadataChanged<AccountId>": {
     "Struct": [
       {
@@ -4124,6 +4118,10 @@
   },
   "TransactionPayload": {
     "Struct": [
+      {
+        "name": "chain_id",
+        "type": "ChainId"
+      },
       {
         "name": "creation_time_ms",
         "type": "u64"
