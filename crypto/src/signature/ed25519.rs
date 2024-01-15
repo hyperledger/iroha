@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use core::convert::TryFrom;
 
 use arrayref::array_ref;
 use ed25519_dalek::Signature;
@@ -12,6 +12,9 @@ use crate::{Error, KeyGenOption, ParseError};
 
 pub type PublicKey = ed25519_dalek::VerifyingKey;
 pub type PrivateKey = ed25519_dalek::SigningKey;
+
+#[cfg(not(feature = "std"))]
+use alloc::{string::ToString as _, vec::Vec};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Ed25519Sha512;

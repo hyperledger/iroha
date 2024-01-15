@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::{borrow::ToOwned as _, boxed::Box};
+
 use arrayref::array_ref;
 use iroha_primitives::const_vec::ConstVec;
 use rand::{rngs::OsRng, SeedableRng};

@@ -1,7 +1,7 @@
 //! This module contains [`Peer`] structure and related implementations and traits implementations.
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{
     borrow::Borrow,
     cmp::Ordering,

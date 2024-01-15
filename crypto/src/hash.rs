@@ -2,13 +2,12 @@
 use alloc::{borrow::ToOwned as _, format, string::String, vec, vec::Vec};
 use core::{hash, marker::PhantomData, num::NonZeroU8, str::FromStr};
 
-#[cfg(all(feature = "std", not(feature = "ffi_import")))]
+#[cfg(not(feature = "ffi_import"))]
 use blake2::{
     digest::{Update, VariableOutput},
     Blake2bVar,
 };
 use derive_more::{DebugCustom, Deref, DerefMut, Display};
-#[cfg(any(feature = "std", feature = "ffi_import"))]
 use iroha_macro::ffi_impl_opaque;
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
@@ -64,7 +63,6 @@ impl Hash {
     }
 }
 
-#[cfg(any(feature = "std", feature = "ffi_import"))]
 #[ffi_impl_opaque]
 impl Hash {
     /// Hash the given bytes.
@@ -269,7 +267,6 @@ impl<T> HashOf<T> {
     }
 }
 
-#[cfg(any(feature = "std", feature = "ffi_import"))]
 impl<T: Encode> HashOf<T> {
     /// Construct typed hash
     #[must_use]

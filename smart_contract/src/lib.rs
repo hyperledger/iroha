@@ -19,7 +19,7 @@ use derive_more::Display;
 pub use iroha_data_model as data_model;
 use iroha_macro::error::ErrorTryFromEnum;
 pub use iroha_smart_contract_derive::main;
-pub use iroha_smart_contract_utils::{debug, log};
+pub use iroha_smart_contract_utils::{debug, error, info, log, warn};
 use iroha_smart_contract_utils::{
     debug::DebugExpectExt as _, decode_with_length_prefix_from_raw, encode_and_execute,
 };
@@ -41,6 +41,39 @@ extern "C" fn _iroha_smart_contract_alloc(len: usize) -> *const u8 {
 #[no_mangle]
 unsafe extern "C" fn _iroha_smart_contract_dealloc(offset: *mut u8, len: usize) {
     let _box = Box::from_raw(core::slice::from_raw_parts_mut(offset, len));
+}
+
+/// Stub for [`getrandom::getrandom()`] for Iroha smart contracts.
+/// Prints a log message with [`error!`] and panics.
+///
+/// Required in order to crates like `iroha_crypto` to compile. Should never be called.
+///
+/// # Panics
+///
+/// Always Panics with [`unimplemented!()`];
+///
+/// # Errors
+///
+/// No errors, always panics.
+///
+/// # Example
+///
+/// ```
+/// // Cargo.toml
+/// // getrandom = { version = "0.2", features = ["custom"] }
+///
+/// getrandom::register_custom_getrandom!(iroha_smart_contract::stub_getrandom);
+/// ```
+#[cfg(not(test))]
+pub fn stub_getrandom(_dest: &mut [u8]) -> Result<(), getrandom::Error> {
+    const ERROR_MESSAGE: &str =
+        "`getrandom()` is not implemented. To provide your custom function \
+         see https://docs.rs/getrandom/latest/getrandom/macro.register_custom_getrandom.html. \
+         Be aware that your function must give the same result on different peers at the same execution round,
+         and keep in mind the consequences of purely implemented random function.";
+
+    error!(ERROR_MESSAGE);
+    unimplemented!("{ERROR_MESSAGE}")
 }
 
 /// Macro to parse literal as a type. Panics if failed.
@@ -404,7 +437,6 @@ mod host {
         pub(super) fn execute_instruction(ptr: *const u8, len: usize) -> *const u8;
 
         /// Get payload for smart contract `main()` entrypoint.
-        ///
         /// # Warning
         ///
         /// This function does transfer ownership of the result to the caller

@@ -1,4 +1,6 @@
-use std::{hash::Hash, marker::PhantomData};
+#[cfg(not(feature = "std"))]
+use alloc::{borrow::ToOwned as _, format, string::ToString as _, vec, vec::Vec};
+use core::{hash::Hash, marker::PhantomData};
 
 /// Implements
 /// <https://eprint.iacr.org/2018/483> and

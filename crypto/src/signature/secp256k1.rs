@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::{format, vec::Vec};
+
 use self::ecdsa_secp256k1::EcdsaSecp256k1Impl;
 use crate::{Error, KeyGenOption, ParseError};
 
@@ -31,6 +34,9 @@ impl EcdsaSecp256k1Sha256 {
 }
 
 mod ecdsa_secp256k1 {
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, string::ToString as _, vec::Vec};
+
     use arrayref::array_ref;
     use digest::Digest as _;
     use rand::{rngs::OsRng, RngCore, SeedableRng};

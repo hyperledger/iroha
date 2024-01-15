@@ -4,11 +4,9 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-#[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
 pub mod encryption;
 mod hash;
-#[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
 pub mod kex;
 mod merkle;
@@ -20,15 +18,17 @@ mod varint;
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    borrow::ToOwned as _,
+    boxed::Box,
     format,
     string::{String, ToString as _},
+    vec,
     vec::Vec,
 };
 use core::{fmt, str::FromStr};
 
 #[cfg(feature = "base64")]
 pub use base64;
-#[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
 pub use blake2;
 use derive_more::Display;
@@ -41,9 +41,7 @@ use iroha_schema::{Declaration, IntoSchema, MetaMap, Metadata, NamedFieldsMeta, 
 pub use merkle::MerkleTree;
 #[cfg(not(feature = "ffi_import"))]
 use parity_scale_codec::{Decode, Encode};
-#[cfg(feature = "std")]
-use serde::Deserialize;
-use serde::{ser::SerializeStruct, Serialize};
+use serde::{ser::SerializeStruct, Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 pub use self::signature::*;
@@ -175,7 +173,6 @@ impl KeyPair {
     ///
     /// # Errors
     /// Fails if decoding fails
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
     pub fn generate() -> Result<Self, Error> {
         Self::generate_with_configuration(KeyGenConfiguration::default())
     }
@@ -191,13 +188,10 @@ impl KeyPair {
     /// Construct a [`KeyPair`]
     /// # Errors
     /// If public and private key don't match, i.e. if they don't make a pair
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
     pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Result<Self, Error> {
         let algorithm = private_key.algorithm();
 
         if algorithm != public_key.algorithm() {
-            #[cfg(not(feature = "std"))]
-            use alloc::borrow::ToOwned as _;
             return Err(Error::KeyGen("Mismatch of key algorithms".to_owned()));
         }
 
@@ -215,7 +209,6 @@ impl KeyPair {
     ///
     /// # Errors
     /// Fails if decoding fails
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
     pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, Error> {
         let key_gen_option = match (configuration.algorithm, configuration.key_gen_option) {
             (Algorithm::Secp256k1, Some(KeyGenOption::UseSeed(seed))) if seed.len() < 32 => {
@@ -273,7 +266,6 @@ impl From<(bls::BlsSmallPublicKey, bls::PrivateKey)> for KeyPair {
     }
 }
 
-#[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
 impl<'de> Deserialize<'de> for KeyPair {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -357,7 +349,6 @@ impl PublicKey {
     ///
     /// - If the given payload is not hex encoded
     /// - If the given payload is not a valid private key
-    #[cfg(feature = "std")]
     pub fn from_hex(digest_function: Algorithm, payload: &str) -> Result<Self, ParseError> {
         let payload = hex_decode(payload)?;
 
@@ -502,7 +493,6 @@ impl PublicKey {
 }
 
 // TODO: Enable in ffi_import
-#[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
 impl From<PrivateKey> for PublicKey {
     fn from(private_key: PrivateKey) -> Self {
@@ -562,7 +552,6 @@ impl PrivateKey {
     ///
     /// - If the given payload is not hex encoded
     /// - If the given payload is not a valid private key
-    #[cfg(feature = "std")]
     pub fn from_hex(algorithm: Algorithm, payload: &str) -> Result<Self, ParseError> {
         let payload = hex_decode(payload)?;
         let payload = ConstVec::new(payload);
@@ -591,7 +580,7 @@ impl PrivateKey {
 }
 
 #[cfg(not(feature = "ffi_import"))]
-impl std::fmt::Debug for PrivateKey {
+impl core::fmt::Debug for PrivateKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple(self.algorithm().as_static_str())
             .field(&hex::encode_upper(self.payload()))
@@ -600,7 +589,7 @@ impl std::fmt::Debug for PrivateKey {
 }
 
 #[cfg(not(feature = "ffi_import"))]
-impl std::fmt::Display for PrivateKey {
+impl core::fmt::Display for PrivateKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&hex::encode_upper(self.payload()))
     }
@@ -616,7 +605,6 @@ impl Serialize for PrivateKey {
     }
 }
 
-#[cfg(feature = "std")]
 impl<'de> Deserialize<'de> for PrivateKey {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -701,14 +689,12 @@ pub mod error {
         Other(String),
     }
 
-    #[cfg(feature = "std")]
     impl From<NoSuchAlgorithm> for Error {
         fn from(source: NoSuchAlgorithm) -> Self {
             Self::NoSuchAlgorithm(source.to_string())
         }
     }
 
-    #[cfg(feature = "std")]
     impl From<ParseError> for Error {
         fn from(source: ParseError) -> Self {
             Self::Parse(source)
@@ -788,7 +774,7 @@ pub mod prelude {
 #[cfg(test)]
 mod tests {
     use parity_scale_codec::{Decode, Encode};
-    #[cfg(all(feature = "std", not(feature = "ffi_import")))]
+    #[cfg(not(feature = "ffi_import"))]
     use serde::Deserialize;
 
     use super::*;
@@ -810,7 +796,6 @@ mod tests {
         }
     }
     #[test]
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
     fn key_pair_serialize_deserialize_consistent() {
         for algorithm in [
             Algorithm::Ed25519,
@@ -853,7 +838,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
     fn key_pair_match() {
         assert!(KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
             .parse()
@@ -873,7 +857,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
     fn encode_decode_public_key_consistent() {
         for algorithm in [
             Algorithm::Ed25519,
@@ -900,7 +883,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "std")]
     fn invalid_private_key() {
         assert!(PrivateKey::from_hex(
             Algorithm::Ed25519,
@@ -915,7 +897,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
     fn key_pair_mismatch() {
         assert!(KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
             .parse()
@@ -982,7 +963,7 @@ mod tests {
             "eb01c1040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
         );
     }
-    #[cfg(all(feature = "std", not(feature = "ffi_import")))]
+    #[cfg(not(feature = "ffi_import"))]
     #[derive(Debug, PartialEq, Deserialize, Serialize)]
     struct TestJson {
         public_key: PublicKey,
@@ -990,7 +971,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature = "std", not(feature = "ffi_import")))]
+    #[cfg(not(feature = "ffi_import"))]
     fn deserialize_keys_ed25519() {
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
@@ -1015,7 +996,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature = "std", not(feature = "ffi_import")))]
+    #[cfg(not(feature = "ffi_import"))]
     fn deserialize_keys_secp256k1() {
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
@@ -1040,7 +1021,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature = "std", not(feature = "ffi_import")))]
+    #[cfg(not(feature = "ffi_import"))]
     fn deserialize_keys_bls() {
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
@@ -1086,7 +1067,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
     fn secp256k1_key_gen_fails_with_seed_smaller_than_32() {
         let seed: Vec<_> = (0..12u8).collect();
 

@@ -37,6 +37,7 @@ parity-scale-codec = { version = "3.2.1", default-features = false }
 anyhow = { version = "1.0.71", default-features = false }
 serde = { version = "1.0.151", default-features = false }
 serde_json = { version = "1.0.91", default-features = false }
+getrandom = { version = "0.2", features = ["custom"] }
 
 lol_alloc = "0.4.0"
 panic-halt = "0.2.0"
