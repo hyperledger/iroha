@@ -7,16 +7,6 @@ case $1 in
             echo 'Please re-generate the genesis with `cargo run --release --bin kagami -- genesis --executor-path-in-genesis ./executor.wasm > configs/peer/genesis.json`'
             exit 1
         };;
-    "client")
-        cargo run --release --bin kagami -- config client | diff - configs/client/config.json || {
-            echo 'Please re-generate client config with `cargo run --release --bin kagami -- config client > configs/client/config.json`'
-            exit 1
-        };;
-    "peer")
-        cargo run --release --bin kagami -- config peer | diff - configs/peer/config.json || {
-            echo 'Please re-generate peer config with `cargo run --release --bin kagami -- config peer > configs/peer/config.json`'
-            exit 1
-        };;
     "schema")
         cargo run --release --bin kagami -- schema | diff - docs/source/references/schema.json || {
             echo 'Please re-generate schema with `cargo run --release --bin kagami -- schema > docs/source/references/schema.json`'

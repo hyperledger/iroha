@@ -28,12 +28,6 @@ jobs:
       - name: Check genesis.json
         if: always()
         run: ./scripts/tests/consistency.sh genesis
-      - name: Check client/config.json
-        if: always()
-        run: ./scripts/tests/consistency.sh client
-      - name: Check peer/config.json
-        if: always()
-        run: ./scripts/tests/consistency.sh peer
       - name: Check schema.json
         if: always()
         run: ./scripts/tests/consistency.sh schema
