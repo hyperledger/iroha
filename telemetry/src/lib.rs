@@ -7,7 +7,7 @@ pub mod metrics;
 mod retry_period;
 pub mod ws;
 
-pub use iroha_config::telemetry::Configuration;
+pub use iroha_config::parameters::telemetry::Config;
 pub use iroha_telemetry_derive::metrics;
 
 pub mod msg {

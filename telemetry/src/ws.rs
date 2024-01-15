@@ -1,10 +1,9 @@
 //! Telemetry sent to a server
-use std::time::Duration;
 
 use chrono::Local;
 use eyre::{eyre, Result};
 use futures::{stream::SplitSink, Sink, SinkExt, StreamExt};
-use iroha_config::telemetry::RegularTelemetryConfig;
+use iroha_config::parameters::telemetry::RegularTelemetryConfig;
 use iroha_logger::telemetry::Event as Telemetry;
 use serde_json::Map;
 use tokio::{
@@ -164,10 +163,13 @@ where
     fn schedule_reconnect(&mut self) {
         self.retry_period.increase_exponent();
         let period = self.retry_period.period();
-        iroha_logger::debug!("Scheduled reconnecting to telemetry in {} seconds", period);
+        iroha_logger::debug!(
+            "Scheduled reconnecting to telemetry in {} seconds",
+            period.as_secs()
+        );
         let sender = self.internal_sender.clone();
         tokio::task::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(period)).await;
+            tokio::time::sleep(period).await;
             let _ = sender.send(InternalMessage::Reconnect).await;
         });
     }
@@ -393,7 +395,7 @@ mod tests {
                         fail: Arc::clone(&fail_factory_create),
                         sender: message_sender,
                     },
-                    RetryPeriod::new(1, 0),
+                    RetryPeriod::new(Duration::from_secs(1), 0),
                     internal_sender,
                 );
                 tokio::task::spawn(async move {

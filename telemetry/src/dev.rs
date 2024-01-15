@@ -1,7 +1,7 @@
 //! Module with development telemetry
 
 use eyre::{Result, WrapErr};
-use iroha_config::telemetry::DevTelemetryConfig;
+use iroha_config::parameters::telemetry::DevTelemetryConfig;
 use iroha_logger::telemetry::Event as Telemetry;
 use tokio::{
     fs::OpenOptions,
