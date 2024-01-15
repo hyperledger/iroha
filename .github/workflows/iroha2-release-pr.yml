@@ -18,7 +18,7 @@ jobs:
   client-cli-tests:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +60,7 @@ jobs:
   bench:
     runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - name: Maximize build space
         run: |
@@ -76,7 +76,7 @@ jobs:
   java-api:
     runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - name: Maximize build space
         run: |
@@ -130,7 +130,7 @@ jobs:
   long:
     runs-on: ubuntu-latest #[self-hosted, Linux]
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - name: Maximize build space
         uses: jlumbroso/free-disk-space@v1.3.1
