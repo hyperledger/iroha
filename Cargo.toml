@@ -144,12 +144,10 @@ rust.nonstandard_style = "deny"
 rust.rust_2018_idioms = "deny"
 rust.trivial_casts = "deny"
 rust.trivial_numeric_casts = "deny"
-rust.unconditional_recursion = "deny"
 rust.unsafe_code = "deny"
 rust.unused = "deny"
 rust.unused_import_braces = "deny"
 rust.variant_size_differences = "deny"
-rust.unused_tuple_struct_fields = "deny"
 rust.explicit_outlives_requirements = "deny"
 rust.non_ascii_idents = "deny"
 rust.elided_lifetimes_in_paths = "allow"
@@ -158,9 +156,6 @@ rust.single_use_lifetimes = "warn"
 rust.unused_lifetimes = "warn"
 # TODO: reenable
 # rust.unsafe_op_in_unsafe_fn = "deny"
-
-# lower the priority to allow overriding later
-clippy.all = { level = "deny", priority = -1 }
 
 # pedantic
 clippy.pedantic = { level = "warn", priority = -1 }
@@ -171,6 +166,7 @@ clippy.manual_let_else = "allow"
 clippy.enum_glob_use = "allow"
 clippy.module_name_repetitions = "allow"
 clippy.must_use_candidate = "allow"
+clippy.missing_panics_doc = "allow"
 
 # restriction
 clippy.dbg_macro = "deny"

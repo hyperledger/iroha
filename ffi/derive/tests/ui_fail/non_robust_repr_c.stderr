@@ -5,14 +5,14 @@ error[E0277]: the trait bound `bool: ReprC` is not satisfied
   |                                      ^^^^^^^ the trait `ReprC` is not implemented for `bool`
   |
   = help: the following other types implement trait `ReprC`:
-            *const R
-            *mut R
-            FfiI128
-            FfiTuple10<A, B, C, D, E, F, G, H, I, J>
-            FfiTuple11<A, B, C, D, E, F, G, H, I, J, K>
-            FfiTuple12<A, B, C, D, E, F, G, H, I, J, K, L>
-            FfiTuple1<A>
-            FfiTuple2<A, B>
+            i8
+            i16
+            i32
+            i64
+            u8
+            u16
+            u32
+            u64
           and $N others
   = help: see issue #48214
   = help: add `#![feature(trivial_bounds)]` to the crate attributes to enable

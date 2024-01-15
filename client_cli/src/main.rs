@@ -69,7 +69,7 @@ impl FromStr for ValueArg {
             .or_else(|_| s.parse::<Ipv6Addr>().map(Value::Ipv6Addr))
             .or_else(|_| s.parse::<NumericValue>().map(Value::Numeric))
             .or_else(|_| s.parse::<PublicKey>().map(Value::PublicKey))
-            .or_else(|_| serde_json::from_str::<Value>(s).map_err(std::convert::Into::into))
+            .or_else(|_| serde_json::from_str::<Value>(s).map_err(Into::into))
             .map(ValueArg)
     }
 }

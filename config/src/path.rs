@@ -69,9 +69,10 @@ impl Path {
     /// If the path has an extension.
     pub fn default(path: impl AsRef<std::path::Path>) -> Self {
         let path = path.as_ref().to_path_buf();
-        if path.extension().is_some() {
-            panic!("Default config path is not supposed to have an extension. It is a bug.")
-        }
+        assert!(
+            path.extension().is_none(),
+            "Default config path is not supposed to have an extension. It is a bug."
+        );
         Self(Default(path))
     }
 

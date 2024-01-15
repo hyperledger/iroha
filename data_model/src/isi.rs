@@ -1,9 +1,7 @@
 //! This library contains basic Iroha Special Instructions.
 
-#![allow(clippy::len_without_is_empty, clippy::unused_self)]
-
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use core::fmt::{Debug, Display};
 
 use derive_more::{Constructor, DebugCustom, Display};

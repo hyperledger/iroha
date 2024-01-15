@@ -1,9 +1,6 @@
 //! Visitor that visits every node in Iroha syntax tree
 #![allow(missing_docs, clippy::missing_errors_doc)]
 
-#[cfg(not(feature = "std"))]
-use alloc::format;
-
 use iroha_crypto::PublicKey;
 
 use crate::{isi::Log, prelude::*};

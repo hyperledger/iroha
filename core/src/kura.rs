@@ -31,7 +31,6 @@ const SIZE_OF_BLOCK_HASH: u64 = Hash::LENGTH as u64;
 #[derive(Debug)]
 pub struct Kura {
     /// The mode of initialisation of [`Kura`].
-    #[allow(dead_code)]
     mode: Mode,
     /// The block storage
     block_store: Mutex<BlockStore>,

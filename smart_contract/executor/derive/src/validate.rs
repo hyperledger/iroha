@@ -37,7 +37,7 @@ enum ValidateAttribute {
 }
 
 impl FromAttributes for ValidateAttribute {
-    // we use `Option::or` to select the first specified condition in case of duplicates
+    // NOTE: we use `Option::or` to select the first specified condition in case of duplicates
     // but we still _want_ to validate that each attribute parses successfully
     // this is to ensure that we provide the user with as much validation as possible, instead of bailing out early
     // `Option::or_else` would NOT work here, as it would not validate conditions after the first valid one

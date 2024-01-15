@@ -1,7 +1,5 @@
 //! This test checks how the json-serialized schema looks like.
-
 #![allow(dead_code)]
-#![allow(unused_tuple_struct_fields)]
 
 use iroha_schema::IntoSchema;
 use serde_json::json;

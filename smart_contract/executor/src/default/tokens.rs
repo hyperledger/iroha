@@ -12,8 +12,9 @@ use crate::permission::{self, Token as _};
 /// Used to iterate over tokens to validate `Grant` and `Revoke` instructions.
 ///
 ///
-/// TODO: Replace with procedural macro. Example:
-/// ```
+/// Example:
+///
+/// ```ignore
 /// mod tokens {
 ///     use std::borrow::ToOwned;
 ///

@@ -2418,14 +2418,7 @@
   "MerkleTree<SignedTransaction>": {
     "Vec": "HashOf<SignedTransaction>"
   },
-  "Metadata": {
-    "Struct": [
-      {
-        "name": "map",
-        "type": "SortedMap<Name, Value>"
-      }
-    ]
-  },
+  "Metadata": "SortedMap<Name, Value>",
   "MetadataChanged<AccountId>": {
     "Struct": [
       {

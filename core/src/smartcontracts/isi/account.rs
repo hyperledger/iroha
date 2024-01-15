@@ -581,7 +581,7 @@ pub mod query {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);
-            wsv.map_account(id, |account| account.metadata.get(key).map(Clone::clone))?
+            wsv.map_account(id, |account| account.metadata.get(key).cloned())?
                 .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
                 .map(Into::into)
         }

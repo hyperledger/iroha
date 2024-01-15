@@ -59,8 +59,7 @@ fn arg_metrics(input: &Punctuated<FnArg, Comma>) -> Result<syn2::Ident, &Punctua
         .ok_or(input)
 }
 
-#[allow(unused_tuple_struct_fields)]
-struct MetricSpecs(Vec<MetricSpec>); // `HashSet` — idiomatic; slow
+struct MetricSpecs(#[allow(dead_code)] Vec<MetricSpec>); // `HashSet` — idiomatic; slow
 
 impl Parse for MetricSpecs {
     fn parse(input: syn2::parse::ParseStream) -> syn2::Result<Self> {
