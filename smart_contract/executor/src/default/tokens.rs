@@ -49,6 +49,28 @@ macro_rules! declare_tokens {
             };
         }
 
+        /// Enum with every default token
+        #[allow(clippy::enum_variant_names)]
+        pub(crate) enum AnyPermissionToken {
+            $(
+                $token_ty($($token_path::)+$token_ty),
+            )*
+        }
+
+        impl TryFrom<::iroha_smart_contract::data_model::permission::PermissionToken> for AnyPermissionToken {
+            type Error = $crate::permission::PermissionTokenConversionError;
+
+            fn try_from(token: ::iroha_smart_contract::data_model::permission::PermissionToken) -> Result<Self, Self::Error> {
+                match token.definition_id().as_ref() { $(
+                    stringify!($token_ty) => {
+                        let token = <$($token_path::)+$token_ty>::try_from(token)?;
+                        Ok(Self::$token_ty(token))
+                    } )+
+                    _ => Err(Self::Error::Id(token.definition_id().clone()))
+                }
+            }
+        }
+
         pub(crate) use map_token;
         pub(crate) use map_token_type;
     };

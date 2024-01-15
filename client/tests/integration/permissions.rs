@@ -399,7 +399,7 @@ fn associated_permission_tokens_removed_on_unregister() {
         &json!({ "domain_id": kingdom_id }),
     );
     let allow_bob_to_set_kv_in_domain =
-        Grant::permission_token(bob_to_set_kv_in_domain_token.clone(), bob_id.clone());
+        Grant::permission(bob_to_set_kv_in_domain_token.clone(), bob_id.clone());
 
     iroha_client
         .submit_all_blocking([
