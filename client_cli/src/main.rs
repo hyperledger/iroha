@@ -488,9 +488,9 @@ mod domain {
         /// Edit domain subcommands
         #[derive(Debug, Clone, clap::Subcommand)]
         pub enum Args {
-            /// Set metadata into domain
+            /// Set domain metadata
             Set(Set),
-            /// Remove metadata into domain
+            /// Remove domain metadata
             Remove(Remove),
         }
 
