@@ -24,6 +24,7 @@ use iroha_data_model::{
         cursor::ForwardCursor, http, sorting::Sorting, Pagination, QueryRequest,
         QueryWithParameters,
     },
+    transaction::TransactionPayload,
     BatchedResponse,
 };
 #[cfg(feature = "telemetry")]
@@ -151,15 +152,19 @@ pub async fn handle_pending_transactions(
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
     pagination: Pagination,
-) -> Result<Scale<Vec<SignedTransaction>>> {
+    payload: TransactionPayload,
+) -> Result<Scale<Option<SignedTransaction>>> {
     let query_response = sumeragi.apply_wsv(|wsv| {
         queue
             .all_transactions(wsv)
             .map(Into::into)
             .paginate(pagination)
-            .collect::<Vec<_>>()
-        // TODO:
-        //.batched(fetch_size)
+            .find(|current_transaction: &SignedTransaction| {
+                TransactionPayload::equals_excluding_creation_time(
+                    current_transaction.payload(),
+                    &payload,
+                )
+            })
     });
 
     Ok(Scale(query_response))

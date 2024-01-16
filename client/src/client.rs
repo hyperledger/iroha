@@ -1000,17 +1000,6 @@ impl Client {
         )
     }
 
-    /// Check if two transactions are the same. Compare their contents excluding the creation time.
-    fn equals_excluding_creation_time(
-        first: &TransactionPayload,
-        second: &TransactionPayload,
-    ) -> bool {
-        first.authority() == second.authority()
-            && first.instructions() == second.instructions()
-            && first.time_to_live() == second.time_to_live()
-            && first.metadata().eq(second.metadata())
-    }
-
     /// Find the original transaction in the pending local tx
     /// queue.  Should be used for an MST case.  Takes pagination as
     /// parameter.
@@ -1024,33 +1013,29 @@ impl Client {
         retry_in: Duration,
         pagination: Pagination,
     ) -> Result<Option<SignedTransaction>> {
+        let url = self
+            .torii_url
+            .join(crate::config::torii::PENDING_TRANSACTION)
+            .expect("Valid URI");
         let pagination = pagination.into_query_parameters();
+        let body = serde_json::to_vec(transaction.payload())
+            .wrap_err("Failed to serialize SignedTransaction.payload")?;
+
         for _ in 0..retry_count {
-            let response = DefaultRequestBuilder::new(
-                HttpMethod::GET,
-                self.torii_url
-                    .join(crate::config::torii::PENDING_TRANSACTIONS)
-                    .expect("Valid URI"),
-            )
-            .params(pagination.clone())
-            .headers(self.headers.clone())
-            .build()?
-            .send()?;
+            let response = DefaultRequestBuilder::new(HttpMethod::POST, url.clone())
+                .headers(self.headers.clone())
+                .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
+                .params(pagination.clone())
+                .body(body.clone())
+                .build()?
+                .send()?;
 
             if response.status() == StatusCode::OK {
-                let pending_transactions: Vec<SignedTransaction> =
+                let pending_transaction: Option<SignedTransaction> =
                     DecodeAll::decode_all(&mut response.body().as_slice())?;
 
-                let transaction = pending_transactions
-                    .into_iter()
-                    .find(|pending_transaction| {
-                        Self::equals_excluding_creation_time(
-                            pending_transaction.payload(),
-                            transaction.payload(),
-                        )
-                    });
-                if transaction.is_some() {
-                    return Ok(transaction);
+                if pending_transaction.is_some() {
+                    return Ok(pending_transaction);
                 }
                 thread::sleep(retry_in);
             } else {

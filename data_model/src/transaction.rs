@@ -123,6 +123,19 @@ pub mod model {
         pub metadata: UnlimitedMetadata,
     }
 
+    impl TransactionPayload {
+        /// Check if two transactions are the same. Compare their contents excluding the creation time.
+        pub fn equals_excluding_creation_time(
+            first: &TransactionPayload,
+            second: &TransactionPayload,
+        ) -> bool {
+            first.authority() == second.authority()
+                && first.instructions() == second.instructions()
+                && first.time_to_live() == second.time_to_live()
+                && first.metadata().eq(second.metadata())
+        }
+    }
+
     /// Container for limits that transactions must obey.
     #[derive(
         Debug,
