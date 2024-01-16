@@ -12,7 +12,7 @@
 use iroha_data_model::Level;
 use serde::{Deserialize, Serialize};
 
-use super::parameters::{logger::Config as BaseLogger, Config as BaseConfiguration};
+use crate::parameters::actual::{Logger as BaseLogger, Root as BaseConfiguration};
 
 /// Subset of [`super::iroha`] configuration.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]

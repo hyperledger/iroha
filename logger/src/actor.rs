@@ -1,6 +1,6 @@
 //! Actor encapsulating interaction with logger & telemetry subsystems.
 
-use iroha_config::parameters::logger::into_tracing_level;
+use iroha_config::logger::into_tracing_level;
 use iroha_data_model::Level;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing_core::Subscriber;

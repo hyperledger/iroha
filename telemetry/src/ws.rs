@@ -3,7 +3,7 @@
 use chrono::Local;
 use eyre::{eyre, Result};
 use futures::{stream::SplitSink, Sink, SinkExt, StreamExt};
-use iroha_config::parameters::telemetry::RegularTelemetryConfig;
+use iroha_config::parameters::actual::RegularTelemetry;
 use iroha_logger::telemetry::Event as Telemetry;
 use serde_json::Map;
 use tokio::{
@@ -28,12 +28,12 @@ const INTERNAL_CHANNEL_CAPACITY: usize = 10;
 /// # Errors
 /// Fails if unable to connect to the server
 pub async fn start(
-    RegularTelemetryConfig {
+    RegularTelemetry {
         name,
         url,
         max_retry_delay_exponent,
         min_retry_period,
-    }: RegularTelemetryConfig,
+    }: RegularTelemetry,
     telemetry: broadcast::Receiver<Telemetry>,
 ) -> Result<JoinHandle<()>> {
     iroha_logger::info!(%url, "Starting telemetry");

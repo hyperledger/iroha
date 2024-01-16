@@ -1,7 +1,11 @@
 use std::path::PathBuf;
 
 use clap::{ArgGroup, Parser, Subcommand};
-use iroha_config::parameters::chain_wide::*;
+use iroha_config::parameters::defaults::chain_wide::{
+    DEFAULT_BLOCK_TIME, DEFAULT_COMMIT_TIME_LIMIT, DEFAULT_IDENT_LENGTH_LIMITS, DEFAULT_MAX_TXS,
+    DEFAULT_METADATA_LIMITS, DEFAULT_TRANSACTION_LIMITS, DEFAULT_WASM_FUEL_LIMIT,
+    DEFAULT_WASM_MAX_MEMORY,
+};
 use iroha_data_model::{
     asset::AssetValueType,
     metadata::Limits,

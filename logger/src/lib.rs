@@ -13,11 +13,8 @@ use std::{
 
 use actor::LoggerHandle;
 use color_eyre::{eyre::eyre, Report, Result};
-use iroha_config::parameters::logger::into_tracing_level;
-pub use iroha_config::{
-    base::Complete as _,
-    parameters::logger::{Config, Format, Level, UserLayer as UserConfigLayer},
-};
+use iroha_config::logger::{into_tracing_level, Format};
+pub use iroha_config::{base::Complete as _, logger::Level, parameters::actual::Logger as Config};
 use tracing::subscriber::set_global_default;
 pub use tracing::{
     debug, debug_span, error, error_span, info, info_span, instrument as log, trace, trace_span,
@@ -72,7 +69,6 @@ pub fn init_global(configuration: &Config, terminal_colors: bool) -> Result<Logg
 ///
 /// # Panics
 /// If [`init_global`] or [`disable_global`] were called first.
-#[allow(clippy::needless_update)] // `tokio-console` feature adds additional fields to Configuration
 pub fn test_logger() -> LoggerHandle {
     static LOGGER: OnceLock<LoggerHandle> = OnceLock::new();
 
@@ -84,13 +80,9 @@ pub fn test_logger() -> LoggerHandle {
             // with ENV vars rather than by extending `test_logger` signature. This will both remain
             // `test_logger` simple and also will emphasise isolation which is necessary anyway in
             // case of singleton mocking (where the logger is the singleton).
-            let config = {
-                let mut layer = UserConfigLayer::default();
-                let _ = layer.level.insert(Level::DEBUG);
-                let _ = layer.format.insert(Format::Pretty);
-                layer
-                    .complete()
-                    .expect("should not fail because other fields have defaults")
+            let config = Config {
+                level: Level::DEBUG,
+                format: Format::Pretty,
             };
 
             init_global(&config, true).expect(

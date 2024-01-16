@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use iroha_config::snapshot::Configuration;
+use iroha_config::parameters::actual::Snapshot as Config;
 use iroha_crypto::HashOf;
 use iroha_data_model::block::SignedBlock;
 use iroha_logger::prelude::*;
@@ -137,11 +137,11 @@ impl SnapshotMaker {
     }
 
     /// Create [`Self`] from [`Configuration`]
-    pub fn from_configuration(config: &Configuration, sumeragi: SumeragiHandle) -> Self {
+    pub fn from_configuration(config: &Config, sumeragi: SumeragiHandle) -> Self {
         Self {
             sumeragi,
-            snapshot_create_every: Duration::from_millis(config.create_every_ms),
-            snapshot_dir: config.dir_path.clone(),
+            snapshot_create_every: config.create_every,
+            snapshot_dir: config.store_path.clone(),
             snapshot_creation_enabled: config.creation_enabled,
             new_wsv_available: false,
         }

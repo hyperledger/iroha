@@ -7,10 +7,7 @@ use std::{
 
 use eyre::Result;
 use indexmap::IndexMap;
-use iroha_config::{
-    base::proxy::Builder,
-    wsv::{Configuration, ConfigurationProxy},
-};
+use iroha_config::parameters::actual::ChainWide as Config;
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     account::AccountId,
@@ -270,7 +267,7 @@ pub struct WorldStateView {
     /// The world. Contains `domains`, `triggers`, `roles` and other data representing the current state of the blockchain.
     pub world: World,
     /// Configuration of World State View.
-    pub config: Configuration,
+    pub config: Config,
     /// Blockchain.
     pub block_hashes: Vec<HashOf<SignedBlock>>,
     /// Hashes of transactions mapped onto block height where they stored
@@ -400,10 +397,7 @@ impl WorldStateView {
     #[inline]
     pub fn new(world: World, kura: Arc<Kura>, query_handle: LiveQueryStoreHandle) -> Self {
         // Added to remain backward compatible with other code primary in tests
-        let config = ConfigurationProxy::default()
-            .build()
-            .expect("Wsv proxy always builds");
-        Self::from_configuration(config, world, kura, query_handle)
+        Self::from_configuration(Config::default(), world, kura, query_handle)
     }
 
     /// Get `Account`'s `Asset`s
@@ -527,7 +521,7 @@ impl WorldStateView {
             }
             Wasm(LoadedWasm { module, .. }) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::<wasm::state::Trigger>::new()
-                    .with_configuration(self.config.wasm_runtime_config)
+                    .with_configuration(self.config.wasm_runtime)
                     .with_engine(self.engine.clone()) // Cloning engine is cheap
                     .build()?;
                 wasm_runtime
@@ -590,7 +584,7 @@ impl WorldStateView {
             }
             Executable::Wasm(bytes) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::<wasm::state::SmartContract>::new()
-                    .with_configuration(self.config.wasm_runtime_config)
+                    .with_configuration(self.config.wasm_runtime)
                     .with_engine(self.engine.clone()) // Cloning engine is cheap
                     .build()?;
                 wasm_runtime
@@ -680,25 +674,24 @@ impl WorldStateView {
 
     fn apply_parameters(&mut self) {
         use iroha_data_model::parameter::default::*;
+
         macro_rules! update_params {
-            ($ident:ident, $($param:expr => $config:expr),+ $(,)?) => {
+            ($($param:expr => $config:expr),+ $(,)?) => {
                 $(if let Some(param) = self.query_param($param) {
-                    let $ident = &mut self.config;
                     $config = param;
                 })+
-
             };
         }
+
         update_params! {
-            config,
-            WSV_ASSET_METADATA_LIMITS => config.asset_metadata_limits,
-            WSV_ASSET_DEFINITION_METADATA_LIMITS => config.asset_definition_metadata_limits,
-            WSV_ACCOUNT_METADATA_LIMITS => config.account_metadata_limits,
-            WSV_DOMAIN_METADATA_LIMITS => config.domain_metadata_limits,
-            WSV_IDENT_LENGTH_LIMITS => config.ident_length_limits,
-            WASM_FUEL_LIMIT => config.wasm_runtime_config.fuel_limit,
-            WASM_MAX_MEMORY => config.wasm_runtime_config.max_memory,
-            TRANSACTION_LIMITS => config.transaction_limits,
+            WSV_ASSET_METADATA_LIMITS => self.config.asset_metadata_limits,
+            WSV_ASSET_DEFINITION_METADATA_LIMITS => self.config.asset_definition_metadata_limits,
+            WSV_ACCOUNT_METADATA_LIMITS => self.config.account_metadata_limits,
+            WSV_DOMAIN_METADATA_LIMITS => self.config.domain_metadata_limits,
+            WSV_IDENT_LENGTH_LIMITS => self.config.identifier_length_limits,
+            WASM_FUEL_LIMIT => self.config.wasm_runtime.fuel_limit,
+            WASM_MAX_MEMORY => self.config.wasm_runtime.max_memory.0,
+            TRANSACTION_LIMITS => self.config.transaction_limits,
         }
     }
 
@@ -923,7 +916,7 @@ impl WorldStateView {
     /// Construct [`WorldStateView`] with specific [`Configuration`].
     #[inline]
     pub fn from_configuration(
-        config: Configuration,
+        config: Config,
         world: World,
         kura: Arc<Kura>,
         query_handle: LiveQueryStoreHandle,

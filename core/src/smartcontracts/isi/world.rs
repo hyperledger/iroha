@@ -72,7 +72,7 @@ pub mod isi {
 
             domain_id
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(wsv.config.identifier_length_limits)
                 .map_err(Error::from)?;
 
             let world = wsv.world_mut();

@@ -48,7 +48,7 @@ pub mod isi {
 
             account_id
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(wsv.config.identifier_length_limits)
                 .map_err(Error::from)?;
 
             let domain = wsv.domain_mut(&account_id.domain_id)?;
@@ -92,7 +92,7 @@ pub mod isi {
             asset_definition
                 .id()
                 .name
-                .validate_len(wsv.config.ident_length_limits)
+                .validate_len(wsv.config.identifier_length_limits)
                 .map_err(Error::from)?;
 
             let asset_definition_id = asset_definition.id().clone();

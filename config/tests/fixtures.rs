@@ -5,7 +5,7 @@ use std::{
 };
 
 use eyre::Result;
-use iroha_config::parameters::UserLayer;
+use iroha_config::parameters::user_layer::Root;
 use iroha_config_base::{Complete as _, FromEnv, TestEnv};
 
 fn fixtures_dir() -> PathBuf {
@@ -39,7 +39,7 @@ fn test_env_from_file(p: impl AsRef<Path>) -> TestEnv {
 /// it also gives an insight into every single default value
 #[test]
 fn minimal_config_snapshot() -> Result<()> {
-    let config = UserLayer::from_toml(fixtures_dir().join("minimal_config.toml"))?.complete()?;
+    let config = Root::from_toml(fixtures_dir().join("minimal_config.toml"))?.complete()?;
 
     let expected = expect_test::expect![[r#"
         Config {
@@ -136,13 +136,13 @@ fn minimal_config_snapshot() -> Result<()> {
 
 #[test]
 fn config_with_genesis() -> Result<()> {
-    let _config = UserLayer::from_toml(fixtures_dir().join("with_genesis.toml"))?.complete()?;
+    let _config = Root::from_toml(fixtures_dir().join("with_genesis.toml"))?.complete()?;
     Ok(())
 }
 
 #[test]
 fn missing_fields() -> Result<()> {
-    let error = UserLayer::from_toml(fixtures_dir().join("missing_fields.toml"))?
+    let error = Root::from_toml(fixtures_dir().join("missing_fields.toml"))?
         .complete()
         .expect_err("should fail with missing fields");
 
@@ -159,7 +159,7 @@ fn missing_fields() -> Result<()> {
 
 #[test]
 fn extra_fields() {
-    let error = UserLayer::from_toml(fixtures_dir().join("extra_fields.toml"))
+    let error = Root::from_toml(fixtures_dir().join("extra_fields.toml"))
         .expect_err("should fail with extra fields");
 
     let expected = expect_test::expect![[r#"
@@ -174,7 +174,7 @@ fn extra_fields() {
 
 #[test]
 fn inconsistent_genesis_config() -> Result<()> {
-    let error = UserLayer::from_toml(fixtures_dir().join("inconsistent_genesis.toml"))?
+    let error = Root::from_toml(fixtures_dir().join("inconsistent_genesis.toml"))?
         .complete()
         .expect_err("should fail with bad genesis config");
 
@@ -190,7 +190,7 @@ fn inconsistent_genesis_config() -> Result<()> {
 fn full_envs_set_is_consumed() -> Result<()> {
     let env = test_env_from_file(fixtures_dir().join("full.env"));
 
-    let layer = UserLayer::from_env(&env)?;
+    let layer = Root::from_env(&env)?;
 
     assert_eq!(env.unvisited(), HashSet::new());
 
@@ -306,8 +306,8 @@ fn multiple_env_parsing_errors() {
 fn config_from_file_and_env() -> Result<()> {
     let env = test_env_from_file(fixtures_dir().join("config_and_env.env"));
 
-    let _config = UserLayer::from_toml(fixtures_dir().join("config_and_env.toml"))?
-        .merge_chain(UserLayer::from_env(&env)?)
+    let _config = Root::from_toml(fixtures_dir().join("config_and_env.toml"))?
+        .merge_chain(Root::from_env(&env)?)
         .complete()?;
 
     Ok(())

@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 
-use iroha_config::kura::{Configuration, Mode};
+use iroha_config::{kura::Mode, parameters::actual::Kura as Config};
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::block::SignedBlock;
 use iroha_logger::prelude::*;
@@ -49,7 +49,7 @@ impl Kura {
     /// Fails if there are filesystem errors when trying
     /// to access the block store indicated by the provided
     /// path.
-    pub fn new(config: &Configuration) -> Result<Arc<Self>> {
+    pub fn new(config: &Config) -> Result<Arc<Self>> {
         let block_store_path = Path::new(&config.block_store_path);
         let mut block_store = BlockStore::new(block_store_path, LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist()?;
@@ -1049,7 +1049,7 @@ mod tests {
     #[tokio::test]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().unwrap();
-        Kura::new(&Configuration {
+        Kura::new(&Config {
             init_mode: Mode::Strict,
             block_store_path: temp_dir.path().to_str().unwrap().into(),
             debug_output_new_blocks: false,

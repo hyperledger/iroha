@@ -157,7 +157,7 @@ impl Executor {
                 let runtime =
                     wasm::RuntimeBuilder::<wasm::state::executor::ValidateTransaction>::new()
                     .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                    .with_configuration(wsv.config.wasm_runtime_config)
+                    .with_configuration(wsv.config.wasm_runtime)
                     .build()?;
 
                 runtime.execute_executor_validate_transaction(
@@ -191,7 +191,7 @@ impl Executor {
                 let runtime =
                     wasm::RuntimeBuilder::<wasm::state::executor::ValidateInstruction>::new()
                     .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                    .with_configuration(wsv.config.wasm_runtime_config)
+                    .with_configuration(wsv.config.wasm_runtime)
                     .build()?;
 
                 runtime.execute_executor_validate_instruction(
@@ -224,7 +224,7 @@ impl Executor {
             Self::UserProvided(UserProvidedExecutor(loaded_executor)) => {
                 let runtime = wasm::RuntimeBuilder::<wasm::state::executor::ValidateQuery>::new()
                     .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                    .with_configuration(wsv.config.wasm_runtime_config)
+                    .with_configuration(wsv.config.wasm_runtime)
                     .build()?;
 
                 runtime.execute_executor_validate_query(
@@ -259,7 +259,7 @@ impl Executor {
 
         let runtime = wasm::RuntimeBuilder::<wasm::state::executor::Migrate>::new()
             .with_engine(wsv.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-            .with_configuration(wsv.config.wasm_runtime_config)
+            .with_configuration(wsv.config.wasm_runtime)
             .build()?;
 
         runtime

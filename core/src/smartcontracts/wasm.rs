@@ -6,10 +6,7 @@ use error::*;
 use import::traits::{
     ExecuteOperations as _, GetExecutorPayloads as _, SetPermissionTokenSchema as _,
 };
-use iroha_config::{
-    base::proxy::Builder,
-    wasm::{Configuration, ConfigurationProxy},
-};
+use iroha_config::parameters::actual::WasmRuntime as IrohaWasmConfig;
 use iroha_data_model::{
     account::AccountId,
     executor::{self, MigrationResult},
@@ -343,13 +340,9 @@ pub mod state {
     ///
     /// Panics if failed to convert `u32` into `usize` which should not happen
     /// on any supported platform
-    pub fn store_limits_from_config(config: &Configuration) -> StoreLimits {
+    pub fn store_limits_from_config(config: &IrohaWasmConfig) -> StoreLimits {
         StoreLimitsBuilder::new()
-            .memory_size(
-                config.max_memory.try_into().expect(
-                    "config.max_memory is a u32 so this can't fail on any supported platform",
-                ),
-            )
+            .memory_size(config.max_memory.get() as usize)
             .instances(1)
             .memories(1)
             .tables(1)
@@ -374,7 +367,7 @@ pub mod state {
         /// Create new [`OrdinaryState`]
         pub fn new(
             authority: AccountId,
-            config: Configuration,
+            config: IrohaWasmConfig,
             log_span: Span,
             wsv: W,
             specific_state: S,
@@ -567,7 +560,7 @@ pub mod state {
 pub struct Runtime<S> {
     engine: Engine,
     linker: Linker<S>,
-    config: Configuration,
+    config: IrohaWasmConfig,
 }
 
 impl<S> Runtime<S> {
@@ -1409,7 +1402,7 @@ impl<'wrld> import::traits::SetPermissionTokenSchema<state::executor::Migrate<'w
 #[derive(Default)]
 pub struct RuntimeBuilder<S> {
     engine: Option<Engine>,
-    config: Option<Configuration>,
+    config: Option<IrohaWasmConfig>,
     linker: Option<Linker<S>>,
 }
 
@@ -1434,7 +1427,7 @@ impl<S> RuntimeBuilder<S> {
     /// Sets the [`Configuration`] to be used by the [`Runtime`]
     #[must_use]
     #[inline]
-    pub fn with_configuration(mut self, config: Configuration) -> Self {
+    pub fn with_configuration(mut self, config: IrohaWasmConfig) -> Self {
         self.config = Some(config);
         self
     }
@@ -1451,11 +1444,7 @@ impl<S> RuntimeBuilder<S> {
         Ok(Runtime {
             engine,
             linker,
-            config: self.config.unwrap_or_else(|| {
-                ConfigurationProxy::default()
-                    .build()
-                    .expect("Error building WASM Runtime configuration from proxy. This is a bug")
-            }),
+            config: self.config.unwrap_or_default(),
         })
     }
 }

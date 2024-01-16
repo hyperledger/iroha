@@ -10,7 +10,7 @@
 use eyre::Result;
 use iroha_config::{
     client_api::{ConfigurationDTO, Logger as LoggerDTO},
-    iroha::Configuration,
+    parameters::actual::Root,
 };
 use iroha_logger::Level;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -27,7 +27,7 @@ pub struct KisoHandle {
 
 impl KisoHandle {
     /// Spawn a new actor
-    pub fn new(state: Configuration) -> Self {
+    pub fn new(state: Root) -> Self {
         let (actor_sender, actor_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (log_level_update, _) = watch::channel(state.logger.level);
         let mut actor = Actor {
@@ -106,7 +106,7 @@ pub enum Error {
 
 struct Actor {
     handle: mpsc::Receiver<Message>,
-    state: Configuration,
+    state: Root,
     // Current implementation is somewhat not scalable in terms of code writing: for any
     // future dynamic parameter, it will require its own `subscribe_on_<field>` function in [`KisoHandle`],
     // new channel here, and new [`Message`] variant. If boilerplate expands, a more general solution will be
@@ -151,20 +151,20 @@ mod tests {
     use std::time::Duration;
 
     use iroha_config::{
-        base::proxy::LoadFromDisk,
         client_api::{ConfigurationDTO, Logger as LoggerDTO},
-        iroha::{Configuration, ConfigurationProxy},
+        parameters::actual::Root,
     };
 
     use super::*;
 
-    fn test_config() -> Configuration {
-        // FIXME Specifying path here might break! Moreover, if the file is not found,
-        //       the error will say that `public_key` is missing!
-        //       Hopefully this will change: https://github.com/hyperledger/iroha/issues/2585
-        ConfigurationProxy::from_path("../config/iroha_test_config.json")
-            .build()
-            .unwrap()
+    fn test_config() -> Root {
+        todo!()
+        // // FIXME Specifying path here might break! Moreover, if the file is not found,
+        // //       the error will say that `public_key` is missing!
+        // //       Hopefully this will change: https://github.com/hyperledger/iroha/issues/2585
+        // ConfigurationProxy::from_path("../config/iroha_test_config.json")
+        //     .build()
+        //     .unwrap()
     }
 
     #[tokio::test]

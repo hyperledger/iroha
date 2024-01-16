@@ -7,7 +7,7 @@ use std::{
 };
 
 use indexmap::IndexMap;
-use iroha_config::live_query_store::Configuration;
+use iroha_config::parameters::actual::LiveQueryStore as Config;
 use iroha_data_model::{
     asset::AssetValue,
     query::{
@@ -74,10 +74,10 @@ pub struct LiveQueryStore {
 
 impl LiveQueryStore {
     /// Construct [`LiveQueryStore`] from configuration.
-    pub fn from_configuration(cfg: Configuration) -> Self {
+    pub fn from_configuration(cfg: Config) -> Self {
         Self {
             queries: IndexMap::new(),
-            query_idle_time: Duration::from_millis(cfg.query_idle_time_ms.into()),
+            query_idle_time: cfg.query_idle_time,
         }
     }
 
@@ -86,13 +86,7 @@ impl LiveQueryStore {
     ///
     /// Not marked as `#[cfg(test)]` because it is used in benches as well.
     pub fn test() -> Self {
-        use iroha_config::base::proxy::Builder as _;
-
-        LiveQueryStore::from_configuration(
-            iroha_config::live_query_store::ConfigurationProxy::default()
-                .build()
-                .expect("Failed to build LiveQueryStore configuration from proxy"),
-        )
+        Self::from_configuration(Config::default())
     }
 
     /// Start [`LiveQueryStore`]. Requires a [`tokio::runtime::Runtime`] being run

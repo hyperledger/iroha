@@ -1,11 +1,12 @@
 //! Module with queue actor
 use core::time::Duration;
+use std::num::NonZeroUsize;
 
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
 use eyre::{Report, Result};
 use indexmap::IndexSet;
-use iroha_config::queue::Configuration;
+use iroha_config::parameters::actual::Queue as Config;
 use iroha_crypto::HashOf;
 use iroha_data_model::{account::AccountId, transaction::prelude::*};
 use iroha_logger::{debug, trace, warn};
@@ -53,9 +54,9 @@ pub struct Queue {
     /// Amount of transactions per user in the queue
     txs_per_user: DashMap<AccountId, usize>,
     /// The maximum number of transactions in the queue
-    max_txs: usize,
+    max_txs: NonZeroUsize,
     /// The maximum number of transactions in the queue per user. Used to apply throttling
-    max_txs_per_user: usize,
+    max_txs_per_user: NonZeroUsize,
     /// Length of time after which transactions are dropped.
     pub tx_time_to_live: Duration,
     /// A point in time that is considered `Future` we cannot use
@@ -98,15 +99,15 @@ pub struct Failure {
 
 impl Queue {
     /// Makes queue from configuration
-    pub fn from_configuration(cfg: &Configuration) -> Self {
+    pub fn from_configuration(cfg: &Config) -> Self {
         Self {
-            tx_hashes: ArrayQueue::new(cfg.max_transactions_in_queue as usize),
+            tx_hashes: ArrayQueue::new(cfg.max_transactions_in_queue.get()),
             accepted_txs: DashMap::new(),
             txs_per_user: DashMap::new(),
-            max_txs: cfg.max_transactions_in_queue as usize,
-            max_txs_per_user: cfg.max_transactions_in_queue_per_user as usize,
-            tx_time_to_live: Duration::from_millis(cfg.transaction_time_to_live_ms),
-            future_threshold: Duration::from_millis(cfg.future_threshold_ms),
+            max_txs: cfg.max_transactions_in_queue,
+            max_txs_per_user: cfg.max_transactions_in_queue_per_user,
+            tx_time_to_live: cfg.transaction_time_to_live,
+            future_threshold: cfg.future_threshold,
         }
     }
 
@@ -209,7 +210,7 @@ impl Queue {
             }
             Entry::Vacant(entry) => entry,
         };
-        if txs_len >= self.max_txs {
+        if txs_len >= self.max_txs.get() {
             warn!(
                 max = self.max_txs,
                 "Achieved maximum amount of transactions"
@@ -349,7 +350,7 @@ impl Queue {
             }
             Entry::Occupied(mut occupied) => {
                 let txs = *occupied.get();
-                if txs >= self.max_txs_per_user {
+                if txs >= self.max_txs_per_user.get() {
                     warn!(
                         max_txs_per_user = self.max_txs_per_user,
                         %account_id,
@@ -380,9 +381,9 @@ impl Queue {
 
 #[cfg(test)]
 mod tests {
-    use std::{str::FromStr, sync::Arc, thread, time::Duration};
+    use std::{ops::Mul, str::FromStr, sync::Arc, thread, time::Duration};
 
-    use iroha_config::{base::proxy::Builder, queue::ConfigurationProxy};
+    // use iroha_config::{base::proxy::Builder, queue::ConfigurationProxy};
     use iroha_data_model::{prelude::*, transaction::TransactionLimits};
     use iroha_primitives::must_use::MustUse;
     use rand::Rng as _;
@@ -425,6 +426,14 @@ mod tests {
         World::with([domain], PeersIds::new())
     }
 
+    fn config_factory() -> Config {
+        Config {
+            transaction_time_to_live: Duration::from_secs(100),
+            max_transactions_in_queue: 100.try_into().unwrap(),
+            ..Config::default()
+        }
+    }
+
     #[test]
     async fn push_tx() {
         let key_pair = KeyPair::generate();
@@ -436,13 +445,7 @@ mod tests {
             query_handle,
         ));
 
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+        let queue = Queue::from_configuration(&config_factory());
 
         queue
             .push(accepted_tx("alice@wonderland", &key_pair), &wsv)
@@ -451,7 +454,7 @@ mod tests {
 
     #[test]
     async fn push_tx_overflow() {
-        let max_txs_in_queue = 10;
+        let max_transactions_in_queue = NonZeroUsize::new(10).unwrap();
 
         let key_pair = KeyPair::generate();
         let kura = Kura::blank_kura_for_testing();
@@ -462,15 +465,13 @@ mod tests {
             query_handle,
         ));
 
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: max_txs_in_queue,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
+        let queue = Queue::from_configuration(&Config {
+            transaction_time_to_live: Duration::from_secs(100),
+            max_transactions_in_queue,
+            ..Config::default()
         });
 
-        for _ in 0..max_txs_in_queue {
+        for _ in 0..max_transactions_in_queue.get() {
             queue
                 .push(accepted_tx("alice@wonderland", &key_pair), &wsv)
                 .expect("Failed to push tx into queue");
@@ -512,13 +513,7 @@ mod tests {
             ))
         };
 
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+        let queue = Queue::from_configuration(&config_factory());
         let instructions: [InstructionBox; 0] = [];
         let tx =
             TransactionBuilder::new(chain_id.clone(), "alice@wonderland".parse().expect("Valid"))
@@ -581,13 +576,7 @@ mod tests {
             kura,
             query_handle,
         ));
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+        let queue = Queue::from_configuration(&config_factory());
         for _ in 0..5 {
             queue
                 .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
@@ -611,13 +600,7 @@ mod tests {
         );
         let tx = accepted_tx("alice@wonderland", &alice_key);
         wsv.transactions.insert(tx.as_ref().hash(), 1);
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+        let queue = Queue::from_configuration(&config_factory());
         assert!(matches!(
             queue.push(tx, &wsv),
             Err(Failure {
@@ -640,13 +623,7 @@ mod tests {
             query_handle,
         );
         let tx = accepted_tx("alice@wonderland", &alice_key);
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+        let queue = Queue::from_configuration(&config_factory());
         queue.push(tx.clone(), &wsv).unwrap();
         wsv.transactions.insert(tx.as_ref().hash(), 1);
         assert_eq!(
@@ -669,13 +646,7 @@ mod tests {
             kura,
             query_handle,
         ));
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 200,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+        let queue = Queue::from_configuration(&config_factory());
         for _ in 0..(max_txs_in_block - 1) {
             queue
                 .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
@@ -719,13 +690,7 @@ mod tests {
             kura,
             query_handle,
         ));
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+        let queue = Queue::from_configuration(&config_factory());
         queue
             .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
             .expect("Failed to push tx into queue");
@@ -759,13 +724,7 @@ mod tests {
             kura,
             query_handle,
         ));
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
-        });
+        let queue = Queue::from_configuration(&config_factory());
         let instructions = [Fail {
             message: "expired".to_owned(),
         }];
@@ -806,12 +765,10 @@ mod tests {
             query_handle,
         );
 
-        let queue = Arc::new(Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100_000_000,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
+        let queue = Arc::new(Queue::from_configuration(&Config {
+            transaction_time_to_live: Duration::from_secs(100),
+            max_transactions_in_queue: 100_000_000.try_into().unwrap(),
+            ..Config::default()
         }));
 
         let start_time = std::time::Instant::now();
@@ -869,7 +826,7 @@ mod tests {
 
     #[test]
     async fn push_tx_in_future() {
-        let future_threshold_ms = 1000;
+        let future_threshold = Duration::from_secs(1);
 
         let alice_id = "alice@wonderland";
         let alice_key = KeyPair::generate();
@@ -881,11 +838,9 @@ mod tests {
             query_handle,
         ));
 
-        let queue = Queue::from_configuration(&Configuration {
-            future_threshold_ms,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
+        let queue = Queue::from_configuration(&Config {
+            future_threshold,
+            ..Config::default()
         });
 
         let tx = accepted_tx(alice_id, &alice_key);
@@ -900,7 +855,7 @@ mod tests {
             .with_executable(tx.0.instructions().clone());
 
             let creation_time: u64 = tx.0.creation_time().as_millis().try_into().unwrap();
-            new_tx.set_creation_time(creation_time + 2 * future_threshold_ms);
+            new_tx.set_creation_time(creation_time + future_threshold.mul(2).as_millis() as u64);
 
             let new_tx = new_tx.sign(&alice_key);
             let limits = TransactionLimits {
@@ -945,13 +900,11 @@ mod tests {
         let query_handle = LiveQueryStore::test().start();
         let mut wsv = WorldStateView::new(world, kura, query_handle);
 
-        let queue = Queue::from_configuration(&Configuration {
-            transaction_time_to_live_ms: 100_000,
-            max_transactions_in_queue: 100,
-            max_transactions_in_queue_per_user: 1,
-            ..ConfigurationProxy::default()
-                .build()
-                .expect("Default queue config should always build")
+        let queue = Queue::from_configuration(&Config {
+            transaction_time_to_live: Duration::from_secs(100),
+            max_transactions_in_queue: 100.try_into().unwrap(),
+            max_transactions_in_queue_per_user: 1.try_into().unwrap(),
+            ..Config::default()
         });
 
         // First push by Alice should be fine

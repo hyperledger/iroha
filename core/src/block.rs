@@ -6,7 +6,7 @@
 //! [`Block`]s are organised into a linear sequence over time (also known as the block chain).
 use std::error::Error as _;
 
-use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
+use iroha_config::parameters::defaults::chain_wide::DEFAULT_CONSENSUS_ESTIMATION;
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
 use iroha_data_model::{
     block::*,
@@ -144,7 +144,10 @@ mod pending {
                     .as_millis()
                     .try_into()
                     .expect("Time should fit into u64"),
-                consensus_estimation_ms: DEFAULT_CONSENSUS_ESTIMATION_MS,
+                consensus_estimation_ms: DEFAULT_CONSENSUS_ESTIMATION
+                    .as_millis()
+                    .try_into()
+                    .expect("Time should fit into u64"),
                 height: previous_height + 1,
                 view_change_index,
                 previous_block_hash,
@@ -437,7 +440,10 @@ mod valid {
             BlockBuilder(Chained(BlockPayload {
                 header: BlockHeader {
                     timestamp_ms: 0,
-                    consensus_estimation_ms: DEFAULT_CONSENSUS_ESTIMATION_MS,
+                    consensus_estimation_ms: DEFAULT_CONSENSUS_ESTIMATION
+                        .as_millis()
+                        .try_into()
+                        .expect("Should never overflow?"),
                     height: 2,
                     view_change_index: 0,
                     previous_block_hash: None,
