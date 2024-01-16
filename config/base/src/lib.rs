@@ -24,7 +24,7 @@ macro_rules! impl_serialize_display {
         impl $crate::serde::Serialize for $ty {
             fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
             where
-                S: Serializer,
+                S: serde::Serializer,
             {
                 serializer.collect_str(self)
             }
@@ -38,7 +38,7 @@ macro_rules! impl_deserialize_from_str {
         impl<'de> $crate::serde::Deserialize<'de> for $ty {
             fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
             where
-                D: Deserializer<'de>,
+                D: serde::Deserializer<'de>,
             {
                 String::deserialize(deserializer)?
                     .parse()
@@ -60,7 +60,13 @@ impl UserDuration {
 
 /// Byte size
 #[derive(Debug, Copy, Clone, Deserialize, Serialize)]
-pub struct ByteSize(pub u64);
+pub struct ByteSize<T>(pub T);
+
+impl<T: Copy> ByteSize<T> {
+    pub fn get(&self) -> T {
+        self.0
+    }
+}
 
 pub trait Complete {
     type Output;
