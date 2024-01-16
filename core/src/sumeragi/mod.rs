@@ -417,8 +417,8 @@ impl VotingBlock {
 
 /// Arguments for [`SumeragiHandle::start`] function
 #[allow(missing_docs)]
-pub struct SumeragiStartArgs<'args> {
-    pub configuration: &'args Configuration,
+pub struct SumeragiStartArgs {
+    pub configuration: Configuration,
     pub events_sender: EventsSender,
     pub wsv: WorldStateView,
     pub queue: Arc<Queue>,

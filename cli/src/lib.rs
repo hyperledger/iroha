@@ -267,8 +267,8 @@ impl Iroha {
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
-        let sumeragi = SumeragiHandle::start(SumeragiStartArgs {
-            configuration: &config.sumeragi,
+        let start_args = SumeragiStartArgs {
+            configuration: config.sumeragi.clone(),
             events_sender: events_sender.clone(),
             wsv,
             queue: Arc::clone(&queue),
@@ -276,7 +276,11 @@ impl Iroha {
             network: network.clone(),
             genesis_network: genesis,
             block_count,
-        });
+        };
+        // Starting Sumeragi requires no async context enabled
+        let sumeragi = tokio::task::spawn_blocking(move || SumeragiHandle::start(start_args))
+            .await
+            .expect("Failed to join task with Sumeragi start");
 
         let block_sync = BlockSynchronizer::from_configuration(
             &config.block_sync,
