@@ -16,6 +16,7 @@ use iroha_data_model::{
     },
     BatchedResponse, BatchedResponseV1, HasMetadata, IdentifiableBox, ValidationFail, Value,
 };
+use iroha_logger::trace;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
@@ -220,12 +221,14 @@ impl LiveQueryStoreHandle {
     }
 
     fn insert(&self, query_id: QueryId, live_query: LiveQuery) -> Result<()> {
+        trace!(%query_id, "Inserting");
         self.message_sender
             .blocking_send(Message::Insert(query_id, live_query))
             .map_err(|_| Error::ConnectionClosed)
     }
 
     fn remove(&self, query_id: QueryId) -> Result<Option<LiveQuery>> {
+        trace!(%query_id, "Removing");
         let (sender, receiver) = oneshot::channel();
 
         self.message_sender
