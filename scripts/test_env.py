@@ -131,8 +131,8 @@ class _Peer:
         # FD never gets closed
         log_file = open(peer_dir.joinpath(".log"), "w")
         # These processes are created detached from the parent process already
-        subprocess.Popen([self.name, genesis_arg], executable=f"{self.out_dir}/peers/iroha",
-                    stdout=log_file, stderr=subprocess.STDOUT)
+        subprocess.Popen([self.name] + (["--submit-genesis"] if submit_genesis else []),
+                    executable=f"{self.out_dir}/peers/iroha", env=peer_env, stdout=stdout_file, stderr=stderr_file)
 
 def pos_int(arg):
     if int(arg) > 0:
