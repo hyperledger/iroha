@@ -18,6 +18,7 @@ iroha = { path = "cli" }
 iroha_dsl = { version = "=2.0.0-pre-rc.20", path = "dsl" }
 iroha_torii = { version = "=2.0.0-pre-rc.20", path = "torii" }
 iroha_torii_derive = { version = "=2.0.0-pre-rc.20", path = "torii/derive" }
+iroha_torii_const = { version = "=2.0.0-pre-rc.20", path = "torii/const" }
 iroha_macro_utils = { version = "=2.0.0-pre-rc.20", path = "macro/utils" }
 iroha_telemetry = { version = "=2.0.0-pre-rc.20", path = "telemetry" }
 iroha_telemetry_derive = { version = "=2.0.0-pre-rc.20", path = "telemetry/derive" }
@@ -242,6 +243,7 @@ members = [
   "tools/wasm_test_runner",
   "torii",
   "torii/derive",
+  "torii/const",
   "version",
   "version/derive",
   "wasm_codec",

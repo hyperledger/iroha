@@ -1,0 +1,21 @@
+[package]
+name = "iroha_torii_const"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+
+description.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iroha_primitives.workspace = true

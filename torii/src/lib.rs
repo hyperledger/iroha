@@ -13,7 +13,7 @@ use std::{
 };
 
 use futures::{stream::FuturesUnordered, StreamExt};
-use iroha_config::torii::Configuration as ToriiConfiguration;
+use iroha_config::parameters::actual::Torii as Config;
 use iroha_core::{
     kiso::{Error as KisoError, KisoHandle},
     kura::Kura,
@@ -25,6 +25,7 @@ use iroha_core::{
 };
 use iroha_data_model::ChainId;
 use iroha_primitives::addr::SocketAddr;
+use iroha_torii_const::uri;
 use tokio::{sync::Notify, task};
 use utils::*;
 use warp::{
@@ -38,44 +39,8 @@ use warp::{
 pub(crate) mod utils;
 mod event;
 mod routing;
+
 mod stream;
-
-pub mod uri {
-    //! URI that [`Torii`](super::Torii) uses to route incoming requests.
-
-    /// Default socket for listening on external requests
-    pub const DEFAULT_API_ADDR: iroha_primitives::addr::SocketAddr =
-        iroha_primitives::addr::socket_addr!(127.0.0.1:8080);
-    /// Query URI is used to handle incoming Query requests.
-    pub const QUERY: &str = "query";
-    /// Transaction URI is used to handle incoming ISI requests.
-    pub const TRANSACTION: &str = "transaction";
-    /// Block URI is used to handle incoming Block requests.
-    pub const CONSENSUS: &str = "consensus";
-    /// Health URI is used to handle incoming Healthcheck requests.
-    pub const HEALTH: &str = "health";
-    /// The URI used for block synchronization.
-    pub const BLOCK_SYNC: &str = "block/sync";
-    /// The web socket uri used to subscribe to block and transactions statuses.
-    pub const SUBSCRIPTION: &str = "events";
-    /// The web socket uri used to subscribe to blocks stream.
-    pub const BLOCKS_STREAM: &str = "block/stream";
-    /// Get pending transactions.
-    pub const PENDING_TRANSACTIONS: &str = "pending_transactions";
-    /// The URI for local config changing inspecting
-    pub const CONFIGURATION: &str = "configuration";
-    /// URI to report status for administration
-    pub const STATUS: &str = "status";
-    ///  Metrics URI is used to export metrics according to [Prometheus
-    ///  Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
-    pub const METRICS: &str = "metrics";
-    /// URI for retrieving the schema with which Iroha was built.
-    pub const SCHEMA: &str = "schema";
-    /// URI for getting the API version currently used
-    pub const API_VERSION: &str = "api_version";
-    /// URI for getting cpu profile
-    pub const PROFILE: &str = "debug/pprof/profile";
-}
 
 /// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii {
@@ -97,7 +62,7 @@ impl Torii {
     pub fn new(
         chain_id: ChainId,
         kiso: KisoHandle,
-        config: &ToriiConfiguration,
+        config: Config,
         queue: Arc<Queue>,
         events: EventsSender,
         notify_shutdown: Arc<Notify>,
@@ -114,8 +79,8 @@ impl Torii {
             sumeragi,
             query_service,
             kura,
-            address: config.api_url.clone(),
-            transaction_max_content_length: config.max_content_len.into(),
+            address: config.address,
+            transaction_max_content_length: config.max_content_len.get(),
         }
     }
 

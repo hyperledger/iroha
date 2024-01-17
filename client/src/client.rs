@@ -13,8 +13,10 @@ use derive_more::{DebugCustom, Display};
 use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
+use iroha_config::client_api::ConfigurationDTO;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
+use iroha_torii_const::uri as torii_uri;
 use iroha_version::prelude::*;
 use parity_scale_codec::DecodeAll;
 use rand::Rng;
@@ -22,7 +24,7 @@ use url::Url;
 
 use self::{blocks_api::AsyncBlockStream, events_api::AsyncEventStream};
 use crate::{
-    config::{api::ConfigurationDTO, Configuration},
+    config::Config,
     crypto::{HashOf, KeyPair},
     data_model::{
         block::SignedBlock,
@@ -361,7 +363,7 @@ pub struct QueryRequest {
 impl QueryRequest {
     #[cfg(test)]
     fn dummy() -> Self {
-        let torii_url = crate::config::torii::DEFAULT_API_ADDR;
+        let torii_url = torii_uri::DEFAULT_API_ADDR;
 
         Self {
             torii_url: format!("http://{torii_url}").parse().unwrap(),
@@ -380,9 +382,7 @@ impl QueryRequest {
     fn assemble(self) -> DefaultRequestBuilder {
         let builder = DefaultRequestBuilder::new(
             HttpMethod::POST,
-            self.torii_url
-                .join(crate::config::torii::QUERY)
-                .expect("Valid URI"),
+            self.torii_url.join(torii_uri::QUERY).expect("Valid URI"),
         )
         .headers(self.headers);
 
@@ -406,7 +406,7 @@ impl Client {
     /// # Errors
     /// If configuration isn't valid (e.g public/private keys don't match)
     #[inline]
-    pub fn new(configuration: &Configuration) -> Result<Self> {
+    pub fn new(configuration: Config) -> Result<Self> {
         Self::with_headers(configuration, HashMap::new())
     }
 
@@ -418,10 +418,19 @@ impl Client {
     /// If configuration isn't valid (e.g public/private keys don't match)
     #[inline]
     pub fn with_headers(
-        configuration: &Configuration,
+        Config {
+            chain_id,
+            account_id,
+            torii_api_url,
+            key_pair,
+            basic_auth,
+            transaction_add_nonce,
+            transaction_ttl,
+            transaction_status_timeout,
+        }: Config,
         mut headers: HashMap<String, String>,
     ) -> Result<Self> {
-        if let Some(basic_auth) = &configuration.basic_auth {
+        if let Some(basic_auth) = basic_auth {
             let credentials = format!("{}:{}", basic_auth.web_login, basic_auth.password);
             let engine = base64::engine::general_purpose::STANDARD;
             let encoded = base64::engine::Engine::encode(&engine, credentials);
@@ -429,21 +438,14 @@ impl Client {
         }
 
         Ok(Self {
-            chain_id: configuration.chain_id.clone(),
-            torii_url: configuration.torii_api_url.clone(),
-            key_pair: KeyPair::new(
-                configuration.public_key.clone(),
-                configuration.private_key.clone(),
-            )?,
-            transaction_ttl: configuration
-                .transaction_time_to_live_ms
-                .map(|ttl| Duration::from_millis(ttl.into())),
-            transaction_status_timeout: Duration::from_millis(
-                configuration.transaction_status_timeout_ms,
-            ),
-            account_id: configuration.account_id.clone(),
+            chain_id,
+            torii_url: torii_api_url,
+            key_pair,
+            transaction_ttl: Some(transaction_ttl),
+            transaction_status_timeout,
+            account_id,
             headers,
-            add_transaction_nonce: configuration.add_transaction_nonce,
+            add_transaction_nonce: transaction_add_nonce,
         })
     }
 
@@ -668,7 +670,7 @@ impl Client {
             B::new(
                 HttpMethod::POST,
                 self.torii_url
-                    .join(crate::config::torii::TRANSACTION)
+                    .join(torii_uri::TRANSACTION)
                     .expect("Valid URI"),
             )
             .headers(self.headers.clone())
@@ -936,7 +938,7 @@ impl Client {
             event_filter,
             self.headers.clone(),
             self.torii_url
-                .join(crate::config::torii::SUBSCRIPTION)
+                .join(torii_uri::SUBSCRIPTION)
                 .expect("Valid URI"),
         )
     }
@@ -972,7 +974,7 @@ impl Client {
             height,
             self.headers.clone(),
             self.torii_url
-                .join(crate::config::torii::BLOCKS_STREAM)
+                .join(torii_uri::BLOCKS_STREAM)
                 .expect("Valid URI"),
         )
     }
@@ -990,7 +992,7 @@ impl Client {
     ) -> Result<Vec<SignedTransaction>> {
         let url = self
             .torii_url
-            .join(crate::config::torii::MATCHING_PENDING_TRANSACTIONS)
+            .join(torii_uri::MATCHING_PENDING_TRANSACTIONS)
             .expect("Valid URI");
         let body = transaction.encode();
 
@@ -1029,7 +1031,7 @@ impl Client {
         let resp = DefaultRequestBuilder::new(
             HttpMethod::GET,
             self.torii_url
-                .join(crate::config::torii::CONFIGURATION)
+                .join(torii_uri::CONFIGURATION)
                 .expect("Valid URI"),
         )
         .headers(&self.headers)
@@ -1055,7 +1057,7 @@ impl Client {
         let body = serde_json::to_vec(&dto).wrap_err(format!("Failed to serialize {dto:?}"))?;
         let url = self
             .torii_url
-            .join(crate::config::torii::CONFIGURATION)
+            .join(torii_uri::CONFIGURATION)
             .expect("Valid URI");
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
             .headers(&self.headers)
@@ -1094,9 +1096,7 @@ impl Client {
     pub fn prepare_status_request<B: RequestBuilder>(&self) -> B {
         B::new(
             HttpMethod::GET,
-            self.torii_url
-                .join(crate::config::torii::STATUS)
-                .expect("Valid URI"),
+            self.torii_url.join(torii_uri::STATUS).expect("Valid URI"),
         )
         .headers(self.headers.clone())
     }

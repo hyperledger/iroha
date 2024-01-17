@@ -88,7 +88,7 @@ pub mod chain_wide {
 pub mod torii {
     use std::time::Duration;
 
-    pub const DEFAULT_MAX_CONTENT_LENGTH: u32 = 2_u32.pow(20) * 16;
+    pub const DEFAULT_MAX_CONTENT_LENGTH: u64 = 2_u64.pow(20) * 16;
     pub const DEFAULT_QUERY_IDLE_TIME: Duration = Duration::from_secs(30);
 }
 

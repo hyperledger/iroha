@@ -2706,6 +2706,7 @@ dependencies = [
  "iroha_logger",
  "iroha_primitives",
  "iroha_telemetry",
+ "iroha_torii_const",
  "iroha_version",
  "iroha_wasm_builder",
  "once_cell",
@@ -3272,6 +3273,7 @@ dependencies = [
  "iroha_primitives",
  "iroha_schema_gen",
  "iroha_telemetry",
+ "iroha_torii_const",
  "iroha_torii_derive",
  "iroha_version",
  "parity-scale-codec",
@@ -3281,6 +3283,13 @@ dependencies = [
  "thiserror",
  "tokio",
  "warp",
+]
+
+[[package]]
+name = "iroha_torii_const"
+version = "2.0.0-pre-rc.20"
+dependencies = [
+ "iroha_primitives",
 ]
 
 [[package]]

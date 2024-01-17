@@ -813,7 +813,7 @@ impl FromEnvDefaultFallback for ChainWide {}
 #[serde(deny_unknown_fields, default)]
 pub struct Torii {
     pub address: UserField<SocketAddr>,
-    pub max_content_len: UserField<ByteSize<u32>>,
+    pub max_content_len: UserField<ByteSize<u64>>,
     pub query_idle_time: UserField<UserDuration>,
 }
 

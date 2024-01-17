@@ -161,7 +161,7 @@ impl Default for WasmRuntime {
 #[derive(Debug)]
 pub struct Torii {
     pub address: SocketAddr,
-    pub max_content_len: ByteSize<u32>,
+    pub max_content_len: ByteSize<u64>,
 }
 
 /// Complete configuration needed to start regular telemetry.

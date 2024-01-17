@@ -327,20 +327,19 @@ pub async fn handle_version(sumeragi: SumeragiHandle) -> Json {
 }
 
 #[cfg(feature = "telemetry")]
-pub fn handle_metrics(sumeragi: &SumeragiHandle) -> Result<String> {
-    if let Err(error) = sumeragi.update_metrics() {
-        iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
-    }
-    sumeragi
-        .metrics()
-        .try_to_string()
-        .map_err(Error::Prometheus)
-}
-
 fn update_metrics_gracefully(sumeragi: &SumeragiHandle) {
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
     }
+}
+
+#[cfg(feature = "telemetry")]
+pub fn handle_metrics(sumeragi: &SumeragiHandle) -> Result<String> {
+    update_metrics_gracefully(sumeragi);
+    sumeragi
+        .metrics()
+        .try_to_string()
+        .map_err(Error::Prometheus)
 }
 
 #[cfg(feature = "telemetry")]

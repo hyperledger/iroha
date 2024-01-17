@@ -49,7 +49,7 @@ macro_rules! impl_deserialize_from_str {
 }
 
 /// User-provided duration
-#[derive(Debug, Copy, Clone, Deserialize, Serialize)]
+#[derive(Debug, Copy, Clone, Deserialize, Serialize, Ord, PartialOrd, Eq, PartialEq)]
 pub struct UserDuration(Duration);
 
 impl UserDuration {
