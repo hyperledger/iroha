@@ -131,6 +131,7 @@ mod seal {
         Transfer<Asset, u32, Account>,
         Transfer<Asset, u128, Account>,
         Transfer<Asset, Fixed, Account>,
+        Transfer<Asset, Metadata, Account>,
 
         Grant<PermissionToken>,
         Grant<RoleId>,

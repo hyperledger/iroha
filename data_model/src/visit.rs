@@ -125,6 +125,7 @@ pub trait Visit {
         visit_transfer_asset_quantity(&Transfer<Asset, u32, Account>),
         visit_transfer_asset_big_quantity(&Transfer<Asset, u128, Account>),
         visit_transfer_asset_fixed(&Transfer<Asset, Fixed, Account>),
+        visit_transfer_asset_store(&Transfer<Asset, Metadata, Account>),
         visit_transfer_domain(&Transfer<Account, DomainId, Account>),
 
         // Visit SetKeyValueBox
@@ -349,6 +350,7 @@ pub fn visit_transfer<V: Visit + ?Sized>(
                 visitor.visit_transfer_asset_big_quantity(authority, obj)
             }
             AssetTransferBox::Fixed(obj) => visitor.visit_transfer_asset_fixed(authority, obj),
+            AssetTransferBox::Store(obj) => visitor.visit_transfer_asset_store(authority, obj),
         },
     }
 }
@@ -425,6 +427,7 @@ leaf_visitors! {
     visit_transfer_asset_quantity(&Transfer<Asset, u32, Account>),
     visit_transfer_asset_big_quantity(&Transfer<Asset, u128, Account>),
     visit_transfer_asset_fixed(&Transfer<Asset, Fixed, Account>),
+    visit_transfer_asset_store(&Transfer<Asset, Metadata, Account>),
     visit_set_asset_key_value(&SetKeyValue<Asset>),
     visit_remove_asset_key_value(&RemoveKeyValue<Asset>),
     visit_register_asset_definition(&Register<AssetDefinition>),
