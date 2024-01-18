@@ -7,6 +7,7 @@ For quick access to a topic that interests you, select one of the following:
 - [Framework Structure](#framework-structure)
 - [Iroha 2 Test Model](#iroha-2-test-model)
 - [Using Test Suites](#using-test-suites)
+	- [Custom Test Environment with Docker Compose](#custom-test-environment-with-docker-compose)
 	- [Poetry Configuration](#poetry-configration)
 	- [Tests Configuration](#tests-configuration)
 - [Running Tests](#running-tests)
@@ -24,7 +25,6 @@ The framework is organized into the following directories:
 The framework also includes the following configuration files in its root directory:
 
 - `poetry.lock` and `pyproject.toml` — configuration files for [Poetry](https://python-poetry.org/), the dependency management and virtual environment tool used in this test framework.
-- `pytest.ini` — configuration file for the `pytest` framework.
 
 All tests are written with [Allure Report](https://allurereport.org/) in mind, and therefore require certain configuration prior to being executed.\
 For details, see [Running Tests](#running-tests) and [Viewing Test Reports](#viewing-test-reports).
@@ -34,18 +34,6 @@ For details, see [Running Tests](#running-tests) and [Viewing Test Reports](#vie
 The Iroha 2 Test Model consists of several test categories that cover different aspects of the Iroha 2 blockchain platform.\
 The test model has the following structure:
 
-- **Configurations**: Test configurations for the Iroha 2 platform.
-
----
-
-- **Accounts**: Test cases for account-related operations, such as account registration, key management, and metadata manipulation.
-- **Assets**: Test cases for asset-related operations, including asset creation, minting, burning, transferring, and managing asset definitions and metadata.
-- **Atomicity**: Test cases for transaction atomicity, including multiple instructions within a single transaction, paired instructions, and invalid instructions.
-- **Domains**: Test cases for domain-related operations, such as registering and unregistering domains.
-- **Roles**: Test cases for roles management.
-
----
-ALT:
 - **Accounts**: Test cases for account-related operations:
 	- `test_accounts_query_filters.py` — various accounts-related filter queries.
 	- `test_register_accounts.py` — account registration.
@@ -64,39 +52,72 @@ ALT:
 	- `test_domains_query_filters.py` — various domain-related filter queries.
 	- `test_register_domains.py` — registering various types of domains.
 	- `test_transfer_domains.py` — transferring a domain.
-- **Roles** Test cases for roles management:
+- **Roles**: Test cases for roles management:
 	- `test_register_roles.py` — registering a role, attaching permissions to a role, granting a role to an account.
 
+<!-- TODO: Add once implemented: - **Configurations**: Test configurations for the Iroha 2 platform. -->
+
 ## Using Test Suites
+
+> [!NOTE]
+> The following instructions assume that you're using the `test_env.py` script that is being provided for the default test environment. However, it is possible to run the tests in a custom test environment set with Docker Compose.
+> For instructions on how to do so, see [Custom Test Environment with Docker Compose](#custom-test-environment-with-docker-compose).
 
 1. Set up a test environment using the [`test_env.py`](../../scripts/test_env.py) file:
 
 	 ```shell
 	 # Must be executed from the repo root:
-	 ./scripts/test_env.py setup
+	 ./scripts/test_env.py setup --release
+	 # or:
+	 ./scripts/test_env.py setup --profile=release
 	 ```
 
-   By default, this builds `iroha`, `iroha_client_cli`, and `kagami`, and runs four peers with their API exposed through the `8080`-`8083` ports.\
+   By default, this builds `iroha`, `iroha_client_cli`, and `kagami` binaries, and runs four peers with their API exposed through the `8080`-`8083` ports.\
 	 This behavior can be reconfigured. You can run `./scripts/test_env.py --help` to see the list of available commands and options.
 
-2. Install and configure [Poetry](https://python-poetry.org/). For details, see [Poetry Configuration](#poetry-configuration) below.
-3. Configure the tests. For details, see [Tests Configuration](#tests-configuration) below.
+2. Install and configure [Poetry](https://python-poetry.org/).\
+	 For details, see [Poetry Configuration](#poetry-configuration) below.
+3. Configure the tests.\
+	 For details, see [Tests Configuration](#tests-configuration) below.
 4. Run the tests:
 
 	 ```shell
 	 poetry run pytest
 	 ```
 
-5. Clean up the test environment:
+5. Once you are done, clean up the test environment:
 
 	 ```shell
 	 # Must be executed from the repo root:
 	 ./scripts/test_env.py cleanup
 	 ```
 
+### Custom Test Environment with Docker Compose
+
+By default, we provide the [`test_env.py`](../../scripts/test_env.py) script to set up a test environment. However, if for any reason the `.py` script is inconvenient, it is possible to run the tests in a custom test environment setup with Docker Compose.
+
+To do so, perform the following steps:
+
+0. Have a local or remote server that has a custom Docker Compose development environment already setup:
+
+	 ```bash
+	 docker-compose -f docker-compose.dev.yml up
+	 ```
+
+1. Build the `iroha_client_cli` binary:
+
+	 ```bash
+	 cargo build --bin iroha_client_cli
+	 ```
+
+2. Copy the [`config.json`](../../configs/client/config.json) file to the `/target/debug` directory within the `iroha_client_cli` root folder.
+3. Proceed with _Step 2_ of the [Using Test Suites](#using-test-suites) instructions.
+
 ### Poetry Configuration
 
-This test framework uses [Poetry](https://python-poetry.org/) for dependency management and virtual environment setup. To get started with Poetry, follow these steps:
+This test framework uses [Poetry](https://python-poetry.org/) for dependency management and virtual environment setup.
+
+To get started with Poetry, follow these steps:
 
 1. Install Poetry by following the [official installation guide](https://python-poetry.org/docs/#installation).
 2. Navigate to the `client_cli/pytests` directory in your terminal.
@@ -127,9 +148,9 @@ Tests are configured via environment variables. These variables can be optionall
 The variables:
 
 - `CLIENT_CLI_DIR` — Specifies a path to a directory containing the `iroha_client_cli` binary and its `config.json` configuration file.\
-Set to `/client_cli`, by default.
+	Set to `/client_cli`, by default.
 - `TORII_API_PORT_MIN`/`TORII_API_PORT_MAX` — This pair specifies the range of local ports through which the Iroha 2 peers are deployed. A randomly selected port from the specified range is used for each test.\
-Set to `8080` and `8083` respectively, by default.
+	Set to `8080` and `8083` respectively, by default.
 
 **Example**:
 
