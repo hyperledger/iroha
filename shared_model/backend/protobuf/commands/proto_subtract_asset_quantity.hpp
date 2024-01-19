@@ -22,10 +22,13 @@ namespace shared_model {
 
       const interface::Amount &amount() const override;
 
+      const std::string &description() const override;
+
      private:
       const iroha::protocol::SubtractAssetQuantity &subtract_asset_quantity_;
 
       const interface::Amount amount_;
+      const std::string description_;
     };
 
   }  // namespace proto

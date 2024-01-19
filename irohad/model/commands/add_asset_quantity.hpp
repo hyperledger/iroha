@@ -27,12 +27,17 @@ namespace iroha {
        */
       std::string amount;
 
+      /**
+       * Description
+       */
+      std::string description;
+
       bool operator==(const Command &command) const override;
 
       AddAssetQuantity() {}
 
-      AddAssetQuantity(const std::string &asset_id, const std::string &amount)
-          : asset_id(asset_id), amount(amount) {}
+      AddAssetQuantity(const std::string &asset_id, const std::string &amount, const std::string &description)
+          : asset_id(asset_id), amount(amount), description(description) {}
     };
   }  // namespace model
 }  // namespace iroha

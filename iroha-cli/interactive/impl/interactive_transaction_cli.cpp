@@ -325,7 +325,8 @@ namespace iroha_cli {
         std::vector<std::string> params) {
       auto asset_id = params[0];
       auto amount = params[1];
-      return generator_.generateAddAssetQuantity(asset_id, amount);
+      auto description = params[2];
+      return generator_.generateAddAssetQuantity(asset_id, amount, description);
     }
 
     std::shared_ptr<iroha::model::Command>
@@ -405,7 +406,8 @@ namespace iroha_cli {
         std::vector<std::string> params) {
       auto asset_id = params[0];
       auto amount = params[1];
-      return generator_.generateSubtractAssetQuantity(asset_id, amount);
+      auto description = params[2];
+      return generator_.generateSubtractAssetQuantity(asset_id, amount, description);
     }
 
     std::shared_ptr<iroha::model::Command>

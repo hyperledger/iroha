@@ -58,6 +58,9 @@ namespace shared_model {
       std::optional<ValidationError> validateAssetId(
           const interface::types::AssetIdType &asset_id) const;
 
+      std::optional<ValidationError> validateDescription(
+          const interface::types::DescriptionType &description) const;
+
       std::optional<ValidationError> validateEvmHexAddress(
           std::string_view address) const;
 
@@ -166,9 +169,6 @@ namespace shared_model {
 
       std::optional<ValidationError> validateQueryPayloadMeta(
           const interface::QueryPayloadMeta &meta) const;
-
-      std::optional<ValidationError> validateDescription(
-          const interface::types::DescriptionType &description) const;
 
       std::optional<ValidationError> validateBatchMeta(
           const interface::BatchMeta &description) const;
