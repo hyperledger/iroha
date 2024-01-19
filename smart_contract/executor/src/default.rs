@@ -1276,6 +1276,7 @@ pub mod parameter {
 
 pub mod role {
     use iroha_smart_contract::data_model::role::Role;
+    use role::tokens::AnyPermissionToken;
 
     use super::*;
 
@@ -1292,29 +1293,27 @@ pub mod role {
             let role = Role::try_from(find_role_query_res).unwrap();
 
             let mut unknown_tokens = Vec::new();
-            for token in role.permissions() {
-                macro_rules! visit_internal {
-                    ($token:ident) => {
-                        if !is_genesis($executor) {
-                            if let Err(error) = permission::ValidateGrantRevoke::$method(
-                                    &$token,
-                                    $authority,
-                                    $executor.block_height(),
-                                )
-                            {
-                                deny!($executor, error);
-                            }
+            if !is_genesis($executor) {
+                for token in role.permissions() {
+                    if let Ok(token) = AnyPermissionToken::try_from(token.clone()) {
+                        if let Err(error) = permission::ValidateGrantRevoke::$method(
+                            &token,
+                            $authority,
+                            $executor.block_height(),
+                        ) {
+                            deny!($executor, error);
                         }
-
                         continue;
-                    };
-                }
+                    }
 
-                tokens::map_token!(token => visit_internal);
-                unknown_tokens.push(token);
+                    unknown_tokens.push(token);
+                }
             }
 
-            assert!(unknown_tokens.is_empty(), "Role contains unknown permission tokens: {unknown_tokens:?}");
+            assert!(
+                unknown_tokens.is_empty(),
+                "Role contains unknown permission tokens: {unknown_tokens:?}"
+            );
             execute!($executor, $isi)
         };
     }
@@ -1333,15 +1332,12 @@ pub mod role {
         for token in role.permissions() {
             iroha_smart_contract::debug!(&format!("Checking `{token:?}`"));
 
-            macro_rules! try_from_token {
-                ($token:ident) => {
-                    let token = PermissionToken::from($token);
-                    new_role = new_role.add_permission(token);
-                    continue;
-                };
+            if let Ok(any_token) = AnyPermissionToken::try_from(token.clone()) {
+                let token = PermissionToken::from(any_token);
+                new_role = new_role.add_permission(token);
+                continue;
             }
 
-            tokens::map_token!(token => try_from_token);
             unknown_tokens.push(token);
         }
 
@@ -1578,6 +1574,8 @@ pub mod trigger {
 }
 
 pub mod permission_token {
+    use tokens::AnyPermissionToken;
+
     use super::*;
 
     macro_rules! impl_validate {
@@ -1586,26 +1584,22 @@ pub mod permission_token {
             let token = $isi.object().clone();
             let account_id = $isi.destination_id().clone();
 
-            macro_rules! visit_internal {
-                ($token:ident) => {
-                    let token = PermissionToken::from($token.clone());
-                    let isi = <$isi_type>::permission(token, account_id);
-                    if is_genesis($executor) {
-                        execute!($executor, isi);
-                    }
-                    if let Err(error) = permission::ValidateGrantRevoke::$method(
-                        &$token,
-                        $authority,
-                        $executor.block_height(),
-                    ) {
-                        deny!($executor, error);
-                    }
-
+            if let Ok(any_token) = AnyPermissionToken::try_from(token.clone()) {
+                let token = PermissionToken::from(any_token.clone());
+                let isi = <$isi_type>::permission(token, account_id);
+                if is_genesis($executor) {
                     execute!($executor, isi);
-                };
-            }
+                }
+                if let Err(error) = permission::ValidateGrantRevoke::$method(
+                    &any_token,
+                    $authority,
+                    $executor.block_height(),
+                ) {
+                    deny!($executor, error);
+                }
 
-            tokens::map_token!(token => visit_internal);
+                execute!($executor, isi);
+            }
 
             deny!(
                 $executor,
