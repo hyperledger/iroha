@@ -29,20 +29,6 @@ use crate::permission::{self, Token as _};
 /// ```
 macro_rules! declare_tokens {
     ($($($token_path:ident ::)+ { $token_ty:ident }),+ $(,)?) => {
-        macro_rules! map_token {
-            ($token:ident => $callback:ident) => {
-                match $token.definition_id().as_ref() { $(
-                    stringify!($token_ty) => {
-                        if let Ok(token) = <$($token_path::)+$token_ty>::try_from($token.clone()) {
-                            $callback!(token);
-                        }
-                    } )+
-                    _ => {}
-                }
-
-            };
-        }
-
         macro_rules! map_token_type {
             ($callback:ident) => { $(
                 $callback!($($token_path::)+$token_ty); )+
@@ -51,16 +37,17 @@ macro_rules! declare_tokens {
 
         /// Enum with every default token
         #[allow(clippy::enum_variant_names)]
+        #[derive(Clone)]
         pub(crate) enum AnyPermissionToken {
             $(
                 $token_ty($($token_path::)+$token_ty),
             )*
         }
 
-        impl TryFrom<::iroha_smart_contract::data_model::permission::PermissionToken> for AnyPermissionToken {
+        impl TryFrom<$crate::data_model::permission::PermissionToken> for AnyPermissionToken {
             type Error = $crate::permission::PermissionTokenConversionError;
 
-            fn try_from(token: ::iroha_smart_contract::data_model::permission::PermissionToken) -> Result<Self, Self::Error> {
+            fn try_from(token: $crate::data_model::permission::PermissionToken) -> Result<Self, Self::Error> {
                 match token.definition_id().as_ref() { $(
                     stringify!($token_ty) => {
                         let token = <$($token_path::)+$token_ty>::try_from(token)?;
@@ -71,7 +58,35 @@ macro_rules! declare_tokens {
             }
         }
 
-        pub(crate) use map_token;
+        impl From<AnyPermissionToken> for $crate::data_model::permission::PermissionToken {
+            fn from(token: AnyPermissionToken) -> Self {
+                match token {
+                    $(
+                        AnyPermissionToken::$token_ty(token) => Self::from(token),
+                    )*
+                }
+            }
+        }
+
+        impl $crate::permission::ValidateGrantRevoke for AnyPermissionToken {
+            fn validate_grant(&self, authority: &AccountId, block_height: u64) -> Result {
+                match self {
+                    $(
+                        AnyPermissionToken::$token_ty(token) => token.validate_grant(authority, block_height),
+                    )*
+                }
+
+            }
+
+            fn validate_revoke(&self, authority: &AccountId, block_height: u64) -> Result {
+                match self {
+                    $(
+                        AnyPermissionToken::$token_ty(token) => token.validate_revoke(authority, block_height),
+                    )*
+                }
+            }
+        }
+
         pub(crate) use map_token_type;
     };
 }
