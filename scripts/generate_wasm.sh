@@ -1,18 +1,20 @@
-#!/bin/bash
+#!/bin/sh
 
-if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 <source-dir>"
-    exit 1
+# Default source directory
+DEFAULT_SOURCE_DIR="client/tests/integration/smartcontracts"
+
+# If no arguments are provided, use the default source directory
+if [ "$#" -eq 0 ]; then
+    SOURCE_DIR="$DEFAULT_SOURCE_DIR"
+else
+    SOURCE_DIR="$1"
 fi
-
-# First argument is the source directory
-SOURCE_DIR="$1"
 
 TARGET_DIR="test-smartcontracts"
 
 mkdir -p "$TARGET_DIR"
 
-for folder in "$SOURCE_DIR"/**; do
+for folder in "$SOURCE_DIR"/*; do
     if [ -d "$folder" ] && [ "$(basename "$folder")" != ".cargo" ]; then
 
         folder_name=$(basename "$folder")
@@ -24,9 +26,3 @@ for folder in "$SOURCE_DIR"/**; do
 done
 
 echo "Smart contracts build complete."
-
-# How to run:
-# make sure you root from the root directrory if iroha or
-# any iroha directory that is not a package in the working space
-# run the following command:
-# ./path/to/script/generate_wasm.sh /path/to/smart_contracts

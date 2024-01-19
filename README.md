@@ -87,6 +87,13 @@ bash ./scripts/test_env.sh setup
 bash ./scripts/tests/register_mint_quantity.sh
 bash ./scripts/test_env.sh cleanup
 ```
+To generate WASM files for smart contracts, use the provided script `generate_wasm.sh`. If you are in the root directory of iroha run the following command:
+
+```bash
+bash ./scripts/generate_wasm.sh [path/to/smartcontracts]
+```
+
+The generated WASM files will be saved in a generated directory `test-smartcontracts`, relative to your current working directory. The default path for smart contracts in this project is `client/tests/integration/smartcontracts`.
 
 </details>
 
