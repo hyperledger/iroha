@@ -57,6 +57,11 @@ pub fn default_permission_token_schema() -> PermissionTokenSchema {
     schema
 }
 
+// NOTE: If any new `visit_..` functions are introduced in this module, one should
+// not forget to update the default executor boilerplate too, specifically the
+// `iroha_executor::derive::default::impl_derive_visit` function
+// signature list.
+
 /// Default validation for [`SignedTransaction`].
 ///
 /// # Warning
@@ -168,7 +173,7 @@ pub mod peer {
 }
 
 pub mod domain {
-    use permission::domain::is_domain_owner;
+    use permission::{account::is_account_owner, domain::is_domain_owner};
 
     use super::*;
 
@@ -210,12 +215,18 @@ pub mod domain {
         authority: &AccountId,
         isi: &Transfer<Account, DomainId, Account>,
     ) {
-        let destination_id = isi.object();
+        let source_id = isi.source_id();
+        let domain_id = isi.object();
 
         if is_genesis(executor) {
             execute!(executor, isi);
         }
-        match is_domain_owner(destination_id, authority) {
+        match is_account_owner(source_id, authority) {
+            Err(err) => deny!(executor, err),
+            Ok(true) => execute!(executor, isi),
+            Ok(false) => {}
+        }
+        match is_domain_owner(domain_id, source_id) {
             Err(err) => deny!(executor, err),
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
@@ -282,10 +293,28 @@ pub mod account {
 
     pub fn visit_register_account<V: Validate + ?Sized>(
         executor: &mut V,
-        _authority: &AccountId,
+        authority: &AccountId,
         isi: &Register<Account>,
     ) {
-        execute!(executor, isi)
+        let domain_id = isi.object().id().domain_id();
+
+        match permission::domain::is_domain_owner(domain_id, authority) {
+            Err(err) => deny!(executor, err),
+            Ok(true) => execute!(executor, isi),
+            Ok(false) => {}
+        }
+
+        let can_register_account_in_domain = tokens::domain::CanRegisterAccountInDomain {
+            domain_id: domain_id.clone(),
+        };
+        if can_register_account_in_domain.is_owned_by(authority) {
+            execute!(executor, isi);
+        }
+
+        deny!(
+            executor,
+            "Can't register account in a domain owned by another account"
+        );
     }
 
     pub fn visit_unregister_account<V: Validate + ?Sized>(
@@ -458,10 +487,29 @@ pub mod asset_definition {
 
     pub fn visit_register_asset_definition<V: Validate + ?Sized>(
         executor: &mut V,
-        _authority: &AccountId,
+        authority: &AccountId,
         isi: &Register<AssetDefinition>,
     ) {
-        execute!(executor, isi);
+        let domain_id = isi.object().id().domain_id();
+
+        match permission::domain::is_domain_owner(domain_id, authority) {
+            Err(err) => deny!(executor, err),
+            Ok(true) => execute!(executor, isi),
+            Ok(false) => {}
+        }
+
+        let can_register_asset_definition_in_domain_token =
+            tokens::domain::CanRegisterAssetDefinitionInDomain {
+                domain_id: domain_id.clone(),
+            };
+        if can_register_asset_definition_in_domain_token.is_owned_by(authority) {
+            execute!(executor, isi);
+        }
+
+        deny!(
+            executor,
+            "Can't register asset definition in a domain owned by another account"
+        );
     }
 
     pub fn visit_unregister_asset_definition<V: Validate + ?Sized>(
@@ -489,7 +537,7 @@ pub mod asset_definition {
 
         deny!(
             executor,
-            "Can't unregister assets registered by other accounts"
+            "Can't unregister asset definition in a domain owned by another account"
         );
     }
 
@@ -603,7 +651,7 @@ pub mod asset {
             Ok(false) => {}
         }
         let can_register_assets_with_definition_token =
-            tokens::asset::CanRegisterAssetsWithDefinition {
+            tokens::asset::CanRegisterAssetWithDefinition {
                 asset_definition_id: asset.id().definition_id().clone(),
             };
         if can_register_assets_with_definition_token.is_owned_by(authority) {
@@ -637,7 +685,7 @@ pub mod asset {
             Ok(false) => {}
         }
         let can_unregister_assets_with_definition_token =
-            tokens::asset::CanUnregisterAssetsWithDefinition {
+            tokens::asset::CanUnregisterAssetWithDefinition {
                 asset_definition_id: asset_id.definition_id().clone(),
             };
         if can_unregister_assets_with_definition_token.is_owned_by(authority) {
@@ -668,10 +716,16 @@ pub mod asset {
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        let can_mint_assets_with_definition_token = tokens::asset::CanMintAssetsWithDefinition {
+        let can_mint_assets_with_definition_token = tokens::asset::CanMintAssetWithDefinition {
             asset_definition_id: asset_id.definition_id().clone(),
         };
         if can_mint_assets_with_definition_token.is_owned_by(authority) {
+            execute!(executor, isi);
+        }
+        let can_mint_user_asset_token = tokens::asset::CanMintUserAsset {
+            asset_id: asset_id.clone(),
+        };
+        if can_mint_user_asset_token.is_owned_by(authority) {
             execute!(executor, isi);
         }
 
@@ -725,7 +779,7 @@ pub mod asset {
             Ok(true) => execute!(executor, isi),
             Ok(false) => {}
         }
-        let can_burn_assets_with_definition_token = tokens::asset::CanBurnAssetsWithDefinition {
+        let can_burn_assets_with_definition_token = tokens::asset::CanBurnAssetWithDefinition {
             asset_definition_id: asset_id.definition_id().clone(),
         };
         if can_burn_assets_with_definition_token.is_owned_by(authority) {
@@ -789,7 +843,7 @@ pub mod asset {
             Ok(false) => {}
         }
         let can_transfer_assets_with_definition_token =
-            tokens::asset::CanTransferAssetsWithDefinition {
+            tokens::asset::CanTransferAssetWithDefinition {
                 asset_definition_id: asset_id.definition_id().clone(),
             };
         if can_transfer_assets_with_definition_token.is_owned_by(authority) {
@@ -1182,7 +1236,7 @@ pub mod permission_token {
             macro_rules! visit_internal {
                 ($token:ident) => {
                     let token = PermissionToken::from($token.clone());
-                    let isi = <$isi_type>::permission_token(token, account_id);
+                    let isi = <$isi_type>::permission(token, account_id);
                     if is_genesis($executor) {
                         execute!($executor, isi);
                     }

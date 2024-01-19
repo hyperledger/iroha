@@ -127,21 +127,21 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
     )?;
 
     let mut genesis = RawGenesisBlockBuilder::default()
-            .domain_with_metadata("wonderland".parse()?, meta.clone())
-            .account_with_metadata(
-                "alice".parse()?,
-                crate::DEFAULT_PUBLIC_KEY.parse()?,
-                meta.clone(),
-            )
-            .account_with_metadata("bob".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?, meta) // TODO: This should fail under SS58
-            .asset("rose".parse()?, AssetValueType::Quantity)
-            .finish_domain()
-            .domain("garden_of_live_flowers".parse()?)
-            .account("carpenter".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
-            .asset("cabbage".parse()?, AssetValueType::Quantity)
-            .finish_domain()
-            .executor(executor)
-            .build();
+        .domain_with_metadata("wonderland".parse()?, meta.clone())
+        .account_with_metadata(
+            "alice".parse()?,
+            crate::DEFAULT_PUBLIC_KEY.parse()?,
+            meta.clone(),
+        )
+        .account_with_metadata("bob".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?, meta)
+        .asset("rose".parse()?, AssetValueType::Quantity)
+        .finish_domain()
+        .domain("garden_of_live_flowers".parse()?)
+        .account("carpenter".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
+        .asset("cabbage".parse()?, AssetValueType::Quantity)
+        .finish_domain()
+        .executor(executor)
+        .build();
 
     let alice_id = AccountId::from_str("alice@wonderland")?;
     let mint = Mint::asset_quantity(
@@ -152,8 +152,13 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
         44_u32,
         AssetId::new("cabbage#garden_of_live_flowers".parse()?, alice_id.clone()),
     );
-    let grant_permission_to_set_parameters = Grant::permission_token(
+    let grant_permission_to_set_parameters = Grant::permission(
         PermissionToken::new("CanSetParameters".parse()?, &json!(null)),
+        alice_id.clone(),
+    );
+    let transfer_domain_ownerhip = Transfer::domain(
+        "genesis@genesis".parse()?,
+        "wonderland".parse()?,
         alice_id.clone(),
     );
     let register_user_metadata_access = Register::role(
@@ -192,6 +197,7 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
     for isi in [
         mint.into(),
         mint_cabbage.into(),
+        transfer_domain_ownerhip.into(),
         grant_permission_to_set_parameters.into(),
     ]
     .into_iter()

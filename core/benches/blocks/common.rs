@@ -66,7 +66,7 @@ pub fn populate_wsv(
         let domain_id = construct_domain_id(i);
         let domain = Domain::new(domain_id.clone());
         instructions.push(Register::domain(domain).into());
-        let can_unregister_domain = Grant::permission_token(
+        let can_unregister_domain = Grant::permission(
             PermissionToken::new(
                 "CanUnregisterDomain".parse().unwrap(),
                 &json!({ "domain_id": domain_id.clone() }),
@@ -78,7 +78,7 @@ pub fn populate_wsv(
             let account_id = construct_account_id(j, domain_id.clone());
             let account = Account::new(account_id.clone(), []);
             instructions.push(Register::account(account).into());
-            let can_unregister_account = Grant::permission_token(
+            let can_unregister_account = Grant::permission(
                 PermissionToken::new(
                     "CanUnregisterAccount".parse().unwrap(),
                     &json!({ "account_id": account_id.clone() }),
@@ -94,7 +94,7 @@ pub fn populate_wsv(
                 iroha_data_model::asset::AssetValueType::Quantity,
             );
             instructions.push(Register::asset_definition(asset_definition).into());
-            let can_unregister_asset_definition = Grant::permission_token(
+            let can_unregister_asset_definition = Grant::permission(
                 PermissionToken::new(
                     "CanUnregisterAssetDefinition".parse().unwrap(),
                     &json!({ "asset_definition_id": asset_definition_id }),
@@ -203,14 +203,14 @@ fn construct_domain_id(i: usize) -> DomainId {
 
 fn construct_account_id(i: usize, domain_id: DomainId) -> AccountId {
     AccountId::new(
-        Name::from_str(&format!("non_inlinable_account_name_{i}")).unwrap(),
         domain_id,
+        Name::from_str(&format!("non_inlinable_account_name_{i}")).unwrap(),
     )
 }
 
 fn construct_asset_definition_id(i: usize, domain_id: DomainId) -> AssetDefinitionId {
     AssetDefinitionId::new(
-        Name::from_str(&format!("non_inlinable_asset_definition_name_{i}")).unwrap(),
         domain_id,
+        Name::from_str(&format!("non_inlinable_asset_definition_name_{i}")).unwrap(),
     )
 }

@@ -269,7 +269,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     };
 
     let grant_alice_asset_transfer_permission = |asset_id: AssetId, owner_keypair: KeyPair| {
-        let allow_alice_to_transfer_asset = Grant::permission_token(
+        let allow_alice_to_transfer_asset = Grant::permission(
             PermissionToken::new(
                 "CanTransferUserAsset".parse().unwrap(),
                 &json!({ "asset_id": asset_id }),
@@ -426,16 +426,16 @@ fn transfer_asset_definition() {
 
 fn account_id_new(account_name: &str, account_domain: &str) -> AccountId {
     AccountId::new(
-        account_name.parse().expect("Valid"),
         account_domain.parse().expect("Valid"),
+        account_name.parse().expect("Valid"),
     )
 }
 
 fn asset_id_new(definition_name: &str, definition_domain: &str, account_id: AccountId) -> AssetId {
     AssetId::new(
         AssetDefinitionId::new(
-            definition_name.parse().expect("Valid"),
             definition_domain.parse().expect("Valid"),
+            definition_name.parse().expect("Valid"),
         ),
         account_id,
     )
@@ -451,8 +451,8 @@ mod register {
     pub fn account(account_name: &str, domain_name: &str) -> Register<Account> {
         Register::account(Account::new(
             AccountId::new(
-                account_name.parse().expect("Valid"),
                 domain_name.parse().expect("Valid"),
+                account_name.parse().expect("Valid"),
             ),
             [],
         ))
@@ -460,8 +460,8 @@ mod register {
 
     pub fn asset_definition(asset_name: &str, domain_name: &str) -> Register<AssetDefinition> {
         Register::asset_definition(AssetDefinition::quantity(AssetDefinitionId::new(
-            asset_name.parse().expect("Valid"),
             domain_name.parse().expect("Valid"),
+            asset_name.parse().expect("Valid"),
         )))
     }
 }

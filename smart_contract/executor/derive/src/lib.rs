@@ -128,6 +128,7 @@ pub fn derive_token(input: TokenStream) -> Result<TokenStream> {
 /// - `asset_definition::Owner` - checks if the authority is the asset definition owner;
 /// - `asset::Owner` - checks if the authority is the asset owner;
 /// - `account::Owner` - checks if the authority is the account owner.
+/// - `domain::Owner` - checks if the authority is the domain owner.
 /// - `AlwaysPass` - checks nothing and always passes.
 /// - `OnlyGenesis` - checks that block height is 0.
 ///

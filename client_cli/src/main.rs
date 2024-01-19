@@ -724,7 +724,7 @@ mod account {
                 permission,
                 metadata,
             } = self;
-            let grant = iroha_client::data_model::isi::Grant::permission_token(permission.0, id);
+            let grant = iroha_client::data_model::isi::Grant::permission(permission.0, id);
             submit([grant], metadata.load()?, context)
                 .wrap_err("Failed to grant the permission to the account")
         }

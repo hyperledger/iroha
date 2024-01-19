@@ -112,7 +112,7 @@ pub mod isi {
                         Err(MathError::Overflow.into())
                     }
                 })
-                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))??;
+                .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))??;
 
             triggers.mod_repeats(&id, |n| {
                 n.checked_add(self.object)
@@ -181,7 +181,7 @@ pub mod isi {
                         )))
                     }
                 })
-                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))
+                .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))
                 .and_then(core::convert::identity)?;
 
             wsv.execute_trigger(id.clone(), authority);

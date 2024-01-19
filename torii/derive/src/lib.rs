@@ -39,7 +39,7 @@ use syn2::{
 /// use warp::{Rejection, Filter};
 /// use std::{convert::Infallible, marker::PhantomData};
 /// pub struct WarpResult<O, E>(Result<O, E>);
-/// use iroha_torii_macro::generate_endpoints;
+/// use iroha_torii_derive::generate_endpoints;
 ///
 /// // An example with arguments of both acceptable kinds.
 /// // This would generate endpoints accepting functions with
