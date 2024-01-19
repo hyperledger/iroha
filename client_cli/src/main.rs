@@ -795,8 +795,8 @@ mod asset {
     /// Register subcommand of asset
     #[derive(clap::Args, Debug)]
     pub struct Register {
-        /// Asset definition id for registering (in form of `name#domain_name')
-        #[arg(short, long)]
+        /// Asset definition id for registering (in form of `asset#domain_name`)
+        #[arg(long)]
         pub definition_id: AssetDefinitionId,
         /// Mintability of asset
         #[arg(short, long)]
@@ -835,7 +835,7 @@ mod asset {
     /// Command for minting asset in existing Iroha account
     #[derive(clap::Args, Debug)]
     pub struct Mint {
-        /// AssetId for the asset (in form of `asset##account@domain_name')
+        /// Asset id for the asset (in form of `asset##account@domain_name`)
         #[arg(long)]
         pub asset_id: AssetId,
         /// Quantity to mint
@@ -862,7 +862,7 @@ mod asset {
     /// Command for minting asset in existing Iroha account
     #[derive(clap::Args, Debug)]
     pub struct Burn {
-        /// AssetId for the asset (in form of `asset##account@domain_name')
+        /// Asset id for the asset (in form of `asset##account@domain_name`)
         #[arg(long)]
         pub asset_id: AssetId,
         /// Quantity to mint
@@ -889,10 +889,10 @@ mod asset {
     /// Transfer asset between accounts
     #[derive(clap::Args, Debug)]
     pub struct Transfer {
-        /// Account to which to transfer (in form `name@domain_name')
-        #[arg(short, long)]
+        /// Account to which to transfer (in form `name@domain_name`)
+        #[arg(long)]
         pub to: AccountId,
-        /// Asset id to transfer (in form like `asset##account@domain_name')
+        /// Asset id to transfer (in form like `asset##account@domain_name`)
         #[arg(long)]
         pub asset_id: AssetId,
         /// Quantity of asset as number
@@ -919,7 +919,7 @@ mod asset {
     /// Get info of asset
     #[derive(clap::Args, Debug)]
     pub struct Get {
-        /// AssetId for the asset (in form of `asset##account@domain_name')
+        /// Asset id for the asset (in form of `asset##account@domain_name`)
         #[arg(long)]
         pub asset_id: AssetId,
     }
@@ -966,7 +966,7 @@ mod asset {
 
     #[derive(clap::Args, Debug)]
     pub struct SetKeyValue {
-        /// AssetId for the Store asset (in form of `asset##account@domain_name')
+        /// Asset id for the Store asset (in form of `asset##account@domain_name`)
         #[clap(long)]
         pub asset_id: AssetId,
         /// The key for the store value
@@ -998,7 +998,7 @@ mod asset {
     }
     #[derive(clap::Args, Debug)]
     pub struct RemoveKeyValue {
-        /// AssetId for the Store asset (in form of `asset##account@domain_name')
+        /// Asset id for the Store asset (in form of `asset##account@domain_name`)
         #[clap(long)]
         pub asset_id: AssetId,
         /// The key for the store value
@@ -1017,7 +1017,7 @@ mod asset {
 
     #[derive(clap::Args, Debug)]
     pub struct GetKeyValue {
-        /// AssetId for the Store asset (in form of `asset##account@domain_name')
+        /// Asset id for the Store asset (in form of `asset##account@domain_name`)
         #[clap(long)]
         pub asset_id: AssetId,
         /// The key for the store value
