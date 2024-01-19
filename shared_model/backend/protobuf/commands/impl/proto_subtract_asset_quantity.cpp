@@ -22,5 +22,9 @@ namespace shared_model {
       return amount_;
     }
 
+    const std::string &SubtractAssetQuantity::description() const {
+      return description_;
+    }
+
   }  // namespace proto
 }  // namespace shared_model

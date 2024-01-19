@@ -200,7 +200,7 @@ namespace iroha {
         subtract_asset_quantity.asset_id =
             pb_subtract_asset_quantity.asset_id();
         subtract_asset_quantity.amount = pb_subtract_asset_quantity.amount();
-
+        subtract_asset_quantity.description = pb_subtract_asset_quantity.description();
         return subtract_asset_quantity;
       }
 

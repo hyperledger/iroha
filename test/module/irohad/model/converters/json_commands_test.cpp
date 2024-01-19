@@ -71,6 +71,7 @@ TEST_F(JsonCommandTest, InvalidWhenUnknownCommandType) {
     "command_type": "Unknown",
     "account_id": "admin@test",
     "asset_id": "usd#test",
+    "description": "testdescription",
     "amount": {
         "int_part": -20,
         "frac_part": 0
@@ -95,6 +96,7 @@ TEST_F(JsonCommandTest, add_asset_quantity) {
 
   orig_command->amount = "1.50";
   orig_command->asset_id = "23";
+  orig_command->description = "testdescription";
 
   auto json_command = factory.serializeAddAssetQuantity(orig_command);
   auto serial_command = factory.deserializeAddAssetQuantity(json_command);
