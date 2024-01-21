@@ -1018,8 +1018,7 @@ impl Client {
             .join(crate::config::torii::PENDING_TRANSACTION)
             .expect("Valid URI");
         let pagination = pagination.into_query_parameters();
-        let body = serde_json::to_vec(transaction.payload())
-            .wrap_err("Failed to serialize SignedTransaction.payload")?;
+        let body = transaction.encode();
 
         for _ in 0..retry_count {
             let response = DefaultRequestBuilder::new(HttpMethod::POST, url.clone())

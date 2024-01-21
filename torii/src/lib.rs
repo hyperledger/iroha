@@ -143,7 +143,7 @@ impl Torii {
                     warp::path(uri::PENDING_TRANSACTION)
                         .and(add_state!(self.queue, self.sumeragi))
                         .and(routing::paginate())
-                        .and(warp::body::json()),
+                        .and(body::versioned()),
                 ))
                 .or(endpoint3(
                     routing::handle_queries,

@@ -152,7 +152,7 @@ pub async fn handle_pending_transactions(
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
     pagination: Pagination,
-    payload: TransactionPayload,
+    transaction: SignedTransaction,
 ) -> Result<Scale<Option<SignedTransaction>>> {
     let query_response = sumeragi.apply_wsv(|wsv| {
         queue
@@ -162,7 +162,7 @@ pub async fn handle_pending_transactions(
             .find(|current_transaction: &SignedTransaction| {
                 TransactionPayload::equals_excluding_creation_time(
                     current_transaction.payload(),
-                    &payload,
+                    transaction.payload(),
                 )
             })
     });
