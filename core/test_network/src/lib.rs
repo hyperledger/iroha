@@ -9,19 +9,14 @@ use futures::{prelude::*, stream::FuturesUnordered};
 use iroha::Iroha;
 use iroha_client::{
     client::{Client, QueryOutput},
+    config::Config as ClientConfiguration,
     data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query, Level},
 };
-use iroha_config::{
-    base::proxy::{LoadFromEnv, Override},
-    iroha::{Configuration, ConfigurationProxy},
-    r#mod::Configuration as ClientConfiguration,
-    sumeragi::Configuration as SumeragiConfiguration,
-    torii::Configuration as ToriiConfiguration,
-};
+use iroha_config::parameters::actual::Root as Configuration;
 use iroha_crypto::prelude::*;
 use iroha_data_model::ChainId;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
-use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
+use iroha_logger::InstrumentFutures;
 use iroha_primitives::{
     addr::{socket_addr, SocketAddr},
     unique_vec,
@@ -52,7 +47,7 @@ pub struct Network {
 
 /// Get a standardized blockchain id
 pub fn get_chain_id() -> ChainId {
-    ChainId::new("0")
+    ChainId::from("0")
 }
 
 /// Get a standardised key-pair from the hard-coded literals.
@@ -131,13 +126,15 @@ impl TestGenesis for GenesisNetwork {
             first_transaction.append_instruction(isi);
         }
 
-        let chain_id = ChainId::new("0");
-        let key_pair = KeyPair::new(
-            cfg.genesis.public_key.clone(),
-            cfg.genesis.private_key.expect("Should be"),
-        )
-        .expect("Genesis key pair should be valid");
-        GenesisNetwork::new(genesis, &chain_id, &key_pair).expect("Failed to init genesis")
+        GenesisNetwork::new(genesis, &cfg.iroha.chain_id, {
+            use iroha_config::parameters::actual::Genesis;
+            if let Genesis::Full { key_pair, .. } = &cfg.genesis {
+                key_pair
+            } else {
+                unreachable!("test config should contain full genesis config (or it is a bug)")
+            }
+        })
+        .expect("Failed to init genesis")
     }
 }
 
@@ -219,7 +216,7 @@ impl Network {
         );
 
         let mut config = Configuration::test();
-        config.sumeragi.trusted_peers.peers =
+        config.sumeragi.trusted_peers =
             UniqueVec::from_iter(self.peers().map(|peer| &peer.id).cloned());
 
         let peer = PeerBuilder::new()
@@ -274,7 +271,7 @@ impl Network {
             .collect::<Result<Vec<_>>>()?;
 
         let mut configuration = default_configuration.unwrap_or_else(Configuration::test);
-        configuration.sumeragi.trusted_peers.peers =
+        configuration.sumeragi.trusted_peers =
             UniqueVec::from_iter(peers.iter().map(|peer| peer.id.clone()));
 
         let mut genesis_peer = peers.remove(0);
@@ -401,22 +398,18 @@ impl Drop for Peer {
 impl Peer {
     /// Returns per peer config with all addresses, keys, and id set up.
     fn get_config(&self, configuration: Configuration) -> Configuration {
+        use iroha_config::parameters::actual::{Iroha, Torii};
+
         Configuration {
-            sumeragi: Box::new(SumeragiConfiguration {
+            iroha: Iroha {
                 key_pair: self.key_pair.clone(),
-                peer_id: self.id.clone(),
-                ..*configuration.sumeragi
-            }),
-            torii: Box::new(ToriiConfiguration {
-                p2p_addr: self.p2p_address.clone(),
-                api_url: self.api_address.clone(),
-                ..*configuration.torii
-            }),
-            logger: Box::new(LoggerConfiguration {
-                ..*configuration.logger
-            }),
-            public_key: self.key_pair.public_key().clone(),
-            private_key: self.key_pair.private_key().clone(),
+                p2p_address: self.p2p_address.clone(),
+                ..configuration.iroha
+            },
+            torii: Torii {
+                address: self.api_address.clone(),
+                ..configuration.torii
+            },
             ..configuration
         }
     }
@@ -604,7 +597,7 @@ impl PeerBuilder {
     pub async fn start_with_peer(self, peer: &mut Peer) {
         let configuration = self.configuration.unwrap_or_else(|| {
             let mut config = Configuration::test();
-            config.sumeragi.trusted_peers.peers = unique_vec![peer.id.clone()];
+            config.sumeragi.trusted_peers = unique_vec![peer.id.clone()];
             config
         });
         let genesis = match self.genesis {
@@ -637,10 +630,7 @@ impl PeerBuilder {
 
         let client = Client::test(&peer.api_address);
 
-        time::sleep(Duration::from_millis(
-            configuration.sumeragi.pipeline_time_ms(),
-        ))
-        .await;
+        time::sleep(configuration.chain_wide.pipeline_time()).await;
 
         (peer, client)
     }
@@ -678,7 +668,7 @@ pub trait TestConfiguration {
 /// Client configuration mocking trait.
 pub trait TestClientConfiguration {
     /// Creates test client configuration
-    fn test(api_url: &SocketAddr) -> Self;
+    fn test(api_address: &SocketAddr) -> Self;
 }
 
 /// Client mocking trait
@@ -768,61 +758,68 @@ impl TestRuntime for Runtime {
 
 impl TestConfiguration for Configuration {
     fn test() -> Self {
-        let mut sample_proxy = iroha::samples::get_config_proxy(
+        use iroha_config::{
+            base::{FromEnv as _, StdEnv, UnwrapPartial as _},
+            parameters::user_layer::{CliContext, RootPartial},
+        };
+
+        let mut layer = iroha::samples::get_user_config(
             UniqueVec::new(),
             Some(get_chain_id()),
             Some(get_key_pair()),
-        );
-        let env_proxy =
-            ConfigurationProxy::from_std_env().expect("Test env variables should parse properly");
+        )
+        .merge(RootPartial::from_env(&StdEnv).expect("test env variables should parse properly"));
+
         let (public_key, private_key) = KeyPair::generate().into();
-        sample_proxy.public_key = Some(public_key);
-        sample_proxy.private_key = Some(private_key);
-        sample_proxy.override_with(env_proxy)
-                    .build()
-                    .expect("Test Iroha config failed to build. This is either a programmer error or a compiler bug.")
+        layer.iroha.public_key.set(public_key);
+        layer.iroha.private_key.set(private_key);
+
+        layer
+            .unwrap_partial()
+            .expect("should not fail as all fields are present")
+            .parse(CliContext {
+                submit_genesis: true,
+            })
+            .expect("Test Iroha config failed to build. This is likely to be a bug.")
     }
 
     fn pipeline_time() -> Duration {
-        Duration::from_millis(Self::test().sumeragi.pipeline_time_ms())
+        Self::test().chain_wide.pipeline_time()
     }
 
     fn block_sync_gossip_time() -> Duration {
-        Duration::from_millis(Self::test().block_sync.gossip_period_ms)
+        Self::test().block_sync.gossip_period
     }
 }
 
 impl TestClientConfiguration for ClientConfiguration {
-    fn test(api_url: &SocketAddr) -> Self {
-        let mut configuration =
-            iroha_client::samples::get_client_config(get_chain_id(), &get_key_pair());
-        configuration.torii_api_url = format!("http://{api_url}")
-            .parse()
-            .expect("Should be valid url");
-        configuration
+    fn test(api_address: &SocketAddr) -> Self {
+        iroha_client::samples::get_client_config(
+            get_chain_id(),
+            get_key_pair().clone(),
+            format!("http://{api_address}")
+                .parse()
+                .expect("should be valid url"),
+        )
     }
 }
 
 impl TestClient for Client {
-    fn test(api_url: &SocketAddr) -> Self {
-        Client::new(&ClientConfiguration::test(api_url)).expect("Invalid client configuration")
+    fn test(api_addr: &SocketAddr) -> Self {
+        Client::new(ClientConfiguration::test(api_addr))
     }
 
-    fn test_with_key(api_url: &SocketAddr, keys: KeyPair) -> Self {
-        let mut configuration = ClientConfiguration::test(api_url);
-        let (public_key, private_key) = keys.into();
-        configuration.public_key = public_key;
-        configuration.private_key = private_key;
-        Client::new(&configuration).expect("Invalid client configuration")
+    fn test_with_key(api_addr: &SocketAddr, keys: KeyPair) -> Self {
+        let mut configuration = ClientConfiguration::test(api_addr);
+        configuration.key_pair = keys;
+        Client::new(configuration)
     }
 
-    fn test_with_account(api_url: &SocketAddr, keys: KeyPair, account_id: &AccountId) -> Self {
-        let mut configuration = ClientConfiguration::test(api_url);
+    fn test_with_account(api_addr: &SocketAddr, keys: KeyPair, account_id: &AccountId) -> Self {
+        let mut configuration = ClientConfiguration::test(api_addr);
         configuration.account_id = account_id.clone();
-        let (public_key, private_key) = keys.into();
-        configuration.public_key = public_key;
-        configuration.private_key = private_key;
-        Client::new(&configuration).expect("Invalid client configuration")
+        configuration.key_pair = keys;
+        Client::new(configuration)
     }
 
     fn for_each_event(self, event_filter: FilterBox, f: impl Fn(Result<Event>)) {

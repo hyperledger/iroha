@@ -9,7 +9,7 @@ use iroha_client::{
     client::{transaction, QueryResult},
     data_model::{prelude::*, query::Pagination},
 };
-use iroha_config::iroha::Configuration;
+use iroha_config::parameters::actual::Root as Configuration;
 use test_network::*;
 
 #[ignore = "ignore, more in #2851"]

@@ -514,8 +514,9 @@ pub fn read_config_and_genesis(
         parameters::{actual::Genesis, user_layer::RootPartial as RootLayer},
     };
 
-    let config = RootLayer::from_toml(path)?
-        .merge_chain(RootLayer::from_env(&StdEnv)?)
+    let config = RootLayer::from_toml(path)?;
+    let config = config.merge(RootLayer::from_env(&StdEnv)?);
+    let config = config
         .unwrap_partial()?
         .parse(CliContext { submit_genesis })?;
 
@@ -579,7 +580,7 @@ mod tests {
 
             let mut base = PartialUserConfig::default();
 
-            base.iroha.chain_id.set(ChainId::new("0".to_owned()));
+            base.iroha.chain_id.set(ChainId::from("0"));
             base.iroha.public_key.set(pubkey.clone());
             base.iroha.private_key.set(privkey.clone());
             base.iroha.p2p_address.set(socket_addr!(127.0.0.1:1337));

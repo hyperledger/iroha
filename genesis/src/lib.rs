@@ -361,7 +361,7 @@ mod tests {
 
     #[test]
     fn load_new_genesis_block() -> Result<()> {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let genesis_key_pair = KeyPair::generate();
         let (alice_public_key, _) = KeyPair::generate().into();

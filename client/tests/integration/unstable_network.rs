@@ -5,7 +5,7 @@ use iroha_client::{
     client::{self, Client, QueryResult},
     data_model::{prelude::*, Level},
 };
-use iroha_config::iroha::Configuration;
+use iroha_config::parameters::actual::Root as Configuration;
 use rand::seq::SliceRandom;
 use test_network::*;
 use tokio::runtime::Runtime;
@@ -53,7 +53,8 @@ fn unstable_network(
     // Given
     let (network, iroha_client) = rt.block_on(async {
         let mut configuration = Configuration::test();
-        configuration.sumeragi.max_transactions_in_block = MAX_TRANSACTIONS_IN_BLOCK;
+        configuration.chain_wide.max_transactions_in_block =
+            MAX_TRANSACTIONS_IN_BLOCK.try_into().unwrap();
         configuration.logger.level = Level::INFO;
         #[cfg(debug_assertions)]
         {

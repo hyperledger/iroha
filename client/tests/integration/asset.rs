@@ -6,7 +6,7 @@ use iroha_client::{
     crypto::{KeyPair, PublicKey},
     data_model::prelude::*,
 };
-use iroha_config::iroha::Configuration;
+use iroha_config::parameters::actual::Root as Configuration;
 use iroha_primitives::fixed::Fixed;
 use serde_json::json;
 use test_network::*;
@@ -277,7 +277,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             alice_id.clone(),
         );
 
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
         let grant_asset_transfer_tx =
             TransactionBuilder::new(chain_id, asset_id.account_id().clone())
                 .with_instructions([allow_alice_to_transfer_asset])

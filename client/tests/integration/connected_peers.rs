@@ -8,7 +8,7 @@ use iroha_client::{
         peer::Peer as DataModelPeer,
     },
 };
-use iroha_config::iroha::Configuration;
+use iroha_config::parameters::actual::Root as Configuration;
 use iroha_primitives::unique_vec;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use test_network::*;
@@ -39,7 +39,7 @@ fn register_new_peer() -> Result<()> {
 
     // Start new peer
     let mut configuration = Configuration::test();
-    configuration.sumeragi.trusted_peers.peers =
+    configuration.sumeragi.trusted_peers =
         unique_vec![peer_clients.choose(&mut thread_rng()).unwrap().0.id.clone()];
     let rt = Runtime::test();
     let new_peer = rt.block_on(

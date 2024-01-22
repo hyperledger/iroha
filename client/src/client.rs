@@ -402,20 +402,14 @@ impl QueryRequest {
 /// Representation of `Iroha` client.
 impl Client {
     /// Constructor for client from configuration
-    ///
-    /// # Errors
-    /// If configuration isn't valid (e.g public/private keys don't match)
     #[inline]
-    pub fn new(configuration: Config) -> Result<Self> {
+    pub fn new(configuration: Config) -> Self {
         Self::with_headers(configuration, HashMap::new())
     }
 
     /// Constructor for client from configuration and headers
     ///
-    /// *Authorization* header will be added, if `login` and `password` fields are presented
-    ///
-    /// # Errors
-    /// If configuration isn't valid (e.g public/private keys don't match)
+    /// *Authorization* header will be added if `basic_auth` is presented
     #[inline]
     pub fn with_headers(
         Config {
@@ -429,7 +423,7 @@ impl Client {
             transaction_status_timeout,
         }: Config,
         mut headers: HashMap<String, String>,
-    ) -> Result<Self> {
+    ) -> Self {
         if let Some(basic_auth) = basic_auth {
             let credentials = format!("{}:{}", basic_auth.web_login, basic_auth.password);
             let engine = base64::engine::general_purpose::STANDARD;
@@ -437,7 +431,7 @@ impl Client {
             headers.insert(String::from("Authorization"), format!("Basic {encoded}"));
         }
 
-        Ok(Self {
+        Self {
             chain_id,
             torii_url: torii_api_url,
             key_pair,
@@ -446,7 +440,7 @@ impl Client {
             account_id,
             headers,
             add_transaction_nonce: transaction_add_nonce,
-        })
+        }
     }
 
     /// Builds transaction out of supplied instructions or wasm.
@@ -1595,33 +1589,34 @@ mod tests {
     use iroha_primitives::small::SmallStr;
 
     use super::*;
-    use crate::config::{torii::DEFAULT_API_ADDR, BasicAuth, ConfigurationProxy, WebLogin};
+    use crate::config::{BasicAuth, Config, WebLogin};
 
     const LOGIN: &str = "mad_hatter";
     const PASSWORD: &str = "ilovetea";
     // `mad_hatter:ilovetea` encoded with base64
     const ENCRYPTED_CREDENTIALS: &str = "bWFkX2hhdHRlcjppbG92ZXRlYQ==";
 
+    fn config_factory() -> Config {
+        Config {
+            chain_id: ChainId::from("0"),
+            key_pair: KeyPair::generate(),
+            account_id: "alice@wonderland"
+                .parse()
+                .expect("This account ID should be valid"),
+            torii_api_url: "http://127.0.0.1:8080".parse().unwrap(),
+            basic_auth: None,
+            transaction_add_nonce: false,
+            transaction_ttl: Duration::from_secs(5),
+            transaction_status_timeout: Duration::from_secs(10),
+        }
+    }
+
     #[test]
     fn txs_same_except_for_nonce_have_different_hashes() {
-        let (public_key, private_key) = KeyPair::generate().into();
-
-        let cfg = ConfigurationProxy {
-            chain_id: Some(ChainId::new("0")),
-            public_key: Some(public_key),
-            private_key: Some(private_key),
-            account_id: Some(
-                "alice@wonderland"
-                    .parse()
-                    .expect("This account ID should be valid"),
-            ),
-            torii_api_url: Some(format!("http://{DEFAULT_API_ADDR}").parse().unwrap()),
-            add_transaction_nonce: Some(true),
-            ..ConfigurationProxy::default()
-        }
-        .build()
-        .expect("Client config should build as all required fields were provided");
-        let client = Client::new(&cfg).expect("Invalid client configuration");
+        let client = Client::new(Config {
+            transaction_add_nonce: true,
+            ..config_factory()
+        });
 
         let build_transaction =
             || client.build_transaction(Vec::<InstructionBox>::new(), UnlimitedMetadata::new());
@@ -1650,34 +1645,13 @@ mod tests {
 
     #[test]
     fn authorization_header() {
-        let basic_auth = BasicAuth {
-            web_login: WebLogin::from_str(LOGIN).expect("Failed to create valid `WebLogin`"),
-            password: SmallStr::from_str(PASSWORD),
-        };
-
-        let cfg = ConfigurationProxy {
-            chain_id: Some(ChainId::new("0")),
-            public_key: Some(
-                "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
-                    .parse()
-                    .expect("Public key not in mulithash format"),
-            ),
-            private_key: Some(crate::crypto::PrivateKey::from_hex(
-            crate::crypto::Algorithm::Ed25519,
-            "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
-            ).expect("Private key not hex encoded")),
-            account_id: Some(
-                "alice@wonderland"
-                    .parse()
-                    .expect("This account ID should be valid"),
-            ),
-            torii_api_url: Some(format!("http://{DEFAULT_API_ADDR}").parse().unwrap()),
-            basic_auth: Some(Some(basic_auth)),
-            ..ConfigurationProxy::default()
-        }
-        .build()
-        .expect("Client config should build as all required fields were provided");
-        let client = Client::new(&cfg).expect("Invalid client configuration");
+        let client = Client::new(Config {
+            basic_auth: Some(BasicAuth {
+                web_login: WebLogin::from_str(LOGIN).expect("Failed to create valid `WebLogin`"),
+                password: SmallStr::from_str(PASSWORD),
+            }),
+            ..config_factory()
+        });
 
         let value = client
             .headers

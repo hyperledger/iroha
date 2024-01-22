@@ -396,7 +396,7 @@ mod tests {
     };
 
     fn accepted_tx(account_id: &str, key: &KeyPair) -> AcceptedTransaction {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let message = std::iter::repeat_with(rand::random::<char>)
             .take(16)
@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     async fn push_multisignature_tx() {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let max_txs_in_block = 2;
         let key_pairs = [KeyPair::generate(), KeyPair::generate()];
@@ -713,7 +713,7 @@ mod tests {
     async fn custom_expired_transaction_is_rejected() {
         const TTL_MS: u64 = 100;
 
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let max_txs_in_block = 2;
         let alice_key = KeyPair::generate();
@@ -847,7 +847,7 @@ mod tests {
         assert!(queue.push(tx.clone(), &wsv).is_ok());
         // create the same tx but with timestamp in the future
         let tx = {
-            let chain_id = ChainId::new("0");
+            let chain_id = ChainId::from("0");
             let mut new_tx = TransactionBuilder::new(
                 chain_id.clone(),
                 AccountId::from_str(alice_id).expect("Valid"),

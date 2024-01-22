@@ -2,7 +2,7 @@ use std::thread;
 
 use eyre::Result;
 use iroha_client::{client, data_model::prelude::*};
-use iroha_config::iroha::Configuration;
+use iroha_config::parameters::actual::Root as Configuration;
 use test_network::*;
 
 #[test]

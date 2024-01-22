@@ -63,7 +63,7 @@ pub fn get_user_config(
     chain_id: Option<ChainId>,
     key_pair: Option<KeyPair>,
 ) -> UserConfig {
-    let chain_id = chain_id.unwrap_or_else(|| ChainId::new("0".to_owned()));
+    let chain_id = chain_id.unwrap_or_else(|| ChainId::from("0"));
 
     let (public_key, private_key) = key_pair.unwrap_or_else(KeyPair::generate).into();
     iroha_logger::info!(%public_key);

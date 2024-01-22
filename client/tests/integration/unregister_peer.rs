@@ -9,7 +9,7 @@ use iroha_client::{
         prelude::*,
     },
 };
-use iroha_config::iroha::Configuration;
+use iroha_config::parameters::actual::Root as Configuration;
 use test_network::*;
 
 // Note the test is marked as `unstable`,  not the network.

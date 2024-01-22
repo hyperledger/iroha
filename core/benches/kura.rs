@@ -19,7 +19,7 @@ use iroha_primitives::unique_vec::UniqueVec;
 use tokio::{fs, runtime::Runtime};
 
 async fn measure_block_size_for_n_executors(n_executors: u32) {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let alice_id = AccountId::from_str("alice@test").expect("tested");
     let bob_id = AccountId::from_str("bob@test").expect("tested");

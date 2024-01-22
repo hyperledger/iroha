@@ -397,7 +397,7 @@ impl DockerComposeBuilder<'_> {
             )
         })?;
 
-        let chain_id = ChainId::new("00000000-0000-0000-0000-000000000000");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
         let peers = peer_generator::generate_peers(self.peers, self.seed)
             .wrap_err("Failed to generate peers")?;
         let genesis_key_pair = generate_key_pair(self.seed, GENESIS_KEYPAIR_SEED)
@@ -668,7 +668,7 @@ mod tests {
     fn default_config_with_swarm_env_is_exhaustive() {
         let keypair = KeyPair::generate();
         let env: TestEnv = CompactPeerEnv {
-            chain_id: ChainId::new("00000000-0000-0000-0000-000000000000"),
+            chain_id: ChainId::from("00000000-0000-0000-0000-000000000000"),
             key_pair: keypair.clone(),
             genesis_public_key: keypair.public_key().clone(),
             genesis_private_key: Some(keypair.private_key().clone()),
@@ -705,7 +705,7 @@ mod tests {
             services: {
                 let mut map = BTreeMap::new();
 
-                let chain_id = ChainId::new("00000000-0000-0000-0000-000000000000");
+                let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
                 let key_pair =
                     KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(vec![
                         1, 5, 1, 2, 2, 3, 4, 1, 2, 3,
@@ -777,7 +777,7 @@ mod tests {
 
     #[test]
     fn empty_genesis_public_key_is_skipped_in_env() {
-        let chain_id = ChainId::new("00000000-0000-0000-0000-000000000000");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let key_pair =
             KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(vec![0, 1, 2]))

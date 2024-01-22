@@ -2710,6 +2710,7 @@ dependencies = [
  "iroha_torii_const",
  "iroha_version",
  "iroha_wasm_builder",
+ "merge",
  "once_cell",
  "parity-scale-codec",
  "rand",

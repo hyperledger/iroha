@@ -13,7 +13,7 @@ fn submit(
     HashOf<SignedTransaction>,
     eyre::Result<HashOf<TransactionPayload>>,
 ) {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let tx = if let Some((account_id, keypair)) = submitter {
         TransactionBuilder::new(chain_id, account_id)

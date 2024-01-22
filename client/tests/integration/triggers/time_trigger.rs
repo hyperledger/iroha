@@ -5,7 +5,7 @@ use iroha_client::{
     client::{self, Client, QueryResult},
     data_model::{prelude::*, transaction::WasmSmartContract},
 };
-use iroha_config::sumeragi::default::DEFAULT_CONSENSUS_ESTIMATION_MS;
+use iroha_config::parameters::defaults::chain_wide::DEFAULT_CONSENSUS_ESTIMATION;
 use iroha_logger::info;
 use test_network::*;
 
@@ -24,9 +24,9 @@ macro_rules! const_assert {
 #[test]
 #[allow(clippy::cast_precision_loss)]
 fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result<()> {
-    const PERIOD_MS: u64 = 100;
+    const PERIOD: Duration = Duration::from_millis(100);
     const ACCEPTABLE_ERROR_PERCENT: u8 = 15;
-    const_assert!(PERIOD_MS < DEFAULT_CONSENSUS_ESTIMATION_MS);
+    const_assert!(PERIOD.as_millis() < DEFAULT_CONSENSUS_ESTIMATION.as_millis());
     const_assert!(ACCEPTABLE_ERROR_PERCENT <= 100);
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_775).start_with_runtime();
@@ -42,8 +42,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
 
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
-    let schedule =
-        TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(PERIOD_MS));
+    let schedule = TimeSchedule::starting_at(start_time).with_period(PERIOD);
     let instruction = Mint::asset_quantity(1_u32, asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
         "mint_rose".parse()?,
@@ -63,10 +62,10 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
         Duration::from_secs(1),
         3,
     )?;
-    std::thread::sleep(Duration::from_millis(DEFAULT_CONSENSUS_ESTIMATION_MS));
+    std::thread::sleep(DEFAULT_CONSENSUS_ESTIMATION);
 
     let finish_time = current_time();
-    let average_count = finish_time.saturating_sub(start_time).as_millis() / u128::from(PERIOD_MS);
+    let average_count = finish_time.saturating_sub(start_time).as_millis() / PERIOD.as_millis();
 
     let actual_value = get_asset_value(&mut test_client, asset_id)?;
     let expected_value = prev_value + u32::try_from(average_count)?;
@@ -83,7 +82,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
 
 #[test]
 fn change_asset_metadata_after_1_sec() -> Result<()> {
-    const PERIOD_MS: u64 = 1000;
+    const PERIOD: Duration = Duration::from_secs(1);
 
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().with_port(10_660).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
@@ -96,7 +95,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let key = Name::from_str("petal")?;
 
-    let schedule = TimeSchedule::starting_at(start_time + Duration::from_millis(PERIOD_MS));
+    let schedule = TimeSchedule::starting_at(start_time + PERIOD);
     let instruction =
         SetKeyValue::asset_definition(asset_definition_id.clone(), key.clone(), 3_u32.to_value());
     let register_trigger = Register::trigger(Trigger::new(
@@ -114,7 +113,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
         &mut test_client,
         &account_id,
         Duration::from_secs(1),
-        usize::try_from(PERIOD_MS / DEFAULT_CONSENSUS_ESTIMATION_MS + 1)?,
+        usize::try_from(PERIOD.as_millis() / DEFAULT_CONSENSUS_ESTIMATION.as_millis() + 1)?,
     )?;
 
     let value = test_client

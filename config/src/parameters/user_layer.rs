@@ -99,8 +99,8 @@ impl RootPartial {
     }
 
     // FIXME workaround the inconvenient way `Merge::merge` works
-    pub fn merge_chain(mut self, other: Self) -> Self {
-        self.merge(other);
+    pub fn merge(mut self, other: Self) -> Self {
+        Merge::merge(&mut self, other);
         self
     }
 }
@@ -447,7 +447,7 @@ impl FromEnv for IrohaPartial {
                     emitter.emit(err);
                     None
                 },
-                |maybe_value| maybe_value.map(|value| ChainId::new(value.into_owned())),
+                |maybe_value| maybe_value.map(ChainId::from),
             )
             .into();
         let public_key =

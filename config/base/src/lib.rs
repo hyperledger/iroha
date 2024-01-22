@@ -149,6 +149,19 @@ impl Emitter<MissingFieldError> {
     pub fn emit_missing_field(&mut self, field_name: impl AsRef<str>) {
         self.emit(MissingFieldError::new(field_name.as_ref()))
     }
+
+    pub fn try_unwrap_partial<P, O>(&mut self, partial: P) -> Option<O>
+    where
+        P: UnwrapPartial<Output = O>,
+    {
+        partial.unwrap_partial().map_or_else(
+            |err| {
+                self.emit_collection(err);
+                None
+            },
+            Some,
+        )
+    }
 }
 
 pub struct ErrorsCollection<T>(Vec<T>);

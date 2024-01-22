@@ -592,6 +592,15 @@ pub mod model {
     #[ffi_type(unsafe {robust})]
     pub struct ChainId(Box<str>);
 
+    impl<T> From<T> for ChainId
+    where
+        T: Into<Box<str>>,
+    {
+        fn from(value: T) -> Self {
+            ChainId(value.into())
+        }
+    }
+
     /// Sized container for all possible identifications.
     #[derive(
         Debug,
@@ -1011,13 +1020,6 @@ pub mod model {
         /// in the next request to continue fetching results of the original query
         pub cursor: crate::query::cursor::ForwardCursor,
     }
-
-    impl ChainId {
-        /// Create new [`Self`]
-        pub fn new(inner: String) -> Self {
-            Self(inner.into())
-        }
-    }
 }
 
 impl Decode for ChainId {
@@ -1025,7 +1027,7 @@ impl Decode for ChainId {
         input: &mut I,
     ) -> Result<Self, parity_scale_codec::Error> {
         let boxed: String = parity_scale_codec::Decode::decode(input)?;
-        Ok(Self::new(boxed))
+        Ok(Self::from(boxed))
     }
 }
 

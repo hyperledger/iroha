@@ -1271,7 +1271,7 @@ mod tests {
     #[test]
     #[allow(clippy::redundant_clone)]
     async fn block_sync_invalid_block() {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let leader_key_pair = KeyPair::generate();
         let topology = Topology::new(unique_vec![PeerId::new(
@@ -1291,7 +1291,7 @@ mod tests {
 
     #[test]
     async fn block_sync_invalid_soft_fork_block() {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let leader_key_pair = KeyPair::generate();
         let topology = Topology::new(unique_vec![PeerId::new(
@@ -1322,7 +1322,7 @@ mod tests {
     #[test]
     #[allow(clippy::redundant_clone)]
     async fn block_sync_not_proper_height() {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let topology = Topology::new(UniqueVec::new());
         let leader_key_pair = KeyPair::generate();
@@ -1349,7 +1349,7 @@ mod tests {
     #[test]
     #[allow(clippy::redundant_clone)]
     async fn block_sync_commit_block() {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let leader_key_pair = KeyPair::generate();
         let topology = Topology::new(unique_vec![PeerId::new(
@@ -1365,7 +1365,7 @@ mod tests {
 
     #[test]
     async fn block_sync_replace_top_block() {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let leader_key_pair = KeyPair::generate();
         let topology = Topology::new(unique_vec![PeerId::new(
@@ -1393,7 +1393,7 @@ mod tests {
 
     #[test]
     async fn block_sync_small_view_change_index() {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let leader_key_pair = KeyPair::generate();
         let topology = Topology::new(unique_vec![PeerId::new(
@@ -1434,7 +1434,7 @@ mod tests {
     #[test]
     #[allow(clippy::redundant_clone)]
     async fn block_sync_genesis_block_do_not_replace() {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let topology = Topology::new(UniqueVec::new());
         let leader_key_pair = KeyPair::generate();

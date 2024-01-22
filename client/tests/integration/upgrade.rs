@@ -12,7 +12,7 @@ use test_network::*;
 
 #[test]
 fn executor_upgrade_should_work() -> Result<()> {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_795).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);

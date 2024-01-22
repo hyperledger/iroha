@@ -93,7 +93,7 @@ fn build_test_and_transient_wsv(keys: KeyPair) -> WorldStateView {
 }
 
 fn accept_transaction(criterion: &mut Criterion) {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let keys = KeyPair::generate();
     let transaction = build_test_transaction(&keys, chain_id.clone());
@@ -111,7 +111,7 @@ fn accept_transaction(criterion: &mut Criterion) {
 }
 
 fn sign_transaction(criterion: &mut Criterion) {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let keys = KeyPair::generate();
     let transaction = build_test_transaction(&keys, chain_id);
@@ -131,7 +131,7 @@ fn sign_transaction(criterion: &mut Criterion) {
 }
 
 fn validate_transaction(criterion: &mut Criterion) {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let keys = KeyPair::generate();
     let transaction = AcceptedTransaction::accept(
@@ -157,7 +157,7 @@ fn validate_transaction(criterion: &mut Criterion) {
 }
 
 fn sign_blocks(criterion: &mut Criterion) {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let keys = KeyPair::generate();
     let transaction = AcceptedTransaction::accept(

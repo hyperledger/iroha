@@ -131,6 +131,12 @@ pub struct ChainWide {
     pub wasm_runtime: WasmRuntime,
 }
 
+impl ChainWide {
+    pub fn pipeline_time(&self) -> Duration {
+        self.block_time + self.commit_time
+    }
+}
+
 impl Default for ChainWide {
     fn default() -> Self {
         todo!()

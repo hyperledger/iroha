@@ -693,7 +693,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_reject_due_to_repetition() {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
@@ -736,7 +736,7 @@ mod tests {
 
     #[tokio::test]
     async fn tx_order_same_in_validation_and_revalidation() {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
@@ -802,7 +802,7 @@ mod tests {
 
     #[tokio::test]
     async fn failed_transactions_revert() {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");

@@ -5,7 +5,7 @@ use iroha_client::{
     client::{self, Client, QueryResult},
     data_model::prelude::*,
 };
-use iroha_config::iroha::Configuration;
+use iroha_config::parameters::actual::Root as Configuration;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use test_network::*;
 use tokio::runtime::Runtime;

@@ -6,7 +6,7 @@ use iroha_client::{
         prelude::*,
     },
 };
-use iroha_config::iroha::Configuration;
+use iroha_config::parameters::actual::Root as Configuration;
 use iroha_crypto::KeyPair;
 use iroha_primitives::addr::socket_addr;
 use test_network::*;

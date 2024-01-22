@@ -3,7 +3,6 @@
 use std::path::Path;
 
 use eyre::{Result, WrapErr};
-use iroha_config::parameters::actual::DevTelemetry as DevTelemetryConfig;
 use iroha_logger::telemetry::Event as Telemetry;
 use tokio::{
     fs::OpenOptions,
