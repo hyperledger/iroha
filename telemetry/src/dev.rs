@@ -1,5 +1,7 @@
 //! Module with development telemetry
 
+use std::path::Path;
+
 use eyre::{Result, WrapErr};
 use iroha_config::parameters::actual::DevTelemetry as DevTelemetryConfig;
 use iroha_logger::telemetry::Event as Telemetry;
@@ -15,9 +17,7 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 /// # Errors
 /// Fails if unable to open the file
 pub async fn start(
-    DevTelemetryConfig {
-        file: telemetry_file,
-    }: DevTelemetryConfig,
+    telemetry_file: impl AsRef<Path>,
     telemetry: Receiver<Telemetry>,
 ) -> Result<JoinHandle<()>> {
     let mut stream = crate::futures::get_stream(BroadcastStream::new(telemetry).fuse());

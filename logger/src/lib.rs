@@ -13,8 +13,11 @@ use std::{
 
 use actor::LoggerHandle;
 use color_eyre::{eyre::eyre, Report, Result};
-use iroha_config::logger::{into_tracing_level, Format};
-pub use iroha_config::{base::Complete as _, logger::Level, parameters::actual::Logger as Config};
+use iroha_config::logger::into_tracing_level;
+pub use iroha_config::{
+    logger::{Format, Level},
+    parameters::actual::Logger as Config,
+};
 use tracing::subscriber::set_global_default;
 pub use tracing::{
     debug, debug_span, error, error_span, info, info_span, instrument as log, trace, trace_span,

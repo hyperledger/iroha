@@ -1014,7 +1014,7 @@ pub mod model {
 
     impl ChainId {
         /// Create new [`Self`]
-        pub fn new(inner: &str) -> Self {
+        pub fn new(inner: String) -> Self {
             Self(inner.into())
         }
     }
@@ -1025,7 +1025,7 @@ impl Decode for ChainId {
         input: &mut I,
     ) -> Result<Self, parity_scale_codec::Error> {
         let boxed: String = parity_scale_codec::Decode::decode(input)?;
-        Ok(Self::new(&boxed))
+        Ok(Self::new(boxed))
     }
 }
 

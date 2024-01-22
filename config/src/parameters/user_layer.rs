@@ -1,21 +1,25 @@
 use std::{
+    error::Error,
     fmt::Debug,
     fs::File,
     io::Read,
     num::{NonZeroU32, NonZeroU64, NonZeroUsize},
     ops::{Add, Div},
     path::{Path, PathBuf},
+    str::FromStr,
+    time::Duration,
 };
 
 use eyre::{eyre, Report, WrapErr};
 use iroha_config_base::{
-    ByteSize, Complete, CompleteError, CompleteResult, Emitter, FromEnv, FromEnvDefaultFallback,
-    FromEnvResult, Merge, ParseEnvResult, ReadEnv, UserDuration, UserField,
+    ByteSize, Emitter, ErrorsCollection, FromEnv, FromEnvDefaultFallback, FromEnvResult, Merge,
+    MissingFieldError, ParseEnvResult, ReadEnv, UnwrapPartial, UnwrapPartialResult, UserDuration,
+    UserField,
 };
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::{
-    metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, LengthLimits,
-    Level,
+    metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
+    LengthLimits, Level,
 };
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::{Deserialize, Serialize};
@@ -24,25 +28,41 @@ use url::Url;
 use super::defaults::{
     chain_wide::*, kura::*, logger::*, queue::*, snapshot::*, telemetry::*, torii::*,
 };
-use crate::{kura::Mode, logger::Format, parameters::actual};
+use crate::{
+    kura::Mode,
+    logger::Format,
+    parameters::{
+        actual,
+        defaults::network::{
+            DEFAULT_BLOCK_GOSSIP_PERIOD, DEFAULT_MAX_BLOCKS_PER_GOSSIP,
+            DEFAULT_MAX_TRANSACTIONS_PER_GOSSIP, DEFAULT_TRANSACTION_GOSSIP_PERIOD,
+        },
+    },
+};
 
 #[derive(Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
-pub struct Root {
-    iroha: Iroha,
-    genesis: Genesis,
-    kura: Kura,
-    sumeragi: Sumeragi,
-    network: Network,
-    logger: Logger,
-    queue: Queue,
-    snapshot: Snapshot,
-    telemetry: Telemetry,
-    torii: Torii,
-    chain_wide: ChainWide,
+pub struct RootPartial {
+    pub iroha: IrohaPartial,
+    pub genesis: GenesisPartial,
+    pub kura: KuraPartial,
+    pub sumeragi: SumeragiPartial,
+    pub network: NetworkPartial,
+    pub logger: LoggerPartial,
+    pub queue: QueuePartial,
+    pub snapshot: SnapshotPartial,
+    pub telemetry: TelemetryPartial,
+    pub torii: ToriiPartial,
+    pub chain_wide: ChainWidePartial,
 }
 
-impl Root {
+impl RootPartial {
+    /// Creates new empty user configuration
+    pub fn new() -> Self {
+        // TODO: generate this function with macro. For now, use default
+        Default::default()
+    }
+
     pub fn from_toml(path: impl AsRef<Path>) -> eyre::Result<Self, eyre::Error> {
         let contents = {
             let mut file = File::open(path.as_ref()).wrap_err_with(|| {
@@ -85,15 +105,121 @@ impl Root {
     }
 }
 
-impl Complete for Root {
-    type Output = actual::Root;
+#[derive(Debug)]
+pub struct RootFull {
+    iroha: IrohaFull,
+    genesis: GenesisFull,
+    kura: KuraFull,
+    sumeragi: SumeragiFull,
+    network: NetworkFull,
+    logger: LoggerFull,
+    queue: QueueFull,
+    snapshot: SnapshotFull,
+    telemetry: TelemetryFull,
+    torii: ToriiFull,
+    chain_wide: ChainWideFull,
+}
 
-    fn complete(self) -> CompleteResult<Self::Output> {
+impl RootFull {
+    pub fn parse(self, cli: CliContext) -> Result<actual::Root, ErrorsCollection<Report>> {
         let mut emitter = Emitter::new();
 
-        macro_rules! complete_nested {
+        let iroha = self.iroha.parse().map_or_else(
+            |err| {
+                emitter.emit(err);
+                None
+            },
+            Some,
+        );
+
+        let genesis = self.genesis.parse(&cli).map_or_else(
+            |err| {
+                // FIXME
+                emitter.emit(eyre!("{err}"));
+                None
+            },
+            Some,
+        );
+
+        let kura = self.kura.parse();
+
+        let sumeragi = self.sumeragi.parse().map_or_else(
+            |err| {
+                emitter.emit(err);
+                None
+            },
+            Some,
+        );
+
+        let (block_sync, transaction_gossiper) = self.network.parse();
+
+        let logger = self.logger;
+        let queue = self.queue;
+        let snapshot = self.snapshot;
+
+        let (torii, live_query_store) = self.torii.parse();
+
+        let telemetries = self.telemetry.parse().map_or_else(
+            |err| {
+                emitter.emit(err);
+                None
+            },
+            Some,
+        );
+
+        let chain_wide = self.chain_wide.parse();
+
+        emitter.finish()?;
+
+        let (regular_telemetry, dev_telemetry) = telemetries.unwrap();
+        let iroha = iroha.unwrap();
+        let genesis = genesis.unwrap();
+        let sumeragi = sumeragi.unwrap();
+
+        if !cli.submit_genesis && sumeragi.trusted_peers.len() < 2 {
+            Err(eyre!("\
+                The network consists from this one peer only (`sumeragi.trusted_peers` is less than 2). \
+                Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
+                Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, \
+                and `genesis.file` configuration parameters, or increase the number of trusted peers in \
+                the network using `sumeragi.trusted_peers` configuration parameter.
+            "))?;
+        }
+
+        // TODO: validate that p2p_address and torii.address are not the same
+
+        Ok(actual::Root {
+            iroha,
+            genesis,
+            sumeragi,
+            kura,
+            block_sync,
+            transaction_gossiper,
+            logger,
+            torii,
+            live_query_store,
+            queue,
+            regular_telemetry,
+            dev_telemetry,
+            chain_wide,
+            snapshot,
+        })
+    }
+}
+
+pub struct CliContext {
+    pub submit_genesis: bool,
+}
+
+impl UnwrapPartial for RootPartial {
+    type Output = RootFull;
+
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
+        let mut emitter = Emitter::new();
+
+        macro_rules! nested {
             ($item:expr) => {
-                match iroha_config_base::Complete::complete($item) {
+                match UnwrapPartial::unwrap_partial($item) {
                     Ok(value) => Some(value),
                     Err(error) => {
                         emitter.emit_collection(error);
@@ -103,49 +229,44 @@ impl Complete for Root {
             };
         }
 
-        let iroha = complete_nested!(self.iroha);
-        let genesis = complete_nested!(self.genesis);
-        let kura = complete_nested!(self.kura);
-        let sumeragi = complete_nested!(self.sumeragi);
-        let network = complete_nested!(self.network);
-        let logger = complete_nested!(self.logger);
-        let queue = complete_nested!(self.queue);
-        let snapshot = complete_nested!(self.snapshot);
-        let telemetries = complete_nested!(self.telemetry);
-        let torii_and_query = complete_nested!(self.torii);
-        let chain_wide = complete_nested!(self.chain_wide);
+        let iroha = nested!(self.iroha);
+        let genesis = nested!(self.genesis);
+        let kura = nested!(self.kura);
+        let sumeragi = nested!(self.sumeragi);
+        let network = nested!(self.network);
+        let logger = nested!(self.logger);
+        let queue = nested!(self.queue);
+        let snapshot = nested!(self.snapshot);
+        let telemetry = nested!(self.telemetry);
+        let torii = nested!(self.torii);
+        let chain_wide = nested!(self.chain_wide);
 
         emitter.finish()?;
 
-        let (regular_telemetry, dev_telemetry) = telemetries.unwrap();
-        let (torii, live_query_store) = torii_and_query.unwrap();
-        let (block_sync, transaction_gossiper) = network.unwrap();
-
-        Ok(actual::Root {
+        Ok(RootFull {
             iroha: iroha.unwrap(),
             genesis: genesis.unwrap(),
             kura: kura.unwrap(),
             sumeragi: sumeragi.unwrap(),
-            block_sync,
-            transaction_gossiper,
+            telemetry: telemetry.unwrap(),
             logger: logger.unwrap(),
             queue: queue.unwrap(),
             snapshot: snapshot.unwrap(),
-            regular_telemetry,
-            dev_telemetry,
-            torii,
-            live_query_store,
+            torii: torii.unwrap(),
+            network: network.unwrap(),
             chain_wide: chain_wide.unwrap(),
         })
     }
 }
 
-impl FromEnv for Root {
-    fn from_env(env: &impl ReadEnv) -> FromEnvResult<Self> {
-        fn from_env_nested<T: FromEnv>(
-            env: &impl ReadEnv,
-            emitter: &mut Emitter<Report>,
-        ) -> Option<T> {
+impl FromEnv for RootPartial {
+    fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self> {
+        fn from_env_nested<T, R, RE>(env: &R, emitter: &mut Emitter<Report>) -> Option<T>
+        where
+            T: FromEnv,
+            R: ReadEnv<RE>,
+            RE: Error,
+        {
             match FromEnv::from_env(env) {
                 Ok(parsed) => Some(parsed),
                 Err(errors) => {
@@ -189,55 +310,66 @@ impl FromEnv for Root {
 
 #[derive(Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
-pub struct Iroha {
+pub struct IrohaPartial {
+    pub chain_id: UserField<ChainId>,
     pub public_key: UserField<PublicKey>,
     pub private_key: UserField<PrivateKey>,
     pub p2p_address: UserField<SocketAddr>,
 }
 
-impl Complete for Iroha {
-    type Output = actual::Iroha;
+#[derive(Debug)]
+pub struct IrohaFull {
+    pub chain_id: ChainId,
+    pub public_key: PublicKey,
+    pub private_key: PrivateKey,
+    pub p2p_address: SocketAddr,
+}
 
-    fn complete(self) -> CompleteResult<Self::Output> {
-        let mut emitter = Emitter::<CompleteError>::new();
+impl UnwrapPartial for IrohaPartial {
+    type Output = IrohaFull;
 
-        let key_pair = match (self.public_key.get(), self.private_key.get()) {
-            (Some(public_key), Some(private_key)) => {
-                KeyPair::new(public_key, private_key)
-                    .map(Some)
-                    .wrap_err("failed to construct a key pair from `iroha.public_key` and `iroha.private_key` configuration parameters")
-                    .unwrap_or_else(|report| {
-                        emitter.emit(CompleteError::Custom(report));
-                        None
-                    })
-            },
-            (public_key, private_key) => {
-                if public_key.is_none() {
-                    emitter.emit_missing_field("iroha.public_key");
-                }
-                if private_key.is_none() {
-                    emitter.emit_missing_field("iroha.private_key");
-                }
-                None
-            }
-        };
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
+        let mut emitter = Emitter::new();
 
+        if self.chain_id.is_none() {
+            emitter.emit_missing_field("iroha.chain_id");
+        }
+        if self.public_key.is_none() {
+            emitter.emit_missing_field("iroha.public_key");
+        }
+        if self.private_key.is_none() {
+            emitter.emit_missing_field("iroha.private_key");
+        }
         if self.p2p_address.is_none() {
             emitter.emit_missing_field("iroha.p2p_address");
         }
 
         emitter.finish()?;
 
-        Ok(actual::Iroha {
-            key_pair: key_pair.unwrap(),
+        Ok(IrohaFull {
+            chain_id: self.chain_id.get().unwrap(),
+            public_key: self.public_key.get().unwrap(),
+            private_key: self.private_key.get().unwrap(),
             p2p_address: self.p2p_address.get().unwrap(),
         })
     }
 }
 
-pub(crate) fn private_key_from_env(
+impl IrohaFull {
+    fn parse(self) -> Result<actual::Iroha, Report> {
+        let key_pair = KeyPair::new(self.public_key, self.private_key).wrap_err("failed to construct a key pair from `iroha.public_key` and `iroha.private_key` configuration parameters")?;
+
+        Ok(actual::Iroha {
+            chain_id: self.chain_id,
+            key_pair,
+            p2p_address: self.p2p_address,
+        })
+    }
+}
+
+pub(crate) fn private_key_from_env<E: Error>(
     emitter: &mut Emitter<Report>,
-    env: &impl ReadEnv,
+    env: &impl ReadEnv<E>,
     env_key_base: impl AsRef<str>,
     name_base: impl AsRef<str>,
 ) -> ParseEnvResult<PrivateKey> {
@@ -248,54 +380,76 @@ pub(crate) fn private_key_from_env(
 
     let digest_function = ParseEnvResult::parse_simple(emitter, env, &digest_env, &digest_name);
 
-    let payload = env.get(&payload_env).map(ToOwned::to_owned);
-
-    match (digest_function, payload) {
-        (ParseEnvResult::Value(digest_function), Some(payload)) => {
-            PrivateKey::from_hex(digest_function, &payload)
-                .wrap_err_with(|| {
-                    eyre!(
-                        "failed to construct `{}` from `{}` and `{}` environment variables",
-                        name_base.as_ref(),
-                        &digest_env,
-                        &payload_env
-                    )
-                })
-                .map_or_else(
-                    |report| {
-                        emitter.emit(report);
-                        ParseEnvResult::ParseError
-                    },
-                    ParseEnvResult::Value,
-                )
-        }
-        (ParseEnvResult::None, None) | (ParseEnvResult::ParseError, _) => ParseEnvResult::None,
-        (ParseEnvResult::Value(_), None) => {
-            emitter.emit(eyre!(
-                "`{}` env was provided, but `{}` was not",
-                &digest_env,
-                &payload_env
-            ));
+    let payload = match env
+        .get(&payload_env)
+        .map_err(|err| eyre!("{err}"))
+        .wrap_err("oops")
+    {
+        Ok(Some(value)) => ParseEnvResult::Value(value),
+        Ok(None) => ParseEnvResult::None,
+        Err(err) => {
+            emitter.emit(err);
             ParseEnvResult::ParseError
         }
-        (ParseEnvResult::None, Some(_)) => {
+    };
+
+    match (digest_function, payload) {
+        (ParseEnvResult::Value(digest_function), ParseEnvResult::Value(payload)) => {
+            match PrivateKey::from_hex(digest_function, &payload).wrap_err_with(|| {
+                eyre!(
+                    "failed to construct `{}` from `{}` and `{}` environment variables",
+                    name_base.as_ref(),
+                    &digest_env,
+                    &payload_env
+                )
+            }) {
+                Ok(value) => return ParseEnvResult::Value(value),
+                Err(report) => {
+                    emitter.emit(report);
+                }
+            }
+        }
+        (ParseEnvResult::None, ParseEnvResult::None) => return ParseEnvResult::None,
+        (ParseEnvResult::Value(_), ParseEnvResult::None) => emitter.emit(eyre!(
+            "`{}` env was provided, but `{}` was not",
+            &digest_env,
+            &payload_env
+        )),
+        (ParseEnvResult::None, ParseEnvResult::Value(_)) => {
             emitter.emit(eyre!(
                 "`{}` env was provided, but `{}` was not",
                 &payload_env,
                 &digest_env
             ));
-            ParseEnvResult::ParseError
+        }
+        (ParseEnvResult::ParseError, _) | (_, ParseEnvResult::ParseError) => {
+            // emitter already has these errors
+            // adding this branch for exhaustiveness
         }
     }
+
+    ParseEnvResult::ParseError
 }
 
-impl FromEnv for Iroha {
-    fn from_env(env: &impl ReadEnv) -> FromEnvResult<Self>
+impl FromEnv for IrohaPartial {
+    fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self>
     where
         Self: Sized,
     {
         let mut emitter = Emitter::new();
 
+        let chain_id = env
+            .get("CHAIN_ID")
+            .map_err(|e| eyre!("{e}"))
+            .wrap_err("failed to read CHAIN_ID field (iroha.chain_id param)")
+            .map_or_else(
+                |err| {
+                    emitter.emit(err);
+                    None
+                },
+                |maybe_value| maybe_value.map(|value| ChainId::new(value.into_owned())),
+            )
+            .into();
         let public_key =
             ParseEnvResult::parse_simple(&mut emitter, env, "PUBLIC_KEY", "iroha.public_key")
                 .into();
@@ -308,6 +462,7 @@ impl FromEnv for Iroha {
         emitter.finish()?;
 
         Ok(Self {
+            chain_id,
             public_key,
             private_key,
             p2p_address,
@@ -317,40 +472,41 @@ impl FromEnv for Iroha {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
-pub struct Genesis {
+pub struct GenesisPartial {
     pub public_key: UserField<PublicKey>,
     pub private_key: UserField<PrivateKey>,
-    #[serde(default)]
     pub file: UserField<PathBuf>,
 }
 
-impl Complete for Genesis {
-    type Output = actual::Genesis;
+#[derive(Debug)]
+pub struct GenesisFull {
+    pub public_key: PublicKey,
+    pub private_key: Option<PrivateKey>,
+    pub file: Option<PathBuf>,
+}
 
-    fn complete(self) -> CompleteResult<actual::Genesis> {
+impl UnwrapPartial for GenesisPartial {
+    type Output = GenesisFull;
+
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
         let public_key = self
             .public_key
             .get()
-            .ok_or_else(|| CompleteError::missing_field("genesis.public_key"))?;
+            .ok_or_else(|| MissingFieldError::new("genesis.public_key"))?;
 
-        match (self.private_key.get(), self.file.get()) {
-            (None, None) => Ok(actual::Genesis::Partial { public_key }),
-            (Some(private_key), Some(file)) => Ok(actual::Genesis::Full {
-                key_pair: KeyPair::new(public_key, private_key)
-                    .map_err(GenesisConfigError::from)
-                    .wrap_err("FIXME")
-                    .map_err(CompleteError::Custom)?,
-                file,
-            }),
-            _ => Err(GenesisConfigError::Inconsistent)
-                .wrap_err("FIXME")
-                .map_err(CompleteError::Custom)?,
-        }
+        let private_key = self.private_key.get();
+        let file = self.file.get();
+
+        Ok(GenesisFull {
+            public_key,
+            private_key,
+            file,
+        })
     }
 }
 
-impl FromEnv for Genesis {
-    fn from_env(env: &impl ReadEnv) -> FromEnvResult<Self>
+impl FromEnv for GenesisPartial {
+    fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self>
     where
         Self: Sized,
     {
@@ -383,6 +539,22 @@ impl FromEnv for Genesis {
     }
 }
 
+impl GenesisFull {
+    fn parse(self, cli: &CliContext) -> Result<actual::Genesis, GenesisConfigError> {
+        match (self.private_key, self.file) {
+            (None, None) => Ok(actual::Genesis::Partial {
+                public_key: self.public_key,
+            }),
+            (Some(private_key), Some(file)) => Ok(actual::Genesis::Full {
+                key_pair: KeyPair::new(self.public_key, private_key)
+                    .map_err(GenesisConfigError::from)?,
+                file,
+            }),
+            _ => Err(GenesisConfigError::Inconsistent),
+        }
+    }
+}
+
 #[derive(Debug, displaydoc::Display, thiserror::Error)]
 pub enum GenesisConfigError {
     /// `genesis.file` and `genesis.private_key` should be set together
@@ -394,34 +566,91 @@ pub enum GenesisConfigError {
 /// `Kura` configuration.
 #[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
-pub struct Kura {
-    pub init_mode: Option<Mode>,
-    pub block_store_path: Option<PathBuf>,
-    pub debug: KuraDebug,
+pub struct KuraPartial {
+    pub init_mode: UserField<Mode>,
+    pub block_store_path: UserField<PathBuf>,
+    pub debug: KuraDebugPartial,
 }
 
-#[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
-#[serde(deny_unknown_fields, default)]
-pub struct KuraDebug {
-    output_new_blocks: Option<bool>,
+#[derive(Debug)]
+pub struct KuraFull {
+    pub init_mode: Mode,
+    pub block_store_path: PathBuf,
+    pub debug: KuraDebugFull,
 }
 
-impl Complete for Kura {
-    type Output = actual::Kura;
+impl UnwrapPartial for KuraPartial {
+    type Output = KuraFull;
 
-    fn complete(self) -> CompleteResult<Self::Output> {
-        Ok(actual::Kura {
-            init_mode: self.init_mode.unwrap_or_default(),
-            block_store_path: self
-                .block_store_path
-                .unwrap_or_else(|| PathBuf::from(DEFAULT_BLOCK_STORE_PATH)),
-            debug_output_new_blocks: self.debug.output_new_blocks.unwrap_or(false),
+    fn unwrap_partial(self) -> Result<Self::Output, ErrorsCollection<MissingFieldError>> {
+        let mut emitter = Emitter::new();
+
+        let init_mode = self.init_mode.unwrap_or_default();
+
+        let block_store_path = self
+            .block_store_path
+            .get()
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_BLOCK_STORE_PATH));
+
+        let debug = UnwrapPartial::unwrap_partial(self.debug)
+            .map(Some)
+            .unwrap_or_else(|err| {
+                emitter.emit_collection(err);
+                None
+            });
+
+        emitter.finish()?;
+
+        Ok(KuraFull {
+            init_mode,
+            block_store_path,
+            debug: debug.unwrap(),
         })
     }
 }
 
-impl FromEnv for Kura {
-    fn from_env(env: &impl ReadEnv) -> FromEnvResult<Self>
+impl KuraFull {
+    fn parse(self) -> actual::Kura {
+        let Self {
+            init_mode,
+            block_store_path,
+            debug:
+                KuraDebugFull {
+                    output_new_blocks: debug_output_new_blocks,
+                },
+        } = self;
+
+        actual::Kura {
+            init_mode,
+            block_store_path,
+            debug_output_new_blocks,
+        }
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
+#[serde(deny_unknown_fields, default)]
+pub struct KuraDebugPartial {
+    output_new_blocks: UserField<bool>,
+}
+
+#[derive(Debug)]
+pub struct KuraDebugFull {
+    output_new_blocks: bool,
+}
+
+impl UnwrapPartial for KuraDebugPartial {
+    type Output = KuraDebugFull;
+
+    fn unwrap_partial(self) -> Result<Self::Output, ErrorsCollection<MissingFieldError>> {
+        Ok(KuraDebugFull {
+            output_new_blocks: self.output_new_blocks.unwrap_or(false),
+        })
+    }
+}
+
+impl FromEnv for KuraPartial {
+    fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self>
     where
         Self: Sized,
     {
@@ -450,7 +679,7 @@ impl FromEnv for Kura {
         Ok(Self {
             init_mode,
             block_store_path,
-            debug: KuraDebug {
+            debug: KuraDebugPartial {
                 output_new_blocks: debug_output_new_blocks,
             },
         })
@@ -459,40 +688,99 @@ impl FromEnv for Kura {
 
 #[derive(Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
-pub struct Sumeragi {
-    pub block_gossip_period: UserField<UserDuration>,
-    pub max_blocks_per_gossip: UserField<NonZeroU32>,
-    pub max_transactions_per_gossip: UserField<NonZeroU32>,
-    pub transaction_gossip_period: UserField<UserDuration>,
+pub struct SumeragiPartial {
     pub trusted_peers: UserTrustedPeers,
-    pub debug: SumeragiDebug,
+    pub debug: SumeragiDebugPartial,
 }
 
-#[derive(Deserialize, Serialize, Debug, Default, Merge)]
-#[serde(deny_unknown_fields, default)]
-pub struct SumeragiDebug {
-    pub force_soft_fork: UserField<bool>,
+#[derive(Debug)]
+pub struct SumeragiFull {
+    pub trusted_peers: Vec<PeerId>,
+    pub debug: SumeragiDebugFull,
 }
 
-impl Complete for Sumeragi {
-    type Output = actual::Sumeragi;
+impl SumeragiFull {
+    fn parse(self) -> Result<actual::Sumeragi, Report> {
+        let Self {
+            trusted_peers,
+            debug: SumeragiDebugFull { force_soft_fork },
+        } = self;
 
-    fn complete(self) -> CompleteResult<Self::Output> {
+        let trusted_peers = construct_unique_vec(trusted_peers)?;
+
         Ok(actual::Sumeragi {
-            trusted_peers: construct_unique_vec(self.trusted_peers.peers)
-                .map_err(CompleteError::Custom)?,
-            debug_force_soft_fork: self.debug.force_soft_fork.unwrap_or(false),
+            trusted_peers,
+            debug_force_soft_fork: force_soft_fork,
         })
     }
 }
 
-impl FromEnvDefaultFallback for Sumeragi {}
+impl UnwrapPartial for SumeragiPartial {
+    type Output = SumeragiFull;
+
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
+        let mut emitter = Emitter::new();
+
+        let trusted_peers = self.trusted_peers.unwrap_partial().map_or_else(
+            |err| {
+                emitter.emit_collection(err);
+                None
+            },
+            Some,
+        );
+
+        let debug = self.debug.unwrap_partial().map_or_else(
+            |err| {
+                emitter.emit_collection(err);
+                None
+            },
+            Some,
+        );
+
+        emitter.finish()?;
+
+        Ok(SumeragiFull {
+            trusted_peers: trusted_peers.unwrap(),
+            debug: debug.unwrap(),
+        })
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Default, Merge)]
+#[serde(deny_unknown_fields, default)]
+pub struct SumeragiDebugPartial {
+    pub force_soft_fork: UserField<bool>,
+}
+
+impl UnwrapPartial for SumeragiDebugPartial {
+    type Output = SumeragiDebugFull;
+
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
+        Ok(SumeragiDebugFull {
+            force_soft_fork: self.force_soft_fork.unwrap_or(false),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct SumeragiDebugFull {
+    pub force_soft_fork: bool,
+}
+
+impl FromEnvDefaultFallback for SumeragiPartial {}
 
 #[derive(Deserialize, Serialize, Default, PartialEq, Eq, Debug, Clone)]
 #[serde(transparent)]
 pub struct UserTrustedPeers {
     // FIXME: doesn't raise an error on finding duplicates during deserialization
     pub peers: Vec<PeerId>,
+}
+
+impl UnwrapPartial for UserTrustedPeers {
+    type Output = Vec<PeerId>;
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
+        Ok(self.peers)
+    }
 }
 
 impl Merge for UserTrustedPeers {
@@ -517,42 +805,102 @@ fn construct_unique_vec<T: Debug + PartialEq>(
 
 #[derive(Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
-pub struct Network {
+pub struct NetworkPartial {
     pub block_gossip_period: UserField<UserDuration>,
     pub max_blocks_per_gossip: UserField<NonZeroU32>,
     pub max_transactions_per_gossip: UserField<NonZeroU32>,
     pub transaction_gossip_period: UserField<UserDuration>,
 }
 
-impl Complete for Network {
-    type Output = (actual::BlockSync, actual::TransactionGossiper);
+#[derive(Debug)]
+pub struct NetworkFull {
+    pub block_gossip_period: Duration,
+    pub max_blocks_per_gossip: NonZeroU32,
+    pub max_transactions_per_gossip: NonZeroU32,
+    pub transaction_gossip_period: Duration,
+}
 
-    fn complete(self) -> CompleteResult<Self::Output> {
-        todo!()
+impl UnwrapPartial for NetworkPartial {
+    type Output = NetworkFull;
+
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
+        Ok(NetworkFull {
+            block_gossip_period: self
+                .block_gossip_period
+                .map(UserDuration::get)
+                .unwrap_or(DEFAULT_BLOCK_GOSSIP_PERIOD),
+            transaction_gossip_period: self
+                .transaction_gossip_period
+                .map(UserDuration::get)
+                .unwrap_or(DEFAULT_TRANSACTION_GOSSIP_PERIOD),
+            max_transactions_per_gossip: self
+                .max_transactions_per_gossip
+                .get()
+                .unwrap_or(DEFAULT_MAX_TRANSACTIONS_PER_GOSSIP),
+            max_blocks_per_gossip: self
+                .max_blocks_per_gossip
+                .get()
+                .unwrap_or(DEFAULT_MAX_BLOCKS_PER_GOSSIP),
+        })
     }
 }
 
-impl FromEnvDefaultFallback for Network {}
+impl NetworkFull {
+    fn parse(self) -> (actual::BlockSync, actual::TransactionGossiper) {
+        let Self {
+            max_blocks_per_gossip,
+            max_transactions_per_gossip,
+            block_gossip_period,
+            transaction_gossip_period,
+        } = self;
+
+        (
+            actual::BlockSync {
+                gossip_period: block_gossip_period,
+                batch_size: max_blocks_per_gossip,
+            },
+            actual::TransactionGossiper {
+                gossip_period: transaction_gossip_period,
+                batch_size: max_transactions_per_gossip,
+            },
+        )
+    }
+}
+
+impl FromEnvDefaultFallback for NetworkPartial {}
 
 #[derive(Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
-pub struct Queue {
+pub struct QueuePartial {
     /// The upper limit of the number of transactions waiting in the queue.
     pub max_transactions_in_queue: UserField<NonZeroUsize>,
     /// The upper limit of the number of transactions waiting in the queue for single user.
     /// Use this option to apply throttling.
     pub max_transactions_in_queue_per_user: UserField<NonZeroUsize>,
     /// The transaction will be dropped after this time if it is still in the queue.
-    pub transaction_time_to_live_ms: UserField<UserDuration>,
+    pub transaction_time_to_live: UserField<UserDuration>,
     /// The threshold to determine if a transaction has been tampered to have a future timestamp.
-    pub future_threshold_ms: UserField<UserDuration>,
+    pub future_threshold: UserField<UserDuration>,
 }
 
-impl Complete for Queue {
-    type Output = actual::Queue;
+#[derive(Debug, Clone, Copy)]
+pub struct QueueFull {
+    /// The upper limit of the number of transactions waiting in the queue.
+    pub max_transactions_in_queue: NonZeroUsize,
+    /// The upper limit of the number of transactions waiting in the queue for single user.
+    /// Use this option to apply throttling.
+    pub max_transactions_in_queue_per_user: NonZeroUsize,
+    /// The transaction will be dropped after this time if it is still in the queue.
+    pub transaction_time_to_live: Duration,
+    /// The threshold to determine if a transaction has been tampered to have a future timestamp.
+    pub future_threshold: Duration,
+}
 
-    fn complete(self) -> CompleteResult<Self::Output> {
-        Ok(actual::Queue {
+impl UnwrapPartial for QueuePartial {
+    type Output = QueueFull;
+
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
+        Ok(QueueFull {
             max_transactions_in_queue: self
                 .max_transactions_in_queue
                 .unwrap_or(DEFAULT_MAX_TRANSACTIONS_IN_QUEUE),
@@ -560,23 +908,23 @@ impl Complete for Queue {
                 .max_transactions_in_queue_per_user
                 .unwrap_or(DEFAULT_MAX_TRANSACTIONS_IN_QUEUE),
             transaction_time_to_live: self
-                .transaction_time_to_live_ms
+                .transaction_time_to_live
                 .map_or(DEFAULT_TRANSACTION_TIME_TO_LIVE, UserDuration::get),
             future_threshold: self
-                .future_threshold_ms
+                .future_threshold
                 .map_or(DEFAULT_FUTURE_THRESHOLD, UserDuration::get),
         })
     }
 }
 
-impl FromEnvDefaultFallback for Queue {}
+impl FromEnvDefaultFallback for QueuePartial {}
 
 /// 'Logger' configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default, Merge)]
 // `tokio_console_addr` is not `Copy`, but warning appears without `tokio-console` feature
 #[allow(missing_copy_implementations)]
 #[serde(deny_unknown_fields, default)]
-pub struct Logger {
+pub struct LoggerPartial {
     /// Level of logging verbosity
     pub level: UserField<Level>,
     /// Output format
@@ -586,11 +934,22 @@ pub struct Logger {
     pub tokio_console_addr: UserField<SocketAddr>,
 }
 
-impl Complete for Logger {
-    type Output = actual::Logger;
+#[derive(Debug, Clone)]
+pub struct LoggerFull {
+    /// Level of logging verbosity
+    pub level: Level,
+    /// Output format
+    pub format: Format,
+    #[cfg(feature = "tokio-console")]
+    /// Address of tokio console (only available under "tokio-console" feature)
+    pub tokio_console_addr: SocketAddr,
+}
 
-    fn complete(self) -> CompleteResult<Self::Output> {
-        Ok(actual::Logger {
+impl UnwrapPartial for LoggerPartial {
+    type Output = LoggerFull;
+
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
+        Ok(LoggerFull {
             level: self.level.unwrap_or_default(),
             format: self.format.unwrap_or_default(),
             #[cfg(feature = "tokio-console")]
@@ -602,8 +961,8 @@ impl Complete for Logger {
     }
 }
 
-impl FromEnv for Logger {
-    fn from_env(env: &impl ReadEnv) -> FromEnvResult<Self>
+impl FromEnv for LoggerPartial {
+    fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self>
     where
         Self: Sized,
     {
@@ -626,89 +985,134 @@ impl FromEnv for Logger {
 
 #[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
-pub struct Telemetry {
-    /// The node's name to be seen on the telemetry
+pub struct TelemetryPartial {
     pub name: UserField<String>,
-    /// The url of the telemetry, e.g., ws://127.0.0.1:8001/submit
     pub url: UserField<Url>,
-    /// The minimum period of time in seconds to wait before reconnecting
     pub min_retry_period: UserField<UserDuration>,
-    /// The maximum exponent of 2 that is used for increasing delay between reconnections
     pub max_retry_delay_exponent: UserField<u8>,
-    /// Dev telemetry configuration
-    #[serde(default)]
-    pub dev: DevUserLayer,
+    pub dev: TelemetryDevPartial,
+}
+
+#[derive(Debug)]
+pub struct TelemetryFull {
+    // Fields here are Options so that it is possible to warn the user if e.g. they provided `min_retry_period`, but haven't
+    // provided `name` and `url`
+    pub name: Option<String>,
+    pub url: Option<Url>,
+    pub min_retry_period: Option<Duration>,
+    pub max_retry_delay_exponent: Option<u8>,
+    pub dev: TelemetryDevFull,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
-pub struct DevUserLayer {
-    /// The filepath that to write dev-telemetry to
+pub struct TelemetryDevPartial {
     pub file: UserField<PathBuf>,
 }
 
-impl Complete for Telemetry {
-    type Output = (
-        Option<actual::RegularTelemetry>,
-        Option<actual::DevTelemetry>,
-    );
+#[derive(Debug)]
+pub struct TelemetryDevFull {
+    pub file: Option<PathBuf>,
+}
 
-    fn complete(self) -> CompleteResult<Self::Output> {
+impl UnwrapPartial for TelemetryDevPartial {
+    type Output = TelemetryDevFull;
+
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
+        Ok(TelemetryDevFull {
+            file: self.file.get(),
+        })
+    }
+}
+
+impl UnwrapPartial for TelemetryPartial {
+    type Output = TelemetryFull;
+
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
         let Self {
             name,
             url,
             max_retry_delay_exponent,
             min_retry_period,
-            dev: DevUserLayer { file },
+            dev,
         } = self;
 
-        let regular = match (name.get(), url.get()) {
+        Ok(TelemetryFull {
+            name: name.get(),
+            url: url.get(),
+            max_retry_delay_exponent: max_retry_delay_exponent.get(),
+            min_retry_period: min_retry_period.get().map(UserDuration::get),
+            dev: dev.unwrap_partial()?,
+        })
+    }
+}
+
+impl TelemetryFull {
+    fn parse(
+        self,
+    ) -> Result<
+        (
+            Option<actual::RegularTelemetry>,
+            Option<actual::DevTelemetry>,
+        ),
+        Report,
+    > {
+        let Self {
+            name,
+            url,
+            max_retry_delay_exponent,
+            min_retry_period,
+            dev: TelemetryDevFull { file },
+        } = self;
+
+        let regular = match (name, url) {
             (Some(name), Some(url)) => Some(actual::RegularTelemetry {
                 name,
                 url,
                 max_retry_delay_exponent: max_retry_delay_exponent
-                    .get()
                     .unwrap_or(DEFAULT_MAX_RETRY_DELAY_EXPONENT),
-                min_retry_period: min_retry_period
-                    .get()
-                    .map_or(DEFAULT_MIN_RETRY_PERIOD, UserDuration::get),
+                min_retry_period: min_retry_period.unwrap_or(DEFAULT_MIN_RETRY_PERIOD),
             }),
+            // TODO warn user if they provided retry parameters while not providing essential ones
             (None, None) => None,
-            // TODO improve error detail
-            _ => Err(eyre!(
-                "telemetry.name and telemetry.file should be set together"
-            ))
-            .map_err(CompleteError::Custom)?,
+            _ => {
+                // TODO improve error detail
+                return Err(eyre!(
+                    "telemetry.name and telemetry.file should be set together"
+                ))?;
+            }
         };
 
-        let dev = file
-            .as_ref()
-            .map(|file| actual::DevTelemetry { file: file.clone() });
+        let dev = file.map(|file| actual::DevTelemetry { file: file.clone() });
 
         Ok((regular, dev))
     }
 }
 
-impl FromEnvDefaultFallback for Telemetry {}
+impl FromEnvDefaultFallback for TelemetryPartial {}
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
-pub struct Snapshot {
-    /// The period of time to wait between attempts to create new snapshot.
-    pub create_every_ms: UserField<UserDuration>,
-    /// Path to the directory where snapshots should be stored
+pub struct SnapshotPartial {
+    pub create_every: UserField<UserDuration>,
     pub store_path: UserField<PathBuf>,
-    /// Flag to enable or disable snapshot creation
     pub creation_enabled: UserField<bool>,
 }
 
-impl Complete for Snapshot {
-    type Output = actual::Snapshot;
+#[derive(Debug, Clone)]
+pub struct SnapshotFull {
+    pub create_every: Duration,
+    pub store_path: PathBuf,
+    pub creation_enabled: bool,
+}
 
-    fn complete(self) -> CompleteResult<Self::Output> {
-        Ok(actual::Snapshot {
+impl UnwrapPartial for SnapshotPartial {
+    type Output = SnapshotFull;
+
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
+        Ok(SnapshotFull {
             creation_enabled: self.creation_enabled.unwrap_or(DEFAULT_ENABLED),
             create_every: self
-                .create_every_ms
+                .create_every
                 .get()
                 .map_or(DEFAULT_SNAPSHOT_CREATE_EVERY_MS, UserDuration::get),
             store_path: self
@@ -719,8 +1123,8 @@ impl Complete for Snapshot {
     }
 }
 
-impl FromEnv for Snapshot {
-    fn from_env(env: &impl ReadEnv) -> FromEnvResult<Self>
+impl FromEnv for SnapshotPartial {
+    fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self>
     where
         Self: Sized,
     {
@@ -753,7 +1157,7 @@ impl FromEnv for Snapshot {
 
 #[derive(Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
-pub struct ChainWide {
+pub struct ChainWidePartial {
     pub max_transactions_in_block: UserField<NonZeroU32>,
     pub block_time: UserField<UserDuration>,
     pub commit_time: UserField<UserDuration>,
@@ -767,11 +1171,26 @@ pub struct ChainWide {
     pub wasm_max_memory: UserField<ByteSize<u32>>,
 }
 
-impl Complete for ChainWide {
-    type Output = actual::ChainWide;
+#[derive(Debug)]
+pub struct ChainWideFull {
+    pub max_transactions_in_block: NonZeroU32,
+    pub block_time: Duration,
+    pub commit_time: Duration,
+    pub transaction_limits: TransactionLimits,
+    pub asset_metadata_limits: MetadataLimits,
+    pub asset_definition_metadata_limits: MetadataLimits,
+    pub account_metadata_limits: MetadataLimits,
+    pub domain_metadata_limits: MetadataLimits,
+    pub identifier_length_limits: LengthLimits,
+    pub wasm_fuel_limit: u64,
+    pub wasm_max_memory: ByteSize<u32>,
+}
 
-    fn complete(self) -> CompleteResult<Self::Output> {
-        Ok(actual::ChainWide {
+impl UnwrapPartial for ChainWidePartial {
+    type Output = ChainWideFull;
+
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
+        Ok(ChainWideFull {
             max_transactions_in_block: self.max_transactions_in_block.unwrap_or(DEFAULT_MAX_TXS),
             block_time: self
                 .block_time
@@ -797,53 +1216,112 @@ impl Complete for ChainWide {
             identifier_length_limits: self
                 .identifier_length_limits
                 .unwrap_or(DEFAULT_IDENT_LENGTH_LIMITS),
-            wasm_runtime: actual::WasmRuntime {
-                fuel_limit: self.wasm_fuel_limit.unwrap_or(DEFAULT_WASM_FUEL_LIMIT),
-                max_memory: self
-                    .wasm_max_memory
-                    .unwrap_or(ByteSize(DEFAULT_WASM_MAX_MEMORY)),
-            },
+            wasm_fuel_limit: self.wasm_fuel_limit.unwrap_or(DEFAULT_WASM_FUEL_LIMIT),
+            wasm_max_memory: self
+                .wasm_max_memory
+                .unwrap_or(ByteSize(DEFAULT_WASM_MAX_MEMORY)),
         })
     }
 }
 
-impl FromEnvDefaultFallback for ChainWide {}
+impl FromEnvDefaultFallback for ChainWidePartial {}
+
+impl ChainWideFull {
+    fn parse(self) -> actual::ChainWide {
+        let Self {
+            max_transactions_in_block,
+            block_time,
+            commit_time,
+            transaction_limits,
+            asset_metadata_limits,
+            asset_definition_metadata_limits,
+            account_metadata_limits,
+            domain_metadata_limits,
+            identifier_length_limits,
+            wasm_fuel_limit,
+            wasm_max_memory,
+        } = self;
+
+        actual::ChainWide {
+            max_transactions_in_block,
+            block_time,
+            commit_time,
+            transaction_limits,
+            asset_metadata_limits,
+            asset_definition_metadata_limits,
+            account_metadata_limits,
+            domain_metadata_limits,
+            identifier_length_limits,
+            wasm_runtime: actual::WasmRuntime {
+                fuel_limit: wasm_fuel_limit,
+                max_memory: wasm_max_memory,
+            },
+        }
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
-pub struct Torii {
+pub struct ToriiPartial {
     pub address: UserField<SocketAddr>,
     pub max_content_len: UserField<ByteSize<u64>>,
     pub query_idle_time: UserField<UserDuration>,
 }
 
-impl Complete for Torii {
-    type Output = (actual::Torii, actual::LiveQueryStore);
+#[derive(Debug)]
+pub struct ToriiFull {
+    pub address: SocketAddr,
+    pub max_content_len: ByteSize<u64>,
+    pub query_idle_time: Duration,
+}
 
-    fn complete(self) -> CompleteResult<Self::Output> {
-        let torii = actual::Torii {
-            address: self
-                .address
-                .get()
-                .ok_or_else(|| CompleteError::missing_field("torii.address"))?,
-            max_content_len: self
-                .max_content_len
-                .get()
-                .unwrap_or(ByteSize(DEFAULT_MAX_CONTENT_LENGTH)),
-        };
+impl UnwrapPartial for ToriiPartial {
+    type Output = ToriiFull;
 
-        let query = actual::LiveQueryStore {
-            query_idle_time: self
-                .query_idle_time
-                .map_or(DEFAULT_QUERY_IDLE_TIME, UserDuration::get),
-        };
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
+        let mut emitter = Emitter::new();
 
-        Ok((torii, query))
+        if self.address.is_none() {
+            emitter.emit_missing_field("torii.address");
+        }
+
+        let max_content_len = self
+            .max_content_len
+            .get()
+            .unwrap_or(ByteSize(DEFAULT_MAX_CONTENT_LENGTH));
+
+        let query_idle_time = self
+            .query_idle_time
+            .map(UserDuration::get)
+            .unwrap_or(DEFAULT_QUERY_IDLE_TIME);
+
+        emitter.finish()?;
+
+        Ok(ToriiFull {
+            address: self.address.get().unwrap(),
+            max_content_len,
+            query_idle_time,
+        })
     }
 }
 
-impl FromEnv for Torii {
-    fn from_env(env: &impl ReadEnv) -> FromEnvResult<Self>
+impl ToriiFull {
+    fn parse(self) -> (actual::Torii, actual::LiveQueryStore) {
+        let torii = actual::Torii {
+            address: self.address,
+            max_content_len: self.max_content_len,
+        };
+
+        let query = actual::LiveQueryStore {
+            query_idle_time: self.query_idle_time,
+        };
+
+        (torii, query)
+    }
+}
+
+impl FromEnv for ToriiPartial {
+    fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self>
     where
         Self: Sized,
     {
@@ -865,7 +1343,7 @@ impl FromEnv for Torii {
 mod tests {
     use iroha_config_base::{FromEnv, TestEnv};
 
-    use crate::parameters::user_layer::{Iroha, Root};
+    use crate::parameters::user_layer::{IrohaPartial, RootPartial};
 
     #[test]
     fn parses_private_key_from_env() {
@@ -873,7 +1351,7 @@ mod tests {
             .set("PRIVATE_KEY_DIGEST", "ed25519")
             .set("PRIVATE_KEY_PAYLOAD", "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
 
-        let private_key = Iroha::from_env(&env)
+        let private_key = IrohaPartial::from_env(&env)
             .expect("input is valid, should not fail")
             .private_key
             .get()
@@ -886,25 +1364,23 @@ mod tests {
     #[test]
     fn fails_to_parse_private_key_in_env_without_digest() {
         let env = TestEnv::new().set("PRIVATE_KEY_DIGEST", "ed25519");
-        let error = Iroha::from_env(&env).expect_err("private key is incomplete, should fail");
-        let expected = expect_test::expect![[r#"
-            `PRIVATE_KEY_DIGEST` env was provided, but `PRIVATE_KEY_PAYLOAD` was not
-
-            Location:
-                config/src/parameters/iroha.rs:100:26"#]];
-        expected.assert_eq(&format!("{error:?}"));
+        let error =
+            IrohaPartial::from_env(&env).expect_err("private key is incomplete, should fail");
+        let expected = expect_test::expect![
+            "`PRIVATE_KEY_DIGEST` env was provided, but `PRIVATE_KEY_PAYLOAD` was not"
+        ];
+        expected.assert_eq(&format!("{error:#}"));
     }
 
     #[test]
     fn fails_to_parse_private_key_in_env_without_payload() {
         let env = TestEnv::new().set("PRIVATE_KEY_PAYLOAD", "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
-        let error = Iroha::from_env(&env).expect_err("private key is incomplete, should fail");
-        let expected = expect_test::expect![[r#"
-            `PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_DIGEST` was not
-
-            Location:
-                config/src/parameters/iroha.rs:108:26"#]];
-        expected.assert_eq(&format!("{error:?}"));
+        let error =
+            IrohaPartial::from_env(&env).expect_err("private key is incomplete, should fail");
+        let expected = expect_test::expect![
+            "`PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_DIGEST` was not"
+        ];
+        expected.assert_eq(&format!("{error:#}"));
     }
 
     #[test]
@@ -913,17 +1389,10 @@ mod tests {
             .set("PRIVATE_KEY_DIGEST", "ed25519")
             .set("PRIVATE_KEY_PAYLOAD", "foo");
 
-        let error = Iroha::from_env(&env).expect_err("input is invalid, should fail");
+        let error = IrohaPartial::from_env(&env).expect_err("input is invalid, should fail");
 
-        let expected = expect_test::expect![[r#"
-            failed to construct `iroha.private_key` from `PRIVATE_KEY_DIGEST` and `PRIVATE_KEY_PAYLOAD` environment variables
-
-            Caused by:
-                Key could not be parsed. Odd number of digits
-
-            Location:
-                config/src/parameters/iroha.rs:82:18"#]];
-        expected.assert_eq(&format!("{error:?}"));
+        let expected = expect_test::expect!["failed to construct `iroha.private_key` from `PRIVATE_KEY_DIGEST` and `PRIVATE_KEY_PAYLOAD` environment variables"];
+        expected.assert_eq(&format!("{error:#}"));
     }
 
     #[test]
@@ -932,28 +1401,21 @@ mod tests {
             .set("PRIVATE_KEY_DIGEST", "foo")
             .set("PRIVATE_KEY_PAYLOAD", "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
 
-        let error = Iroha::from_env(&env).expect_err("input is invalid, should fail");
+        let error = IrohaPartial::from_env(&env).expect_err("input is invalid, should fail");
 
         // TODO: print the bad value and supported ones
-        let expected = expect_test::expect![[r#"
-            failed to parse `iroha.private_key.digest_function` field from `PRIVATE_KEY_DIGEST` env variable
-
-            Caused by:
-                Algorithm not supported
-
-            Location:
-                config/src/lib.rs:237:14"#]];
-        expected.assert_eq(&format!("{error:?}"));
+        let expected = expect_test::expect!["failed to parse `iroha.private_key.digest_function` field from `PRIVATE_KEY_DIGEST` env variable"];
+        expected.assert_eq(&format!("{error:#}"));
     }
 
     #[test]
     fn deserialize_empty_input_works() {
-        let _layer: Root = toml::from_str("").unwrap();
+        let _layer: RootPartial = toml::from_str("").unwrap();
     }
 
     #[test]
     fn deserialize_iroha_namespace_with_not_all_fields_works() {
-        let _layer: Root = toml::from_str(
+        let _layer: RootPartial = toml::from_str(
             r#"
             [iroha]
             p2p_address = "127.0.0.1:8080"

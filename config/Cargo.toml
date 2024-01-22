@@ -32,7 +32,7 @@ derive_more = { workspace = true }
 cfg-if = { workspace = true }
 once_cell = { workspace = true }
 nonzero_ext = "0.3.0"
-toml = "0.8.8"
+toml = { workspace = true }
 parse-display = { workspace = true }
 merge = "0.1.0"
 

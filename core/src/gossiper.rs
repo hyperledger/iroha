@@ -60,8 +60,7 @@ impl TransactionGossiper {
     /// Construct [`Self`] from configuration
     pub fn from_configuration(
         chain_id: ChainId,
-        // Currently we are using configuration parameters from sumeragi not to break configuration
-        config: &Config,
+        config: Config,
         network: IrohaNetwork,
         queue: Arc<Queue>,
         sumeragi: SumeragiHandle,

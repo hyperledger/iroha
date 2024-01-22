@@ -1,14 +1,23 @@
 //! This module contains the sample configurations used for testing and benchmarking throughout Iroha.
-use std::{collections::HashSet, path::Path, str::FromStr};
+use std::{collections::HashSet, path::Path, str::FromStr, time::Duration};
 
 use iroha_config::{
-    iroha::{Configuration, ConfigurationProxy},
-    sumeragi::TrustedPeers,
-    torii::{uri::DEFAULT_API_ADDR, DEFAULT_TORII_P2P_ADDR},
+    base::{UnwrapPartial, UserDuration},
+    parameters::{
+        actual::Root as Config,
+        user_layer::{CliContext, RootPartial as UserConfig},
+    },
 };
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{peer::PeerId, prelude::*, ChainId};
-use iroha_primitives::unique_vec::UniqueVec;
+use iroha_primitives::{
+    addr::{socket_addr, SocketAddr},
+    unique_vec::UniqueVec,
+};
+
+// FIXME: move to a global test-related place, re-use everywhere else
+const DEFAULT_P2P_ADDR: SocketAddr = socket_addr!(127.0.0.1:1337);
+const DEFAULT_TORII_ADDR: SocketAddr = socket_addr!(127.0.0.1:8080);
 
 /// Get sample trusted peers. The public key must be the same as `configuration.public_key`
 ///
@@ -33,57 +42,57 @@ pub fn get_trusted_peers(public_key: Option<&PublicKey>) -> HashSet<PeerId> {
     .map(|(a, k)| PeerId::new(a.parse().expect("Valid"), PublicKey::from_str(k).unwrap()))
     .collect();
     if let Some(pubkey) = public_key {
-        trusted_peers.insert(PeerId::new(DEFAULT_TORII_P2P_ADDR.clone(), pubkey.clone()));
+        trusted_peers.insert(PeerId {
+            address: DEFAULT_P2P_ADDR.clone(),
+            public_key: pubkey.clone(),
+        });
     }
     trusted_peers
 }
 
 #[allow(clippy::implicit_hasher)]
-/// Get a sample Iroha configuration proxy. Trusted peers must be
+/// Get a sample Iroha configuration on user-layer level. Trusted peers must be
 /// specified in this function, including the current peer. Use [`get_trusted_peers`]
 /// to populate `trusted_peers` if in doubt. Almost equivalent to the [`get_config`]
 /// function, except the proxy is left unbuilt.
 ///
 /// # Panics
 /// - when [`KeyPair`] generation fails (rare case).
-pub fn get_config_proxy(
+pub fn get_user_config(
     peers: UniqueVec<PeerId>,
     chain_id: Option<ChainId>,
     key_pair: Option<KeyPair>,
-) -> ConfigurationProxy {
-    let chain_id = chain_id.unwrap_or_else(|| ChainId::new("0"));
+) -> UserConfig {
+    let chain_id = chain_id.unwrap_or_else(|| ChainId::new("0".to_owned()));
 
     let (public_key, private_key) = key_pair.unwrap_or_else(KeyPair::generate).into();
     iroha_logger::info!(%public_key);
-    ConfigurationProxy {
-        chain_id: Some(chain_id),
-        public_key: Some(public_key.clone()),
-        private_key: Some(private_key.clone()),
-        sumeragi: Some(Box::new(iroha_config::sumeragi::ConfigurationProxy {
-            max_transactions_in_block: Some(2),
-            trusted_peers: Some(TrustedPeers { peers }),
-            ..iroha_config::sumeragi::ConfigurationProxy::default()
-        })),
-        torii: Some(Box::new(iroha_config::torii::ConfigurationProxy {
-            p2p_addr: Some(DEFAULT_TORII_P2P_ADDR.clone()),
-            api_url: Some(DEFAULT_API_ADDR.clone()),
-            ..iroha_config::torii::ConfigurationProxy::default()
-        })),
-        block_sync: Some(iroha_config::block_sync::ConfigurationProxy {
-            block_batch_size: Some(1),
-            gossip_period_ms: Some(500),
-            ..iroha_config::block_sync::ConfigurationProxy::default()
-        }),
-        queue: Some(iroha_config::queue::ConfigurationProxy {
-            ..iroha_config::queue::ConfigurationProxy::default()
-        }),
-        genesis: Some(Box::new(iroha_config::genesis::ConfigurationProxy {
-            private_key: Some(Some(private_key)),
-            public_key: Some(public_key),
-            file: Some(Some("./genesis.json".into())),
-        })),
-        ..ConfigurationProxy::default()
-    }
+
+    let mut config = UserConfig::new();
+
+    config.iroha.chain_id.set(chain_id);
+    config.iroha.public_key.set(public_key.clone());
+    config.iroha.private_key.set(private_key.clone());
+    config.iroha.p2p_address.set(DEFAULT_P2P_ADDR);
+    config
+        .chain_wide
+        .max_transactions_in_block
+        .set(2.try_into().unwrap());
+    config.sumeragi.trusted_peers.peers = peers.to_vec();
+    config.torii.address.set(DEFAULT_TORII_ADDR);
+    config
+        .network
+        .max_blocks_per_gossip
+        .set(1.try_into().unwrap());
+    config
+        .network
+        .block_gossip_period
+        .set(UserDuration(Duration::from_millis(500)));
+    config.genesis.private_key.set(private_key);
+    config.genesis.public_key.set(public_key);
+    config.genesis.file.set("./genesis.json".into());
+
+    config
 }
 
 #[allow(clippy::implicit_hasher)]
@@ -97,10 +106,14 @@ pub fn get_config(
     trusted_peers: UniqueVec<PeerId>,
     chain_id: Option<ChainId>,
     key_pair: Option<KeyPair>,
-) -> Configuration {
-    get_config_proxy(trusted_peers, chain_id, key_pair)
-        .build()
-        .expect("Iroha config should build as all required fields were provided")
+) -> Config {
+    get_user_config(trusted_peers, chain_id, key_pair)
+        .unwrap_partial()
+        .expect("config should build as all required fields were provided")
+        .parse(CliContext {
+            submit_genesis: true,
+        })
+        .expect("config should finalize as the input is semantically valid (or there is a bug)")
 }
 
 /// Construct executor from path.

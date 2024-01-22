@@ -322,10 +322,7 @@ impl SumeragiHandle {
             chain_id,
             key_pair: iroha_config.key_pair.clone(),
             queue: Arc::clone(&queue),
-            peer_id: PeerId::new(
-                &iroha_config.p2p_address,
-                &iroha_config.key_pair.public_key(),
-            ),
+            peer_id: iroha_config.peer_id(),
             events_sender,
             public_wsv_sender,
             public_finalized_wsv_sender,

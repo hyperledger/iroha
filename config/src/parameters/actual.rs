@@ -7,17 +7,17 @@ use std::{
 use iroha_config_base::ByteSize;
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
-    metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, LengthLimits,
-    Level,
+    metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
+    LengthLimits, Level,
 };
 use iroha_genesis::RawGenesisBlock;
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::{kura::Mode, logger::Format};
+use crate::{kura::Mode, logger::Format, parameters::user_layer};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Root {
     pub iroha: Iroha,
     pub genesis: Genesis,
@@ -35,13 +35,20 @@ pub struct Root {
     pub chain_wide: ChainWide,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Iroha {
+    pub chain_id: ChainId,
     pub key_pair: KeyPair,
     pub p2p_address: SocketAddr,
 }
 
-#[derive(Debug)]
+impl Iroha {
+    pub fn peer_id(&self) -> PeerId {
+        PeerId::new(&self.p2p_address, self.key_pair.public_key())
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Genesis {
     /// The peer can only observe the genesis block
     Partial {
@@ -57,20 +64,20 @@ pub enum Genesis {
     },
 }
 
-#[derive(Debug)]
+impl Genesis {
+    pub fn public_key(&self) -> &PublicKey {
+        match self {
+            Genesis::Partial { public_key } => &public_key,
+            Genesis::Full { key_pair, .. } => key_pair.public_key(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Kura {
     pub init_mode: Mode,
     pub block_store_path: PathBuf,
     pub debug_output_new_blocks: bool,
-}
-
-/// `Queue` configuration.
-#[derive(Copy, Clone, Deserialize, Serialize, Debug)]
-pub struct Queue {
-    pub max_transactions_in_queue: NonZeroUsize,
-    pub max_transactions_in_queue_per_user: NonZeroUsize,
-    pub transaction_time_to_live: Duration,
-    pub future_threshold: Duration,
 }
 
 impl Default for Queue {
@@ -79,25 +86,9 @@ impl Default for Queue {
     }
 }
 
-#[derive(Debug)]
-pub struct Logger {
-    /// Level of logging verbosity
-    pub level: Level,
-    /// Output format
-    pub format: Format,
-    #[cfg(feature = "tokio-console")]
-    /// Address of tokio console (only available under "tokio-console" feature)
-    pub tokio_console_addr: SocketAddr,
-}
+pub use user_layer::{LoggerFull as Logger, QueueFull as Queue, SnapshotFull as Snapshot};
 
-#[derive(Debug)]
-pub struct Snapshot {
-    pub create_every: Duration,
-    pub store_path: PathBuf,
-    pub creation_enabled: bool,
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Sumeragi {
     pub trusted_peers: UniqueVec<PeerId>,
     pub debug_force_soft_fork: bool,
@@ -114,13 +105,13 @@ impl Default for LiveQueryStore {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct BlockSync {
     pub gossip_period: Duration,
     pub batch_size: NonZeroU32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct TransactionGossiper {
     pub gossip_period: Duration,
     pub batch_size: NonZeroU32,
@@ -158,14 +149,14 @@ impl Default for WasmRuntime {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Torii {
     pub address: SocketAddr,
     pub max_content_len: ByteSize<u64>,
 }
 
 /// Complete configuration needed to start regular telemetry.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RegularTelemetry {
     #[allow(missing_docs)]
     pub name: String,
@@ -178,7 +169,7 @@ pub struct RegularTelemetry {
 }
 
 /// Complete configuration needed to start dev telemetry.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DevTelemetry {
     #[allow(missing_docs)]
     pub file: PathBuf,

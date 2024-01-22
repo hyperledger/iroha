@@ -1,11 +1,10 @@
 //! Iroha peer command-line interface.
-use std::env;
+use std::{env, path::PathBuf};
 
 use clap::Parser;
 use color_eyre::eyre::Result;
-use iroha_config::path::Path;
 
-const DEFAULT_CONFIG_PATH: &str = "config";
+const DEFAULT_CONFIG_PATH: &str = "config.toml";
 
 fn is_colouring_supported() -> bool {
     supports_color::on(supports_color::Stream::Stdout).is_some()
@@ -31,10 +30,10 @@ struct Args {
         short,
         env("IROHA_CONFIG"),
         value_name("PATH"),
-        value_parser(Path::user_provided_str),
-        value_hint(clap::ValueHint::FilePath)
+        value_hint(clap::ValueHint::FilePath),
+        default_value_t = DEFAULT_CONFIG_PATH.to_owned()
     )]
-    config: Option<Path>,
+    config: String,
     /// Whether to enable ANSI colored output or not
     ///
     /// By default, Iroha determines whether the terminal supports colors or not.
@@ -73,11 +72,8 @@ async fn main() -> Result<()> {
         color_eyre::install()?;
     }
 
-    let config_path = args
-        .config
-        .unwrap_or_else(|| Path::default(DEFAULT_CONFIG_PATH));
-
-    let (config, genesis) = iroha::read_config(&config_path, args.submit_genesis)?;
+    let (config, genesis) =
+        iroha::read_config_and_genesis(PathBuf::from(args.config), args.submit_genesis)?;
     let logger = iroha_logger::init_global(&config.logger, args.terminal_colors)?;
 
     iroha_logger::info!(
@@ -109,7 +105,7 @@ mod tests {
     fn default_args() -> Result<()> {
         let args = Args::try_parse_from(["test"])?;
 
-        assert_eq!(args.config, None);
+        assert_eq!(args.config, "config.toml".to_owned());
         assert_eq!(args.terminal_colors, is_colouring_supported());
         assert_eq!(args.submit_genesis, false);
 
@@ -139,10 +135,7 @@ mod tests {
     fn user_provided_config_path_works() -> Result<()> {
         let args = Args::try_parse_from(["test", "--config", "/home/custom/file.json"])?;
 
-        assert_eq!(
-            args.config,
-            Some(Path::user_provided("/home/custom/file.json").unwrap())
-        );
+        assert_eq!(args.config, "/home/custom/file.json".to_owned());
 
         Ok(())
     }

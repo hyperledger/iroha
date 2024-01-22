@@ -4,9 +4,12 @@
 #![allow(missing_docs)]
 
 use std::{
+    borrow::Cow,
     cell::RefCell,
     collections::{HashMap, HashSet},
+    env::VarError,
     error::Error,
+    ffi::OsString,
     fmt::{Debug, Display, Formatter},
     ops::Sub,
     str::FromStr,
@@ -50,7 +53,7 @@ macro_rules! impl_deserialize_from_str {
 
 /// User-provided duration
 #[derive(Debug, Copy, Clone, Deserialize, Serialize, Ord, PartialOrd, Eq, PartialEq)]
-pub struct UserDuration(Duration);
+pub struct UserDuration(pub Duration);
 
 impl UserDuration {
     pub fn get(self) -> Duration {
@@ -68,18 +71,26 @@ impl<T: Copy> ByteSize<T> {
     }
 }
 
-pub trait Complete {
-    type Output;
-
-    fn complete(self) -> CompleteResult<Self::Output>;
+#[derive(thiserror::Error, Debug)]
+#[error("missing field: `{path}`")]
+pub struct MissingFieldError {
+    path: String,
 }
 
-pub trait ReadEnv {
-    fn get(&self, key: impl AsRef<str>) -> Option<&str>;
+impl MissingFieldError {
+    pub fn new(s: &str) -> Self {
+        Self { path: s.to_owned() }
+    }
+}
+
+pub trait ReadEnv<E> {
+    /// TODO document why cow
+    fn get(&self, key: impl AsRef<str>) -> Result<Option<Cow<'_, str>>, E>;
 }
 
 pub trait FromEnv {
-    fn from_env(env: &impl ReadEnv) -> FromEnvResult<Self>
+    // E: Error so that it could be wrapped into Report
+    fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self>
     where
         Self: Sized;
 }
@@ -92,7 +103,7 @@ impl<T> FromEnv for T
 where
     T: FromEnvDefaultFallback + Default,
 {
-    fn from_env(_env: &impl ReadEnv) -> FromEnvResult<Self>
+    fn from_env<E: Error, R: ReadEnv<E>>(_env: &R) -> FromEnvResult<Self>
     where
         Self: Sized,
     {
@@ -134,29 +145,9 @@ impl<T: Debug> Emitter<T> {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum CompleteError {
-    #[error("Missing field: {path}")]
-    MissingField { path: String },
-    #[error(transparent)]
-    Custom(#[from] Report),
-}
-
-pub type CompleteResult<T> = eyre::Result<T, ErrorsCollection<CompleteError>>;
-
-impl CompleteError {
-    pub fn missing_field(field_name: impl AsRef<str>) -> Self {
-        Self::MissingField {
-            path: field_name.as_ref().to_string(),
-        }
-    }
-}
-
-impl Emitter<CompleteError> {
+impl Emitter<MissingFieldError> {
     pub fn emit_missing_field(&mut self, field_name: impl AsRef<str>) {
-        self.emit(CompleteError::MissingField {
-            path: field_name.as_ref().to_string(),
-        })
+        self.emit(MissingFieldError::new(field_name.as_ref()))
     }
 }
 
@@ -238,11 +229,38 @@ impl TestEnv {
     }
 }
 
-impl ReadEnv for TestEnv {
-    fn get(&self, key: impl AsRef<str>) -> Option<&str> {
+#[derive(thiserror::Error, Debug, Copy, Clone)]
+#[error("should never occur")]
+pub struct NeverError;
+
+impl ReadEnv<NeverError> for TestEnv {
+    fn get(&self, key: impl AsRef<str>) -> Result<Option<Cow<'_, str>>, NeverError> {
         self.visited.borrow_mut().insert(key.as_ref().to_string());
-        self.map.get(key.as_ref()).map(std::string::String::as_str)
+        Ok(self
+            .map
+            .get(key.as_ref())
+            .map(String::as_str)
+            .map(Cow::from))
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct StdEnv;
+
+impl ReadEnv<StdEnvError> for StdEnv {
+    fn get(&self, key: impl AsRef<str>) -> Result<Option<Cow<'_, str>>, StdEnvError> {
+        match std::env::var(key.as_ref()) {
+            Ok(value) => Ok(Some(value.into())),
+            Err(VarError::NotPresent) => Ok(None),
+            Err(VarError::NotUnicode(input)) => Err(StdEnvError::NotUnicode(input)),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum StdEnvError {
+    #[error("the specified environment variable was found, but it did not contain valid unicode data: {0:?}")]
+    NotUnicode(OsString),
 }
 
 pub enum ParseEnvResult<T> {
@@ -256,25 +274,33 @@ where
     T: FromStr,
     <T as FromStr>::Err: Error + Send + Sync + 'static,
 {
-    pub fn parse_simple(
+    pub fn parse_simple<E: Error>(
         emitter: &mut Emitter<Report>,
-        env: &impl ReadEnv,
+        env: &impl ReadEnv<E>,
         env_key: impl AsRef<str>,
         field_name: impl AsRef<str>,
     ) -> Self {
-        match env
+        let read = match env
             .get(env_key.as_ref())
-            .map(FromStr::from_str)
-            .transpose()
-            .wrap_err_with(|| {
-                eyre!(
-                    "failed to parse `{}` field from `{}` env variable",
-                    field_name.as_ref(),
-                    env_key.as_ref()
-                )
-            }) {
-            Ok(Some(x)) => Self::Value(x),
-            Ok(None) => Self::None,
+            .map_err(|err| eyre!("{err}"))
+            .wrap_err_with(|| eyre!("ooops"))
+        {
+            Ok(Some(value)) => value,
+            Ok(None) => return Self::None,
+            Err(report) => {
+                emitter.emit(report);
+                return Self::ParseError;
+            }
+        };
+
+        match FromStr::from_str(read.as_ref()).wrap_err_with(|| {
+            eyre!(
+                "failed to parse `{}` field from `{}` env variable",
+                field_name.as_ref(),
+                env_key.as_ref()
+            )
+        }) {
+            Ok(value) => Self::Value(value),
             Err(report) => {
                 emitter.emit(report);
                 Self::ParseError
@@ -330,6 +356,10 @@ impl<T> UserField<T> {
     pub fn get(self) -> Option<T> {
         self.0
     }
+
+    pub fn set(&mut self, value: T) {
+        self.0.as_mut().map(|x| *x = value);
+    }
 }
 
 impl<T> From<ParseEnvResult<T>> for UserField<T> {
@@ -339,15 +369,23 @@ impl<T> From<ParseEnvResult<T>> for UserField<T> {
     }
 }
 
+pub trait UnwrapPartial {
+    type Output;
+
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output>;
+}
+
+pub type UnwrapPartialResult<T> = Result<T, ErrorsCollection<MissingFieldError>>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn single_missing_field() {
-        let mut emitter = Emitter::new();
+        let mut emitter: Emitter<MissingFieldError> = Emitter::new();
 
-        emitter.emit(CompleteError::missing_field("foo"));
+        emitter.emit_missing_field("foo");
 
         let err = emitter.finish().unwrap_err();
 
@@ -356,10 +394,10 @@ mod tests {
 
     #[test]
     fn multiple_missing_fields() {
-        let mut emitter = Emitter::new();
+        let mut emitter: Emitter<MissingFieldError> = Emitter::new();
 
-        emitter.emit(CompleteError::missing_field("foo"));
-        emitter.emit(CompleteError::missing_field("bar"));
+        emitter.emit_missing_field("foo");
+        emitter.emit_missing_field("bar");
 
         let err = emitter.finish().unwrap_err();
 
