@@ -43,7 +43,7 @@ pub struct Sumeragi {
     /// Receiver channel, for control flow messages.
     pub control_message_receiver: mpsc::Receiver<ControlFlowMessage>,
     /// Receiver channel.
-    pub message_receiver: mpsc::Receiver<MessagePacket>,
+    pub message_receiver: mpsc::Receiver<BlockMessage>,
     /// Only used in testing. Causes the genesis peer to withhold blocks when it
     /// is the proxy tail.
     pub debug_force_soft_fork: bool,
@@ -83,12 +83,13 @@ impl Sumeragi {
     /// # Errors
     /// Fails if network sending fails
     #[instrument(skip(self, packet))]
-    fn post_packet_to(&self, packet: MessagePacket, peer: &PeerId) {
+    fn post_packet_to(&self, packet: BlockMessage, peer: &PeerId) {
         if peer == &self.peer_id {
             return;
         }
+
         let post = iroha_p2p::Post {
-            data: NetworkMessage::SumeragiPacket(Box::new(packet)),
+            data: NetworkMessage::SumeragiBlock(Box::new(packet)),
             peer_id: peer.clone(),
         };
         self.network.post(post);
@@ -97,7 +98,7 @@ impl Sumeragi {
     #[allow(clippy::needless_pass_by_value, single_use_lifetimes)] // TODO: uncomment when anonymous lifetimes are stable
     fn broadcast_packet_to<'peer_id>(
         &self,
-        msg: MessagePacket,
+        msg: BlockMessage,
         ids: impl IntoIterator<Item = &'peer_id PeerId> + Send,
     ) {
         for peer_id in ids {
@@ -105,9 +106,16 @@ impl Sumeragi {
         }
     }
 
-    fn broadcast_packet(&self, msg: MessagePacket) {
+    fn broadcast_packet(&self, msg: BlockMessage) {
         let broadcast = iroha_p2p::Broadcast {
-            data: NetworkMessage::SumeragiPacket(Box::new(msg)),
+            data: NetworkMessage::SumeragiBlock(Box::new(msg)),
+        };
+        self.network.broadcast(broadcast);
+    }
+
+    fn broadcast_control_flow_packet(&self, msg: ControlFlowMessage) {
+        let broadcast = iroha_p2p::Broadcast {
+            data: NetworkMessage::SumeragiControlFlow(Box::new(msg)),
         };
         self.network.broadcast(broadcast);
     }
@@ -140,48 +148,78 @@ impl Sumeragi {
     fn receive_network_packet(
         &self,
         view_change_proof_chain: &mut ProofChain,
-        control_message_in_a_row_counter: &mut usize,
-    ) -> Option<Message> {
+    ) -> (Option<BlockMessage>, bool) {
         const MAX_CONTROL_MSG_IN_A_ROW: usize = 25;
 
-        if *control_message_in_a_row_counter < MAX_CONTROL_MSG_IN_A_ROW {
-            *control_message_in_a_row_counter += 1;
-            self.control_message_receiver
+        let mut block_msg = None;
+
+        let mut should_sleep = true;
+        for _ in 0..MAX_CONTROL_MSG_IN_A_ROW {
+            let maybe_block = block_msg.take().or_else(|| {
+                self.message_receiver
+                    .try_recv()
+                    .map_err(|recv_error| {
+                        assert!(
+                            recv_error != mpsc::TryRecvError::Disconnected,
+                            "Sumeragi message pump disconnected. This is not a recoverable error."
+                        )
+                    })
+                    .ok()
+            });
+
+            if let Ok(msg) = self.control_message_receiver
                 .try_recv()
                 .map_err(|recv_error| {
                     assert!(
                         recv_error != mpsc::TryRecvError::Disconnected,
                         "Sumeragi control message pump disconnected. This is not a recoverable error."
                     )
-                })
-                .ok()
-                .map(std::convert::Into::into)
-        } else {
-            None
-        }.or_else(|| {
-            *control_message_in_a_row_counter = 0;
-            self
-                .message_receiver
-                .try_recv()
-                .map_err(|recv_error| {
-                    assert!(
-                        recv_error != mpsc::TryRecvError::Disconnected,
-                        "Sumeragi message pump disconnected. This is not a recoverable error."
-                    )
-                })
-                .ok()
-        })
-        .and_then(|packet : MessagePacket| {
-            if let Err(error) = view_change_proof_chain.merge(
-                packet.view_change_proofs,
-                &self.current_topology.ordered_peers,
-                self.current_topology.max_faults(),
-                self.wsv.latest_block_hash(),
-            ) {
-                trace!(%error, "Failed to add proofs into view change proof chain")
+                }) {
+                should_sleep = false;
+                if let Err(error) = view_change_proof_chain.merge(
+                    msg.view_change_proofs,
+                    &self.current_topology.ordered_peers,
+                    self.current_topology.max_faults(),
+                    self.wsv.latest_block_hash(),
+                ) {
+                    trace!(%error, "Failed to add proofs into view change proof chain")
+                }
+
+                let current_view_change_index = view_change_proof_chain.verify_with_state(
+                    &self.current_topology.ordered_peers,
+                    self.current_topology.max_faults(),
+                    self.wsv.latest_block_hash(),
+                ) as u64;
+
+                let mut should_prune = false;
+
+                if let Some(msg) = block_msg.as_ref() {
+                    let vc_index : Option<u64> = match msg {
+                        BlockMessage::BlockCreated(bc) => Some(bc.block.payload().header.view_change_index),
+                        BlockMessage::BlockSigned(_) => None, // Signed and Committed contain no block.
+                        BlockMessage::BlockCommitted(_) => None,
+                        BlockMessage::BlockSyncUpdate(_) => None, // Block sync updates are exempt from early pruning
+                    };
+                    if let Some(vc_index) = vc_index {
+                        if vc_index < current_view_change_index {
+                            should_prune = true;
+                        }
+                    }
+                }
+
+                block_msg = if should_prune {
+                    None
+                } else {
+                     maybe_block
+                };
+            } else {
+                block_msg = maybe_block;
+                break;
             }
-            packet.message
-        })
+        }
+
+        should_sleep &= block_msg.is_none();
+        (block_msg, should_sleep)
     }
 
     fn init_listen_for_genesis(
@@ -198,42 +236,39 @@ impl Sumeragi {
             })?;
 
             match self.message_receiver.try_recv() {
-                Ok(packet) => {
-                    if let Some(message) = packet.message {
-                        let mut new_wsv = self.wsv.clone();
+                Ok(message) => {
+                    let mut new_wsv = self.wsv.clone();
 
-                        let block = match message {
-                            Message::BlockCreated(BlockCreated { block })
-                            | Message::BlockSyncUpdate(BlockSyncUpdate { block }) => block,
-                            msg => {
-                                trace!(?msg, "Not handling the message, waiting for genesis...");
-                                continue;
-                            }
-                        };
+                    let block = match message {
+                        BlockMessage::BlockCreated(BlockCreated { block })
+                        | BlockMessage::BlockSyncUpdate(BlockSyncUpdate { block }) => block,
+                        msg => {
+                            trace!(?msg, "Not handling the message, waiting for genesis...");
+                            continue;
+                        }
+                    };
 
-                        let block = match ValidBlock::validate(
-                            block,
-                            &self.current_topology,
-                            &self.chain_id,
-                            &mut new_wsv,
-                        )
-                        .and_then(|block| {
-                            block
-                                .commit(&self.current_topology)
-                                .map_err(|(block, error)| (block.into(), error))
-                        }) {
-                            Ok(block) => block,
-                            Err((_, error)) => {
-                                error!(?error, "Received invalid genesis block");
-                                continue;
-                            }
-                        };
+                    let block = match ValidBlock::validate(
+                        block,
+                        &self.current_topology,
+                        &self.chain_id,
+                        &mut new_wsv,
+                    )
+                    .and_then(|block| {
+                        block
+                            .commit(&self.current_topology)
+                            .map_err(|(block, error)| (block.into(), error))
+                    }) {
+                        Ok(block) => block,
+                        Err((_, error)) => {
+                            error!(?error, "Received invalid genesis block");
+                            continue;
+                        }
+                    };
 
-                        new_wsv.world_mut().trusted_peers_ids =
-                            block.payload().commit_topology.clone();
-                        self.commit_block(block, new_wsv);
-                        return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
-                    }
+                    new_wsv.world_mut().trusted_peers_ids = block.payload().commit_topology.clone();
+                    self.commit_block(block, new_wsv);
+                    return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                 }
                 Err(mpsc::TryRecvError::Disconnected) => return Err(EarlyReturn::Disconnected),
                 _ => (),
@@ -260,10 +295,7 @@ impl Sumeragi {
             .sign(self.key_pair.clone())
             .expect("Genesis signing failed");
 
-        let genesis_msg = MessagePacket::new(
-            ProofChain::default(),
-            Some(BlockCreated::from(genesis.clone()).into()),
-        );
+        let genesis_msg = BlockCreated::from(genesis.clone()).into();
 
         let genesis = genesis
             .commit(&self.current_topology)
@@ -398,29 +430,6 @@ impl Sumeragi {
         Some(VotingBlock::new(signed_block, new_wsv))
     }
 
-    fn suggest_view_change(
-        &self,
-        view_change_proof_chain: &mut ProofChain,
-        current_view_change_index: u64,
-    ) {
-        let suspect_proof =
-            ProofBuilder::new(self.wsv.latest_block_hash(), current_view_change_index)
-                .sign(self.key_pair.clone())
-                .expect("Proof signing failed");
-
-        view_change_proof_chain
-            .insert_proof(
-                &self.current_topology.ordered_peers,
-                self.current_topology.max_faults(),
-                self.wsv.latest_block_hash(),
-                suspect_proof,
-            )
-            .unwrap_or_else(|err| error!("{err}"));
-
-        let msg = MessagePacket::new(view_change_proof_chain.clone(), None);
-        self.broadcast_packet(msg);
-    }
-
     fn prune_view_change_proofs_and_calculate_current_index(
         &self,
         view_change_proof_chain: &mut ProofChain,
@@ -436,10 +445,9 @@ impl Sumeragi {
     #[allow(clippy::too_many_lines)]
     fn handle_message(
         &mut self,
-        message: Message,
+        message: BlockMessage,
         voting_block: &mut Option<VotingBlock>,
         current_view_change_index: u64,
-        view_change_proof_chain: &mut ProofChain,
         voting_signatures: &mut Vec<SignatureOf<BlockPayload>>,
     ) {
         let current_topology = &self.current_topology;
@@ -448,7 +456,7 @@ impl Sumeragi {
 
         #[allow(clippy::suspicious_operation_groupings)]
         match (message, role) {
-            (Message::BlockSyncUpdate(BlockSyncUpdate { block }), _) => {
+            (BlockMessage::BlockSyncUpdate(BlockSyncUpdate { block }), _) => {
                 let block_hash = block.hash();
                 info!(%addr, %role, hash=%block_hash, "Block sync update received");
 
@@ -501,7 +509,7 @@ impl Sumeragi {
                 }
             }
             (
-                Message::BlockCommitted(BlockCommitted { hash, signatures }),
+                BlockMessage::BlockCommitted(BlockCommitted { hash, signatures }),
                 Role::Leader | Role::ValidatingPeer | Role::ProxyTail | Role::ObservingPeer,
             ) => {
                 let is_consensus_required = current_topology.is_consensus_required().is_some();
@@ -536,7 +544,7 @@ impl Sumeragi {
                     error!(%addr, %role, %hash, "Peer missing voting block")
                 }
             }
-            (Message::BlockCreated(block_created), Role::ValidatingPeer) => {
+            (BlockMessage::BlockCreated(block_created), Role::ValidatingPeer) => {
                 let current_topology = current_topology
                 .is_consensus_required()
                 .expect("Peer has `ValidatingPeer` role, which mean that current topology require consensus");
@@ -544,10 +552,7 @@ impl Sumeragi {
                 if let Some(v_block) = self.vote_for_block(&current_topology, block_created) {
                     let block_hash = v_block.block.payload().hash();
 
-                    let msg = MessagePacket::new(
-                        view_change_proof_chain.clone(),
-                        Some(BlockSigned::from(v_block.block.clone()).into()),
-                    );
+                    let msg = BlockSigned::from(v_block.block.clone()).into();
 
                     self.broadcast_packet_to(msg, [current_topology.proxy_tail()]);
                     info!(%addr, %block_hash, "Block validated, signed and forwarded");
@@ -555,7 +560,7 @@ impl Sumeragi {
                     *voting_block = Some(v_block);
                 }
             }
-            (Message::BlockCreated(block_created), Role::ObservingPeer) => {
+            (BlockMessage::BlockCreated(block_created), Role::ObservingPeer) => {
                 let current_topology = current_topology.is_consensus_required().expect(
                 "Peer has `ObservingPeer` role, which mean that current topology require consensus",
             );
@@ -564,12 +569,10 @@ impl Sumeragi {
                     if current_view_change_index >= 1 {
                         let block_hash = v_block.block.payload().hash();
 
-                        let msg = MessagePacket::new(
-                            view_change_proof_chain.clone(),
-                            Some(BlockSigned::from(v_block.block.clone()).into()),
+                        self.broadcast_packet_to(
+                            BlockSigned::from(v_block.block.clone()).into(),
+                            [current_topology.proxy_tail()],
                         );
-
-                        self.broadcast_packet_to(msg, [current_topology.proxy_tail()]);
                         info!(%addr, %block_hash, "Block validated, signed and forwarded");
                         *voting_block = Some(v_block);
                     } else {
@@ -577,7 +580,7 @@ impl Sumeragi {
                     }
                 }
             }
-            (Message::BlockCreated(block_created), Role::ProxyTail) => {
+            (BlockMessage::BlockCreated(block_created), Role::ProxyTail) => {
                 if let Some(mut new_block) = self.vote_for_block(current_topology, block_created) {
                     // NOTE: Up until this point it was unknown which block is expected to be received,
                     // therefore all the signatures (of any hash) were collected and will now be pruned
@@ -585,7 +588,7 @@ impl Sumeragi {
                     *voting_block = Some(new_block);
                 }
             }
-            (Message::BlockSigned(BlockSigned { hash, signatures }), Role::ProxyTail) => {
+            (BlockMessage::BlockSigned(BlockSigned { hash, signatures }), Role::ProxyTail) => {
                 trace!(block_hash=%hash, "Received block signatures");
 
                 let roles: &[Role] = if current_view_change_index >= 1 {
@@ -621,7 +624,6 @@ impl Sumeragi {
         &mut self,
         voting_block: &mut Option<VotingBlock>,
         current_view_change_index: u64,
-        view_change_proof_chain: &mut ProofChain,
         round_start_time: &Instant,
         #[cfg_attr(not(debug_assertions), allow(unused_variables))] is_genesis_peer: bool,
     ) {
@@ -662,10 +664,7 @@ impl Sumeragi {
                             info!(%addr, block_payload_hash=%new_block.payload().hash(), "Block created");
                             *voting_block = Some(VotingBlock::new(new_block.clone(), new_wsv));
 
-                            let msg = MessagePacket::new(
-                                view_change_proof_chain.clone(),
-                                Some(BlockCreated::from(new_block).into()),
-                            );
+                            let msg = BlockCreated::from(new_block).into();
                             if current_view_change_index >= 1 {
                                 self.broadcast_packet(msg);
                             } else {
@@ -674,12 +673,9 @@ impl Sumeragi {
                         } else {
                             match new_block.commit(current_topology) {
                                 Ok(committed_block) => {
-                                    let msg = MessagePacket::new(
-                                        view_change_proof_chain.clone(),
-                                        Some(BlockCommitted::from(committed_block.clone()).into()),
+                                    self.broadcast_packet(
+                                        BlockCommitted::from(committed_block.clone()).into(),
                                     );
-
-                                    self.broadcast_packet(msg);
                                     self.commit_block(committed_block, new_wsv);
                                 }
                                 Err((_, error)) => error!(%addr, role=%Role::Leader, ?error),
@@ -697,10 +693,7 @@ impl Sumeragi {
                         Ok(committed_block) => {
                             info!(voting_block_hash = %committed_block.hash(), "Block reached required number of votes");
 
-                            let msg = MessagePacket::new(
-                                view_change_proof_chain.clone(),
-                                Some(BlockCommitted::from(committed_block.clone()).into()),
-                            );
+                            let msg = BlockCommitted::from(committed_block.clone()).into();
 
                             let current_topology = current_topology
                             .is_consensus_required()
@@ -858,15 +851,11 @@ pub(crate) fn run(
     // Instant when the previous view change or round happened.
     let mut last_view_change_time = Instant::now();
 
-    // Internal variable used to pick receiver channel. Initialize to zero.
-    let mut control_message_in_a_row_counter = 0;
-
     while !should_terminate(&mut shutdown_receiver) {
         if should_sleep {
             let span = span!(Level::TRACE, "main_thread_sleep");
             let _enter = span.enter();
             std::thread::sleep(std::time::Duration::from_millis(5));
-            should_sleep = false;
         }
         let span_for_sumeragi_cycle = span!(Level::TRACE, "main_thread_cycle");
         let _enter_for_sumeragi_cycle = span_for_sumeragi_cycle.enter();
@@ -912,49 +901,62 @@ pub(crate) fn run(
             &mut view_change_time,
         );
 
+        if let Some(message) = {
+            let (msg, sleep) = sumeragi.receive_network_packet(&mut view_change_proof_chain);
+            should_sleep = sleep;
+            msg
+        } {
+            sumeragi.handle_message(
+                message,
+                &mut voting_block,
+                current_view_change_index,
+                &mut voting_signatures,
+            );
+        }
+
+        // State could be changed after handling message so it is necessary to reset state before handling message independent step
+        let current_view_change_index = sumeragi
+            .prune_view_change_proofs_and_calculate_current_index(&mut view_change_proof_chain);
+
+        // We broadcast our view change suggestion after having processed the latest from others inside `receive_network_packet`
         let node_expects_block = !sumeragi.transaction_cache.is_empty();
-        if node_expects_block && last_view_change_time.elapsed() > view_change_time {
+        if (node_expects_block || current_view_change_index > 0)
+            && last_view_change_time.elapsed() > view_change_time
+        {
             let role = sumeragi.current_topology.role(&sumeragi.peer_id);
 
-            if let Some(VotingBlock { block, .. }) = voting_block.as_ref() {
-                // NOTE: Suspecting the tail node because it hasn't yet committed a block produced by leader
-                warn!(peer_public_key=%sumeragi.peer_id.public_key, %role, block=%block.payload().hash(), "Block not committed in due time, requesting view change...");
-            } else {
-                // NOTE: Suspecting the leader node because it hasn't produced a block
-                // If the current node has a transaction, the leader should have as well
-                warn!(peer_public_key=%sumeragi.peer_id.public_key, %role, "No block produced in due time, requesting view change...");
+            if node_expects_block {
+                if let Some(VotingBlock { block, .. }) = voting_block.as_ref() {
+                    // NOTE: Suspecting the tail node because it hasn't yet committed a block produced by leader
+                    warn!(peer_public_key=%sumeragi.peer_id.public_key, %role, block=%block.payload().hash(), "Block not committed in due time, requesting view change...");
+                } else {
+                    // NOTE: Suspecting the leader node because it hasn't produced a block
+                    // If the current node has a transaction, the leader should have as well
+                    warn!(peer_public_key=%sumeragi.peer_id.public_key, %role, "No block produced in due time, requesting view change...");
+                }
+
+                let suspect_proof =
+                    ProofBuilder::new(sumeragi.wsv.latest_block_hash(), current_view_change_index)
+                        .sign(sumeragi.key_pair.clone())
+                        .expect("Proof signing failed");
+
+                view_change_proof_chain
+                    .insert_proof(
+                        &sumeragi.current_topology.ordered_peers,
+                        sumeragi.current_topology.max_faults(),
+                        sumeragi.wsv.latest_block_hash(),
+                        suspect_proof,
+                    )
+                    .unwrap_or_else(|err| error!("{err}"));
             }
 
-            sumeragi.suggest_view_change(&mut view_change_proof_chain, current_view_change_index);
+            let msg = ControlFlowMessage::new(view_change_proof_chain.clone());
+            sumeragi.broadcast_control_flow_packet(msg);
 
             // NOTE: View change must be periodically suggested until it is accepted.
             // Must be initialized to pipeline time but can increase by chosen amount
             view_change_time += sumeragi.pipeline_time();
         }
-
-        sumeragi
-            .receive_network_packet(
-                &mut view_change_proof_chain,
-                &mut control_message_in_a_row_counter,
-            )
-            .map_or_else(
-                || {
-                    should_sleep = true;
-                },
-                |message| {
-                    sumeragi.handle_message(
-                        message,
-                        &mut voting_block,
-                        current_view_change_index,
-                        &mut view_change_proof_chain,
-                        &mut voting_signatures,
-                    );
-                },
-            );
-
-        // State could be changed after handling message so it is necessary to reset state before handling message independent step
-        let current_view_change_index = sumeragi
-            .prune_view_change_proofs_and_calculate_current_index(&mut view_change_proof_chain);
 
         reset_state(
             &sumeragi.peer_id,
@@ -977,7 +979,6 @@ pub(crate) fn run(
         sumeragi.process_message_independent(
             &mut voting_block,
             current_view_change_index,
-            &mut view_change_proof_chain,
             &round_start_time,
             is_genesis_peer,
         );

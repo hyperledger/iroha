@@ -128,8 +128,11 @@ impl NetworkRelay {
         }
 
         match msg {
-            SumeragiPacket(data) => {
-                self.sumeragi.incoming_message(*data);
+            SumeragiBlock(data) => {
+                self.sumeragi.incoming_block_message(*data);
+            }
+            SumeragiControlFlow(data) => {
+                self.sumeragi.incoming_control_flow_message(*data);
             }
             BlockSync(data) => self.block_sync.message(*data).await,
             TransactionGossiper(data) => self.gossiper.gossip(*data).await,
