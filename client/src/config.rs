@@ -8,6 +8,7 @@ use std::{num::NonZeroU64, time::Duration};
 
 use derive_more::Display;
 use eyre::Result;
+pub use iroha_config::base;
 use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, ChainId};
 use iroha_primitives::small::SmallStr;
@@ -65,12 +66,12 @@ pub struct BasicAuth {
 }
 
 pub mod user_layer {
-    use std::time::Duration;
+    use std::{path::Path, time::Duration};
 
     use eyre::{eyre, Context, Report};
     use iroha_config::base::{
-        Emitter, ErrorsCollection, Merge, MissingFieldError, UnwrapPartial, UnwrapPartialResult,
-        UserDuration, UserField,
+        Emitter, ErrorsCollection, FromEnvDefaultFallback, Merge, MissingFieldError, UnwrapPartial,
+        UnwrapPartialResult, UserDuration, UserField,
     };
     use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
     use iroha_data_model::{account::AccountId, ChainId};
@@ -94,11 +95,18 @@ pub mod user_layer {
             Default::default()
         }
 
-        pub fn merge_chain(mut self, other: Self) -> Self {
-            self.merge(other);
+        pub fn from_toml(path: impl AsRef<Path>) -> eyre::Result<Self> {
+            todo!()
+        }
+
+        pub fn merge(mut self, other: Self) -> Self {
+            Merge::merge(&mut self, other);
             self
         }
     }
+
+    // FIXME: should config be read from ENV?
+    impl FromEnvDefaultFallback for RootPartial {}
 
     #[derive(Clone, Debug)]
     pub struct RootFull {
@@ -316,7 +324,7 @@ pub mod user_layer {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Config {
     pub chain_id: ChainId,
     pub account_id: AccountId,

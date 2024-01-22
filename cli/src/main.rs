@@ -18,13 +18,7 @@ fn default_terminal_colors_str() -> clap::builder::OsStr {
 #[derive(Parser, Debug)]
 #[command(name = "iroha", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
 struct Args {
-    /// Path to the configuration file, defaults to `config.json`/`config.json5`
-    ///
-    /// Supported extensions are `.json` and `.json5`. By default, Iroha looks for a
-    /// `config` file with one of the supported extensions in the current working directory.
-    /// If the default config file is not found, Iroha will rely on default values and environment
-    /// variables. However, if the config path is set explicitly with this argument and the file
-    /// is not found, Iroha will exit with an error.
+    /// Path to the configuration file
     #[arg(
         long,
         short,
