@@ -1,14 +1,9 @@
-use amcl_wrapper::{
-    constants::{GroupG1_SIZE, MODBYTES},
-    field_elem::FieldElement,
-    group_elem::GroupElement,
-    types_g2::GroupG2_SIZE,
-};
+use w3f_bls::SerializableToBytes as _;
 
 use super::{
-    implementation::{BlsConfiguration, BlsImpl, Signature, MESSAGE_CONTEXT},
-    normal::{normal_generate, NormalConfiguration, NormalGenerator, NormalSignature},
-    small::{small_generate, SmallConfiguration, SmallGenerator, SmallSignature},
+    implementation::{BlsConfiguration, BlsImpl},
+    normal::NormalConfiguration,
+    small::SmallConfiguration,
 };
 use crate::KeyGenOption;
 
@@ -16,65 +11,85 @@ const MESSAGE_1: &[u8; 22] = b"This is a test message";
 const MESSAGE_2: &[u8; 20] = b"Another test message";
 const SEED: &[u8; 10] = &[1u8; 10];
 
-#[test]
-fn size_check() {
-    let msg = FieldElement::random();
-    let g = NormalGenerator::generator();
-    let (pk, sk) = normal_generate(&g);
-    assert_eq!(sk.to_bytes().len(), MODBYTES);
-    assert_eq!(pk.to_bytes().len(), GroupG1_SIZE);
-    let sig = NormalSignature::new(msg.to_bytes().as_slice(), None, &sk);
-    assert_eq!(sig.to_bytes().len(), GroupG2_SIZE);
+fn test_keypair_generation_from_seed<C: BlsConfiguration>() {
+    let (pk_1, sk_1) = BlsImpl::<C>::keypair(Some(KeyGenOption::UseSeed(SEED.to_vec())));
+    let (pk_2, sk_2) = BlsImpl::<C>::keypair(Some(KeyGenOption::UseSeed(SEED.to_vec())));
 
-    let g = SmallGenerator::generator();
-    let (pk, sk) = small_generate(&g);
-    assert_eq!(sk.to_bytes().len(), MODBYTES);
-    assert_eq!(pk.to_bytes().len(), GroupG2_SIZE);
-    let sig = SmallSignature::new(msg.to_bytes().as_slice(), None, &sk);
-    assert_eq!(sig.to_bytes().len(), GroupG1_SIZE);
+    assert!(
+        (pk_1, sk_1.to_bytes()) == (pk_2, sk_2.to_bytes()),
+        "Keypairs are not equal"
+    );
 }
 
-fn signature_generation_from_seed<C>()
-where
-    C: BlsConfiguration,
-    C::Generator: core::fmt::Debug,
-{
-    let keypair_1 = BlsImpl::<C>::keypair(Some(KeyGenOption::UseSeed(SEED.to_vec())));
-    let keypair_2 = BlsImpl::<C>::keypair(Some(KeyGenOption::UseSeed(SEED.to_vec())));
-    assert_eq!(keypair_1, keypair_2);
+fn test_signature_verification<C: BlsConfiguration>() {
+    let (pk, sk) = BlsImpl::<C>::keypair(None);
+
+    let signature_1 = BlsImpl::<C>::sign(MESSAGE_1, &sk);
+    BlsImpl::<C>::verify(MESSAGE_1, &signature_1, &pk)
+        .expect("Signature verification should succeed");
 }
 
-fn signature_verification<C: BlsConfiguration>() {
-    let g = C::Generator::generator();
-    let (pk, sk) = C::generate(&g);
+fn test_signature_verification_different_messages<C: BlsConfiguration>() {
+    let (pk, sk) = BlsImpl::<C>::keypair(None);
 
-    let signature_1 = Signature::<C>::new(&MESSAGE_1[..], None, &sk);
-    assert!(signature_1.verify(&MESSAGE_1[..], None, &pk, &g));
-
-    let signature_2 = Signature::<C>::new(&MESSAGE_2[..], Some(MESSAGE_CONTEXT), &sk);
-    assert!(signature_2.verify(&MESSAGE_2[..], Some(MESSAGE_CONTEXT), &pk, &g));
-
-    // Should fail for different messages
-    assert!(!signature_1.verify(&MESSAGE_2[..], Some(MESSAGE_CONTEXT), &pk, &g));
-    assert!(!signature_2.verify(&MESSAGE_1[..], None, &pk, &g));
+    let signature = BlsImpl::<C>::sign(MESSAGE_1, &sk);
+    BlsImpl::<C>::verify(MESSAGE_2, &signature, &pk)
+        .expect_err("Signature verification for wrong message should fail");
 }
 
-#[test]
-fn normal_signature_generation_from_seed() {
-    signature_generation_from_seed::<NormalConfiguration>();
+fn test_signature_verification_different_keys<C: BlsConfiguration>() {
+    let (_pk_1, sk_1) = BlsImpl::<C>::keypair(None);
+    let (pk_2, _sk_2) = BlsImpl::<C>::keypair(None);
+
+    let signature = BlsImpl::<C>::sign(MESSAGE_1, &sk_1);
+    BlsImpl::<C>::verify(MESSAGE_1, &signature, &pk_2)
+        .expect_err("Signature verification for wrong public key should fail");
 }
 
-#[test]
-fn normal_signature_verification() {
-    signature_verification::<NormalConfiguration>();
+mod normal {
+    use super::*;
+
+    #[test]
+    fn keypair_generation_from_seed() {
+        test_keypair_generation_from_seed::<NormalConfiguration>();
+    }
+
+    #[test]
+    fn signature_verification() {
+        test_signature_verification::<NormalConfiguration>();
+    }
+
+    #[test]
+    fn signature_verification_different_messages() {
+        test_signature_verification_different_messages::<NormalConfiguration>();
+    }
+
+    #[test]
+    fn signature_verification_different_keys() {
+        test_signature_verification_different_keys::<NormalConfiguration>();
+    }
 }
 
-#[test]
-fn small_signature_generation_from_seed() {
-    signature_generation_from_seed::<SmallConfiguration>();
-}
+mod small {
+    use super::*;
 
-#[test]
-fn small_signature_verification() {
-    signature_verification::<SmallConfiguration>();
+    #[test]
+    fn keypair_generation_from_seed() {
+        test_keypair_generation_from_seed::<SmallConfiguration>();
+    }
+
+    #[test]
+    fn signature_verification() {
+        test_signature_verification::<SmallConfiguration>();
+    }
+
+    #[test]
+    fn signature_verification_different_messages() {
+        test_signature_verification_different_messages::<SmallConfiguration>();
+    }
+
+    #[test]
+    fn signature_verification_different_keys() {
+        test_signature_verification_different_keys::<SmallConfiguration>();
+    }
 }

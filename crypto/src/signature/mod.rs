@@ -16,6 +16,8 @@ use alloc::{
     vec::Vec,
 };
 use core::marker::PhantomData;
+#[cfg(feature = "std")]
+use std::collections::btree_set;
 
 use derive_more::{Deref, DerefMut};
 use iroha_macro::ffi_impl_opaque;

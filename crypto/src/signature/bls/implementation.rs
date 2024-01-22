@@ -1,174 +1,22 @@
 #[cfg(not(feature = "std"))]
-use alloc::{borrow::ToOwned as _, format, string::ToString as _, vec, vec::Vec};
-use core::{hash::Hash, marker::PhantomData};
+use alloc::{borrow::ToOwned as _, string::ToString as _, vec, vec::Vec};
+use core::marker::PhantomData;
 
-/// Implements
-/// <https://eprint.iacr.org/2018/483> and
-/// <https://crypto.stanford.edu/~dabo/pubs/papers/BLSmultisig.html>
-use amcl_wrapper::{
-    field_elem::FieldElement, group_elem::GroupElement, group_elem_g1::G1, group_elem_g2::G2,
-};
+use rand_chacha::rand_core::OsRng;
 use sha2::Sha256;
+// TODO: Better to use `SecretKey`, not `SecretKeyVT`, but it requires to implement
+// interior mutability
+use w3f_bls::{EngineBLS as _, PublicKey, SecretKeyVT as SecretKey, SerializableToBytes as _};
 
 pub(super) const MESSAGE_CONTEXT: &[u8; 20] = b"for signing messages";
 
-use super::PRIVATE_KEY_SIZE;
 use crate::{Algorithm, Error, KeyGenOption, ParseError};
-
-/// This is a simple alias so the consumer can just use `PrivateKey::random`() to generate a new one
-/// instead of wrapping it as a private field
-pub type PrivateKey = FieldElement;
 
 pub trait BlsConfiguration {
     const ALGORITHM: Algorithm;
-    const PK_SIZE: usize;
-    const SIG_SIZE: usize;
-    type Generator: GroupElement + Eq + PartialEq + Hash;
-    type SignatureGroup: GroupElement + Eq + PartialEq + Hash;
+    type Engine: w3f_bls::EngineBLS;
 
-    fn ate_2_pairing_is_one(
-        g: &Self::Generator,
-        sig: &Self::SignatureGroup,
-        pk: &Self::Generator,
-        hash: &Self::SignatureGroup,
-    ) -> bool;
-
-    fn set_pairs(p: &(Self::Generator, Self::SignatureGroup)) -> (&G1, &G2);
-
-    /// Creates a new BLS key pair
-    fn generate(g: &Self::Generator) -> (PublicKey<Self>, PrivateKey) {
-        let sk = PrivateKey::random();
-        let pk = PublicKey::new(&sk, g);
-        (pk, sk)
-    }
-
-    fn hash_to_point<A: AsRef<[u8]>>(v: A, ctx: &[u8]) -> Self::SignatureGroup {
-        let mut value = Vec::new();
-        value.extend_from_slice(ctx);
-        value.extend_from_slice(v.as_ref());
-        Self::SignatureGroup::from_msg_hash(value.as_slice())
-    }
-
-    fn hash_msg<A: AsRef<[u8]>>(
-        message: A,
-        context: Option<&'static [u8]>,
-    ) -> Self::SignatureGroup {
-        let ctx: &[u8] = context.unwrap_or(MESSAGE_CONTEXT);
-        Self::hash_to_point(message, ctx)
-    }
-
-    fn hash_key(pk: &PublicKey<Self>, context: Option<&'static [u8]>) -> Self::SignatureGroup {
-        const PUBLICKEY_CONTEXT: &[u8; 47] = b"for signing public keys for proof of possession";
-        let ctx: &[u8] = context.unwrap_or(PUBLICKEY_CONTEXT);
-        Self::hash_to_point(pk.to_bytes(), ctx)
-    }
-
-    fn extract_private_key(private_key: &crate::PrivateKey) -> Option<&PrivateKey>;
-}
-
-pub struct PublicKey<C: BlsConfiguration + ?Sized>(C::Generator);
-
-impl<C: BlsConfiguration + ?Sized> PublicKey<C> {
-    pub fn new(sk: &PrivateKey, g: &C::Generator) -> Self {
-        Self(g.scalar_mul_const_time(sk))
-
-        // Self(g * sk)
-    }
-
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.0.to_bytes(false)
-    }
-
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
-        Ok(Self(
-            C::Generator::from_bytes(bytes).map_err(|e| ParseError(format!("{e:?}")))?,
-        ))
-    }
-}
-
-impl<C> core::fmt::Debug for PublicKey<C>
-where
-    C: BlsConfiguration + ?Sized,
-    C::Generator: core::fmt::Debug,
-{
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("PublicKey").field(&self.0).finish()
-    }
-}
-
-impl<C> PartialEq for PublicKey<C>
-where
-    C: BlsConfiguration + ?Sized,
-    C::Generator: PartialEq,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl<C> Eq for PublicKey<C>
-where
-    C: BlsConfiguration + ?Sized,
-    C::Generator: Eq,
-{
-}
-
-impl<C> Clone for PublicKey<C>
-where
-    C: BlsConfiguration + ?Sized,
-    C::Generator: Clone,
-{
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-/// Signature over a message. One gotcha for BLS signatures
-/// is the need to mitigate rogue key attacks. There are two methods to achieve
-/// this: compute additional work to make each message distinct
-/// in a signature for each `PublicKey` or
-/// use `ProofOfPossession`. `Signature` and `ProofOfPossession` MUST
-/// use domain separation values that are different
-/// to avoid certain types of attacks and make `Signature`
-/// distinct from `ProofOfPossession`. If `ProofOfPossession`
-/// and `Signature` use the same value for `context` they are effectively the same.
-/// Don't do this. You have been warned.
-///
-/// To make messages distinct, use `new_with_rk_mitigation`. If using
-/// proof of possession mitigation, use `new`.
-#[derive(Debug, Clone)]
-pub struct Signature<C: BlsConfiguration + ?Sized>(C::SignatureGroup);
-
-impl<C: BlsConfiguration + ?Sized> Signature<C> {
-    pub fn new<A: AsRef<[u8]>>(
-        message: A,
-        context: Option<&'static [u8]>,
-        sk: &PrivateKey,
-    ) -> Self {
-        Self(C::hash_msg(message, context).scalar_mul_const_time(sk))
-    }
-
-    // Verify a signature generated by `new`
-    pub fn verify<A: AsRef<[u8]>>(
-        &self,
-        message: A,
-        context: Option<&'static [u8]>,
-        pk: &PublicKey<C>,
-        g: &C::Generator,
-    ) -> bool {
-        let hash = C::hash_msg(message, context);
-        C::ate_2_pairing_is_one(g, &self.0, &pk.0, &hash)
-    }
-
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.0.to_bytes(false)
-    }
-
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
-        Ok(Signature(
-            C::SignatureGroup::from_bytes(bytes).map_err(|e| ParseError(format!("{e:?}")))?,
-        ))
-    }
+    fn extract_private_key(private_key: &crate::PrivateKey) -> Option<&SecretKey<Self::Engine>>;
 }
 
 pub struct BlsImpl<C: BlsConfiguration + ?Sized>(PhantomData<C>);
@@ -176,25 +24,26 @@ pub struct BlsImpl<C: BlsConfiguration + ?Sized>(PhantomData<C>);
 impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
     // the names are from an RFC, not a good idea to change them
     #[allow(clippy::similar_names)]
-    pub fn keypair(option: Option<KeyGenOption>) -> (PublicKey<C>, PrivateKey) {
+    pub fn keypair(option: Option<KeyGenOption>) -> (PublicKey<C::Engine>, SecretKey<C::Engine>) {
         option.map_or_else(
-            || C::generate(&C::Generator::generator()),
+            || {
+                let sk = SecretKey::generate(OsRng);
+                (sk.into_public(), sk)
+            },
             |o| match o {
                 // Follows https://datatracker.ietf.org/doc/draft-irtf-cfrg-bls-signature/?include_text=1
                 KeyGenOption::UseSeed(ref seed) => {
                     let salt = b"BLS-SIG-KEYGEN-SALT-";
-                    let info = [0u8, PRIVATE_KEY_SIZE.try_into().unwrap()]; // key_info || I2OSP(L, 2)
+                    let info = [0u8, C::Engine::SECRET_KEY_SIZE.try_into().unwrap()]; // key_info || I2OSP(L, 2)
                     let mut ikm = vec![0u8; seed.len() + 1];
                     ikm[..seed.len()].copy_from_slice(seed); // IKM || I2OSP(0, 1)
-                    let mut okm = [0u8; PRIVATE_KEY_SIZE];
+                    let mut okm = vec![0u8; C::Engine::SECRET_KEY_SIZE];
                     let h = hkdf::Hkdf::<Sha256>::new(Some(&salt[..]), &ikm);
                     h.expand(&info[..], &mut okm)
                         .expect("`okm` has the correct length");
-                    let private_key: PrivateKey = PrivateKey::from(&okm);
-                    (
-                        PublicKey::new(&private_key, &C::Generator::generator()),
-                        private_key,
-                    )
+
+                    let private_key = SecretKey::<C::Engine>::from_seed(&okm);
+                    (private_key.into_public(), private_key)
                 }
                 KeyGenOption::FromPrivateKey(ref key) => {
                     let private_key = C::extract_private_key(key).unwrap_or_else(|| {
@@ -203,35 +52,38 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
                             C::ALGORITHM,
                         )
                     });
-                    (
-                        PublicKey::new(private_key, &C::Generator::generator()),
-                        private_key.clone(),
-                    )
+                    (private_key.into_public(), private_key.clone())
                 }
             },
         )
     }
 
-    pub fn sign(message: &[u8], sk: &PrivateKey) -> Vec<u8> {
-        Signature::<C>::new(message, None, sk).to_bytes()
+    pub fn sign(message: &[u8], sk: &SecretKey<C::Engine>) -> Vec<u8> {
+        let message = w3f_bls::Message::new(MESSAGE_CONTEXT, message);
+        sk.sign(&message).to_bytes()
     }
 
-    pub fn verify(message: &[u8], signature: &[u8], pk: &PublicKey<C>) -> Result<(), Error> {
-        let signature = Signature::<C>::from_bytes(signature)
+    pub fn verify(
+        message: &[u8],
+        signature: &[u8],
+        pk: &PublicKey<C::Engine>,
+    ) -> Result<(), Error> {
+        let signature = w3f_bls::Signature::<C::Engine>::from_bytes(signature)
             .map_err(|_| ParseError("Failed to parse signature.".to_owned()))?;
+        let message = w3f_bls::Message::new(MESSAGE_CONTEXT, message);
 
-        if !signature.verify(message, None, pk, &C::Generator::generator()) {
+        if !signature.verify(&message, &pk) {
             return Err(Error::BadSignature);
         }
 
         Ok(())
     }
 
-    pub fn parse_public_key(payload: &[u8]) -> Result<PublicKey<C>, ParseError> {
+    pub fn parse_public_key(payload: &[u8]) -> Result<PublicKey<C::Engine>, ParseError> {
         PublicKey::from_bytes(payload).map_err(|err| ParseError(err.to_string()))
     }
 
-    pub fn parse_private_key(payload: &[u8]) -> Result<PrivateKey, ParseError> {
-        PrivateKey::from_bytes(payload).map_err(|err| ParseError(err.to_string()))
+    pub fn parse_private_key(payload: &[u8]) -> Result<SecretKey<C::Engine>, ParseError> {
+        SecretKey::from_bytes(payload).map_err(|err| ParseError(err.to_string()))
     }
 }

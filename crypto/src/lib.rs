@@ -43,6 +43,7 @@ pub use merkle::MerkleTree;
 use parity_scale_codec::{Decode, Encode};
 use serde::{ser::SerializeStruct, Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
+use w3f_bls::SerializableToBytes;
 
 pub use self::signature::*;
 
@@ -248,8 +249,10 @@ impl From<(secp256k1::PublicKey, secp256k1::PrivateKey)> for KeyPair {
     }
 }
 
-impl From<(bls::BlsNormalPublicKey, bls::PrivateKey)> for KeyPair {
-    fn from((public_key, private_key): (bls::BlsNormalPublicKey, bls::PrivateKey)) -> Self {
+impl From<(bls::BlsNormalPublicKey, bls::BlsNormalPrivateKey)> for KeyPair {
+    fn from(
+        (public_key, private_key): (bls::BlsNormalPublicKey, bls::BlsNormalPrivateKey),
+    ) -> Self {
         Self {
             public_key: PublicKey::BlsNormal(public_key),
             private_key: PrivateKey::BlsNormal(private_key),
@@ -257,8 +260,8 @@ impl From<(bls::BlsNormalPublicKey, bls::PrivateKey)> for KeyPair {
     }
 }
 
-impl From<(bls::BlsSmallPublicKey, bls::PrivateKey)> for KeyPair {
-    fn from((public_key, private_key): (bls::BlsSmallPublicKey, bls::PrivateKey)) -> Self {
+impl From<(bls::BlsSmallPublicKey, bls::BlsSmallPrivateKey)> for KeyPair {
+    fn from((public_key, private_key): (bls::BlsSmallPublicKey, bls::BlsSmallPrivateKey)) -> Self {
         Self {
             public_key: PublicKey::BlsSmall(Box::new(public_key)),
             private_key: PrivateKey::BlsSmall(private_key),
@@ -336,6 +339,8 @@ impl PublicKey {
 
     /// Key payload
     fn payload(&self) -> Vec<u8> {
+        use w3f_bls::SerializableToBytes as _;
+
         match self {
             PublicKey::Ed25519(key) => key.as_bytes().to_vec(),
             PublicKey::Secp256k1(key) => key.to_sec1_bytes().to_vec(),
@@ -516,16 +521,30 @@ impl From<PrivateKey> for PublicKey {
 
 ffi::ffi_item! {
     /// Private Key used in signatures.
-    #[derive(Clone, PartialEq, Eq)]
+    #[derive(Clone)]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), ffi_type(opaque))]
     #[allow(missing_docs)]
     pub enum PrivateKey {
         Ed25519(Box<ed25519::PrivateKey>),
         Secp256k1(secp256k1::PrivateKey),
-        BlsNormal(bls::PrivateKey),
-        BlsSmall(bls::PrivateKey),
+        BlsNormal(bls::BlsNormalPrivateKey),
+        BlsSmall(bls::BlsSmallPrivateKey),
     }
 }
+
+impl PartialEq for PrivateKey {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Ed25519(l), Self::Ed25519(r)) => l == r,
+            (Self::Secp256k1(l), Self::Secp256k1(r)) => l == r,
+            (Self::BlsNormal(l), Self::BlsNormal(r)) => l.to_bytes() == r.to_bytes(),
+            (Self::BlsSmall(l), Self::BlsSmall(r)) => l.to_bytes() == r.to_bytes(),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for PrivateKey {}
 
 impl PrivateKey {
     /// Creates a new public key from raw bytes received from elsewhere
@@ -574,7 +593,8 @@ impl PrivateKey {
         match self {
             Self::Ed25519(key) => key.to_keypair_bytes().to_vec(),
             Self::Secp256k1(key) => key.to_bytes().to_vec(),
-            Self::BlsNormal(key) | Self::BlsSmall(key) => key.to_bytes(),
+            Self::BlsNormal(key) => key.to_bytes(),
+            Self::BlsSmall(key) => key.to_bytes(),
         }
     }
 }

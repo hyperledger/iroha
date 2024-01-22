@@ -3061,7 +3061,7 @@
   "PublicKey": {
     "Struct": [
       {
-        "name": "digest_function",
+        "name": "algorithm",
         "type": "Algorithm"
       },
       {
