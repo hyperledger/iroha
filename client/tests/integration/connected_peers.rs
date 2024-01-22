@@ -95,6 +95,8 @@ fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
     thread::sleep(pipeline_time * 2); // Wait for some time to allow peers to connect
     let (removed_peer, removed_peer_client) = peer_clients.remove(removed_peer_idx);
 
+    thread::sleep(pipeline_time * 2); // Wait for some time to allow peers to disconnect
+
     check_status(&peer_clients, 2);
     let status = removed_peer_client.get_status()?;
     // Peer might have been disconnected before getting the block

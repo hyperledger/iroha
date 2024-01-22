@@ -26,10 +26,7 @@ pub mod view_change;
 
 use parking_lot::Mutex;
 
-use self::{
-    message::{Message, *},
-    view_change::ProofChain,
-};
+use self::{message::*, view_change::ProofChain};
 use crate::{kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, NetworkMessage};
 
 /*
@@ -55,7 +52,7 @@ pub struct SumeragiHandle {
     _thread_handle: Arc<ThreadHandler>,
     // Should be dropped after `_thread_handle` to prevent sumeargi thread from panicking
     control_message_sender: mpsc::SyncSender<ControlFlowMessage>,
-    message_sender: mpsc::SyncSender<MessagePacket>,
+    message_sender: mpsc::SyncSender<BlockMessage>,
 }
 
 impl SumeragiHandle {
@@ -203,20 +200,21 @@ impl SumeragiHandle {
         &self.metrics
     }
 
+    /// Deposit a sumeragi control flow network message.
+    pub fn incoming_control_flow_message(&self, msg: ControlFlowMessage) {
+        if let Err(error) = self.control_message_sender.try_send(msg) {
+            self.metrics.dropped_messages.inc();
+            error!(
+                ?error,
+                "This peer is faulty. \
+                 Incoming control messages have to be dropped due to low processing speed."
+            );
+        }
+    }
+
     /// Deposit a sumeragi network message.
-    pub fn incoming_message(&self, msg: MessagePacket) {
-        if msg.message.is_none() {
-            if let Err(error) = self.control_message_sender.try_send(ControlFlowMessage {
-                view_change_proofs: msg.view_change_proofs,
-            }) {
-                self.metrics.dropped_messages.inc();
-                error!(
-                    ?error,
-                    "This peer is faulty. \
-                     Incoming control messages have to be dropped due to low processing speed."
-                );
-            }
-        } else if let Err(error) = self.message_sender.try_send(msg) {
+    pub fn incoming_block_message(&self, msg: BlockMessage) {
+        if let Err(error) = self.message_sender.try_send(msg) {
             self.metrics.dropped_messages.inc();
             error!(
                 ?error,

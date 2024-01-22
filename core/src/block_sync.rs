@@ -129,7 +129,6 @@ impl BlockSynchronizer {
 pub mod message {
     //! Module containing messages for [`BlockSynchronizer`](super::BlockSynchronizer).
     use super::*;
-    use crate::sumeragi::view_change::ProofChain;
 
     /// Get blocks after some block
     #[derive(Debug, Clone, Decode, Encode)]
@@ -234,12 +233,11 @@ pub mod message {
                     }
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, .. }) => {
-                    use crate::sumeragi::message::{Message, MessagePacket};
+                    use crate::sumeragi::message::BlockMessage;
                     for block in blocks.clone() {
-                        block_sync.sumeragi.incoming_message(MessagePacket::new(
-                            ProofChain::default(),
-                            Some(Message::BlockSyncUpdate(block.into())),
-                        ));
+                        block_sync
+                            .sumeragi
+                            .incoming_block_message(BlockMessage::BlockSyncUpdate(block.into()));
                     }
                 }
             }
