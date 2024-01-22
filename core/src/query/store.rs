@@ -2,11 +2,11 @@
 
 use std::{
     cmp::Ordering,
-    collections::HashMap,
     num::NonZeroU64,
     time::{Duration, Instant},
 };
 
+use indexmap::IndexMap;
 use iroha_config::live_query_store::Configuration;
 use iroha_data_model::{
     asset::AssetValue,
@@ -16,6 +16,7 @@ use iroha_data_model::{
     },
     BatchedResponse, BatchedResponseV1, HasMetadata, IdentifiableBox, ValidationFail, Value,
 };
+use iroha_logger::trace;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
@@ -67,7 +68,7 @@ type LiveQuery = Batched<Vec<Value>>;
 /// Clients can handle their queries using [`LiveQueryStoreHandle`]
 #[derive(Debug)]
 pub struct LiveQueryStore {
-    queries: HashMap<QueryId, (LiveQuery, Instant)>,
+    queries: IndexMap<QueryId, (LiveQuery, Instant)>,
     query_idle_time: Duration,
 }
 
@@ -75,7 +76,7 @@ impl LiveQueryStore {
     /// Construct [`LiveQueryStore`] from configuration.
     pub fn from_configuration(cfg: Configuration) -> Self {
         Self {
-            queries: HashMap::default(),
+            queries: IndexMap::new(),
             query_idle_time: Duration::from_millis(cfg.query_idle_time_ms.into()),
         }
     }
@@ -220,12 +221,14 @@ impl LiveQueryStoreHandle {
     }
 
     fn insert(&self, query_id: QueryId, live_query: LiveQuery) -> Result<()> {
+        trace!(%query_id, "Inserting");
         self.message_sender
             .blocking_send(Message::Insert(query_id, live_query))
             .map_err(|_| Error::ConnectionClosed)
     }
 
     fn remove(&self, query_id: QueryId) -> Result<Option<LiveQuery>> {
+        trace!(%query_id, "Removing");
         let (sender, receiver) = oneshot::channel();
 
         self.message_sender
@@ -326,13 +329,19 @@ mod tests {
                 .handle_query_output(query_output, &sorting, pagination, fetch_size)
                 .unwrap()
                 .into();
-            let Value::Vec(v) = batch else { panic!("not expected result") };
+            let Value::Vec(v) = batch else {
+                panic!("not expected result")
+            };
             counter += v.len();
 
             while cursor.cursor.is_some() {
-                let Ok(batched) = query_store_handle.handle_query_cursor(cursor) else { break };
+                let Ok(batched) = query_store_handle.handle_query_cursor(cursor) else {
+                    break;
+                };
                 let (batch, new_cursor) = batched.into();
-                let Value::Vec(v) = batch else { panic!("not expected result") };
+                let Value::Vec(v) = batch else {
+                    panic!("not expected result")
+                };
                 counter += v.len();
 
                 cursor = new_cursor;

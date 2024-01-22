@@ -11,13 +11,13 @@ crate::decl_ffi_fns! { dealloc }
 /// If the data pointer is set to `null`, the struct represents `Option<&[C]>`.
 #[repr(C)]
 #[derive(Debug)]
-pub struct SliceRef<C>(*const C, usize);
+pub struct RefSlice<C>(*const C, usize);
 
 /// Mutable slice `&mut [C]` with a defined C ABI layout. Consists of a data pointer and a length.
 /// If the data pointer is set to `null`, the struct represents `Option<&mut [C]>`.
 #[repr(C)]
 #[derive(Debug)]
-pub struct SliceMut<C>(*mut C, usize);
+pub struct RefMutSlice<C>(*mut C, usize);
 
 /// Owned slice `Box<[C]>` with a defined C ABI layout. Consists of a data pointer and a length.
 /// Used in place of a function out-pointer to transfer ownership of the slice to the caller.
@@ -26,26 +26,26 @@ pub struct SliceMut<C>(*mut C, usize);
 #[derive(Debug)]
 pub struct OutBoxedSlice<C>(*mut C, usize);
 
-impl<C> Copy for SliceRef<C> {}
-impl<C> Clone for SliceRef<C> {
+impl<C> Copy for RefSlice<C> {}
+impl<C> Clone for RefSlice<C> {
     fn clone(&self) -> Self {
-        Self(self.0, self.1)
+        *self
     }
 }
-impl<C> Copy for SliceMut<C> {}
-impl<C> Clone for SliceMut<C> {
+impl<C> Copy for RefMutSlice<C> {}
+impl<C> Clone for RefMutSlice<C> {
     fn clone(&self) -> Self {
-        Self(self.0, self.1)
+        *self
     }
 }
 impl<C> Copy for OutBoxedSlice<C> {}
 impl<C> Clone for OutBoxedSlice<C> {
     fn clone(&self) -> Self {
-        Self(self.0, self.1)
+        *self
     }
 }
 
-impl<C> SliceRef<C> {
+impl<C> RefSlice<C> {
     /// Set the slice's data pointer to null
     pub const fn null() -> Self {
         // TODO: len could be uninitialized
@@ -95,7 +95,7 @@ impl<C> SliceRef<C> {
         Some(slice::from_raw_parts(self.0, self.1))
     }
 }
-impl<C> SliceMut<C> {
+impl<C> RefMutSlice<C> {
     /// Set the slice's data pointer to null
     pub const fn null_mut() -> Self {
         // TODO: len could be uninitialized
@@ -165,23 +165,12 @@ impl<C: ReprC> OutBoxedSlice<C> {
         self.1
     }
 
-    /// Create [`Self`] from a `Box<[T]>`
+    /// Create [`Self`] from a [`Box<[T]>`]
     pub fn from_boxed_slice(source: Option<Box<[C]>>) -> Self {
         source.map_or_else(
             || Self(core::ptr::null_mut(), 0),
             |boxed_slice| {
                 let mut boxed_slice = core::mem::ManuallyDrop::new(boxed_slice);
-                Self(boxed_slice.as_mut_ptr(), boxed_slice.len())
-            },
-        )
-    }
-
-    /// Create [`Self`] from a `Vec<T>`
-    pub fn from_vec(source: Option<Vec<C>>) -> Self {
-        source.map_or_else(
-            || Self(core::ptr::null_mut(), 0),
-            |boxed_slice| {
-                let mut boxed_slice = core::mem::ManuallyDrop::new(boxed_slice.into_boxed_slice());
                 Self(boxed_slice.as_mut_ptr(), boxed_slice.len())
             },
         )
@@ -218,8 +207,8 @@ impl<C: ReprC> OutBoxedSlice<C> {
 }
 
 // SAFETY: Robust type with a defined C ABI
-unsafe impl<T: ReprC> ReprC for SliceRef<T> {}
+unsafe impl<T: ReprC> ReprC for RefSlice<T> {}
 // SAFETY: Robust type with a defined C ABI
-unsafe impl<T: ReprC> ReprC for SliceMut<T> {}
+unsafe impl<T: ReprC> ReprC for RefMutSlice<T> {}
 // SAFETY: Robust type with a defined C ABI
 unsafe impl<T: ReprC> ReprC for OutBoxedSlice<T> {}

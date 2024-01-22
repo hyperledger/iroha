@@ -1,4 +1,4 @@
-//! This module contains the sample configurations used for testing and benchmarking throghout Iroha.
+//! This module contains the sample configurations used for testing and benchmarking throughout Iroha.
 use std::{collections::HashSet, path::Path, str::FromStr};
 
 use iroha_config::{
@@ -7,7 +7,7 @@ use iroha_config::{
     torii::{uri::DEFAULT_API_ADDR, DEFAULT_TORII_P2P_ADDR},
 };
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{peer::PeerId, prelude::*};
+use iroha_data_model::{peer::PeerId, prelude::*, ChainId};
 use iroha_primitives::unique_vec::UniqueVec;
 
 /// Get sample trusted peers. The public key must be the same as `configuration.public_key`
@@ -52,12 +52,19 @@ pub fn get_trusted_peers(public_key: Option<&PublicKey>) -> HashSet<PeerId> {
 ///
 /// # Panics
 /// - when [`KeyPair`] generation fails (rare case).
-pub fn get_config_proxy(peers: UniqueVec<PeerId>, key_pair: Option<KeyPair>) -> ConfigurationProxy {
+pub fn get_config_proxy(
+    peers: UniqueVec<PeerId>,
+    chain_id: Option<ChainId>,
+    key_pair: Option<KeyPair>,
+) -> ConfigurationProxy {
+    let chain_id = chain_id.unwrap_or_else(|| ChainId::new("0"));
+
     let (public_key, private_key) = key_pair
         .unwrap_or_else(|| KeyPair::generate().expect("Key pair generation failed"))
         .into();
     iroha_logger::info!(%public_key);
     ConfigurationProxy {
+        chain_id: Some(chain_id),
         public_key: Some(public_key.clone()),
         private_key: Some(private_key.clone()),
         sumeragi: Some(Box::new(iroha_config::sumeragi::ConfigurationProxy {
@@ -79,8 +86,9 @@ pub fn get_config_proxy(peers: UniqueVec<PeerId>, key_pair: Option<KeyPair>) -> 
             ..iroha_config::queue::ConfigurationProxy::default()
         }),
         genesis: Some(Box::new(iroha_config::genesis::ConfigurationProxy {
-            account_private_key: Some(Some(private_key)),
-            account_public_key: Some(public_key),
+            private_key: Some(Some(private_key)),
+            public_key: Some(public_key),
+            file: Some(Some("./genesis.json".into())),
         })),
         ..ConfigurationProxy::default()
     }
@@ -93,8 +101,12 @@ pub fn get_config_proxy(peers: UniqueVec<PeerId>, key_pair: Option<KeyPair>) -> 
 ///
 /// # Panics
 /// - when [`KeyPair`] generation fails (rare case).
-pub fn get_config(trusted_peers: UniqueVec<PeerId>, key_pair: Option<KeyPair>) -> Configuration {
-    get_config_proxy(trusted_peers, key_pair)
+pub fn get_config(
+    trusted_peers: UniqueVec<PeerId>,
+    chain_id: Option<ChainId>,
+    key_pair: Option<KeyPair>,
+) -> Configuration {
+    get_config_proxy(trusted_peers, chain_id, key_pair)
         .build()
         .expect("Iroha config should build as all required fields were provided")
 }

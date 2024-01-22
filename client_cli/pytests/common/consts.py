@@ -14,10 +14,10 @@ class Stderr(Enum):
     """
     Enum for standard error messages.
     """
-    CANNOT_BE_EMPTY = 'cannot be empty\n\nFor more information try --help\n'
+    CANNOT_BE_EMPTY = 'cannot be empty\n\nFor more information, try \'--help\'.\n'
     REPETITION = 'Repetition'
     TOO_LONG = 'Name length violation'
-    FAILED_TO_FIND_DOMAIN = 'Entity missing'
+    FAILED_TO_FIND_DOMAIN = 'Failed to find domain'
     INVALID_CHARACTER = 'Invalid character'
     INVALID_VALUE_TYPE = 'Matching variant not found'
     RESERVED_CHARACTER = 'The `@` character is reserved for `account@domain` constructs,' \

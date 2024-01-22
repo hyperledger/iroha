@@ -12,8 +12,9 @@ use crate::permission::{self, Token as _};
 /// Used to iterate over tokens to validate `Grant` and `Revoke` instructions.
 ///
 ///
-/// TODO: Replace with procedural macro. Example:
-/// ```
+/// Example:
+///
+/// ```ignore
 /// mod tokens {
 ///     use std::borrow::ToOwned;
 ///
@@ -69,6 +70,8 @@ declare_tokens! {
     crate::default::tokens::domain::{CanUnregisterDomain},
     crate::default::tokens::domain::{CanSetKeyValueInDomain},
     crate::default::tokens::domain::{CanRemoveKeyValueInDomain},
+    crate::default::tokens::domain::{CanRegisterAccountInDomain},
+    crate::default::tokens::domain::{CanRegisterAssetDefinitionInDomain},
 
     crate::default::tokens::account::{CanUnregisterAccount},
     crate::default::tokens::account::{CanMintUserPublicKeys},
@@ -81,13 +84,14 @@ declare_tokens! {
     crate::default::tokens::asset_definition::{CanSetKeyValueInAssetDefinition},
     crate::default::tokens::asset_definition::{CanRemoveKeyValueInAssetDefinition},
 
-    crate::default::tokens::asset::{CanRegisterAssetsWithDefinition},
-    crate::default::tokens::asset::{CanUnregisterAssetsWithDefinition},
+    crate::default::tokens::asset::{CanRegisterAssetWithDefinition},
+    crate::default::tokens::asset::{CanUnregisterAssetWithDefinition},
     crate::default::tokens::asset::{CanUnregisterUserAsset},
-    crate::default::tokens::asset::{CanBurnAssetsWithDefinition},
+    crate::default::tokens::asset::{CanBurnAssetWithDefinition},
+    crate::default::tokens::asset::{CanMintAssetWithDefinition},
+    crate::default::tokens::asset::{CanMintUserAsset},
     crate::default::tokens::asset::{CanBurnUserAsset},
-    crate::default::tokens::asset::{CanMintAssetsWithDefinition},
-    crate::default::tokens::asset::{CanTransferAssetsWithDefinition},
+    crate::default::tokens::asset::{CanTransferAssetWithDefinition},
     crate::default::tokens::asset::{CanTransferUserAsset},
     crate::default::tokens::asset::{CanSetKeyValueInUserAsset},
     crate::default::tokens::asset::{CanRemoveKeyValueInUserAsset},
@@ -142,6 +146,22 @@ pub mod domain {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
         #[validate(permission::domain::Owner)]
         pub struct CanRemoveKeyValueInDomain {
+            pub domain_id: DomainId,
+        }
+    }
+
+    token! {
+        #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
+        #[validate(permission::domain::Owner)]
+        pub struct CanRegisterAccountInDomain {
+            pub domain_id: DomainId,
+        }
+    }
+
+    token! {
+        #[derive(ValidateGrantRevoke, permission::derive_conversions::domain::Owner)]
+        #[validate(permission::domain::Owner)]
+        pub struct CanRegisterAssetDefinitionInDomain {
             pub domain_id: DomainId,
         }
     }
@@ -228,7 +248,7 @@ pub mod asset {
     token! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
-        pub struct CanRegisterAssetsWithDefinition {
+        pub struct CanRegisterAssetWithDefinition {
             pub asset_definition_id: AssetDefinitionId,
         }
     }
@@ -236,7 +256,7 @@ pub mod asset {
     token! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
-        pub struct CanUnregisterAssetsWithDefinition {
+        pub struct CanUnregisterAssetWithDefinition {
             pub asset_definition_id: AssetDefinitionId,
         }
     }
@@ -252,7 +272,7 @@ pub mod asset {
     token! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
-        pub struct CanBurnAssetsWithDefinition {
+        pub struct CanBurnAssetWithDefinition {
             pub asset_definition_id: AssetDefinitionId,
         }
     }
@@ -268,15 +288,23 @@ pub mod asset {
     token! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
-        pub struct CanMintAssetsWithDefinition {
+        pub struct CanMintAssetWithDefinition {
             pub asset_definition_id: AssetDefinitionId,
+        }
+    }
+
+    token! {
+        #[derive(ValidateGrantRevoke, permission::derive_conversions::asset::Owner)]
+        #[validate(permission::asset::Owner)]
+        pub struct CanMintUserAsset {
+            pub asset_id: AssetId,
         }
     }
 
     token! {
         #[derive(ValidateGrantRevoke, permission::derive_conversions::asset_definition::Owner)]
         #[validate(permission::asset_definition::Owner)]
-        pub struct CanTransferAssetsWithDefinition {
+        pub struct CanTransferAssetWithDefinition {
             pub asset_definition_id: AssetDefinitionId,
         }
     }

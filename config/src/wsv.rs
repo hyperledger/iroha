@@ -1,6 +1,6 @@
 //! Module for `WorldStateView`-related configuration and structs.
 use default::*;
-use iroha_config_base::derive::{Documented, Proxy};
+use iroha_config_base::derive::Proxy;
 use iroha_data_model::{prelude::*, transaction::TransactionLimits};
 use serde::{Deserialize, Serialize};
 
@@ -26,7 +26,7 @@ pub mod default {
 }
 
 /// `WorldStateView` configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Proxy, Documented)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Proxy)]
 #[config(env_prefix = "WSV_")]
 #[serde(rename_all = "UPPERCASE")]
 pub struct Configuration {

@@ -18,16 +18,12 @@ categories.workspace = true
 workspace = true
 
 [features]
-default = ["bridge", "cli", "telemetry"]
+default = ["cli", "telemetry"]
 
-# Interoperability with popular blockchain networks (Substrate, Ether, etc.)
-bridge = []
 # Support lightweight telemetry, including diagnostics
 telemetry = []
 # Support the included CLI
 cli = []
-# Support Decentralised Exchange, including functionality for atomic exchange instruction
-dex = []
 # Support developer-specific telemetry.
 # Should not be enabled on production builds.
 dev-telemetry = ["telemetry", "iroha_telemetry/dev-telemetry"]
@@ -68,7 +64,9 @@ displaydoc = { workspace = true }
 wasmtime = { workspace = true }
 parking_lot = { workspace = true, features = ["deadlock_detection"] }
 derive_more = { workspace = true }
+
 uuid = { version = "1.4.1", features = ["v4"] }
+indexmap = "2.1.0"
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -108,10 +106,8 @@ path = "benches/blocks/validate_blocks_oneshot.rs"
 
 [package.metadata.cargo-all-features]
 denylist = [
-"bridge",
-"dex",
 "schema-endpoint",
 "telemetry",
 "test-network"
-] # TODO: remove `dex` and `bridge` once there's code for them.
+]
 skip_optional_dependencies = true

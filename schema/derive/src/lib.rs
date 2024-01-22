@@ -65,6 +65,7 @@ impl FromMeta for Transparent {
 #[darling(attributes(schema))]
 struct SchemaAttributes {
     transparent: Transparent,
+    bounds: Option<String>,
 }
 
 // NOTE: this will fail on unknown attributes.. This is not ideal
@@ -115,7 +116,7 @@ struct IntoSchemaVariant {
 impl FromVariant for IntoSchemaVariant {
     fn from_variant(variant: &syn2::Variant) -> darling::Result<Self> {
         let ident = variant.ident.clone();
-        let discriminant = variant.discriminant.as_ref().map(|(_, expr)| expr.clone());
+        let discriminant = variant.discriminant.clone().map(|(_, expr)| expr);
         let fields = IntoSchemaFields::try_from(&variant.fields)?;
         let codec_attrs = CodecAttributes::from_attributes(&variant.attrs)?;
 
@@ -184,12 +185,16 @@ pub fn schema_derive(input: TokenStream) -> Result<TokenStream> {
     let impl_type_id = impl_type_id(&mut syn2::parse2(original_input).unwrap());
 
     let impl_schema = match &input.schema_attrs.transparent {
-        Transparent::NotTransparent => impl_into_schema(&input),
+        Transparent::NotTransparent => impl_into_schema(&input, input.schema_attrs.bounds.as_ref()),
         Transparent::Transparent(transparent_type) => {
             let transparent_type = transparent_type
                 .clone()
                 .unwrap_or_else(|| infer_transparent_type(&input.data, &mut emitter));
-            Ok(impl_transparent_into_schema(&input, &transparent_type))
+            impl_transparent_into_schema(
+                &input,
+                &transparent_type,
+                input.schema_attrs.bounds.as_ref(),
+            )
         }
     };
     let impl_schema = match impl_schema {
@@ -211,11 +216,16 @@ pub fn schema_derive(input: TokenStream) -> Result<TokenStream> {
 fn impl_transparent_into_schema(
     input: &IntoSchemaInput,
     transparent_type: &syn2::Type,
-) -> TokenStream {
+    bounds: Option<&String>,
+) -> Result<TokenStream> {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let name = &input.ident;
+    let where_clause: Option<syn2::WhereClause> = match bounds {
+        Some(bounds) => Some(syn2::parse_str(&format!("where {bounds}"))?),
+        None => where_clause.cloned(),
+    };
 
-    quote! {
+    Ok(quote! {
         impl #impl_generics iroha_schema::IntoSchema for #name #ty_generics #where_clause {
             fn update_schema_map(map: &mut iroha_schema::MetaMap) {
                 if !map.contains_key::<Self>() {
@@ -233,14 +243,18 @@ fn impl_transparent_into_schema(
                <#transparent_type as iroha_schema::IntoSchema>::type_name()
             }
         }
-    }
+    })
 }
 
-fn impl_into_schema(input: &IntoSchemaInput) -> Result<TokenStream> {
+fn impl_into_schema(input: &IntoSchemaInput, bounds: Option<&String>) -> Result<TokenStream> {
     let name = &input.ident;
     let type_name_body = trait_body(name, &input.generics, false);
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let metadata = metadata(&input.data)?;
+    let where_clause: Option<syn2::WhereClause> = match bounds {
+        Some(bounds) => Some(syn2::parse_str(&format!("where {bounds}"))?),
+        None => where_clause.cloned(),
+    };
 
     Ok(quote! {
         impl #impl_generics iroha_schema::IntoSchema for #name #ty_generics #where_clause {

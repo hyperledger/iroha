@@ -235,6 +235,8 @@ mod chained {
 }
 
 mod valid {
+    use iroha_data_model::ChainId;
+
     use super::*;
     use crate::sumeragi::network_topology::Role;
 
@@ -265,29 +267,31 @@ mod valid {
         pub fn validate(
             block: SignedBlock,
             topology: &Topology,
+            expected_chain_id: &ChainId,
             wsv: &mut WorldStateView,
         ) -> Result<ValidBlock, (SignedBlock, BlockValidationError)> {
-            let actual_commit_topology = &block.payload().commit_topology;
-            let expected_commit_topology = &topology.ordered_peers;
+            if !block.payload().header.is_genesis() {
+                let actual_commit_topology = &block.payload().commit_topology;
+                let expected_commit_topology = &topology.ordered_peers;
 
-            if actual_commit_topology != expected_commit_topology {
-                let actual_commit_topology = actual_commit_topology.clone();
+                if actual_commit_topology != expected_commit_topology {
+                    let actual_commit_topology = actual_commit_topology.clone();
 
-                return Err((
-                    block,
-                    BlockValidationError::TopologyMismatch {
-                        expected: expected_commit_topology.clone(),
-                        actual: actual_commit_topology,
-                    },
-                ));
-            }
+                    return Err((
+                        block,
+                        BlockValidationError::TopologyMismatch {
+                            expected: expected_commit_topology.clone(),
+                            actual: actual_commit_topology,
+                        },
+                    ));
+                }
 
-            if !block.payload().header.is_genesis()
-                && topology
+                if topology
                     .filter_signatures_by_roles(&[Role::Leader], block.signatures())
                     .is_empty()
-            {
-                return Err((block, SignatureVerificationError::LeaderMissing.into()));
+                {
+                    return Err((block, SignatureVerificationError::LeaderMissing.into()));
+                }
             }
 
             let expected_block_height = wsv.height() + 1;
@@ -325,7 +329,7 @@ mod valid {
                 return Err((block, BlockValidationError::HasCommittedTransactions));
             }
 
-            if let Err(error) = Self::validate_transactions(&block, wsv) {
+            if let Err(error) = Self::validate_transactions(&block, expected_chain_id, wsv) {
                 return Err((block, error.into()));
             }
 
@@ -341,6 +345,7 @@ mod valid {
 
         fn validate_transactions(
             block: &SignedBlock,
+            expected_chain_id: &ChainId,
             wsv: &mut WorldStateView,
         ) -> Result<(), TransactionValidationError> {
             let is_genesis = block.payload().header.is_genesis();
@@ -355,10 +360,10 @@ mod valid {
                     let limits = &transaction_executor.transaction_limits;
 
                     let tx = if is_genesis {
-                            AcceptedTransaction::accept_genesis(GenesisTransaction(value))
+                            AcceptedTransaction::accept_genesis(GenesisTransaction(value), expected_chain_id)
                     } else {
-                            AcceptedTransaction::accept(value, limits)?
-                    };
+                            AcceptedTransaction::accept(value, expected_chain_id, limits)
+                    }?;
 
                     if error.is_some() {
                         match transaction_executor.validate(tx, wsv) {
@@ -719,6 +724,8 @@ mod tests {
 
     #[tokio::test]
     async fn should_reject_due_to_repetition() {
+        let chain_id = ChainId::new("0");
+
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let alice_keys = KeyPair::generate().expect("Valid");
@@ -735,15 +742,15 @@ mod tests {
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
         let create_asset_definition =
-            RegisterExpr::new(AssetDefinition::quantity(asset_definition_id));
+            Register::asset_definition(AssetDefinition::quantity(asset_definition_id));
 
         // Making two transactions that have the same instruction
         let transaction_limits = &wsv.transaction_executor().transaction_limits;
-        let tx = TransactionBuilder::new(alice_id)
+        let tx = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions([create_asset_definition])
             .sign(alice_keys.clone())
             .expect("Valid");
-        let tx = AcceptedTransaction::accept(tx, transaction_limits).expect("Valid");
+        let tx = AcceptedTransaction::accept(tx, &chain_id, transaction_limits).expect("Valid");
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx.clone(), tx];
@@ -762,6 +769,8 @@ mod tests {
 
     #[tokio::test]
     async fn tx_order_same_in_validation_and_revalidation() {
+        let chain_id = ChainId::new("0");
+
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let alice_keys = KeyPair::generate().expect("Valid");
@@ -778,40 +787,40 @@ mod tests {
         // Creating an instruction
         let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
         let create_asset_definition =
-            RegisterExpr::new(AssetDefinition::quantity(asset_definition_id.clone()));
+            Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
 
         // Making two transactions that have the same instruction
         let transaction_limits = &wsv.transaction_executor().transaction_limits;
-        let tx = TransactionBuilder::new(alice_id.clone())
+        let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([create_asset_definition])
             .sign(alice_keys.clone())
             .expect("Valid");
-        let tx = AcceptedTransaction::accept(tx, transaction_limits).expect("Valid");
+        let tx = AcceptedTransaction::accept(tx, &chain_id, transaction_limits).expect("Valid");
 
         let quantity: u32 = 200;
         let fail_quantity: u32 = 20;
 
-        let fail_mint = MintExpr::new(
-            fail_quantity.to_value(),
-            IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
+        let fail_mint = Mint::asset_quantity(
+            fail_quantity,
+            AssetId::new(asset_definition_id.clone(), alice_id.clone()),
         );
 
-        let succeed_mint = MintExpr::new(
-            quantity.to_value(),
-            IdBox::AssetId(AssetId::new(asset_definition_id, alice_id.clone())),
+        let succeed_mint = Mint::asset_quantity(
+            quantity,
+            AssetId::new(asset_definition_id, alice_id.clone()),
         );
 
-        let tx0 = TransactionBuilder::new(alice_id.clone())
+        let tx0 = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_mint])
             .sign(alice_keys.clone())
             .expect("Valid");
-        let tx0 = AcceptedTransaction::accept(tx0, transaction_limits).expect("Valid");
+        let tx0 = AcceptedTransaction::accept(tx0, &chain_id, transaction_limits).expect("Valid");
 
-        let tx2 = TransactionBuilder::new(alice_id)
+        let tx2 = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions([succeed_mint])
             .sign(alice_keys.clone())
             .expect("Valid");
-        let tx2 = AcceptedTransaction::accept(tx2, transaction_limits).expect("Valid");
+        let tx2 = AcceptedTransaction::accept(tx2, &chain_id, transaction_limits).expect("Valid");
 
         // Creating a block of two identical transactions and validating it
         let transactions = vec![tx0, tx, tx2];
@@ -830,6 +839,8 @@ mod tests {
 
     #[tokio::test]
     async fn failed_transactions_revert() {
+        let chain_id = ChainId::new("0");
+
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let alice_keys = KeyPair::generate().expect("Valid");
@@ -848,24 +859,27 @@ mod tests {
         let transaction_limits = &wsv.transaction_executor().transaction_limits;
 
         let domain_id = DomainId::from_str("domain").expect("Valid");
-        let create_domain = RegisterExpr::new(Domain::new(domain_id));
+        let create_domain = Register::domain(Domain::new(domain_id));
         let asset_definition_id = AssetDefinitionId::from_str("coin#domain").expect("Valid");
-        let create_asset = RegisterExpr::new(AssetDefinition::quantity(asset_definition_id));
-        let instructions_fail: [InstructionExpr; 2] = [
+        let create_asset =
+            Register::asset_definition(AssetDefinition::quantity(asset_definition_id));
+        let instructions_fail: [InstructionBox; 2] = [
             create_domain.clone().into(),
-            Fail::new("Always fail").into(),
+            Fail::new("Always fail".to_owned()).into(),
         ];
-        let instructions_accept: [InstructionExpr; 2] = [create_domain.into(), create_asset.into()];
-        let tx_fail = TransactionBuilder::new(alice_id.clone())
+        let instructions_accept: [InstructionBox; 2] = [create_domain.into(), create_asset.into()];
+        let tx_fail = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions(instructions_fail)
             .sign(alice_keys.clone())
             .expect("Valid");
-        let tx_fail = AcceptedTransaction::accept(tx_fail, transaction_limits).expect("Valid");
-        let tx_accept = TransactionBuilder::new(alice_id)
+        let tx_fail =
+            AcceptedTransaction::accept(tx_fail, &chain_id, transaction_limits).expect("Valid");
+        let tx_accept = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions(instructions_accept)
             .sign(alice_keys.clone())
             .expect("Valid");
-        let tx_accept = AcceptedTransaction::accept(tx_accept, transaction_limits).expect("Valid");
+        let tx_accept =
+            AcceptedTransaction::accept(tx_accept, &chain_id, transaction_limits).expect("Valid");
 
         // Creating a block of where first transaction must fail and second one fully executed
         let transactions = vec![tx_fail, tx_accept];

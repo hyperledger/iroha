@@ -10,7 +10,7 @@ use std::{
 use eyre::{Result, WrapErr as _};
 use iroha_config::sumeragi::Configuration;
 use iroha_crypto::{KeyPair, SignatureOf};
-use iroha_data_model::prelude::*;
+use iroha_data_model::{block::SignedBlock, prelude::*};
 use iroha_genesis::GenesisNetwork;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
@@ -110,7 +110,10 @@ impl SumeragiHandle {
     pub fn update_metrics(&self) -> Result<()> {
         let online_peers_count: u64 = self
             .network
-            .online_peers(std::collections::HashSet::len)
+            .online_peers(
+                #[allow(clippy::disallowed_types)]
+                std::collections::HashSet::len,
+            )
             .try_into()
             .expect("casting usize to u64");
 
@@ -223,6 +226,32 @@ impl SumeragiHandle {
         }
     }
 
+    fn replay_block(
+        chain_id: &ChainId,
+        block: &SignedBlock,
+        wsv: &mut WorldStateView,
+        mut current_topology: Topology,
+    ) -> Topology {
+        // NOTE: topology need to be updated up to block's view_change_index
+        current_topology.rotate_all_n(block.payload().header.view_change_index);
+
+        let block = ValidBlock::validate(block.clone(), &current_topology, chain_id, wsv)
+            .expect("Kura blocks should be valid")
+            .commit(&current_topology)
+            .expect("Kura blocks should be valid");
+
+        if block.payload().header.is_genesis() {
+            wsv.world_mut().trusted_peers_ids = block.payload().commit_topology.clone();
+        }
+
+        wsv.apply_without_execution(&block).expect(
+            "Block application in init should not fail. \
+             Blocks loaded from kura assumed to be valid",
+        );
+
+        Topology::recreate_topology(block.as_ref(), 0, wsv.peers().cloned().collect())
+    }
+
     /// Start [`Sumeragi`] actor and return handle to it.
     ///
     /// # Panics
@@ -230,6 +259,7 @@ impl SumeragiHandle {
     #[allow(clippy::too_many_lines)]
     pub fn start(
         SumeragiStartArgs {
+            chain_id,
             configuration,
             events_sender,
             mut wsv,
@@ -251,7 +281,7 @@ impl SumeragiHandle {
             )
         });
 
-        let current_topology = match wsv.height() {
+        let mut current_topology = match wsv.height() {
             0 => {
                 assert!(!configuration.trusted_peers.peers.is_empty());
                 Topology::new(configuration.trusted_peers.peers.clone())
@@ -261,40 +291,21 @@ impl SumeragiHandle {
                     "Sumeragi could not load block that was reported as present. \
                      Please check that the block storage was not disconnected.",
                 );
-                Topology::recreate_topology(
-                    &block_ref,
-                    0,
-                    wsv.peers_ids().iter().cloned().collect(),
-                )
+                Topology::recreate_topology(&block_ref, 0, wsv.peers().cloned().collect())
             }
         };
 
         let block_iter_except_last =
             (&mut blocks_iter).take(block_count.saturating_sub(skip_block_count + 1));
         for block in block_iter_except_last {
-            let block = ValidBlock::validate(Clone::clone(&block), &current_topology, &mut wsv)
-                .expect("Kura blocks should be valid")
-                .commit(&current_topology)
-                .expect("Kura blocks should be valid");
-            wsv.apply_without_execution(&block).expect(
-                "Block application in init should not fail. \
-                 Blocks loaded from kura assumed to be valid",
-            );
+            current_topology = Self::replay_block(&chain_id, &block, &mut wsv, current_topology);
         }
 
         // finalized_wsv is one block behind
         let finalized_wsv = wsv.clone();
 
-        if let Some(latest_block) = blocks_iter.next() {
-            let latest_block =
-                ValidBlock::validate(Clone::clone(&latest_block), &current_topology, &mut wsv)
-                    .expect("Kura blocks should be valid")
-                    .commit(&current_topology)
-                    .expect("Kura blocks should be valid");
-            wsv.apply_without_execution(&latest_block).expect(
-                "Block application in init should not fail. \
-                 Blocks loaded from kura assumed to be valid",
-            );
+        if let Some(block) = blocks_iter.next() {
+            current_topology = Self::replay_block(&chain_id, &block, &mut wsv, current_topology);
         }
 
         info!("Sumeragi has finished loading blocks and setting up the WSV");
@@ -309,6 +320,7 @@ impl SumeragiHandle {
         let debug_force_soft_fork = false;
 
         let sumeragi = main_loop::Sumeragi {
+            chain_id,
             key_pair: configuration.key_pair.clone(),
             queue: Arc::clone(&queue),
             peer_id: configuration.peer_id.clone(),
@@ -408,8 +420,9 @@ impl VotingBlock {
 
 /// Arguments for [`SumeragiHandle::start`] function
 #[allow(missing_docs)]
-pub struct SumeragiStartArgs<'args> {
-    pub configuration: &'args Configuration,
+pub struct SumeragiStartArgs {
+    pub chain_id: ChainId,
+    pub configuration: Box<Configuration>,
     pub events_sender: EventsSender,
     pub wsv: WorldStateView,
     pub queue: Arc<Queue>,

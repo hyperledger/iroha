@@ -255,18 +255,19 @@ mod tests {
     fn decode_trigger_sample() {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let rose_definition_id = AssetDefinitionId::new(
-            "rose".parse().expect("Valid"),
             "wonderland".parse().expect("Valid"),
+            "rose".parse().expect("Valid"),
         );
         let rose_id = AssetId::new(rose_definition_id, account_id.clone());
         let trigger_id = "mint_rose".parse().expect("Valid");
         let action = Action::<FilterBox>::new(
-            vec![MintExpr::new(1_u32, rose_id)],
+            vec![Mint::asset_quantity(1_u32, rose_id)],
             Repeats::Indefinitely,
             account_id,
-            FilterBox::Data(DataEventFilter::BySome(DataEntityFilter::ByAccount(
-                AcceptAll,
-            ))),
+            // FIXME: rewrite the filters using the builder DSL https://github.com/hyperledger/iroha/issues/3068
+            FilterBox::Data(BySome(DataEntityFilter::ByDomain(BySome(
+                DomainFilter::new(AcceptAll, BySome(DomainEventFilter::ByAccount(AcceptAll))),
+            )))),
         );
         let trigger = Trigger::new(trigger_id, action);
 

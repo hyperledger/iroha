@@ -131,7 +131,7 @@ mod ffi {
     use std::alloc;
 
     use iroha_ffi::{
-        slice::{OutBoxedSlice, SliceMut, SliceRef},
+        slice::{OutBoxedSlice, RefMutSlice, RefSlice},
         FfiOutPtr, FfiReturn, FfiTuple2, FfiType,
     };
 
@@ -157,17 +157,17 @@ mod ffi {
 
     #[no_mangle]
     unsafe extern "C" fn __freestanding_returns_local_slice(
-        input: SliceRef<FfiTuple2<u32, u32>>,
+        input: RefSlice<FfiTuple2<u32, u32>>,
         output: *mut OutBoxedSlice<FfiTuple2<u32, u32>>,
     ) -> FfiReturn {
-        let input = input.into_rust().map(<[_]>::to_vec);
-        output.write(OutBoxedSlice::from_vec(input));
+        let input = input.into_rust().map(Into::into);
+        output.write(OutBoxedSlice::from_boxed_slice(input));
         FfiReturn::Ok
     }
 
     #[no_mangle]
     unsafe extern "C" fn __freestanding_returns_boxed_slice(
-        input: SliceMut<u32>,
+        input: RefMutSlice<u32>,
         output: *mut OutBoxedSlice<u32>,
     ) -> FfiReturn {
         let input = input.into_rust().map(|slice| (&*slice).into());
@@ -177,11 +177,11 @@ mod ffi {
 
     #[no_mangle]
     unsafe extern "C" fn __freestanding_returns_iterator(
-        input: SliceMut<u32>,
+        input: RefMutSlice<u32>,
         output: *mut OutBoxedSlice<u32>,
     ) -> FfiReturn {
-        let input = input.into_rust().map(|slice| slice.to_vec());
-        output.write(OutBoxedSlice::from_vec(input));
+        let input = input.into_rust().map(|slice| (&*slice).into());
+        output.write(OutBoxedSlice::from_boxed_slice(input));
         FfiReturn::Ok
     }
 

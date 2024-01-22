@@ -25,12 +25,10 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 iroha_client = { workspace = true }
 iroha_primitives = { workspace = true }
-iroha_crypto = { workspace = true }
-iroha_config = { workspace = true }
+iroha_config_base = { workspace = true }
 
 color-eyre = { workspace = true }
-# TODO: migrate to clap v4 (and use the workspace dependency)
-clap = { version = "3.2.25", features = ["derive"] }
+clap = { workspace = true, features = ["derive"] }
 dialoguer = { version = "0.11.0", default-features = false }
 json5 = { workspace = true }
 once_cell = { workspace = true }

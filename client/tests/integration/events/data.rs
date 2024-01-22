@@ -6,39 +6,74 @@ use parity_scale_codec::Encode as _;
 use serde_json::json;
 use test_network::*;
 
-use crate::wasm::utils::wasm_template;
+/// Return string containing exported memory, dummy allocator, and
+/// host function imports which you can embed into your wasm module.
+///
+/// Memory is initialized with the given hex encoded string value
+// NOTE: It's expected that hex value is of even length
+#[allow(clippy::integer_division)]
+pub fn wasm_template(hex_val: &str) -> String {
+    format!(
+        r#"
+        ;; Import host function to execute instruction
+        (import "iroha" "{execute_instruction}"
+            (func $exec_isi (param i32 i32) (result i32)))
 
-fn produce_instructions() -> Vec<InstructionExpr> {
+        ;; Import host function to execute query
+        (import "iroha" "{execute_query}"
+            (func $exec_query (param i32 i32) (result i32)))
+
+        ;; Embed ISI into WASM binary memory
+        (memory (export "{memory_name}") 1)
+        (data (i32.const 0) "{hex_val}")
+
+        ;; Variable which tracks total allocated size
+        (global $mem_size (mut i32) i32.const {hex_len})
+
+        ;; Export mock allocator to host. This allocator never frees!
+        (func (export "{alloc_fn_name}") (param $size i32) (result i32)
+            global.get $mem_size
+
+            (global.set $mem_size
+                (i32.add (global.get $mem_size) (local.get $size)))
+        )
+
+        ;; Export mock deallocator to host. This allocator does nothing!
+        (func (export "{dealloc_fn_name}") (param $size i32) (param $len i32)
+           nop)
+        "#,
+        memory_name = "memory",
+        alloc_fn_name = "_iroha_smart_contract_alloc",
+        dealloc_fn_name = "_iroha_smart_contract_dealloc",
+        execute_instruction = "execute_instruction",
+        execute_query = "execute_query",
+        hex_val = escape_hex(hex_val),
+        hex_len = hex_val.len() / 2,
+    )
+}
+
+fn escape_hex(hex_val: &str) -> String {
+    let mut isi_hex = String::with_capacity(3 * hex_val.len());
+
+    for (i, c) in hex_val.chars().enumerate() {
+        if i % 2 == 0 {
+            isi_hex.push('\\');
+        }
+
+        isi_hex.push(c);
+    }
+
+    isi_hex
+}
+fn produce_instructions() -> Vec<InstructionBox> {
     let domains = (0..4)
         .map(|domain_index: usize| Domain::new(domain_index.to_string().parse().expect("Valid")));
 
-    let registers: [InstructionExpr; 4] = domains
+    domains
         .into_iter()
-        .map(RegisterExpr::new)
-        .map(InstructionExpr::from)
+        .map(Register::domain)
+        .map(InstructionBox::from)
         .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
-
-    // TODO: should we re-introduce the DSL?
-    vec![
-        // domain "0"
-        // pair
-        //      domain "1"
-        //      if false fail else sequence
-        //          domain "2"
-        //          domain "3"
-        registers[0].clone(),
-        PairExpr::new(
-            registers[1].clone(),
-            ConditionalExpr::with_otherwise(
-                false,
-                Fail::new("unreachable"),
-                SequenceExpr::new([registers[2].clone(), registers[3].clone()]),
-            ),
-        )
-        .into(),
-    ]
 }
 
 #[test]
@@ -69,7 +104,7 @@ fn wasm_execution_should_produce_events() -> Result<()> {
             ptr_len = ptr_len / 2,
         )?;
 
-        ptr_offset = ptr_len;
+        ptr_offset += ptr_len;
     }
 
     let wat = format!(
@@ -121,8 +156,10 @@ fn transaction_execution_should_produce_events(
     client.submit_transaction_blocking(&transaction)?;
 
     // assertion
+    iroha_logger::info!("Listening for events");
     for i in 0..4_usize {
         let event: DataEvent = event_receiver.recv()??.try_into()?;
+        iroha_logger::info!("Event: {:?}", event);
         assert!(matches!(event, DataEvent::Domain(_)));
         if let DataEvent::Domain(domain_event) = event {
             assert!(matches!(domain_event, DomainEvent::Created(_)));
@@ -174,16 +211,16 @@ fn produce_multiple_events() -> Result<()> {
     let role = iroha_client::data_model::role::Role::new(role_id.clone())
         .add_permission(token_1.clone())
         .add_permission(token_2.clone());
-    let instructions = [RegisterExpr::new(role.clone())];
+    let instructions = [Register::role(role.clone())];
     client.submit_all_blocking(instructions)?;
 
     // Grants role to Bob
     let bob_id = AccountId::from_str("bob@wonderland")?;
-    let grant_role = GrantExpr::new(role_id.clone(), bob_id.clone());
+    let grant_role = Grant::role(role_id.clone(), bob_id.clone());
     client.submit_blocking(grant_role)?;
 
     // Unregister role
-    let unregister_role = UnregisterExpr::new(role_id.clone());
+    let unregister_role = Unregister::role(role_id.clone());
     client.submit_blocking(unregister_role)?;
 
     // Inspect produced events
@@ -201,46 +238,46 @@ fn produce_multiple_events() -> Result<()> {
     }
 
     let expected_domain_events: Vec<DataEvent> = [
-        WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
+        DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
                 permission_id: token_1.definition_id.clone(),
             },
         ))),
-        WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
+        DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionAdded(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
                 permission_id: token_2.definition_id.clone(),
             },
         ))),
-        WorldEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(
+        DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleGranted(
             AccountRoleChanged {
                 account_id: bob_id.clone(),
                 role_id: role_id.clone(),
             },
         ))),
-        WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
+        DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
                 permission_id: token_1.definition_id,
             },
         ))),
-        WorldEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
+        DataEvent::Domain(DomainEvent::Account(AccountEvent::PermissionRemoved(
             AccountPermissionChanged {
                 account_id: bob_id.clone(),
                 permission_id: token_2.definition_id,
             },
         ))),
-        WorldEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(
+        DataEvent::Domain(DomainEvent::Account(AccountEvent::RoleRevoked(
             AccountRoleChanged {
                 account_id: bob_id,
                 role_id: role_id.clone(),
             },
         ))),
-        WorldEvent::Role(RoleEvent::Deleted(role_id)),
+        DataEvent::Role(RoleEvent::Deleted(role_id)),
     ]
     .into_iter()
-    .flat_map(WorldEvent::flatten)
+    .map(Into::into)
     .collect();
 
     for expected_event in expected_domain_events {

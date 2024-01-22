@@ -179,7 +179,7 @@ pub mod isi {
 
             domain.remove_asset_total_quantity(&asset_definition_id);
 
-            events.push(WorldEvent::from(DomainEvent::AssetDefinition(
+            events.push(DataEvent::from(DomainEvent::AssetDefinition(
                 AssetDefinitionEvent::Deleted(asset_definition_id),
             )));
 
@@ -287,11 +287,25 @@ pub mod isi {
 
     impl Execute for Transfer<Account, DomainId, Account> {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-            wsv.domain_mut(&self.object)?.owned_by = self.destination_id.clone();
+            let Transfer {
+                source_id,
+                object,
+                destination_id,
+            } = self;
 
+            let _ = wsv.account(&source_id)?;
+            let _ = wsv.account(&destination_id)?;
+
+            let domain = wsv.domain_mut(&object)?;
+
+            if domain.owned_by != source_id {
+                return Err(Error::Find(FindError::Account(source_id)));
+            }
+
+            domain.owned_by = destination_id.clone();
             wsv.emit_events(Some(DomainEvent::OwnerChanged(DomainOwnerChanged {
-                domain_id: self.object,
-                new_owner: self.destination_id,
+                domain_id: object,
+                new_owner: destination_id,
             })));
 
             Ok(())
@@ -301,7 +315,7 @@ pub mod isi {
 
 /// Query module provides [`Query`] Domain related implementations.
 pub mod query {
-    use eyre::{Result, WrapErr};
+    use eyre::Result;
     use iroha_data_model::{
         domain::Domain,
         query::{error::QueryExecutionFail as Error, MetadataValue},
@@ -322,29 +336,20 @@ pub mod query {
     impl ValidQuery for FindDomainById {
         #[metrics(+"find_domain_by_id")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Domain, Error> {
-            let id = wsv
-                .evaluate(&self.id)
-                .wrap_err("Failed to get domain id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = &self.id;
             iroha_logger::trace!(%id);
-            Ok(wsv.domain(&id)?.clone())
+            Ok(wsv.domain(id)?.clone())
         }
     }
 
     impl ValidQuery for FindDomainKeyValueByIdAndKey {
         #[metrics(+"find_domain_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
-            let id = wsv
-                .evaluate(&self.id)
-                .wrap_err("Failed to get domain id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let key = wsv
-                .evaluate(&self.key)
-                .wrap_err("Failed to get key")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = &self.id;
+            let key = &self.key;
             iroha_logger::trace!(%id, %key);
-            wsv.map_domain(&id, |domain| domain.metadata.get(&key).map(Clone::clone))?
-                .ok_or_else(|| FindError::MetadataKey(key).into())
+            wsv.map_domain(id, |domain| domain.metadata.get(key).cloned())?
+                .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
                 .map(Into::into)
         }
     }
@@ -352,20 +357,14 @@ pub mod query {
     impl ValidQuery for FindAssetDefinitionKeyValueByIdAndKey {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
-            let id = wsv
-                .evaluate(&self.id)
-                .wrap_err("Failed to get asset definition id")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let key = wsv
-                .evaluate(&self.key)
-                .wrap_err("Failed to get key")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
+            let id = &self.id;
+            let key = &self.key;
             iroha_logger::trace!(%id, %key);
             Ok(wsv
-                .asset_definition(&id)?
+                .asset_definition(id)?
                 .metadata
-                .get(&key)
-                .ok_or(FindError::MetadataKey(key))
+                .get(key)
+                .ok_or(FindError::MetadataKey(key.clone()))
                 .cloned()
                 .map(Into::into)?)
         }

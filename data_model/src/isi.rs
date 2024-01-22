@@ -1,39 +1,26 @@
 //! This library contains basic Iroha Special Instructions.
 
-#![allow(clippy::len_without_is_empty, clippy::unused_self)]
-
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
-use core::fmt::Debug;
+use alloc::{format, string::String, vec::Vec};
+use core::fmt::{Debug, Display};
 
-use derive_more::{DebugCustom, Display};
+use derive_more::{Constructor, DebugCustom, Display};
 use iroha_data_model_derive::model;
-use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 
-pub use self::model::*;
-use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
+pub use self::{model::*, transparent::*};
+use super::{prelude::*, Value};
 use crate::{seal, Level, Registered};
 
-/// Marker trait designating instruction
-pub trait Instruction: Into<InstructionExpr> + seal::Sealed {}
-
-macro_rules! isi {
-    ($($meta:meta)* $item:item) => {
-        iroha_data_model_derive::model_single! {
-            #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, getset::Getters)]
-            #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
-            #[derive(serde::Deserialize, serde::Serialize)]
-            #[derive(iroha_schema::IntoSchema)]
-            #[getset(get = "pub")]
-            $($meta)*
-            $item
-        }
-    };
-}
+/// Marker trait designating instruction.
+///
+/// Instructions allows to change the state of `Iroha`.
+/// All possible instructions are implementors of this trait, excluding
+/// [`InstructionBox`] which is just a wrapper.
+pub trait Instruction: Into<InstructionBox> + seal::Sealed {}
 
 #[model]
 pub mod model {
@@ -42,6 +29,10 @@ pub mod model {
     use super::*;
 
     /// Sized structure for all possible Instructions.
+    ///
+    /// Note that [`InstructionBox`] is not a self-sufficient instruction,
+    /// but just a wrapper to pass instructions back and forth.
+    /// If you are a client SDK user then you likely don't need to use this type directly.
     #[derive(
         DebugCustom,
         Display,
@@ -50,7 +41,6 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        FromVariant,
         EnumDiscriminants,
         Decode,
         Encode,
@@ -79,790 +69,1151 @@ pub mod model {
     )]
     #[ffi_type(opaque)]
     #[allow(missing_docs)]
-    pub enum InstructionExpr {
+    pub enum InstructionBox {
         #[debug(fmt = "{_0:?}")]
-        Register(RegisterExpr),
+        Register(RegisterBox),
         #[debug(fmt = "{_0:?}")]
-        Unregister(UnregisterExpr),
+        Unregister(UnregisterBox),
         #[debug(fmt = "{_0:?}")]
-        Mint(MintExpr),
+        Mint(MintBox),
         #[debug(fmt = "{_0:?}")]
-        Burn(BurnExpr),
+        Burn(BurnBox),
         #[debug(fmt = "{_0:?}")]
-        Transfer(TransferExpr),
+        Transfer(TransferBox),
         #[debug(fmt = "{_0:?}")]
-        If(Box<ConditionalExpr>),
+        SetKeyValue(SetKeyValueBox),
         #[debug(fmt = "{_0:?}")]
-        Pair(Box<PairExpr>),
+        RemoveKeyValue(RemoveKeyValueBox),
         #[debug(fmt = "{_0:?}")]
-        Sequence(SequenceExpr),
+        Grant(GrantBox),
         #[debug(fmt = "{_0:?}")]
-        SetKeyValue(SetKeyValueExpr),
+        Revoke(RevokeBox),
         #[debug(fmt = "{_0:?}")]
-        RemoveKeyValue(RemoveKeyValueExpr),
+        ExecuteTrigger(ExecuteTrigger),
         #[debug(fmt = "{_0:?}")]
-        Grant(GrantExpr),
+        SetParameter(SetParameter),
         #[debug(fmt = "{_0:?}")]
-        Revoke(RevokeExpr),
+        NewParameter(NewParameter),
         #[debug(fmt = "{_0:?}")]
-        ExecuteTrigger(ExecuteTriggerExpr),
+        Upgrade(Upgrade),
         #[debug(fmt = "{_0:?}")]
-        SetParameter(SetParameterExpr),
-        #[debug(fmt = "{_0:?}")]
-        NewParameter(NewParameterExpr),
-        Upgrade(UpgradeExpr),
-        /// `Log` variant.
-        Log(LogExpr),
+        Log(Log),
 
         #[debug(fmt = "{_0:?}")]
         Fail(Fail),
     }
 
-    impl Instruction for InstructionExpr {}
+    impl Instruction for InstructionBox {}
 
-    impl Instruction for SetKeyValueExpr {}
-    impl Instruction for RemoveKeyValueExpr {}
-    impl Instruction for RegisterExpr {}
-    impl Instruction for UnregisterExpr {}
-    impl Instruction for MintExpr {}
-    impl Instruction for BurnExpr {}
-    impl Instruction for TransferExpr {}
-    impl Instruction for GrantExpr {}
-    impl Instruction for RevokeExpr {}
-    impl Instruction for SetParameterExpr {}
-    impl Instruction for NewParameterExpr {}
-    impl Instruction for UpgradeExpr {}
-    impl Instruction for ExecuteTriggerExpr {}
-    impl Instruction for LogExpr {}
+    impl Instruction for SetKeyValue<Domain> {}
+    impl Instruction for SetKeyValue<Account> {}
+    impl Instruction for SetKeyValue<AssetDefinition> {}
+    impl Instruction for SetKeyValue<Asset> {}
+
+    impl Instruction for RemoveKeyValue<Domain> {}
+    impl Instruction for RemoveKeyValue<Account> {}
+    impl Instruction for RemoveKeyValue<AssetDefinition> {}
+    impl Instruction for RemoveKeyValue<Asset> {}
+
+    impl Instruction for Register<Peer> {}
+    impl Instruction for Register<Domain> {}
+    impl Instruction for Register<Account> {}
+    impl Instruction for Register<AssetDefinition> {}
+    impl Instruction for Register<Asset> {}
+    impl Instruction for Register<Role> {}
+    impl Instruction for Register<Trigger<TriggeringFilterBox>> {}
+
+    impl Instruction for Unregister<Peer> {}
+    impl Instruction for Unregister<Domain> {}
+    impl Instruction for Unregister<Account> {}
+    impl Instruction for Unregister<AssetDefinition> {}
+    impl Instruction for Unregister<Asset> {}
+    impl Instruction for Unregister<Role> {}
+    impl Instruction for Unregister<Trigger<TriggeringFilterBox>> {}
+
+    impl Instruction for Mint<PublicKey, Account> {}
+    impl Instruction for Mint<SignatureCheckCondition, Account> {}
+    impl Instruction for Mint<u32, Asset> {}
+    impl Instruction for Mint<u128, Asset> {}
+    impl Instruction for Mint<Fixed, Asset> {}
+    impl Instruction for Mint<u32, Trigger<TriggeringFilterBox>> {}
+
+    impl Instruction for Burn<PublicKey, Account> {}
+    impl Instruction for Burn<u32, Asset> {}
+    impl Instruction for Burn<u128, Asset> {}
+    impl Instruction for Burn<Fixed, Asset> {}
+    impl Instruction for Burn<u32, Trigger<TriggeringFilterBox>> {}
+
+    impl Instruction for Transfer<Account, DomainId, Account> {}
+    impl Instruction for Transfer<Account, AssetDefinitionId, Account> {}
+    impl Instruction for Transfer<Asset, u32, Account> {}
+    impl Instruction for Transfer<Asset, u128, Account> {}
+    impl Instruction for Transfer<Asset, Fixed, Account> {}
+
+    impl Instruction for Grant<PermissionToken> {}
+    impl Instruction for Grant<RoleId> {}
+
+    impl Instruction for Revoke<PermissionToken> {}
+    impl Instruction for Revoke<RoleId> {}
+
+    impl Instruction for SetParameter {}
+    impl Instruction for NewParameter {}
+    impl Instruction for Upgrade {}
+    impl Instruction for ExecuteTrigger {}
+    impl Instruction for Log {}
     impl Instruction for Fail {}
-
-    // Composite instructions
-    impl Instruction for ConditionalExpr {}
-    impl Instruction for SequenceExpr {}
-    impl Instruction for PairExpr {}
 }
 
 mod transparent {
-    // NOTE: instructions in this module don't have to be made opaque with `model!`
-    // because they are never shared between client and server(http)/host(wasm)
-
     use super::*;
-    use crate::executor::Executor;
+    use crate::{account::NewAccount, domain::NewDomain};
 
-    /// Generic instruction to set key value at the object.
-    #[derive(Debug, Clone)]
-    pub struct SetKeyValue<O: Identifiable> {
-        /// Where to set key value.
-        pub object_id: O::Id,
-        /// Key.
-        pub key: Name,
-        /// Value.
-        pub value: Value,
-    }
-
-    /// Generic instruction to remove key value at the object.
-    #[derive(Debug, Clone)]
-    pub struct RemoveKeyValue<O: Identifiable> {
-        /// From where to remove key value.
-        pub object_id: O::Id,
-        /// Key of the pair to remove.
-        pub key: Name,
-    }
-
-    /// Generic instruction for a registration of an object to the identifiable destination.
-    #[derive(Debug, Clone)]
-    pub struct Register<O: Registered> {
-        /// The object that should be registered, should be uniquely identifiable by its id.
-        pub object: O::With,
-    }
-
-    /// Generic instruction for an unregistration of an object from the identifiable destination.
-    #[derive(Debug, Clone)]
-    pub struct Unregister<O: Identifiable> {
-        /// [`Identifiable::Id`] of the object which should be unregistered.
-        pub object_id: O::Id,
-    }
-
-    /// Generic instruction for a mint of an object to the identifiable destination.
-    #[derive(Debug, Clone)]
-    pub struct Mint<O: Into<Value>, D: Identifiable> {
-        /// Object which should be minted.
-        pub object: O,
-        /// Destination object [`Identifiable::Id`].
-        pub destination_id: D::Id,
-    }
-
-    /// Generic instruction for a burn of an object to the identifiable destination.
-    #[derive(Debug, Clone)]
-    pub struct Burn<O: Into<Value>, D: Identifiable> {
-        /// Object which should be burned.
-        pub object: O,
-        /// Destination object [`Identifiable::Id`].
-        pub destination_id: D::Id,
-    }
-
-    /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
-    #[derive(Debug, Clone)]
-    pub struct Transfer<S: Identifiable, O: Into<Value>, D: Identifiable> {
-        /// Source object `Id`.
-        pub source_id: S::Id,
-        /// Object which should be transferred.
-        pub object: O,
-        /// Destination object `Id`.
-        pub destination_id: D::Id,
-    }
-
-    /// Generic instruction for granting permission to an entity.
-    #[derive(Debug, Clone)]
-    pub struct Grant<O: Into<Value>> {
-        /// Object to grant.
-        pub object: O,
-        /// Entity to which to grant this token.
-        pub destination_id: AccountId,
-    }
-
-    /// Generic instruction for revoking permission from an entity.
-    #[derive(Debug, Clone)]
-    pub struct Revoke<O: Into<Value>> {
-        /// Object to revoke.
-        pub object: O,
-        /// Entity which is being revoked this token from.
-        pub destination_id: AccountId,
-    }
-
-    /// Generic instruction for setting a chain-wide config parameter.
-    #[derive(Debug, Clone)]
-    pub struct SetParameter {
-        /// Parameter to be changed.
-        pub parameter: Parameter,
-    }
-
-    /// Generic instruction for setting a chain-wide config parameter.
-    #[derive(Debug, Clone)]
-    pub struct NewParameter {
-        /// Parameter to be changed.
-        pub parameter: Parameter,
-    }
-
-    /// Generic instruction for upgrading runtime objects.
-    #[derive(Debug, Clone)]
-    pub struct Upgrade<O: Into<UpgradableBox>> {
-        /// Object to upgrade.
-        pub object: O,
-    }
-
-    /// Generic instruction for executing specified trigger
-    #[derive(Debug, Clone)]
-    pub struct ExecuteTrigger {
-        /// Id of a trigger to execute
-        pub trigger_id: TriggerId,
-    }
-
-    /// Generic instruction for logging messages
-    #[derive(Debug, Clone)]
-    pub struct Log {
-        /// Log level of the message
-        pub level: Level,
-        /// Message to be logged
-        pub msg: String,
-    }
-
-    impl<O: Identifiable> From<SetKeyValue<O>> for SetKeyValueExpr {
-        fn from(source: SetKeyValue<O>) -> Self {
-            Self::new(source.object_id.into(), source.key, source.value)
-        }
-    }
-
-    impl<O: Identifiable> From<RemoveKeyValue<O>> for RemoveKeyValueExpr {
-        fn from(source: RemoveKeyValue<O>) -> Self {
-            Self::new(source.object_id.into(), source.key)
-        }
-    }
-
-    impl<O: Registered> From<Register<O>> for RegisterExpr {
-        fn from(source: Register<O>) -> Self {
-            Self::new(source.object.into())
-        }
-    }
-
-    impl<O: Identifiable> From<Unregister<O>> for UnregisterExpr {
-        fn from(source: Unregister<O>) -> Self {
-            Self::new(source.object_id.into())
-        }
-    }
-
-    impl<O: Into<Value>, D: Identifiable> From<Mint<O, D>> for MintExpr {
-        fn from(source: Mint<O, D>) -> Self {
-            Self::new(source.object, source.destination_id.into())
-        }
-    }
-
-    impl<O: Into<Value>, D: Identifiable> From<Burn<O, D>> for BurnExpr {
-        fn from(source: Burn<O, D>) -> Self {
-            Self::new(source.object, source.destination_id.into())
-        }
-    }
-
-    impl<S: Identifiable, O: Into<Value>, D: Identifiable> From<Transfer<S, O, D>> for TransferExpr {
-        fn from(source: Transfer<S, O, D>) -> Self {
-            Self::new(
-                source.source_id.into(),
-                source.object,
-                source.destination_id.into(),
-            )
-        }
-    }
-
-    impl<O: Into<Value>> From<Grant<O>> for GrantExpr {
-        fn from(source: Grant<O>) -> Self {
-            Self::new(source.object, source.destination_id)
-        }
-    }
-
-    impl<O: Into<Value>> From<Revoke<O>> for RevokeExpr {
-        fn from(source: Revoke<O>) -> Self {
-            Self::new(source.object, source.destination_id)
-        }
-    }
-
-    impl From<SetParameter> for SetParameterExpr {
-        fn from(source: SetParameter) -> Self {
-            Self::new(source.parameter)
-        }
-    }
-
-    impl From<NewParameter> for NewParameterExpr {
-        fn from(source: NewParameter) -> Self {
-            Self::new(source.parameter)
-        }
-    }
-
-    impl From<Upgrade<Executor>> for UpgradeExpr {
-        fn from(source: Upgrade<Executor>) -> Self {
-            Self::new(source.object)
-        }
-    }
-
-    impl From<ExecuteTrigger> for ExecuteTriggerExpr {
-        fn from(source: ExecuteTrigger) -> Self {
-            Self::new(source.trigger_id)
-        }
-    }
-
-    impl From<Log> for LogExpr {
-        fn from(source: Log) -> Self {
-            Self::new(source.level, source.msg)
-        }
-    }
-}
-
-isi! {
-    /// Sized structure for all possible on-chain configuration parameters.
-    #[derive(Display)]
-    #[display(fmt = "SET `{parameter}`")]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    // SAFETY: `SetParameterExpr` has no trap representation in `EvaluatesTo<Parameter>`
-    #[ffi_type(unsafe {robust})]
-    pub struct SetParameterExpr {
-        /// The configuration parameter being changed.
-        #[serde(flatten)]
-        pub parameter: EvaluatesTo<Parameter>,
-    }
-}
-
-isi! {
-    /// Sized structure for all possible on-chain configuration parameters when they are first created.
-    #[derive(Display)]
-    #[display(fmt = "SET `{parameter}`")]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    // SAFETY: `NewParameterExpr` has no trap representation in `EvaluatesTo<Parameter>`
-    #[ffi_type(unsafe {robust})]
-    pub struct NewParameterExpr {
-        /// The configuration parameter being created.
-        #[serde(flatten)]
-        pub parameter: EvaluatesTo<Parameter>,
-    }
-}
-
-isi! {
-    /// Sized structure for all possible key value set instructions.
-    #[derive(Display)]
-    #[display(fmt = "SET `{key}` = `{value}` IN `{object_id}`")]
-    #[ffi_type]
-    pub struct SetKeyValueExpr {
-        /// Where to set this key value.
-        #[serde(flatten)]
-        pub object_id: EvaluatesTo<IdBox>,
-        /// Key string.
-        pub key: EvaluatesTo<Name>,
-        /// Object to set as a value.
-        pub value: EvaluatesTo<Value>,
-    }
-}
-
-isi! {
-    /// Sized structure for all possible key value pair remove instructions.
-    #[derive(Display)]
-    #[display(fmt = "REMOVE `{key}` from `{object_id}`")]
-    #[ffi_type]
-    pub struct RemoveKeyValueExpr {
-        /// From where to remove this key value.
-        #[serde(flatten)]
-        pub object_id: EvaluatesTo<IdBox>,
-        /// Key string.
-        pub key: EvaluatesTo<Name>,
-    }
-}
-
-isi! {
-    /// Sized structure for all possible Registers.
-    #[derive(Display)]
-    #[display(fmt = "REGISTER `{object}`")]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    // SAFETY: `RegisterExpr` has no trap representation in `EvaluatesTo<RegistrableBox>`
-    #[ffi_type(unsafe {robust})]
-    pub struct RegisterExpr {
-        /// The object that should be registered, should be uniquely identifiable by its id.
-        pub object: EvaluatesTo<RegistrableBox>,
-    }
-}
-
-isi! {
-    /// Sized structure for all possible Unregisters.
-    #[derive(Display)]
-    #[display(fmt = "UNREGISTER `{object_id}`")]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    // SAFETY: `UnregisterExpr` has no trap representation in `EvaluatesTo<IdBox>`
-    #[ffi_type(unsafe {robust})]
-    pub struct UnregisterExpr {
-        /// The id of the object that should be unregistered.
-        pub object_id: EvaluatesTo<IdBox>,
-    }
-}
-
-isi! {
-    /// Sized structure for all possible Mints.
-    #[derive(Display)]
-    #[display(fmt = "MINT `{object}` TO `{destination_id}`")]
-    #[ffi_type]
-    pub struct MintExpr {
-        /// Object to mint.
-        pub object: EvaluatesTo<Value>,
-        /// Entity to mint to.
-        pub destination_id: EvaluatesTo<IdBox>,
-    }
-}
-
-isi! {
-    /// Sized structure for all possible Burns.
-    #[derive(Display)]
-    #[display(fmt = "BURN `{object}` FROM `{destination_id}`")]
-    #[ffi_type]
-    pub struct BurnExpr {
-        /// Object to burn.
-        pub object: EvaluatesTo<Value>,
-        /// Entity to burn from.
-        pub destination_id: EvaluatesTo<IdBox>,
-    }
-}
-
-isi! {
-    /// Sized structure for all possible Transfers.
-    #[derive(Display)]
-    #[display(fmt = "TRANSFER `{object}` FROM `{source_id}` TO `{destination_id}`")]
-    #[ffi_type]
-    pub struct TransferExpr {
-        /// Entity to transfer from.
-        pub source_id: EvaluatesTo<IdBox>,
-        /// Object to transfer.
-        pub object: EvaluatesTo<Value>,
-        /// Entity to transfer to.
-        pub destination_id: EvaluatesTo<IdBox>,
-    }
-}
-
-isi! {
-    /// Composite instruction for a pair of instructions.
-    #[derive(Display)]
-    #[display(fmt = "(`{left_instruction}`, `{right_instruction}`)")]
-    #[ffi_type]
-    pub struct PairExpr {
-        /// Left instruction
-        pub left_instruction: InstructionExpr,
-        /// Right instruction
-        pub right_instruction: InstructionExpr,
-    }
-}
-
-isi! {
-    /// Composite instruction for a sequence of instructions.
-    #[serde(transparent)]
-    #[repr(transparent)]
-    // SAFETY: `SequenceExpr` has no trap representation in `Vec<InstructionExpr>`
-    #[ffi_type(unsafe {robust})]
-    pub struct SequenceExpr {
-        /// Sequence of Iroha Special Instructions to execute.
-        pub instructions: Vec<InstructionExpr>,
-    }
-}
-
-impl core::fmt::Display for SequenceExpr {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "SEQUENCE [")?;
-        let mut first = true;
-        for instruction in &self.instructions {
-            if !first {
-                write!(f, ", ")?;
+    macro_rules! isi {
+        ($($meta:meta)* $item:item) => {
+            iroha_data_model_derive::model_single! {
+                #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+                #[derive(getset::Getters)]
+                #[derive(parity_scale_codec::Decode, parity_scale_codec::Encode)]
+                #[derive(serde::Deserialize, serde::Serialize)]
+                #[derive(iroha_schema::IntoSchema)]
+                #[getset(get = "pub")]
+                $($meta)*
+                $item
             }
-            first = false;
-
-            write!(f, "`{instruction}`")?;
-        }
-        write!(f, "]")
+        };
     }
-}
 
-isi! {
-    /// Composite instruction for a conditional execution of other instructions.
-    #[ffi_type]
-    pub struct ConditionalExpr {
-        /// Condition to be checked.
-        pub condition: EvaluatesTo<bool>,
-        /// Instruction to be executed if condition pass.
-        pub then: InstructionExpr,
-        /// Optional instruction to be executed if condition fail.
-        pub otherwise: Option<InstructionExpr>,
-    }
-}
-
-impl core::fmt::Display for ConditionalExpr {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "IF `{}` THEN `{}`", self.condition, self.then)?;
-        if let Some(otherwise) = &self.otherwise {
-            write!(f, " ELSE `{otherwise}`")?;
-        }
-
-        Ok(())
-    }
-}
-
-isi! {
-    /// Utilitary instruction to fail execution and submit an error `message`.
-    #[derive(Display)]
-    #[display(fmt = "FAIL `{message}`")]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    // SAFETY: `Fail` has no trap representation in `String`
-    #[ffi_type(unsafe {robust})]
-    pub struct Fail {
-        /// Message to submit.
-        pub message: String,
-    }
-}
-
-isi! {
-    /// Sized structure for all possible Grants.
-    #[derive(Display)]
-    #[display(fmt = "GRANT `{object}` TO `{destination_id}`")]
-    #[ffi_type]
-    pub struct GrantExpr {
-        /// Object to grant.
-        pub object: EvaluatesTo<Value>,
-        /// Account to which to grant this object.
-        pub destination_id: EvaluatesTo<AccountId>,
-    }
-}
-
-isi! {
-    /// Sized structure for all possible Grants.
-    #[derive(Display)]
-    #[display(fmt = "REVOKE `{object}` FROM `{destination_id}`")]
-    #[ffi_type]
-    pub struct RevokeExpr {
-        /// Object to revoke.
-        pub object: EvaluatesTo<Value>,
-        /// Account to which to revoke this object from.
-        pub destination_id: EvaluatesTo<AccountId>,
-    }
-}
-
-isi! {
-    /// Instruction to execute specified trigger
-    #[derive(Display)]
-    #[display(fmt = "EXECUTE `{trigger_id}`")]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    // SAFETY: `ExecuteTriggerExpr` has no trap representation in `TriggerId`
-    #[ffi_type(unsafe {robust})]
-    pub struct ExecuteTriggerExpr {
-        /// Id of a trigger to execute
-        pub trigger_id: EvaluatesTo<TriggerId>,
-    }
-}
-
-isi! {
-    /// Sized structure for all possible Upgrades.
-    #[derive(Display)]
-    #[display(fmt = "UPGRADE `{object}`")]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    // SAFETY: `UpgradeExpr` has no trap representation in `EvaluatesTo<RegistrableBox>`
-    #[ffi_type(unsafe {robust})]
-    pub struct UpgradeExpr {
-        /// The object to upgrade.
-        pub object: EvaluatesTo<UpgradableBox>,
-    }
-}
-
-isi! {
-    /// Instruction to print logs
-    #[derive(Display)]
-    #[display(fmt = "LOG({level}): {msg}")]
-    #[ffi_type]
-    pub struct LogExpr {
-        /// Message log level
-        #[serde(flatten)]
-        pub level: EvaluatesTo<Level>,
-        /// Msg to be logged
-        pub msg: EvaluatesTo<String>,
-    }
-}
-
-impl ExecuteTriggerExpr {
-    /// Construct [`ExecuteTriggerExpr`]
-    pub fn new<I>(trigger_id: I) -> Self
-    where
-        I: Into<EvaluatesTo<TriggerId>>,
-    {
-        Self {
-            trigger_id: trigger_id.into(),
+    macro_rules! impl_display {
+        (
+            $ty:ident $(< $($generic:tt),+ >)?
+            $(where
+                $( $lt:path $( : $clt:tt $(< $inner_generic:tt >)? $(+ $dlt:tt )* )? ),+ $(,)?)?
+            => $fmt:literal, $($args:ident),* $(,)?
+        ) => {
+            impl $(< $($generic),+ >)? ::core::fmt::Display for $ty $(< $($generic),+ >)?
+            $(where
+                $( $lt $( : $clt $(< $inner_generic >)? $(+ $dlt )* )? ),+)?
+            {
+                fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                    write!(
+                        f,
+                        $fmt,
+                        $(self.$args),*
+                    )
+                }
+            }
         }
     }
+
+    macro_rules! impl_into_box {
+        (
+            $($isi:ident $(< $($generic:ident $(< $nested_generic:ident >)?),+ >)?)|*
+            ==> $boxed:ident :: $variant:ident
+        ) => {$(
+            impl From<$isi $(< $($generic $(< $nested_generic >)?),+ >)? > for $boxed {
+                fn from(instruction: $isi $(< $($generic $(< $nested_generic >)?),+ >)?) -> Self {
+                    Self::$variant(instruction)
+                }
+            }
+        )*};
+        (
+            $($isi:ident $(< $($generic:ident $(< $nested_generic:ident >)?),+ >)?)|*
+            => $middle:ident ==> $boxed:ident :: $variant:ident
+        ) => {$(
+            impl From<$isi $(< $($generic $(< $nested_generic >)?),+ >)? > for $boxed {
+                fn from(instruction: $isi $(< $($generic $(< $nested_generic >)?),+ >)?) -> Self {
+                    Self::$variant($middle::from(instruction))
+                }
+            }
+        )*};
+    }
+
+    isi! {
+        /// Generic instruction for setting a chain-wide config parameter.
+        #[derive(Constructor, Display)]
+        #[display(fmt = "SET `{parameter}`")]
+        #[serde(transparent)]
+        #[repr(transparent)]
+        pub struct SetParameter {
+            /// The configuration parameter being changed.
+            #[serde(flatten)]
+            pub parameter: Parameter,
+        }
+    }
+
+    impl_into_box!(SetParameter ==> InstructionBox::SetParameter);
+
+    isi! {
+        /// Sized structure for all possible on-chain configuration parameters when they are first created.
+        /// Generic instruction for setting a chain-wide config parameter.
+        #[derive(Constructor, Display)]
+        #[display(fmt = "SET `{parameter}`")]
+        #[serde(transparent)]
+        #[repr(transparent)]
+        pub struct NewParameter {
+            /// Parameter to be changed.
+            #[serde(flatten)]
+            pub parameter: Parameter,
+        }
+    }
+
+    impl_into_box!(NewParameter ==> InstructionBox::NewParameter);
+
+    isi! {
+        /// Generic instruction to set key value at the object.
+        #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
+        pub struct SetKeyValue<O: Identifiable> {
+            /// Where to set key value.
+            #[serde(flatten)]
+            pub object_id: O::Id,
+            /// Key.
+            pub key: Name,
+            /// Value.
+            pub value: Value,
+        }
+    }
+
+    impl SetKeyValue<Domain> {
+        /// Constructs a new [`SetKeyValue`] for a [`Domain`] with the given `key` and `value`.
+        pub fn domain(domain_id: DomainId, key: Name, value: impl Into<Value>) -> Self {
+            Self {
+                object_id: domain_id,
+                key,
+                value: value.into(),
+            }
+        }
+    }
+
+    impl SetKeyValue<Account> {
+        /// Constructs a new [`SetKeyValue`] for an [`Account`] with the given `key` and `value`.
+        pub fn account(account_id: AccountId, key: Name, value: impl Into<Value>) -> Self {
+            Self {
+                object_id: account_id,
+                key,
+                value: value.into(),
+            }
+        }
+    }
+
+    impl SetKeyValue<AssetDefinition> {
+        /// Constructs a new [`SetKeyValue`] for an [`AssetDefinition`] with the given `key` and `value`.
+        pub fn asset_definition(
+            asset_definition_id: AssetDefinitionId,
+            key: Name,
+            value: impl Into<Value>,
+        ) -> Self {
+            Self {
+                object_id: asset_definition_id,
+                key,
+                value: value.into(),
+            }
+        }
+    }
+
+    impl SetKeyValue<Asset> {
+        /// Constructs a new [`SetKeyValue`] for an [`Asset`] with the given `key` and `value`.
+        pub fn asset(asset_id: AssetId, key: Name, value: impl Into<Value>) -> Self {
+            Self {
+                object_id: asset_id,
+                key,
+                value: value.into(),
+            }
+        }
+    }
+
+    impl_display! {
+        SetKeyValue<O>
+        where
+            O: Identifiable,
+            O::Id: Display,
+        =>
+        "SET `{}` = `{}` IN `{}`",
+        key, value, object_id,
+    }
+
+    impl_into_box! {
+        SetKeyValue<Domain> |
+        SetKeyValue<Account> |
+        SetKeyValue<AssetDefinition> |
+        SetKeyValue<Asset> => SetKeyValueBox ==> InstructionBox::SetKeyValue
+    }
+
+    isi! {
+        /// Generic instruction to remove key value at the object.
+        #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
+        pub struct RemoveKeyValue<O: Identifiable> {
+            /// From where to remove key value.
+            #[serde(flatten)]
+            pub object_id: O::Id,
+            /// Key of the pair to remove.
+            pub key: Name,
+        }
+    }
+
+    impl RemoveKeyValue<Domain> {
+        /// Constructs a new [`RemoveKeyValue`] for a [`Domain`] with the given `key`.
+        pub fn domain(domain_id: DomainId, key: Name) -> Self {
+            Self {
+                object_id: domain_id,
+                key,
+            }
+        }
+    }
+
+    impl RemoveKeyValue<Account> {
+        /// Constructs a new [`RemoveKeyValue`] for an [`Account`] with the given `key`.
+        pub fn account(account_id: AccountId, key: Name) -> Self {
+            Self {
+                object_id: account_id,
+                key,
+            }
+        }
+    }
+
+    impl RemoveKeyValue<AssetDefinition> {
+        /// Constructs a new [`RemoveKeyValue`] for an [`AssetDefinition`] with the given `key`.
+        pub fn asset_definition(asset_definition_id: AssetDefinitionId, key: Name) -> Self {
+            Self {
+                object_id: asset_definition_id,
+                key,
+            }
+        }
+    }
+
+    impl RemoveKeyValue<Asset> {
+        /// Constructs a new [`RemoveKeyValue`] for an [`Asset`] with the given `key`.
+        pub fn asset(asset_id: AssetId, key: Name) -> Self {
+            Self {
+                object_id: asset_id,
+                key,
+            }
+        }
+    }
+
+    impl_display! {
+        RemoveKeyValue<O>
+        where
+            O: Identifiable,
+            O::Id: Display,
+        =>
+        "REMOVE `{}` from `{}`",
+        key, object_id,
+    }
+
+    impl_into_box! {
+        RemoveKeyValue<Domain> |
+        RemoveKeyValue<Account> |
+        RemoveKeyValue<AssetDefinition> |
+        RemoveKeyValue<Asset> => RemoveKeyValueBox ==> InstructionBox::RemoveKeyValue
+    }
+
+    isi! {
+        /// Generic instruction for a registration of an object to the identifiable destination.
+        #[schema(bounds = "O: Registered, O::With: IntoSchema")]
+        #[serde(transparent)]
+        pub struct Register<O: Registered> {
+            /// The object that should be registered, should be uniquely identifiable by its id.
+            pub object: O::With,
+        }
+    }
+
+    impl Register<Peer> {
+        /// Constructs a new [`Register`] for a [`Peer`].
+        pub fn peer(new_peer: Peer) -> Self {
+            Self { object: new_peer }
+        }
+    }
+
+    impl Register<Domain> {
+        /// Constructs a new [`Register`] for a [`Domain`].
+        pub fn domain(new_domain: NewDomain) -> Self {
+            Self { object: new_domain }
+        }
+    }
+
+    impl Register<Account> {
+        /// Constructs a new [`Register`] for an [`Account`].
+        pub fn account(new_account: NewAccount) -> Self {
+            Self {
+                object: new_account,
+            }
+        }
+    }
+
+    impl Register<AssetDefinition> {
+        /// Constructs a new [`Register`] for an [`AssetDefinition`].
+        pub fn asset_definition(new_asset_definition: NewAssetDefinition) -> Self {
+            Self {
+                object: new_asset_definition,
+            }
+        }
+    }
+
+    impl Register<Asset> {
+        /// Constructs a new [`Register`] for an [`Asset`].
+        pub fn asset(new_asset: Asset) -> Self {
+            Self { object: new_asset }
+        }
+    }
+
+    impl Register<Role> {
+        /// Constructs a new [`Register`] for a [`Role`].
+        pub fn role(new_role: NewRole) -> Self {
+            Self { object: new_role }
+        }
+    }
+
+    impl Register<Trigger<TriggeringFilterBox>> {
+        /// Constructs a new [`Register`] for a [`Trigger`].
+        pub fn trigger(new_trigger: Trigger<TriggeringFilterBox>) -> Self {
+            Self {
+                object: new_trigger,
+            }
+        }
+    }
+
+    impl_display! {
+        Register<O>
+        where
+            O: Registered,
+            O::With: Display,
+        =>
+        "REGISTER `{}`",
+        object,
+    }
+
+    impl_into_box! {
+        Register<Peer> |
+        Register<Domain> |
+        Register<Account> |
+        Register<AssetDefinition> |
+        Register<Asset> |
+        Register<Role> |
+        Register<Trigger<TriggeringFilterBox> > => RegisterBox ==> InstructionBox::Register
+    }
+
+    isi! {
+        /// Generic instruction for an unregistration of an object from the identifiable destination.
+        #[schema(bounds = "O: Identifiable, O::Id: IntoSchema")]
+        pub struct Unregister<O: Identifiable> {
+            /// [`Identifiable::Id`] of the object which should be unregistered.
+            pub object_id: O::Id,
+        }
+    }
+
+    impl_display! {
+        Unregister<O>
+        where
+            O: Identifiable,
+            O::Id: Display,
+        =>
+        "UNREGISTER `{}`",
+        object_id,
+    }
+
+    impl_into_box! {
+        Unregister<Peer> |
+        Unregister<Domain> |
+        Unregister<Account> |
+        Unregister<AssetDefinition> |
+        Unregister<Asset> |
+        Unregister<Role> |
+        Unregister<Trigger<TriggeringFilterBox> > => UnregisterBox ==> InstructionBox::Unregister
+    }
+
+    impl Unregister<Peer> {
+        /// Constructs a new [`Unregister`] for a [`Peer`].
+        pub fn peer(peer_id: PeerId) -> Self {
+            Self { object_id: peer_id }
+        }
+    }
+
+    impl Unregister<Domain> {
+        /// Constructs a new [`Unregister`] for a [`Domain`].
+        pub fn domain(domain_id: DomainId) -> Self {
+            Self {
+                object_id: domain_id,
+            }
+        }
+    }
+
+    impl Unregister<Account> {
+        /// Constructs a new [`Unregister`] for an [`Account`].
+        pub fn account(account_id: AccountId) -> Self {
+            Self {
+                object_id: account_id,
+            }
+        }
+    }
+
+    impl Unregister<AssetDefinition> {
+        /// Constructs a new [`Unregister`] for an [`AssetDefinition`].
+        pub fn asset_definition(asset_definition_id: AssetDefinitionId) -> Self {
+            Self {
+                object_id: asset_definition_id,
+            }
+        }
+    }
+
+    impl Unregister<Asset> {
+        /// Constructs a new [`Unregister`] for an [`Asset`].
+        pub fn asset(asset_id: AssetId) -> Self {
+            Self {
+                object_id: asset_id,
+            }
+        }
+    }
+
+    impl Unregister<Role> {
+        /// Constructs a new [`Unregister`] for a [`Role`].
+        pub fn role(role_id: RoleId) -> Self {
+            Self { object_id: role_id }
+        }
+    }
+
+    impl Unregister<Trigger<TriggeringFilterBox>> {
+        /// Constructs a new [`Unregister`] for a [`Trigger`].
+        pub fn trigger(trigger_id: TriggerId) -> Self {
+            Self {
+                object_id: trigger_id,
+            }
+        }
+    }
+
+    isi! {
+        /// Generic instruction for a mint of an object to the identifiable destination.
+        #[schema(bounds = "O: Into<Value> + IntoSchema, D: Identifiable, D::Id: IntoSchema")]
+        pub struct Mint<O: Into<Value>, D: Identifiable> {
+            /// Object which should be minted.
+            pub object: O,
+            /// Destination object [`Identifiable::Id`].
+            pub destination_id: D::Id,
+        }
+    }
+
+    impl Mint<PublicKey, Account> {
+        /// Constructs a new [`Mint`] for a [`PublicKey`] for [`Account`].
+        pub fn account_public_key(public_key: PublicKey, account_id: AccountId) -> Self {
+            Self {
+                object: public_key,
+                destination_id: account_id,
+            }
+        }
+    }
+
+    impl Mint<SignatureCheckCondition, Account> {
+        /// Constructs a new [`Mint`] for a [`SignatureCheckCondition`] for [`Account`].
+        pub fn account_signature_check_condition(
+            signature_check_condition: SignatureCheckCondition,
+            account_id: AccountId,
+        ) -> Self {
+            Self {
+                object: signature_check_condition,
+                destination_id: account_id,
+            }
+        }
+    }
+
+    impl Mint<u32, Asset> {
+        /// Constructs a new [`Mint`] for an [`Asset`] of [`Quantity`] type.
+        pub fn asset_quantity(quantity: u32, asset_id: AssetId) -> Self {
+            Self {
+                object: quantity,
+                destination_id: asset_id,
+            }
+        }
+    }
+
+    impl Mint<u128, Asset> {
+        /// Constructs a new [`Mint`] for an [`Asset`] of [`BigQuantity`] type.
+        pub fn asset_big_quantity(big_quantity: u128, asset_id: AssetId) -> Self {
+            Self {
+                object: big_quantity,
+                destination_id: asset_id,
+            }
+        }
+    }
+
+    impl Mint<Fixed, Asset> {
+        /// Constructs a new [`Mint`] for an [`Asset`] of [`Fixed`] type.
+        pub fn asset_fixed(fixed: Fixed, asset_id: AssetId) -> Self {
+            Self {
+                object: fixed,
+                destination_id: asset_id,
+            }
+        }
+    }
+
+    impl Mint<u32, Trigger<TriggeringFilterBox>> {
+        /// Constructs a new [`Mint`] for repetition count of [`Trigger`].
+        pub fn trigger_repetitions(repetitions: u32, trigger_id: TriggerId) -> Self {
+            Self {
+                object: repetitions,
+                destination_id: trigger_id,
+            }
+        }
+    }
+
+    impl_display! {
+        Mint<O, D>
+        where
+            O: Into<Value> + Display,
+            D: Identifiable,
+            D::Id: Display,
+        =>
+        "MINT `{}` TO `{}`",
+        object,
+        destination_id,
+    }
+
+    impl_into_box! {
+        Mint<PublicKey, Account> |
+        Mint<SignatureCheckCondition, Account> => AccountMintBox ==> MintBox::Account
+    }
+
+    impl_into_box! {
+        Mint<u32, Asset> |
+        Mint<u128, Asset> |
+        Mint<Fixed, Asset> => AssetMintBox ==> MintBox::Asset
+    }
+
+    impl_into_box! {
+        Mint<PublicKey, Account> |
+        Mint<SignatureCheckCondition, Account> |
+        Mint<u32, Asset> |
+        Mint<u128, Asset> |
+        Mint<Fixed, Asset> |
+        Mint<u32, Trigger<TriggeringFilterBox> > => MintBox ==> InstructionBox::Mint
+    }
+
+    isi! {
+        /// Generic instruction for a burn of an object to the identifiable destination.
+        #[schema(bounds = "O: Into<Value> + IntoSchema, D: Identifiable, D::Id: IntoSchema")]
+        pub struct Burn<O: Into<Value>, D: Identifiable> {
+            /// Object which should be burned.
+            pub object: O,
+            /// Destination object [`Identifiable::Id`].
+            pub destination_id: D::Id,
+        }
+    }
+
+    impl Burn<PublicKey, Account> {
+        /// Constructs a new [`Burn`] for a [`PublicKey`] for [`Account`].
+        pub fn account_public_key(public_key: PublicKey, account_id: AccountId) -> Self {
+            Self {
+                object: public_key,
+                destination_id: account_id,
+            }
+        }
+    }
+
+    impl Burn<u32, Asset> {
+        /// Constructs a new [`Burn`] for an [`Asset`] of [`Quantity`] type.
+        pub fn asset_quantity(quantity: u32, asset_id: AssetId) -> Self {
+            Self {
+                object: quantity,
+                destination_id: asset_id,
+            }
+        }
+    }
+
+    impl Burn<u128, Asset> {
+        /// Constructs a new [`Burn`] for an [`Asset`] of [`BigQuantity`] type.
+        pub fn asset_big_quantity(big_quantity: u128, asset_id: AssetId) -> Self {
+            Self {
+                object: big_quantity,
+                destination_id: asset_id,
+            }
+        }
+    }
+
+    impl Burn<Fixed, Asset> {
+        /// Constructs a new [`Burn`] for an [`Asset`] of [`Fixed`] type.
+        pub fn asset_fixed(fixed: Fixed, asset_id: AssetId) -> Self {
+            Self {
+                object: fixed,
+                destination_id: asset_id,
+            }
+        }
+    }
+
+    impl Burn<u32, Trigger<TriggeringFilterBox>> {
+        /// Constructs a new [`Burn`] for repetition count of [`Trigger`].
+        pub fn trigger_repetitions(repetitions: u32, trigger_id: TriggerId) -> Self {
+            Self {
+                object: repetitions,
+                destination_id: trigger_id,
+            }
+        }
+    }
+
+    impl_display! {
+        Burn<O, D>
+        where
+            O: Into<Value> + Display,
+            D: Identifiable,
+            D::Id: Display,
+        =>
+        "BURN `{}` FROM `{}`",
+        object,
+        destination_id,
+    }
+
+    impl_into_box! {
+        Burn<u32, Asset> |
+        Burn<u128, Asset> |
+        Burn<Fixed, Asset> => AssetBurnBox ==> BurnBox::Asset
+    }
+
+    impl_into_box! {
+        Burn<PublicKey, Account> |
+        Burn<u32, Asset> |
+        Burn<u128, Asset> |
+        Burn<Fixed, Asset> |
+        Burn<u32, Trigger<TriggeringFilterBox> > => BurnBox ==> InstructionBox::Burn
+    }
+
+    isi! {
+        /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
+        #[schema(bounds = "S: Identifiable, S::Id: IntoSchema, \
+                           O: Into<Value> + IntoSchema, \
+                           D: Identifiable, D::Id: IntoSchema")]
+        pub struct Transfer<S: Identifiable, O: Into<Value>, D: Identifiable> {
+            /// Source object `Id`.
+            pub source_id: S::Id,
+            /// Object which should be transferred.
+            pub object: O,
+            /// Destination object `Id`.
+            pub destination_id: D::Id,
+        }
+    }
+
+    impl Transfer<Account, DomainId, Account> {
+        /// Constructs a new [`Transfer`] for a [`Domain`].
+        pub fn domain(from: AccountId, domain_id: DomainId, to: AccountId) -> Self {
+            Self {
+                source_id: from,
+                object: domain_id,
+                destination_id: to,
+            }
+        }
+    }
+
+    impl Transfer<Account, AssetDefinitionId, Account> {
+        /// Constructs a new [`Transfer`] for an [`AssetDefinition`].
+        pub fn asset_definition(
+            from: AccountId,
+            asset_definition_id: AssetDefinitionId,
+            to: AccountId,
+        ) -> Self {
+            Self {
+                source_id: from,
+                object: asset_definition_id,
+                destination_id: to,
+            }
+        }
+    }
+
+    impl Transfer<Asset, u32, Account> {
+        /// Constructs a new [`Transfer`] for an [`Asset`] of [`Quantity`] type.
+        pub fn asset_quantity(asset_id: AssetId, quantity: u32, to: AccountId) -> Self {
+            Self {
+                source_id: asset_id,
+                object: quantity,
+                destination_id: to,
+            }
+        }
+    }
+
+    impl Transfer<Asset, u128, Account> {
+        /// Constructs a new [`Transfer`] for an [`Asset`] of [`BigQuantity`] type.
+        pub fn asset_big_quantity(asset_id: AssetId, big_quantity: u128, to: AccountId) -> Self {
+            Self {
+                source_id: asset_id,
+                object: big_quantity,
+                destination_id: to,
+            }
+        }
+    }
+
+    impl Transfer<Asset, Fixed, Account> {
+        /// Constructs a new [`Transfer`] for an [`Asset`] of [`Fixed`] type.
+        pub fn asset_fixed(asset_id: AssetId, fixed: Fixed, to: AccountId) -> Self {
+            Self {
+                source_id: asset_id,
+                object: fixed,
+                destination_id: to,
+            }
+        }
+    }
+
+    impl_display! {
+        Transfer<S, O, D>
+        where
+            S: Identifiable,
+            S::Id: Display,
+            O: Into<Value> + Display,
+            D: Identifiable,
+            D::Id: Display,
+        =>
+        "TRANSFER `{}` FROM `{}` TO `{}`",
+        object,
+        source_id,
+        destination_id,
+    }
+
+    impl_into_box! {
+        Transfer<Asset, u32, Account> |
+        Transfer<Asset, u128, Account> |
+        Transfer<Asset, Fixed, Account> => AssetTransferBox ==> TransferBox::Asset
+    }
+
+    impl_into_box! {
+        Transfer<Account, DomainId, Account> |
+        Transfer<Account, AssetDefinitionId, Account> |
+        Transfer<Asset, u32, Account> |
+        Transfer<Asset, u128, Account> |
+        Transfer<Asset, Fixed, Account> => TransferBox ==> InstructionBox::Transfer
+    }
+
+    isi! {
+        /// Utilitary instruction to fail execution and submit an error `message`.
+        #[derive(Constructor, Display)]
+        #[display(fmt = "FAIL `{message}`")]
+        #[serde(transparent)]
+        #[repr(transparent)]
+        pub struct Fail {
+            /// Message to submit.
+            pub message: String,
+        }
+    }
+
+    impl_into_box!(Fail ==> InstructionBox::Fail);
+
+    isi! {
+        /// Generic instruction for granting permission to an entity.
+        pub struct Grant<O: Into<Value>> {
+            /// Object to grant.
+            pub object: O,
+            /// Entity to which to grant this token.
+            pub destination_id: AccountId,
+        }
+    }
+
+    impl Grant<PermissionToken> {
+        /// Constructs a new [`Grant`] for a [`PermissionToken`].
+        pub fn permission(permission_token: PermissionToken, to: AccountId) -> Self {
+            Self {
+                object: permission_token,
+                destination_id: to,
+            }
+        }
+    }
+
+    impl Grant<RoleId> {
+        /// Constructs a new [`Grant`] for a [`Role`].
+        pub fn role(role_id: RoleId, to: AccountId) -> Self {
+            Self {
+                object: role_id,
+                destination_id: to,
+            }
+        }
+    }
+
+    impl_display! {
+        Grant<O>
+        where
+            O: Into<Value> + Display,
+        =>
+        "GRANT `{}` TO `{}`",
+        object,
+        destination_id,
+    }
+
+    impl_into_box! {
+        Grant<PermissionToken> |
+        Grant<RoleId> => GrantBox ==> InstructionBox::Grant
+    }
+
+    isi! {
+        /// Generic instruction for revoking permission from an entity.
+        pub struct Revoke<O: Into<Value>> {
+            /// Object to revoke.
+            pub object: O,
+            /// Entity which is being revoked this token from.
+            pub destination_id: AccountId,
+        }
+    }
+
+    impl Revoke<PermissionToken> {
+        /// Constructs a new [`Revoke`] for a [`PermissionToken`].
+        pub fn permission(permission_token: PermissionToken, from: AccountId) -> Self {
+            Self {
+                object: permission_token,
+                destination_id: from,
+            }
+        }
+    }
+
+    impl Revoke<RoleId> {
+        /// Constructs a new [`Revoke`] for a [`Role`].
+        pub fn role(role_id: RoleId, from: AccountId) -> Self {
+            Self {
+                object: role_id,
+                destination_id: from,
+            }
+        }
+    }
+
+    impl_display! {
+        Revoke<O>
+        where
+            O: Into<Value> + Display,
+        =>
+        "REVOKE `{}` FROM `{}`",
+        object,
+        destination_id,
+    }
+
+    impl_into_box! {
+        Revoke<PermissionToken> |
+        Revoke<RoleId> => RevokeBox ==> InstructionBox::Revoke
+    }
+
+    isi! {
+        /// Instruction to execute specified trigger
+        #[derive(Constructor, Display)]
+        #[display(fmt = "EXECUTE `{trigger_id}`")]
+        #[serde(transparent)]
+        #[repr(transparent)]
+        pub struct ExecuteTrigger {
+            /// Id of a trigger to execute
+            pub trigger_id: TriggerId,
+        }
+    }
+
+    impl_into_box!(ExecuteTrigger ==> InstructionBox::ExecuteTrigger);
+
+    isi! {
+        /// Generic instruction for upgrading runtime objects.
+        #[derive(Constructor, Display)]
+        #[display(fmt = "UPGRADE")]
+        #[serde(transparent)]
+        #[repr(transparent)]
+        pub struct Upgrade {
+            /// Object to upgrade.
+            pub executor: Executor,
+        }
+    }
+
+    impl_into_box!(Upgrade ==> InstructionBox::Upgrade);
+
+    isi! {
+        /// Instruction to print logs
+        #[derive(Constructor, Display)]
+        #[display(fmt = "LOG({level}): {msg}")]
+        pub struct Log {
+            /// Message log level
+            #[serde(flatten)]
+            pub level: Level,
+            #[getset(skip)] // TODO: Fix this by addressing ffi issues
+            /// Msg to be logged
+            pub msg: String,
+        }
+    }
+
+    impl_into_box!(Log ==> InstructionBox::Log);
 }
 
-impl RevokeExpr {
-    /// Generic constructor.
-    pub fn new<P: Into<EvaluatesTo<Value>>, I: Into<EvaluatesTo<AccountId>>>(
-        object: P,
-        destination_id: I,
-    ) -> Self {
-        Self {
-            destination_id: destination_id.into(),
-            object: object.into(),
-        }
+macro_rules! isi_box {
+    ($($meta:meta)* $item:item) => {
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Display,
+            parity_scale_codec::Decode,
+            parity_scale_codec::Encode,
+            serde::Deserialize,
+            serde::Serialize,
+            iroha_schema::IntoSchema,
+            derive_more::From,
+        )]
+        $($meta)*
+        $item
+    };
+}
+
+isi_box! {
+    /// Enum with all supported [`SetKeyValue`] instructions.
+    pub enum SetKeyValueBox {
+        /// Set key value for [`Domain`].
+        Domain(SetKeyValue<Domain>),
+        /// Set key value for [`Account`].
+        Account(SetKeyValue<Account>),
+        /// Set key value for [`AssetDefinition`].
+        AssetDefinition(SetKeyValue<AssetDefinition>),
+        /// Set key value for [`Asset`].
+        Asset(SetKeyValue<Asset>),
     }
 }
 
-impl GrantExpr {
-    /// Constructor.
-    pub fn new<P: Into<EvaluatesTo<Value>>, I: Into<EvaluatesTo<AccountId>>>(
-        object: P,
-        destination_id: I,
-    ) -> Self {
-        Self {
-            destination_id: destination_id.into(),
-            object: object.into(),
-        }
+isi_box! {
+    /// Enum with all supported [`RemoveKeyValue`] instructions.
+    pub enum RemoveKeyValueBox {
+        /// Remove key value from [`Domain`].
+        Domain(RemoveKeyValue<Domain>),
+        /// Remove key value from [`Account`].
+        Account(RemoveKeyValue<Account>),
+        /// Remove key value from [`AssetDefinition`].
+        AssetDefinition(RemoveKeyValue<AssetDefinition>),
+        /// Remove key value from [`Asset`].
+        Asset(RemoveKeyValue<Asset>),
     }
 }
 
-impl SetKeyValueExpr {
-    /// Construct [`SetKeyValueExpr`].
-    pub fn new<
-        I: Into<EvaluatesTo<IdBox>>,
-        K: Into<EvaluatesTo<Name>>,
-        V: Into<EvaluatesTo<Value>>,
-    >(
-        object_id: I,
-        key: K,
-        value: V,
-    ) -> Self {
-        Self {
-            object_id: object_id.into(),
-            key: key.into(),
-            value: value.into(),
-        }
+isi_box! {
+    /// Enum with all supported [`Register`] instructions.
+    pub enum RegisterBox {
+        /// Register [`Peer`].
+        Peer(Register<Peer>),
+        /// Register [`Domain`].
+        Domain(Register<Domain>),
+        /// Register [`Account`].
+        Account(Register<Account>),
+        /// Register [`AssetDefinition`].
+        AssetDefinition(Register<AssetDefinition>),
+        /// Register [`Asset`].
+        Asset(Register<Asset>),
+        /// Register [`Role`].
+        Role(Register<Role>),
+        /// Register [`Trigger`].
+        Trigger(Register<Trigger<TriggeringFilterBox>>)
     }
 }
 
-impl RemoveKeyValueExpr {
-    /// Construct [`RemoveKeyValueExpr`].
-    pub fn new<I: Into<EvaluatesTo<IdBox>>, K: Into<EvaluatesTo<Name>>>(
-        object_id: I,
-        key: K,
-    ) -> Self {
-        Self {
-            object_id: object_id.into(),
-            key: key.into(),
-        }
+isi_box! {
+    /// Enum with all supported [`Unregister`] instructions.
+    pub enum UnregisterBox {
+        /// Unregister [`Peer`].
+        Peer(Unregister<Peer>),
+        /// Unregister [`Domain`].
+        Domain(Unregister<Domain>),
+        /// Unregister [`Account`].
+        Account(Unregister<Account>),
+        /// Unregister [`AssetDefinition`].
+        AssetDefinition(Unregister<AssetDefinition>),
+        /// Unregister [`Asset`].
+        Asset(Unregister<Asset>),
+        /// Unregister [`Role`].
+        Role(Unregister<Role>),
+        /// Unregister [`Trigger`].
+        Trigger(Unregister<Trigger<TriggeringFilterBox>>)
     }
 }
 
-impl RegisterExpr {
-    /// Construct [`Register`].
-    pub fn new<O: Into<EvaluatesTo<RegistrableBox>>>(object: O) -> Self {
-        Self {
-            object: object.into(),
-        }
+isi_box! {
+    /// Enum with all supported [`Mint`] instructions.
+    pub enum MintBox {
+        /// Mint for [`Account`].
+        Account(AccountMintBox),
+        /// Mint for [`Asset`].
+        Asset(AssetMintBox),
+        /// Mint [`Trigger`] repetitions.
+        TriggerRepetitions(Mint<u32, Trigger<TriggeringFilterBox>>),
     }
 }
 
-impl UnregisterExpr {
-    /// Construct [`Unregister`].
-    pub fn new<O: Into<EvaluatesTo<IdBox>>>(object_id: O) -> Self {
-        Self {
-            object_id: object_id.into(),
-        }
+isi_box! {
+    /// Enum with all supported [`Mint`] instructions related to [`Account`].
+    pub enum AccountMintBox {
+        /// Mint [`PublicKey`].
+        PublicKey(Mint<PublicKey, Account>),
+        /// Mint [`SignatureCheckCondition`].
+        SignatureCheckCondition(Mint<SignatureCheckCondition, Account>),
     }
 }
 
-impl MintExpr {
-    /// Construct [`Mint`].
-    pub fn new<O: Into<EvaluatesTo<Value>>, D: Into<EvaluatesTo<IdBox>>>(
-        object: O,
-        destination_id: D,
-    ) -> Self {
-        Self {
-            object: object.into(),
-            destination_id: destination_id.into(),
-        }
+isi_box! {
+    /// Enum with all supported [`Mint`] instructions related to [`Asset`].
+    pub enum AssetMintBox {
+        /// Mint [`Asset`] of [`Quantity`] type.
+        Quantity(Mint<u32, Asset>),
+        /// Mint [`Asset`] of [`BigQuantity`] type.
+        BigQuantity(Mint<u128, Asset>),
+        /// Mint [`Asset`] of [`Fixed`] type.
+        Fixed(Mint<Fixed, Asset>),
     }
 }
 
-impl BurnExpr {
-    /// Construct [`Burn`].
-    pub fn new<O: Into<EvaluatesTo<Value>>, D: Into<EvaluatesTo<IdBox>>>(
-        object: O,
-        destination_id: D,
-    ) -> Self {
-        Self {
-            object: object.into(),
-            destination_id: destination_id.into(),
-        }
+isi_box! {
+    /// Enum with all supported [`Burn`] instructions.
+    pub enum BurnBox {
+        /// Burn [`PublicKey`] for [`Account`].
+        AccountPublicKey(Burn<PublicKey, Account>),
+        /// Burn [`Asset`].
+        Asset(AssetBurnBox),
+        /// Burn [`Trigger`] repetitions.
+        TriggerRepetitions(Burn<u32, Trigger<TriggeringFilterBox>>),
     }
 }
 
-impl TransferExpr {
-    /// Construct [`Transfer`].
-    pub fn new<
-        S: Into<EvaluatesTo<IdBox>>,
-        O: Into<EvaluatesTo<Value>>,
-        D: Into<EvaluatesTo<IdBox>>,
-    >(
-        source_id: S,
-        object: O,
-        destination_id: D,
-    ) -> Self {
-        Self {
-            source_id: source_id.into(),
-            object: object.into(),
-            destination_id: destination_id.into(),
-        }
+isi_box! {
+    /// Enum with all supported [`Burn`] instructions related to [`Asset`].
+    pub enum AssetBurnBox {
+        /// Burn [`Asset`] of [`Quantity`] type.
+        Quantity(Burn<u32, Asset>),
+        /// Burn [`Asset`] of [`BigQuantity`] type.
+        BigQuantity(Burn<u128, Asset>),
+        /// Burn [`Asset`] of [`Fixed`] type.
+        Fixed(Burn<Fixed, Asset>),
     }
 }
 
-impl PairExpr {
-    /// Construct [`Pair`].
-    pub fn new<LI: Into<InstructionExpr>, RI: Into<InstructionExpr>>(
-        left_instruction: LI,
-        right_instruction: RI,
-    ) -> Self {
-        PairExpr {
-            left_instruction: left_instruction.into(),
-            right_instruction: right_instruction.into(),
-        }
+isi_box! {
+    /// Enum with all supported [`Transfer`] instructions.
+    pub enum TransferBox {
+        /// Transfer [`Domain`] to another [`Account`].
+        Domain(Transfer<Account, DomainId, Account>),
+        /// Transfer [`AssetDefinition`] to another [`Account`].
+        AssetDefinition(Transfer<Account, AssetDefinitionId, Account>),
+        /// Transfer [`Asset`] to another [`Account`].
+        Asset(AssetTransferBox),
     }
 }
 
-impl SequenceExpr {
-    /// Construct [`SequenceExpr`].
-    pub fn new(instructions: impl IntoIterator<Item = InstructionExpr>) -> Self {
-        Self {
-            instructions: instructions.into_iter().collect(),
-        }
+isi_box! {
+    /// Enum with all supported [`Transfer`] instructions related to [`Asset`].
+    pub enum AssetTransferBox {
+        /// Transfer [`Asset`] of [`Quantity`] type.
+        Quantity(Transfer<Asset, u32, Account>),
+        /// Transfer [`Asset`] of [`BigQuantity`] type.
+        BigQuantity(Transfer<Asset, u128, Account>),
+        /// Transfer [`Asset`] of [`Fixed`] type.
+        Fixed(Transfer<Asset, Fixed, Account>),
     }
 }
 
-impl ConditionalExpr {
-    /// Construct [`If`].
-    pub fn new<C: Into<EvaluatesTo<bool>>, T: Into<InstructionExpr>>(
-        condition: C,
-        then: T,
-    ) -> Self {
-        Self {
-            condition: condition.into(),
-            then: then.into(),
-            otherwise: None,
-        }
-    }
-    /// [`If`] constructor with `Otherwise` instruction.
-    pub fn with_otherwise<
-        C: Into<EvaluatesTo<bool>>,
-        T: Into<InstructionExpr>,
-        O: Into<InstructionExpr>,
-    >(
-        condition: C,
-        then: T,
-        otherwise: O,
-    ) -> Self {
-        Self {
-            condition: condition.into(),
-            then: then.into(),
-            otherwise: Some(otherwise.into()),
-        }
+isi_box! {
+    /// Enum with all supported [`Grant`] instructions.
+    pub enum GrantBox {
+        /// Grant [`PermissionToken`] to [`Account`].
+        PermissionToken(Grant<PermissionToken>),
+        /// Grant [`Role`] to [`Account`].
+        Role(Grant<RoleId>),
     }
 }
 
-impl Fail {
-    /// Construct [`Fail`].
-    pub fn new(message: &str) -> Self {
-        Self {
-            message: String::from(message),
-        }
-    }
-}
-
-impl SetParameterExpr {
-    /// Construct [`SetParameterExpr`].
-    pub fn new<P: Into<EvaluatesTo<Parameter>>>(parameter: P) -> Self {
-        Self {
-            parameter: parameter.into(),
-        }
-    }
-}
-
-impl NewParameterExpr {
-    /// Construct [`NewParameterExpr`].
-    pub fn new<P: Into<EvaluatesTo<Parameter>>>(parameter: P) -> Self {
-        Self {
-            parameter: parameter.into(),
-        }
-    }
-}
-
-impl UpgradeExpr {
-    /// Construct [`UpgradeExpr`].
-    pub fn new<O: Into<EvaluatesTo<UpgradableBox>>>(object: O) -> Self {
-        Self {
-            object: object.into(),
-        }
-    }
-}
-
-impl LogExpr {
-    /// Construct [`LogExpr`]
-    pub fn new<L: Into<EvaluatesTo<Level>>, M: Into<EvaluatesTo<String>>>(
-        level: L,
-        msg: M,
-    ) -> Self {
-        Self {
-            level: level.into(),
-            msg: msg.into(),
-        }
+isi_box! {
+    /// Enum with all supported [`Revoke`] instructions.
+    pub enum RevokeBox {
+        /// Revoke [`PermissionToken`] from [`Account`].
+        PermissionToken(Revoke<PermissionToken>),
+        /// Revoke [`Role`] from [`Account`].
+        Role(Revoke<RoleId>),
     }
 }
 
@@ -884,9 +1235,9 @@ pub mod error {
     use super::InstructionType;
     use crate::{
         asset::AssetValueType,
-        evaluate, metadata,
+        metadata,
         query::error::{FindError, QueryExecutionFail},
-        IdBox, NumericValue, Value,
+        IdBox, Value,
     };
 
     #[model]
@@ -928,7 +1279,7 @@ pub mod error {
                 String,
             ),
             /// Entity missing
-            Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
+            Find(#[cfg_attr(feature = "std", source)] FindError),
             /// Repeated instruction
             Repetition(#[cfg_attr(feature = "std", source)] RepetitionError),
             /// Mintability assertion failed
@@ -975,8 +1326,6 @@ pub mod error {
         // TODO: Only temporarily opaque because of problems with FFI
         #[ffi_type(opaque)]
         pub enum InstructionEvaluationError {
-            /// Failed to evaluate expression
-            Expression(#[cfg_attr(feature = "std", source)] evaluate::EvaluationError),
             /// Unsupported parameter type for instruction of type `{0}`
             Unsupported(InstructionType),
             /// Failed to find parameter in a permission: {0}
@@ -1074,36 +1423,8 @@ pub mod error {
             ///
             /// No actual function should ever return this if possible
             Unknown,
-            /// Encountered incompatible type of arguments
-            BinaryOpIncompatibleNumericValueTypes(
-                #[cfg_attr(feature = "std", source)] BinaryOpIncompatibleNumericValueTypesError,
-            ),
             /// Conversion failed: {0}
             FixedPointConversion(String),
-        }
-
-        #[derive(
-            Debug,
-            Display,
-            Clone,
-            PartialEq,
-            Eq,
-            PartialOrd,
-            Ord,
-            Deserialize,
-            Serialize,
-            Decode,
-            Encode,
-            IntoSchema,
-        )]
-        #[display(
-            fmt = "Binary operation does not support provided combination of arguments ({left}, {right})"
-        )]
-        #[cfg_attr(feature = "std", derive(thiserror::Error))]
-        #[ffi_type]
-        pub struct BinaryOpIncompatibleNumericValueTypesError {
-            pub left: NumericValue,
-            pub right: NumericValue,
         }
 
         /// Mintability logic error
@@ -1160,9 +1481,10 @@ pub mod error {
             NameLength,
         }
 
+        /// Repetition of of `{instruction_type}` for id `{id}`
         #[derive(
             Debug,
-            Display,
+            displaydoc::Display,
             Clone,
             PartialEq,
             Eq,
@@ -1174,11 +1496,12 @@ pub mod error {
             Encode,
             IntoSchema,
         )]
-        #[display(fmt = "Repetition of of `{instruction_type}` for id `{id}`")]
         #[cfg_attr(feature = "std", derive(thiserror::Error))]
         #[ffi_type]
         pub struct RepetitionError {
+            /// Instruction type
             pub instruction_type: InstructionType,
+            /// Id of the object being repeated
             pub id: IdBox,
         }
     }
@@ -1186,11 +1509,6 @@ pub mod error {
     impl From<TypeError> for InstructionExecutionError {
         fn from(err: TypeError) -> Self {
             Self::Evaluate(InstructionEvaluationError::Type(err))
-        }
-    }
-    impl From<evaluate::EvaluationError> for InstructionExecutionError {
-        fn from(err: evaluate::EvaluationError) -> Self {
-            Self::Evaluate(InstructionEvaluationError::Expression(err))
         }
     }
     impl From<FixedPointOperationError> for MathError {
@@ -1215,10 +1533,9 @@ pub mod error {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Burn, BurnExpr, ConditionalExpr, ExecuteTrigger, ExecuteTriggerExpr, Fail, Grant,
-        GrantExpr, InstructionExpr, Log, LogExpr, Mint, MintExpr, NewParameter, NewParameterExpr,
-        PairExpr, Register, RegisterExpr, RemoveKeyValue, RemoveKeyValueExpr, Revoke, RevokeExpr,
-        SequenceExpr, SetKeyValue, SetKeyValueExpr, SetParameter, SetParameterExpr, Transfer,
-        TransferExpr, Unregister, UnregisterExpr, Upgrade, UpgradeExpr,
+        AccountMintBox, AssetBurnBox, AssetMintBox, AssetTransferBox, Burn, BurnBox,
+        ExecuteTrigger, Fail, Grant, GrantBox, InstructionBox, Log, Mint, MintBox, NewParameter,
+        Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox, SetKeyValue,
+        SetKeyValueBox, SetParameter, Transfer, TransferBox, Unregister, UnregisterBox, Upgrade,
     };
 }

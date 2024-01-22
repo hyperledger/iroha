@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 
-use iroha_config::kura::Mode;
+use iroha_config::kura::{Configuration, Mode};
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::block::SignedBlock;
 use iroha_logger::prelude::*;
@@ -31,7 +31,6 @@ const SIZE_OF_BLOCK_HASH: u64 = Hash::LENGTH as u64;
 #[derive(Debug)]
 pub struct Kura {
     /// The mode of initialisation of [`Kura`].
-    #[allow(dead_code)]
     mode: Mode,
     /// The block storage
     block_store: Mutex<BlockStore>,
@@ -50,22 +49,19 @@ impl Kura {
     /// Fails if there are filesystem errors when trying
     /// to access the block store indicated by the provided
     /// path.
-    pub fn new(
-        mode: Mode,
-        block_store_path: &Path,
-        debug_output_new_blocks: bool,
-    ) -> Result<Arc<Self>> {
+    pub fn new(config: &Configuration) -> Result<Arc<Self>> {
+        let block_store_path = Path::new(&config.block_store_path);
         let mut block_store = BlockStore::new(block_store_path, LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist()?;
 
-        let block_plain_text_path = debug_output_new_blocks.then(|| {
+        let block_plain_text_path = config.debug_output_new_blocks.then(|| {
             let mut path_buf = block_store_path.to_path_buf();
             path_buf.push("blocks.json");
             path_buf
         });
 
         let kura = Arc::new(Self {
-            mode,
+            mode: config.init_mode,
             block_store: Mutex::new(block_store),
             block_data: Mutex::new(Vec::new()),
             block_plain_text_path,
@@ -165,7 +161,7 @@ impl Kura {
             let mut block_data_buffer = vec![0_u8; block.length.try_into()?];
 
             match block_store.read_block_data(block.start, &mut block_data_buffer) {
-                Ok(_) => match SignedBlock::decode_all_versioned(&block_data_buffer) {
+                Ok(()) => match SignedBlock::decode_all_versioned(&block_data_buffer) {
                     Ok(decoded_block) => {
                         if previous_block_hash != decoded_block.payload().header.previous_block_hash
                         {
@@ -416,7 +412,7 @@ impl BlockStore {
                             .map_err(|e| Error::MkDir(e, store_path.to_path_buf()))
                         {
                             Err(e) => Err(e),
-                            Ok(_) => {
+                            Ok(()) => {
                                 if let Err(e) = fs::File::options()
                                     .read(true)
                                     .write(true)
@@ -560,7 +556,7 @@ impl BlockStore {
                 hashes_file
                     .read_exact(&mut buffer)
                     .add_err_context(&path)
-                    .and_then(|_| HashOf::decode_all(&mut buffer.as_slice()).map_err(Error::Codec))
+                    .and_then(|()| HashOf::decode_all(&mut buffer.as_slice()).map_err(Error::Codec))
             })
             .collect()
     }
@@ -1036,7 +1032,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "Kura must be able to lock the blockstore")]
     fn concurrent_lock() {
         let dir = tempfile::tempdir().unwrap();
         let _store = BlockStore::new(dir.path(), LockStatus::Unlocked);
@@ -1054,9 +1050,13 @@ mod tests {
     #[tokio::test]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().unwrap();
-        Kura::new(Mode::Strict, temp_dir.path(), false)
-            .unwrap()
-            .init()
-            .unwrap();
+        Kura::new(&Configuration {
+            init_mode: Mode::Strict,
+            block_store_path: temp_dir.path().to_str().unwrap().into(),
+            debug_output_new_blocks: false,
+        })
+        .unwrap()
+        .init()
+        .unwrap();
     }
 }

@@ -7,7 +7,7 @@ struct Variant4;
 struct Variant5;
 struct Variant6;
 
-#[allow(unused, unused_tuple_struct_fields)]
+#[allow(unused)]
 #[derive(iroha_derive::FromVariant)]
 enum Enum {
     Variant1(Box<Variant1>),

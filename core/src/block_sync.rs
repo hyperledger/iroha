@@ -56,7 +56,7 @@ impl BlockSynchronizer {
         loop {
             tokio::select! {
                 _ = gossip_period.tick() => self.request_block().await,
-                _ = self.sumeragi.wsv_updated() => {
+                () = self.sumeragi.wsv_updated() => {
                     let (latest_hash, previous_hash) = self
                         .sumeragi
                         .apply_wsv(|wsv| (wsv.latest_block_hash(), wsv.previous_block_hash()));
@@ -84,6 +84,7 @@ impl BlockSynchronizer {
     }
 
     /// Get a random online peer.
+    #[allow(clippy::disallowed_types)]
     pub fn random_peer(peers: &std::collections::HashSet<PeerId>) -> Option<Peer> {
         use rand::{seq::IteratorRandom, SeedableRng};
 
@@ -217,7 +218,7 @@ pub mod message {
                         .take(1 + block_sync.block_batch_size as usize)
                         .map_while(|height| block_sync.kura.get_block_by_height(height))
                         .skip_while(|block| Some(block.hash()) == *latest_hash)
-                        .map(|block| SignedBlock::clone(&block))
+                        .map(|block| (*block).clone())
                         .collect::<Vec<_>>();
 
                     if blocks.is_empty() {

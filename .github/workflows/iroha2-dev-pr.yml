@@ -21,13 +21,10 @@ jobs:
   consistency:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - name: Check config.md
-        if: always()
-        run: ./scripts/tests/consistency.sh docs
       - name: Check genesis.json
         if: always()
         run: ./scripts/tests/consistency.sh genesis
@@ -47,7 +44,7 @@ jobs:
   with_coverage:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - uses: actions/checkout@v3
       # TODO Remove this step #2165
@@ -72,13 +69,11 @@ jobs:
           compare-ref: ${{ github.base_ref }}
           compare-sha: ${{ github.event.pull_request.base.sha}}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          allow-empty: true
-          fail_ci_if_error: true
 
   integration:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v3
@@ -91,7 +86,7 @@ jobs:
   unstable:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -105,7 +100,7 @@ jobs:
     if: startsWith(github.head_ref, 'iroha2-pr-deploy/')
     runs-on: [self-hosted, Linux, iroha2-dev-push]
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - uses: actions/checkout@v4
       - name: Login to Soramitsu Harbor
@@ -135,7 +130,7 @@ jobs:
   client-cli-tests:
     runs-on: [self-hosted, Linux, iroha2ci]
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4

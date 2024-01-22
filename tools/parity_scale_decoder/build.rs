@@ -23,13 +23,11 @@ where
     path_to.push("samples/");
     path_to.push(filename);
 
-    let mut path_to_json_sample = path_to.clone();
-    path_to_json_sample.set_extension("json");
+    let path_to_json = path_to.with_extension("json");
+    let path_to_binary = path_to.with_extension("bin");
 
-    let mut path_to_binary = path_to;
-    path_to_binary.set_extension("bin");
-
-    let buf = fs::read_to_string(path_to_json_sample)?;
+    println!("cargo:rerun-if-changed={}", path_to_json.to_str().unwrap());
+    let buf = fs::read_to_string(path_to_json)?;
 
     let sample = serde_json::from_str::<T>(buf.as_str())?;
 

@@ -3,34 +3,36 @@ use std::{path::Path, str::FromStr as _};
 use eyre::Result;
 use iroha_client::{
     client::{self, Client, QueryResult},
+    crypto::KeyPair,
     data_model::prelude::*,
 };
-use iroha_crypto::KeyPair;
 use iroha_logger::info;
 use serde_json::json;
 use test_network::*;
 
 #[test]
 fn executor_upgrade_should_work() -> Result<()> {
+    let chain_id = ChainId::new("0");
+
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_795).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
     // Register `admin` domain and account
     let admin_domain = Domain::new("admin".parse()?);
-    let register_admin_domain = RegisterExpr::new(admin_domain);
+    let register_admin_domain = Register::domain(admin_domain);
     client.submit_blocking(register_admin_domain)?;
 
     let admin_id: AccountId = "admin@admin".parse()?;
     let admin_keypair = KeyPair::generate()?;
     let admin_account = Account::new(admin_id.clone(), [admin_keypair.public_key().clone()]);
-    let register_admin_account = RegisterExpr::new(admin_account);
+    let register_admin_account = Register::account(admin_account);
     client.submit_blocking(register_admin_account)?;
 
     // Check that admin isn't allowed to transfer alice's rose by default
     let alice_rose: AssetId = "rose##alice@wonderland".parse()?;
     let admin_rose: AccountId = "admin@admin".parse()?;
-    let transfer_alice_rose = TransferExpr::new(alice_rose, NumericValue::U32(1), admin_rose);
-    let transfer_rose_tx = TransactionBuilder::new(admin_id.clone())
+    let transfer_alice_rose = Transfer::asset_quantity(alice_rose, 1_u32, admin_rose);
+    let transfer_rose_tx = TransactionBuilder::new(chain_id.clone(), admin_id.clone())
         .with_instructions([transfer_alice_rose.clone()])
         .sign(admin_keypair.clone())?;
     let _ = client
@@ -44,7 +46,7 @@ fn executor_upgrade_should_work() -> Result<()> {
 
     // Check that admin can transfer alice's rose now
     // Creating new transaction instead of cloning, because we need to update it's creation time
-    let transfer_rose_tx = TransactionBuilder::new(admin_id)
+    let transfer_rose_tx = TransactionBuilder::new(chain_id, admin_id)
         .with_instructions([transfer_alice_rose])
         .sign(admin_keypair)?;
     client
@@ -152,7 +154,7 @@ fn upgrade_executor(client: &Client, executor: impl AsRef<Path>) -> Result<()> {
 
     info!("WASM size is {} bytes", wasm.len());
 
-    let upgrade_executor = UpgradeExpr::new(Executor::new(WasmSmartContract::from_compiled(wasm)));
+    let upgrade_executor = Upgrade::new(Executor::new(WasmSmartContract::from_compiled(wasm)));
     client.submit_blocking(upgrade_executor)?;
 
     Ok(())

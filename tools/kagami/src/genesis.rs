@@ -4,20 +4,18 @@ use clap::{ArgGroup, Parser, Subcommand};
 use iroha_config::{sumeragi::default::*, wasm::default::*, wsv::default::*};
 use iroha_data_model::{
     asset::AssetValueType,
-    isi::{MintExpr, RegisterExpr},
     metadata::Limits,
     parameter::{default::*, ParametersBuilder},
     prelude::AssetId,
-    IdBox,
 };
 use iroha_genesis::{ExecutorMode, ExecutorPath, RawGenesisBlock, RawGenesisBlockBuilder};
 use serde_json::json;
 
 use super::*;
 
-const INLINED_EXECUTOR_WARNING: &str = r#"WARN: You're using genesis with inlined executor.
+const INLINED_EXECUTOR_WARNING: &str = r"WARN: You're using genesis with inlined executor.
 Consider specifying a separate executor file using `--executor-path-in-genesis` instead.
-Use `--help` for more information."#;
+Use `--help` for more information.";
 
 #[derive(Parser, Debug, Clone)]
 #[clap(group = ArgGroup::new("executor").required(true))]
@@ -129,39 +127,41 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
     )?;
 
     let mut genesis = RawGenesisBlockBuilder::default()
-            .domain_with_metadata("wonderland".parse()?, meta.clone())
-            .account_with_metadata(
-                "alice".parse()?,
-                crate::DEFAULT_PUBLIC_KEY.parse()?,
-                meta.clone(),
-            )
-            .account_with_metadata("bob".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?, meta) // TODO: This should fail under SS58
-            .asset("rose".parse()?, AssetValueType::Quantity)
-            .finish_domain()
-            .domain("garden_of_live_flowers".parse()?)
-            .account("carpenter".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
-            .asset("cabbage".parse()?, AssetValueType::Quantity)
-            .finish_domain()
-            .executor(executor)
-            .build();
+        .domain_with_metadata("wonderland".parse()?, meta.clone())
+        .account_with_metadata(
+            "alice".parse()?,
+            crate::DEFAULT_PUBLIC_KEY.parse()?,
+            meta.clone(),
+        )
+        .account_with_metadata("bob".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?, meta)
+        .asset("rose".parse()?, AssetValueType::Quantity)
+        .finish_domain()
+        .domain("garden_of_live_flowers".parse()?)
+        .account("carpenter".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
+        .asset("cabbage".parse()?, AssetValueType::Quantity)
+        .finish_domain()
+        .executor(executor)
+        .build();
 
     let alice_id = AccountId::from_str("alice@wonderland")?;
-    let mint = MintExpr::new(
-        13_u32.to_value(),
-        IdBox::AssetId(AssetId::new("rose#wonderland".parse()?, alice_id.clone())),
+    let mint = Mint::asset_quantity(
+        13_u32,
+        AssetId::new("rose#wonderland".parse()?, alice_id.clone()),
     );
-    let mint_cabbage = MintExpr::new(
-        44_u32.to_value(),
-        IdBox::AssetId(AssetId::new(
-            "cabbage#garden_of_live_flowers".parse()?,
-            alice_id.clone(),
-        )),
+    let mint_cabbage = Mint::asset_quantity(
+        44_u32,
+        AssetId::new("cabbage#garden_of_live_flowers".parse()?, alice_id.clone()),
     );
-    let grant_permission_to_set_parameters = GrantExpr::new(
+    let grant_permission_to_set_parameters = Grant::permission(
         PermissionToken::new("CanSetParameters".parse()?, &json!(null)),
         alice_id.clone(),
     );
-    let register_user_metadata_access = RegisterExpr::new(
+    let transfer_domain_ownerhip = Transfer::domain(
+        "genesis@genesis".parse()?,
+        "wonderland".parse()?,
+        alice_id.clone(),
+    );
+    let register_user_metadata_access = Register::role(
         Role::new("ALICE_METADATA_ACCESS".parse()?)
             .add_permission(PermissionToken::new(
                 "CanSetKeyValueInUserAccount".parse()?,
@@ -197,10 +197,13 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
     for isi in [
         mint.into(),
         mint_cabbage.into(),
+        transfer_domain_ownerhip.into(),
         grant_permission_to_set_parameters.into(),
-        parameter_defaults.into(),
-        register_user_metadata_access,
-    ] {
+    ]
+    .into_iter()
+    .chain(parameter_defaults.into_iter())
+    .chain(std::iter::once(register_user_metadata_access))
+    {
         first_tx.append_instruction(isi);
     }
 
@@ -245,12 +248,12 @@ fn generate_synthetic(
             // FIXME: it actually generates (assets_per_domain * accounts_per_domain) assets per domain
             //        https://github.com/hyperledger/iroha/issues/3508
             for asset in 0..assets_per_domain {
-                let mint = MintExpr::new(
-                    13_u32.to_value(),
-                    IdBox::AssetId(AssetId::new(
+                let mint = Mint::asset_quantity(
+                    13_u32,
+                    AssetId::new(
                         format!("asset_{asset}#domain_{domain}").parse()?,
                         format!("account_{account}@domain_{domain}").parse()?,
-                    )),
+                    ),
                 )
                 .into();
                 first_transaction.append_instruction(mint);

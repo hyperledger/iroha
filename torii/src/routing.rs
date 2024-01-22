@@ -5,14 +5,10 @@
 // FIXME: This can't be fixed, because one trait in `warp` is private.
 #![allow(opaque_hidden_inferred_bound)]
 
+#[cfg(feature = "telemetry")]
 use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
-use iroha_config::{
-    base::proxy::Documented,
-    iroha::{Configuration, ConfigurationView},
-    torii::uri,
-    GetConfiguration, PostConfiguration,
-};
+use iroha_config::client_api::ConfigurationDTO;
 use iroha_core::{
     query::{pagination::Paginate, store::LiveQueryStoreHandle},
     smartcontracts::query::ValidQueryRequest,
@@ -38,7 +34,7 @@ use super::*;
 use crate::stream::{Sink, Stream};
 
 /// Filter for warp which extracts [`http::ClientQueryRequest`]
-fn client_query_request(
+pub fn client_query_request(
 ) -> impl warp::Filter<Extract = (http::ClientQueryRequest,), Error = warp::Rejection> + Copy {
     body::versioned::<SignedQuery>()
         .and(sorting())
@@ -69,7 +65,7 @@ fn cursor() -> impl warp::Filter<Extract = (ForwardCursor,), Error = warp::Rejec
 }
 
 /// Filter for warp which extracts pagination
-fn paginate() -> impl warp::Filter<Extract = (Pagination,), Error = warp::Rejection> + Copy {
+pub fn paginate() -> impl warp::Filter<Extract = (Pagination,), Error = warp::Rejection> + Copy {
     warp::query()
 }
 
@@ -79,14 +75,15 @@ fn fetch_size() -> impl warp::Filter<Extract = (FetchSize,), Error = warp::Rejec
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_instructions(
+pub async fn handle_transaction(
+    chain_id: Arc<ChainId>,
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
     transaction: SignedTransaction,
 ) -> Result<Empty> {
     let wsv = sumeragi.wsv_clone();
     let transaction_limits = wsv.config.transaction_limits;
-    let transaction = AcceptedTransaction::accept(transaction, &transaction_limits)
+    let transaction = AcceptedTransaction::accept(transaction, &chain_id, &transaction_limits)
         .map_err(Error::AcceptTransaction)?;
     queue
         .push(transaction, &wsv)
@@ -103,13 +100,13 @@ async fn handle_instructions(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_queries(
+pub async fn handle_queries(
     live_query_store: LiveQueryStoreHandle,
     sumeragi: SumeragiHandle,
 
     query_request: http::ClientQueryRequest,
 ) -> Result<Scale<BatchedResponse<Value>>> {
-    let handle = tokio::task::spawn_blocking(move || match query_request.0 {
+    let handle = task::spawn_blocking(move || match query_request.0 {
         QueryRequest::Query(QueryWithParameters {
             query: signed_query,
             sorting,
@@ -139,18 +136,18 @@ enum Health {
     Healthy,
 }
 
-fn handle_health() -> Json {
+pub fn handle_health() -> Json {
     reply::json(&Health::Healthy)
 }
 
 #[iroha_futures::telemetry_future]
-#[cfg(feature = "schema-endpoint")]
-async fn handle_schema() -> Json {
+#[cfg(feature = "schema")]
+pub async fn handle_schema() -> Json {
     reply::json(&iroha_schema_gen::build_schemas())
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_pending_transactions(
+pub async fn handle_pending_transactions(
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
     pagination: Pagination,
@@ -169,46 +166,22 @@ async fn handle_pending_transactions(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_get_configuration(
-    iroha_cfg: Configuration,
-    get_cfg: GetConfiguration,
-) -> Result<Json> {
-    use GetConfiguration::*;
-
-    match get_cfg {
-        Docs(field) => <Configuration as Documented>::get_doc_recursive(
-            field.iter().map(AsRef::as_ref).collect::<Vec<&str>>(),
-        )
-        .wrap_err("Failed to get docs {:?field}")
-        .and_then(|doc| serde_json::to_value(doc).wrap_err("Failed to serialize docs")),
-        // Cast to configuration view to hide private keys.
-        Value => serde_json::to_value(ConfigurationView::from(iroha_cfg))
-            .wrap_err("Failed to serialize value"),
-    }
-    .map(|v| reply::json(&v))
-    .map_err(Error::Config)
+pub async fn handle_get_configuration(kiso: KisoHandle) -> Result<Json> {
+    let dto = kiso.get_dto().await?;
+    Ok(reply::json(&dto))
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_post_configuration(
-    iroha_cfg: Configuration,
-    cfg: PostConfiguration,
-) -> Result<Json> {
-    use iroha_config::base::runtime_upgrades::Reload;
-    use PostConfiguration::*;
-
-    iroha_logger::debug!(?cfg);
-    match cfg {
-        LogLevel(level) => {
-            iroha_cfg.logger.max_log_level.reload(level)?;
-        }
-    };
-
-    Ok(reply::json(&true))
+pub async fn handle_post_configuration(
+    kiso: KisoHandle,
+    value: ConfigurationDTO,
+) -> Result<impl Reply> {
+    kiso.update_with_dto(value).await?;
+    Ok(reply::with_status(reply::reply(), StatusCode::ACCEPTED))
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::Result<()> {
+pub async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::Result<()> {
     let BlockSubscriptionRequest(mut from_height) = stream.recv().await?;
 
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(10));
@@ -250,7 +223,7 @@ async fn handle_blocks_stream(kura: Arc<Kura>, mut stream: WebSocket) -> eyre::R
     }
 }
 
-mod subscription {
+pub mod subscription {
     //! Contains the `handle_subscription` functions and used for general routing.
 
     use super::*;
@@ -332,7 +305,7 @@ mod subscription {
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "telemetry")]
-async fn handle_version(sumeragi: SumeragiHandle) -> Json {
+pub async fn handle_version(sumeragi: SumeragiHandle) -> Json {
     use iroha_version::Version;
 
     let string = sumeragi
@@ -344,7 +317,7 @@ async fn handle_version(sumeragi: SumeragiHandle) -> Json {
 }
 
 #[cfg(feature = "telemetry")]
-fn handle_metrics(sumeragi: &SumeragiHandle) -> Result<String> {
+pub fn handle_metrics(sumeragi: &SumeragiHandle) -> Result<String> {
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
     }
@@ -362,7 +335,7 @@ fn update_metrics_gracefully(sumeragi: &SumeragiHandle) {
 
 #[cfg(feature = "telemetry")]
 #[allow(clippy::unnecessary_wraps)]
-fn handle_status(
+pub fn handle_status(
     sumeragi: &SumeragiHandle,
     accept: Option<impl AsRef<str>>,
     tail: &warp::path::Tail,
@@ -397,206 +370,5 @@ fn handle_status(
             .map(|segment| reply::json(segment).into_response())?;
 
         Ok(reply)
-    }
-}
-
-impl Torii {
-    /// Construct `Torii`.
-    #[allow(clippy::too_many_arguments)]
-    pub fn from_configuration(
-        iroha_cfg: Configuration,
-        queue: Arc<Queue>,
-        events: EventsSender,
-        notify_shutdown: Arc<Notify>,
-        sumeragi: SumeragiHandle,
-        query_service: LiveQueryStoreHandle,
-        kura: Arc<Kura>,
-    ) -> Self {
-        Self {
-            iroha_cfg,
-            queue,
-            events,
-            notify_shutdown,
-            sumeragi,
-            query_service,
-            kura,
-        }
-    }
-
-    /// Helper function to create router. This router can tested without starting up an HTTP server
-    #[allow(clippy::too_many_lines)]
-    fn create_api_router(&self) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
-        let health_route = warp::get()
-            .and(warp::path(uri::HEALTH))
-            .and_then(|| async { Ok::<_, Infallible>(handle_health()) });
-
-        let get_router = warp::get().and(
-            endpoint3(
-                handle_pending_transactions,
-                warp::path(uri::PENDING_TRANSACTIONS)
-                    .and(add_state!(self.queue, self.sumeragi,))
-                    .and(paginate()),
-            )
-            .or(endpoint2(
-                handle_get_configuration,
-                warp::path(uri::CONFIGURATION)
-                    .and(add_state!(self.iroha_cfg))
-                    .and(warp::body::json()),
-            )),
-        );
-
-        let get_router_status = warp::path(uri::STATUS)
-            .and(add_state!(self.sumeragi.clone()))
-            .and(warp::header::optional(warp::http::header::ACCEPT.as_str()))
-            .and(warp::path::tail())
-            .and_then(|sumeragi, accept: Option<String>, tail| async move {
-                Ok::<_, Infallible>(WarpResult(handle_status(&sumeragi, accept.as_ref(), &tail)))
-            });
-        let get_router_metrics = warp::path(uri::METRICS)
-            .and(add_state!(self.sumeragi))
-            .and_then(|sumeragi| async move {
-                Ok::<_, Infallible>(WarpResult(handle_metrics(&sumeragi)))
-            });
-        let get_api_version = warp::path(uri::API_VERSION)
-            .and(add_state!(self.sumeragi.clone()))
-            .and_then(|sumeragi| async { Ok::<_, Infallible>(handle_version(sumeragi).await) });
-
-        #[cfg(feature = "telemetry")]
-        let get_router = get_router.or(warp::any()
-            .and(get_router_status)
-            .or(get_router_metrics)
-            .or(get_api_version));
-
-        #[cfg(feature = "schema-endpoint")]
-        let get_router = get_router.or(warp::path(uri::SCHEMA)
-            .and_then(|| async { Ok::<_, Infallible>(handle_schema().await) }));
-
-        let post_router = warp::post()
-            .and(
-                endpoint3(
-                    handle_instructions,
-                    warp::path(uri::TRANSACTION)
-                        .and(add_state!(self.queue, self.sumeragi))
-                        .and(warp::body::content_length_limit(
-                            self.iroha_cfg.torii.max_content_len.into(),
-                        ))
-                        .and(body::versioned()),
-                )
-                .or(endpoint3(
-                    handle_queries,
-                    warp::path(uri::QUERY)
-                        .and(add_state!(self.query_service, self.sumeragi,))
-                        .and(client_query_request()),
-                ))
-                .or(endpoint2(
-                    handle_post_configuration,
-                    warp::path(uri::CONFIGURATION)
-                        .and(add_state!(self.iroha_cfg))
-                        .and(warp::body::json()),
-                )),
-            )
-            .recover(|rejection| async move { body::recover_versioned(rejection) });
-
-        let events_ws_router = warp::path(uri::SUBSCRIPTION)
-            .and(add_state!(self.events))
-            .and(warp::ws())
-            .map(|events, ws: Ws| {
-                ws.on_upgrade(|this_ws| async move {
-                    if let Err(error) = subscription::handle_subscription(events, this_ws).await {
-                        iroha_logger::error!(%error, "Failure during subscription");
-                    }
-                })
-            });
-
-        // `warp` panics if there is `/` in the string given to the `warp::path` filter
-        // Path filter has to be boxed to have a single uniform type during iteration
-        let block_ws_router_path = uri::BLOCKS_STREAM
-            .split('/')
-            .skip_while(|p| p.is_empty())
-            .fold(warp::any().boxed(), |path_filter, path| {
-                path_filter.and(warp::path(path)).boxed()
-            });
-
-        let blocks_ws_router = block_ws_router_path
-            .and(add_state!(self.kura))
-            .and(warp::ws())
-            .map(|sumeragi: Arc<_>, ws: Ws| {
-                ws.on_upgrade(|this_ws| async move {
-                    if let Err(error) = handle_blocks_stream(sumeragi, this_ws).await {
-                        iroha_logger::error!(%error, "Failed to subscribe to blocks stream");
-                    }
-                })
-            });
-
-        let ws_router = events_ws_router.or(blocks_ws_router);
-
-        warp::any()
-            .and(
-                // we want to avoid logging for the "health" endpoint.
-                // we have to place it **first** so that warp's trace will
-                // not log 404 if it doesn't find "/health" which might be placed
-                // **after** `.with(trace)`
-                health_route,
-            )
-            .or(ws_router
-                .or(get_router)
-                .or(post_router)
-                .with(warp::trace::request()))
-    }
-
-    /// Start main api endpoints.
-    ///
-    /// # Errors
-    /// Can fail due to listening to network or if http server fails
-    fn start_api(self: Arc<Self>) -> eyre::Result<Vec<tokio::task::JoinHandle<()>>> {
-        let api_url = &self.iroha_cfg.torii.api_url;
-
-        let mut handles = vec![];
-        match api_url.to_socket_addrs() {
-            Ok(addrs) => {
-                for addr in addrs {
-                    let torii = Arc::clone(&self);
-
-                    let api_router = torii.create_api_router();
-                    let signal_fut = async move { torii.notify_shutdown.notified().await };
-                    let (_, serve_fut) =
-                        warp::serve(api_router).bind_with_graceful_shutdown(addr, signal_fut);
-
-                    handles.push(task::spawn(serve_fut));
-                }
-
-                Ok(handles)
-            }
-            Err(error) => {
-                iroha_logger::error!(%api_url, %error, "API address configuration parse error");
-                Err(eyre::Error::new(error))
-            }
-        }
-    }
-
-    /// To handle incoming requests `Torii` should be started first.
-    ///
-    /// # Errors
-    /// Can fail due to listening to network or if http server fails
-    #[iroha_futures::telemetry_future]
-    pub(crate) async fn start(self) -> eyre::Result<()> {
-        let torii = Arc::new(self);
-        let mut handles = vec![];
-
-        handles.extend(Arc::clone(&torii).start_api()?);
-
-        handles
-            .into_iter()
-            .collect::<FuturesUnordered<_>>()
-            .for_each(|handle| {
-                if let Err(error) = handle {
-                    iroha_logger::error!(%error, "Join handle error");
-                }
-
-                futures::future::ready(())
-            })
-            .await;
-
-        Ok(())
     }
 }

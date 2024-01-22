@@ -2,10 +2,6 @@ use std::convert::TryFrom;
 
 use arrayref::array_ref;
 use ed25519_dalek::{Signature, SigningKey, VerifyingKey as PK};
-pub use ed25519_dalek::{
-    EXPANDED_SECRET_KEY_LENGTH as PRIVATE_KEY_SIZE, PUBLIC_KEY_LENGTH as PUBLIC_KEY_SIZE,
-    SIGNATURE_LENGTH as SIGNATURE_SIZE,
-};
 use iroha_primitives::const_vec::ConstVec;
 use rand::{rngs::OsRng, SeedableRng};
 use rand_chacha::ChaChaRng;
@@ -146,7 +142,7 @@ mod test {
         assert!(result.is_ok());
         assert!(result.unwrap());
 
-        assert_eq!(sig.len(), SIGNATURE_SIZE);
+        assert_eq!(sig.len(), ed25519_dalek::SIGNATURE_LENGTH);
         assert_eq!(hex::encode(sig.as_slice()), SIGNATURE_1);
 
         //Check if libsodium signs the message and this module still can verify it

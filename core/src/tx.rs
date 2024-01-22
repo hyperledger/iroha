@@ -11,6 +11,7 @@ use eyre::Result;
 use iroha_crypto::{HashOf, SignatureVerificationFail, SignaturesOf};
 pub use iroha_data_model::prelude::*;
 use iroha_data_model::{
+    isi::error::Mismatch,
     query::error::FindError,
     transaction::{error::TransactionLimitError, TransactionLimits},
 };
@@ -34,185 +35,30 @@ pub enum AcceptTransactionFail {
     SignatureVerification(#[source] SignatureVerificationFail<TransactionPayload>),
     /// The genesis account can only sign transactions in the genesis block
     UnexpectedGenesisAccountSignature,
-}
-
-mod len {
-    use iroha_data_model::{expression::*, query::QueryBox, Value};
-
-    pub trait ExprLen {
-        fn len(&self) -> usize;
-    }
-
-    impl<V: TryFrom<Value>> ExprLen for EvaluatesTo<V> {
-        fn len(&self) -> usize {
-            self.expression.len()
-        }
-    }
-
-    impl ExprLen for Expression {
-        fn len(&self) -> usize {
-            use Expression::*;
-
-            match self {
-                Add(add) => add.len(),
-                Subtract(subtract) => subtract.len(),
-                Greater(greater) => greater.len(),
-                Less(less) => less.len(),
-                Equal(equal) => equal.len(),
-                Not(not) => not.len(),
-                And(and) => and.len(),
-                Or(or) => or.len(),
-                If(if_expression) => if_expression.len(),
-                Raw(raw) => raw.len(),
-                Query(query) => query.len(),
-                Contains(contains) => contains.len(),
-                ContainsAll(contains_all) => contains_all.len(),
-                ContainsAny(contains_any) => contains_any.len(),
-                Where(where_expression) => where_expression.len(),
-                ContextValue(context_value) => context_value.len(),
-                Multiply(multiply) => multiply.len(),
-                Divide(divide) => divide.len(),
-                Mod(modulus) => modulus.len(),
-                RaiseTo(raise_to) => raise_to.len(),
-            }
-        }
-    }
-    impl ExprLen for ContextValue {
-        fn len(&self) -> usize {
-            1
-        }
-    }
-    impl ExprLen for QueryBox {
-        fn len(&self) -> usize {
-            1
-        }
-    }
-
-    impl ExprLen for Add {
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
-    }
-    impl ExprLen for Subtract {
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
-    }
-    impl ExprLen for Multiply {
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
-    }
-    impl ExprLen for RaiseTo {
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
-    }
-    impl ExprLen for Divide {
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
-    }
-    impl ExprLen for Mod {
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
-    }
-    impl ExprLen for Greater {
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
-    }
-    impl ExprLen for Less {
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
-    }
-    impl ExprLen for Equal {
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
-    }
-    impl ExprLen for And {
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
-    }
-    impl ExprLen for Or {
-        fn len(&self) -> usize {
-            self.left.len() + self.right.len() + 1
-        }
-    }
-
-    impl ExprLen for Not {
-        fn len(&self) -> usize {
-            self.expression.len() + 1
-        }
-    }
-
-    impl ExprLen for Contains {
-        fn len(&self) -> usize {
-            self.collection.len() + self.element.len() + 1
-        }
-    }
-    impl ExprLen for ContainsAll {
-        fn len(&self) -> usize {
-            self.collection.len() + self.elements.len() + 1
-        }
-    }
-    impl ExprLen for ContainsAny {
-        fn len(&self) -> usize {
-            self.collection.len() + self.elements.len() + 1
-        }
-    }
-
-    impl ExprLen for If {
-        fn len(&self) -> usize {
-            // TODO: This is wrong because we don't evaluate both branches
-            self.condition.len() + self.then.len() + self.otherwise.len() + 1
-        }
-    }
-    impl ExprLen for Where {
-        fn len(&self) -> usize {
-            self.expression.len() + self.values.values().map(EvaluatesTo::len).sum::<usize>() + 1
-        }
-    }
-}
-
-fn instruction_size(isi: &InstructionExpr) -> usize {
-    use len::ExprLen as _;
-    use InstructionExpr::*;
-
-    match isi {
-        Register(isi) => isi.object.len() + 1,
-        Unregister(isi) => isi.object_id.len() + 1,
-        Mint(isi) => isi.destination_id.len() + isi.object.len() + 1,
-        Burn(isi) => isi.destination_id.len() + isi.object.len() + 1,
-        Transfer(isi) => isi.destination_id.len() + isi.object.len() + isi.source_id.len() + 1,
-        If(isi) => {
-            let otherwise = isi.otherwise.as_ref().map_or(0, instruction_size);
-            isi.condition.len() + instruction_size(&isi.then) + otherwise + 1
-        }
-        Pair(isi) => {
-            instruction_size(&isi.left_instruction) + instruction_size(&isi.right_instruction) + 1
-        }
-        Sequence(isi) => isi.instructions.iter().map(instruction_size).sum::<usize>() + 1,
-        SetKeyValue(isi) => isi.object_id.len() + isi.key.len() + isi.value.len() + 1,
-        RemoveKeyValue(isi) => isi.object_id.len() + isi.key.len() + 1,
-        Grant(isi) => isi.object.len() + isi.destination_id.len() + 1,
-        Revoke(isi) => isi.object.len() + isi.destination_id.len() + 1,
-        SetParameter(isi) => isi.parameter.len() + 1,
-        NewParameter(isi) => isi.parameter.len() + 1,
-        Upgrade(isi) => isi.object.len() + 1,
-        Log(isi) => isi.msg.len() + isi.msg.len() + 1,
-        Fail(_) | ExecuteTrigger(_) => 1,
-    }
+    /// Transaction's `chain_id` doesn't correspond to the id of current blockchain
+    ChainIdMismatch(Mismatch<ChainId>),
 }
 
 impl AcceptedTransaction {
     /// Accept genesis transaction. Transition from [`GenesisTransaction`] to [`AcceptedTransaction`].
-    pub fn accept_genesis(tx: GenesisTransaction) -> Self {
-        Self(tx.0)
+    ///
+    /// # Errors
+    ///
+    /// - if transaction chain id doesn't match
+    pub fn accept_genesis(
+        tx: GenesisTransaction,
+        expected_chain_id: &ChainId,
+    ) -> Result<Self, AcceptTransactionFail> {
+        let actual_chain_id = &tx.0.payload().chain_id;
+
+        if expected_chain_id != actual_chain_id {
+            return Err(AcceptTransactionFail::ChainIdMismatch(Mismatch {
+                expected: expected_chain_id.clone(),
+                actual: actual_chain_id.clone(),
+            }));
+        }
+
+        Ok(Self(tx.0))
     }
 
     /// Accept transaction. Transition from [`SignedTransaction`] to [`AcceptedTransaction`].
@@ -221,23 +67,27 @@ impl AcceptedTransaction {
     ///
     /// - if it does not adhere to limits
     pub fn accept(
-        transaction: SignedTransaction,
+        tx: SignedTransaction,
+        expected_chain_id: &ChainId,
         limits: &TransactionLimits,
     ) -> Result<Self, AcceptTransactionFail> {
-        if *iroha_genesis::GENESIS_ACCOUNT_ID == transaction.payload().authority {
+        let actual_chain_id = &tx.payload().chain_id;
+
+        if expected_chain_id != actual_chain_id {
+            return Err(AcceptTransactionFail::ChainIdMismatch(Mismatch {
+                expected: expected_chain_id.clone(),
+                actual: actual_chain_id.clone(),
+            }));
+        }
+
+        if *iroha_genesis::GENESIS_ACCOUNT_ID == tx.payload().authority {
             return Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature);
         }
 
-        match &transaction.payload().instructions {
+        match &tx.payload().instructions {
             Executable::Instructions(instructions) => {
-                let instruction_count: u64 = instructions
-                    .iter()
-                    .map(instruction_size)
-                    .sum::<usize>()
-                    .try_into()
-                    .expect("`usize` should always fit in `u64`");
-
-                if instruction_count > limits.max_instruction_number {
+                let instruction_count = instructions.len();
+                if Self::len_u64(instruction_count) > limits.max_instruction_number {
                     return Err(AcceptTransactionFail::TransactionLimit(
                         TransactionLimitError {
                             reason: format!(
@@ -253,12 +103,8 @@ impl AcceptedTransaction {
             //
             // Should we allow infinite instructions in wasm? And deny only based on fuel and size
             Executable::Wasm(smart_contract) => {
+                let size_bytes = Self::len_u64(smart_contract.size_bytes());
                 let max_wasm_size_bytes = limits.max_wasm_size_bytes;
-
-                let size_bytes: u64 = smart_contract
-                    .size_bytes()
-                    .try_into()
-                    .expect("`u64` should always fit in `u64`");
 
                 if size_bytes > max_wasm_size_bytes {
                     return Err(AcceptTransactionFail::TransactionLimit(
@@ -270,7 +116,7 @@ impl AcceptedTransaction {
             }
         }
 
-        Ok(Self(transaction))
+        Ok(Self(tx))
     }
 
     /// Transaction hash
@@ -289,6 +135,10 @@ impl AcceptedTransaction {
 
     pub(crate) fn merge_signatures(&mut self, other: Self) -> bool {
         self.0.merge_signatures(other.0)
+    }
+
+    fn len_u64(instruction_count: usize) -> u64 {
+        u64::try_from(instruction_count).expect("`usize` should always fit into `u64`")
     }
 }
 
@@ -424,69 +274,5 @@ impl TransactionExecutor {
                 }
                 error.into()
             })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use core::str::FromStr as _;
-
-    use super::*;
-
-    fn if_instruction(
-        c: impl Into<Expression>,
-        then: InstructionExpr,
-        otherwise: Option<InstructionExpr>,
-    ) -> InstructionExpr {
-        let condition: Expression = c.into();
-        let condition = EvaluatesTo::new_unchecked(condition);
-        ConditionalExpr {
-            condition,
-            then,
-            otherwise,
-        }
-        .into()
-    }
-
-    fn fail() -> InstructionExpr {
-        Fail {
-            message: String::default(),
-        }
-        .into()
-    }
-
-    #[test]
-    fn len_empty_sequence() {
-        assert_eq!(instruction_size(&SequenceExpr::new(vec![]).into()), 1);
-    }
-
-    #[test]
-    fn len_if_one_branch() {
-        let instructions = vec![if_instruction(
-            ContextValue {
-                value_name: Name::from_str("a").expect("Cannot fail."),
-            },
-            fail(),
-            None,
-        )];
-
-        assert_eq!(instruction_size(&SequenceExpr::new(instructions).into()), 4);
-    }
-
-    #[test]
-    fn len_sequence_if() {
-        let instructions = vec![
-            fail(),
-            if_instruction(
-                ContextValue {
-                    value_name: Name::from_str("b").expect("Cannot fail."),
-                },
-                fail(),
-                Some(fail()),
-            ),
-            fail(),
-        ];
-
-        assert_eq!(instruction_size(&SequenceExpr::new(instructions).into()), 7);
     }
 }

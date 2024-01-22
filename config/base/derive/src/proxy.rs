@@ -14,7 +14,6 @@ pub fn impl_proxy(ast: StructWithFields) -> TokenStream {
     let disk_derive = quote! { ::iroha_config_base::derive::LoadFromDisk };
     let builder_derive = quote! { ::iroha_config_base::derive::Builder };
     let override_derive = quote! { ::iroha_config_base::derive::Override };
-    let documented_derive = quote! { ::iroha_config_base::derive::Documented };
     quote! {
         /// Proxy configuration structure to be used as an intermediate
         /// for configuration loading. Both loading from disk and
@@ -24,8 +23,7 @@ pub fn impl_proxy(ast: StructWithFields) -> TokenStream {
                  #builder_derive,
                  #loadenv_derive,
                  #disk_derive,
-                 #override_derive,
-                 #documented_derive
+                 #override_derive
         )]
         #[builder(parent = #parent_ty)]
         #proxy_struct

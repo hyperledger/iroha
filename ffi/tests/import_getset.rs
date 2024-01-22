@@ -55,7 +55,7 @@ mod ffi {
     use std::alloc;
 
     use iroha_ffi::{
-        def_ffi_fns, slice::SliceMut, FfiConvert, FfiOutPtr, FfiOutPtrWrite, FfiReturn, FfiType,
+        def_ffi_fns, slice::RefMutSlice, FfiConvert, FfiOutPtr, FfiOutPtrWrite, FfiReturn, FfiType,
     };
 
     iroha_ffi::handles! {ExternName, ExternFfiStruct}
@@ -84,7 +84,7 @@ mod ffi {
 
     #[no_mangle]
     unsafe extern "C" fn Name__new(
-        input1: SliceMut<u8>,
+        input1: RefMutSlice<u8>,
         output: *mut *mut ExternName,
     ) -> FfiReturn {
         let string = String::from_utf8(input1.into_rust().expect("Defined").to_vec());
@@ -95,7 +95,7 @@ mod ffi {
 
     #[no_mangle]
     unsafe extern "C" fn FfiStruct__new(
-        input1: SliceMut<u8>,
+        input1: RefMutSlice<u8>,
         input2: <u8 as FfiType>::ReprC,
         output: *mut *mut ExternFfiStruct,
     ) -> FfiReturn {

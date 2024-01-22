@@ -69,8 +69,6 @@ impl Hash {
 impl Hash {
     /// Hash the given bytes.
     #[must_use]
-    // NOTE: Panic is predicated by implementation not user input
-    #[allow(clippy::missing_panics_doc)]
     pub fn new(bytes: impl AsRef<[u8]>) -> Self {
         let vec_hash = Blake2bVar::new(Self::LENGTH)
             .expect("Failed to initialize variable size hash")

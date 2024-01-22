@@ -9,16 +9,17 @@ mod query_builder;
 
 /// Module containing sample configurations for tests and benchmarks.
 pub mod samples {
-    use iroha_config::{
-        client::{Configuration, ConfigurationProxy},
-        torii::uri::DEFAULT_API_ADDR,
+    use crate::{
+        config::{torii::DEFAULT_API_ADDR, Configuration, ConfigurationProxy},
+        crypto::KeyPair,
+        data_model::ChainId,
     };
-    use iroha_crypto::KeyPair;
 
     /// Get sample client configuration.
-    pub fn get_client_config(key_pair: &KeyPair) -> Configuration {
+    pub fn get_client_config(chain_id: ChainId, key_pair: &KeyPair) -> Configuration {
         let (public_key, private_key) = key_pair.clone().into();
         ConfigurationProxy {
+            chain_id: Some(chain_id),
             public_key: Some(public_key),
             private_key: Some(private_key),
             account_id: Some(
@@ -38,4 +39,11 @@ pub mod samples {
     }
 }
 
+pub mod config {
+    //! Module for client-related configuration and structs
+
+    pub use iroha_config::{client::*, client_api as api, path, torii::uri as torii};
+}
+
+pub use iroha_crypto as crypto;
 pub use iroha_data_model as data_model;

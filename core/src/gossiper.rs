@@ -3,7 +3,7 @@
 use std::{sync::Arc, time::Duration};
 
 use iroha_config::sumeragi::Configuration;
-use iroha_data_model::transaction::SignedTransaction;
+use iroha_data_model::{transaction::SignedTransaction, ChainId};
 use iroha_p2p::Broadcast;
 use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
@@ -31,6 +31,8 @@ impl TransactionGossiperHandle {
 
 /// Actor to gossip transactions and receive transaction gossips
 pub struct TransactionGossiper {
+    /// Unique id of the blockchain. Used for simple replay attack protection.
+    chain_id: ChainId,
     /// The size of batch that is being gossiped. Smaller size leads
     /// to longer time to synchronise, useful if you have high packet loss.
     gossip_batch_size: u32,
@@ -57,19 +59,21 @@ impl TransactionGossiper {
 
     /// Construct [`Self`] from configuration
     pub fn from_configuration(
+        chain_id: ChainId,
         // Currently we are using configuration parameters from sumeragi not to break configuration
-        configuartion: &Configuration,
+        configuration: &Configuration,
         network: IrohaNetwork,
         queue: Arc<Queue>,
         sumeragi: SumeragiHandle,
     ) -> Self {
         let wsv = sumeragi.wsv_clone();
         Self {
+            chain_id,
             queue,
             sumeragi,
             network,
-            gossip_batch_size: configuartion.gossip_batch_size,
-            gossip_period: Duration::from_millis(configuartion.gossip_period_ms),
+            gossip_batch_size: configuration.gossip_batch_size,
+            gossip_period: Duration::from_millis(configuration.gossip_period_ms),
             wsv,
         }
     }
@@ -79,7 +83,7 @@ impl TransactionGossiper {
         loop {
             tokio::select! {
                 _ = gossip_period.tick() => self.gossip_transactions(),
-                _ = self.sumeragi.wsv_updated() => {
+                () = self.sumeragi.wsv_updated() => {
                     self.wsv = self.sumeragi.wsv_clone();
                 }
                 transaction_gossip = message_receiver.recv() => {
@@ -100,7 +104,6 @@ impl TransactionGossiper {
             .n_random_transactions(self.gossip_batch_size, &self.wsv);
 
         if txs.is_empty() {
-            iroha_logger::debug!("Nothing to gossip");
             return;
         }
 
@@ -116,9 +119,9 @@ impl TransactionGossiper {
         for tx in txs {
             let transaction_limits = &self.wsv.config.transaction_limits;
 
-            match AcceptedTransaction::accept(tx, transaction_limits) {
+            match AcceptedTransaction::accept(tx, &self.chain_id, transaction_limits) {
                 Ok(tx) => match self.queue.push(tx, &self.wsv) {
-                    Ok(_) => {}
+                    Ok(()) => {}
                     Err(crate::queue::Failure {
                         tx,
                         err: crate::queue::Error::InBlockchain,

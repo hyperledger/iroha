@@ -68,9 +68,7 @@ pub mod model {
     #[ffi_type(opaque)]
     #[serde(transparent)]
     #[repr(transparent)]
-    pub struct Metadata {
-        pub(super) map: btree_map::BTreeMap<Name, Value>,
-    }
+    pub struct Metadata(pub(super) btree_map::BTreeMap<Name, Value>);
 }
 
 /// Metadata related errors.
@@ -144,15 +142,13 @@ impl Metadata {
     /// Constructor.
     #[inline]
     pub fn new() -> Self {
-        Self {
-            map: UnlimitedMetadata::new(),
-        }
+        Self(UnlimitedMetadata::new())
     }
 
     /// Get the (expensive) cumulative length of all [`Value`]s housed
     /// in this map.
     pub fn nested_len(&self) -> usize {
-        self.map.values().map(|v| 1 + v.len()).sum()
+        self.0.values().map(|v| 1 + v.len()).sum()
     }
 
     /// Get metadata given path. If the path is malformed, or
@@ -161,10 +157,10 @@ impl Metadata {
     /// corresponding to that path.
     pub fn nested_get(&self, path: &Path) -> Option<&Value> {
         let key = path.last()?;
-        let mut map = &self.map;
+        let mut map = &self.0;
         for k in path.iter().take(path.len() - 1) {
             map = match map.get(k)? {
-                Value::LimitedMetadata(data) => &data.map,
+                Value::LimitedMetadata(data) => &data.0,
                 _ => return None,
             };
         }
@@ -173,12 +169,12 @@ impl Metadata {
 
     /// Check if the internal map contains the given key.
     pub fn contains(&self, key: &Name) -> bool {
-        self.map.contains_key(key)
+        self.0.contains_key(key)
     }
 
     /// Iterate over key/value pairs stored in the internal map.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
-        self.map.iter()
+        self.0.iter()
     }
 
     /// Get the `Some(&Value)` associated to `key`. Return `None` if not found.
@@ -187,7 +183,14 @@ impl Metadata {
     where
         Name: Borrow<K>,
     {
-        self.map.get(key)
+        self.0.get(key)
+    }
+
+    fn len_u64(&self) -> u64 {
+        self.0
+            .len()
+            .try_into()
+            .expect("`usize` should always fit into `u64`")
     }
 
     /// Insert the given [`Value`] into the given path. If the path is
@@ -204,21 +207,17 @@ impl Metadata {
         value: Value,
         limits: Limits,
     ) -> Result<Option<Value>, MetadataError> {
-        if self.map.len() >= limits.max_len as usize {
+        if self.0.len() >= limits.max_len as usize {
             return Err(MetadataError::OverallSize(SizeError {
                 limits,
-                actual: self
-                    .map
-                    .len()
-                    .try_into()
-                    .expect("`usize` should always fit into `u64`"),
+                actual: self.len_u64(),
             }));
         }
         let key = path.last().ok_or(MetadataError::EmptyPath)?;
         let mut layer = self;
         for k in path.iter().take(path.len() - 1) {
             layer = match layer
-                .map
+                .0
                 .get_mut(k)
                 .ok_or_else(|| MetadataError::MissingSegment(k.clone()))?
             {
@@ -240,18 +239,14 @@ impl Metadata {
         value: Value,
         limits: Limits,
     ) -> Result<Option<Value>, MetadataError> {
-        if self.map.len() >= limits.max_len as usize && !self.map.contains_key(&key) {
+        if self.0.len() >= limits.max_len as usize && !self.0.contains_key(&key) {
             return Err(MetadataError::OverallSize(SizeError {
                 limits,
-                actual: self
-                    .map
-                    .len()
-                    .try_into()
-                    .expect("`usize` should always fit into `u64`"),
+                actual: self.len_u64(),
             }));
         }
         check_size_limits(&key, value.clone(), limits)?;
-        Ok(self.map.insert(key, value))
+        Ok(self.0.insert(key, value))
     }
 }
 
@@ -265,7 +260,7 @@ impl Metadata {
     where
         Name: Borrow<K>,
     {
-        self.map.remove(key)
+        self.0.remove(key)
     }
 
     /// Remove leaf node in metadata, given path. If the path is
@@ -274,10 +269,10 @@ impl Metadata {
     /// owned value corresponding to that path.
     pub fn nested_remove(&mut self, path: &Path) -> Option<Value> {
         let key = path.last()?;
-        let mut map = &mut self.map;
+        let mut map = &mut self.0;
         for k in path.iter().take(path.len() - 1) {
             map = match map.get_mut(k)? {
-                Value::LimitedMetadata(data) => &mut data.map,
+                Value::LimitedMetadata(data) => &mut data.0,
                 _ => return None,
             };
         }

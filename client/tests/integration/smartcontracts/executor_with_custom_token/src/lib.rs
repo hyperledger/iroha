@@ -20,7 +20,7 @@ use alloc::{borrow::ToOwned, string::String};
 
 use anyhow::anyhow;
 use iroha_executor::{
-    default::default_permission_token_schema, permission::Token as _, prelude::*, smart_contract,
+    default::default_permission_token_schema, permission::Token as _, prelude::*,
 };
 use iroha_schema::IntoSchema;
 use lol_alloc::{FreeListAllocator, LockedAllocator};
@@ -54,12 +54,11 @@ mod token {
     pub struct CanControlDomainLives;
 }
 
-#[derive(Constructor, ValidateEntrypoints, ExpressionEvaluator, Validate, Visit)]
+#[derive(Constructor, ValidateEntrypoints, Validate, Visit)]
 #[visit(custom(visit_register_domain, visit_unregister_domain))]
 struct Executor {
     verdict: Result,
     block_height: u64,
-    host: smart_contract::Host,
 }
 
 impl Executor {
@@ -119,7 +118,7 @@ impl Executor {
         accounts
             .iter()
             .try_for_each(|(account, domain_id)| {
-                RevokeExpr::new(
+                Revoke::permission(
                     PermissionToken::new(
                         can_unregister_domain_definition_id.clone(),
                         &json!({ "domain_id": domain_id }),
@@ -138,7 +137,7 @@ impl Executor {
                     )
                 })?;
 
-                GrantExpr::new(
+                Grant::permission(
                     PermissionToken::new(
                         can_control_domain_lives_definition_id.clone(),
                         &json!(null),
@@ -170,13 +169,12 @@ impl Executor {
     }
 }
 
-// TODO (#4049): Fix unused `visit_register_domain()`
-fn visit_register_domain(executor: &mut Executor, authority: &AccountId, _isi: Register<Domain>) {
+fn visit_register_domain(executor: &mut Executor, authority: &AccountId, isi: &Register<Domain>) {
     if executor.block_height() == 0 {
-        pass!(executor)
+        execute!(executor, isi);
     }
     if token::CanControlDomainLives.is_owned_by(authority) {
-        pass!(executor);
+        execute!(executor, isi);
     }
 
     deny!(
@@ -188,13 +186,13 @@ fn visit_register_domain(executor: &mut Executor, authority: &AccountId, _isi: R
 fn visit_unregister_domain(
     executor: &mut Executor,
     authority: &AccountId,
-    _isi: Unregister<Domain>,
+    isi: &Unregister<Domain>,
 ) {
     if executor.block_height() == 0 {
-        pass!(executor);
+        execute!(executor, isi);
     }
     if token::CanControlDomainLives.is_owned_by(authority) {
-        pass!(executor);
+        execute!(executor, isi);
     }
 
     deny!(executor, "You don't have permission to unregister domain");

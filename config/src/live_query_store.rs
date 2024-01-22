@@ -2,7 +2,7 @@
 
 use std::num::NonZeroU64;
 
-use iroha_config_base::derive::{Documented, Proxy};
+use iroha_config_base::derive::Proxy;
 use serde::{Deserialize, Serialize};
 
 /// Default max time a query can remain in the store unaccessed
@@ -10,7 +10,7 @@ pub static DEFAULT_QUERY_IDLE_TIME_MS: once_cell::sync::Lazy<NonZeroU64> =
     once_cell::sync::Lazy::new(|| NonZeroU64::new(30_000).unwrap());
 
 /// Configuration for `QueryService`.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize, Documented, Proxy)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "LIVE_QUERY_STORE_")]
 pub struct Configuration {

@@ -1,5 +1,5 @@
 [package]
-name = "iroha_cli_derive"
+name = "iroha_torii_derive"
 
 edition.workspace = true
 version.workspace = true
@@ -14,9 +14,10 @@ workspace = true
 proc-macro = true
 
 [dependencies]
-syn = { workspace = true, features = ["default", "parsing", "printing", "extra-traits"] }
+syn2 = { workspace = true }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
+manyhow = { workspace = true }
 
 [dev-dependencies]
 warp = { workspace = true }

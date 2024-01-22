@@ -21,8 +21,17 @@ fn main(_owner: AccountId, _event: Event) {
 
     let limits = MetadataLimits::new(256, 256);
 
+    let bad_domain_ids: [DomainId; 2] = [
+        "genesis".parse().dbg_unwrap(),
+        "garden_of_live_flowers".parse().dbg_unwrap(),
+    ];
+
     for account in accounts_cursor {
         let account = account.dbg_unwrap();
+
+        if bad_domain_ids.contains(account.id().domain_id()) {
+            continue;
+        }
 
         let mut metadata = Metadata::new();
         let name = format!(
@@ -43,8 +52,10 @@ fn main(_owner: AccountId, _event: Event) {
         let account_nft_id = AssetId::new(nft_id, account.id().clone());
         let account_nft = Asset::new(account_nft_id, Metadata::new());
 
-        RegisterExpr::new(nft_definition).execute().dbg_unwrap();
-        RegisterExpr::new(account_nft).execute().dbg_unwrap();
+        Register::asset_definition(nft_definition)
+            .execute()
+            .dbg_unwrap();
+        Register::asset(account_nft).execute().dbg_unwrap();
     }
 
     iroha_trigger::log::info!("Smart contract executed successfully");

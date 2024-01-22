@@ -69,10 +69,10 @@ pub mod model {
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct AssetDefinitionId {
-        /// Asset name.
-        pub name: Name,
         /// Domain id.
         pub domain_id: DomainId,
+        /// Asset name.
+        pub name: Name,
     }
 
     /// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
@@ -488,13 +488,14 @@ impl FromStr for AssetId {
                 if let Ok(def_id) = asset_definition_candidate.parse() {
                     def_id
                 } else if let Some((name, "")) = asset_definition_candidate.rsplit_once('#') {
-                    AssetDefinitionId::new(name.parse()
-                                      .map_err(|_e| ParseError {
-                                          reason: "The `name` part of the `definition_id` part of the `asset_id` failed to parse as a valid `Name`. You might have forbidden characters like `#` or `@` in the first part."
-                                      })?,
-                                      account_id.domain_id.clone())
+                    AssetDefinitionId::new(
+                        account_id.domain_id.clone(),
+                        name.parse().map_err(|_e| ParseError {
+                            reason: "The `name` part of the `definition_id` part of the `asset_id` failed to parse as a valid `Name`. You might have forbidden characters like `#` or `@` in the first part."
+                        })?
+                    )
                 } else {
-                    return Err(ParseError { reason: "The `definition_id` part of the `asset_id` failed to parse. Ensure that you have it in the right format: `name#domain_of_asset#account_name@domain_of_account`." });
+                    return Err(ParseError { reason: "The `definition_id` part of the `asset_id` failed to parse. Ensure that you have it in the right format: `name#domain_of_asset#account_name@domain_of_account` or `name##account_name@domain_of_account` in case of same domain" });
                 }
             };
             Ok(Self {
@@ -571,4 +572,14 @@ pub mod prelude {
         Asset, AssetDefinition, AssetDefinitionId, AssetId, AssetValue, AssetValueType, Mintable,
         NewAssetDefinition,
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_error_for_asset_id() {
+        let _invalid_asset_id = AssetId::from_str("store#alice@wonderland")
+            .expect_err("store#alice@wonderland should not be a valid AssetId");
+    }
 }

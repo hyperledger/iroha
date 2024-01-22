@@ -113,10 +113,6 @@ impl FromStr for Algorithm {
 
 /// Options for key generation
 #[cfg(not(feature = "ffi_import"))]
-#[cfg_attr(
-    any(not(feature = "std"), feature = "ffi_import"),
-    allow(unused_tuple_struct_fields)
-)]
 #[derive(Debug, Clone)]
 pub enum KeyGenOption {
     /// Use seed
@@ -367,10 +363,7 @@ impl FromStr for PublicKey {
 #[cfg(not(feature = "ffi_import"))]
 impl PublicKey {
     fn normalize(&self) -> String {
-        let multihash: &multihash::Multihash = &self
-            .clone()
-            .try_into()
-            .expect("Failed to get multihash representation.");
+        let multihash: &multihash::Multihash = &self.clone().into();
         let bytes = Vec::try_from(multihash).expect("Failed to convert multihash to bytes.");
 
         let mut bytes_iter = bytes.into_iter();
@@ -477,7 +470,6 @@ impl<'de> Deserialize<'de> for PrivateKey {
 }
 
 /// A session key derived from a key exchange. Will usually be used for a symmetric encryption afterwards
-#[allow(unused_tuple_struct_fields)]
 pub struct SessionKey(ConstVec<u8>);
 
 impl SessionKey {

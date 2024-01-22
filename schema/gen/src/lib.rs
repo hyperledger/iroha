@@ -66,13 +66,13 @@ types!(
     AccountEventFilter,
     AccountFilter,
     AccountId,
+    AccountMintBox,
     AccountPermissionChanged,
     AccountRoleChanged,
     Action<TriggeringFilterBox>,
-    Add,
     Algorithm,
-    And,
     Asset,
+    AssetBurnBox,
     AssetChanged,
     AssetDefinition,
     AssetDefinitionEvent,
@@ -85,6 +85,8 @@ types!(
     AssetEventFilter,
     AssetFilter,
     AssetId,
+    AssetMintBox,
+    AssetTransferBox,
     AssetValue,
     AssetValueType,
     AtIndex,
@@ -92,7 +94,6 @@ types!(
     BTreeMap<AssetDefinitionId, AssetDefinition>,
     BTreeMap<AssetDefinitionId, NumericValue>,
     BTreeMap<AssetId, Asset>,
-    BTreeMap<Name, EvaluatesTo<Value>>,
     BTreeMap<Name, Value>,
     BTreeSet<PermissionToken>,
     BTreeSet<PublicKey>,
@@ -104,55 +105,32 @@ types!(
     BlockMessage,
     BlockRejectionReason,
     BlockSubscriptionRequest,
-    Box<FindError>,
     Box<GenericPredicateBox<ValuePredicate>>,
-    Box<PairExpr>,
     Box<Value>,
     Box<ValuePredicate>,
-    BurnExpr,
-    ConditionalExpr,
+    BurnBox,
     ConfigurationEvent,
     ConstString,
     Container,
-    Contains,
-    ContainsAll,
-    ContainsAny,
-    ContextValue,
     DataEntityFilter,
     DataEvent,
     DataEventFilter,
-    Divide,
     Domain,
     DomainEvent,
     DomainEventFilter,
     DomainFilter,
     DomainId,
     Duration,
-    Equal,
-    EvaluatesTo<AccountId>,
-    EvaluatesTo<AssetDefinitionId>,
-    EvaluatesTo<AssetId>,
-    EvaluatesTo<DomainId>,
-    EvaluatesTo<IdBox>,
-    EvaluatesTo<Name>,
-    EvaluatesTo<NumericValue>,
-    EvaluatesTo<Parameter>,
-    EvaluatesTo<RegistrableBox>,
-    EvaluatesTo<RoleId>,
-    EvaluatesTo<TriggerId>,
-    EvaluatesTo<UpgradableBox>,
-    EvaluatesTo<Value>,
-    EvaluatesTo<Vec<Value>>,
-    EvaluatesTo<bool>,
     Event,
     EventMessage,
     EventSubscriptionRequest,
     Executable,
-    ExecuteTriggerExpr,
+    ExecuteTrigger,
     ExecuteTriggerEvent,
     ExecuteTriggerEventFilter,
     ExecutionTime,
-    Expression,
+    Executor,
+    ExecutorEvent,
     Fail,
     FilterBox,
     FilterOpt<AccountEventFilter>,
@@ -220,16 +198,14 @@ types!(
     FixNum,
     Fixed,
     ForwardCursor,
-    GrantExpr,
-    Greater,
+    GrantBox,
     Hash,
     HashOf<MerkleTree<SignedTransaction>>,
     HashOf<SignedBlock>,
     HashOf<SignedTransaction>,
     IdBox,
     IdentifiableBox,
-    If,
-    InstructionExpr,
+    InstructionBox,
     InstructionExecutionFail,
     Interval<u16>,
     Interval<u8>,
@@ -239,7 +215,6 @@ types!(
     Ipv6Addr,
     Ipv6Predicate,
     LengthLimits,
-    Less,
     MerkleTree<SignedTransaction>,
     Metadata,
     MetadataChanged<AccountId>,
@@ -247,19 +222,16 @@ types!(
     MetadataChanged<AssetId>,
     MetadataChanged<DomainId>,
     MetadataLimits,
-    MintExpr,
+    MintBox,
     Mintable,
-    Mod,
-    Multiply,
     Name,
     NewAccount,
     NewAssetDefinition,
     NewDomain,
-    NewParameterExpr,
+    NewParameter,
     NewRole,
     NonTrivial<PredicateBox>,
     NonZeroU64,
-    Not,
     NotificationEventFilter,
     NumericValue,
     Option<DomainId>,
@@ -267,7 +239,6 @@ types!(
     Option<Hash>,
     Option<HashOf<MerkleTree<SignedTransaction>>>,
     Option<HashOf<SignedBlock>>,
-    Option<InstructionExpr>,
     Option<IpfsPath>,
     Option<PipelineEntityKind>,
     Option<PipelineStatusKind>,
@@ -275,7 +246,6 @@ types!(
     Option<TimeInterval>,
     Option<TriggerCompletedOutcomeType>,
     Option<TriggerId>,
-    Or,
     OriginFilter<AccountEvent>,
     OriginFilter<AssetDefinitionEvent>,
     OriginFilter<AssetEvent>,
@@ -283,7 +253,6 @@ types!(
     OriginFilter<PeerEvent>,
     OriginFilter<RoleEvent>,
     OriginFilter<TriggerEvent>,
-    PairExpr,
     Parameter,
     ParameterId,
     Peer,
@@ -306,12 +275,11 @@ types!(
     QueryBox,
     QueryExecutionFail,
     QueryPayload,
-    RaiseTo,
-    RegisterExpr,
+    RegisterBox,
     RegistrableBox,
-    RemoveKeyValueExpr,
+    RemoveKeyValueBox,
     Repeats,
-    RevokeExpr,
+    RevokeBox,
     Role,
     RoleEvent,
     RoleEventFilter,
@@ -321,9 +289,8 @@ types!(
     SemiInterval<u128>,
     SemiInterval<u32>,
     SemiRange,
-    SequenceExpr,
-    SetKeyValueExpr,
-    SetParameterExpr,
+    SetKeyValueBox,
+    SetParameter,
     Signature,
     SignatureCheckCondition,
     SignatureOf<QueryPayload>,
@@ -339,7 +306,6 @@ types!(
     SignedTransactionV1,
     String,
     StringPredicate,
-    Subtract,
     TimeEvent,
     TimeEventFilter,
     TimeInterval,
@@ -350,7 +316,7 @@ types!(
     TransactionQueryOutput,
     TransactionRejectionReason,
     TransactionValue,
-    TransferExpr,
+    TransferBox,
     Trigger<TriggeringFilterBox>,
     TriggerCompletedEventFilter,
     TriggerCompletedOutcomeType,
@@ -360,16 +326,14 @@ types!(
     TriggerId,
     TriggerNumberOfExecutionsChanged,
     TriggeringFilterBox,
-    UnregisterExpr,
+    UnregisterBox,
     UpgradableBox,
     ValidationFail,
-    Executor,
-    ExecutorEvent,
     Value,
     ValueOfKey,
     ValuePredicate,
     Vec<Event>,
-    Vec<InstructionExpr>,
+    Vec<InstructionBox>,
     Vec<PeerId>,
     Vec<PredicateBox>,
     Vec<SignedTransaction>,
@@ -377,7 +341,6 @@ types!(
     Vec<u8>,
     WasmExecutionFail,
     WasmSmartContract,
-    Where,
     [Interval<u16>; 8],
     [Interval<u8>; 4],
     [u16; 8],
@@ -465,40 +428,18 @@ mod tests {
         let mut missing_schemas = HashMap::<&str, _>::new();
 
         for type_name in type_names {
-            if let (Some(mut start), Some(end)) = (type_name.find('<'), type_name.rfind('>')) {
-                start += 1;
+            let (Some(start), Some(end)) = (type_name.find('<'), type_name.rfind('>')) else {
+                continue;
+            };
 
-                let mut angle_bracket_diff = 0_u8;
-                for (i, c) in type_name[start..end].chars().enumerate() {
-                    if c == '<' {
-                        angle_bracket_diff += 1_u8;
-                    }
-                    if c == '>' {
-                        angle_bracket_diff -= 1_u8;
-                    }
+            assert!(start < end, "Invalid type name: {type_name}");
 
-                    if c == ',' && angle_bracket_diff == 0_u8 {
-                        let generic = type_name[start..(start + i)].trim();
-
-                        start += i + 1;
-                        if !is_const_generic(generic) {
-                            continue;
-                        }
-
-                        if !type_names.contains(generic) {
-                            missing_schemas
-                                .entry(type_name)
-                                .or_insert_with(Vec::new)
-                                .push(generic);
-                        }
-                    }
+            for generic in type_name.split(", ") {
+                if !is_const_generic(generic) {
+                    continue;
                 }
 
-                let generic = type_name[start..end].trim();
-                if !generic.is_empty()
-                    && !is_const_generic(generic)
-                    && !type_names.contains(generic)
-                {
+                if !type_names.contains(generic) {
                     missing_schemas
                         .entry(type_name)
                         .or_insert_with(Vec::new)

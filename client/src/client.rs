@@ -13,18 +13,17 @@ use derive_more::{DebugCustom, Display};
 use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
-use iroha_config::{client::Configuration, torii::uri, GetConfiguration, PostConfiguration};
-use iroha_crypto::{HashOf, KeyPair};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
 use parity_scale_codec::DecodeAll;
 use rand::Rng;
-use serde::de::DeserializeOwned;
 use url::Url;
 
 use self::{blocks_api::AsyncBlockStream, events_api::AsyncEventStream};
 use crate::{
+    config::{api::ConfigurationDTO, Configuration},
+    crypto::{HashOf, KeyPair},
     data_model::{
         block::SignedBlock,
         isi::Instruction,
@@ -32,7 +31,7 @@ use crate::{
         prelude::*,
         query::{Pagination, Query, Sorting},
         transaction::TransactionPayload,
-        BatchedResponse, ValidationFail,
+        BatchedResponse, ChainId, ValidationFail,
     },
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
@@ -70,15 +69,15 @@ pub trait Sign {
     /// Fails if signature creation fails
     fn sign(
         self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::error::Error>;
+        key_pair: crate::crypto::KeyPair,
+    ) -> Result<SignedTransaction, crate::crypto::error::Error>;
 }
 
 impl Sign for TransactionBuilder {
     fn sign(
         self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
+        key_pair: crate::crypto::KeyPair,
+    ) -> Result<SignedTransaction, crate::crypto::error::Error> {
         self.sign(key_pair)
     }
 }
@@ -86,8 +85,8 @@ impl Sign for TransactionBuilder {
 impl Sign for SignedTransaction {
     fn sign(
         self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
+        key_pair: crate::crypto::KeyPair,
+    ) -> Result<SignedTransaction, crate::crypto::error::Error> {
         self.sign(key_pair)
     }
 }
@@ -345,6 +344,8 @@ impl_query_output! {
 )]
 #[display(fmt = "{}@{torii_url}", "key_pair.public_key()")]
 pub struct Client {
+    /// Unique id of the blockchain. Used for simple replay attack protection.
+    pub chain_id: ChainId,
     /// Url for accessing iroha node
     pub torii_url: Url,
     /// Accounts keypair
@@ -373,7 +374,7 @@ pub struct QueryRequest {
 impl QueryRequest {
     #[cfg(test)]
     fn dummy() -> Self {
-        let torii_url = iroha_config::torii::uri::DEFAULT_API_ADDR;
+        let torii_url = crate::config::torii::DEFAULT_API_ADDR;
 
         Self {
             torii_url: format!("http://{torii_url}").parse().unwrap(),
@@ -392,7 +393,9 @@ impl QueryRequest {
     fn assemble(self) -> DefaultRequestBuilder {
         let builder = DefaultRequestBuilder::new(
             HttpMethod::POST,
-            self.torii_url.join(uri::QUERY).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::QUERY)
+                .expect("Valid URI"),
         )
         .headers(self.headers);
 
@@ -439,6 +442,7 @@ impl Client {
         }
 
         Ok(Self {
+            chain_id: configuration.chain_id.clone(),
             torii_url: configuration.torii_api_url.clone(),
             key_pair: KeyPair::new(
                 configuration.public_key.clone(),
@@ -465,7 +469,7 @@ impl Client {
         instructions: impl Into<Executable>,
         metadata: UnlimitedMetadata,
     ) -> Result<SignedTransaction> {
-        let tx_builder = TransactionBuilder::new(self.account_id.clone());
+        let tx_builder = TransactionBuilder::new(self.chain_id.clone(), self.account_id.clone());
 
         let mut tx_builder = match instructions.into() {
             Executable::Instructions(instructions) => tx_builder.with_instructions(instructions),
@@ -683,7 +687,9 @@ impl Client {
         (
             B::new(
                 HttpMethod::POST,
-                self.torii_url.join(uri::TRANSACTION).expect("Valid URI"),
+                self.torii_url
+                    .join(crate::config::torii::TRANSACTION)
+                    .expect("Valid URI"),
             )
             .headers(self.headers.clone())
             .body(transaction_bytes),
@@ -753,7 +759,7 @@ impl Client {
     ///
     /// ```ignore
     /// use eyre::Result;
-    /// use iroha_client::{
+    /// use crate::{
     ///     data_model::{predicate::PredicateBox, prelude::{Account, FindAllAccounts, Pagination}},
     ///     client::Client,
     ///     http::{RequestBuilder, Response, Method},
@@ -952,7 +958,9 @@ impl Client {
         events_api::flow::Init::new(
             event_filter,
             self.headers.clone(),
-            self.torii_url.join(uri::SUBSCRIPTION).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::SUBSCRIPTION)
+                .expect("Valid URI"),
         )
     }
 
@@ -986,7 +994,9 @@ impl Client {
         blocks_api::flow::Init::new(
             height,
             self.headers.clone(),
-            self.torii_url.join(uri::BLOCKS_STREAM).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::BLOCKS_STREAM)
+                .expect("Valid URI"),
         )
     }
 
@@ -1019,7 +1029,7 @@ impl Client {
             let response = DefaultRequestBuilder::new(
                 HttpMethod::GET,
                 self.torii_url
-                    .join(uri::PENDING_TRANSACTIONS)
+                    .join(crate::config::torii::PENDING_TRANSACTIONS)
                     .expect("Valid URI"),
             )
             .params(pagination.clone())
@@ -1073,13 +1083,19 @@ impl Client {
         )
     }
 
-    fn get_config<T: DeserializeOwned>(&self, get_config: &GetConfiguration) -> Result<T> {
+    /// Get value of config on peer
+    ///
+    /// # Errors
+    /// Fails if sending request or decoding fails
+    pub fn get_config(&self) -> Result<ConfigurationDTO> {
         let resp = DefaultRequestBuilder::new(
             HttpMethod::GET,
-            self.torii_url.join(uri::CONFIGURATION).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::CONFIGURATION)
+                .expect("Valid URI"),
         )
+        .headers(&self.headers)
         .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
-        .body(serde_json::to_vec(get_config).wrap_err("Failed to serialize")?)
         .build()?
         .send()?;
 
@@ -1097,44 +1113,28 @@ impl Client {
     ///
     /// # Errors
     /// If sending request or decoding fails
-    pub fn set_config(&self, post_config: PostConfiguration) -> Result<bool> {
-        let body = serde_json::to_vec(&post_config)
-            .wrap_err(format!("Failed to serialize {post_config:?}"))?;
-        let url = self.torii_url.join(uri::CONFIGURATION).expect("Valid URI");
+    pub fn set_config(&self, dto: ConfigurationDTO) -> Result<()> {
+        let body = serde_json::to_vec(&dto).wrap_err(format!("Failed to serialize {dto:?}"))?;
+        let url = self
+            .torii_url
+            .join(crate::config::torii::CONFIGURATION)
+            .expect("Valid URI");
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
+            .headers(&self.headers)
             .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
             .body(body)
             .build()?
             .send()?;
 
-        if resp.status() != StatusCode::OK {
+        if resp.status() != StatusCode::ACCEPTED {
             return Err(eyre!(
                 "Failed to post configuration with HTTP status: {}. {}",
                 resp.status(),
                 std::str::from_utf8(resp.body()).unwrap_or(""),
             ));
-        }
-        serde_json::from_slice(resp.body())
-            .wrap_err(format!("Failed to decode body {:?}", resp.body()))
-    }
+        };
 
-    /// Get documentation of some field on config
-    ///
-    /// # Errors
-    /// Fails if sending request or decoding fails
-    pub fn get_config_docs(&self, field: &[&str]) -> Result<Option<String>> {
-        let field = field.iter().copied().map(ToOwned::to_owned).collect();
-        self.get_config(&GetConfiguration::Docs(field))
-            .wrap_err("Failed to get docs for field")
-    }
-
-    /// Get value of config on peer
-    ///
-    /// # Errors
-    /// Fails if sending request or decoding fails
-    pub fn get_config_value(&self) -> Result<serde_json::Value> {
-        self.get_config(&GetConfiguration::Value)
-            .wrap_err("Failed to get configuration value")
+        Ok(())
     }
 
     /// Gets network status seen from the peer
@@ -1156,7 +1156,9 @@ impl Client {
     pub fn prepare_status_request<B: RequestBuilder>(&self) -> B {
         B::new(
             HttpMethod::GET,
-            self.torii_url.join(uri::STATUS).expect("Valid URI"),
+            self.torii_url
+                .join(crate::config::torii::STATUS)
+                .expect("Valid URI"),
         )
         .headers(self.headers.clone())
     }
@@ -1490,14 +1492,12 @@ pub mod account {
     }
 
     /// Construct a query to get account by id
-    pub fn by_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindAccountById {
+    pub fn by_id(account_id: AccountId) -> FindAccountById {
         FindAccountById::new(account_id)
     }
 
     /// Construct a query to get all accounts containing specified asset
-    pub fn all_with_asset(
-        asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
-    ) -> FindAccountsWithAsset {
+    pub fn all_with_asset(asset_definition_id: AssetDefinitionId) -> FindAccountsWithAsset {
         FindAccountsWithAsset::new(asset_definition_id)
     }
 }
@@ -1517,19 +1517,17 @@ pub mod asset {
     }
 
     /// Construct a query to get asset definition by its id
-    pub fn definition_by_id(
-        asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
-    ) -> FindAssetDefinitionById {
+    pub fn definition_by_id(asset_definition_id: AssetDefinitionId) -> FindAssetDefinitionById {
         FindAssetDefinitionById::new(asset_definition_id)
     }
 
     /// Construct a query to get all assets by account id
-    pub fn by_account_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindAssetsByAccountId {
+    pub fn by_account_id(account_id: AccountId) -> FindAssetsByAccountId {
         FindAssetsByAccountId::new(account_id)
     }
 
     /// Construct a query to get an asset by its id
-    pub fn by_id(asset_id: impl Into<EvaluatesTo<AssetId>>) -> FindAssetById {
+    pub fn by_id(asset_id: AssetId) -> FindAssetById {
         FindAssetById::new(asset_id)
     }
 }
@@ -1550,9 +1548,7 @@ pub mod block {
     }
 
     /// Construct a query to find block header by hash
-    pub fn header_by_hash(
-        hash: impl Into<EvaluatesTo<HashOf<SignedBlock>>>,
-    ) -> FindBlockHeaderByHash {
+    pub fn header_by_hash(hash: HashOf<SignedBlock>) -> FindBlockHeaderByHash {
         FindBlockHeaderByHash::new(hash)
     }
 }
@@ -1567,7 +1563,7 @@ pub mod domain {
     }
 
     /// Construct a query to get all domain by id
-    pub fn by_id(domain_id: impl Into<EvaluatesTo<DomainId>>) -> FindDomainById {
+    pub fn by_id(domain_id: DomainId) -> FindDomainById {
         FindDomainById::new(domain_id)
     }
 }
@@ -1583,16 +1579,12 @@ pub mod transaction {
     }
 
     /// Construct a query to retrieve transactions for account
-    pub fn by_account_id(
-        account_id: impl Into<EvaluatesTo<AccountId>>,
-    ) -> FindTransactionsByAccountId {
+    pub fn by_account_id(account_id: AccountId) -> FindTransactionsByAccountId {
         FindTransactionsByAccountId::new(account_id)
     }
 
     /// Construct a query to retrieve transaction by hash
-    pub fn by_hash(
-        hash: impl Into<EvaluatesTo<HashOf<SignedTransaction>>>,
-    ) -> FindTransactionByHash {
+    pub fn by_hash(hash: HashOf<SignedTransaction>) -> FindTransactionByHash {
         FindTransactionByHash::new(hash)
     }
 }
@@ -1602,7 +1594,7 @@ pub mod trigger {
     use super::*;
 
     /// Construct a query to get triggers by domain id
-    pub fn by_domain_id(domain_id: impl Into<EvaluatesTo<DomainId>>) -> FindTriggersByDomainId {
+    pub fn by_domain_id(domain_id: DomainId) -> FindTriggersByDomainId {
         FindTriggersByDomainId::new(domain_id)
     }
 }
@@ -1618,10 +1610,8 @@ pub mod permission {
 
     /// Construct a query to get all [`PermissionToken`] granted
     /// to account with given [`Id`][AccountId]
-    pub fn by_account_id(
-        account_id: impl Into<EvaluatesTo<AccountId>>,
-    ) -> FindPermissionTokensByAccountId {
-        FindPermissionTokensByAccountId::new(account_id.into())
+    pub fn by_account_id(account_id: AccountId) -> FindPermissionTokensByAccountId {
+        FindPermissionTokensByAccountId::new(account_id)
     }
 }
 
@@ -1640,12 +1630,12 @@ pub mod role {
     }
 
     /// Construct a query to retrieve a role by its id
-    pub fn by_id(role_id: impl Into<EvaluatesTo<RoleId>>) -> FindRoleByRoleId {
+    pub fn by_id(role_id: RoleId) -> FindRoleByRoleId {
         FindRoleByRoleId::new(role_id)
     }
 
     /// Construct a query to retrieve all roles for an account
-    pub fn by_account_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindRolesByAccountId {
+    pub fn by_account_id(account_id: AccountId) -> FindRolesByAccountId {
         FindRolesByAccountId::new(account_id)
     }
 }
@@ -1664,13 +1654,10 @@ pub mod parameter {
 mod tests {
     use std::str::FromStr;
 
-    use iroha_config::{
-        client::{BasicAuth, ConfigurationProxy, WebLogin},
-        torii::uri::DEFAULT_API_ADDR,
-    };
     use iroha_primitives::small::SmallStr;
 
     use super::*;
+    use crate::config::{torii::DEFAULT_API_ADDR, BasicAuth, ConfigurationProxy, WebLogin};
 
     const LOGIN: &str = "mad_hatter";
     const PASSWORD: &str = "ilovetea";
@@ -1682,6 +1669,7 @@ mod tests {
         let (public_key, private_key) = KeyPair::generate().unwrap().into();
 
         let cfg = ConfigurationProxy {
+            chain_id: Some(ChainId::new("0")),
             public_key: Some(public_key),
             private_key: Some(private_key),
             account_id: Some(
@@ -1699,20 +1687,29 @@ mod tests {
 
         let build_transaction = || {
             client
-                .build_transaction(Vec::<InstructionExpr>::new(), UnlimitedMetadata::new())
+                .build_transaction(Vec::<InstructionBox>::new(), UnlimitedMetadata::new())
                 .unwrap()
         };
         let tx1 = build_transaction();
-        let mut tx2 = build_transaction();
+        let tx2 = build_transaction();
         assert_ne!(tx1.payload().hash(), tx2.payload().hash());
 
-        tx2.payload_mut().creation_time_ms = tx1
-            .payload()
-            .creation_time()
-            .as_millis()
-            .try_into()
-            .expect("Valid");
-        tx2.payload_mut().nonce = tx1.payload().nonce;
+        let tx2 = {
+            let mut tx =
+                TransactionBuilder::new(client.chain_id.clone(), client.account_id.clone())
+                    .with_executable(tx1.payload().instructions.clone())
+                    .with_metadata(tx1.payload().metadata.clone());
+
+            tx.set_creation_time(tx1.payload().creation_time_ms);
+            if let Some(nonce) = tx1.payload().nonce {
+                tx.set_nonce(nonce);
+            }
+            if let Some(transaction_ttl) = client.transaction_ttl {
+                tx.set_ttl(transaction_ttl);
+            }
+
+            client.sign_transaction(tx).unwrap()
+        };
         assert_eq!(tx1.payload().hash(), tx2.payload().hash());
     }
 
@@ -1724,13 +1721,14 @@ mod tests {
         };
 
         let cfg = ConfigurationProxy {
+            chain_id: Some(ChainId::new("0")),
             public_key: Some(
                 "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
                     .parse()
                     .expect("Public key not in mulithash format"),
             ),
-            private_key: Some(iroha_crypto::PrivateKey::from_hex(
-            iroha_crypto::Algorithm::Ed25519,
+            private_key: Some(crate::crypto::PrivateKey::from_hex(
+            crate::crypto::Algorithm::Ed25519,
             "9AC47ABF59B356E0BD7DCBBBB4DEC080E302156A48CA907E47CB6AEA1D32719E7233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
             ).expect("Private key not hex encoded")),
             account_id: Some(
@@ -1772,13 +1770,6 @@ mod tests {
                     )),
                 ),
                 (StatusCode::UNPROCESSABLE_ENTITY, ValidationFail::TooComplex),
-                (
-                    StatusCode::NOT_FOUND,
-                    // Here should be `Find`, but actually handler doesn't care
-                    ValidationFail::QueryFailed(QueryExecutionFail::Evaluate(
-                        "whatever".to_owned(),
-                    )),
-                ),
             ];
             for (status_code, err) in responses {
                 let resp = Response::builder().status(status_code).body(err.encode())?;

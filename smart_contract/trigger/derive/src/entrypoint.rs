@@ -1,6 +1,10 @@
 //! Module wht [`main`](super::main) macro implementation
 
-use super::*;
+use iroha_macro_utils::Emitter;
+use manyhow::emit;
+use proc_macro2::TokenStream;
+use quote::quote;
+use syn2::parse_quote;
 
 mod export {
     pub const TRIGGER_MAIN: &str = "_iroha_trigger_main";
@@ -8,18 +12,21 @@ mod export {
 
 /// [`main`](super::main()) macro implementation
 #[allow(clippy::needless_pass_by_value)]
-pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let syn::ItemFn {
+pub fn impl_entrypoint(emitter: &mut Emitter, item: syn2::ItemFn) -> TokenStream {
+    let syn2::ItemFn {
         attrs,
         vis,
         sig,
         mut block,
-    } = parse_macro_input!(item);
+    } = item;
 
-    assert!(
-        syn::ReturnType::Default == sig.output,
-        "Trigger `main()` function must not have a return type"
-    );
+    if sig.output != syn2::ReturnType::Default {
+        emit!(
+            emitter,
+            sig.output,
+            "Trigger `main()` function must not have a return type"
+        )
+    }
 
     let fn_name = &sig.ident;
 
@@ -32,7 +39,7 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
         ),
     );
 
-    let main_fn_name = syn::Ident::new(export::TRIGGER_MAIN, proc_macro2::Span::call_site());
+    let main_fn_name = syn2::Ident::new(export::TRIGGER_MAIN, proc_macro2::Span::call_site());
 
     quote! {
         /// Smart contract entrypoint
@@ -50,5 +57,4 @@ pub fn impl_entrypoint(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #vis #sig
         #block
     }
-    .into()
 }

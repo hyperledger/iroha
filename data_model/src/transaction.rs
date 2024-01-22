@@ -22,10 +22,10 @@ use serde::{Deserialize, Serialize};
 pub use self::model::*;
 use crate::{
     account::AccountId,
-    isi::{Instruction, InstructionExpr},
+    isi::{Instruction, InstructionBox},
     metadata::UnlimitedMetadata,
     name::Name,
-    Value,
+    ChainId, Value,
 };
 
 #[model]
@@ -51,7 +51,7 @@ pub mod model {
     pub enum Executable {
         /// Ordered set of instructions.
         #[debug(fmt = "{_0:?}")]
-        Instructions(Vec<InstructionExpr>),
+        Instructions(Vec<InstructionBox>),
         /// WebAssembly smartcontract
         Wasm(WasmSmartContract),
     }
@@ -101,6 +101,9 @@ pub mod model {
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct TransactionPayload {
+        /// Unique id of the blockchain. Used for simple replay attack protection.
+        #[getset(skip)]
+        pub chain_id: ChainId,
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
         pub creation_time_ms: u64,
@@ -160,12 +163,11 @@ pub mod model {
     #[cfg_attr(not(feature = "std"), display(fmt = "Signed transaction"))]
     #[cfg_attr(feature = "std", display(fmt = "{}", "self.hash()"))]
     #[ffi_type]
-    // TODO: All fields in this struct should be private
     pub struct SignedTransactionV1 {
         /// [`iroha_crypto::SignatureOf`]<[`TransactionPayload`]>.
-        pub signatures: SignaturesOf<TransactionPayload>,
+        pub(super) signatures: SignaturesOf<TransactionPayload>,
         /// [`Transaction`] payload.
-        pub payload: TransactionPayload,
+        pub(super) payload: TransactionPayload,
     }
 
     /// Transaction Value used in Instructions and Queries
@@ -262,21 +264,6 @@ impl SignedTransaction {
     pub fn payload(&self) -> &TransactionPayload {
         let SignedTransaction::V1(tx) = self;
         &tx.payload
-    }
-
-    /// Used to inject faulty payload for testing
-    #[cfg(feature = "transparent_api")]
-    pub fn payload_mut(&mut self) -> &mut TransactionPayload {
-        let SignedTransaction::V1(tx) = self;
-        &mut tx.payload
-    }
-
-    /// Used to inject faulty payload for testing
-    #[cfg(debug_assertions)]
-    #[cfg(not(feature = "transparent_api"))]
-    pub fn payload_mut(&mut self) -> &mut TransactionPayload {
-        let SignedTransaction::V1(tx) = self;
-        &mut tx.payload
     }
 
     /// Return transaction signatures
@@ -533,7 +520,7 @@ pub mod error {
         pub struct InstructionExecutionFail {
             /// Instruction for which execution failed
             #[getset(get = "pub")]
-            pub instruction: InstructionExpr,
+            pub instruction: InstructionBox,
             /// Error which happened during execution
             pub reason: String,
         }
@@ -611,15 +598,12 @@ pub mod error {
 
     impl Display for InstructionExecutionFail {
         fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-            use InstructionExpr::*;
+            use InstructionBox::*;
             let kind = match self.instruction {
                 Burn(_) => "burn",
                 Fail(_) => "fail",
-                If(_) => "if",
                 Mint(_) => "mint",
-                Pair(_) => "pair",
                 Register(_) => "register",
-                Sequence(_) => "sequence",
                 Transfer(_) => "transfer",
                 Unregister(_) => "un-register",
                 SetKeyValue(_) => "set key-value pair",
@@ -679,7 +663,7 @@ mod http {
         /// Construct [`Self`].
         #[inline]
         #[cfg(feature = "std")]
-        pub fn new(authority: AccountId) -> Self {
+        pub fn new(chain_id: ChainId, authority: AccountId) -> Self {
             let creation_time_ms = crate::current_time()
                 .as_millis()
                 .try_into()
@@ -687,11 +671,12 @@ mod http {
 
             Self {
                 payload: TransactionPayload {
+                    chain_id,
                     authority,
                     creation_time_ms,
                     nonce: None,
                     time_to_live_ms: None,
-                    instructions: Vec::<InstructionExpr>::new().into(),
+                    instructions: Vec::<InstructionBox>::new().into(),
                     metadata: UnlimitedMetadata::new(),
                 },
             }
@@ -707,7 +692,7 @@ mod http {
             self.payload.instructions = instructions
                 .into_iter()
                 .map(Into::into)
-                .collect::<Vec<InstructionExpr>>()
+                .collect::<Vec<InstructionBox>>()
                 .into();
             self
         }
@@ -715,6 +700,12 @@ mod http {
         /// Add wasm to this transaction
         pub fn with_wasm(mut self, wasm: WasmSmartContract) -> Self {
             self.payload.instructions = wasm.into();
+            self
+        }
+
+        /// Set executable for this transaction
+        pub fn with_executable(mut self, executable: Executable) -> Self {
+            self.payload.instructions = executable;
             self
         }
 
@@ -744,6 +735,12 @@ mod http {
                 Some(NonZeroU64::new(ttl).expect("Can't be 0"))
             };
 
+            self
+        }
+
+        /// Set creation time of transaction
+        pub fn set_creation_time(&mut self, creation_time_ms: u64) -> &mut Self {
+            self.payload.creation_time_ms = creation_time_ms;
             self
         }
 

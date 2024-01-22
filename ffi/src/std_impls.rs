@@ -1,12 +1,11 @@
-// Triggered by `&mut str` expansion
-#![allow(clippy::mut_mut, single_use_lifetimes)]
+#![allow(single_use_lifetimes)] // NOTE: Triggered by &str implementation
 
-use alloc::{string::String, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use core::{mem::ManuallyDrop, ptr::NonNull};
 
 use crate::{
     ffi_type,
-    slice::{SliceMut, SliceRef},
+    slice::{RefMutSlice, RefSlice},
     ReprC, WrapperTypeOf,
 };
 
@@ -18,17 +17,25 @@ ffi_type! {
         type Target = Vec<u8>;
 
         validation_fn=unsafe {|target| core::str::from_utf8(target).is_ok()},
-        niche_value=SliceMut::null_mut()
+        niche_value=RefMutSlice::null_mut()
     }
 }
 // NOTE: `core::str::as_bytes` uses transmute internally which means that
 // even though it's a string slice it can be transmuted into byte slice.
 ffi_type! {
+    unsafe impl Transparent for Box<str> {
+        type Target = Box<[u8]>;
+
+        validation_fn=unsafe {|target| core::str::from_utf8(target).is_ok()},
+        niche_value=RefMutSlice::null_mut()
+    }
+}
+ffi_type! {
     unsafe impl<'slice> Transparent for &'slice str {
         type Target = &'slice [u8];
 
         validation_fn=unsafe {|target| core::str::from_utf8(target).is_ok()},
-        niche_value=SliceRef::null()
+        niche_value=RefSlice::null()
     }
 }
 #[cfg(feature = "non_robust_ref_mut")]
@@ -37,7 +44,7 @@ ffi_type! {
         type Target = &'slice mut [u8];
 
         validation_fn=unsafe {|target| core::str::from_utf8(target).is_ok()},
-        niche_value=SliceMut::null_mut()
+        niche_value=RefMutSlice::null_mut()
     }
 }
 ffi_type! {

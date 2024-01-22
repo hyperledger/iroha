@@ -223,7 +223,7 @@ pub struct LocalRef<'data, R>(R, core::marker::PhantomData<&'data ()>);
 /// ```
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct LocalSlice<'data, R>(alloc::vec::Vec<R>, core::marker::PhantomData<&'data ()>);
+pub struct LocalSlice<'data, R>(alloc::boxed::Box<[R]>, core::marker::PhantomData<&'data ()>);
 
 /// Result of execution of an FFI function
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
@@ -329,6 +329,7 @@ macro_rules! ffi_type {
             type Target = $target;
 
             #[inline]
+            #[allow(clippy::redundant_closure_call)]
             unsafe fn is_valid(target: &Self::Target) -> bool {
                 $validity_fn(target)
             }
@@ -414,6 +415,7 @@ pub struct Extern {
 /// ```
 pub trait WrapperTypeOf<T> {
     /// Correct return type of `T` in a function generated via [`ffi_import`]
+    // TODO: Is associated type necessary if we already have a generic?
     type Type;
 }
 

@@ -1,8 +1,9 @@
 //! This module contains [`struct@Configuration`] structure and related implementation.
 use std::fmt::Debug;
 
-use iroha_config_base::derive::{view, Documented, Error as ConfigError, Proxy};
+use iroha_config_base::derive::{view, Error as ConfigError, Proxy};
 use iroha_crypto::prelude::*;
+use iroha_data_model::ChainId;
 use serde::{Deserialize, Serialize};
 
 use super::*;
@@ -10,18 +11,19 @@ use super::*;
 // Generate `ConfigurationView` without the private key
 view! {
     /// Configuration parameters for a peer
-    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy, Documented)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Proxy)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_")]
     pub struct Configuration {
+        /// Unique id of the blockchain. Used for simple replay attack protection.
+        #[config(serde_as_str)]
+        pub chain_id: ChainId,
         /// Public key of this peer
         #[config(serde_as_str)]
         pub public_key: PublicKey,
         /// Private key of this peer
         #[view(ignore)]
         pub private_key: PrivateKey,
-        /// Disable coloring of the backtrace and error report on panic
-        pub disable_panic_terminal_colors: bool,
         /// `Kura` configuration
         #[config(inner)]
         pub kura: Box<kura::Configuration>,
@@ -66,9 +68,9 @@ view! {
 impl Default for ConfigurationProxy {
     fn default() -> Self {
         Self {
+            chain_id: None,
             public_key: None,
             private_key: None,
-            disable_panic_terminal_colors: Some(bool::default()),
             kura: Some(Box::default()),
             sumeragi: Some(Box::default()),
             torii: Some(Box::default()),
@@ -144,11 +146,8 @@ impl ConfigurationProxy {
                     message: "Torii config should have at least `p2p_addr` provided for sumeragi finalisation",
                 });
             }
-            // Finally, if trusted peers were not supplied, we can fall back to inserting itself as
-            // the only trusted one
-            if sumeragi_proxy.trusted_peers.is_none() {
-                sumeragi_proxy.insert_self_as_trusted_peers()
-            }
+
+            sumeragi_proxy.insert_self_as_trusted_peers()
         }
 
         Ok(())
@@ -171,7 +170,9 @@ impl ConfigurationProxy {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    use std::path::PathBuf;
+
     use proptest::prelude::*;
 
     use super::*;
@@ -204,10 +205,14 @@ mod tests {
             .boxed()
     }
 
+    pub fn placeholder_chain_id() -> ChainId {
+        ChainId::new("0")
+    }
+
     prop_compose! {
         fn arb_proxy()(
+            chain_id in prop::option::of(Just(placeholder_chain_id())),
             (public_key, private_key) in arb_keys(),
-            disable_panic_terminal_colors in prop::option::of(Just(true)),
             kura in prop::option::of(kura::tests::arb_proxy().prop_map(Box::new)),
             sumeragi in (prop::option::of(sumeragi::tests::arb_proxy().prop_map(Box::new))),
             torii in (prop::option::of(torii::tests::arb_proxy().prop_map(Box::new))),
@@ -221,7 +226,7 @@ mod tests {
             snapshot in prop::option::of(snapshot::tests::arb_proxy().prop_map(Box::new)),
             live_query_store in prop::option::of(live_query_store::tests::arb_proxy()),
             ) -> ConfigurationProxy {
-            ConfigurationProxy { public_key, private_key, disable_panic_terminal_colors, kura, sumeragi, torii, block_sync, queue,
+            ConfigurationProxy { chain_id, public_key, private_key, kura, sumeragi, torii, block_sync, queue,
                                  logger, genesis, wsv, network, telemetry, snapshot, live_query_store }
         }
     }
@@ -247,7 +252,7 @@ mod tests {
     fn parse_example_json() {
         let cfg_proxy = ConfigurationProxy::from_path(CONFIGURATION_PATH);
         assert_eq!(
-            "./storage",
+            PathBuf::from("./storage"),
             cfg_proxy.kura.unwrap().block_store_path.unwrap()
         );
         assert_eq!(
@@ -262,13 +267,13 @@ mod tests {
 
     #[test]
     fn example_json_proxy_builds() {
-        ConfigurationProxy::from_path(CONFIGURATION_PATH).build().unwrap_or_else(|_| panic!("`ConfigurationProxy` specified in {CONFIGURATION_PATH} \
+        ConfigurationProxy::from_path(CONFIGURATION_PATH).build().unwrap_or_else(|err| panic!("`ConfigurationProxy` specified in {CONFIGURATION_PATH} \
                                                                                           failed to build. This probably means that some of the fields there were not updated \
-                                                                                          properly with new changes."));
+                                                                                          properly with new changes. Error: {err}"));
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "Failed to parse Trusted Peers")]
     fn parse_trusted_peers_fail_duplicate_peer_id() {
         let trusted_peers_string = r#"[{"address":"127.0.0.1:1337", "public_key": "ed0120954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}, {"address":"127.0.0.1:1337", "public_key": "ed0120954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}, {"address":"localhost:1338", "public_key": "ed0120954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}, {"address": "195.162.0.1:23", "public_key": "ed0120954C83A4220FAFFB2C1D23FC5225B3E7952D53ACBB2A065FF30C631E5E1D6B10"}]"#;
         let _result: TrustedPeers =

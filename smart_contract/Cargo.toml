@@ -12,7 +12,7 @@ workspace = true
 
 [features]
 # Enables debugging tools such as `dbg()` and `DebugUnwrapExt`
-debug = []
+debug = ["iroha_smart_contract_utils/debug"]
 
 [dependencies]
 iroha_data_model.workspace = true

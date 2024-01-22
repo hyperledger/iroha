@@ -14,13 +14,31 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RUSTUP_TOOLCHAIN: nightly-2023-06-25
+  RUSTUP_TOOLCHAIN: nightly-2024-01-12
 
 jobs:
-  analysis:
+  smart_contracts_analysis:
     runs-on: ubuntu-latest
     container:
-      image: hyperledger/iroha2-ci:nightly-2023-06-25
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Default executor format
+        run: |
+          cd ./default_executor
+          mold --run cargo fmt --all -- --check
+
+      - name: Integration tests smart contracts format
+        run: |
+          cd ./client/tests/integration/smartcontracts
+          mold --run cargo fmt --all -- --check
+
+  workspace_analysis:
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
@@ -29,10 +47,10 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Lints without features
         if: always()
-        run: cargo clippy -Zlints --workspace --benches --tests --examples --no-default-features --quiet
+        run: cargo clippy --workspace --benches --tests --examples --no-default-features --quiet
       - name: Lints with all features enabled
         if: always()
-        run: cargo clippy -Zlints --workspace --benches --tests --examples --all-features --quiet
+        run: cargo clippy --workspace --benches --tests --examples --all-features --quiet
       - name: Documentation
         if: always()
         run: cargo doc --no-deps --quiet
