@@ -2,7 +2,7 @@
 use std::{thread, time::Duration};
 
 use iroha::samples::{construct_executor, get_config};
-use iroha_client::{crypto::KeyPair, data_model::prelude::*};
+use iroha_client::data_model::prelude::*;
 use iroha_data_model::isi::InstructionBox;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
@@ -45,18 +45,14 @@ fn main_genesis() {
         Some(get_key_pair()),
     );
     let rt = Runtime::test();
-    let genesis = GenesisNetwork::new(generate_genesis(1_000_000_u32), &chain_id, &{
-        let private_key = configuration
+    let genesis = GenesisNetwork::new(
+        generate_genesis(1_000_000_u32),
+        &chain_id,
+        configuration
             .genesis
-            .private_key
-            .as_ref()
-            .expect("Should be from get_config");
-        KeyPair::new(
-            configuration.genesis.public_key.clone(),
-            private_key.clone(),
-        )
-        .expect("Should be a valid key pair")
-    })
+            .key_pair()
+            .expect("should be available in the config; probably a bug"),
+    )
     .expect("genesis creation failed");
 
     let builder = PeerBuilder::new()

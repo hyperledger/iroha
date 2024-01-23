@@ -574,21 +574,21 @@ impl TryFrom<SourceParsed> for ResolvedImageSource {
 #[cfg(test)]
 mod tests {
     use std::{
-        cell::RefCell,
         collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-        env::VarError,
-        ffi::OsStr,
         path::{Path, PathBuf},
         str::FromStr,
     };
 
-    use color_eyre::eyre::Context;
     use iroha_config::{
-        base::proxy::{FetchEnv, LoadFromEnv, Override},
-        iroha::ConfigurationProxy,
+        base::TestEnv,
+        parameters::user_layer::RootPartial, // iroha::ConfigurationProxy,
+    };
+    use iroha_config::{
+        base::{FromEnv, ReadEnv, UnwrapPartial},
+        parameters::user_layer::CliContext,
     };
     use iroha_crypto::{KeyGenConfiguration, KeyPair};
-    use iroha_primitives::addr::SocketAddr;
+    use iroha_primitives::addr::{socket_addr, SocketAddr};
     use path_absolutize::Absolutize;
 
     use super::*;
@@ -603,34 +603,12 @@ mod tests {
         }
     }
 
-    #[derive(Debug)]
-    struct TestEnv {
-        env: HashMap<String, String>,
-        /// Set of env variables that weren't fetched yet
-        untouched: RefCell<HashSet<String>>,
-    }
-
     impl From<FullPeerEnv> for TestEnv {
         fn from(peer_env: FullPeerEnv) -> Self {
             let json = serde_json::to_string(&peer_env).expect("Must be serializable");
-            let env: HashMap<_, serde_json::Value> =
+            let env: HashMap<_, String> =
                 serde_json::from_str(&json).expect("Must be deserializable into a hash map");
-            let untouched = env.keys().cloned().collect();
-            Self {
-                env: env
-                    .into_iter()
-                    .map(|(k, v)| {
-                        let s = if let serde_json::Value::String(s) = v {
-                            s
-                        } else {
-                            v.to_string()
-                        };
-
-                        (k, s)
-                    })
-                    .collect(),
-                untouched: RefCell::new(untouched),
-            }
+            Self::with_map(env)
         }
     }
 
@@ -638,29 +616,6 @@ mod tests {
         fn from(value: CompactPeerEnv) -> Self {
             let full: FullPeerEnv = value.into();
             full.into()
-        }
-    }
-
-    impl FetchEnv for TestEnv {
-        fn fetch<K: AsRef<OsStr>>(&self, key: K) -> Result<String, VarError> {
-            let key_str = key
-                .as_ref()
-                .to_str()
-                .ok_or_else(|| VarError::NotUnicode(key.as_ref().into()))?;
-
-            let res = self.env.get(key_str).ok_or(VarError::NotPresent).cloned();
-
-            if res.is_ok() {
-                self.untouched.borrow_mut().remove(key_str);
-            }
-
-            res
-        }
-    }
-
-    impl TestEnv {
-        fn assert_everything_covered(&self) {
-            assert_eq!(*self.untouched.borrow(), HashSet::new());
         }
     }
 
@@ -672,23 +627,28 @@ mod tests {
             key_pair: keypair.clone(),
             genesis_public_key: keypair.public_key().clone(),
             genesis_private_key: Some(keypair.private_key().clone()),
-            p2p_addr: SocketAddr::from_str("127.0.0.1:1337").unwrap(),
-            api_addr: SocketAddr::from_str("127.0.0.1:1338").unwrap(),
+            p2p_addr: socket_addr!(127.0.0.1:1337),
+            api_addr: socket_addr!(127.0.0.1:1338),
             trusted_peers: BTreeSet::new(),
         }
         .into();
 
         // pretending like we've read `IROHA_CONFIG` env to know the config location
-        let _ = env.fetch("IROHA_CONFIG").expect("should be presented");
-        let proxy = ConfigurationProxy::default()
-            .override_with(ConfigurationProxy::from_env(&env).expect("valid env"));
+        let _ = env
+            .get("IROHA_CONFIG")
+            .expect("never occurs")
+            .expect("should be presented");
 
-        let _cfg = proxy
-            .build()
-            .wrap_err("Failed to build configuration")
-            .expect("Default configuration with swarm's env should be exhaustive");
+        let _cfg = RootPartial::from_env(&env)
+            .expect("valid env")
+            .unwrap_partial()
+            .expect("should not fail as input has all required fields")
+            .parse(CliContext {
+                submit_genesis: true,
+            })
+            .expect("should not fail as input is valid");
 
-        env.assert_everything_covered();
+        assert_eq!(env.unvisited(), HashSet::new());
     }
 
     #[test]

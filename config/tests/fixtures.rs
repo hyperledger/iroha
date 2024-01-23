@@ -195,7 +195,8 @@ fn inconsistent_genesis_config() -> Result<()> {
         })
         .expect_err("should fail with bad genesis config");
 
-    let expected = expect_test::expect!["`genesis.file` and `genesis.private_key` should be set together"];
+    let expected =
+        expect_test::expect!["`genesis.file` and `genesis.private_key` should be set together"];
     expected.assert_eq(&format!("{error:#}"));
 
     Ok(())
@@ -329,7 +330,7 @@ fn config_from_file_and_env() -> Result<()> {
     let env = test_env_from_file(fixtures_dir().join("config_and_env.env"));
 
     let _config = RootPartial::from_toml(fixtures_dir().join("config_and_env.toml"))?
-        .merge_chain(RootPartial::from_env(&env)?)
+        .merge(RootPartial::from_env(&env)?)
         .unwrap_partial()?
         .parse(CliContext {
             submit_genesis: false,

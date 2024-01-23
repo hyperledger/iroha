@@ -86,6 +86,7 @@ pub fn test_logger() -> LoggerHandle {
             let config = Config {
                 level: Level::DEBUG,
                 format: Format::Pretty,
+                ..Config::default()
             };
 
             init_global(&config, true).expect(

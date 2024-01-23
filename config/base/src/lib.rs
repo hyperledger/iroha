@@ -71,6 +71,12 @@ impl<T: Copy> ByteSize<T> {
     }
 }
 
+impl<T> From<T> for ByteSize<T> {
+    fn from(value: T) -> Self {
+        Self(value)
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 #[error("missing field: `{path}`")]
 pub struct MissingFieldError {

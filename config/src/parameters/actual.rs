@@ -67,8 +67,15 @@ pub enum Genesis {
 impl Genesis {
     pub fn public_key(&self) -> &PublicKey {
         match self {
-            Genesis::Partial { public_key } => &public_key,
-            Genesis::Full { key_pair, .. } => key_pair.public_key(),
+            Self::Partial { public_key } => &public_key,
+            Self::Full { key_pair, .. } => key_pair.public_key(),
+        }
+    }
+
+    pub fn key_pair(&self) -> Option<&KeyPair> {
+        match self {
+            Self::Partial { .. } => None,
+            Self::Full { key_pair, .. } => Some(key_pair),
         }
     }
 }

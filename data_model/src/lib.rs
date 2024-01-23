@@ -1037,10 +1037,7 @@ mod test {
 
     #[test]
     fn parse_level_from_str() {
-        assert_eq!(
-            "INFO".parse::<crate::model::Level>().unwrap(),
-            crate::model::Level::INFO
-        );
+        assert_eq!("INFO".parse::<Level>().unwrap(), Level::INFO);
     }
 }
 

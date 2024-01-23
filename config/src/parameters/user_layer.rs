@@ -945,6 +945,17 @@ pub struct LoggerFull {
     pub tokio_console_addr: SocketAddr,
 }
 
+impl Default for LoggerFull {
+    fn default() -> Self {
+        Self {
+            level: Level::default(),
+            format: Format::default(),
+            #[cfg(feature = "tokio-console")]
+            tokio_console_addr: DEFAULT_TOKIO_CONSOLE_ADDR,
+        }
+    }
+}
+
 impl UnwrapPartial for LoggerPartial {
     type Output = LoggerFull;
 
