@@ -253,3 +253,7 @@ members = [
 inherits = "release"
 strip = "symbols"
 lto = true
+
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
