@@ -8,7 +8,7 @@ use test_network::*;
 
 #[test]
 fn domain_owner_domain_permissions() -> Result<()> {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(11_080).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);

@@ -249,8 +249,8 @@ impl Iroha {
 
         let start_args = SumeragiStartArgs {
             chain_id: config.iroha.chain_id.clone(),
-            sumeragi_config: config.sumeragi.clone(),
-            iroha_config: &config.iroha,
+            sumeragi_config: Box::new(config.sumeragi.clone()),
+            iroha_config: Box::new(config.iroha.clone()),
             events_sender: events_sender.clone(),
             wsv,
             queue: Arc::clone(&queue),
