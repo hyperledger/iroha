@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: "3.11"
       - uses: actions/checkout@v3
-      - name: Install depenencies
+      - name: Install dependencies
         run: pip install -r .github/scripts/ci_test/requirements.txt --no-input
       - name: Check containers on iroha2-stable branch
         if: github.ref == 'refs/heads/iroha2-stable'
