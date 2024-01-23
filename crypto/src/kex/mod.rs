@@ -16,12 +16,12 @@ pub trait KeyExchangeScheme {
     fn new() -> Self;
 
     /// Create new keypairs. If
-    /// - `options` is [`None`], the keys are generated ephemerally from the [`OsRng`](rand::rngs::OsRng)
+    /// - `options` is [`Random`](KeyGenOption::Random), the keys are generated ephemerally from the [`OsRng`](rand::rngs::OsRng)
     /// - `options` is [`UseSeed`](KeyGenOption::UseSeed), the keys are generated ephemerally from the sha256 hash of the seed which is
     ///     then used to seed the [`ChaChaRng`](rand_chacha::ChaChaRng)
     /// - `options` is [`FromPrivateKey`](KeyGenOption::FromPrivateKey), the corresponding public key is returned. This should be used for
     ///     static Diffie-Hellman and loading a long-term key.
-    fn keypair(&self, options: Option<KeyGenOption>) -> (PublicKey, PrivateKey);
+    fn keypair(&self, options: KeyGenOption) -> (PublicKey, PrivateKey);
 
     /// Compute the diffie-hellman shared secret.
     /// `local_private_key` is the key generated from calling `keypair` while

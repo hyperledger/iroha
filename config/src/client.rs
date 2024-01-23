@@ -180,7 +180,7 @@ mod tests {
         // TODO: make tests to check generated key validity
         fn arb_keys_from_seed()
             (seed in prop::collection::vec(any::<u8>(), 33..64)) -> (PublicKey, PrivateKey) {
-                let (public_key, private_key) = KeyPair::generate_with_configuration(KeyGenConfiguration::default().use_seed(seed)).expect("Seed was invalid").into();
+                let (public_key, private_key) = KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(seed)).expect("Seed was invalid").into();
                 (public_key, private_key)
             }
     }

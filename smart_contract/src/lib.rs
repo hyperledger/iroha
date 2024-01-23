@@ -180,8 +180,9 @@ pub trait ExecuteQueryOnHost: Sized {
     fn execute(self) -> Result<QueryOutputCursor<Self::Output>, ValidationFail>;
 }
 
-impl<Q: Query + Encode> ExecuteQueryOnHost for Q
+impl<Q> ExecuteQueryOnHost for Q
 where
+    Q: Query + Encode,
     Q::Output: DecodeAll,
     <Q::Output as TryFrom<Value>>::Error: core::fmt::Debug,
 {
@@ -226,8 +227,9 @@ where
     }
 }
 
-impl<Q: Query + Encode> ExecuteQueryOnHost for QueryRequest<Q>
+impl<Q> ExecuteQueryOnHost for QueryRequest<Q>
 where
+    Q: Query + Encode,
     Q::Output: DecodeAll,
     <Q::Output as TryFrom<Value>>::Error: core::fmt::Debug,
 {

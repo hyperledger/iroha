@@ -78,24 +78,23 @@ impl<T: Write> RunArgs<T> for Args {
 impl Args {
     fn key_pair(self) -> color_eyre::Result<KeyPair> {
         let algorithm = self.algorithm.0;
-        let config = KeyGenConfiguration::default().with_algorithm(algorithm);
 
-        let key_pair = match (self.seed, self.private_key) {
-            (None, None) => KeyPair::generate_with_configuration(config),
+        let configuration = match (self.seed, self.private_key) {
+            (None, None) => KeyGenConfiguration::from_random(),
             (None, Some(private_key_hex)) => {
                 let private_key = PrivateKey::from_hex(algorithm, private_key_hex.as_ref())
                     .wrap_err("Failed to decode private key")?;
-                KeyPair::generate_with_configuration(config.use_private_key(private_key))
+                KeyGenConfiguration::from_private_key(private_key)
             }
             (Some(seed), None) => {
                 let seed: Vec<u8> = seed.as_bytes().into();
-                KeyPair::generate_with_configuration(config.use_seed(seed))
+                KeyGenConfiguration::from_seed(seed)
             }
             _ => unreachable!("Clap group invariant"),
-        }
-        .wrap_err("Failed to generate key pair")?;
+        };
 
-        Ok(key_pair)
+        KeyPair::generate_with_configuration(configuration.with_algorithm(algorithm))
+            .wrap_err("Failed to generate key pair")
     }
 }
 

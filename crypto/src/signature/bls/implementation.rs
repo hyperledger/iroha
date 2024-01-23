@@ -2,11 +2,13 @@
 use alloc::{borrow::ToOwned as _, string::ToString as _, vec, vec::Vec};
 use core::marker::PhantomData;
 
+#[cfg(feature = "rand")]
 use rand_chacha::rand_core::OsRng;
 use sha2::Sha256;
 // TODO: Better to use `SecretKey`, not `SecretKeyVT`, but it requires to implement
 // interior mutability
 use w3f_bls::{EngineBLS as _, PublicKey, SecretKeyVT as SecretKey, SerializableToBytes as _};
+use zeroize::Zeroize as _;
 
 pub(super) const MESSAGE_CONTEXT: &[u8; 20] = b"for signing messages";
 
@@ -24,38 +26,34 @@ pub struct BlsImpl<C: BlsConfiguration + ?Sized>(PhantomData<C>);
 impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
     // the names are from an RFC, not a good idea to change them
     #[allow(clippy::similar_names)]
-    pub fn keypair(option: Option<KeyGenOption>) -> (PublicKey<C::Engine>, SecretKey<C::Engine>) {
-        option.map_or_else(
-            || {
-                let sk = SecretKey::generate(OsRng);
-                (sk.into_public(), sk)
-            },
-            |o| match o {
-                // Follows https://datatracker.ietf.org/doc/draft-irtf-cfrg-bls-signature/?include_text=1
-                KeyGenOption::UseSeed(ref seed) => {
-                    let salt = b"BLS-SIG-KEYGEN-SALT-";
-                    let info = [0u8, C::Engine::SECRET_KEY_SIZE.try_into().unwrap()]; // key_info || I2OSP(L, 2)
-                    let mut ikm = vec![0u8; seed.len() + 1];
-                    ikm[..seed.len()].copy_from_slice(seed); // IKM || I2OSP(0, 1)
-                    let mut okm = vec![0u8; C::Engine::SECRET_KEY_SIZE];
-                    let h = hkdf::Hkdf::<Sha256>::new(Some(&salt[..]), &ikm);
-                    h.expand(&info[..], &mut okm)
-                        .expect("`okm` has the correct length");
+    pub fn keypair(mut option: KeyGenOption) -> (PublicKey<C::Engine>, SecretKey<C::Engine>) {
+        let private_key = match option {
+            #[cfg(feature = "rand")]
+            KeyGenOption::Random => SecretKey::generate(OsRng),
+            // Follows https://datatracker.ietf.org/doc/draft-irtf-cfrg-bls-signature/?include_text=1
+            KeyGenOption::UseSeed(ref mut seed) => {
+                let salt = b"BLS-SIG-KEYGEN-SALT-";
+                let info = [0u8, C::Engine::SECRET_KEY_SIZE.try_into().unwrap()]; // key_info || I2OSP(L, 2)
+                let mut ikm = vec![0u8; seed.len() + 1];
+                ikm[..seed.len()].copy_from_slice(seed); // IKM || I2OSP(0, 1)
+                seed.zeroize();
+                let mut okm = vec![0u8; C::Engine::SECRET_KEY_SIZE];
+                let h = hkdf::Hkdf::<Sha256>::new(Some(&salt[..]), &ikm);
+                h.expand(&info[..], &mut okm)
+                    .expect("`okm` has the correct length");
 
-                    let private_key = SecretKey::<C::Engine>::from_seed(&okm);
-                    (private_key.into_public(), private_key)
-                }
-                KeyGenOption::FromPrivateKey(ref key) => {
-                    let private_key = C::extract_private_key(key).unwrap_or_else(|| {
-                        panic!(
-                            "Wrong private key type for {} algorithm, got {key:?}",
-                            C::ALGORITHM,
-                        )
-                    });
-                    (private_key.into_public(), private_key.clone())
-                }
-            },
-        )
+                SecretKey::<C::Engine>::from_seed(&okm)
+            }
+            KeyGenOption::FromPrivateKey(ref key) => C::extract_private_key(key)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Wrong private key type for {} algorithm, got {key:?}",
+                        C::ALGORITHM,
+                    )
+                })
+                .clone(),
+        };
+        (private_key.into_public(), private_key)
     }
 
     pub fn sign(message: &[u8], sk: &SecretKey<C::Engine>) -> Vec<u8> {
@@ -72,7 +70,7 @@ impl<C: BlsConfiguration + ?Sized> BlsImpl<C> {
             .map_err(|_| ParseError("Failed to parse signature.".to_owned()))?;
         let message = w3f_bls::Message::new(MESSAGE_CONTEXT, message);
 
-        if !signature.verify(&message, &pk) {
+        if !signature.verify(&message, pk) {
             return Err(Error::BadSignature);
         }
 

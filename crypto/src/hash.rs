@@ -8,7 +8,6 @@ use blake2::{
     Blake2bVar,
 };
 use derive_more::{DebugCustom, Deref, DerefMut, Display};
-use iroha_macro::ffi_impl_opaque;
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -63,7 +62,6 @@ impl Hash {
     }
 }
 
-#[ffi_impl_opaque]
 impl Hash {
     /// Hash the given bytes.
     #[must_use]
@@ -219,6 +217,7 @@ impl<T> Clone for HashOf<T> {
 }
 impl<T> Copy for HashOf<T> {}
 
+#[allow(clippy::unconditional_recursion)] // False-positive
 impl<T> PartialEq for HashOf<T> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
@@ -315,13 +314,9 @@ mod ffi {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "std")]
-    #[cfg(not(feature = "ffi_import"))]
     use super::*;
 
     #[test]
-    #[cfg(feature = "std")]
-    #[cfg(not(feature = "ffi_import"))]
     fn blake2_32b() {
         let mut hasher = Blake2bVar::new(32).unwrap();
         hasher.update(&hex_literal::hex!("6920616d2064617461"));

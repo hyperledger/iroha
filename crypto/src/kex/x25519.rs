@@ -3,7 +3,9 @@ use alloc::{borrow::ToOwned as _, boxed::Box};
 
 use arrayref::array_ref;
 use iroha_primitives::const_vec::ConstVec;
-use rand::{rngs::OsRng, SeedableRng};
+#[cfg(feature = "rand")]
+use rand::rngs::OsRng;
+use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use sha2::Digest;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
@@ -27,9 +29,16 @@ impl KeyExchangeScheme for X25519Sha256 {
     /// a not so good idea, because we have to do extra computations and extra error handling.
     ///
     /// See #4174 for more details.
-    fn keypair(&self, mut option: Option<KeyGenOption>) -> (PublicKey, PrivateKey) {
+    fn keypair(&self, mut option: KeyGenOption) -> (PublicKey, PrivateKey) {
         let (pk, sk) = match option {
-            Some(KeyGenOption::UseSeed(ref mut s)) => {
+            #[cfg(feature = "rand")]
+            KeyGenOption::Random => {
+                let rng = OsRng;
+                let sk = StaticSecret::random_from_rng(rng);
+                let pk = X25519PublicKey::from(&sk);
+                (pk, sk)
+            }
+            KeyGenOption::UseSeed(ref mut s) => {
                 let hash = sha2::Sha256::digest(s.as_slice());
                 s.zeroize();
                 let rng = ChaChaRng::from_seed(*array_ref!(hash.as_slice(), 0, 32));
@@ -37,17 +46,11 @@ impl KeyExchangeScheme for X25519Sha256 {
                 let pk = X25519PublicKey::from(&sk);
                 (pk, sk)
             }
-            Some(KeyGenOption::FromPrivateKey(ref s)) => {
+            KeyGenOption::FromPrivateKey(ref s) => {
                 let crate::PrivateKey::Ed25519(s) = s else {
                     panic!("Wrong private key type, expected `Ed25519`, got {s:?}")
                 };
                 let sk = StaticSecret::from(*array_ref!(s.as_bytes(), 0, 32));
-                let pk = X25519PublicKey::from(&sk);
-                (pk, sk)
-            }
-            None => {
-                let rng = OsRng;
-                let sk = StaticSecret::random_from_rng(rng);
                 let pk = X25519PublicKey::from(&sk);
                 (pk, sk)
             }
@@ -114,9 +117,9 @@ mod tests {
     #[test]
     fn key_exchange() {
         let scheme = X25519Sha256::new();
-        let (public_key1, secret_key1) = scheme.keypair(None);
+        let (public_key1, secret_key1) = scheme.keypair(KeyGenOption::Random);
 
-        let (public_key2, secret_key2) = scheme.keypair(None);
+        let (public_key2, secret_key2) = scheme.keypair(KeyGenOption::Random);
         let shared_secret1 = scheme
             .compute_shared_secret(&secret_key2, &public_key1)
             .unwrap();
@@ -125,8 +128,7 @@ mod tests {
             .unwrap();
         assert_eq!(shared_secret1.payload(), shared_secret2.payload());
 
-        let (public_key2, _secret_key1) =
-            scheme.keypair(Some(KeyGenOption::FromPrivateKey(secret_key1)));
+        let (public_key2, _secret_key1) = scheme.keypair(KeyGenOption::FromPrivateKey(secret_key1));
         assert_eq!(public_key2, public_key1);
     }
 }

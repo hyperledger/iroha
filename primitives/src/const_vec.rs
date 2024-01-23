@@ -103,7 +103,7 @@ impl<T> IntoIterator for ConstVec<T> {
 }
 
 /// Trait to extend `[T]` with a method to convert it to `ConstVec<T>` by analogy with `[T]::to_vec()`.
-pub trait ToConstVecExt {
+pub trait ToConstVec {
     /// The type of the items in the slice.
     type Item;
 
@@ -111,7 +111,7 @@ pub trait ToConstVecExt {
     fn to_const_vec(&self) -> ConstVec<Self::Item>;
 }
 
-impl<T: Clone> ToConstVecExt for [T] {
+impl<T: Clone> ToConstVec for [T] {
     type Item = T;
 
     fn to_const_vec(&self) -> ConstVec<Self::Item> {

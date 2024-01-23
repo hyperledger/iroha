@@ -114,6 +114,9 @@ impl FromStr for Algorithm {
 #[cfg(not(feature = "ffi_import"))]
 #[derive(Debug, Clone)]
 pub enum KeyGenOption {
+    /// Use random number generator
+    #[cfg(feature = "rand")]
+    Random,
     /// Use seed
     UseSeed(Vec<u8>),
     /// Derive from private key
@@ -122,11 +125,11 @@ pub enum KeyGenOption {
 
 ffi::ffi_item! {
     /// Configuration of key generation
-    #[derive(Clone, Default)]
+    #[derive(Clone)]
     #[cfg_attr(not(feature="ffi_import"), derive(Debug))]
     pub struct KeyGenConfiguration {
         /// Options
-        key_gen_option: Option<KeyGenOption>,
+        key_gen_option: KeyGenOption,
         /// Algorithm
         algorithm: Algorithm,
     }
@@ -134,18 +137,32 @@ ffi::ffi_item! {
 
 #[ffi_impl_opaque]
 impl KeyGenConfiguration {
-    /// Use seed
+    /// Construct using random number generation with [`Ed25519`](Algorithm::Ed25519) algorithm
+    #[cfg(feature = "rand")]
     #[must_use]
-    pub fn use_seed(mut self, seed: Vec<u8>) -> Self {
-        self.key_gen_option = Some(KeyGenOption::UseSeed(seed));
-        self
+    pub fn from_random() -> Self {
+        Self {
+            key_gen_option: KeyGenOption::Random,
+            algorithm: Algorithm::default(),
+        }
     }
 
-    /// Use private key
+    /// Construct using seed with [`Ed25519`](Algorithm::Ed25519) algorithm
     #[must_use]
-    pub fn use_private_key(mut self, private_key: PrivateKey) -> Self {
-        self.key_gen_option = Some(KeyGenOption::FromPrivateKey(private_key));
-        self
+    pub fn from_seed(seed: Vec<u8>) -> Self {
+        Self {
+            key_gen_option: KeyGenOption::UseSeed(seed),
+            algorithm: Algorithm::default(),
+        }
+    }
+
+    /// Construct using private key with [`Ed25519`](Algorithm::Ed25519) algorithm
+    #[must_use]
+    pub fn from_private_key(private_key: PrivateKey) -> Self {
+        Self {
+            key_gen_option: KeyGenOption::FromPrivateKey(private_key),
+            algorithm: Algorithm::default(),
+        }
     }
 
     /// With algorithm
@@ -174,15 +191,16 @@ impl KeyPair {
     ///
     /// # Errors
     /// Fails if decoding fails
+    #[cfg(feature = "rand")]
     pub fn generate() -> Result<Self, Error> {
-        Self::generate_with_configuration(KeyGenConfiguration::default())
+        Self::generate_with_configuration(KeyGenConfiguration::from_random())
     }
 }
 
 #[ffi_impl_opaque]
 impl KeyPair {
-    /// Digest function
-    pub fn digest_function(&self) -> Algorithm {
+    /// Algorithm
+    pub fn algorithm(&self) -> Algorithm {
         self.private_key.algorithm()
     }
 
@@ -212,7 +230,7 @@ impl KeyPair {
     /// Fails if decoding fails
     pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, Error> {
         let key_gen_option = match (configuration.algorithm, configuration.key_gen_option) {
-            (Algorithm::Secp256k1, Some(KeyGenOption::UseSeed(seed))) if seed.len() < 32 => {
+            (Algorithm::Secp256k1, KeyGenOption::UseSeed(seed)) if seed.len() < 32 => {
                 return Err(Error::KeyGen(
                     "secp256k1 seed for must be at least 32 bytes long".to_owned(),
                 ))
@@ -299,7 +317,7 @@ impl From<KeyPair> for (PublicKey, PrivateKey) {
 
 ffi::ffi_item! {
     /// Public Key used in signatures.
-    #[derive(Clone, PartialEq, Eq)]
+    #[derive(Clone, PartialEq, Eq, TypeId)]
     #[cfg_attr(not(feature="ffi_import"), derive(DeserializeFromStr, SerializeDisplay))]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), ffi_type(opaque))]
     #[allow(missing_docs)]
@@ -314,6 +332,10 @@ ffi::ffi_item! {
 #[ffi_impl_opaque]
 impl PublicKey {
     /// Creates a new public key from raw bytes received from elsewhere
+    ///
+    /// # Errors
+    ///
+    /// Fails if public key parsing fails
     pub fn from_raw(algorithm: Algorithm, payload: &[u8]) -> Result<Self, ParseError> {
         match algorithm {
             Algorithm::Ed25519 => {
@@ -423,9 +445,9 @@ impl Decode for PublicKey {
     fn decode<I: parity_scale_codec::Input>(
         input: &mut I,
     ) -> Result<Self, parity_scale_codec::Error> {
-        let digest_function = Algorithm::decode(input)?;
-        let payload = <ConstVec<u8>>::decode(input)?;
-        Self::from_raw(digest_function, &payload).map_err(|_| {
+        let algorithm = Algorithm::decode(input)?;
+        let payload = Vec::decode(input)?;
+        Self::from_raw(algorithm, &payload).map_err(|_| {
             parity_scale_codec::Error::from(
                 "Failed to construct public key from digest function and payload",
             )
@@ -464,17 +486,9 @@ impl IntoSchema for PublicKey {
     }
 }
 
-#[cfg(not(feature = "ffi_import"))]
-impl TypeId for PublicKey {
-    fn id() -> String {
-        "PublicKey".to_owned()
-    }
-}
-
 impl FromStr for PublicKey {
     type Err = ParseError;
 
-    // TODO: Can we check the key is valid?
     fn from_str(key: &str) -> Result<Self, Self::Err> {
         let bytes = hex_decode(key)?;
 
@@ -502,7 +516,7 @@ impl PublicKey {
 impl From<PrivateKey> for PublicKey {
     fn from(private_key: PrivateKey) -> Self {
         let digest_function = private_key.algorithm();
-        let key_gen_option = Some(KeyGenOption::FromPrivateKey(private_key));
+        let key_gen_option = KeyGenOption::FromPrivateKey(private_key);
 
         match digest_function {
             Algorithm::Ed25519 => {
@@ -573,7 +587,6 @@ impl PrivateKey {
     /// - If the given payload is not a valid private key
     pub fn from_hex(algorithm: Algorithm, payload: &str) -> Result<Self, ParseError> {
         let payload = hex_decode(payload)?;
-        let payload = ConstVec::new(payload);
 
         Self::from_raw(algorithm, &payload)
     }
@@ -768,7 +781,6 @@ mod ffi {
         Clone: { KeyGenConfiguration, PublicKey, PrivateKey, KeyPair, Signature },
         Eq: { PublicKey, PrivateKey, KeyPair, Signature },
         Ord: { PublicKey, Signature },
-        Default: { KeyGenConfiguration },
     }
 
     // NOTE: Makes sure that only one `dealloc` is exported per generated dynamic library
@@ -815,7 +827,9 @@ mod tests {
             );
         }
     }
+
     #[test]
+    #[cfg(feature = "rand")]
     fn key_pair_serialize_deserialize_consistent() {
         for algorithm in [
             Algorithm::Ed25519,
@@ -824,7 +838,7 @@ mod tests {
             Algorithm::BlsSmall,
         ] {
             let key_pair = KeyPair::generate_with_configuration(
-                KeyGenConfiguration::default().with_algorithm(algorithm),
+                KeyGenConfiguration::from_random().with_algorithm(algorithm),
             )
             .expect("Failed to generate key pair");
 
@@ -859,24 +873,25 @@ mod tests {
 
     #[test]
     fn key_pair_match() {
-        assert!(KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
+        KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
             .parse()
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::Ed25519,
             "93CA389FC2979F3F7D2A7F8B76C70DE6D5EAF5FA58D4F93CB8B0FB298D398ACC59C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
-        ).expect("Private key not hex encoded")).is_ok());
+        ).expect("Private key not hex encoded")).unwrap();
 
-        assert!(KeyPair::new("ea0161040FCFADE2FC5D9104A9ACF9665EA545339DDF10AE50343249E01AF3B8F885CD5D52956542CCE8105DB3A2EC4006E637A7177FAAEA228C311F907DAAFC254F22667F1A1812BB710C6F4116A1415275D27BB9FB884F37E8EF525CC31F3945E945FA"
+        KeyPair::new("ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2"
             .parse()
-            .expect("Public key not in mulithash format"),
+            .expect("Public key not in multihash format"),
         PrivateKey::from_hex(
             Algorithm::BlsNormal,
-            "0000000000000000000000000000000049BF70187154C57B97AF913163E8E875733B4EAF1F3F0689B31CE392129493E9"
-        ).expect("Private key not hex encoded")).is_ok());
+            "1ca347641228c3b79aa43839dedc85fa51c0e8b9b6a00f6b0d6b0423e902973f",
+        ).expect("Private key not hex encoded")).unwrap();
     }
 
     #[test]
+    #[cfg(feature = "rand")]
     fn encode_decode_public_key_consistent() {
         for algorithm in [
             Algorithm::Ed25519,
@@ -885,7 +900,7 @@ mod tests {
             Algorithm::BlsSmall,
         ] {
             let key_pair = KeyPair::generate_with_configuration(
-                KeyGenConfiguration::default().with_algorithm(algorithm),
+                KeyGenConfiguration::from_random().with_algorithm(algorithm),
             )
             .expect("Failed to generate key pair");
             let (public_key, _) = key_pair.into();
@@ -918,21 +933,21 @@ mod tests {
 
     #[test]
     fn key_pair_mismatch() {
-        assert!(KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
+        KeyPair::new("ed012059C8A4DA1EBB5380F74ABA51F502714652FDCCE9611FAFB9904E4A3C4D382774"
             .parse()
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::Ed25519,
             "3A7991AF1ABB77F3FD27CC148404A6AE4439D095A63591B77C788D53F708A02A1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
-        ).expect("Private key not valid")).is_err());
+        ).expect("Private key not valid")).unwrap_err();
 
-        assert!(KeyPair::new("ea0161040FCFADE2FC5D9104A9ACF9665EA545339DDF10AE50343249E01AF3B8F885CD5D52956542CCE8105DB3A2EC4006E637A7177FAAEA228C311F907DAAFC254F22667F1A1812BB710C6F4116A1415275D27BB9FB884F37E8EF525CC31F3945E945FA"
+        KeyPair::new("ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2"
             .parse()
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
             Algorithm::BlsNormal,
-            "000000000000000000000000000000002F57460183837EFBAC6AA6AB3B8DBB7CFFCFC59E9448B7860A206D37D470CBA3"
-        ).expect("Private key not valid")).is_err());
+            "CC176E44C41AA144FD1BEE4E0BCD2EF43F06D0C7BC2988E89A799951D240E503",
+        ).expect("Private key not valid")).unwrap_err();
     }
 
     #[test]
@@ -965,22 +980,20 @@ mod tests {
                 "{}",
                 PublicKey::from_hex(
                     Algorithm::BlsNormal,
-
-                        "04175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7"
+                    "9060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2",
                 ).unwrap()
             ),
-            "ea016104175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7"
+            "ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2",
         );
         assert_eq!(
             format!(
                 "{}",
                 PublicKey::from_hex(
                     Algorithm::BlsSmall,
-
-                        "040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
+                    "9051D4A9C69402423413EBBA4C00BC82A0102AA2B783057BD7BCEE4DD17B37DE5D719EE84BE43783F2AE47A673A74B8315DD3E595ED1FBDFAC17DA1D7A36F642B423ED18275FAFD671B1D331439D22F12FB6EB436A47E8656F182A78DF29D310",
                 ).unwrap()
             ),
-            "eb01c1040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
+            "eb01609051D4A9C69402423413EBBA4C00BC82A0102AA2B783057BD7BCEE4DD17B37DE5D719EE84BE43783F2AE47A673A74B8315DD3E595ED1FBDFAC17DA1D7A36F642B423ED18275FAFD671B1D331439D22F12FB6EB436A47E8656F182A78DF29D310",
         );
     }
     #[cfg(not(feature = "ffi_import"))]
@@ -1004,8 +1017,7 @@ mod tests {
             TestJson {
                 public_key: PublicKey::from_hex(
                     Algorithm::Ed25519,
-
-                        "1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
+                    "1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4"
                 ).unwrap(),
                 private_key: PrivateKey::from_hex(
                     Algorithm::Ed25519,
@@ -1029,8 +1041,7 @@ mod tests {
             TestJson {
                 public_key: PublicKey::from_hex(
                     Algorithm::Secp256k1,
-
-                        "0312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC"
+                    "0312273E8810581E58948D3FB8F9E8AD53AAA21492EBB8703915BBB565A21B7FCC"
                 ).unwrap(),
                 private_key: PrivateKey::from_hex(
                     Algorithm::Secp256k1,
@@ -1045,55 +1056,51 @@ mod tests {
     fn deserialize_keys_bls() {
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
-                \"public_key\": \"ea016104175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7\",
+                \"public_key\": \"ea01309060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2\",
                 \"private_key\": {
                     \"digest_function\": \"bls_normal\",
-                    \"payload\": \"000000000000000000000000000000002F57460183837EFBAC6AA6AB3B8DBB7CFFCFC59E9448B7860A206D37D470CBA3\"
+                    \"payload\": \"1ca347641228c3b79aa43839dedc85fa51c0e8b9b6a00f6b0d6b0423e902973f\"
                 }
             }").expect("Failed to deserialize."),
             TestJson {
                 public_key: PublicKey::from_hex(
                     Algorithm::BlsNormal,
-
-                        "04175B1E79B15E8A2D5893BF7F8933CA7D0863105D8BAC3D6F976CB043378A0E4B885C57ED14EB85FC2FABC639ADC7DE7F0020C70C57ACC38DEE374AF2C04A6F61C11DE8DF9034B12D849C7EB90099B0881267D0E1507D4365D838D7DCC31511E7"
+                    "9060D021340617E9554CCBC2CF3CC3DB922A9BA323ABDF7C271FCC6EF69BE7A8DEBCA7D9E96C0F0089ABA22CDAADE4A2",
                 ).unwrap(),
                 private_key: PrivateKey::from_hex(
                     Algorithm::BlsNormal,
-                    "000000000000000000000000000000002F57460183837EFBAC6AA6AB3B8DBB7CFFCFC59E9448B7860A206D37D470CBA3",
+                    "1ca347641228c3b79aa43839dedc85fa51c0e8b9b6a00f6b0d6b0423e902973f",
                 ).unwrap()
             }
         );
         assert_eq!(
             serde_json::from_str::<'_, TestJson>("{
-                \"public_key\": \"eb01C1040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0\",
+                \"public_key\": \"eb01609051D4A9C69402423413EBBA4C00BC82A0102AA2B783057BD7BCEE4DD17B37DE5D719EE84BE43783F2AE47A673A74B8315DD3E595ED1FBDFAC17DA1D7A36F642B423ED18275FAFD671B1D331439D22F12FB6EB436A47E8656F182A78DF29D310\",
                 \"private_key\": {
                     \"digest_function\": \"bls_small\",
-                    \"payload\": \"0000000000000000000000000000000060F3C1AC9ADDBBED8DB83BC1B2EF22139FB049EECB723A557A41CA1A4B1FED63\"
+                    \"payload\": \"8cb95072914cdd8e4cf682fdbe1189cdf4fc54d445e760b3446f896dbdbf5b2b\"
                 }
             }").expect("Failed to deserialize."),
             TestJson {
                 public_key: PublicKey::from_hex(
                     Algorithm::BlsSmall,
-
-                            "040CB3231F601E7245A6EC9A647B450936F707CA7DC347ED258586C1924941D8BC38576473A8BA3BB2C37E3E121130AB67103498A96D0D27003E3AD960493DA79209CF024E2AA2AE961300976AEEE599A31A5E1B683EAA1BCFFC47B09757D20F21123C594CF0EE0BAF5E1BDD272346B7DC98A8F12C481A6B28174076A352DA8EAE881B90911013369D7FA960716A5ABC5314307463FA2285A5BF2A5B5C6220D68C2D34101A91DBFC531C5B9BBFB2245CCC0C50051F79FC6714D16907B1FC40E0C0"
+                    "9051D4A9C69402423413EBBA4C00BC82A0102AA2B783057BD7BCEE4DD17B37DE5D719EE84BE43783F2AE47A673A74B8315DD3E595ED1FBDFAC17DA1D7A36F642B423ED18275FAFD671B1D331439D22F12FB6EB436A47E8656F182A78DF29D310",
                 ).unwrap(),
                 private_key: PrivateKey::from_hex(
                     Algorithm::BlsSmall,
-
-                        "0000000000000000000000000000000060F3C1AC9ADDBBED8DB83BC1B2EF22139FB049EECB723A557A41CA1A4B1FED63",
-                    ).unwrap()
+                    "8cb95072914cdd8e4cf682fdbe1189cdf4fc54d445e760b3446f896dbdbf5b2b",
+                ).unwrap()
             }
         );
     }
 
     #[test]
+    #[cfg(feature = "rand")]
     fn secp256k1_key_gen_fails_with_seed_smaller_than_32() {
         let seed: Vec<_> = (0..12u8).collect();
 
         let result = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default()
-                .with_algorithm(Algorithm::Secp256k1)
-                .use_seed(seed),
+            KeyGenConfiguration::from_seed(seed).with_algorithm(Algorithm::Secp256k1),
         );
 
         assert_eq!(

@@ -196,9 +196,9 @@ impl Sumeragi {
                 if let Some(msg) = block_msg.as_ref() {
                     let vc_index : Option<u64> = match msg {
                         BlockMessage::BlockCreated(bc) => Some(bc.block.payload().header.view_change_index),
-                        BlockMessage::BlockSigned(_) => None, // Signed and Committed contain no block.
-                        BlockMessage::BlockCommitted(_) => None,
-                        BlockMessage::BlockSyncUpdate(_) => None, // Block sync updates are exempt from early pruning
+                        // Signed and Committed contain no block.
+                        // Block sync updates are exempt from early pruning.
+                        BlockMessage::BlockSigned(_) | BlockMessage::BlockCommitted(_) | BlockMessage::BlockSyncUpdate(_) => None,
                     };
                     if let Some(vc_index) = vc_index {
                         if vc_index < current_view_change_index {

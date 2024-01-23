@@ -20,7 +20,6 @@ use core::marker::PhantomData;
 use std::collections::btree_set;
 
 use derive_more::{Deref, DerefMut};
-use iroha_macro::ffi_impl_opaque;
 use iroha_primitives::const_vec::ConstVec;
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
@@ -47,7 +46,6 @@ ffi::ffi_item! {
     }
 }
 
-#[ffi_impl_opaque]
 impl Signature {
     /// Key payload
     pub fn payload(&self) -> &[u8] {
@@ -149,6 +147,7 @@ impl<T> Clone for SignatureOf<T> {
     }
 }
 
+#[allow(clippy::unconditional_recursion)] // False-positive
 impl<T> PartialEq for SignatureOf<T> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
@@ -266,6 +265,7 @@ impl<T> Clone for SignatureWrapperOf<T> {
     }
 }
 
+#[allow(clippy::unconditional_recursion)] // False-positive
 #[cfg(not(feature = "ffi_import"))]
 impl<T> PartialEq for SignatureWrapperOf<T> {
     fn eq(&self, other: &Self) -> bool {
@@ -329,6 +329,7 @@ impl<T> Clone for SignaturesOf<T> {
     }
 }
 
+#[allow(clippy::unconditional_recursion)] // False-positive
 #[cfg(not(feature = "ffi_import"))]
 impl<T> PartialEq for SignaturesOf<T> {
     fn eq(&self, other: &Self) -> bool {
@@ -522,9 +523,10 @@ mod tests {
     use crate::KeyGenConfiguration;
 
     #[test]
+    #[cfg(feature = "rand")]
     fn create_signature_ed25519() {
         let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().with_algorithm(crate::Algorithm::Ed25519),
+            KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::Ed25519),
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
@@ -534,9 +536,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "rand")]
     fn create_signature_secp256k1() {
         let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().with_algorithm(crate::Algorithm::Secp256k1),
+            KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::Secp256k1),
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
@@ -546,9 +549,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "rand")]
     fn create_signature_bls_normal() {
         let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().with_algorithm(crate::Algorithm::BlsNormal),
+            KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::BlsNormal),
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
@@ -558,10 +562,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
+    #[cfg(all(feature = "rand", any(feature = "std", feature = "ffi_import")))]
     fn create_signature_bls_small() {
         let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().with_algorithm(crate::Algorithm::BlsSmall),
+            KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::BlsSmall),
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
@@ -571,7 +575,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "ffi_import"))]
+    #[cfg(all(feature = "rand", not(feature = "ffi_import")))]
     fn signatures_of_deduplication_by_public_key() {
         let key_pair = KeyPair::generate().expect("Failed to generate keys");
         let signatures = [
