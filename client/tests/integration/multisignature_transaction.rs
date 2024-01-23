@@ -84,7 +84,9 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     let transaction = client_2.build_transaction(instructions, UnlimitedMetadata::new())?;
     let transaction = client_2
         .get_original_transaction(&transaction, 3, Duration::from_millis(100))?
-        .expect("Found no pending transaction for this account.");
+        .last()
+        .expect("Found no pending transaction for this account.")
+        .clone();
     client_2.submit_transaction(&client_2.sign_transaction(transaction)?)?;
     thread::sleep(pipeline_time);
     let assets = client_1

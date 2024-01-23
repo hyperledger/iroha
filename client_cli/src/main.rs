@@ -260,33 +260,39 @@ fn submit(
     let tx = iroha_client
         .build_transaction(instructions, metadata)
         .wrap_err(err_msg)?;
-    let tx = if context.skip_mst_check() {
-        tx
+    let transactions = if context.skip_mst_check() {
+        vec![tx]
     } else {
         match iroha_client.get_original_transaction(
             &tx,
             RETRY_COUNT_MST,
             RETRY_IN_MST,
         ) {
-            Ok(Some(original_transaction)) if Confirm::new()
-                .with_prompt("There is a similar transaction from your account waiting for more signatures. \
-                            This could be because it wasn't signed with the right key, \
-                            or because it's a multi-signature transaction (MST). \
-                            Do you want to sign this transaction (yes) \
+            Ok(original_transactions) if !original_transactions.is_empty() && Confirm::new()
+                .with_prompt("There are similar transactions from your account waiting for more signatures. \
+                            This could be because they weren't signed with the right key, \
+                            or because they're a multi-signature transactions (MST). \
+                            Do you want to sign these transactions (yes) \
                             instead of submitting a new transaction (no)?")
                 .interact()
-                .wrap_err("Failed to show interactive prompt.")? => iroha_client.sign_transaction(original_transaction).wrap_err("Failed to sign transaction.")?,
-            _ => tx,
+                .wrap_err("Failed to show interactive prompt.")? => {
+                    original_transactions.into_iter().map(|transaction|
+                    iroha_client.sign_transaction(transaction).wrap_err("Failed to sign transaction.")).collect::<Result<Vec<_>,_>>()?
+                }
+            _ => vec![tx],
         }
     };
-    #[cfg(debug_assertions)]
-    let err_msg = format!("Failed to submit transaction {tx:?}");
     #[cfg(not(debug_assertions))]
     let err_msg = "Failed to submit transaction.";
-    let hash = iroha_client
-        .submit_transaction_blocking(&tx)
-        .wrap_err(err_msg)?;
-    context.print_data(&hash)?;
+    for tx in transactions {
+        #[cfg(debug_assertions)]
+        let err_msg = format!("Failed to submit transaction {tx:?}");
+        let hash = iroha_client
+            .submit_transaction_blocking(&tx)
+            .wrap_err(err_msg)?;
+        context.print_data(&hash)?;
+    }
+
     Ok(())
 }
 

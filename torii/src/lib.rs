@@ -140,7 +140,7 @@ impl Torii {
                 )
                 .or(endpoint4(
                     routing::handle_pending_transactions,
-                    warp::path(uri::PENDING_TRANSACTION)
+                    warp::path(uri::PENDING_TRANSACTIONS)
                         .and(add_state!(self.queue, self.sumeragi))
                         .and(routing::paginate())
                         .and(body::versioned()),

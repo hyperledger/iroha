@@ -147,24 +147,36 @@ pub async fn handle_schema() -> Json {
     reply::json(&iroha_schema_gen::build_schemas())
 }
 
+/// Check if two transactions are the same. Compare their contents excluding the creation time.
+fn transaction_payload_eq_excluding_creation_time(
+    first: &TransactionPayload,
+    second: &TransactionPayload,
+) -> bool {
+    first.authority() == second.authority()
+        && first.instructions() == second.instructions()
+        && first.time_to_live() == second.time_to_live()
+        && first.metadata().eq(second.metadata())
+}
+
 #[iroha_futures::telemetry_future]
 pub async fn handle_pending_transactions(
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
     pagination: Pagination,
     transaction: SignedTransaction,
-) -> Result<Scale<Option<SignedTransaction>>> {
+) -> Result<Scale<Vec<SignedTransaction>>> {
     let query_response = sumeragi.apply_wsv(|wsv| {
         queue
             .all_transactions(wsv)
             .map(Into::into)
             .paginate(pagination)
-            .find(|current_transaction: &SignedTransaction| {
-                TransactionPayload::equals_excluding_creation_time(
+            .filter(|current_transaction: &SignedTransaction| {
+                transaction_payload_eq_excluding_creation_time(
                     current_transaction.payload(),
                     transaction.payload(),
                 )
             })
+            .collect()
     });
 
     Ok(Scale(query_response))

@@ -1012,10 +1012,10 @@ impl Client {
         retry_count: u32,
         retry_in: Duration,
         pagination: Pagination,
-    ) -> Result<Option<SignedTransaction>> {
+    ) -> Result<Vec<SignedTransaction>> {
         let url = self
             .torii_url
-            .join(crate::config::torii::PENDING_TRANSACTION)
+            .join(crate::config::torii::PENDING_TRANSACTIONS)
             .expect("Valid URI");
         let pagination = pagination.into_query_parameters();
         let body = transaction.encode();
@@ -1030,11 +1030,11 @@ impl Client {
                 .send()?;
 
             if response.status() == StatusCode::OK {
-                let pending_transaction: Option<SignedTransaction> =
+                let pending_transactions: Vec<SignedTransaction> =
                     DecodeAll::decode_all(&mut response.body().as_slice())?;
 
-                if pending_transaction.is_some() {
-                    return Ok(pending_transaction);
+                if !pending_transactions.is_empty() {
+                    return Ok(pending_transactions);
                 }
                 thread::sleep(retry_in);
             } else {
@@ -1045,7 +1045,7 @@ impl Client {
                 ));
             }
         }
-        Ok(None)
+        Ok(vec![])
     }
 
     /// Find the original transaction in the local pending tx queue.
@@ -1058,7 +1058,7 @@ impl Client {
         transaction: &SignedTransaction,
         retry_count: u32,
         retry_in: Duration,
-    ) -> Result<Option<SignedTransaction>> {
+    ) -> Result<Vec<SignedTransaction>> {
         self.get_original_transaction_with_pagination(
             transaction,
             retry_count,
