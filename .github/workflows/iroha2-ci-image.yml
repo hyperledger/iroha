@@ -1,6 +1,11 @@
 name: I2::CI::Publish
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      IROHA2_CI_DOCKERFILE:
+        required: true
+        default: Dockerfile.build
 
 jobs:
   dockerhub:
@@ -17,6 +22,6 @@ jobs:
           push: true
           tags: hyperledger/iroha2-ci:nightly-2024-01-12
           labels: commit=${{ github.sha }}
-          file: Dockerfile.build
+          file: ${{ github.event.inputs.IROHA2_CI_DOCKERFILE }}
           # This context specification is required
           context: .
