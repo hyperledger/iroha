@@ -1006,7 +1006,7 @@ impl Client {
     ///
     /// # Errors
     /// - if subscribing to websocket fails
-    pub fn get_original_transaction_with_pagination(
+    pub fn get_original_transactions_with_pagination(
         &self,
         transaction: &SignedTransaction,
         retry_count: u32,
@@ -1015,7 +1015,7 @@ impl Client {
     ) -> Result<Vec<SignedTransaction>> {
         let url = self
             .torii_url
-            .join(crate::config::torii::PENDING_TRANSACTIONS)
+            .join(crate::config::torii::MATCHING_PENDING_TRANSACTIONS)
             .expect("Valid URI");
         let pagination = pagination.into_query_parameters();
         let body = transaction.encode();
@@ -1053,13 +1053,13 @@ impl Client {
     ///
     /// # Errors
     /// - if sending request fails
-    pub fn get_original_transaction(
+    pub fn get_original_transactions(
         &self,
         transaction: &SignedTransaction,
         retry_count: u32,
         retry_in: Duration,
     ) -> Result<Vec<SignedTransaction>> {
-        self.get_original_transaction_with_pagination(
+        self.get_original_transactions_with_pagination(
             transaction,
             retry_count,
             retry_in,
