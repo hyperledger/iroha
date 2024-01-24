@@ -313,7 +313,7 @@ pub async fn handle_version(sumeragi: SumeragiHandle) -> impl warp::Reply  {
         .expect("Genesis not applied. Nothing we can do. Solve the issue and rerun.")
         .version()
         .to_string();
-    warp::reply::with_status(text, warp::http::StatusCode::OK).header("Content-Type", "text/plain")
+    warp::reply::with_status(string, warp::http::StatusCode::OK).header("Content-Type", "text/plain")
 }
 
 #[cfg(feature = "telemetry")]
