@@ -136,8 +136,8 @@ enum Health {
     Healthy,
 }
 
-pub fn handle_health() -> Json {
-    reply::json(&Health::Healthy)
+pub fn handle_health() -> impl warp::Reply {
+    warp::reply::with_status("Healthy", StatusCode::OK)
 }
 
 #[iroha_futures::telemetry_future]
@@ -305,7 +305,7 @@ pub mod subscription {
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "telemetry")]
-pub async fn handle_version(sumeragi: SumeragiHandle) -> Json {
+pub async fn handle_version(sumeragi: SumeragiHandle) -> Result<impl warp::Reply, warp::Rejection> {
     use iroha_version::Version;
 
     let string = sumeragi
@@ -313,7 +313,7 @@ pub async fn handle_version(sumeragi: SumeragiHandle) -> Json {
         .expect("Genesis not applied. Nothing we can do. Solve the issue and rerun.")
         .version()
         .to_string();
-    reply::json(&string)
+    Ok(warp::reply::html(string))
 }
 
 #[cfg(feature = "telemetry")]
