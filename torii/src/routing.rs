@@ -305,7 +305,7 @@ pub mod subscription {
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "telemetry")]
-pub async fn handle_version(sumeragi: SumeragiHandle) -> Result<impl warp::Reply, warp::Rejection> {
+pub async fn handle_version(sumeragi: SumeragiHandle) -> impl warp::Reply  {
     use iroha_version::Version;
 
     let string = sumeragi
@@ -313,7 +313,7 @@ pub async fn handle_version(sumeragi: SumeragiHandle) -> Result<impl warp::Reply
         .expect("Genesis not applied. Nothing we can do. Solve the issue and rerun.")
         .version()
         .to_string();
-    Ok(warp::reply::html(string))
+    warp::reply::with_status(text, warp::http::StatusCode::OK).header("Content-Type", "text/plain")
 }
 
 #[cfg(feature = "telemetry")]
