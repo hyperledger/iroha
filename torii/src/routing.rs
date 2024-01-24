@@ -10,8 +10,7 @@ use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
 use iroha_config::client_api::ConfigurationDTO;
 use iroha_core::{
-    query::{pagination::Paginate, store::LiveQueryStoreHandle},
-    smartcontracts::query::ValidQueryRequest,
+    query::store::LiveQueryStoreHandle, smartcontracts::query::ValidQueryRequest,
     sumeragi::SumeragiHandle,
 };
 use iroha_data_model::{
@@ -162,14 +161,12 @@ fn transaction_payload_eq_excluding_creation_time(
 pub async fn handle_pending_transactions(
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
-    pagination: Pagination,
     transaction: SignedTransaction,
 ) -> Result<Scale<Vec<SignedTransaction>>> {
     let query_response = sumeragi.apply_wsv(|wsv| {
         queue
             .all_transactions(wsv)
             .map(Into::into)
-            .paginate(pagination)
             .filter(|current_transaction: &SignedTransaction| {
                 transaction_payload_eq_excluding_creation_time(
                     current_transaction.payload(),

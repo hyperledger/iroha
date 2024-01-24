@@ -1000,31 +1000,27 @@ impl Client {
         )
     }
 
-    /// Find the original transaction in the pending local tx
-    /// queue.  Should be used for an MST case.  Takes pagination as
-    /// parameter.
+    /// Find the original transaction in the local pending tx queue.
+    /// Should be used for an MST case.
     ///
     /// # Errors
-    /// - if subscribing to websocket fails
-    pub fn get_original_transactions_with_pagination(
+    /// - if sending request fails
+    pub fn get_original_matching_transactions(
         &self,
         transaction: &SignedTransaction,
         retry_count: u32,
         retry_in: Duration,
-        pagination: Pagination,
     ) -> Result<Vec<SignedTransaction>> {
         let url = self
             .torii_url
             .join(crate::config::torii::MATCHING_PENDING_TRANSACTIONS)
             .expect("Valid URI");
-        let pagination = pagination.into_query_parameters();
         let body = transaction.encode();
 
         for _ in 0..retry_count {
             let response = DefaultRequestBuilder::new(HttpMethod::POST, url.clone())
                 .headers(self.headers.clone())
                 .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
-                .params(pagination.clone())
                 .body(body.clone())
                 .build()?
                 .send()?;
@@ -1045,26 +1041,7 @@ impl Client {
                 ));
             }
         }
-        Ok(vec![])
-    }
-
-    /// Find the original transaction in the local pending tx queue.
-    /// Should be used for an MST case.
-    ///
-    /// # Errors
-    /// - if sending request fails
-    pub fn get_original_transactions(
-        &self,
-        transaction: &SignedTransaction,
-        retry_count: u32,
-        retry_in: Duration,
-    ) -> Result<Vec<SignedTransaction>> {
-        self.get_original_transactions_with_pagination(
-            transaction,
-            retry_count,
-            retry_in,
-            Pagination::default(),
-        )
+        Ok(Vec::new())
     }
 
     /// Get value of config on peer

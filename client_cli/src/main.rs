@@ -263,7 +263,7 @@ fn submit(
     let transactions = if context.skip_mst_check() {
         vec![tx]
     } else {
-        match iroha_client.get_original_transactions(
+        match iroha_client.get_original_matching_transactions(
             &tx,
             RETRY_COUNT_MST,
             RETRY_IN_MST,
