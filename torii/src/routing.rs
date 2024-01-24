@@ -305,7 +305,7 @@ pub mod subscription {
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "telemetry")]
-pub async fn handle_version(sumeragi: SumeragiHandle) ->String {
+pub async fn handle_version(sumeragi: SumeragiHandle) ->&str {
     use iroha_version::Version;
 
     let string = sumeragi
