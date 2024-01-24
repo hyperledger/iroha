@@ -56,13 +56,13 @@ pub mod chain_wide {
 
     pub const DEFAULT_MAX_TXS: NonZeroU32 = nonzero!(2_u32.pow(9));
     pub const DEFAULT_BLOCK_TIME: Duration = Duration::from_secs(2);
-    pub const DEFAULT_COMMIT_TIME_LIMIT: Duration = Duration::from_secs(4);
+    pub const DEFAULT_COMMIT_TIME: Duration = Duration::from_secs(4);
     pub const DEFAULT_WASM_FUEL_LIMIT: u64 = 30_000_000;
     pub const DEFAULT_WASM_MAX_MEMORY: u32 = 500 * 2_u32.pow(20);
 
     /// Default estimation of consensus duration.
     pub const DEFAULT_CONSENSUS_ESTIMATION: Duration =
-        match DEFAULT_BLOCK_TIME.checked_add(match DEFAULT_COMMIT_TIME_LIMIT.checked_div(2) {
+        match DEFAULT_BLOCK_TIME.checked_add(match DEFAULT_COMMIT_TIME.checked_div(2) {
             Some(x) => x,
             None => unreachable!(),
         }) {

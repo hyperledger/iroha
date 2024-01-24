@@ -25,17 +25,14 @@ use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use super::defaults::{
-    chain_wide::*, kura::*, logger::*, queue::*, snapshot::*, telemetry::*, torii::*,
-};
 use crate::{
     kura::Mode,
     logger::Format,
     parameters::{
         actual,
-        defaults::network::{
-            DEFAULT_BLOCK_GOSSIP_PERIOD, DEFAULT_MAX_BLOCKS_PER_GOSSIP,
-            DEFAULT_MAX_TRANSACTIONS_PER_GOSSIP, DEFAULT_TRANSACTION_GOSSIP_PERIOD,
+        defaults::{
+            chain_wide::*, kura::*, logger::*, network::*, queue::*, snapshot::*, telemetry::*,
+            torii::*,
         },
     },
 };
@@ -143,13 +140,26 @@ impl RootFull {
 
         let kura = self.kura.parse();
 
-        let sumeragi = self.sumeragi.parse().map_or_else(
-            |err| {
+        let sumeragi = match self.sumeragi.parse() {
+            Ok(mut sumeragi) => {
+                if !cli.submit_genesis && sumeragi.trusted_peers.len() == 0 {
+                    emitter.emit(eyre!("\
+                        The network consists from this one peer only (no `sumeragi.trusted_peers` provided). \
+                        Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
+                        Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, \
+                        and `genesis.file` configuration parameters, or increase the number of trusted peers in \
+                        the network using `sumeragi.trusted_peers` configuration parameter.\
+                    "));
+                    None
+                } else {
+                    Some(sumeragi)
+                }
+            }
+            Err(err) => {
                 emitter.emit(err);
                 None
-            },
-            Some,
-        );
+            }
+        };
 
         let (block_sync, transaction_gossiper) = self.network.parse();
 
@@ -169,22 +179,24 @@ impl RootFull {
 
         let chain_wide = self.chain_wide.parse();
 
+        if let Some(iroha) = &iroha {
+            if iroha.p2p_address == torii.address {
+                emitter.emit(eyre!(
+                    "`iroha.p2p_address` and `torii.address` should not be the same"
+                ))
+            }
+        }
+
         emitter.finish()?;
 
         let (regular_telemetry, dev_telemetry) = telemetries.unwrap();
         let iroha = iroha.unwrap();
         let genesis = genesis.unwrap();
-        let sumeragi = sumeragi.unwrap();
-
-        if !cli.submit_genesis && sumeragi.trusted_peers.len() < 2 {
-            Err(eyre!("\
-                The network consists from this one peer only (`sumeragi.trusted_peers` is less than 2). \
-                Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
-                Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, \
-                and `genesis.file` configuration parameters, or increase the number of trusted peers in \
-                the network using `sumeragi.trusted_peers` configuration parameter.
-            "))?;
-        }
+        let sumeragi = {
+            let mut cfg = sumeragi.unwrap();
+            cfg.trusted_peers.push(iroha.peer_id());
+            cfg
+        };
 
         // TODO: validate that p2p_address and torii.address are not the same
 
@@ -541,15 +553,17 @@ impl FromEnv for GenesisPartial {
 
 impl GenesisFull {
     fn parse(self, cli: &CliContext) -> Result<actual::Genesis, GenesisConfigError> {
-        match (self.private_key, self.file) {
-            (None, None) => Ok(actual::Genesis::Partial {
+        match (self.private_key, self.file, cli.submit_genesis) {
+            (None, None, false) => Ok(actual::Genesis::Partial {
                 public_key: self.public_key,
             }),
-            (Some(private_key), Some(file)) => Ok(actual::Genesis::Full {
+            (Some(private_key), Some(file), true) => Ok(actual::Genesis::Full {
                 key_pair: KeyPair::new(self.public_key, private_key)
                     .map_err(GenesisConfigError::from)?,
                 file,
             }),
+            (Some(_), Some(_), false) => Err(GenesisConfigError::GenesisWithoutSubmit),
+            (None, None, true) => Err(GenesisConfigError::SubmitWithoutGenesis),
             _ => Err(GenesisConfigError::Inconsistent),
         }
     }
@@ -557,6 +571,10 @@ impl GenesisFull {
 
 #[derive(Debug, displaydoc::Display, thiserror::Error)]
 pub enum GenesisConfigError {
+    ///  `genesis.file` and `genesis.private_key` are presented, but `--submit-genesis` was not set
+    GenesisWithoutSubmit,
+    ///  `--submit-genesis` was set, but `genesis.file` and `genesis.private_key` are not presented
+    SubmitWithoutGenesis,
     /// `genesis.file` and `genesis.private_key` should be set together
     Inconsistent,
     /// failed to construct the genesis's keypair using `genesis.public_key` and `genesis.private_key` configuration parameters
@@ -1016,6 +1034,7 @@ pub struct TelemetryFull {
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
+#[serde(deny_unknown_fields, default)]
 pub struct TelemetryDevPartial {
     pub file: UserField<PathBuf>,
 }
@@ -1208,7 +1227,7 @@ impl UnwrapPartial for ChainWidePartial {
                 .map_or(DEFAULT_BLOCK_TIME, UserDuration::get),
             commit_time: self
                 .commit_time
-                .map_or(DEFAULT_COMMIT_TIME_LIMIT, UserDuration::get),
+                .map_or(DEFAULT_COMMIT_TIME, UserDuration::get),
             transaction_limits: self
                 .transaction_limits
                 .unwrap_or(DEFAULT_TRANSACTION_LIMITS),
@@ -1354,7 +1373,11 @@ impl FromEnv for ToriiPartial {
 mod tests {
     use iroha_config_base::{FromEnv, TestEnv};
 
-    use crate::parameters::user_layer::{IrohaPartial, RootPartial};
+    use super::*;
+    use crate::parameters::{
+        actual::{Logger, Sumeragi},
+        user_layer::{IrohaPartial, RootPartial, SnapshotPartial},
+    };
 
     #[test]
     fn parses_private_key_from_env() {
@@ -1426,12 +1449,11 @@ mod tests {
 
     #[test]
     fn deserialize_iroha_namespace_with_not_all_fields_works() {
-        let _layer: RootPartial = toml::from_str(
-            r#"
+        let _layer: RootPartial = toml::toml! {
             [iroha]
             p2p_address = "127.0.0.1:8080"
-        "#,
-        )
-        .unwrap();
+        }
+        .try_into()
+        .expect("should not fail when not all fields in `iroha` are presented at a time");
     }
 }

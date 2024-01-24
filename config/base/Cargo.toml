@@ -13,7 +13,7 @@ workspace = true
 [dependencies]
 merge = "0.1.0"
 drop_bomb = { workspace = true }
-derive_more = { workspace = true }
+derive_more = { workspace = true, features = ["from", "deref", "deref_mut"] }
 eyre = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }

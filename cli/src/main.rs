@@ -90,8 +90,6 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use assertables::{assert_contains, assert_contains_as_result};
-
     use super::*;
 
     #[test]
@@ -135,12 +133,8 @@ mod tests {
     }
 
     #[test]
-    fn user_cannot_provide_invalid_extension() {
-        let err = Args::try_parse_from(["test", "--config", "file.toml"])
-            .expect_err("Should not allow TOML");
-
-        let formatted = format!("{err}");
-        assert_contains!(formatted, "invalid value 'file.toml' for '--config");
-        assert_contains!(formatted, "unsupported file extension `toml`");
+    fn user_can_provide_any_extension() {
+        let _args = Args::try_parse_from(["test", "--config", "file.toml.but.not"])
+            .expect("should allow doing this as well");
     }
 }

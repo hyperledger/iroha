@@ -371,13 +371,13 @@ impl<T> Merge for UserField<T> {
     }
 }
 
-impl<T> UserField<T> {
+impl<T: Debug> UserField<T> {
     pub fn get(self) -> Option<T> {
         self.0
     }
 
     pub fn set(&mut self, value: T) {
-        self.0.as_mut().map(|x| *x = value);
+        self.0 = Some(value);
     }
 }
 
@@ -408,7 +408,7 @@ mod tests {
 
         let err = emitter.finish().unwrap_err();
 
-        assert_eq!(format!("{err}"), "Missing field: foo")
+        assert_eq!(format!("{err}"), "missing field: `foo`")
     }
 
     #[test]
@@ -420,7 +420,10 @@ mod tests {
 
         let err = emitter.finish().unwrap_err();
 
-        assert_eq!(format!("{err}"), "Missing field: foo\nMissing field: bar")
+        assert_eq!(
+            format!("{err}"),
+            "missing field: `foo`\nmissing field: `bar`"
+        )
     }
 
     #[test]

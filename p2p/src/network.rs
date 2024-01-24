@@ -351,7 +351,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         };
         iroha_logger::debug!(listen_addr = %self.listen_addr, %peer.conn_id, "Disconnecting peer");
 
-        let peer_id = PeerId::new(peer.p2p_addr, public_key);
+        let peer_id = PeerId::new(peer.p2p_addr, public_key.clone());
         Self::remove_online_peer(&self.online_peers_sender, &peer_id);
     }
 

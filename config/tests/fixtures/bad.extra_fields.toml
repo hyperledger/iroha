@@ -1,0 +1,4 @@
+# Iroha should not silently ignore extra fields
+i_am_unknown = true
+foo = false
+bar = 0.5

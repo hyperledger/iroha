@@ -3206,6 +3206,7 @@ dependencies = [
  "color-eyre",
  "derive_more",
  "expect-test",
+ "hex",
  "inquire",
  "iroha_config",
  "iroha_crypto",

@@ -15,7 +15,11 @@ use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::{kura::Mode, logger::Format, parameters::user_layer};
+use crate::{
+    kura::Mode,
+    logger::Format,
+    parameters::{defaults, user_layer},
+};
 
 #[derive(Debug, Clone)]
 pub struct Root {
@@ -44,7 +48,7 @@ pub struct Iroha {
 
 impl Iroha {
     pub fn peer_id(&self) -> PeerId {
-        PeerId::new(&self.p2p_address, self.key_pair.public_key())
+        PeerId::new(self.p2p_address.clone(), self.key_pair.public_key().clone())
     }
 }
 
@@ -89,7 +93,13 @@ pub struct Kura {
 
 impl Default for Queue {
     fn default() -> Self {
-        todo!()
+        Self {
+            transaction_time_to_live: defaults::queue::DEFAULT_TRANSACTION_TIME_TO_LIVE,
+            future_threshold: defaults::queue::DEFAULT_FUTURE_THRESHOLD,
+            max_transactions_in_queue: defaults::queue::DEFAULT_MAX_TRANSACTIONS_IN_QUEUE,
+            max_transactions_in_queue_per_user:
+                defaults::queue::DEFAULT_MAX_TRANSACTIONS_IN_QUEUE_PER_USER,
+        }
     }
 }
 
@@ -108,7 +118,9 @@ pub struct LiveQueryStore {
 
 impl Default for LiveQueryStore {
     fn default() -> Self {
-        todo!()
+        Self {
+            query_idle_time: defaults::torii::DEFAULT_QUERY_IDLE_TIME,
+        }
     }
 }
 
@@ -146,7 +158,18 @@ impl ChainWide {
 
 impl Default for ChainWide {
     fn default() -> Self {
-        todo!()
+        Self {
+            max_transactions_in_block: defaults::chain_wide::DEFAULT_MAX_TXS,
+            block_time: defaults::chain_wide::DEFAULT_BLOCK_TIME,
+            commit_time: defaults::chain_wide::DEFAULT_COMMIT_TIME,
+            transaction_limits: defaults::chain_wide::DEFAULT_TRANSACTION_LIMITS,
+            domain_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
+            account_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
+            asset_definition_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
+            asset_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
+            identifier_length_limits: defaults::chain_wide::DEFAULT_IDENT_LENGTH_LIMITS,
+            wasm_runtime: WasmRuntime::default(),
+        }
     }
 }
 
@@ -158,7 +181,10 @@ pub struct WasmRuntime {
 
 impl Default for WasmRuntime {
     fn default() -> Self {
-        todo!()
+        Self {
+            fuel_limit: defaults::chain_wide::DEFAULT_WASM_FUEL_LIMIT,
+            max_memory: ByteSize(defaults::chain_wide::DEFAULT_WASM_MAX_MEMORY),
+        }
     }
 }
 

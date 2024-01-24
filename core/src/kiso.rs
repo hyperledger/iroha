@@ -158,13 +158,20 @@ mod tests {
     use super::*;
 
     fn test_config() -> Root {
-        todo!()
-        // // FIXME Specifying path here might break! Moreover, if the file is not found,
-        // //       the error will say that `public_key` is missing!
-        // //       Hopefully this will change: https://github.com/hyperledger/iroha/issues/2585
-        // ConfigurationProxy::from_path("../config/iroha_test_config.json")
-        //     .build()
-        //     .unwrap()
+        use iroha_config::{
+            base::UnwrapPartial,
+            parameters::user_layer::{CliContext, RootPartial},
+        };
+
+        // FIXME Specifying path here might break!
+        RootPartial::from_toml("../config/iroha_test_config.toml")
+            .expect("test config should be valid (or it is a bug)")
+            .unwrap_partial()
+            .expect("test config should be exhaustive")
+            .parse(CliContext {
+                submit_genesis: true,
+            })
+            .expect("test config should be valid")
     }
 
     #[tokio::test]

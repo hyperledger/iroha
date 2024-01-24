@@ -239,7 +239,7 @@ impl Iroha {
             },
         );
 
-        let queue = Arc::new(Queue::from_configuration(&config.queue));
+        let queue = Arc::new(Queue::from_configuration(config.queue));
         match Self::start_telemetry(&logger, &config).await? {
             TelemetryStartStatus::Started => iroha_logger::info!("Telemetry started"),
             TelemetryStartStatus::NotStarted => iroha_logger::warn!("Telemetry not started"),
@@ -607,7 +607,7 @@ mod tests {
                 cfg.kura.block_store_path.set("../storage".into());
                 cfg.snapshot.store_path.set("../snapshots".into());
                 cfg.telemetry.dev.file.set("../logs/telemetry".into());
-                cfg
+                toml::Value::try_from(cfg)?
             };
 
             let dir = tempfile::tempdir()?;
@@ -662,7 +662,7 @@ mod tests {
             let config = {
                 let mut cfg = config_factory();
                 cfg.genesis.file.set("./genesis.json".into());
-                cfg
+                toml::Value::try_from(cfg)?
             };
 
             let dir = tempfile::tempdir()?;
@@ -676,7 +676,7 @@ mod tests {
             let report = read_config_and_genesis(&config_path, false).unwrap_err();
 
             assert_contains!(
-                format!("{report}"),
+                format!("{report:#}"),
                 "The network consists from this one peer only"
             );
 

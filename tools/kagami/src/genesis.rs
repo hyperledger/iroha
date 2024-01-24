@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{ArgGroup, Parser, Subcommand};
 use iroha_config::parameters::defaults::chain_wide::{
-    DEFAULT_BLOCK_TIME, DEFAULT_COMMIT_TIME_LIMIT, DEFAULT_IDENT_LENGTH_LIMITS, DEFAULT_MAX_TXS,
+    DEFAULT_BLOCK_TIME, DEFAULT_COMMIT_TIME, DEFAULT_IDENT_LENGTH_LIMITS, DEFAULT_MAX_TXS,
     DEFAULT_METADATA_LIMITS, DEFAULT_TRANSACTION_LIMITS, DEFAULT_WASM_FUEL_LIMIT,
     DEFAULT_WASM_MAX_MEMORY,
 };
@@ -181,7 +181,7 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
     let parameter_defaults = ParametersBuilder::new()
         .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, DEFAULT_MAX_TXS.get())?
         .add_parameter(BLOCK_TIME, DEFAULT_BLOCK_TIME.as_millis())?
-        .add_parameter(COMMIT_TIME_LIMIT, DEFAULT_COMMIT_TIME_LIMIT.as_millis())?
+        .add_parameter(COMMIT_TIME_LIMIT, DEFAULT_COMMIT_TIME.as_millis())?
         .add_parameter(TRANSACTION_LIMITS, DEFAULT_TRANSACTION_LIMITS)?
         .add_parameter(WSV_ASSET_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
         .add_parameter(
