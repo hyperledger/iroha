@@ -18,8 +18,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r .github/scripts/ci_test/requirements.txt --no-input
       - name: Check containers on iroha2-stable branch
-        if: github.ref == 'refs/heads/iroha2-stable'
-        run: python .github/scripts/ci_test/ci_image_scan.py --allow iroha2:stable -- docker-compose.stable*.yml
+        if: github.base_ref == 'iroha2-stable'
+        run: python .github/scripts/ci_test/ci_image_scan.py --allow iroha2:stable -- docker-compose*.yml
       - name: Check containers on iroha2-dev branch
-        if: github.ref == 'refs/heads/iroha2-dev'
-        run: python .github/scripts/ci_test/ci_image_scan.py --allow iroha2:dev -- docker-compose.dev*.yml
+        if: github.base_ref == 'iroha2-dev'
+        run: python .github/scripts/ci_test/ci_image_scan.py --allow iroha2:dev -- docker-compose*.yml
