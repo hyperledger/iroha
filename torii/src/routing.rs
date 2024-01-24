@@ -137,7 +137,7 @@ enum Health {
 }
 
 pub fn handle_health() -> impl warp::Reply {
-    warp::reply::with_status("Healthy", StatusCode::OK)
+    warp::reply::with_status("Healthy", StatusCode::OK).header("Content-Type", "text/plain")
 }
 
 #[iroha_futures::telemetry_future]
