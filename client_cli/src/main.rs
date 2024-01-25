@@ -510,7 +510,13 @@ mod domain {
             /// A key of metadata
             #[arg(short, long)]
             key: Name,
-            /// A value of metadata
+            /// The value of the metadata to be associated with a specific key.
+            /// The following types are supported:
+            /// Numbers: with a suffix, e.g. 42_u32 or 1000_u128
+            /// Booleans: false/true
+            /// IPv4/IPv6: e.g. 127.0.0.1, ::1
+            /// Iroha Public Key Multihash: e.g. ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0
+            /// JSON: e.g. {"Vec":[{"String":"a"},{"String":"b"}]}
             #[arg(short, long)]
             value: ValueArg,
         }
