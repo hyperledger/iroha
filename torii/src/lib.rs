@@ -90,17 +90,11 @@ impl Torii {
             .and_then(|| async { Ok::<_, Infallible>(routing::handle_health()) });
 
         let get_router = warp::get().and(
-            endpoint3(
-                routing::handle_pending_transactions,
-                warp::path(uri::PENDING_TRANSACTIONS)
-                    .and(add_state!(self.queue, self.sumeragi,))
-                    .and(routing::paginate()),
-            )
-            .or(warp::path(uri::CONFIGURATION)
+            warp::path(uri::CONFIGURATION)
                 .and(add_state!(self.kiso))
                 .and_then(|kiso| async move {
                     Ok::<_, Infallible>(WarpResult(routing::handle_get_configuration(kiso).await))
-                })),
+                }),
         );
 
         #[cfg(feature = "telemetry")]
@@ -144,6 +138,12 @@ impl Torii {
                         ))
                         .and(body::versioned()),
                 )
+                .or(endpoint3(
+                    routing::handle_pending_transactions,
+                    warp::path(uri::MATCHING_PENDING_TRANSACTIONS)
+                        .and(add_state!(self.queue, self.sumeragi))
+                        .and(body::versioned()),
+                ))
                 .or(endpoint3(
                     routing::handle_queries,
                     warp::path(uri::QUERY)
