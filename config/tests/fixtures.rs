@@ -268,6 +268,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
 
     let expected = expect_test::expect![[r#"
         RootPartial {
+            extends: None,
             iroha: IrohaPartial {
                 chain_id: Some(
                     ChainId(
@@ -380,7 +381,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
 
 #[test]
 fn multiple_env_parsing_errors() {
-    let env = test_env_from_file(fixtures_dir().join("bad.multiple-bad-envs.env"));
+    let env = test_env_from_file(fixtures_dir().join("bad.multiple_bad_envs.env"));
 
     let error = RootPartial::from_env(&env).expect_err("the input from env is invalid");
 
@@ -408,7 +409,7 @@ fn config_from_file_and_env() -> Result<()> {
 }
 
 #[test]
-fn fail_if_torii_address_and_p2p_address_are_equal() -> Result<()> {
+fn fails_if_torii_address_and_p2p_address_are_equal() -> Result<()> {
     let error = RootPartial::from_toml(fixtures_dir().join("bad.torii_addr_eq_p2p_addr.toml"))?
         .unwrap_partial()
         .expect("should not fail, all fields are present")
@@ -417,8 +418,37 @@ fn fail_if_torii_address_and_p2p_address_are_equal() -> Result<()> {
         })
         .expect_err("should fail because of bad input");
 
-    let expected = expect_test::expect!["`iroha.p2p_address` and `torii.address` should not be the same"];
+    let expected =
+        expect_test::expect!["`iroha.p2p_address` and `torii.address` should not be the same"];
     expected.assert_eq(&format!("{error:#}"));
+
+    Ok(())
+}
+
+#[test]
+fn fails_if_extends_leads_to_nowhere() {
+    let error = RootPartial::from_toml(fixtures_dir().join("bad.extends_nowhere.toml"))
+        .expect_err("should fail with bad input");
+
+    let expected = expect_test::expect!["cannot extend from `tests/fixtures/nowhere.toml`: cannot open file at location `tests/fixtures/nowhere.toml`: No such file or directory (os error 2)"];
+    expected.assert_eq(&format!("{error:#}"));
+}
+
+#[test]
+fn multiple_extends_works() -> Result<()> {
+    // we are looking into `logger` in particular
+    let layer = RootPartial::from_toml(fixtures_dir().join("multiple_extends.toml"))?.logger;
+
+    let expected = expect_test::expect![[r#"
+        LoggerPartial {
+            level: Some(
+                ERROR,
+            ),
+            format: Some(
+                Compact,
+            ),
+        }"#]];
+    expected.assert_eq(&format!("{layer:#?}"));
 
     Ok(())
 }

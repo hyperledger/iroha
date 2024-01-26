@@ -5,7 +5,7 @@ use std::{
     io::Read,
     num::{NonZeroU32, NonZeroU64, NonZeroUsize},
     ops::{Add, Div},
-    path::{Path, PathBuf},
+    path::{Iter, Path, PathBuf},
     str::FromStr,
     time::Duration,
 };
@@ -37,9 +37,63 @@ use crate::{
     },
 };
 
+#[derive(Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum ExtendsPaths {
+    #[default]
+    None,
+    Single(PathBuf),
+    Multiple(Vec<PathBuf>),
+}
+
+impl Merge for ExtendsPaths {
+    fn merge(&mut self, other: Self) {
+        match (self, other) {
+            (Self::None, Self::None) => {}
+            _ => unreachable!(
+                "It is a bug. `ExtendsPaths` should be resolved to `None` before merging."
+            ),
+        }
+    }
+}
+
+pub enum ExtendsPathsIter<'a> {
+    None,
+    Single(Option<&'a PathBuf>),
+    Multiple(std::slice::Iter<'a, PathBuf>),
+}
+
+impl ExtendsPaths {
+    pub fn iter(&self) -> ExtendsPathsIter<'_> {
+        match &self {
+            Self::None => ExtendsPathsIter::None,
+            Self::Single(x) => ExtendsPathsIter::Single(Some(x)),
+            Self::Multiple(vec) => ExtendsPathsIter::Multiple(vec.iter()),
+        }
+    }
+
+    /// Marks this instance as used, so that subsequent [`Merge`] doesn't fail
+    pub fn used(&mut self) {
+        *self = Self::None
+    }
+}
+
+impl<'a> Iterator for ExtendsPathsIter<'a> {
+    type Item = &'a PathBuf;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::None => None,
+            Self::Single(x) => x.take(),
+            Self::Multiple(iter) => iter.next(),
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
 pub struct RootPartial {
+    pub extends: ExtendsPaths,
     pub iroha: IrohaPartial,
     pub genesis: GenesisPartial,
     pub kura: KuraPartial,
@@ -69,15 +123,40 @@ impl RootPartial {
             file.read_to_string(&mut contents)?;
             contents
         };
-        let mut parsed: Self = toml::from_str(&contents).wrap_err("failed to parse toml")?;
-        parsed.normalise_paths(
-            path.as_ref()
-                .parent()
-                .expect("the config file path could not be empty or root"),
-        );
-        Ok(parsed)
+        let mut layer: Self = toml::from_str(&contents).wrap_err("failed to parse toml")?;
+
+        let base_path = path
+            .as_ref()
+            .parent()
+            .expect("the config file path could not be empty or root");
+
+        layer.normalise_paths(base_path);
+
+        if let Some(base) =
+            layer
+                .extends
+                .iter()
+                .try_fold(None, |acc: Option<RootPartial>, extends_path| {
+                    // extends path is not normalised relative to the config file yet
+                    let full_path = base_path.join(extends_path);
+
+                    let base = Self::from_toml(&full_path)
+                        .wrap_err_with(|| eyre!("cannot extend from `{}`", full_path.display()))?;
+
+                    match acc {
+                        None => Ok::<Option<RootPartial>, Report>(Some(base)),
+                        Some(other_base) => Ok(Some(other_base.merge(base))),
+                    }
+                })?
+        {
+            layer.extends.used();
+            layer = base.merge(layer);
+        };
+
+        Ok(layer)
     }
 
+    /// **Note:** this function doesn't affect `extends`
     fn normalise_paths(&mut self, relative_to: impl AsRef<Path>) {
         let path = relative_to.as_ref();
 
@@ -305,6 +384,7 @@ impl FromEnv for RootPartial {
         emitter.finish()?;
 
         Ok(Self {
+            extends: ExtendsPaths::None,
             iroha: iroha.unwrap(),
             genesis: genesis.unwrap(),
             kura: kura.unwrap(),
@@ -1455,5 +1535,61 @@ mod tests {
         }
         .try_into()
         .expect("should not fail when not all fields in `iroha` are presented at a time");
+    }
+
+    #[derive(Deserialize, Default)]
+    #[serde(default)]
+    struct TestExtends {
+        extends: ExtendsPaths,
+    }
+
+    #[test]
+    fn parse_empty_extends() {
+        let value: TestExtends = toml::from_str("").expect("should be fine with empty input");
+
+        assert_eq!(value.extends, ExtendsPaths::None);
+    }
+
+    #[test]
+    fn parse_single_extends_path() {
+        let value: TestExtends = toml::toml! {
+            extends = "./path"
+        }
+        .try_into()
+        .unwrap();
+
+        assert_eq!(value.extends, ExtendsPaths::Single("./path".into()));
+    }
+
+    #[test]
+    fn parse_multiple_extends_paths() {
+        let value: TestExtends = toml::toml! {
+            extends = ["foo", "bar", "baz"]
+        }
+        .try_into()
+        .unwrap();
+
+        assert_eq!(
+            value.extends,
+            ExtendsPaths::Multiple(vec!["foo".into(), "bar".into(), "baz".into()])
+        );
+    }
+
+    #[test]
+    fn iterating_over_extends() {
+        impl ExtendsPaths {
+            fn into_str_vec(&self) -> Vec<&str> {
+                self.iter().map(|p| p.to_str().unwrap()).collect()
+            }
+        }
+
+        let empty = ExtendsPaths::None;
+        assert_eq!(empty.into_str_vec(), Vec::<&str>::new());
+
+        let single = ExtendsPaths::Single("single".into());
+        assert_eq!(single.into_str_vec(), vec!["single"]);
+
+        let multi = ExtendsPaths::Multiple(vec!["foo".into(), "bar".into(), "baz".into()]);
+        assert_eq!(multi.into_str_vec(), vec!["foo", "bar", "baz"]);
     }
 }
