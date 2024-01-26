@@ -8,7 +8,7 @@ For quick access to a topic that interests you, select one of the following:
 - [Iroha 2 Test Model](#iroha-2-test-model)
 - [Using Test Suites](#using-test-suites)
 	- [Custom Test Environment with Docker Compose](#custom-test-environment-with-docker-compose)
-	- [Poetry Configuration](#poetry-configration)
+	- [Poetry Configuration](#poetry-configuration)
 	- [Tests Configuration](#tests-configuration)
 - [Running Tests](#running-tests)
 - [Viewing Test Reports](#viewing-test-reports)
@@ -34,42 +34,27 @@ For details, see [Running Tests](#running-tests) and [Viewing Test Reports](#vie
 The Iroha 2 Test Model consists of several test categories that cover different aspects of the Iroha 2 blockchain platform.\
 The test model has the following structure:
 
-- **Accounts**: Test cases for account-related operations:
-	- `test_accounts_query_filters.py` — various accounts-related filter queries.
-	- `test_register_accounts.py` — account registration.
-	- `test_set_key_value_pair.py` — key management.
-- **Assets**: Test cases for asset-related operations:
-	- `test_assets_query_filters.py` — various assets-related filter queries.
-	- `test_burn_assets.py` — burning assets.
-	- `test_mint_assets.py` — minting assets.
-	- `test_register_asset_definitions.py` — registering various types of asset definitions.
-	- `test_transfer_assets.py` — transferring assets.
-- **Atomicity**: Test cases for transaction atomicity:
-	- `test_multiple_instructions_within_transaction.py` — multiple instructions within a single transaction.
-	- `test_pair_instructions_within_transaction.py` — paired instructions within a single transaction.
-	- `test_wrong_instructions_within_transaction.py` — invalid instructions within a single transaction.
-- **Domains**: Test cases for domain-related operations:
-	- `test_domains_query_filters.py` — various domain-related filter queries.
-	- `test_register_domains.py` — registering various types of domains.
-	- `test_transfer_domains.py` — transferring a domain.
-- **Roles**: Test cases for roles management:
-	- `test_register_roles.py` — registering a role, attaching permissions to a role, granting a role to an account.
+- **Accounts**: Test cases for account-related operations
+- **Assets**: Test cases for asset-related operations
+- **Atomicity**: Test cases for transaction atomicity
+- **Domains**: Test cases for domain-related operations
+- **Roles**: Test cases for roles management
 
 <!-- TODO: Add once implemented: - **Configurations**: Test configurations for the Iroha 2 platform. -->
 
 ## Using Test Suites
 
 > [!NOTE]
-> The following instructions assume that you're using the `test_env.py` script that is being provided for the default test environment. However, it is possible to run the tests in a custom test environment set with Docker Compose.
+> The following instructions assume
+> that you're using the `test_env.py` script that is being provided for the default test environment.
+> However, it is possible to run the tests in a custom environment e.g. with Docker Compose.
 > For instructions on how to do so, see [Custom Test Environment with Docker Compose](#custom-test-environment-with-docker-compose).
 
-1. Set up a test environment using the [`test_env.py`](../../scripts/test_env.py) file:
+1. Set up a test environment using the [`test_env.py`](../../scripts/test_env.py) script:
 
 	 ```shell
 	 # Must be executed from the repo root:
-	 ./scripts/test_env.py setup --release
-	 # or:
-	 ./scripts/test_env.py setup --profile=release
+	 ./scripts/test_env.py setup
 	 ```
 
    By default, this builds `iroha`, `iroha_client_cli`, and `kagami` binaries, and runs four peers with their API exposed through the `8080`-`8083` ports.\
@@ -77,8 +62,13 @@ The test model has the following structure:
 
 2. Install and configure [Poetry](https://python-poetry.org/).\
 	 For details, see [Poetry Configuration](#poetry-configuration) below.
-3. Configure the tests.\
-	 For details, see [Tests Configuration](#tests-configuration) below.
+3. Configure the tests. To do so, put an `.env` file in _this_ directory (`<repo root>/client_cli/pytests/.env`) with the following contents: 
+	```sh
+	CLIENT_CLI_DIR=../../test
+	TORII_API_PORT_MIN=8080
+	TORII_API_PORT_MAX=8083
+	``` 
+    For details, see [Tests Configuration](#tests-configuration) below.
 4. Run the tests:
 
 	 ```shell
@@ -94,24 +84,37 @@ The test model has the following structure:
 
 ### Custom Test Environment with Docker Compose
 
-By default, we provide the [`test_env.py`](../../scripts/test_env.py) script to set up a test environment. However, if for any reason the `.py` script is inconvenient, it is possible to run the tests in a custom test environment setup with Docker Compose.
+By default, we provide the [`test_env.py`](../../scripts/test_env.py) script to set up a test environment.
+This environment is composed of a running network of Iroha peers and a `iroha_client_cli` configuration
+to interact with the network.
+However, if for any reason this approach is inconvenient, it is possible to set up a custom network of Iroha peers.
+This section explains how to do so using provided Docker Compose configurations.
 
 To do so, perform the following steps:
 
-0. Have a local or remote server that has a custom Docker Compose development environment already setup:
+1. Have a local or remote server that has a custom Docker Compose development environment already setup:
 
 	 ```bash
 	 docker-compose -f docker-compose.dev.yml up
 	 ```
 
-1. Build the `iroha_client_cli` binary:
+2. Build the `iroha_client_cli` binary:
 
 	 ```bash
 	 cargo build --bin iroha_client_cli
 	 ```
 
-2. Copy the [`config.json`](../../configs/client/config.json) file to the `/target/debug` directory within the `iroha_client_cli` root folder.
-3. Proceed with _Step 2_ of the [Using Test Suites](#using-test-suites) instructions.
+3. Create some directory and put the client binary and its config there:
+
+	```shell
+    # choose whatever directory you like
+	mkdir test_client
+    
+ 	cp target/debug/iroha_client_cli test_client
+    cp configs/client/config.json test_client
+	```
+ 
+4. Proceed with _Step 2_ of the [Using Test Suites](#using-test-suites) instructions. **Note:** specify the path to the created client directory in `CLIENT_CLI_DIR` variable in the `.env` file.
 
 ### Poetry Configuration
 
