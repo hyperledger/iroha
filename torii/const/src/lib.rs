@@ -21,7 +21,7 @@ pub mod uri {
     /// The web socket uri used to subscribe to blocks stream.
     pub const BLOCKS_STREAM: &str = "block/stream";
     /// Get pending transactions.
-    pub const PENDING_TRANSACTIONS: &str = "pending_transactions";
+    pub const MATCHING_PENDING_TRANSACTIONS: &str = "matching_pending_transactions";
     /// The URI for local config changing inspecting
     pub const CONFIGURATION: &str = "configuration";
     /// URI to report status for administration
