@@ -21,14 +21,14 @@ iroha_swarm <options>
 
 ## Examples
 
-Generate `docker-compose.dev.yml` with 5 peers, using `iroha` utf-8 bytes as a cryptographic seed, using `./configs/peer` as a directory with configuration, and using `.` as a directory with `Dockerfile` of Iroha: 
+Generate `docker-compose.dev.yml` with 5 peers, using `iroha` utf-8 bytes as a cryptographic seed, using `./peer_config` as a directory with configuration, and using `.` as a directory with `Dockerfile` of Iroha: 
 
 ```bash
 iroha_swarm \
     --build . \
     --peers 5 \
     --seed iroha \
-    --config-dir ./configs/peer \
+    --config-dir ./peer_config \
     --outfile docker-compose.dev.yml
 ```
 
@@ -39,6 +39,6 @@ iroha_swarm \
     --image hyperledger/iroha2:dev \
     --peers 5 \
     --seed iroha \
-    --config-dir ./configs/peer \
+    --config-dir ./peer_config \
     --outfile docker-compose.dev.yml
 ```

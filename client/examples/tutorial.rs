@@ -8,7 +8,7 @@ use iroha_client::config::{base::UnwrapPartial, user_layer::RootPartial as UserC
 
 fn main() {
     // #region rust_config_load
-    let config_loc = "../configs/client/config.toml";
+    let config_loc = "../config_samples/swarm/client.toml";
     let config = UserConfig::from_toml(config_loc)
         .wrap_err("Unable to load the configuration file at `.....`")
         .expect("Config file is loading normally.")

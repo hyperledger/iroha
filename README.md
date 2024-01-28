@@ -124,9 +124,7 @@ docker compose up
 With the `docker-compose` instance running, use [Iroha Client CLI](./client_cli/README.md):
 
 ```bash
-cp configs/client/config.json target/debug/config.json
-cd target/debug
-./iroha_client_cli --help
+cargo run --bin iroha_client_cli -- --config ./config_samples/swarm/client.toml
 ```
 
 ## Integration
@@ -166,12 +164,11 @@ A brief overview on how to configure and maintain an Iroha instance:
 There is a set of configuration parameters that could be passed either through a configuration file or environment variables.
 
 ```shell
-# look for `config.json` or `config.json5` (won't fail if files are not found)
-iroha 
-
 # Override default config path through CLI or ENV
-iroha --config /path/to/config.json
-IROHA_CONFIG=/path/to/config.json iroha
+iroha --config /path/to/config.toml
+
+# or ENV
+IROHA_CONFIG=/path/to/config.toml iroha
 ```
 
 **Note:** detailed configuration reference is [work in progress](https://github.com/hyperledger/iroha-2-docs/issues/392).

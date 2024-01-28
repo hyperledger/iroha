@@ -74,6 +74,7 @@ tokio-tungstenite = { workspace = true }
 tungstenite = { workspace = true }
 futures-util = "0.3.28"
 merge = "0.1.0"
+toml = { workspace = true }
 
 [dev-dependencies]
 iroha_wasm_builder = { workspace = true }

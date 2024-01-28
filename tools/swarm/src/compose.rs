@@ -24,7 +24,6 @@ use crate::{cli::SourceParsed, util::AbsolutePath};
 
 /// Config directory inside of the docker image
 const DIR_CONFIG_IN_DOCKER: &str = "/config";
-const PATH_TO_CONFIG: &str = "/config/config.json";
 const PATH_TO_GENESIS: &str = "/config/genesis.json";
 const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
 const COMMAND_SUBMIT_GENESIS: &str = "iroha --submit-genesis";
@@ -302,7 +301,6 @@ pub enum ServiceSource {
 #[serde(rename_all = "UPPERCASE")]
 struct FullPeerEnv {
     chain_id: ChainId,
-    iroha_config: String,
     public_key: PublicKey,
     private_key_digest: Algorithm,
     private_key_payload: SerializeAsHex<Vec<u8>>,
@@ -336,20 +334,19 @@ impl From<CompactPeerEnv> for FullPeerEnv {
             .genesis_private_key
             .map_or((None, None, None), |private_key| {
                 (
-                    Some(private_key.digest_function()),
-                    Some(SerializeAsHex(private_key.payload().to_owned())),
+                    Some(private_key.algorithm()),
+                    Some(SerializeAsHex(private_key.payload())),
                     Some(PATH_TO_GENESIS.to_string()),
                 )
             });
 
         let (private_key_digest, private_key_payload) = (
-            value.key_pair.private_key().digest_function(),
-            SerializeAsHex(value.key_pair.private_key().payload().to_owned()),
+            value.key_pair.private_key().algorithm(),
+            SerializeAsHex(value.key_pair.private_key().payload()),
         );
 
         Self {
             chain_id: value.chain_id,
-            iroha_config: PATH_TO_CONFIG.to_string(),
             public_key: value.key_pair.public_key().clone(),
             private_key_digest,
             private_key_payload,
@@ -608,12 +605,8 @@ mod tests {
     };
 
     use iroha_config::{
-        base::TestEnv,
-        parameters::user_layer::RootPartial, // iroha::ConfigurationProxy,
-    };
-    use iroha_config::{
-        base::{FromEnv, ReadEnv, UnwrapPartial},
-        parameters::user_layer::CliContext,
+        base::{FromEnv, TestEnv, UnwrapPartial},
+        parameters::user_layer::{CliContext, RootPartial},
     };
     use iroha_crypto::{KeyGenConfiguration, KeyPair};
     use iroha_primitives::addr::{socket_addr, SocketAddr};
@@ -660,12 +653,6 @@ mod tests {
             trusted_peers: BTreeSet::new(),
         }
         .into();
-
-        // pretending like we've read `IROHA_CONFIG` env to know the config location
-        let _ = env
-            .get("IROHA_CONFIG")
-            .expect("never occurs")
-            .expect("should be presented");
 
         let _cfg = RootPartial::from_env(&env)
             .expect("valid env")
@@ -743,7 +730,6 @@ mod tests {
                 platform: linux/amd64
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
-                  IROHA_CONFIG: /config/config.json
                   PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
                   PRIVATE_KEY_DIGEST: ed25519
                   PRIVATE_KEY_PAYLOAD: db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8
@@ -766,7 +752,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_genesis_public_key_is_skipped_in_env() {
+    fn empty_genesis_private_key_is_skipped_in_env() {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let key_pair =
@@ -787,7 +773,6 @@ mod tests {
         let actual = serde_yaml::to_string(&env).unwrap();
         let expected = expect_test::expect![[r#"
             CHAIN_ID: 00000000-0000-0000-0000-000000000000
-            IROHA_CONFIG: /config/config.json
             PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
             PRIVATE_KEY_DIGEST: ed25519
             PRIVATE_KEY_PAYLOAD: 6bf163fd75192b81a78cb20c5f8cb917f591ac6635f2577e6ca305c27a456a5d415388a90fa238196737746a70565d041cfb32eaa0c89ff8cb244c7f832a6ebd
@@ -830,7 +815,6 @@ mod tests {
                 platform: linux/amd64
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
-                  IROHA_CONFIG: /config/config.json
                   PUBLIC_KEY: ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13
                   PRIVATE_KEY_DIGEST: ed25519
                   PRIVATE_KEY_PAYLOAD: 5f8d1291bf6b762ee748a87182345d135fd167062857aa4f20ba39f25e74c4b0f0321eb4139163c35f88bf78520ff7071499d7f4e79854550028a196c7b49e13
@@ -859,7 +843,6 @@ mod tests {
                 platform: linux/amd64
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
-                  IROHA_CONFIG: /config/config.json
                   PUBLIC_KEY: ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C
                   PRIVATE_KEY_DIGEST: ed25519
                   PRIVATE_KEY_PAYLOAD: 8d34d2c6a699c61e7a9d5aabbbd07629029dfb4f9a0800d65aa6570113edb465a88554aa5c86d28d0eebec497235664433e807881cd31e12a1af6c4d8b0f026c
@@ -884,7 +867,6 @@ mod tests {
                 platform: linux/amd64
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
-                  IROHA_CONFIG: /config/config.json
                   PUBLIC_KEY: ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4
                   PRIVATE_KEY_DIGEST: ed25519
                   PRIVATE_KEY_PAYLOAD: cf4515a82289f312868027568c0da0ee3f0fde7fef1b69deb47b19fde7cbc169312c1b7b5de23d366adcf23cd6db92ce18b2aa283c7d9f5033b969c2dc2b92f4
@@ -909,7 +891,6 @@ mod tests {
                 platform: linux/amd64
                 environment:
                   CHAIN_ID: 00000000-0000-0000-0000-000000000000
-                  IROHA_CONFIG: /config/config.json
                   PUBLIC_KEY: ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE
                   PRIVATE_KEY_DIGEST: ed25519
                   PRIVATE_KEY_PAYLOAD: ab0e99c2b845b4ac7b3e88d25a860793c7eb600a25c66c75cba0bae91e955aa6854457b2e3d6082181da73dc01c1e6f93a72d0c45268dc8845755287e98a5dee

@@ -8,13 +8,5 @@ private_key.payload = "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1
 
 [api]
 torii_url = "http://127.0.0.1:8080/"
-
-[api.basic_auth]
-login = "mad_hatter"
-password = "ilovetea"
-
-[transaction]
-time_to_live = 100_000
-status_timeout = 100_000
-add_nonce = false
-
+basic_auth.web_login = "mad_hatter"
+basic_auth.password = "ilovetea"

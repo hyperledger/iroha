@@ -649,7 +649,7 @@ impl PrivateKey {
     }
 
     /// Key payload
-    fn payload(&self) -> Vec<u8> {
+    pub fn payload(&self) -> Vec<u8> {
         match self.0.borrow() {
             PrivateKeyInner::Ed25519(key) => key.to_keypair_bytes().to_vec(),
             PrivateKeyInner::Secp256k1(key) => key.to_bytes().to_vec(),

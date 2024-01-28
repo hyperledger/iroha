@@ -66,7 +66,7 @@ pub struct BasicAuth {
 }
 
 pub mod user_layer {
-    use std::{path::Path, time::Duration};
+    use std::{fs::File, io::Read, path::Path, time::Duration};
 
     use eyre::{eyre, Context, Report};
     use iroha_config::base::{
@@ -96,7 +96,17 @@ pub mod user_layer {
         }
 
         pub fn from_toml(path: impl AsRef<Path>) -> eyre::Result<Self> {
-            todo!()
+            let contents = {
+                let mut contents = String::new();
+                File::open(path.as_ref())
+                    .wrap_err_with(|| {
+                        eyre!("cannot open file at location `{}`", path.as_ref().display())
+                    })?
+                    .read_to_string(&mut contents)?;
+                contents
+            };
+            let layer: Self = toml::from_str(&contents).wrap_err("failed to parse toml")?;
+            Ok(layer)
         }
 
         pub fn merge(mut self, other: Self) -> Self {
@@ -167,7 +177,7 @@ pub mod user_layer {
 
             // TODO: validate if TTL is too small?
 
-            if tx_timeout < tx_ttl {
+            if tx_timeout > tx_ttl {
                 // TODO:
                 //      would be nice to provide a nice report with spans in the input
                 //      pointing out source data in provided config files

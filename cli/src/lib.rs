@@ -198,10 +198,12 @@ impl Iroha {
         genesis: Option<GenesisNetwork>,
         logger: LoggerHandle,
     ) -> Result<Self> {
-        let network =
-            IrohaNetwork::start(config.torii.address.clone(), config.iroha.key_pair.clone())
-                .await
-                .wrap_err("Unable to start P2P-network")?;
+        let network = IrohaNetwork::start(
+            config.iroha.p2p_address.clone(),
+            config.iroha.key_pair.clone(),
+        )
+        .await
+        .wrap_err("Unable to start P2P-network")?;
 
         let (events_sender, _) = broadcast::channel(10000);
         let world = World::with(

@@ -2721,6 +2721,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-tungstenite",
+ "toml 0.8.8",
  "tracing-flame",
  "tracing-subscriber",
  "tungstenite",

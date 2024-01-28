@@ -35,11 +35,13 @@ pub struct Cli {
     pub no_banner: bool,
     /// Path to a directory with Iroha configuration. It will be mapped as volume for containers.
     ///
-    /// The directory should contain `config.json` and `genesis.json`
+    /// The directory should contain `genesis.json` with executor.
     #[arg(long, short)]
     pub config_dir: PathBuf,
     #[command(flatten)]
     pub source: SourceArgs,
+    // TODO: add an argument to specify an optional configuration file path?
+    //       or think about other ways for users to customise peers' configuration
 }
 
 #[derive(Args, Debug)]
