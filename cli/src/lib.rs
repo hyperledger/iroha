@@ -9,7 +9,10 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use std::{path::Path, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use iroha_config::parameters::{actual::Root as Config, user_layer::CliContext};
+use iroha_config::parameters::{
+    actual::Root as Config,
+    user_layer::{CliContext, RootPartial as RootLayer},
+};
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
     gossiper::{TransactionGossiper, TransactionGossiperHandle},
@@ -513,7 +516,7 @@ pub fn read_config_and_genesis(
 ) -> Result<(Config, Option<GenesisNetwork>)> {
     use iroha_config::{
         base::{FromEnv as _, StdEnv, UnwrapPartial as _},
-        parameters::{actual::Genesis, user_layer::RootPartial as RootLayer},
+        parameters::actual::Genesis,
     };
 
     let config = RootLayer::from_toml(path)?;

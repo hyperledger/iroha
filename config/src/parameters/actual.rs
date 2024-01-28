@@ -103,7 +103,7 @@ impl Default for Queue {
     }
 }
 
-pub use user_layer::{LoggerFull as Logger, QueueFull as Queue, SnapshotFull as Snapshot};
+pub use user_layer::{Logger, Queue, Snapshot};
 
 #[derive(Debug, Clone)]
 pub struct Sumeragi {
