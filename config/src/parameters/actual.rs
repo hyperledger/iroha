@@ -1,10 +1,10 @@
 use std::{
     num::{NonZeroU32, NonZeroU64, NonZeroUsize},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
-use iroha_config_base::ByteSize;
+use iroha_config_base::{ByteSize, FromEnv, StdEnv, UnwrapPartial};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
@@ -37,6 +37,21 @@ pub struct Root {
     pub regular_telemetry: Option<RegularTelemetry>,
     pub dev_telemetry: Option<DevTelemetry>,
     pub chain_wide: ChainWide,
+}
+
+impl Root {
+    /// Loads configuration from a file and environment variables
+    ///
+    /// # Errors
+    /// - unable to load config from a TOML file
+    /// - unable to parse config from envs
+    /// - unable to validate loaded config
+    pub fn load(path: impl AsRef<Path>, cli: CliContext) -> Result<Self, eyre::Report> {
+        let config = RootPartial::from_toml(path)?;
+        let config = config.merge(RootPartial::from_env(&StdEnv)?);
+        let config = config.unwrap_partial()?.parse(cli)?;
+        Ok(config)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +118,8 @@ impl Default for Queue {
 }
 
 pub use user_layer::{Logger, Queue, Snapshot};
+
+use crate::parameters::user_layer::{CliContext, RootPartial};
 
 #[derive(Debug, Clone)]
 pub struct Sumeragi {

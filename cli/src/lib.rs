@@ -9,10 +9,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use std::{path::Path, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use iroha_config::parameters::{
-    actual::Root as Config,
-    user_layer::{CliContext, RootPartial as RootLayer},
-};
+use iroha_config::parameters::{actual::Root as Config, user_layer::CliContext};
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
     gossiper::{TransactionGossiper, TransactionGossiperHandle},
@@ -514,16 +511,10 @@ pub fn read_config_and_genesis(
     path: impl AsRef<Path>,
     submit_genesis: bool,
 ) -> Result<(Config, Option<GenesisNetwork>)> {
-    use iroha_config::{
-        base::{FromEnv as _, StdEnv, UnwrapPartial as _},
-        parameters::actual::Genesis,
-    };
+    use iroha_config::parameters::actual::Genesis;
 
-    let config = RootLayer::from_toml(path)?;
-    let config = config.merge(RootLayer::from_env(&StdEnv)?);
-    let config = config
-        .unwrap_partial()?
-        .parse(CliContext { submit_genesis })?;
+    let config = Config::load(path, CliContext { submit_genesis })
+        .wrap_err("failed to load configuration")?;
 
     let genesis = if let Genesis::Full { key_pair, file } = &config.genesis {
         let raw_block = RawGenesisBlock::from_path(file)?;

@@ -2,20 +2,13 @@
 //! <https://hyperledger.github.io/iroha-2-docs/guide/rust.html#_2-configuring-iroha-2>
 
 use eyre::{Error, WrapErr};
-use iroha_client::config::{base::UnwrapPartial, user_layer::RootPartial as UserConfig, Config};
+use iroha_client::config::Config;
 // #region rust_config_crates
 // #endregion rust_config_crates
 
 fn main() {
     // #region rust_config_load
-    let config_loc = "../config_samples/swarm/client.toml";
-    let config = UserConfig::from_toml(config_loc)
-        .wrap_err("Unable to load the configuration file at `.....`")
-        .expect("Config file is loading normally.")
-        .unwrap_partial()
-        .expect("Config should have all required fields")
-        .parse()
-        .expect("Config should be semantically valid");
+    let config = Config::load("../config_samples/swarm/client.toml").unwrap();
     // #endregion rust_config_load
 
     // Your code goes here…

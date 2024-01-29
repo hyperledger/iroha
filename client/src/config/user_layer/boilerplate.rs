@@ -2,16 +2,16 @@
 
 use std::{fs::File, io::Read, path::Path};
 
-use eyre::{eyre, WrapErr};
+use eyre::{eyre, Context};
+use iroha_config::base::{
+    Emitter, FromEnvDefaultFallback, Merge, MissingFieldError, UnwrapPartial, UnwrapPartialResult,
+    UserDuration, UserField,
+};
 use iroha_crypto::{PrivateKey, PublicKey};
 use iroha_data_model::{account::AccountId, ChainId};
 use serde::Deserialize;
 
 use crate::config::{
-    base::{
-        Emitter, FromEnvDefaultFallback, Merge, MissingFieldError, UnwrapPartial,
-        UnwrapPartialResult, UserDuration, UserField,
-    },
     user_layer::{Account, Api, OnlyHttpUrl, Root, Transaction},
     BasicAuth, DEFAULT_ADD_TRANSACTION_NONCE, DEFAULT_TRANSACTION_STATUS_TIMEOUT,
     DEFAULT_TRANSACTION_TIME_TO_LIVE,

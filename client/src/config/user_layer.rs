@@ -1,5 +1,8 @@
-use std::{io::Read, time::Duration};
+mod boilerplate;
 
+use std::{fs::File, io::Read, path::Path, time::Duration};
+
+pub use boilerplate::*;
 use eyre::{eyre, Context, Report};
 use iroha_config::base::{Emitter, ErrorsCollection, FromEnvDefaultFallback, Merge, UnwrapPartial};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
@@ -8,9 +11,6 @@ use serde::{Deserialize, Deserializer};
 use url::Url;
 
 use crate::config::BasicAuth;
-
-mod boilerplate;
-pub use boilerplate::*;
 
 #[derive(Clone, Debug)]
 pub struct Root {

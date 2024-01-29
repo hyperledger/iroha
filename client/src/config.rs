@@ -4,16 +4,19 @@
 #![allow(unused, missing_docs)]
 
 use core::str::FromStr;
-use std::{num::NonZeroU64, time::Duration};
+use std::{num::NonZeroU64, path::Path, time::Duration};
 
 use derive_more::Display;
 use eyre::Result;
 pub use iroha_config::base;
+use iroha_config::base::UnwrapPartial;
 use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, ChainId};
 use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
 use url::Url;
+
+use crate::config::user_layer::RootPartial;
 
 pub mod user_layer;
 
@@ -78,4 +81,17 @@ pub struct Config {
     pub transaction_ttl: Duration,
     pub transaction_status_timeout: Duration,
     pub transaction_add_nonce: bool,
+}
+
+impl Config {
+    /// Loads configuration from a file
+    ///
+    /// # Errors
+    /// - unable to load config from a TOML file
+    /// - unable to validate loaded config
+    pub fn load(path: impl AsRef<Path>) -> std::result::Result<Self, eyre::Report> {
+        let config = RootPartial::from_toml(path)?;
+        let config = config.unwrap_partial()?.parse()?;
+        Ok(config)
+    }
 }

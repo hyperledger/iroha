@@ -2,7 +2,7 @@
 use std::{
     fs::{self, read as read_file},
     io::{stdin, stdout},
-    path::{Path, PathBuf},
+    path::PathBuf,
     str::FromStr,
     time::Duration,
 };
@@ -217,7 +217,7 @@ fn main() -> Result<()> {
         skip_mst_check,
     } = clap::Parser::parse();
 
-    let config = load_config(config_path)?;
+    let config = Config::load(config_path)?;
 
     if verbose {
         eprintln!(
@@ -234,19 +234,6 @@ fn main() -> Result<()> {
     };
 
     subcommand.run(&mut context)
-}
-
-fn load_config(path: impl AsRef<Path>) -> Result<Config> {
-    use iroha_client::config::{
-        base::{FromEnv, StdEnv, UnwrapPartial},
-        user_layer::RootPartial,
-    };
-
-    let layer = RootPartial::from_toml(path)?;
-    let layer = layer.merge(RootPartial::from_env(&StdEnv)?);
-    let config = layer.unwrap_partial()?.parse()?;
-
-    Ok(config)
 }
 
 /// Submit instruction with metadata to network.

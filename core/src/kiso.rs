@@ -158,20 +158,16 @@ mod tests {
     use super::*;
 
     fn test_config() -> Root {
-        use iroha_config::{
-            base::UnwrapPartial,
-            parameters::user_layer::{CliContext, RootPartial},
-        };
+        use iroha_config::parameters::user_layer::CliContext;
 
-        // FIXME Specifying path here might break!
-        RootPartial::from_toml("../config/iroha_test_config.toml")
-            .expect("test config should be valid (or it is a bug)")
-            .unwrap_partial()
-            .expect("test config should be exhaustive")
-            .parse(CliContext {
+        Root::load(
+            // FIXME Specifying path here might break!
+            "../config/iroha_test_config.toml",
+            CliContext {
                 submit_genesis: true,
-            })
-            .expect("test config should be valid")
+            },
+        )
+        .expect("test config should be valid, it is probably a bug")
     }
 
     #[tokio::test]
