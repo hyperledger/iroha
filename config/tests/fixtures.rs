@@ -106,7 +106,7 @@ fn minimal_config_snapshot() -> Result<()> {
             },
             snapshot: Snapshot {
                 create_every: 60s,
-                store_path: "./storage/snapshot",
+                store_path: "./storage",
                 creation_enabled: true,
             },
             regular_telemetry: None,

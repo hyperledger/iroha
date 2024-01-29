@@ -45,7 +45,8 @@ pub mod network {
 pub mod snapshot {
     use super::*;
 
-    pub const DEFAULT_SNAPSHOT_PATH: &str = "./storage/snapshot";
+    // TODO: nest to `./storage/snapshot` for easier management
+    pub const DEFAULT_SNAPSHOT_PATH: &str = "./storage";
     // Default frequency of making snapshots is 1 minute, need to be adjusted for larger world state view size
     pub const DEFAULT_SNAPSHOT_CREATE_EVERY_MS: Duration = Duration::from_secs(60);
     pub const DEFAULT_ENABLED: bool = true;
