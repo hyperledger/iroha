@@ -18,7 +18,7 @@ fn submit(
     let tx = if let Some((account_id, keypair)) = submitter {
         TransactionBuilder::new(chain_id, account_id)
             .with_instructions(instructions)
-            .sign(keypair)
+            .sign(&keypair)
     } else {
         let tx = client.build_transaction(instructions, UnlimitedMetadata::default());
         client.sign_transaction(tx)

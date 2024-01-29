@@ -56,17 +56,15 @@ impl Signature {
     ///
     /// # Errors
     /// Fails if signing fails
-    pub fn new(key_pair: KeyPair, payload: &[u8]) -> Self {
-        let (public_key, private_key) = key_pair.into();
-
-        let signature = match private_key {
-            crate::PrivateKey::Ed25519(sk) => ed25519::Ed25519Sha512::sign(payload, &sk),
-            crate::PrivateKey::Secp256k1(sk) => secp256k1::EcdsaSecp256k1Sha256::sign(payload, &sk),
-            crate::PrivateKey::BlsSmall(sk) => bls::BlsSmall::sign(payload, &sk),
-            crate::PrivateKey::BlsNormal(sk) => bls::BlsNormal::sign(payload, &sk),
+    pub fn new(key_pair: &KeyPair, payload: &[u8]) -> Self {
+        let signature = match &key_pair.private_key {
+            crate::PrivateKey::Ed25519(sk) => ed25519::Ed25519Sha512::sign(payload, sk),
+            crate::PrivateKey::Secp256k1(sk) => secp256k1::EcdsaSecp256k1Sha256::sign(payload, sk),
+            crate::PrivateKey::BlsSmall(sk) => bls::BlsSmall::sign(payload, sk),
+            crate::PrivateKey::BlsNormal(sk) => bls::BlsNormal::sign(payload, sk),
         };
         Self {
-            public_key,
+            public_key: key_pair.public_key.clone(),
             payload: ConstVec::new(signature),
         }
     }
@@ -197,7 +195,7 @@ impl<T> SignatureOf<T> {
     /// # Errors
     /// Fails if signing fails
     #[inline]
-    fn from_hash(key_pair: KeyPair, hash: HashOf<T>) -> Self {
+    fn from_hash(key_pair: &KeyPair, hash: HashOf<T>) -> Self {
         Self(Signature::new(key_pair, hash.as_ref()), PhantomData)
     }
 
@@ -219,7 +217,7 @@ impl<T: parity_scale_codec::Encode> SignatureOf<T> {
     /// # Errors
     /// Fails if signing fails
     #[inline]
-    pub fn new(key_pair: KeyPair, value: &T) -> Self {
+    pub fn new(key_pair: &KeyPair, value: &T) -> Self {
         Self::from_hash(key_pair, HashOf::new(value))
     }
 
@@ -472,7 +470,7 @@ impl<T: Encode> SignaturesOf<T> {
     /// # Errors
     /// Forwards [`SignatureOf::new`] errors
     #[inline]
-    pub fn new(key_pair: KeyPair, value: &T) -> Self {
+    pub fn new(key_pair: &KeyPair, value: &T) -> Self {
         SignatureOf::new(key_pair, value).into()
     }
 
@@ -533,7 +531,7 @@ mod tests {
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
-        let signature = Signature::new(key_pair.clone(), message);
+        let signature = Signature::new(&key_pair, message);
         assert!(*signature.public_key() == *key_pair.public_key());
         signature.verify(message).unwrap();
     }
@@ -546,7 +544,7 @@ mod tests {
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
-        let signature = Signature::new(key_pair.clone(), message);
+        let signature = Signature::new(&key_pair, message);
         assert!(*signature.public_key() == *key_pair.public_key());
         signature.verify(message).unwrap();
     }
@@ -559,7 +557,7 @@ mod tests {
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
-        let signature = Signature::new(key_pair.clone(), message);
+        let signature = Signature::new(&key_pair, message);
         assert!(*signature.public_key() == *key_pair.public_key());
         signature.verify(message).unwrap();
     }
@@ -572,7 +570,7 @@ mod tests {
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
-        let signature = Signature::new(key_pair.clone(), message);
+        let signature = Signature::new(&key_pair, message);
         assert!(*signature.public_key() == *key_pair.public_key());
         signature.verify(message).unwrap();
     }
@@ -582,9 +580,9 @@ mod tests {
     fn signatures_of_deduplication_by_public_key() {
         let key_pair = KeyPair::generate().expect("Failed to generate keys");
         let signatures = [
-            SignatureOf::new(key_pair.clone(), &1),
-            SignatureOf::new(key_pair.clone(), &2),
-            SignatureOf::new(key_pair, &3),
+            SignatureOf::new(&key_pair, &1),
+            SignatureOf::new(&key_pair, &2),
+            SignatureOf::new(&key_pair, &3),
         ]
         .into_iter()
         .collect::<SignaturesOf<u8>>();
@@ -605,7 +603,7 @@ mod tests {
                 .flat_map(|key| {
                     core::iter::repeat_with(move || key.clone())
                         .zip(0..)
-                        .map(|(key, i)| SignatureOf::new(key, &i))
+                        .map(|(key, i)| SignatureOf::new(&key, &i))
                         .take(signatures_per_key)
                 })
                 .map(SignatureWrapperOf)

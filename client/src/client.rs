@@ -63,17 +63,17 @@ pub type QueryResult<T> = core::result::Result<T, ClientQueryError>;
 /// Trait for signing transactions
 pub trait Sign {
     /// Sign transaction with provided key pair.
-    fn sign(self, key_pair: crate::crypto::KeyPair) -> SignedTransaction;
+    fn sign(self, key_pair: &crate::crypto::KeyPair) -> SignedTransaction;
 }
 
 impl Sign for TransactionBuilder {
-    fn sign(self, key_pair: crate::crypto::KeyPair) -> SignedTransaction {
+    fn sign(self, key_pair: &crate::crypto::KeyPair) -> SignedTransaction {
         self.sign(key_pair)
     }
 }
 
 impl Sign for SignedTransaction {
-    fn sign(self, key_pair: crate::crypto::KeyPair) -> SignedTransaction {
+    fn sign(self, key_pair: &crate::crypto::KeyPair) -> SignedTransaction {
         self.sign(key_pair)
     }
 }
@@ -471,9 +471,7 @@ impl Client {
             tx_builder.set_nonce(nonce);
         };
 
-        tx_builder
-            .with_metadata(metadata)
-            .sign(self.key_pair.clone())
+        tx_builder.with_metadata(metadata).sign(&self.key_pair)
     }
 
     /// Signs transaction
@@ -481,7 +479,7 @@ impl Client {
     /// # Errors
     /// Fails if signature generation fails
     pub fn sign_transaction<Tx: Sign>(&self, transaction: Tx) -> SignedTransaction {
-        transaction.sign(self.key_pair.clone())
+        transaction.sign(&self.key_pair)
     }
 
     /// Signs query
@@ -489,7 +487,7 @@ impl Client {
     /// # Errors
     /// Fails if signature generation fails
     pub fn sign_query(&self, query: QueryBuilder) -> SignedQuery {
-        query.sign(self.key_pair.clone())
+        query.sign(&self.key_pair)
     }
 
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.

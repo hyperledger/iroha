@@ -23,7 +23,7 @@ const TRANSACTION_LIMITS: TransactionLimits = TransactionLimits {
     max_wasm_size_bytes: 0,
 };
 
-fn build_test_transaction(keys: KeyPair, chain_id: ChainId) -> SignedTransaction {
+fn build_test_transaction(keys: &KeyPair, chain_id: ChainId) -> SignedTransaction {
     let domain_name = "domain";
     let domain_id = DomainId::from_str(domain_name).expect("does not panic");
     let create_domain: InstructionBox = Register::domain(Domain::new(domain_id)).into();
@@ -98,7 +98,7 @@ fn accept_transaction(criterion: &mut Criterion) {
     let chain_id = ChainId::new("0");
 
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction = build_test_transaction(keys, chain_id.clone());
+    let transaction = build_test_transaction(&keys, chain_id.clone());
     let mut success_count = 0;
     let mut failures_count = 0;
     let _ = criterion.bench_function("accept", |b| {
@@ -116,14 +116,14 @@ fn sign_transaction(criterion: &mut Criterion) {
     let chain_id = ChainId::new("0");
 
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction = build_test_transaction(keys, chain_id);
+    let transaction = build_test_transaction(&keys, chain_id);
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let mut count = 0;
     let _ = criterion.bench_function("sign", |b| {
         b.iter_batched(
             || transaction.clone(),
             |transaction| {
-                let _: SignedTransaction = transaction.sign(key_pair.clone());
+                let _: SignedTransaction = transaction.sign(&key_pair);
                 count += 1;
             },
             BatchSize::SmallInput,
@@ -137,7 +137,7 @@ fn validate_transaction(criterion: &mut Criterion) {
 
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let transaction = AcceptedTransaction::accept(
-        build_test_transaction(keys.clone(), chain_id.clone()),
+        build_test_transaction(&keys, chain_id.clone()),
         &chain_id,
         &TRANSACTION_LIMITS,
     )
@@ -163,7 +163,7 @@ fn sign_blocks(criterion: &mut Criterion) {
 
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let transaction = AcceptedTransaction::accept(
-        build_test_transaction(keys, chain_id.clone()),
+        build_test_transaction(&keys, chain_id.clone()),
         &chain_id,
         &TRANSACTION_LIMITS,
     )
@@ -182,7 +182,7 @@ fn sign_blocks(criterion: &mut Criterion) {
         b.iter_batched(
             || block.clone(),
             |block| {
-                let _: ValidBlock = block.sign(key_pair.clone());
+                let _: ValidBlock = block.sign(&key_pair);
                 count += 1;
             },
             BatchSize::SmallInput,

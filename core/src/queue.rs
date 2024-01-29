@@ -391,7 +391,7 @@ mod tests {
         wsv::World, PeersIds,
     };
 
-    fn accepted_tx(account_id: &str, key: KeyPair) -> AcceptedTransaction {
+    fn accepted_tx(account_id: &str, key: &KeyPair) -> AcceptedTransaction {
         let chain_id = ChainId::new("0");
 
         let message = std::iter::repeat_with(rand::random::<char>)
@@ -442,7 +442,7 @@ mod tests {
         });
 
         queue
-            .push(accepted_tx("alice@wonderland", key_pair), &wsv)
+            .push(accepted_tx("alice@wonderland", &key_pair), &wsv)
             .expect("Failed to push tx into queue");
     }
 
@@ -469,13 +469,13 @@ mod tests {
 
         for _ in 0..max_txs_in_queue {
             queue
-                .push(accepted_tx("alice@wonderland", key_pair.clone()), &wsv)
+                .push(accepted_tx("alice@wonderland", &key_pair), &wsv)
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
         assert!(matches!(
-            queue.push(accepted_tx("alice@wonderland", key_pair), &wsv),
+            queue.push(accepted_tx("alice@wonderland", &key_pair), &wsv),
             Err(Failure {
                 err: Error::Full,
                 ..
@@ -525,9 +525,9 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
         let fully_signed_tx: AcceptedTransaction = {
-            let mut signed_tx = tx.clone().sign(key_pairs[0].clone());
+            let mut signed_tx = tx.clone().sign(&key_pairs[0]);
             for key_pair in &key_pairs[1..] {
-                signed_tx = signed_tx.sign(key_pair.clone());
+                signed_tx = signed_tx.sign(key_pair);
             }
             AcceptedTransaction::accept(signed_tx, &chain_id, &tx_limits)
                 .expect("Failed to accept Transaction.")
@@ -539,7 +539,7 @@ mod tests {
         ));
 
         let get_tx = |key_pair| {
-            AcceptedTransaction::accept(tx.clone().sign(key_pair), &chain_id, &tx_limits)
+            AcceptedTransaction::accept(tx.clone().sign(&key_pair), &chain_id, &tx_limits)
                 .expect("Failed to accept Transaction.")
         };
         for key_pair in key_pairs {
@@ -587,7 +587,7 @@ mod tests {
         });
         for _ in 0..5 {
             queue
-                .push(accepted_tx("alice@wonderland", alice_key.clone()), &wsv)
+                .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
@@ -606,7 +606,7 @@ mod tests {
             kura,
             query_handle,
         );
-        let tx = accepted_tx("alice@wonderland", alice_key);
+        let tx = accepted_tx("alice@wonderland", &alice_key);
         wsv.transactions.insert(tx.hash(), 1);
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
@@ -636,7 +636,7 @@ mod tests {
             kura,
             query_handle,
         );
-        let tx = accepted_tx("alice@wonderland", alice_key);
+        let tx = accepted_tx("alice@wonderland", &alice_key);
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
             max_transactions_in_queue: 100,
@@ -675,13 +675,13 @@ mod tests {
         });
         for _ in 0..(max_txs_in_block - 1) {
             queue
-                .push(accepted_tx("alice@wonderland", alice_key.clone()), &wsv)
+                .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(100));
         }
 
         queue
-            .push(accepted_tx("alice@wonderland", alice_key.clone()), &wsv)
+            .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(101));
         assert_eq!(
@@ -692,7 +692,7 @@ mod tests {
         );
 
         queue
-            .push(accepted_tx("alice@wonderland", alice_key), &wsv)
+            .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(210));
         assert_eq!(
@@ -724,7 +724,7 @@ mod tests {
                 .expect("Default queue config should always build")
         });
         queue
-            .push(accepted_tx("alice@wonderland", alice_key), &wsv)
+            .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
             .expect("Failed to push tx into queue");
 
         let a = queue
@@ -771,7 +771,7 @@ mod tests {
         .with_instructions(instructions);
         tx.set_ttl(Duration::from_millis(10));
         let now = std::time::Instant::now();
-        let tx = tx.sign(alice_key);
+        let tx = tx.sign(&alice_key);
         println!("Signing time: {}ms", now.elapsed().as_millis());
         let limits = TransactionLimits {
             max_instruction_number: 4096,
@@ -821,7 +821,7 @@ mod tests {
             // Spawn a thread where we push transactions
             thread::spawn(move || {
                 while start_time.elapsed() < run_for {
-                    let tx = accepted_tx("alice@wonderland", alice_key.clone());
+                    let tx = accepted_tx("alice@wonderland", &alice_key);
                     match queue_arc_clone.push(tx, &wsv_clone) {
                         Ok(())
                         | Err(Failure {
@@ -885,7 +885,7 @@ mod tests {
                 .expect("Default queue config should always build")
         });
 
-        let tx = accepted_tx(alice_id, alice_key.clone());
+        let tx = accepted_tx(alice_id, &alice_key);
         assert!(queue.push(tx.clone(), &wsv).is_ok());
         // create the same tx but with timestamp in the future
         let tx = {
@@ -898,7 +898,7 @@ mod tests {
 
             new_tx.set_creation_time(tx.0.payload().creation_time_ms + 2 * future_threshold_ms);
 
-            let new_tx = new_tx.sign(alice_key);
+            let new_tx = new_tx.sign(&alice_key);
             let limits = TransactionLimits {
                 max_instruction_number: 4096,
                 max_wasm_size_bytes: 0,
@@ -952,17 +952,11 @@ mod tests {
 
         // First push by Alice should be fine
         queue
-            .push(
-                accepted_tx("alice@wonderland", alice_key_pair.clone()),
-                &wsv,
-            )
+            .push(accepted_tx("alice@wonderland", &alice_key_pair), &wsv)
             .expect("Failed to push tx into queue");
 
         // Second push by Alice excide limit and will be rejected
-        let result = queue.push(
-            accepted_tx("alice@wonderland", alice_key_pair.clone()),
-            &wsv,
-        );
+        let result = queue.push(accepted_tx("alice@wonderland", &alice_key_pair), &wsv);
         assert!(
             matches!(
                 result,
@@ -976,7 +970,7 @@ mod tests {
 
         // First push by Bob should be fine despite previous Alice error
         queue
-            .push(accepted_tx("bob@wonderland", bob_key_pair.clone()), &wsv)
+            .push(accepted_tx("bob@wonderland", &bob_key_pair), &wsv)
             .expect("Failed to push tx into queue");
 
         let transactions = queue.collect_transactions_for_block(&wsv, 10);
@@ -991,11 +985,11 @@ mod tests {
 
         // After cleanup Alice and Bob pushes should work fine
         queue
-            .push(accepted_tx("alice@wonderland", alice_key_pair), &wsv)
+            .push(accepted_tx("alice@wonderland", &alice_key_pair), &wsv)
             .expect("Failed to push tx into queue");
 
         queue
-            .push(accepted_tx("bob@wonderland", bob_key_pair), &wsv)
+            .push(accepted_tx("bob@wonderland", &bob_key_pair), &wsv)
             .expect("Failed to push tx into queue");
     }
 }

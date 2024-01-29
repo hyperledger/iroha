@@ -63,13 +63,7 @@ impl GenesisNetwork {
         .chain(raw_block.transactions);
 
         let transactions = transactions_iter
-            .map(|raw_transaction| {
-                raw_transaction
-                    // FIXME: fix underlying chain of `.sign` so that it doesn't
-                    //        consume the key pair unnecessarily. It might be costly to clone
-                    //        the key pair for a large genesis.
-                    .sign(chain_id.clone(), genesis_key_pair.clone())
-            })
+            .map(|raw_transaction| raw_transaction.sign(chain_id.clone(), genesis_key_pair))
             .map(GenesisTransaction)
             .collect();
 
@@ -191,7 +185,7 @@ impl GenesisTransactionBuilder {
     ///
     /// # Errors
     /// Fails if signing or accepting fails.
-    fn sign(self, chain_id: ChainId, genesis_key_pair: KeyPair) -> SignedTransaction {
+    fn sign(self, chain_id: ChainId, genesis_key_pair: &KeyPair) -> SignedTransaction {
         TransactionBuilder::new(chain_id, GENESIS_ACCOUNT_ID.clone())
             .with_instructions(self.isi)
             .sign(genesis_key_pair)

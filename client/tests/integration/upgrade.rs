@@ -34,7 +34,7 @@ fn executor_upgrade_should_work() -> Result<()> {
     let transfer_alice_rose = Transfer::asset_quantity(alice_rose, 1_u32, admin_rose);
     let transfer_rose_tx = TransactionBuilder::new(chain_id.clone(), admin_id.clone())
         .with_instructions([transfer_alice_rose.clone()])
-        .sign(admin_keypair.clone());
+        .sign(&admin_keypair);
     let _ = client
         .submit_transaction_blocking(&transfer_rose_tx)
         .expect_err("Should fail");
@@ -48,7 +48,7 @@ fn executor_upgrade_should_work() -> Result<()> {
     // Creating new transaction instead of cloning, because we need to update it's creation time
     let transfer_rose_tx = TransactionBuilder::new(chain_id, admin_id)
         .with_instructions([transfer_alice_rose])
-        .sign(admin_keypair);
+        .sign(&admin_keypair);
     client
         .submit_transaction_blocking(&transfer_rose_tx)
         .expect("Should succeed");

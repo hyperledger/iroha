@@ -69,7 +69,7 @@ impl WsvValidateBlocks {
         assert_eq!(wsv.height(), 0);
         for (instructions, i) in instructions.into_iter().zip(1..) {
             finalized_wsv = wsv.clone();
-            let block = create_block(&mut wsv, instructions, account_id.clone(), key_pair.clone());
+            let block = create_block(&mut wsv, instructions, account_id.clone(), &key_pair);
             wsv.apply_without_execution(&block)?;
             assert_eq!(wsv.height(), i);
             assert_eq!(wsv.height(), finalized_wsv.height() + 1);

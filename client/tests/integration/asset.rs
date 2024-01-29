@@ -281,7 +281,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         let grant_asset_transfer_tx =
             TransactionBuilder::new(chain_id, asset_id.account_id().clone())
                 .with_instructions([allow_alice_to_transfer_asset])
-                .sign(owner_keypair);
+                .sign(&owner_keypair);
 
         test_client
             .submit_transaction_blocking(&grant_asset_transfer_tx)

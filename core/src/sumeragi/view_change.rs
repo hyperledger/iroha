@@ -54,7 +54,7 @@ impl ProofBuilder {
     }
 
     /// Sign this message with the peer's public and private key.
-    pub fn sign(mut self, key_pair: KeyPair) -> SignedProof {
+    pub fn sign(mut self, key_pair: &KeyPair) -> SignedProof {
         let signature = SignatureOf::new(key_pair, &self.0.payload);
         self.0.signatures.insert(signature);
         self.0

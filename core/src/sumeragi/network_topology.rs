@@ -344,7 +344,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy))
+            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =
@@ -386,7 +386,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy))
+            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =
@@ -419,7 +419,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy))
+            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =
@@ -453,7 +453,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy))
+            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =
@@ -488,7 +488,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy))
+            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =

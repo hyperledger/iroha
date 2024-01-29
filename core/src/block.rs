@@ -216,7 +216,7 @@ mod chained {
 
     impl BlockBuilder<Chained> {
         /// Sign this block and get [`SignedBlock`].
-        pub fn sign(self, key_pair: KeyPair) -> ValidBlock {
+        pub fn sign(self, key_pair: &KeyPair) -> ValidBlock {
             let signature = SignatureOf::new(key_pair, &self.0 .0);
 
             ValidBlock(
@@ -427,7 +427,7 @@ mod valid {
 
         /// Add additional signatures for [`Self`].
         #[must_use]
-        pub fn sign(self, key_pair: KeyPair) -> Self {
+        pub fn sign(self, key_pair: &KeyPair) -> Self {
             ValidBlock(self.0.sign(key_pair))
         }
 
@@ -458,7 +458,7 @@ mod valid {
                 commit_topology: UniqueVec::new(),
                 event_recommendations: Vec::new(),
             }))
-            .sign(KeyPair::generate().unwrap())
+            .sign(&KeyPair::generate().unwrap())
         }
 
         /// Check if block's signatures meet requirements for given topology.
@@ -532,7 +532,7 @@ mod valid {
             let payload = block.payload().clone();
             key_pairs
                 .iter()
-                .map(|key_pair| SignatureOf::new(key_pair.clone(), &payload))
+                .map(|key_pair| SignatureOf::new(key_pair, &payload))
                 .try_for_each(|signature| block.add_signature(signature))
                 .expect("Failed to add signatures");
 
@@ -555,7 +555,7 @@ mod valid {
             key_pairs
                 .iter()
                 .enumerate()
-                .map(|(_, key_pair)| SignatureOf::new(key_pair.clone(), &payload))
+                .map(|(_, key_pair)| SignatureOf::new(key_pair, &payload))
                 .try_for_each(|signature| block.add_signature(signature))
                 .expect("Failed to add signatures");
 
@@ -576,7 +576,7 @@ mod valid {
 
             let mut block = ValidBlock::new_dummy();
             let payload = block.payload().clone();
-            let proxy_tail_signature = SignatureOf::new(key_pairs[4].clone(), &payload);
+            let proxy_tail_signature = SignatureOf::new(&key_pairs[4], &payload);
             block
                 .add_signature(proxy_tail_signature)
                 .expect("Failed to add signature");
@@ -608,7 +608,7 @@ mod valid {
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| *i != 4) // Skip proxy tail
-                .map(|(_, key_pair)| SignatureOf::new(key_pair.clone(), &payload))
+                .map(|(_, key_pair)| SignatureOf::new(key_pair, &payload))
                 .try_for_each(|signature| block.add_signature(signature))
                 .expect("Failed to add signatures");
 
@@ -735,7 +735,7 @@ mod tests {
         let transaction_limits = &wsv.transaction_executor().transaction_limits;
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions([create_asset_definition])
-            .sign(alice_keys.clone());
+            .sign(&alice_keys);
         let tx = AcceptedTransaction::accept(tx, &chain_id, transaction_limits).expect("Valid");
 
         // Creating a block of two identical transactions and validating it
@@ -743,7 +743,7 @@ mod tests {
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
             .chain(0, &mut wsv)
-            .sign(alice_keys);
+            .sign(&alice_keys);
 
         // The first transaction should be confirmed
         assert!(valid_block.payload().transactions[0].error.is_none());
@@ -778,7 +778,7 @@ mod tests {
         let transaction_limits = &wsv.transaction_executor().transaction_limits;
         let tx = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([create_asset_definition])
-            .sign(alice_keys.clone());
+            .sign(&alice_keys);
         let tx = AcceptedTransaction::accept(tx, &chain_id, transaction_limits).expect("Valid");
 
         let quantity: u32 = 200;
@@ -796,12 +796,12 @@ mod tests {
 
         let tx0 = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions([fail_mint])
-            .sign(alice_keys.clone());
+            .sign(&alice_keys);
         let tx0 = AcceptedTransaction::accept(tx0, &chain_id, transaction_limits).expect("Valid");
 
         let tx2 = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions([succeed_mint])
-            .sign(alice_keys.clone());
+            .sign(&alice_keys);
         let tx2 = AcceptedTransaction::accept(tx2, &chain_id, transaction_limits).expect("Valid");
 
         // Creating a block of two identical transactions and validating it
@@ -809,7 +809,7 @@ mod tests {
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
             .chain(0, &mut wsv)
-            .sign(alice_keys);
+            .sign(&alice_keys);
 
         // The first transaction should fail
         assert!(valid_block.payload().transactions[0].error.is_some());
@@ -851,12 +851,12 @@ mod tests {
         let instructions_accept: [InstructionBox; 2] = [create_domain.into(), create_asset.into()];
         let tx_fail = TransactionBuilder::new(chain_id.clone(), alice_id.clone())
             .with_instructions(instructions_fail)
-            .sign(alice_keys.clone());
+            .sign(&alice_keys);
         let tx_fail =
             AcceptedTransaction::accept(tx_fail, &chain_id, transaction_limits).expect("Valid");
         let tx_accept = TransactionBuilder::new(chain_id.clone(), alice_id)
             .with_instructions(instructions_accept)
-            .sign(alice_keys.clone());
+            .sign(&alice_keys);
         let tx_accept =
             AcceptedTransaction::accept(tx_accept, &chain_id, transaction_limits).expect("Valid");
 
@@ -865,7 +865,7 @@ mod tests {
         let topology = Topology::new(UniqueVec::new());
         let valid_block = BlockBuilder::new(transactions, topology, Vec::new())
             .chain(0, &mut wsv)
-            .sign(alice_keys);
+            .sign(&alice_keys);
 
         // The first transaction should be rejected
         assert!(

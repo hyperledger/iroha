@@ -285,7 +285,7 @@ impl SignedTransaction {
     /// Fails if signature creation fails
     #[cfg(feature = "std")]
     #[must_use]
-    pub fn sign(self, key_pair: iroha_crypto::KeyPair) -> SignedTransaction {
+    pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
         let SignedTransaction::V1(mut tx) = self;
         let signature = iroha_crypto::SignatureOf::new(key_pair, &tx.payload);
         tx.signatures.insert(signature);
@@ -748,7 +748,7 @@ mod http {
         ///
         /// Fails if signature creation fails
         #[cfg(feature = "std")]
-        pub fn sign(self, key_pair: iroha_crypto::KeyPair) -> SignedTransaction {
+        pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
             let signatures = SignaturesOf::new(key_pair, &self.payload);
 
             SignedTransactionV1 {

@@ -513,7 +513,7 @@ mod state {
             let write_half = &mut connection.write;
 
             let payload = create_payload(&kx_local_pk, &kx_remote_pk);
-            let signature = Signature::new(key_pair, &payload);
+            let signature = Signature::new(&key_pair, &payload);
             let data = signature.encode();
 
             let data = &cryptographer.encrypt(data.as_slice())?;

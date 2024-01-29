@@ -201,7 +201,7 @@ impl SignedBlock {
     #[cfg(feature = "std")]
     #[cfg(feature = "transparent_api")]
     #[must_use]
-    pub fn sign(mut self, key_pair: KeyPair) -> Self {
+    pub fn sign(mut self, key_pair: &KeyPair) -> Self {
         let signature = iroha_crypto::SignatureOf::new(key_pair, self.payload());
         let SignedBlock::V1(block) = &mut self;
         block.signatures.insert(signature);
