@@ -14,7 +14,7 @@ use std::{fmt, num::NonZeroU64};
 use indexmap::{map::Entry, IndexMap};
 use iroha_crypto::HashOf;
 use iroha_data_model::{
-    events::Filter as EventFilter,
+    events::EventFilter,
     isi::error::{InstructionExecutionError, MathError},
     prelude::*,
     query::error::FindError,
@@ -94,7 +94,7 @@ pub trait LoadedActionTrait {
     fn clone_and_box(&self) -> LoadedAction<TriggeringFilterBox>;
 }
 
-impl<F: Filter + Into<TriggeringFilterBox> + Clone> LoadedActionTrait for LoadedAction<F> {
+impl<F: EventFilter + Into<TriggeringFilterBox> + Clone> LoadedActionTrait for LoadedAction<F> {
     fn executable(&self) -> &LoadedExecutable {
         &self.executable
     }
@@ -405,7 +405,7 @@ impl Set {
     /// # Errors
     ///
     /// Return [`Err`] if failed to preload wasm trigger
-    fn add_to<F: Filter>(
+    fn add_to<F: EventFilter>(
         &mut self,
         engine: &wasmtime::Engine,
         trigger: Trigger<F>,
@@ -705,7 +705,7 @@ impl Set {
     /// Note that this function doesn't remove the trigger from [`Set::ids`].
     ///
     /// Returns `true` if trigger was removed and `false` otherwise.
-    fn remove_from<F: Filter>(
+    fn remove_from<F: EventFilter>(
         original_contracts: &mut WasmSmartContractMap,
         triggers: &mut IndexMap<TriggerId, LoadedAction<F>>,
         trigger_id: &TriggerId,
@@ -884,7 +884,7 @@ impl Set {
     }
 
     /// Remove actions with zero execution count from `triggers`
-    fn remove_zeros<F: Filter>(
+    fn remove_zeros<F: EventFilter>(
         ids: &mut IndexMap<TriggerId, TriggeringEventType>,
         original_contracts: &mut WasmSmartContractMap,
         triggers: &mut IndexMap<TriggerId, LoadedAction<F>>,

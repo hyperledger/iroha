@@ -83,6 +83,18 @@
     ]
   },
   "AccountEventFilter": {
+    "Struct": [
+      {
+        "name": "id_matcher",
+        "type": "Option<AccountId>"
+      },
+      {
+        "name": "event_matcher",
+        "type": "Option<AccountEventMatcher>"
+      }
+    ]
+  },
+  "AccountEventMatcher": {
     "Enum": [
       {
         "tag": "ByCreated",
@@ -126,20 +138,7 @@
       },
       {
         "tag": "ByAsset",
-        "discriminant": 10,
-        "type": "FilterOpt<AssetFilter>"
-      }
-    ]
-  },
-  "AccountFilter": {
-    "Struct": [
-      {
-        "name": "origin_filter",
-        "type": "FilterOpt<OriginFilter<AccountEvent>>"
-      },
-      {
-        "name": "event_filter",
-        "type": "FilterOpt<AccountEventFilter>"
+        "discriminant": 10
       }
     ]
   },
@@ -347,6 +346,18 @@
     ]
   },
   "AssetDefinitionEventFilter": {
+    "Struct": [
+      {
+        "name": "id_matcher",
+        "type": "Option<AssetDefinitionId>"
+      },
+      {
+        "name": "event_matcher",
+        "type": "Option<AssetDefinitionEventMatcher>"
+      }
+    ]
+  },
+  "AssetDefinitionEventMatcher": {
     "Enum": [
       {
         "tag": "ByCreated",
@@ -375,18 +386,6 @@
       {
         "tag": "ByTotalQuantityChanged",
         "discriminant": 6
-      }
-    ]
-  },
-  "AssetDefinitionFilter": {
-    "Struct": [
-      {
-        "name": "origin_filter",
-        "type": "FilterOpt<OriginFilter<AssetDefinitionEvent>>"
-      },
-      {
-        "name": "event_filter",
-        "type": "FilterOpt<AssetDefinitionEventFilter>"
       }
     ]
   },
@@ -461,6 +460,18 @@
     ]
   },
   "AssetEventFilter": {
+    "Struct": [
+      {
+        "name": "id_matcher",
+        "type": "Option<AssetId>"
+      },
+      {
+        "name": "event_matcher",
+        "type": "Option<AssetEventMatcher>"
+      }
+    ]
+  },
+  "AssetEventMatcher": {
     "Enum": [
       {
         "tag": "ByCreated",
@@ -485,18 +496,6 @@
       {
         "tag": "ByMetadataRemoved",
         "discriminant": 5
-      }
-    ]
-  },
-  "AssetFilter": {
-    "Struct": [
-      {
-        "name": "origin_filter",
-        "type": "FilterOpt<OriginFilter<AssetEvent>>"
-      },
-      {
-        "name": "event_filter",
-        "type": "FilterOpt<AssetEventFilter>"
       }
     ]
   },
@@ -749,22 +748,37 @@
       {
         "tag": "ByPeer",
         "discriminant": 0,
-        "type": "FilterOpt<PeerFilter>"
+        "type": "PeerEventFilter"
       },
       {
         "tag": "ByDomain",
         "discriminant": 1,
-        "type": "FilterOpt<DomainFilter>"
+        "type": "DomainEventFilter"
+      },
+      {
+        "tag": "ByAccount",
+        "discriminant": 2,
+        "type": "AccountEventFilter"
+      },
+      {
+        "tag": "ByAsset",
+        "discriminant": 3,
+        "type": "AssetEventFilter"
+      },
+      {
+        "tag": "ByAssetDefinition",
+        "discriminant": 4,
+        "type": "AssetDefinitionEventFilter"
       },
       {
         "tag": "ByTrigger",
-        "discriminant": 2,
-        "type": "FilterOpt<TriggerFilter>"
+        "discriminant": 5,
+        "type": "TriggerEventFilter"
       },
       {
         "tag": "ByRole",
-        "discriminant": 3,
-        "type": "FilterOpt<RoleFilter>"
+        "discriminant": 6,
+        "type": "RoleEventFilter"
       }
     ]
   },
@@ -879,6 +893,18 @@
     ]
   },
   "DomainEventFilter": {
+    "Struct": [
+      {
+        "name": "id_matcher",
+        "type": "Option<DomainId>"
+      },
+      {
+        "name": "event_matcher",
+        "type": "Option<DomainEventMatcher>"
+      }
+    ]
+  },
+  "DomainEventMatcher": {
     "Enum": [
       {
         "tag": "ByCreated",
@@ -902,25 +928,11 @@
       },
       {
         "tag": "ByAccount",
-        "discriminant": 5,
-        "type": "FilterOpt<AccountFilter>"
+        "discriminant": 5
       },
       {
         "tag": "ByAssetDefinition",
-        "discriminant": 6,
-        "type": "FilterOpt<AssetDefinitionFilter>"
-      }
-    ]
-  },
-  "DomainFilter": {
-    "Struct": [
-      {
-        "name": "origin_filter",
-        "type": "FilterOpt<OriginFilter<DomainEvent>>"
-      },
-      {
-        "name": "event_filter",
-        "type": "FilterOpt<DomainEventFilter>"
+        "discriminant": 6
       }
     ]
   },
@@ -1107,84 +1119,6 @@
       }
     ]
   },
-  "FilterOpt<AccountEventFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "AccountEventFilter"
-      }
-    ]
-  },
-  "FilterOpt<AccountFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "AccountFilter"
-      }
-    ]
-  },
-  "FilterOpt<AssetDefinitionEventFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "AssetDefinitionEventFilter"
-      }
-    ]
-  },
-  "FilterOpt<AssetDefinitionFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "AssetDefinitionFilter"
-      }
-    ]
-  },
-  "FilterOpt<AssetEventFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "AssetEventFilter"
-      }
-    ]
-  },
-  "FilterOpt<AssetFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "AssetFilter"
-      }
-    ]
-  },
   "FilterOpt<DataEntityFilter>": {
     "Enum": [
       {
@@ -1195,201 +1129,6 @@
         "tag": "BySome",
         "discriminant": 1,
         "type": "DataEntityFilter"
-      }
-    ]
-  },
-  "FilterOpt<DomainEventFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "DomainEventFilter"
-      }
-    ]
-  },
-  "FilterOpt<DomainFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "DomainFilter"
-      }
-    ]
-  },
-  "FilterOpt<OriginFilter<AccountEvent>>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "OriginFilter<AccountEvent>"
-      }
-    ]
-  },
-  "FilterOpt<OriginFilter<AssetDefinitionEvent>>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "OriginFilter<AssetDefinitionEvent>"
-      }
-    ]
-  },
-  "FilterOpt<OriginFilter<AssetEvent>>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "OriginFilter<AssetEvent>"
-      }
-    ]
-  },
-  "FilterOpt<OriginFilter<DomainEvent>>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "OriginFilter<DomainEvent>"
-      }
-    ]
-  },
-  "FilterOpt<OriginFilter<PeerEvent>>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "OriginFilter<PeerEvent>"
-      }
-    ]
-  },
-  "FilterOpt<OriginFilter<RoleEvent>>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "OriginFilter<RoleEvent>"
-      }
-    ]
-  },
-  "FilterOpt<OriginFilter<TriggerEvent>>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "OriginFilter<TriggerEvent>"
-      }
-    ]
-  },
-  "FilterOpt<PeerEventFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "PeerEventFilter"
-      }
-    ]
-  },
-  "FilterOpt<PeerFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "PeerFilter"
-      }
-    ]
-  },
-  "FilterOpt<RoleEventFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "RoleEventFilter"
-      }
-    ]
-  },
-  "FilterOpt<RoleFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "RoleFilter"
-      }
-    ]
-  },
-  "FilterOpt<TriggerEventFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "TriggerEventFilter"
-      }
-    ]
-  },
-  "FilterOpt<TriggerFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "TriggerFilter"
       }
     ]
   },
@@ -2626,6 +2365,27 @@
       }
     ]
   },
+  "Option<AccountEventMatcher>": {
+    "Option": "AccountEventMatcher"
+  },
+  "Option<AccountId>": {
+    "Option": "AccountId"
+  },
+  "Option<AssetDefinitionEventMatcher>": {
+    "Option": "AssetDefinitionEventMatcher"
+  },
+  "Option<AssetDefinitionId>": {
+    "Option": "AssetDefinitionId"
+  },
+  "Option<AssetEventMatcher>": {
+    "Option": "AssetEventMatcher"
+  },
+  "Option<AssetId>": {
+    "Option": "AssetId"
+  },
+  "Option<DomainEventMatcher>": {
+    "Option": "DomainEventMatcher"
+  },
   "Option<DomainId>": {
     "Option": "DomainId"
   },
@@ -2650,11 +2410,23 @@
   "Option<NonZero<u64>>": {
     "Option": "NonZero<u64>"
   },
+  "Option<PeerEventMatcher>": {
+    "Option": "PeerEventMatcher"
+  },
+  "Option<PeerId>": {
+    "Option": "PeerId"
+  },
   "Option<PipelineEntityKind>": {
     "Option": "PipelineEntityKind"
   },
   "Option<PipelineStatusKind>": {
     "Option": "PipelineStatusKind"
+  },
+  "Option<RoleEventMatcher>": {
+    "Option": "RoleEventMatcher"
+  },
+  "Option<RoleId>": {
+    "Option": "RoleId"
   },
   "Option<String>": {
     "Option": "String"
@@ -2668,19 +2440,15 @@
   "Option<TriggerCompletedOutcomeType>": {
     "Option": "TriggerCompletedOutcomeType"
   },
+  "Option<TriggerEventMatcher>": {
+    "Option": "TriggerEventMatcher"
+  },
   "Option<TriggerId>": {
     "Option": "TriggerId"
   },
   "Option<u32>": {
     "Option": "u32"
   },
-  "OriginFilter<AccountEvent>": "AccountId",
-  "OriginFilter<AssetDefinitionEvent>": "AssetDefinitionId",
-  "OriginFilter<AssetEvent>": "AssetId",
-  "OriginFilter<DomainEvent>": "DomainId",
-  "OriginFilter<PeerEvent>": "PeerId",
-  "OriginFilter<RoleEvent>": "RoleId",
-  "OriginFilter<TriggerEvent>": "TriggerId",
   "Parameter": {
     "Struct": [
       {
@@ -2748,6 +2516,18 @@
     ]
   },
   "PeerEventFilter": {
+    "Struct": [
+      {
+        "name": "id_matcher",
+        "type": "Option<PeerId>"
+      },
+      {
+        "name": "event_matcher",
+        "type": "Option<PeerEventMatcher>"
+      }
+    ]
+  },
+  "PeerEventMatcher": {
     "Enum": [
       {
         "tag": "ByAdded",
@@ -2756,18 +2536,6 @@
       {
         "tag": "ByRemoved",
         "discriminant": 1
-      }
-    ]
-  },
-  "PeerFilter": {
-    "Struct": [
-      {
-        "name": "origin_filter",
-        "type": "FilterOpt<OriginFilter<PeerEvent>>"
-      },
-      {
-        "name": "event_filter",
-        "type": "FilterOpt<PeerEventFilter>"
       }
     ]
   },
@@ -3552,6 +3320,18 @@
     ]
   },
   "RoleEventFilter": {
+    "Struct": [
+      {
+        "name": "id_matcher",
+        "type": "Option<RoleId>"
+      },
+      {
+        "name": "event_matcher",
+        "type": "Option<RoleEventMatcher>"
+      }
+    ]
+  },
+  "RoleEventMatcher": {
     "Enum": [
       {
         "tag": "ByCreated",
@@ -3568,18 +3348,6 @@
       {
         "tag": "ByPermissionAdded",
         "discriminant": 3
-      }
-    ]
-  },
-  "RoleFilter": {
-    "Struct": [
-      {
-        "name": "origin_filter",
-        "type": "FilterOpt<OriginFilter<RoleEvent>>"
-      },
-      {
-        "name": "event_filter",
-        "type": "FilterOpt<RoleEventFilter>"
       }
     ]
   },
@@ -4289,6 +4057,18 @@
     ]
   },
   "TriggerEventFilter": {
+    "Struct": [
+      {
+        "name": "id_matcher",
+        "type": "Option<TriggerId>"
+      },
+      {
+        "name": "event_matcher",
+        "type": "Option<TriggerEventMatcher>"
+      }
+    ]
+  },
+  "TriggerEventMatcher": {
     "Enum": [
       {
         "tag": "ByCreated",
@@ -4305,18 +4085,6 @@
       {
         "tag": "ByShortened",
         "discriminant": 3
-      }
-    ]
-  },
-  "TriggerFilter": {
-    "Struct": [
-      {
-        "name": "origin_filter",
-        "type": "FilterOpt<OriginFilter<TriggerEvent>>"
-      },
-      {
-        "name": "event_filter",
-        "type": "FilterOpt<TriggerEventFilter>"
       }
     ]
   },
