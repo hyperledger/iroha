@@ -93,17 +93,18 @@ fn minimal_config_snapshot() -> Result<()> {
             live_query_store: LiveQueryStore {
                 query_idle_time: 30s,
             },
-            logger: LoggerFull {
+            logger: Logger {
                 level: INFO,
                 format: Full,
+                tokio_console_addr: 127.0.0.1:5555,
             },
-            queue: QueueFull {
-                max_transactions_in_queue: 65536,
-                max_transactions_in_queue_per_user: 65536,
+            queue: Queue {
+                size: 65536,
+                size_per_user: 65536,
                 transaction_time_to_live: 86400s,
                 future_threshold: 1s,
             },
-            snapshot: SnapshotFull {
+            snapshot: Snapshot {
                 create_every: 60s,
                 store_path: "./storage/snapshot",
                 creation_enabled: true,
@@ -328,10 +329,11 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 format: Some(
                     Pretty,
                 ),
+                tokio_console_addr: None,
             },
             queue: QueuePartial {
-                max_transactions_in_queue: None,
-                max_transactions_in_queue_per_user: None,
+                size: None,
+                size_per_user: None,
                 transaction_time_to_live: None,
                 future_threshold: None,
             },
@@ -447,6 +449,7 @@ fn multiple_extends_works() -> Result<()> {
             format: Some(
                 Compact,
             ),
+            tokio_console_addr: None,
         }"#]];
     expected.assert_eq(&format!("{layer:#?}"));
 

@@ -101,11 +101,11 @@ impl Queue {
     /// Makes queue from configuration
     pub fn from_configuration(cfg: Config) -> Self {
         Self {
-            tx_hashes: ArrayQueue::new(cfg.max_transactions_in_queue.get()),
+            tx_hashes: ArrayQueue::new(cfg.size.get()),
             accepted_txs: DashMap::new(),
             txs_per_user: DashMap::new(),
-            max_txs: cfg.max_transactions_in_queue,
-            max_txs_per_user: cfg.max_transactions_in_queue_per_user,
+            max_txs: cfg.size,
+            max_txs_per_user: cfg.size_per_user,
             tx_time_to_live: cfg.transaction_time_to_live,
             future_threshold: cfg.future_threshold,
         }
@@ -429,7 +429,7 @@ mod tests {
     fn config_factory() -> Config {
         Config {
             transaction_time_to_live: Duration::from_secs(100),
-            max_transactions_in_queue: 100.try_into().unwrap(),
+            size: 100.try_into().unwrap(),
             ..Config::default()
         }
     }
@@ -467,7 +467,7 @@ mod tests {
 
         let queue = Queue::from_configuration(Config {
             transaction_time_to_live: Duration::from_secs(100),
-            max_transactions_in_queue,
+            size: max_transactions_in_queue,
             ..Config::default()
         });
 
@@ -773,7 +773,7 @@ mod tests {
 
         let queue = Arc::new(Queue::from_configuration(Config {
             transaction_time_to_live: Duration::from_secs(100),
-            max_transactions_in_queue: 100_000_000.try_into().unwrap(),
+            size: 100_000_000.try_into().unwrap(),
             ..Config::default()
         }));
 
@@ -908,8 +908,8 @@ mod tests {
 
         let queue = Queue::from_configuration(Config {
             transaction_time_to_live: Duration::from_secs(100),
-            max_transactions_in_queue: 100.try_into().unwrap(),
-            max_transactions_in_queue_per_user: 1.try_into().unwrap(),
+            size: 100.try_into().unwrap(),
+            size_per_user: 1.try_into().unwrap(),
             ..Config::default()
         });
 

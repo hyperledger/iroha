@@ -96,9 +96,8 @@ impl Default for Queue {
         Self {
             transaction_time_to_live: defaults::queue::DEFAULT_TRANSACTION_TIME_TO_LIVE,
             future_threshold: defaults::queue::DEFAULT_FUTURE_THRESHOLD,
-            max_transactions_in_queue: defaults::queue::DEFAULT_MAX_TRANSACTIONS_IN_QUEUE,
-            max_transactions_in_queue_per_user:
-                defaults::queue::DEFAULT_MAX_TRANSACTIONS_IN_QUEUE_PER_USER,
+            size: defaults::queue::DEFAULT_MAX_TRANSACTIONS_IN_QUEUE,
+            size_per_user: defaults::queue::DEFAULT_MAX_TRANSACTIONS_IN_QUEUE_PER_USER,
         }
     }
 }
