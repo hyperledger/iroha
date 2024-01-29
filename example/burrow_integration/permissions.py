@@ -40,7 +40,7 @@ def create_contract():
     return hex_hash
 
 @integration_helpers.trace
-def grant_permission(adress, permission):
+def grant_permission(address, permission):
     params = integration_helpers.get_first_four_bytes_of_keccak(
         b"grantPermission(string,string)"
     )
@@ -66,7 +66,7 @@ def grant_permission(adress, permission):
     return hex_hash
 
 @integration_helpers.trace
-def revoke_permission(adress, permission):
+def revoke_permission(address, permission):
     params = integration_helpers.get_first_four_bytes_of_keccak(
         b"revokePermission(string,string)"
     )
@@ -92,7 +92,7 @@ def revoke_permission(adress, permission):
     return hex_hash
 
 @integration_helpers.trace
-def create_role(adress, role_name, permissions):
+def create_role(address, role_name, permissions):
     params = integration_helpers.get_first_four_bytes_of_keccak(
         b"createRole(string,string)"
     )

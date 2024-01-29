@@ -95,7 +95,7 @@ Here are the steps:
 
   docker run -it hyperledger/iroha-builder:latest
 
-On this step you will start and run the image in a container in an interactive mode. You can use any available tags, default one would be ``latest``, and developmnet tag is ``develop``. Note that you might need to perform some actions with ``sudo`` rights. 
+On this step you will start and run the image in a container in an interactive mode. You can use any available tags, default one would be ``latest``, and development tag is ``develop``. Note that you might need to perform some actions with ``sudo`` rights.
 
 2. When you are inside the container, clone Iroha repository: 
 

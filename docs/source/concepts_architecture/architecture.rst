@@ -37,7 +37,7 @@ Ordering Gate
 -------------
 
 It is an internal Iroha component (gRPC client) that relays `transactions <glossary.html#transaction>`__ from `Peer Communication Service <#peer-communication-service>`__ to `Ordering Service <#ordering-service>`__.
-Ordering Gate recieves `proposals <glossary.html#proposal>`_ (potential blocks in the chain) from Ordering Service and sends them to `Simulator <#simulator>`__ for `stateful validation <glossary.html#stateful-validation>`__.
+Ordering Gate receives `proposals <glossary.html#proposal>`_ (potential blocks in the chain) from Ordering Service and sends them to `Simulator <#simulator>`__ for `stateful validation <glossary.html#stateful-validation>`__.
 It also requests proposal from the Ordering Service based on the consensus round.
 
 Ordering Service

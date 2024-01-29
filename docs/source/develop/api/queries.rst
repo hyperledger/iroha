@@ -435,7 +435,7 @@ If there are two pending batches with three transactions each and a user queries
 with page size 5, then the transactions of the first batch will be in the response and a reference
 (first transaction hash and batch size, even if it is a single transaction in fact) to the second batch
 will be specified too.
-Transactions of the second batch are not included in the first response because the batch cannot be devided
+Transactions of the second batch are not included in the first response because the batch cannot be divided
 into several parts and only complete batches can be contained in a response.
 
 Response Schema
