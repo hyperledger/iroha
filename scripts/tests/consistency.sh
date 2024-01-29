@@ -19,7 +19,7 @@ case $1 in
             # FIXME: not nice; add an option to `kagami swarm` to print content into stdout?
             #        it is not a default behaviour because Kagami resolves `build` path relative
             #        to the output file location
-            temp_file="configs_samples/swarm/docker-compose.TMP.yml"
+            temp_file="config_samples/swarm/docker-compose.TMP.yml"
             full_cmd="$cmd_base --outfile $temp_file"
 
             eval "$full_cmd"
@@ -42,7 +42,7 @@ case $1 in
         }
 
 
-        do_check "$(command_base_for_single)" "configs_samples/swarm/docker-compose.single.yml"
-        do_check "$(command_base_for_multiple_local)" "configs_samples/swarm/docker-compose.local.yml"
-        do_check "$(command_base_for_default)" "configs_samples/swarm/docker-compose.yml"
+        do_check "$(command_base_for_single)" "config_samples/swarm/docker-compose.single.yml"
+        do_check "$(command_base_for_multiple_local)" "config_samples/swarm/docker-compose.local.yml"
+        do_check "$(command_base_for_default)" "config_samples/swarm/docker-compose.yml"
 esac
