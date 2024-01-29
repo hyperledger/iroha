@@ -470,6 +470,9 @@ pub struct Queue {
 #[derive(Debug, Clone)]
 pub struct Logger {
     /// Level of logging verbosity
+    // TODO: parse user provided value in a case insensitive way,
+    //       because `format` is set in lowercase, and `LOG_LEVEL=INFO` + `LOG_FORMAT=pretty`
+    //       looks inconsistent
     pub level: Level,
     /// Output format
     pub format: Format,
