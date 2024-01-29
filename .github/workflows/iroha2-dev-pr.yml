@@ -143,7 +143,10 @@ jobs:
           cargo build --bin iroha
       - name: Setup test Iroha 2 environment on the bare metal
         run: |
-          pip3 install -r scripts/requirements.txt --no-input
+        # FIXME: not sure how to install it in the right way. `requirements.txt` triggers
+        #        "This environment is externally managed" error
+          pacman -S python-tomli-w
+        #  pip3 install -r scripts/requirements.txt --no-input
           ./scripts/test_env.py setup
       - name: Mark binaries as executable
         run: |
