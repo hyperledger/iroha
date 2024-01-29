@@ -87,6 +87,7 @@ class ValidatorsTest : public ::testing::Test {
         {"iroha.protocol.RemoveSignatory.public_key", setString(public_key)},
         {"iroha.protocol.TransferAsset.dest_account_id", setString(dest_id)},
         {"iroha.protocol.AddAssetQuantity.asset_id", setString(asset_id)},
+        {"iroha.protocol.AddAssetQuantity.description", setString(description)},
         {"iroha.protocol.TransferAsset.asset_id", setString(asset_id)},
         {"iroha.protocol.SubtractAssetQuantity.asset_id", setString(asset_id)},
         {"iroha.protocol.GetAccountAssetTransactions.asset_id",
@@ -117,6 +118,7 @@ class ValidatorsTest : public ::testing::Test {
         {"iroha.protocol.AddAssetQuantity.amount", setString(amount)},
         {"iroha.protocol.TransferAsset.amount", setString(amount)},
         {"iroha.protocol.SubtractAssetQuantity.amount", setString(amount)},
+        {"iroha.protocol.SubtractAssetQuantity.description", setString(description)},
         {"iroha.protocol.CallEngine.type", setEnum(engine_type)},
         {"iroha.protocol.CallEngine.caller", setString(account_id)},
         {"iroha.protocol.CallEngine.callee",
@@ -262,6 +264,7 @@ class ValidatorsTest : public ::testing::Test {
     dest_id = "dest@domain";
     asset_name = "asset";
     asset_id = "asset#domain";
+    title = "";
     address_localhost = "localhost:65535";
     address_ipv4 = "192.168.255.1:8080";
     address_hostname = "google.ru:8080";
@@ -297,6 +300,7 @@ class ValidatorsTest : public ::testing::Test {
   std::string dest_id;
   std::string asset_name;
   std::string asset_id;
+  std::string title;
   std::string address_localhost;
   std::string address_ipv4;
   std::string address_hostname;

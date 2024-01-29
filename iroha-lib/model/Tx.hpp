@@ -33,8 +33,9 @@ public:
     void addCommand(const iroha::protocol::Command& command);
 
     Tx& addAssetQuantity(
-            const std::string& account_id,
-            const std::string& role_name);
+            const std::string& asset_id,
+            const std::string& amount,
+            const std::string& title);
     Tx& addPeer(
             const std::string& address,
             const std::string& pubkey,
@@ -83,7 +84,8 @@ public:
             uint32_t quorum);
     Tx& subtractAssetQuantity(
             const std::string& asset_id,
-            const std::string& amount);
+            const std::string& amount,
+            const std::string& title);
     Tx& transferAsset(
             const std::string& account_id,
             const std::string& dest_account_id,

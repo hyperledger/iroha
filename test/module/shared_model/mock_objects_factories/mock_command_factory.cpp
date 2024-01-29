@@ -36,6 +36,22 @@ namespace shared_model {
           });
     }
 
+    MockCommandFactory::FactoryResult<MockAddAssetQuantity>
+    MockCommandFactory::constructAddAssetQuantityWithDescription(
+        const types::AssetIdType &asset_id, const Amount &asset_amount, const std::string &description) const {
+      return createFactoryResult<MockAddAssetQuantity>(
+          [&asset_id, &asset_amount, &description](
+              FactoryResult<MockAddAssetQuantity> specific_cmd_mock) {
+            EXPECT_CALL(*specific_cmd_mock, assetId())
+                .WillRepeatedly(ReturnRefOfCopy(asset_id));
+            EXPECT_CALL(*specific_cmd_mock, amount())
+                .WillRepeatedly(ReturnRefOfCopy(asset_amount));
+            EXPECT_CALL(*specific_cmd_mock, description())
+                .WillRepeatedly(ReturnRefOfCopy(description));
+            return specific_cmd_mock;
+          });
+    }
+
     MockCommandFactory::FactoryResult<MockAddPeer>
     MockCommandFactory::constructAddPeer(const Peer &peer) const {
       return createFactoryResult<MockAddPeer>(
@@ -282,6 +298,22 @@ namespace shared_model {
                 .WillRepeatedly(ReturnRefOfCopy(asset_id));
             EXPECT_CALL(*specific_cmd_mock, amount())
                 .WillRepeatedly(ReturnRefOfCopy(cmd_amount));
+            return specific_cmd_mock;
+          });
+    }
+
+    MockCommandFactory::FactoryResult<MockSubtractAssetQuantity>
+    MockCommandFactory::constructSubtractAssetQuantityWithDescription(
+        const types::AssetIdType &asset_id, const Amount &cmd_amount, const std::string &description) const {
+      return createFactoryResult<MockSubtractAssetQuantity>(
+          [&asset_id, &cmd_amount, &description](
+              FactoryResult<MockSubtractAssetQuantity> specific_cmd_mock) {
+            EXPECT_CALL(*specific_cmd_mock, assetId())
+                .WillRepeatedly(ReturnRefOfCopy(asset_id));
+            EXPECT_CALL(*specific_cmd_mock, amount())
+                .WillRepeatedly(ReturnRefOfCopy(cmd_amount));
+            EXPECT_CALL(*specific_cmd_mock, description())
+                .WillRepeatedly(ReturnRefOfCopy(description));
             return specific_cmd_mock;
           });
     }

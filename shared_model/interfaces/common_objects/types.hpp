@@ -58,6 +58,8 @@ namespace shared_model {
       using DomainIdType = std::string;
       /// Type of asset id
       using AssetIdType = std::string;
+      /// Type of description
+      using DescriptionType = std::string;
       /// Permission type used in permission commands
       using PermissionNameType = std::string;
       /// Permission set

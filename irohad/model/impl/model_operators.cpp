@@ -100,7 +100,8 @@ namespace iroha {
       auto subtract_asset_quantity =
           static_cast<const SubtractAssetQuantity &>(command);
       return subtract_asset_quantity.asset_id == asset_id
-          && subtract_asset_quantity.amount == amount;
+          && subtract_asset_quantity.amount == amount
+          && subtract_asset_quantity.description == description;
     }
 
     /* AddPeer */

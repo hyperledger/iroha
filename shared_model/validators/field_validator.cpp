@@ -73,6 +73,8 @@ namespace {
 
   const RegexValidator kAccountNameValidator{"AccountName",
                                              R"#([a-z_0-9]{1,32})#"};
+  const RegexValidator kDescriptionNameValidator{"Description",
+                                             R"#([a-z_0-9]{1,32})#"};
   const RegexValidator kAssetNameValidator{"AssetName", R"#([a-z_0-9]{1,32})#"};
   const RegexValidator kDomainValidator{
       "Domain",
@@ -95,6 +97,9 @@ namespace {
                                            kAccountNameValidator.getPattern()
                                                + R"#(\@)#"
                                                + kDomainValidator.getPattern()};
+
+  const RegexValidator kDescriptionValidator{"Description", ".*"};
+
   const RegexValidator kAssetIdValidator{"AssetId",
                                          kAssetNameValidator.getPattern()
                                              + R"#(\#)#"
@@ -132,6 +137,17 @@ namespace shared_model {
     std::optional<ValidationError> FieldValidator::validateAccountId(
         const interface::types::AccountIdType &account_id) const {
       return kAccountIdValidator.validate(account_id);
+    }
+
+    std::optional<ValidationError> FieldValidator::validateDescription(
+        const interface::types::DescriptionType &description) const {
+      if (description.size() > kMaxDescriptionSize) {
+        return ValidationError(
+            "Description",
+            {fmt::format("Size should be less or equal '{}'.",
+                         kMaxDescriptionSize)});
+      }
+      return std::nullopt;
     }
 
     std::optional<ValidationError> FieldValidator::validateAssetId(
@@ -354,17 +370,6 @@ namespace shared_model {
 
     std::optional<ValidationError> FieldValidator::validateQueryPayloadMeta(
         const interface::QueryPayloadMeta &meta) const {
-      return std::nullopt;
-    }
-
-    std::optional<ValidationError> FieldValidator::validateDescription(
-        const interface::types::DescriptionType &description) const {
-      if (description.size() > kMaxDescriptionSize) {
-        return ValidationError(
-            "Description",
-            {fmt::format("Size should be less or equal '{}'.",
-                         kMaxDescriptionSize)});
-      }
       return std::nullopt;
     }
 
