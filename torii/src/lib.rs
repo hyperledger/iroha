@@ -39,7 +39,6 @@ use warp::{
 pub(crate) mod utils;
 mod event;
 mod routing;
-
 mod stream;
 
 /// Main network handler and the only entrypoint of the Iroha.
