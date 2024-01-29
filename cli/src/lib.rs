@@ -384,7 +384,7 @@ impl Iroha {
                     .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Future)
                     .await
                     .wrap_err("Failed to subscribe on telemetry")?;
-                let _handle = iroha_telemetry::dev::start(&config.file, receiver)
+                let _handle = iroha_telemetry::dev::start(config.file.clone(), receiver)
                     .await
                     .wrap_err("Failed to setup telemetry for futures")?;
             }

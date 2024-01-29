@@ -59,7 +59,7 @@ impl RootPartial {
     /// Creates new empty user configuration
     pub fn new() -> Self {
         // TODO: generate this function with macro. For now, use default
-        Default::default()
+        Self::default()
     }
 
     pub fn from_toml(path: impl AsRef<Path>) -> eyre::Result<Self, eyre::Error> {
@@ -123,6 +123,7 @@ impl RootPartial {
     }
 
     // FIXME workaround the inconvenient way `Merge::merge` works
+    #[must_use]
     pub fn merge(mut self, other: Self) -> Self {
         Merge::merge(&mut self, other);
         self
@@ -390,12 +391,13 @@ impl UnwrapPartial for KuraPartial {
             .get()
             .unwrap_or_else(|| PathBuf::from(DEFAULT_BLOCK_STORE_PATH));
 
-        let debug = UnwrapPartial::unwrap_partial(self.debug)
-            .map(Some)
-            .unwrap_or_else(|err| {
+        let debug = UnwrapPartial::unwrap_partial(self.debug).map_or_else(
+            |err| {
                 emitter.emit_collection(err);
                 None
-            });
+            },
+            Some,
+        );
 
         emitter.finish()?;
 
@@ -634,6 +636,7 @@ impl FromEnv for LoggerPartial {
 
         emitter.finish()?;
 
+        #[allow(clippy::needless_update)] // triggers if tokio console addr is feature-gated
         Ok(Self {
             level,
             format,

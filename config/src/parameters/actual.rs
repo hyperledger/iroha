@@ -71,7 +71,7 @@ pub enum Genesis {
 impl Genesis {
     pub fn public_key(&self) -> &PublicKey {
         match self {
-            Self::Partial { public_key } => &public_key,
+            Self::Partial { public_key } => public_key,
             Self::Full { key_pair, .. } => key_pair.public_key(),
         }
     }

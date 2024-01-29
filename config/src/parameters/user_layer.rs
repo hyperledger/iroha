@@ -62,6 +62,7 @@ pub enum ExtendsPathsIter<'a> {
 }
 
 impl ExtendsPaths {
+    #[allow(clippy::iter_without_into_iter)] // extra for this case
     pub fn iter(&self) -> ExtendsPathsIter<'_> {
         match &self {
             Self::None => ExtendsPathsIter::None,
@@ -115,7 +116,7 @@ impl Root {
             Some,
         );
 
-        let genesis = self.genesis.parse(&cli).map_or_else(
+        let genesis = self.genesis.parse(cli).map_or_else(
             |err| {
                 // FIXME
                 emitter.emit(eyre!("{err}"));
@@ -189,22 +190,23 @@ impl Root {
         Ok(actual::Root {
             iroha,
             genesis,
-            sumeragi,
+            torii,
             kura,
+            sumeragi,
             block_sync,
             transaction_gossiper,
-            logger,
-            torii,
             live_query_store,
+            logger,
             queue,
+            snapshot,
             regular_telemetry,
             dev_telemetry,
             chain_wide,
-            snapshot,
         })
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct CliContext {
     pub submit_genesis: bool,
 }
@@ -301,7 +303,7 @@ pub struct Genesis {
 }
 
 impl Genesis {
-    fn parse(self, cli: &CliContext) -> Result<actual::Genesis, GenesisConfigError> {
+    fn parse(self, cli: CliContext) -> Result<actual::Genesis, GenesisConfigError> {
         match (self.private_key, self.file, cli.submit_genesis) {
             (None, None, false) => Ok(actual::Genesis::Partial {
                 public_key: self.public_key,
@@ -413,7 +415,7 @@ fn construct_unique_vec<T: Debug + PartialEq>(
     unchecked: Vec<T>,
 ) -> Result<UniqueVec<T>, eyre::Report> {
     let mut unique = UniqueVec::new();
-    for x in unchecked.into_iter() {
+    for x in unchecked {
         let pushed = unique.push(x);
         if !pushed {
             Err(eyre!("found duplicate"))?
@@ -476,6 +478,7 @@ pub struct Logger {
     pub tokio_console_addr: SocketAddr,
 }
 
+#[allow(clippy::derivable_impls)] // triggers in absence of `tokio-console` feature
 impl Default for Logger {
     fn default() -> Self {
         Self {
@@ -749,18 +752,18 @@ mod tests {
     #[test]
     fn iterating_over_extends() {
         impl ExtendsPaths {
-            fn into_str_vec(&self) -> Vec<&str> {
+            fn as_str_vec(&self) -> Vec<&str> {
                 self.iter().map(|p| p.to_str().unwrap()).collect()
             }
         }
 
         let empty = ExtendsPaths::None;
-        assert_eq!(empty.into_str_vec(), Vec::<&str>::new());
+        assert_eq!(empty.as_str_vec(), Vec::<&str>::new());
 
         let single = ExtendsPaths::Single("single".into());
-        assert_eq!(single.into_str_vec(), vec!["single"]);
+        assert_eq!(single.as_str_vec(), vec!["single"]);
 
         let multi = ExtendsPaths::Multiple(vec!["foo".into(), "bar".into(), "baz".into()]);
-        assert_eq!(multi.into_str_vec(), vec!["foo", "bar", "baz"]);
+        assert_eq!(multi.as_str_vec(), vec!["foo", "bar", "baz"]);
     }
 }
