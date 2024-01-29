@@ -1,5 +1,6 @@
 #[cfg(not(feature = "std"))]
-use alloc::{borrow::ToOwned as _, boxed::Box};
+use alloc::borrow::ToOwned as _;
+use core::borrow::Borrow;
 
 use arrayref::array_ref;
 use iroha_primitives::const_vec::ConstVec;
@@ -47,7 +48,7 @@ impl KeyExchangeScheme for X25519Sha256 {
                 (pk, sk)
             }
             KeyGenOption::FromPrivateKey(ref s) => {
-                let crate::PrivateKey::Ed25519(s) = s else {
+                let crate::PrivateKey::Ed25519(s) = s.borrow() else {
                     panic!("Wrong private key type, expected `Ed25519`, got {s:?}")
                 };
                 let sk = StaticSecret::from(*array_ref!(s.as_bytes(), 0, 32));
@@ -70,9 +71,7 @@ impl KeyExchangeScheme for X25519Sha256 {
                     "Ed25519 public key should be possible to create from X25519 public key",
                 ),
             ),
-            PrivateKey::Ed25519(Box::new(crate::ed25519::PrivateKey::from_bytes(
-                sk.as_bytes(),
-            ))),
+            PrivateKey::Ed25519(crate::ed25519::PrivateKey::from_bytes(sk.as_bytes())),
         )
     }
 
@@ -128,7 +127,8 @@ mod tests {
             .unwrap();
         assert_eq!(shared_secret1.payload(), shared_secret2.payload());
 
-        let (public_key2, _secret_key1) = scheme.keypair(KeyGenOption::FromPrivateKey(secret_key1));
+        let (public_key2, _secret_key1) =
+            scheme.keypair(KeyGenOption::FromPrivateKey(Box::new(secret_key1)));
         assert_eq!(public_key2, public_key1);
     }
 }

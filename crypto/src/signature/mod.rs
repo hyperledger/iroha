@@ -196,6 +196,7 @@ impl<T> SignatureOf<T> {
     ///
     /// # Errors
     /// Fails if signing fails
+    #[inline]
     fn from_hash(key_pair: KeyPair, hash: HashOf<T>) -> Self {
         Self(Signature::new(key_pair, hash.as_ref()), PhantomData)
     }
@@ -217,6 +218,7 @@ impl<T: parity_scale_codec::Encode> SignatureOf<T> {
     ///
     /// # Errors
     /// Fails if signing fails
+    #[inline]
     pub fn new(key_pair: KeyPair, value: &T) -> Self {
         Self::from_hash(key_pair, HashOf::new(value))
     }
@@ -469,6 +471,7 @@ impl<T: Encode> SignaturesOf<T> {
     ///
     /// # Errors
     /// Forwards [`SignatureOf::new`] errors
+    #[inline]
     pub fn new(key_pair: KeyPair, value: &T) -> Self {
         SignatureOf::new(key_pair, value).into()
     }

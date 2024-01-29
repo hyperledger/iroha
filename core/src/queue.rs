@@ -770,7 +770,9 @@ mod tests {
         )
         .with_instructions(instructions);
         tx.set_ttl(Duration::from_millis(10));
+        let now = std::time::Instant::now();
         let tx = tx.sign(alice_key);
+        println!("Signing time: {}ms", now.elapsed().as_millis());
         let limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,

@@ -120,7 +120,7 @@ pub enum KeyGenOption {
     /// Use seed
     UseSeed(Vec<u8>),
     /// Derive from private key
-    FromPrivateKey(PrivateKey),
+    FromPrivateKey(Box<PrivateKey>),
 }
 
 ffi::ffi_item! {
@@ -158,9 +158,9 @@ impl KeyGenConfiguration {
 
     /// Construct using private key with [`Ed25519`](Algorithm::Ed25519) algorithm
     #[must_use]
-    pub fn from_private_key(private_key: PrivateKey) -> Self {
+    pub fn from_private_key(private_key: impl Into<Box<PrivateKey>>) -> Self {
         Self {
-            key_gen_option: KeyGenOption::FromPrivateKey(private_key),
+            key_gen_option: KeyGenOption::FromPrivateKey(private_key.into()),
             algorithm: Algorithm::default(),
         }
     }
@@ -253,7 +253,7 @@ impl From<(ed25519::PublicKey, ed25519::PrivateKey)> for KeyPair {
     fn from((public_key, private_key): (ed25519::PublicKey, ed25519::PrivateKey)) -> Self {
         Self {
             public_key: PublicKey::Ed25519(public_key),
-            private_key: PrivateKey::Ed25519(Box::new(private_key)),
+            private_key: PrivateKey::Ed25519(private_key),
         }
     }
 }
@@ -516,7 +516,7 @@ impl PublicKey {
 impl From<PrivateKey> for PublicKey {
     fn from(private_key: PrivateKey) -> Self {
         let digest_function = private_key.algorithm();
-        let key_gen_option = KeyGenOption::FromPrivateKey(private_key);
+        let key_gen_option = KeyGenOption::FromPrivateKey(Box::new(private_key));
 
         match digest_function {
             Algorithm::Ed25519 => {
@@ -537,9 +537,9 @@ ffi::ffi_item! {
     /// Private Key used in signatures.
     #[derive(Clone)]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), ffi_type(opaque))]
-    #[allow(missing_docs)]
+    #[allow(missing_docs, variant_size_differences)]
     pub enum PrivateKey {
-        Ed25519(Box<ed25519::PrivateKey>),
+        Ed25519(ed25519::PrivateKey),
         Secp256k1(secp256k1::PrivateKey),
         BlsNormal(bls::BlsNormalPrivateKey),
         BlsSmall(bls::BlsSmallPrivateKey),
@@ -568,9 +568,9 @@ impl PrivateKey {
     /// - If the given payload is not a valid private key for the given digest function
     pub fn from_raw(algorithm: Algorithm, payload: &[u8]) -> Result<Self, ParseError> {
         match algorithm {
-            Algorithm::Ed25519 => ed25519::Ed25519Sha512::parse_private_key(payload)
-                .map(Box::new)
-                .map(Self::Ed25519),
+            Algorithm::Ed25519 => {
+                ed25519::Ed25519Sha512::parse_private_key(payload).map(Self::Ed25519)
+            }
             Algorithm::Secp256k1 => {
                 secp256k1::EcdsaSecp256k1Sha256::parse_private_key(payload).map(Self::Secp256k1)
             }
