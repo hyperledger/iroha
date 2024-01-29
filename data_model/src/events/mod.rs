@@ -106,7 +106,7 @@ pub mod model {
 
 /// Trait for filters
 #[cfg(feature = "transparent_api")]
-pub trait Filter {
+pub trait EventFilter {
     /// Type of event that can be filtered
     type Event;
 
@@ -133,7 +133,7 @@ pub trait Filter {
 }
 
 #[cfg(feature = "transparent_api")]
-impl Filter for FilterBox {
+impl EventFilter for FilterBox {
     type Event = Event;
 
     /// Apply filter to event.
@@ -162,7 +162,7 @@ impl Filter for FilterBox {
 }
 
 #[cfg(feature = "transparent_api")]
-impl Filter for TriggeringFilterBox {
+impl EventFilter for TriggeringFilterBox {
     type Event = Event;
 
     /// Apply filter to event.
@@ -225,7 +225,7 @@ pub mod prelude {
     #[cfg(feature = "http")]
     pub use super::stream::{EventMessage, EventSubscriptionRequest};
     #[cfg(feature = "transparent_api")]
-    pub use super::Filter;
+    pub use super::EventFilter;
     pub use super::{
         data::prelude::*, execute_trigger::prelude::*, notification::prelude::*,
         pipeline::prelude::*, time::prelude::*, Event, FilterBox, TriggeringEventType,

@@ -13,7 +13,7 @@ pub mod set;
 /// - TODO: authority permissions.
 pub mod isi {
     use iroha_data_model::{
-        events::Filter,
+        events::EventFilter,
         isi::error::{InvalidParameterError, RepetitionError},
         trigger::prelude::*,
     };

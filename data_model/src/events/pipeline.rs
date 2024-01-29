@@ -193,7 +193,7 @@ impl PipelineEventFilter {
 }
 
 #[cfg(feature = "transparent_api")]
-impl super::Filter for PipelineEventFilter {
+impl super::EventFilter for PipelineEventFilter {
     type Event = PipelineEvent;
 
     /// Check if `self` accepts the `event`.
@@ -230,7 +230,7 @@ mod tests {
     #[cfg(not(feature = "std"))]
     use alloc::{string::ToString as _, vec, vec::Vec};
 
-    use super::{super::Filter, PipelineRejectionReason::*, *};
+    use super::{super::EventFilter, PipelineRejectionReason::*, *};
     use crate::{transaction::error::TransactionRejectionReason::*, ValidationFail};
 
     #[test]

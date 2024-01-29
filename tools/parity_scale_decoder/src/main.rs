@@ -276,9 +276,10 @@ mod tests {
             Repeats::Indefinitely,
             account_id,
             // FIXME: rewrite the filters using the builder DSL https://github.com/hyperledger/iroha/issues/3068
-            FilterBox::Data(BySome(DataEntityFilter::ByDomain(BySome(
-                DomainFilter::new(AcceptAll, BySome(DomainEventFilter::ByAccount(AcceptAll))),
-            )))),
+            FilterBox::Data(BySome(DataEntityFilter::ByDomain(DomainEventFilter {
+                id_matcher: None,
+                event_matcher: None,
+            }))),
         );
         let trigger = Trigger::new(trigger_id, action);
 

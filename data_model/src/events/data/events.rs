@@ -2,7 +2,7 @@
 #![allow(missing_docs)]
 
 use getset::Getters;
-use iroha_data_model_derive::{model, Filter, HasOrigin};
+use iroha_data_model_derive::{model, HasOrigin};
 use iroha_primitives::numeric::Numeric;
 
 pub use self::model::*;
@@ -18,7 +18,6 @@ macro_rules! data_event {
                 Eq,
                 PartialOrd,
                 Ord,
-                Filter,
                 HasOrigin,
                 parity_scale_codec::Decode,
                 parity_scale_codec::Encode,
@@ -593,7 +592,7 @@ mod executor {
     }
 
     #[cfg(feature = "transparent_api")]
-    impl super::Filter for ExecutorFilter {
+    impl super::EventFilter for ExecutorFilter {
         type Event = ExecutorEvent;
 
         fn matches(&self, event: &Self::Event) -> bool {
@@ -647,24 +646,18 @@ impl DataEvent {
 
 pub mod prelude {
     pub use super::{
-        account::{
-            AccountEvent, AccountEventFilter, AccountFilter, AccountPermissionChanged,
-            AccountRoleChanged,
-        },
+        account::{AccountEvent, AccountPermissionChanged, AccountRoleChanged},
         asset::{
-            AssetChanged, AssetDefinitionEvent, AssetDefinitionEventFilter, AssetDefinitionFilter,
-            AssetDefinitionOwnerChanged, AssetDefinitionTotalQuantityChanged, AssetEvent,
-            AssetEventFilter, AssetFilter,
+            AssetChanged, AssetDefinitionEvent, AssetDefinitionOwnerChanged,
+            AssetDefinitionTotalQuantityChanged, AssetEvent,
         },
         config::ConfigurationEvent,
-        domain::{DomainEvent, DomainEventFilter, DomainFilter, DomainOwnerChanged},
+        domain::{DomainEvent, DomainOwnerChanged},
         executor::{ExecutorEvent, ExecutorFilter},
-        peer::{PeerEvent, PeerEventFilter, PeerFilter},
+        peer::PeerEvent,
         permission::PermissionTokenSchemaUpdateEvent,
-        role::{RoleEvent, RoleEventFilter, RoleFilter, RolePermissionChanged},
-        trigger::{
-            TriggerEvent, TriggerEventFilter, TriggerFilter, TriggerNumberOfExecutionsChanged,
-        },
+        role::{RoleEvent, RolePermissionChanged},
+        trigger::{TriggerEvent, TriggerNumberOfExecutionsChanged},
         DataEvent, HasOrigin, MetadataChanged,
     };
 }

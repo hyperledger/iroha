@@ -11,7 +11,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "transparent_api")]
-use super::Filter;
+use super::EventFilter;
 use crate::prelude::*;
 pub use crate::Registered;
 

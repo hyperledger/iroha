@@ -132,7 +132,7 @@ pub mod model {
 }
 
 #[cfg(feature = "transparent_api")]
-impl Filter for TimeEventFilter {
+impl EventFilter for TimeEventFilter {
     type Event = TimeEvent;
 
     /// Isn't useful for time-triggers

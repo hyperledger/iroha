@@ -145,7 +145,7 @@ pub mod model {
 }
 
 #[cfg(feature = "transparent_api")]
-impl super::Filter for NotificationEventFilter {
+impl super::EventFilter for NotificationEventFilter {
     type Event = NotificationEvent;
 
     /// Check if `self` accepts the `event`.
@@ -161,7 +161,7 @@ impl super::Filter for NotificationEventFilter {
 }
 
 #[cfg(feature = "transparent_api")]
-impl super::Filter for TriggerCompletedEventFilter {
+impl super::EventFilter for TriggerCompletedEventFilter {
     type Event = TriggerCompletedEvent;
 
     /// Check if `self` accepts the `event`.
@@ -200,7 +200,7 @@ pub mod prelude {
 #[cfg(feature = "transparent_api")]
 mod tests {
     use super::*;
-    use crate::events::Filter;
+    use crate::events::EventFilter;
 
     #[test]
     fn trigger_completed_events_filter() {
