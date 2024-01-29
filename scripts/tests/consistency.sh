@@ -52,7 +52,7 @@ case $1 in
         }
 
 
-        do_check "$(command_base_for_single)" "docker-compose.dev.single.yml"
-        do_check "$(command_base_for_multiple_local)" "docker-compose.dev.local.yml"
-        do_check "$(command_base_for_default)" "docker-compose.dev.yml"
+        do_check "$(command_base_for_single)" "docker-compose.single.yml"
+        do_check "$(command_base_for_multiple_local)" "docker-compose.local.yml"
+        do_check "$(command_base_for_default)" "docker-compose.yml"
 esac
