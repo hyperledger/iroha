@@ -10,8 +10,6 @@ env:
 jobs:
   registry:
     runs-on: ubuntu-latest
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -29,6 +27,32 @@ jobs:
         run: |
           RELEASE=$(curl -s https://raw.githubusercontent.com/hyperledger/iroha/${{ github.ref_name }}/Cargo.toml | sed -n '3p' | sed -e 's/version = "//g' -e 's/"$//' | tr -d '\n')
           echo "RELEASE=$RELEASE" >>$GITHUB_ENV
+      - name: Build and export to Docker iroha2 image
+        uses: docker/build-push-action@v5
+        if: always()
+        with:
+          context: .
+          load: true
+          file: Dockerfile
+          tags: |
+            iroha2:${{ env.TAG }}
+            hyperledger/iroha2:${{ env.TAG }}
+            hyperledger/iroha2:${{ env.TAG }}-${{ env.RELEASE }}
+            docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}-${{ env.RELEASE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Test docker-compose.single.yml before pushing
+        run: |
+          docker compose -f docker-compose.single.yml up --wait || exit 1
+          docker compose -f docker-compose.single.yml down
+      - name: Test docker-compose.local.yml before pushing
+        run: |
+          docker compose -f docker-compose.local.yml up --wait || exit 1
+          docker compose -f docker-compose.local.yml down
+      - name: Test docker-compose.yml before pushing
+        run: |
+          docker compose -f docker-compose.yml up --wait || exit 1
+          docker compose -f docker-compose.yml down
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
@@ -43,18 +67,13 @@ jobs:
       - name: Build and push iroha2 image
         uses: docker/build-push-action@v5
         with:
+          context: .
           push: true
           tags: |
             hyperledger/iroha2:${{ env.TAG }}
             hyperledger/iroha2:${{ env.TAG }}-${{ env.RELEASE }}
             docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}-${{ env.RELEASE }}
           labels: commit=${{ github.sha }}
-          build-args: TAG=${{ env.TAG }}
-          file: Dockerfile
-          # This context specification is required
-          context: .
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   configs:
     runs-on: ubuntu-latest

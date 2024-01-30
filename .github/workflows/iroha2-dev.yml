@@ -10,11 +10,41 @@ env:
 jobs:
   registry:
     runs-on: [self-hosted, Linux, iroha2-dev-push]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
+      - name: Set up Docker Buildx
+        id: buildx
+        if: always()
+        uses: docker/setup-buildx-action@v3
+        with:
+          install: true
+      - name: Build and export to Docker iroha2:dev image
+        uses: docker/build-push-action@v5
+        if: always()
+        with:
+          context: .
+          load: true
+          file: Dockerfile
+          tags: |
+            iroha2:dev
+            hyperledger/iroha2:dev
+            docker.soramitsu.co.jp/iroha2/iroha2:dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Test docker-compose.single.yml before pushing
+        run: |
+          docker compose -f docker-compose.single.yml up --wait || exit 1
+          docker compose -f docker-compose.single.yml down
+      - name: Test docker-compose.local.yml before pushing
+        run: |
+          docker compose -f docker-compose.local.yml up --wait || exit 1
+          docker compose -f docker-compose.local.yml down
+      - name: Test docker-compose.yml before pushing
+        run: |
+          docker compose -f docker-compose.yml up --wait || exit 1
+          docker compose -f docker-compose.yml down
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -24,27 +54,15 @@ jobs:
           registry: docker.soramitsu.co.jp
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_TOKEN }}
-      - name: Set up Docker Buildx
-        id: buildx
-        if: always()
-        uses: docker/setup-buildx-action@v3
-        with:
-          install: true
-      - name: Build and push iroha2:dev image
+      - name: Push iroha2:dev image
         uses: docker/build-push-action@v5
-        if: always()
         with:
+          context: .
           push: true
           tags: |
             hyperledger/iroha2:dev
             docker.soramitsu.co.jp/iroha2/iroha2:dev
           labels: commit=${{ github.sha }}
-          build-args: TAG=dev
-          file: Dockerfile
-          # This context specification is required
-          context: .
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   archive_binaries_and_schema:
     runs-on: ubuntu-latest
