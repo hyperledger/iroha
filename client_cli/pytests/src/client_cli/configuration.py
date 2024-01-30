@@ -2,7 +2,7 @@
 This module provides a Config class to manage Iroha network configuration.
 """
 
-import json
+import tomlkit
 import os
 import random
 from urllib.parse import urlparse
@@ -11,8 +11,8 @@ from urllib.parse import urlparse
 class Config:
     """
     Configuration class to handle Iroha network configuration. The class provides methods for loading
-    the configuration from a file, updating the TORII_API_URL with a random port number from the specified
-    range, and accessing the configuration values.
+    the configuration from a file, accessing the configuration values, and randomising Torii URL
+    to access different peers.
 
     :param port_min: The minimum port number for the TORII_API_URL.
     :type port_min: int
@@ -24,6 +24,7 @@ class Config:
         self.file = None
         self.port_min = port_min
         self.port_max = port_max
+        self._envs = dict()
 
     def load(self, path_config_client_cli):
         """
@@ -35,35 +36,42 @@ class Config:
         """
         if not os.path.exists(path_config_client_cli):
             raise IOError(f"No config file found at {path_config_client_cli}")
+        # TODO use toml
         with open(path_config_client_cli, 'r', encoding='utf-8') as config_file:
-            self._config = json.load(config_file)
+            self._config = tomlkit.load(config_file)
         self.file = path_config_client_cli
 
-    def update_torii_api_port(self):
+    def randomise_torii_url(self):
         """
-        Update the TORII_API_URL configuration value
-        with a random port number from the specified range.
+        Update Torii URL.
+        Note that in order for update to take effect,
+        `self.env` should be used when executing the client cli.
 
         :return: None
         """
-        if self._config is None:
-            raise ValueError("No configuration loaded. Use load_config(path_config_client_cli) to load the configuration.")
-        parsed_url = urlparse(self._config['TORII_API_URL'])
-        new_netloc = parsed_url.hostname + ':' + str(random.randint(self.port_min, self.port_max))
-        self._config['TORII_API_URL'] = parsed_url._replace(netloc=new_netloc).geturl()
-        with open(self.file, 'w', encoding='utf-8') as config_file:
-            json.dump(self._config, config_file)
+        parsed_url = urlparse(self._config['api']["torii_url"])
+        random_port = random.randint(self.port_min, self.port_max)
+        self._envs["TORII_URL"] = parsed_url._replace(netloc=f"{parsed_url.hostname}:{random_port}").geturl()
 
     @property
-    def torii_api_port(self):
+    def torii_url(self):
         """
-        Get the TORII_API_URL configuration value after updating the port number.
+        Get the Torii URL set in ENV vars.
 
-        :return: The updated TORII_API_URL.
+        :return: Torii URL
         :rtype: str
         """
-        self.update_torii_api_port()
-        return self._config['TORII_API_URL']
+        return self._envs["TORII_URL"]
+
+    @property
+    def env(self):
+        """
+        Get the environment variables set to execute the client cli with.
+
+        :return: Dictionary with env vars (mixed with existing OS vars)
+        :rtype: dict
+        """
+        return {**os.environ, **self._envs}
 
     @property
     def account_id(self):
@@ -73,7 +81,7 @@ class Config:
         :return: The ACCOUNT_ID.
         :rtype: str
         """
-        return self._config['ACCOUNT_ID']
+        return self._config['account']["id"]
 
     @property
     def account_name(self):
@@ -103,4 +111,4 @@ class Config:
         :return: The public key.
         :rtype: str
         """
-        return self._config['PUBLIC_KEY'].split('ed0120')[1]
+        return self._config["account"]['public_key'].split('ed0120')[1]

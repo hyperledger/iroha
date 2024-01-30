@@ -254,19 +254,21 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
+        self.config.randomise_torii_url()
         if command is None:
             command = self.command
         else:
             command = [self.BASE_PATH] + self.BASE_FLAGS + command.split()
         allure_command = ' '.join(map(str, command[3:]))
         print(allure_command)
-        with allure.step(f'{allure_command} on the {str(self.config.torii_api_port)} peer'):
+        with allure.step(f'{allure_command} on the {str(self.config.torii_url)} peer'):
             try:
                 with subprocess.Popen(
                         command,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        text=True
+                        text=True,
+                        env=self.config.env
                 ) as process:
                     self.stdout, self.stderr = process.communicate()
                     allure.attach(

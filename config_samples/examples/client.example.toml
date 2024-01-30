@@ -7,6 +7,7 @@ private_key.digest_function = "ed25519"
 private_key.payload = "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
 
 [api]
+# Might be set via `TORII_URL` env var
 torii_url = "http://127.0.0.1:8080/"
 basic_auth.login = "mad_hatter"
 basic_auth.password = "ilovetea"

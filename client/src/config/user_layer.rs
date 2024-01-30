@@ -1,6 +1,6 @@
 mod boilerplate;
 
-use std::{fs::File, io::Read, path::Path, time::Duration};
+use std::{fs::File, io::Read, path::Path, str::FromStr, time::Duration};
 
 pub use boilerplate::*;
 use eyre::{eyre, Context, Report};
@@ -104,16 +104,54 @@ pub struct Transaction {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct OnlyHttpUrl(Url);
 
-impl<'de> Deserialize<'de> for OnlyHttpUrl {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let url = Url::deserialize(deserializer)?;
+impl FromStr for OnlyHttpUrl {
+    type Err = ParseHttpUrlError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let url = Url::from_str(s)?;
         if url.scheme() == "http" {
             Ok(Self(url))
         } else {
-            Err(serde::de::Error::custom("only HTTP scheme is supported"))
+            Err(ParseHttpUrlError::NotHttp {
+                found: url.scheme().to_owned(),
+            })
         }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ParseHttpUrlError {
+    #[error(transparent)]
+    Parse(#[from] url::ParseError),
+    #[error("expected `http` scheme, found: `{found}`")]
+    NotHttp { found: String },
+}
+
+iroha_config::base::impl_deserialize_from_str!(OnlyHttpUrl);
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use iroha_config::base::{FromEnv as _, TestEnv};
+
+    use super::*;
+
+    #[test]
+    fn parses_all_envs() {
+        let env = TestEnv::new().set("TORII_URL", "http://localhost:8080");
+
+        let layer = RootPartial::from_env(&env).expect("should not fail since env is valid");
+
+        assert_eq!(env.unvisited(), HashSet::new())
+    }
+
+    #[test]
+    fn non_http_url_error() {
+        let error = "https://localhost:1123"
+            .parse::<OnlyHttpUrl>()
+            .expect_err("should not allow https");
+
+        assert_eq!(format!("{error}"), "expected `http` scheme, found: `https`");
     }
 }
