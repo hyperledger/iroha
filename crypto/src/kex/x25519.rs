@@ -1,6 +1,6 @@
 #[cfg(not(feature = "std"))]
-use alloc::borrow::ToOwned as _;
-use core::borrow::Borrow;
+use alloc::{borrow::ToOwned as _, boxed::Box};
+use core::borrow::Borrow as _;
 
 use arrayref::array_ref;
 use iroha_primitives::const_vec::ConstVec;
@@ -48,7 +48,7 @@ impl KeyExchangeScheme for X25519Sha256 {
                 (pk, sk)
             }
             KeyGenOption::FromPrivateKey(ref s) => {
-                let crate::PrivateKey::Ed25519(s) = s.borrow() else {
+                let crate::PrivateKeyInner::Ed25519(s) = s.0.borrow() else {
                     panic!("Wrong private key type, expected `Ed25519`, got {s:?}")
                 };
                 let sk = StaticSecret::from(*array_ref!(s.as_bytes(), 0, 32));
@@ -66,12 +66,14 @@ impl KeyExchangeScheme for X25519Sha256 {
         let edwards_compressed = edwards.compress();
 
         (
-            PublicKey::Ed25519(
+            PublicKey(Box::new(crate::PublicKeyInner::Ed25519(
                 crate::ed25519::PublicKey::from_bytes(edwards_compressed.as_bytes()).expect(
                     "Ed25519 public key should be possible to create from X25519 public key",
                 ),
-            ),
-            PrivateKey::Ed25519(crate::ed25519::PrivateKey::from_bytes(sk.as_bytes())),
+            ))),
+            PrivateKey(Box::new(crate::PrivateKeyInner::Ed25519(
+                crate::ed25519::PrivateKey::from_bytes(sk.as_bytes()),
+            ))),
         )
     }
 
@@ -80,10 +82,11 @@ impl KeyExchangeScheme for X25519Sha256 {
         local_private_key: &PrivateKey,
         remote_public_key: &PublicKey,
     ) -> Result<SessionKey, Error> {
-        let crate::PrivateKey::Ed25519(local_private_key) = local_private_key else {
+        let crate::PrivateKeyInner::Ed25519(local_private_key) = local_private_key.0.borrow()
+        else {
             panic!("Wrong private key type, expected `Ed25519`, got {local_private_key:?}")
         };
-        let crate::PublicKey::Ed25519(remote_public_key) = remote_public_key else {
+        let crate::PublicKeyInner::Ed25519(remote_public_key) = remote_public_key.0.borrow() else {
             panic!("Wrong public key type, expected `Ed25519`, got {remote_public_key:?}")
         };
 

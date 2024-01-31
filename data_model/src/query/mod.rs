@@ -1231,6 +1231,7 @@ pub mod http {
         /// # Errors
         /// Fails if signature creation fails.
         #[inline]
+        #[must_use]
         pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedQuery {
             SignedQueryV1 {
                 signature: SignatureOf::new(key_pair, &self.payload),
@@ -1348,7 +1349,7 @@ pub mod error {
             /// Parameter with id `{0}` not found
             Parameter(ParameterId),
             /// Failed to find public key: `{0}`
-            PublicKey(Box<PublicKey>),
+            PublicKey(PublicKey),
         }
     }
 }

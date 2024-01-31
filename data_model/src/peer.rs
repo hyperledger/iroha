@@ -20,21 +20,26 @@ use crate::{Identifiable, PublicKey, Registered, Value};
 
 #[model]
 pub mod model {
+    use getset::Getters;
+
     use super::*;
 
     /// Peer's identification.
     ///
     /// Equality is tested by `public_key` field only.
     /// Each peer should have a unique public key.
-    #[derive(Debug, Display, Clone, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug, Display, Clone, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Getters,
+    )]
     #[display(fmt = "{public_key}@@{address}")]
+    #[getset(get = "pub")]
     #[ffi_type]
     pub struct PeerId {
         /// Address of the [`Peer`]'s entrypoint.
         // TODO: Derive with getset once FFI impl is fixed
         pub address: SocketAddr,
         /// Public Key of the [`Peer`].
-        pub public_key: Box<PublicKey>,
+        pub public_key: PublicKey,
     }
 
     /// Representation of other Iroha Peer instances running in separate processes.
@@ -58,14 +63,8 @@ impl PeerId {
     pub fn new(address: SocketAddr, public_key: PublicKey) -> Self {
         Self {
             address,
-            public_key: Box::new(public_key),
+            public_key,
         }
-    }
-
-    /// Get public key of the peer.
-    #[inline]
-    pub fn public_key(&self) -> &PublicKey {
-        &self.public_key
     }
 }
 

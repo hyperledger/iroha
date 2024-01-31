@@ -25,7 +25,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use core::{fmt, str::FromStr};
+use core::{borrow::Borrow, fmt, str::FromStr};
 
 #[cfg(feature = "base64")]
 pub use base64;
@@ -252,8 +252,8 @@ impl KeyPair {
 impl From<(ed25519::PublicKey, ed25519::PrivateKey)> for KeyPair {
     fn from((public_key, private_key): (ed25519::PublicKey, ed25519::PrivateKey)) -> Self {
         Self {
-            public_key: PublicKey::Ed25519(public_key),
-            private_key: PrivateKey::Ed25519(private_key),
+            public_key: PublicKey(Box::new(PublicKeyInner::Ed25519(public_key))),
+            private_key: PrivateKey(Box::new(PrivateKeyInner::Ed25519(private_key))),
         }
     }
 }
@@ -261,8 +261,8 @@ impl From<(ed25519::PublicKey, ed25519::PrivateKey)> for KeyPair {
 impl From<(secp256k1::PublicKey, secp256k1::PrivateKey)> for KeyPair {
     fn from((public_key, private_key): (secp256k1::PublicKey, secp256k1::PrivateKey)) -> Self {
         Self {
-            public_key: PublicKey::Secp256k1(public_key),
-            private_key: PrivateKey::Secp256k1(private_key),
+            public_key: PublicKey(Box::new(PublicKeyInner::Secp256k1(public_key))),
+            private_key: PrivateKey(Box::new(PrivateKeyInner::Secp256k1(private_key))),
         }
     }
 }
@@ -272,8 +272,8 @@ impl From<(bls::BlsNormalPublicKey, bls::BlsNormalPrivateKey)> for KeyPair {
         (public_key, private_key): (bls::BlsNormalPublicKey, bls::BlsNormalPrivateKey),
     ) -> Self {
         Self {
-            public_key: PublicKey::BlsNormal(public_key),
-            private_key: PrivateKey::BlsNormal(private_key),
+            public_key: PublicKey(Box::new(PublicKeyInner::BlsNormal(public_key))),
+            private_key: PrivateKey(Box::new(PrivateKeyInner::BlsNormal(private_key))),
         }
     }
 }
@@ -281,8 +281,8 @@ impl From<(bls::BlsNormalPublicKey, bls::BlsNormalPrivateKey)> for KeyPair {
 impl From<(bls::BlsSmallPublicKey, bls::BlsSmallPrivateKey)> for KeyPair {
     fn from((public_key, private_key): (bls::BlsSmallPublicKey, bls::BlsSmallPrivateKey)) -> Self {
         Self {
-            public_key: PublicKey::BlsSmall(Box::new(public_key)),
-            private_key: PrivateKey::BlsSmall(private_key),
+            public_key: PublicKey(Box::new(PublicKeyInner::BlsSmall(public_key))),
+            private_key: PrivateKey(Box::new(PrivateKeyInner::BlsSmall(private_key))),
         }
     }
 }
@@ -315,18 +315,96 @@ impl From<KeyPair> for (PublicKey, PrivateKey) {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(
+    not(feature = "ffi_import"),
+    derive(DeserializeFromStr, SerializeDisplay)
+)]
+#[allow(missing_docs, variant_size_differences)]
+enum PublicKeyInner {
+    Ed25519(ed25519::PublicKey),
+    Secp256k1(secp256k1::PublicKey),
+    BlsNormal(bls::BlsNormalPublicKey),
+    BlsSmall(bls::BlsSmallPublicKey),
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl fmt::Debug for PublicKeyInner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple(self.algorithm().as_static_str())
+            .field(&self.normalize())
+            .finish()
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl fmt::Display for PublicKeyInner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.normalize())
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl FromStr for PublicKeyInner {
+    type Err = ParseError;
+
+    fn from_str(key: &str) -> Result<Self, Self::Err> {
+        let bytes = hex_decode(key)?;
+
+        multihash::Multihash::try_from(bytes).map(Into::into)
+    }
+}
+
+#[cfg(not(feature = "ffi_import"))]
+impl PublicKeyInner {
+    fn normalize(&self) -> String {
+        let multihash: &multihash::Multihash = &self.clone().into();
+        let bytes = Vec::try_from(multihash).expect("Failed to convert multihash to bytes.");
+
+        let mut bytes_iter = bytes.into_iter();
+        let fn_code = hex::encode(bytes_iter.by_ref().take(2).collect::<Vec<_>>());
+        let dig_size = hex::encode(bytes_iter.by_ref().take(1).collect::<Vec<_>>());
+        let key = hex::encode_upper(bytes_iter.by_ref().collect::<Vec<_>>());
+
+        format!("{fn_code}{dig_size}{key}")
+    }
+}
+
+impl PublicKeyInner {
+    fn to_raw(&self) -> (Algorithm, Vec<u8>) {
+        (self.algorithm(), self.payload())
+    }
+
+    /// Key payload
+    fn payload(&self) -> Vec<u8> {
+        use w3f_bls::SerializableToBytes as _;
+
+        match self {
+            Self::Ed25519(key) => key.as_bytes().to_vec(),
+            Self::Secp256k1(key) => key.to_sec1_bytes().to_vec(),
+            Self::BlsNormal(key) => key.to_bytes(),
+            Self::BlsSmall(key) => key.to_bytes(),
+        }
+    }
+
+    fn algorithm(&self) -> Algorithm {
+        match self {
+            Self::Ed25519(_) => Algorithm::Ed25519,
+            Self::Secp256k1(_) => Algorithm::Secp256k1,
+            Self::BlsNormal(_) => Algorithm::BlsNormal,
+            Self::BlsSmall(_) => Algorithm::BlsSmall,
+        }
+    }
+}
+
 ffi::ffi_item! {
     /// Public Key used in signatures.
-    #[derive(Clone, PartialEq, Eq, TypeId)]
-    #[cfg_attr(not(feature="ffi_import"), derive(DeserializeFromStr, SerializeDisplay))]
+    #[derive(Debug, Clone, PartialEq, Eq, TypeId)]
+    #[cfg_attr(not(feature="ffi_import"), derive(Deserialize, Serialize, derive_more::Display))]
+    #[cfg_attr(not(feature="ffi_import"), display(fmt = "{_0}"))]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), ffi_type(opaque))]
     #[allow(missing_docs)]
-    pub enum PublicKey {
-        Ed25519(ed25519::PublicKey),
-        Secp256k1(secp256k1::PublicKey),
-        BlsNormal(bls::BlsNormalPublicKey),
-        BlsSmall(Box<bls::BlsSmallPublicKey>),
-    }
+    pub struct PublicKey(Box<PublicKeyInner>);
 }
 
 #[ffi_impl_opaque]
@@ -339,16 +417,19 @@ impl PublicKey {
     pub fn from_raw(algorithm: Algorithm, payload: &[u8]) -> Result<Self, ParseError> {
         match algorithm {
             Algorithm::Ed25519 => {
-                ed25519::Ed25519Sha512::parse_public_key(payload).map(Self::Ed25519)
+                ed25519::Ed25519Sha512::parse_public_key(payload).map(PublicKeyInner::Ed25519)
             }
-            Algorithm::Secp256k1 => {
-                secp256k1::EcdsaSecp256k1Sha256::parse_public_key(payload).map(Self::Secp256k1)
+            Algorithm::Secp256k1 => secp256k1::EcdsaSecp256k1Sha256::parse_public_key(payload)
+                .map(PublicKeyInner::Secp256k1),
+            Algorithm::BlsNormal => {
+                bls::BlsNormal::parse_public_key(payload).map(PublicKeyInner::BlsNormal)
             }
-            Algorithm::BlsNormal => bls::BlsNormal::parse_public_key(payload).map(Self::BlsNormal),
-            Algorithm::BlsSmall => bls::BlsSmall::parse_public_key(payload)
-                .map(Box::new)
-                .map(Self::BlsSmall),
+            Algorithm::BlsSmall => {
+                bls::BlsSmall::parse_public_key(payload).map(PublicKeyInner::BlsSmall)
+            }
         }
+        .map(Box::new)
+        .map(PublicKey)
     }
 
     /// Extracts the raw bytes from public key, copying the payload.
@@ -356,19 +437,7 @@ impl PublicKey {
     /// `into_raw()` without copying is not provided because underlying crypto
     /// libraries do not provide move functionality.
     pub fn to_raw(&self) -> (Algorithm, Vec<u8>) {
-        (self.algorithm(), self.payload())
-    }
-
-    /// Key payload
-    fn payload(&self) -> Vec<u8> {
-        use w3f_bls::SerializableToBytes as _;
-
-        match self {
-            PublicKey::Ed25519(key) => key.as_bytes().to_vec(),
-            PublicKey::Secp256k1(key) => key.to_sec1_bytes().to_vec(),
-            PublicKey::BlsNormal(key) => key.to_bytes(),
-            PublicKey::BlsSmall(key) => key.to_bytes(),
-        }
+        self.0.to_raw()
     }
 
     /// Construct [`PublicKey`] from hex encoded string
@@ -384,35 +453,14 @@ impl PublicKey {
 
     /// Get the digital signature algorithm of the public key
     pub fn algorithm(&self) -> Algorithm {
-        match self {
-            Self::Ed25519(_) => Algorithm::Ed25519,
-            Self::Secp256k1(_) => Algorithm::Secp256k1,
-            Self::BlsNormal(_) => Algorithm::BlsNormal,
-            Self::BlsSmall(_) => Algorithm::BlsSmall,
-        }
-    }
-}
-
-#[cfg(not(feature = "ffi_import"))]
-impl fmt::Debug for PublicKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple(self.algorithm().as_static_str())
-            .field(&self.normalize())
-            .finish()
-    }
-}
-
-#[cfg(not(feature = "ffi_import"))]
-impl fmt::Display for PublicKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.normalize())
+        self.0.algorithm()
     }
 }
 
 #[cfg(not(feature = "ffi_import"))]
 impl core::hash::Hash for PublicKey {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        (self.algorithm(), self.payload()).hash(state)
+        (self.to_raw()).hash(state)
     }
 }
 
@@ -424,19 +472,18 @@ impl PartialOrd for PublicKey {
 
 impl Ord for PublicKey {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        (self.algorithm(), self.payload()).cmp(&(other.algorithm(), other.payload()))
+        self.to_raw().cmp(&other.to_raw())
     }
 }
 
 #[cfg(not(feature = "ffi_import"))]
 impl Encode for PublicKey {
     fn size_hint(&self) -> usize {
-        self.algorithm().size_hint() + self.payload().size_hint()
+        self.to_raw().size_hint()
     }
 
     fn encode_to<W: parity_scale_codec::Output + ?Sized>(&self, dest: &mut W) {
-        self.algorithm().encode_to(dest);
-        self.payload().encode_to(dest);
+        self.to_raw().encode_to(dest);
     }
 }
 
@@ -490,24 +537,7 @@ impl FromStr for PublicKey {
     type Err = ParseError;
 
     fn from_str(key: &str) -> Result<Self, Self::Err> {
-        let bytes = hex_decode(key)?;
-
-        multihash::Multihash::try_from(bytes).map(Into::into)
-    }
-}
-
-#[cfg(not(feature = "ffi_import"))]
-impl PublicKey {
-    fn normalize(&self) -> String {
-        let multihash: &multihash::Multihash = &self.clone().into();
-        let bytes = Vec::try_from(multihash).expect("Failed to convert multihash to bytes.");
-
-        let mut bytes_iter = bytes.into_iter();
-        let fn_code = hex::encode(bytes_iter.by_ref().take(2).collect::<Vec<_>>());
-        let dig_size = hex::encode(bytes_iter.by_ref().take(1).collect::<Vec<_>>());
-        let key = hex::encode_upper(bytes_iter.by_ref().collect::<Vec<_>>());
-
-        format!("{fn_code}{dig_size}{key}")
+        PublicKeyInner::from_str(key).map(Box::new).map(Self)
     }
 }
 
@@ -515,22 +545,34 @@ impl PublicKey {
 #[cfg(not(feature = "ffi_import"))]
 impl From<PrivateKey> for PublicKey {
     fn from(private_key: PrivateKey) -> Self {
-        let digest_function = private_key.algorithm();
+        let algorithm = private_key.algorithm();
         let key_gen_option = KeyGenOption::FromPrivateKey(Box::new(private_key));
 
-        match digest_function {
+        let inner = match algorithm {
             Algorithm::Ed25519 => {
-                PublicKey::Ed25519(ed25519::Ed25519Sha512::keypair(key_gen_option).0)
+                PublicKeyInner::Ed25519(ed25519::Ed25519Sha512::keypair(key_gen_option).0)
             }
-            Algorithm::Secp256k1 => {
-                PublicKey::Secp256k1(secp256k1::EcdsaSecp256k1Sha256::keypair(key_gen_option).0)
+            Algorithm::Secp256k1 => PublicKeyInner::Secp256k1(
+                secp256k1::EcdsaSecp256k1Sha256::keypair(key_gen_option).0,
+            ),
+            Algorithm::BlsNormal => {
+                PublicKeyInner::BlsNormal(bls::BlsNormal::keypair(key_gen_option).0)
             }
-            Algorithm::BlsNormal => PublicKey::BlsNormal(bls::BlsNormal::keypair(key_gen_option).0),
             Algorithm::BlsSmall => {
-                PublicKey::BlsSmall(Box::new(bls::BlsSmall::keypair(key_gen_option).0))
+                PublicKeyInner::BlsSmall(bls::BlsSmall::keypair(key_gen_option).0)
             }
-        }
+        };
+        PublicKey(Box::new(inner))
     }
+}
+
+#[derive(Clone)]
+#[allow(missing_docs, variant_size_differences)]
+enum PrivateKeyInner {
+    Ed25519(ed25519::PrivateKey),
+    Secp256k1(secp256k1::PrivateKey),
+    BlsNormal(bls::BlsNormalPrivateKey),
+    BlsSmall(bls::BlsSmallPrivateKey),
 }
 
 ffi::ffi_item! {
@@ -538,21 +580,20 @@ ffi::ffi_item! {
     #[derive(Clone)]
     #[cfg_attr(all(feature = "ffi_export", not(feature = "ffi_import")), ffi_type(opaque))]
     #[allow(missing_docs, variant_size_differences)]
-    pub enum PrivateKey {
-        Ed25519(ed25519::PrivateKey),
-        Secp256k1(secp256k1::PrivateKey),
-        BlsNormal(bls::BlsNormalPrivateKey),
-        BlsSmall(bls::BlsSmallPrivateKey),
-    }
+    pub struct PrivateKey(Box<PrivateKeyInner>);
 }
 
 impl PartialEq for PrivateKey {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Ed25519(l), Self::Ed25519(r)) => l == r,
-            (Self::Secp256k1(l), Self::Secp256k1(r)) => l == r,
-            (Self::BlsNormal(l), Self::BlsNormal(r)) => l.to_bytes() == r.to_bytes(),
-            (Self::BlsSmall(l), Self::BlsSmall(r)) => l.to_bytes() == r.to_bytes(),
+        match (self.0.borrow(), other.0.borrow()) {
+            (PrivateKeyInner::Ed25519(l), PrivateKeyInner::Ed25519(r)) => l == r,
+            (PrivateKeyInner::Secp256k1(l), PrivateKeyInner::Secp256k1(r)) => l == r,
+            (PrivateKeyInner::BlsNormal(l), PrivateKeyInner::BlsNormal(r)) => {
+                l.to_bytes() == r.to_bytes()
+            }
+            (PrivateKeyInner::BlsSmall(l), PrivateKeyInner::BlsSmall(r)) => {
+                l.to_bytes() == r.to_bytes()
+            }
             _ => false,
         }
     }
@@ -569,14 +610,19 @@ impl PrivateKey {
     pub fn from_raw(algorithm: Algorithm, payload: &[u8]) -> Result<Self, ParseError> {
         match algorithm {
             Algorithm::Ed25519 => {
-                ed25519::Ed25519Sha512::parse_private_key(payload).map(Self::Ed25519)
+                ed25519::Ed25519Sha512::parse_private_key(payload).map(PrivateKeyInner::Ed25519)
             }
-            Algorithm::Secp256k1 => {
-                secp256k1::EcdsaSecp256k1Sha256::parse_private_key(payload).map(Self::Secp256k1)
+            Algorithm::Secp256k1 => secp256k1::EcdsaSecp256k1Sha256::parse_private_key(payload)
+                .map(PrivateKeyInner::Secp256k1),
+            Algorithm::BlsNormal => {
+                bls::BlsNormal::parse_private_key(payload).map(PrivateKeyInner::BlsNormal)
             }
-            Algorithm::BlsNormal => bls::BlsNormal::parse_private_key(payload).map(Self::BlsNormal),
-            Algorithm::BlsSmall => bls::BlsSmall::parse_private_key(payload).map(Self::BlsSmall),
+            Algorithm::BlsSmall => {
+                bls::BlsSmall::parse_private_key(payload).map(PrivateKeyInner::BlsSmall)
+            }
         }
+        .map(Box::new)
+        .map(PrivateKey)
     }
 
     /// Construct [`PrivateKey`] from hex encoded string
@@ -593,21 +639,21 @@ impl PrivateKey {
 
     /// Get the digital signature algorithm of the private key
     pub fn algorithm(&self) -> Algorithm {
-        match self {
-            Self::Ed25519(_) => Algorithm::Ed25519,
-            Self::Secp256k1(_) => Algorithm::Secp256k1,
-            Self::BlsNormal(_) => Algorithm::BlsNormal,
-            Self::BlsSmall(_) => Algorithm::BlsSmall,
+        match self.0.borrow() {
+            PrivateKeyInner::Ed25519(_) => Algorithm::Ed25519,
+            PrivateKeyInner::Secp256k1(_) => Algorithm::Secp256k1,
+            PrivateKeyInner::BlsNormal(_) => Algorithm::BlsNormal,
+            PrivateKeyInner::BlsSmall(_) => Algorithm::BlsSmall,
         }
     }
 
     /// Key payload
     fn payload(&self) -> Vec<u8> {
-        match self {
-            Self::Ed25519(key) => key.to_keypair_bytes().to_vec(),
-            Self::Secp256k1(key) => key.to_bytes().to_vec(),
-            Self::BlsNormal(key) => key.to_bytes(),
-            Self::BlsSmall(key) => key.to_bytes(),
+        match self.0.borrow() {
+            PrivateKeyInner::Ed25519(key) => key.to_keypair_bytes().to_vec(),
+            PrivateKeyInner::Secp256k1(key) => key.to_bytes().to_vec(),
+            PrivateKeyInner::BlsNormal(key) => key.to_bytes(),
+            PrivateKeyInner::BlsSmall(key) => key.to_bytes(),
         }
     }
 }

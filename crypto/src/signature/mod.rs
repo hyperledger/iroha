@@ -15,7 +15,7 @@ use alloc::{
     boxed::Box, collections::btree_set, format, string::String, string::ToString as _, vec,
     vec::Vec,
 };
-use core::marker::PhantomData;
+use core::{borrow::Borrow as _, marker::PhantomData};
 #[cfg(feature = "std")]
 use std::collections::btree_set;
 
@@ -57,11 +57,13 @@ impl Signature {
     /// # Errors
     /// Fails if signing fails
     pub fn new(key_pair: &KeyPair, payload: &[u8]) -> Self {
-        let signature = match &key_pair.private_key {
-            crate::PrivateKey::Ed25519(sk) => ed25519::Ed25519Sha512::sign(payload, sk),
-            crate::PrivateKey::Secp256k1(sk) => secp256k1::EcdsaSecp256k1Sha256::sign(payload, sk),
-            crate::PrivateKey::BlsSmall(sk) => bls::BlsSmall::sign(payload, sk),
-            crate::PrivateKey::BlsNormal(sk) => bls::BlsNormal::sign(payload, sk),
+        let signature = match key_pair.private_key.0.borrow() {
+            crate::PrivateKeyInner::Ed25519(sk) => ed25519::Ed25519Sha512::sign(payload, sk),
+            crate::PrivateKeyInner::Secp256k1(sk) => {
+                secp256k1::EcdsaSecp256k1Sha256::sign(payload, sk)
+            }
+            crate::PrivateKeyInner::BlsSmall(sk) => bls::BlsSmall::sign(payload, sk),
+            crate::PrivateKeyInner::BlsNormal(sk) => bls::BlsNormal::sign(payload, sk),
         };
         Self {
             public_key: key_pair.public_key.clone(),
@@ -74,15 +76,19 @@ impl Signature {
     /// # Errors
     /// Fails if message didn't pass verification
     pub fn verify(&self, payload: &[u8]) -> Result<(), Error> {
-        match &self.public_key {
-            crate::PublicKey::Ed25519(pk) => {
+        match self.public_key.0.borrow() {
+            crate::PublicKeyInner::Ed25519(pk) => {
                 ed25519::Ed25519Sha512::verify(payload, self.payload(), pk)
             }
-            crate::PublicKey::Secp256k1(pk) => {
+            crate::PublicKeyInner::Secp256k1(pk) => {
                 secp256k1::EcdsaSecp256k1Sha256::verify(payload, self.payload(), pk)
             }
-            crate::PublicKey::BlsSmall(pk) => bls::BlsSmall::verify(payload, self.payload(), pk),
-            crate::PublicKey::BlsNormal(pk) => bls::BlsNormal::verify(payload, self.payload(), pk),
+            crate::PublicKeyInner::BlsSmall(pk) => {
+                bls::BlsSmall::verify(payload, self.payload(), pk)
+            }
+            crate::PublicKeyInner::BlsNormal(pk) => {
+                bls::BlsNormal::verify(payload, self.payload(), pk)
+            }
         }?;
 
         Ok(())

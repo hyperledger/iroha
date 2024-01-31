@@ -194,10 +194,6 @@ impl SignedBlock {
     }
 
     /// Add additional signatures to this block
-    ///
-    /// # Errors
-    ///
-    /// If given signature doesn't match block hash
     #[cfg(feature = "std")]
     #[cfg(feature = "transparent_api")]
     #[must_use]

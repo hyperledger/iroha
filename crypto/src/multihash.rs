@@ -10,7 +10,7 @@ use alloc::{
 use derive_more::Display;
 use iroha_primitives::const_vec::ConstVec;
 
-use crate::{varint, Algorithm, NoSuchAlgorithm, ParseError, PublicKey};
+use crate::{varint, Algorithm, NoSuchAlgorithm, ParseError, PublicKey, PublicKeyInner};
 
 /// ed25519 public string
 pub const ED_25519_PUB_STR: &str = "ed25519-pub";
@@ -111,7 +111,7 @@ impl From<DigestFunction> for u64 {
 /// Offers a middleware representation of [`PublicKey`] which can be converted
 /// to/from bytes or string.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Multihash(PublicKey);
+pub struct Multihash(PublicKeyInner);
 
 impl TryFrom<Vec<u8>> for Multihash {
     type Error = ParseError;
@@ -151,7 +151,7 @@ impl TryFrom<Vec<u8>> for Multihash {
         }
         let payload = ConstVec::new(payload);
 
-        Ok(PublicKey::from_raw(algorithm, &payload)?.into())
+        Ok(Self::from(*PublicKey::from_raw(algorithm, &payload)?.0))
     }
 }
 
@@ -176,16 +176,16 @@ impl TryFrom<&Multihash> for Vec<u8> {
     }
 }
 
-impl From<Multihash> for PublicKey {
+impl From<Multihash> for PublicKeyInner {
     #[inline]
     fn from(multihash: Multihash) -> Self {
         multihash.0
     }
 }
 
-impl From<PublicKey> for Multihash {
+impl From<PublicKeyInner> for Multihash {
     #[inline]
-    fn from(public_key: PublicKey) -> Self {
+    fn from(public_key: PublicKeyInner) -> Self {
         Self(public_key)
     }
 }
@@ -221,12 +221,13 @@ mod tests {
     #[test]
     fn multihash_to_bytes() {
         let multihash = Multihash(
-            PublicKey::from_raw(
+            *PublicKey::from_raw(
                 Algorithm::Ed25519,
                 &hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
                     .unwrap(),
             )
-            .unwrap(),
+            .unwrap()
+            .0,
         );
         let bytes = Vec::try_from(&multihash).expect("Failed to serialize multihash");
         assert_eq!(
@@ -239,12 +240,13 @@ mod tests {
     #[test]
     fn multihash_from_bytes() {
         let multihash = Multihash(
-            PublicKey::from_raw(
+            *PublicKey::from_raw(
                 Algorithm::Ed25519,
                 &hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
                     .unwrap(),
             )
-            .unwrap(),
+            .unwrap()
+            .0,
         );
         let bytes =
             hex_decode("ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")

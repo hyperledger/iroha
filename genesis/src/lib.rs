@@ -182,9 +182,7 @@ pub struct GenesisTransactionBuilder {
 
 impl GenesisTransactionBuilder {
     /// Convert [`GenesisTransactionBuilder`] into [`SignedTransaction`] with signature.
-    ///
-    /// # Errors
-    /// Fails if signing or accepting fails.
+    #[must_use]
     fn sign(self, chain_id: ChainId, genesis_key_pair: &KeyPair) -> SignedTransaction {
         TransactionBuilder::new(chain_id, GENESIS_ACCOUNT_ID.clone())
             .with_instructions(self.isi)

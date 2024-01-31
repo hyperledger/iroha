@@ -33,7 +33,7 @@ impl Ed25519Sha512 {
                 PrivateKey::generate(&mut rng)
             }
             KeyGenOption::FromPrivateKey(ref s) => {
-                let crate::PrivateKey::Ed25519(s) = s.borrow() else {
+                let crate::PrivateKeyInner::Ed25519(s) = s.0.borrow() else {
                     panic!("Wrong private key type, expected `Ed25519`, got {s:?}")
                 };
                 PrivateKey::clone(s)
@@ -96,11 +96,11 @@ mod test {
         let (p1, s1) = Ed25519Sha512::keypair(KeyGenOption::FromPrivateKey(Box::new(secret)));
 
         assert_eq!(
-            PrivateKey::Ed25519(s1),
+            PrivateKey(Box::new(crate::PrivateKeyInner::Ed25519(s1))),
             PrivateKey::from_hex(Algorithm::Ed25519, PRIVATE_KEY).unwrap()
         );
         assert_eq!(
-            PublicKey::Ed25519(p1),
+            PublicKey(Box::new(crate::PublicKeyInner::Ed25519(p1))),
             PublicKey::from_hex(Algorithm::Ed25519, PUBLIC_KEY).unwrap()
         );
     }

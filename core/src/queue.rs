@@ -743,6 +743,8 @@ mod tests {
 
     #[test]
     async fn custom_expired_transaction_is_rejected() {
+        const TTL_MS: u64 = 100;
+
         let chain_id = ChainId::new("0");
 
         let max_txs_in_block = 2;
@@ -769,10 +771,8 @@ mod tests {
             AccountId::from_str("alice@wonderland").expect("Valid"),
         )
         .with_instructions(instructions);
-        tx.set_ttl(Duration::from_millis(10));
-        let now = std::time::Instant::now();
+        tx.set_ttl(Duration::from_millis(TTL_MS));
         let tx = tx.sign(&alice_key);
-        println!("Signing time: {}ms", now.elapsed().as_millis());
         let limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
@@ -784,7 +784,7 @@ mod tests {
             .expect("Failed to push tx into queue");
         let mut txs = Vec::new();
         let mut expired_txs = Vec::new();
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(TTL_MS));
         queue.get_transactions_for_block(&wsv, max_txs_in_block, &mut txs, &mut expired_txs);
         assert!(txs.is_empty());
         assert_eq!(expired_txs.len(), 1);

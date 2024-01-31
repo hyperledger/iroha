@@ -48,7 +48,7 @@ pub enum ParsedConfiguration {
     /// The peer is responsible for submitting the genesis block
     Full {
         /// Genesis account key pair
-        key_pair: Box<KeyPair>,
+        key_pair: KeyPair,
         /// Raw genesis block
         raw_block: RawGenesisBlock,
     },
@@ -69,7 +69,7 @@ impl Configuration {
                     .map_err(|report| ParseError::File { path, report })?;
 
                 Ok(ParsedConfiguration::Full {
-                    key_pair: Box::new(KeyPair::new(self.public_key, private_key)?),
+                    key_pair: KeyPair::new(self.public_key, private_key)?,
                     raw_block,
                 })
             }

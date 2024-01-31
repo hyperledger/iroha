@@ -279,10 +279,6 @@ impl SignedTransaction {
     }
 
     /// Sign transaction with provided key pair.
-    ///
-    /// # Errors
-    ///
-    /// Fails if signature creation fails
     #[cfg(feature = "std")]
     #[must_use]
     pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
@@ -743,11 +739,8 @@ mod http {
         }
 
         /// Sign transaction with provided key pair.
-        ///
-        /// # Errors
-        ///
-        /// Fails if signature creation fails
         #[cfg(feature = "std")]
+        #[must_use]
         pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
             let signatures = SignaturesOf::new(key_pair, &self.payload);
 

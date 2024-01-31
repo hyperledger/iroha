@@ -69,7 +69,7 @@ mod ecdsa_secp256k1 {
                         .expect("Creating private key from seed should always succeed")
                 }
                 KeyGenOption::FromPrivateKey(ref s) => {
-                    let crate::PrivateKey::Secp256k1(s) = s.borrow() else {
+                    let crate::PrivateKeyInner::Secp256k1(s) = s.0.borrow() else {
                         panic!("Wrong private key type, expected `Secp256k1`, got {s:?}")
                     };
                     s.clone()
@@ -155,7 +155,7 @@ mod test {
     fn secp256k1_compatibility() {
         let secret = private_key();
         let (p, s) = EcdsaSecp256k1Sha256::keypair(KeyGenOption::FromPrivateKey(Box::new(
-            crate::PrivateKey::Secp256k1(secret),
+            crate::PrivateKey(Box::new(crate::PrivateKeyInner::Secp256k1(secret))),
         )));
 
         let _sk = secp256k1::SecretKey::from_slice(&s.to_bytes()).unwrap();
@@ -207,7 +207,7 @@ mod test {
     fn secp256k1_sign() {
         let secret = private_key();
         let (pk, sk) = EcdsaSecp256k1Sha256::keypair(KeyGenOption::FromPrivateKey(Box::new(
-            crate::PrivateKey::Secp256k1(secret),
+            crate::PrivateKey(Box::new(crate::PrivateKeyInner::Secp256k1(secret))),
         )));
 
         let sig = EcdsaSecp256k1Sha256::sign(MESSAGE_1, &sk);
