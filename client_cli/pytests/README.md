@@ -34,20 +34,19 @@ For details, see [Running Tests](#running-tests) and [Viewing Test Reports](#vie
 The Iroha 2 Test Model consists of several test categories that cover different aspects of the Iroha 2 blockchain platform.\
 The test model has the following structure:
 
-- **Accounts**: Test cases for account-related operations
-- **Assets**: Test cases for asset-related operations
-- **Atomicity**: Test cases for transaction atomicity
-- **Domains**: Test cases for domain-related operations
-- **Roles**: Test cases for roles management
+- **Accounts**: Test cases for account-related operations.
+- **Assets**: Test cases for asset-related operations.
+- **Atomicity**: Test cases for transaction atomicity.
+- **Domains**: Test cases for domain-related operations.
+- **Roles**: Test cases for roles management.
 
 <!-- TODO: Add once implemented: - **Configurations**: Test configurations for the Iroha 2 platform. -->
 
 ## Using Test Suites
 
 > [!NOTE]
-> The following instructions assume
-> that you're using the `test_env.py` script that is being provided for the default test environment.
-> However, it is possible to run the tests in a custom environment e.g. with Docker Compose.
+> The following instructions assume that you're using the `test_env.py` script that is being provided for the default test environment.
+> However, it is possible to run the tests in a custom environment, e.g., with Docker Compose.
 > For instructions on how to do so, see [Custom Test Environment with Docker Compose](#custom-test-environment-with-docker-compose).
 
 1. Set up a test environment using the [`test_env.py`](../../scripts/test_env.py) script:
@@ -62,13 +61,15 @@ The test model has the following structure:
 
 2. Install and configure [Poetry](https://python-poetry.org/).\
 	 For details, see [Poetry Configuration](#poetry-configuration) below.
-3. Configure the tests. To do so, put an `.env` file in _this_ directory (`<repo root>/client_cli/pytests/.env`) with the following contents: 
-	```sh
-	CLIENT_CLI_DIR=../../test
-	TORII_API_PORT_MIN=8080
-	TORII_API_PORT_MAX=8083
-	``` 
-    For details, see [Tests Configuration](#tests-configuration) below.
+3. Configure the tests by creating the following `.env` file in _this_ (`<repo root>/client_cli/pytests/`) directory:
+
+	 ```shell
+	 CLIENT_CLI_DIR=/path/to/iroha_client_cli/with/config.json/dir/
+	 TORII_API_PORT_MIN=8080
+	 TORII_API_PORT_MAX=8083
+	 ```
+
+	 For details, see [Tests Configuration](#tests-configuration) below.
 4. Run the tests:
 
 	 ```shell
@@ -84,11 +85,9 @@ The test model has the following structure:
 
 ### Custom Test Environment with Docker Compose
 
-By default, we provide the [`test_env.py`](../../scripts/test_env.py) script to set up a test environment.
-This environment is composed of a running network of Iroha peers and a `iroha_client_cli` configuration
-to interact with the network.
-However, if for any reason this approach is inconvenient, it is possible to set up a custom network of Iroha peers.
-This section explains how to do so using provided Docker Compose configurations.
+By default, we provide the [`test_env.py`](../../scripts/test_env.py) script to set up a test environment. This environment is composed of a running network of Iroha peers and an `iroha_client_cli` configuration to interact with it.
+
+However, if for any reason this approach is inconvenient, it is possible to set up a custom network of Iroha peers using the provided Docker Compose configurations.
 
 To do so, perform the following steps:
 
@@ -104,17 +103,21 @@ To do so, perform the following steps:
 	 cargo build --bin iroha_client_cli
 	 ```
 
-3. Create some directory and put the client binary and its config there:
+3. Create a new directory, then copy the `iroha_client_cli` binary and its `config.json` configuration file into it:
 
-	```shell
-    # choose whatever directory you like
-	mkdir test_client
-    
- 	cp target/debug/iroha_client_cli test_client
-    cp configs/client/config.json test_client
-	```
- 
-4. Proceed with _Step 2_ of the [Using Test Suites](#using-test-suites) instructions. **Note:** specify the path to the created client directory in `CLIENT_CLI_DIR` variable in the `.env` file.
+	 ```shell
+	 # Create a new directory:
+	 mkdir test_client
+	 # Copy the files:
+	 cp configs/client/config.json test_client
+	 cp target/debug/iroha_client_cli test_client
+	 ```
+
+4. Proceed with _Step 2_ of the [Using Test Suites](#using-test-suites) instructions.
+
+> [!NOTE]
+> Don't forget to specify the path to the directory created for the `iroha_client_cli` binary and its `config.json` configuration file (see Step 3) in the `CLIENT_CLI_DIR` variable of the `.env` file.
+> For details, see [Tests Configuration](#tests-configuration) below.
 
 ### Poetry Configuration
 
@@ -146,7 +149,7 @@ exit
 
 ### Tests Configuration
 
-Tests are configured via environment variables. These variables can be optionally defined in a `.env` file that must be created in this directory.
+Tests are configured via environment variables. These variables can be optionally defined in a `.env` file that must be created in _this_ (`<repo root>/client_cli/pytests/`) directory.
 
 The variables:
 
