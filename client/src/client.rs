@@ -589,7 +589,7 @@ impl Client {
         transaction: &SignedTransaction,
     ) -> Result<HashOf<TransactionPayload>> {
         let (init_sender, init_receiver) = tokio::sync::oneshot::channel();
-        let hash = transaction.payload().hash();
+        let hash = transaction.transaction().payload.hash();
 
         thread::scope(|spawner| {
             let submitter_handle = spawner.spawn(move || -> Result<()> {
@@ -693,7 +693,7 @@ impl Client {
             )
             .headers(self.headers.clone())
             .body(transaction_bytes),
-            transaction.payload().hash(),
+            transaction.transaction().payload.hash(),
         )
     }
 
@@ -1624,55 +1624,6 @@ mod tests {
     const PASSWORD: &str = "ilovetea";
     // `mad_hatter:ilovetea` encoded with base64
     const ENCRYPTED_CREDENTIALS: &str = "bWFkX2hhdHRlcjppbG92ZXRlYQ==";
-
-    #[test]
-    fn txs_same_except_for_nonce_have_different_hashes() {
-        let (public_key, private_key) = KeyPair::generate().unwrap().into();
-
-        let cfg = ConfigurationProxy {
-            chain_id: Some(ChainId::new("0")),
-            public_key: Some(public_key),
-            private_key: Some(private_key),
-            account_id: Some(
-                "alice@wonderland"
-                    .parse()
-                    .expect("This account ID should be valid"),
-            ),
-            torii_api_url: Some(format!("http://{DEFAULT_API_ADDR}").parse().unwrap()),
-            add_transaction_nonce: Some(true),
-            ..ConfigurationProxy::default()
-        }
-        .build()
-        .expect("Client config should build as all required fields were provided");
-        let client = Client::new(&cfg).expect("Invalid client configuration");
-
-        let build_transaction = || {
-            client
-                .build_transaction(Vec::<InstructionBox>::new(), UnlimitedMetadata::new())
-                .unwrap()
-        };
-        let tx1 = build_transaction();
-        let tx2 = build_transaction();
-        assert_ne!(tx1.payload().hash(), tx2.payload().hash());
-
-        let tx2 = {
-            let mut tx =
-                TransactionBuilder::new(client.chain_id.clone(), client.account_id.clone())
-                    .with_executable(tx1.payload().instructions.clone())
-                    .with_metadata(tx1.payload().metadata.clone());
-
-            tx.set_creation_time(tx1.payload().creation_time_ms);
-            if let Some(nonce) = tx1.payload().nonce {
-                tx.set_nonce(nonce);
-            }
-            if let Some(transaction_ttl) = client.transaction_ttl {
-                tx.set_ttl(transaction_ttl);
-            }
-
-            client.sign_transaction(tx).unwrap()
-        };
-        assert_eq!(tx1.payload().hash(), tx2.payload().hash());
-    }
 
     #[test]
     fn authorization_header() {

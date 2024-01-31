@@ -900,9 +900,10 @@ mod tests {
                 chain_id.clone(),
                 AccountId::from_str(alice_id).expect("Valid"),
             )
-            .with_executable(tx.0.payload().instructions.clone());
+            .with_executable(tx.0.hash_payload().instructions.clone());
 
-            new_tx.set_creation_time(tx.0.payload().creation_time_ms + 2 * future_threshold_ms);
+            new_tx
+                .set_creation_time(tx.0.hash_payload().creation_time_ms + 2 * future_threshold_ms);
 
             let new_tx = new_tx.sign(alice_key).expect("Failed to sign.");
             let limits = TransactionLimits {

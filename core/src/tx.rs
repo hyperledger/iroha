@@ -49,7 +49,7 @@ impl AcceptedTransaction {
         tx: GenesisTransaction,
         expected_chain_id: &ChainId,
     ) -> Result<Self, AcceptTransactionFail> {
-        let actual_chain_id = &tx.0.payload().chain_id;
+        let actual_chain_id = &tx.0.transaction().payload.chain_id;
 
         if expected_chain_id != actual_chain_id {
             return Err(AcceptTransactionFail::ChainIdMismatch(Mismatch {
@@ -71,7 +71,7 @@ impl AcceptedTransaction {
         expected_chain_id: &ChainId,
         limits: &TransactionLimits,
     ) -> Result<Self, AcceptTransactionFail> {
-        let actual_chain_id = &tx.payload().chain_id;
+        let actual_chain_id = &tx.transaction().payload.chain_id;
 
         if expected_chain_id != actual_chain_id {
             return Err(AcceptTransactionFail::ChainIdMismatch(Mismatch {
@@ -80,11 +80,11 @@ impl AcceptedTransaction {
             }));
         }
 
-        if *iroha_genesis::GENESIS_ACCOUNT_ID == tx.payload().authority {
+        if *iroha_genesis::GENESIS_ACCOUNT_ID == tx.transaction().payload.authority {
             return Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature);
         }
 
-        match &tx.payload().instructions {
+        match &tx.transaction().payload.instructions {
             Executable::Instructions(instructions) => {
                 let instruction_count = instructions.len();
                 if Self::len_u64(instruction_count) > limits.max_instruction_number {
@@ -126,7 +126,7 @@ impl AcceptedTransaction {
 
     /// Payload of the transaction
     pub fn payload(&self) -> &TransactionPayload {
-        self.0.payload()
+        &self.0.transaction().payload
     }
 
     pub(crate) fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
@@ -193,7 +193,7 @@ impl TransactionExecutor {
         tx: AcceptedTransaction,
         wsv: &mut WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
-        let authority = &tx.payload().authority;
+        let authority = &tx.0.transaction().payload.authority;
 
         if !wsv
             .domain(&authority.domain_id)
@@ -259,7 +259,7 @@ impl TransactionExecutor {
         wsv: &mut WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         let tx: SignedTransaction = tx.into();
-        let authority = tx.payload().authority.clone();
+        let authority = tx.transaction().payload.authority.clone();
 
         wsv.executor()
             .clone() // Cloning executor is a cheap operation

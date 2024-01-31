@@ -169,8 +169,8 @@ pub async fn handle_pending_transactions(
             .map(Into::into)
             .filter(|current_transaction: &SignedTransaction| {
                 transaction_payload_eq_excluding_creation_time(
-                    current_transaction.payload(),
-                    transaction.payload(),
+                    &current_transaction.transaction().payload,
+                    &transaction.transaction().payload,
                 )
             })
             .collect()

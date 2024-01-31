@@ -165,9 +165,9 @@ pub mod model {
     #[ffi_type]
     pub struct SignedTransactionV1 {
         /// [`iroha_crypto::SignatureOf`]<[`TransactionPayload`]>.
-        pub(super) signatures: SignaturesOf<TransactionPayload>,
+        pub signatures: SignaturesOf<TransactionPayload>,
         /// [`Transaction`] payload.
-        pub(super) payload: TransactionPayload,
+        pub payload: TransactionPayload,
     }
 
     /// Transaction Value used in Instructions and Queries
@@ -259,17 +259,16 @@ declare_versioned!(SignedTransaction 1..2, Debug, Display, Clone, PartialEq, Eq,
 declare_versioned!(SignedTransaction 1..2, Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, IntoSchema);
 
 impl SignedTransaction {
-    /// Return transaction payload
-    // FIXME: Leaking concrete type TransactionPayload from Versioned container. Payload should be versioned
-    pub fn payload(&self) -> &TransactionPayload {
+    /// Define the version of SignedTransaction
+    /// Created to provide access to the transaction payload
+    // TODO: Make a correct implementation
+    pub fn transaction(&self) -> &SignedTransactionV1 {
         let SignedTransaction::V1(tx) = self;
-        &tx.payload
+        tx
     }
-
     /// Return transaction signatures
     pub fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
-        let SignedTransaction::V1(tx) = self;
-        &tx.signatures
+        &self.transaction().signatures
     }
 
     /// Calculate transaction [`Hash`](`iroha_crypto::HashOf`).
@@ -303,7 +302,7 @@ impl SignedTransaction {
     #[cfg(feature = "std")]
     #[cfg(feature = "transparent_api")]
     pub fn merge_signatures(&mut self, other: Self) -> bool {
-        if self.payload().hash() != other.payload().hash() {
+        if self.transaction().payload != other.transaction().payload {
             return false;
         }
 
@@ -340,7 +339,7 @@ impl TransactionValue {
     /// [`Transaction`] payload.
     #[inline]
     pub fn payload(&self) -> &TransactionPayload {
-        self.value.payload()
+        &self.value.transaction().payload
     }
 
     /// [`iroha_crypto::SignatureOf`]<[`TransactionPayload`]>.
