@@ -260,7 +260,7 @@ declare_versioned!(SignedTransaction 1..2, Debug, Display, Clone, PartialEq, Eq,
 
 impl SignedTransaction {
     /// Define the version of SignedTransaction
-    /// Created to provide access to the transaction payload
+    /// Created to provide access to the transaction payload only to internal libs
     // TODO: Make a correct implementation
     pub fn transaction(&self) -> &SignedTransactionV1 {
         let SignedTransaction::V1(tx) = self;
@@ -302,7 +302,7 @@ impl SignedTransaction {
     #[cfg(feature = "std")]
     #[cfg(feature = "transparent_api")]
     pub fn merge_signatures(&mut self, other: Self) -> bool {
-        if self.transaction().payload != other.transaction().payload {
+        if self.transaction().payload.hash() != other.transaction().payload.hash() {
             return false;
         }
 

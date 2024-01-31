@@ -900,7 +900,7 @@ mod tests {
                 chain_id.clone(),
                 AccountId::from_str(alice_id).expect("Valid"),
             )
-            .with_executable(tx.0.hash_payload().instructions.clone());
+            .with_executable(tx.0.transaction().payload.instructions.clone());
 
             new_tx
                 .set_creation_time(tx.0.hash_payload().creation_time_ms + 2 * future_threshold_ms);
