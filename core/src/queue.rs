@@ -903,7 +903,7 @@ mod tests {
             .with_executable(tx.0.transaction().payload.instructions.clone());
 
             new_tx
-                .set_creation_time(tx.0.hash_payload().creation_time_ms + 2 * future_threshold_ms);
+                .set_creation_time(tx.0.transaction().payload.creation_time_ms + 2 * future_threshold_ms);
 
             let new_tx = new_tx.sign(alice_key).expect("Failed to sign.");
             let limits = TransactionLimits {
