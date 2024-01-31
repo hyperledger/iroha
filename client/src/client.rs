@@ -1658,11 +1658,11 @@ mod tests {
         let tx2 = {
             let mut tx =
                 TransactionBuilder::new(client.chain_id.clone(), client.account_id.clone())
-                    .with_executable(tx1.payload().instructions.clone())
-                    .with_metadata(tx1.payload().metadata.clone());
+                    .with_executable(tx1.transaction().payload.instructions.clone())
+                    .with_metadata(tx1.transaction().payload.metadata.clone());
 
-            tx.set_creation_time(tx1.payload().creation_time_ms);
-            if let Some(nonce) = tx1.payload().nonce {
+            tx.set_creation_time(tx1.transaction().payload.creation_time_ms);
+            if let Some(nonce) = tx1.transaction().payload.nonce {
                 tx.set_nonce(nonce);
             }
             if let Some(transaction_ttl) = client.transaction_ttl {
