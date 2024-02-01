@@ -259,7 +259,6 @@ impl SumeragiHandle {
         SumeragiStartArgs {
             sumeragi_config,
             iroha_config,
-            chain_id,
             events_sender,
             mut wsv,
             queue,
@@ -297,14 +296,16 @@ impl SumeragiHandle {
         let block_iter_except_last =
             (&mut blocks_iter).take(block_count.saturating_sub(skip_block_count + 1));
         for block in block_iter_except_last {
-            current_topology = Self::replay_block(&chain_id, &block, &mut wsv, current_topology);
+            current_topology =
+                Self::replay_block(&iroha_config.chain_id, &block, &mut wsv, current_topology);
         }
 
         // finalized_wsv is one block behind
         let finalized_wsv = wsv.clone();
 
         if let Some(block) = blocks_iter.next() {
-            current_topology = Self::replay_block(&chain_id, &block, &mut wsv, current_topology);
+            current_topology =
+                Self::replay_block(&iroha_config.chain_id, &block, &mut wsv, current_topology);
         }
 
         info!("Sumeragi has finished loading blocks and setting up the WSV");
@@ -318,11 +319,13 @@ impl SumeragiHandle {
         #[cfg(not(debug_assertions))]
         let debug_force_soft_fork = false;
 
+        let peer_id = iroha_config.peer_id();
+
         let sumeragi = main_loop::Sumeragi {
-            chain_id,
-            key_pair: iroha_config.key_pair.clone(),
+            chain_id: iroha_config.chain_id,
+            key_pair: iroha_config.key_pair,
             queue: Arc::clone(&queue),
-            peer_id: iroha_config.peer_id(),
+            peer_id,
             events_sender,
             public_wsv_sender,
             public_finalized_wsv_sender,
@@ -420,9 +423,8 @@ impl VotingBlock {
 /// Arguments for [`SumeragiHandle::start`] function
 #[allow(missing_docs)]
 pub struct SumeragiStartArgs {
-    pub chain_id: ChainId,
-    pub sumeragi_config: Box<SumeragiConfig>,
-    pub iroha_config: Box<IrohaConfig>,
+    pub iroha_config: IrohaConfig,
+    pub sumeragi_config: SumeragiConfig,
     pub events_sender: EventsSender,
     pub wsv: WorldStateView,
     pub queue: Arc<Queue>,
