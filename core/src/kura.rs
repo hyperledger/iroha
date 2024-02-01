@@ -163,8 +163,7 @@ impl Kura {
             match block_store.read_block_data(block.start, &mut block_data_buffer) {
                 Ok(()) => match SignedBlock::decode_all_versioned(&block_data_buffer) {
                     Ok(decoded_block) => {
-                        if previous_block_hash != decoded_block.payload().header.previous_block_hash
-                        {
+                        if previous_block_hash != decoded_block.header().previous_block_hash {
                             error!("Block has wrong previous block hash. Not reading any blocks beyond this height.");
                             break;
                         }

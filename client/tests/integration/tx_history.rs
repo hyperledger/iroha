@@ -65,10 +65,10 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
 
     let mut prev_creation_time = core::time::Duration::from_millis(0);
     for tx in &transactions {
-        assert_eq!(tx.payload().authority(), &account_id);
+        assert_eq!(tx.as_ref().authority(), &account_id);
         //check sorted
-        assert!(tx.payload().creation_time() >= prev_creation_time);
-        prev_creation_time = tx.payload().creation_time();
+        assert!(tx.as_ref().creation_time() >= prev_creation_time);
+        prev_creation_time = tx.as_ref().creation_time();
     }
     Ok(())
 }

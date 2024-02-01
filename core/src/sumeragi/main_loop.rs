@@ -195,7 +195,7 @@ impl Sumeragi {
 
                 if let Some(msg) = block_msg.as_ref() {
                     let vc_index : Option<u64> = match msg {
-                        BlockMessage::BlockCreated(bc) => Some(bc.block.payload().header.view_change_index),
+                        BlockMessage::BlockCreated(bc) => Some(bc.block.header().view_change_index),
                         // Signed and Committed contain no block.
                         // Block sync updates are exempt from early pruning.
                         BlockMessage::BlockSigned(_) | BlockMessage::BlockCommitted(_) | BlockMessage::BlockSyncUpdate(_) => None,
@@ -266,7 +266,8 @@ impl Sumeragi {
                         }
                     };
 
-                    new_wsv.world_mut().trusted_peers_ids = block.payload().commit_topology.clone();
+                    new_wsv.world_mut().trusted_peers_ids =
+                        block.as_ref().commit_topology().clone();
                     self.commit_block(block, new_wsv);
                     return Err(EarlyReturn::GenesisBlockReceivedAndCommitted);
                 }
@@ -301,17 +302,13 @@ impl Sumeragi {
             .expect("Genesis invalid");
 
         assert!(
-            !genesis
-                .payload()
-                .transactions
-                .iter()
-                .any(|tx| tx.error.is_some()),
+            !genesis.as_ref().transactions().any(|tx| tx.error.is_some()),
             "Genesis contains invalid transactions"
         );
 
         info!(
             role = ?self.current_topology.role(&self.peer_id),
-            block_hash = %genesis.hash(),
+            block_hash = %genesis.as_ref().hash(),
             "Genesis block created",
         );
 
@@ -335,8 +332,8 @@ impl Sumeragi {
         info!(
             addr=%self.peer_id.address,
             role=%self.current_topology.role(&self.peer_id),
-            block_height=%block.payload().header.height,
-            block_hash=%block.hash(),
+            block_height=%block.as_ref().header().height(),
+            block_hash=%block.as_ref().hash(),
             "{}", Strategy::LOG_MESSAGE,
         );
 
@@ -399,8 +396,9 @@ impl Sumeragi {
     }
 
     fn cache_transaction(&mut self) {
-        self.transaction_cache
-            .retain(|tx| !self.wsv.has_transaction(tx.hash()) && !self.queue.is_expired(tx));
+        self.transaction_cache.retain(|tx| {
+            !self.wsv.has_transaction(tx.as_ref().hash()) && !self.queue.is_expired(tx)
+        });
     }
 
     fn vote_for_block(
@@ -408,7 +406,7 @@ impl Sumeragi {
         topology: &Topology,
         BlockCreated { block }: BlockCreated,
     ) -> Option<VotingBlock> {
-        let block_hash = block.payload().hash();
+        let block_hash = block.hash_of_payload();
         let addr = &self.peer_id.address;
         let role = self.current_topology.role(&self.peer_id);
         trace!(%addr, %role, block_hash=%block_hash, "Block received, voting...");
@@ -466,8 +464,8 @@ impl Sumeragi {
                             %addr, %role,
                             peer_latest_block_hash=?self.wsv.latest_block_hash(),
                             peer_latest_block_view_change_index=?self.wsv.latest_block_view_change_index(),
-                            consensus_latest_block_hash=%block.hash(),
-                            consensus_latest_block_view_change_index=%block.payload().header.view_change_index,
+                            consensus_latest_block_hash=%block.as_ref().hash(),
+                            consensus_latest_block_view_change_index=%block.as_ref().header().view_change_index,
                             "Soft fork occurred: peer in inconsistent state. Rolling back and replacing top block."
                         );
                         self.replace_top_block(block, new_wsv)
@@ -515,7 +513,7 @@ impl Sumeragi {
                 {
                     error!(%addr, %role, "Received BlockCommitted message, but shouldn't");
                 } else if let Some(voted_block) = voting_block.take() {
-                    let voting_block_hash = voted_block.block.payload().hash();
+                    let voting_block_hash = voted_block.block.as_ref().hash_of_payload();
 
                     if hash == voting_block_hash {
                         match voted_block
@@ -547,7 +545,7 @@ impl Sumeragi {
                 .expect("Peer has `ValidatingPeer` role, which mean that current topology require consensus");
 
                 if let Some(v_block) = self.vote_for_block(&current_topology, block_created) {
-                    let block_hash = v_block.block.payload().hash();
+                    let block_hash = v_block.block.as_ref().hash_of_payload();
 
                     let msg = BlockSigned::from(v_block.block.clone()).into();
 
@@ -564,7 +562,7 @@ impl Sumeragi {
 
                 if let Some(v_block) = self.vote_for_block(&current_topology, block_created) {
                     if current_view_change_index >= 1 {
-                        let block_hash = v_block.block.payload().hash();
+                        let block_hash = v_block.block.as_ref().hash_of_payload();
 
                         self.broadcast_packet_to(
                             BlockSigned::from(v_block.block.clone()).into(),
@@ -597,7 +595,7 @@ impl Sumeragi {
                     current_topology.filter_signatures_by_roles(roles, &signatures);
 
                 if let Some(voted_block) = voting_block.as_mut() {
-                    let voting_block_hash = voted_block.block.payload().hash();
+                    let voting_block_hash = voted_block.block.as_ref().hash_of_payload();
 
                     if hash == voting_block_hash {
                         add_signatures::<true>(voted_block, valid_signatures);
@@ -653,12 +651,11 @@ impl Sumeragi {
 
                         let created_in = create_block_start_time.elapsed();
                         if let Some(current_topology) = current_topology.is_consensus_required() {
-                            info!(%addr, created_in_ms=%created_in.as_millis(), block_payload_hash=%new_block.payload().hash(), "Block created");
+                            info!(%addr, created_in_ms=%created_in.as_millis(), block_payload_hash=%new_block.as_ref().hash_of_payload(), "Block created");
 
                             if created_in > self.pipeline_time() / 2 {
                                 warn!("Creating block takes too much time. This might prevent consensus from operating. Consider increasing `commit_time` or decreasing `max_transactions_in_block`");
                             }
-
                             *voting_block = Some(VotingBlock::new(new_block.clone(), new_wsv));
 
                             let msg = BlockCreated::from(new_block).into();
@@ -688,7 +685,7 @@ impl Sumeragi {
 
                     match voted_block.block.commit(current_topology) {
                         Ok(committed_block) => {
-                            info!(voting_block_hash = %committed_block.hash(), "Block reached required number of votes");
+                            info!(voting_block_hash = %committed_block.as_ref().hash(), "Block reached required number of votes");
 
                             let msg = BlockCommitted::from(committed_block.clone()).into();
 
@@ -925,7 +922,7 @@ pub(crate) fn run(
             if node_expects_block {
                 if let Some(VotingBlock { block, .. }) = voting_block.as_ref() {
                     // NOTE: Suspecting the tail node because it hasn't yet committed a block produced by leader
-                    warn!(peer_public_key=%sumeragi.peer_id.public_key, %role, block=%block.payload().hash(), "Block not committed in due time, requesting view change...");
+                    warn!(peer_public_key=%sumeragi.peer_id.public_key, %role, block=%block.as_ref().hash_of_payload(), "Block not committed in due time, requesting view change...");
                 } else {
                     // NOTE: Suspecting the leader node because it hasn't produced a block
                     // If the current node has a transaction, the leader should have as well
@@ -1005,7 +1002,7 @@ fn expired_event(txn: &AcceptedTransaction) -> Event {
         status: PipelineStatus::Rejected(PipelineRejectionReason::Transaction(
             TransactionRejectionReason::Expired,
         )),
-        hash: txn.payload().hash().into(),
+        hash: txn.as_ref().hash_of_payload().into(),
     }
     .into()
 }
@@ -1111,7 +1108,7 @@ fn handle_block_sync(
     wsv: &WorldStateView,
     finalized_wsv: &WorldStateView,
 ) -> Result<BlockSyncOk, (SignedBlock, BlockSyncError)> {
-    let block_height = block.payload().header.height;
+    let block_height = block.header().height;
     let wsv_height = wsv.height();
     if wsv_height + 1 == block_height {
         // Normal branch for adding new block on top of current
@@ -1121,7 +1118,7 @@ fn handle_block_sync(
                 .latest_block_ref()
                 .expect("Not in genesis round so must have at least genesis block");
             let new_peers = new_wsv.peers().cloned().collect();
-            let view_change_index = block.payload().header().view_change_index;
+            let view_change_index = block.header().view_change_index;
             Topology::recreate_topology(&last_committed_block, view_change_index, new_peers)
         };
         ValidBlock::validate(block, &topology, chain_id, &mut new_wsv)
@@ -1141,7 +1138,7 @@ fn handle_block_sync(
                 .latest_block_ref()
                 .expect("Not in genesis round so must have at least genesis block");
             let new_peers = new_wsv.peers().cloned().collect();
-            let view_change_index = block.payload().header().view_change_index;
+            let view_change_index = block.header().view_change_index;
             Topology::recreate_topology(&last_committed_block, view_change_index, new_peers)
         };
         ValidBlock::validate(block, &topology, chain_id, &mut new_wsv)
@@ -1153,7 +1150,7 @@ fn handle_block_sync(
             .map_err(|(block, error)| (block, BlockSyncError::SoftForkBlockNotValid(error)))
             .and_then(|block| {
                 let peer_view_change_index = wsv.latest_block_view_change_index();
-                let block_view_change_index = block.payload().header.view_change_index;
+                let block_view_change_index = block.as_ref().header().view_change_index;
                 if peer_view_change_index < block_view_change_index {
                     Ok(BlockSyncOk::ReplaceTopBlock(block, new_wsv))
                 } else {
@@ -1186,10 +1183,16 @@ mod tests {
     use super::*;
     use crate::{query::store::LiveQueryStore, smartcontracts::Registrable};
 
+    /// Used to inject faulty payload for testing
+    fn payload_mut<'a>(block: &'a mut SignedBlock) -> &'a mut BlockPayload {
+        let SignedBlock::V1(signed) = block;
+        &mut signed.payload
+    }
+
     fn create_data_for_test(
         chain_id: &ChainId,
         topology: &Topology,
-        leader_key_pair: &KeyPair,
+        leader_key_pair: KeyPair,
     ) -> (WorldStateView, Arc<Kura>, SignedBlock) {
         // Predefined world state
         let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
@@ -1222,7 +1225,7 @@ mod tests {
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx.clone(), tx], topology.clone(), Vec::new())
             .chain(0, &mut wsv)
-            .sign(leader_key_pair);
+            .sign(&leader_key_pair);
 
         let genesis = block.commit(topology).expect("Block is valid");
         wsv.apply(&genesis).expect("Failed to apply block");
@@ -1260,7 +1263,7 @@ mod tests {
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx1, tx2], topology.clone(), Vec::new())
             .chain(0, &mut wsv.clone())
-            .sign(leader_key_pair);
+            .sign(&leader_key_pair);
 
         (wsv, kura, block.into())
     }
@@ -1276,11 +1279,11 @@ mod tests {
             leader_key_pair.public_key().clone(),
         )]);
         let (finalized_wsv, _, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair);
+            create_data_for_test(&chain_id, &topology, leader_key_pair);
         let wsv = finalized_wsv.clone();
 
         // Malform block to make it invalid
-        block.payload_mut().commit_topology.clear();
+        payload_mut(&mut block).commit_topology.clear();
 
         let result = handle_block_sync(&chain_id, block, &wsv, &finalized_wsv);
         assert!(matches!(result, Err((_, BlockSyncError::BlockNotValid(_)))))
@@ -1296,7 +1299,7 @@ mod tests {
             leader_key_pair.public_key().clone(),
         )]);
         let (finalized_wsv, kura, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair);
+            create_data_for_test(&chain_id, &topology, leader_key_pair);
         let mut wsv = finalized_wsv.clone();
 
         let validated_block =
@@ -1307,7 +1310,7 @@ mod tests {
         kura.store_block(committed_block);
 
         // Malform block to make it invalid
-        block.payload_mut().commit_topology.clear();
+        payload_mut(&mut block).commit_topology.clear();
 
         let result = handle_block_sync(&chain_id, block, &wsv, &finalized_wsv);
         assert!(matches!(
@@ -1324,11 +1327,11 @@ mod tests {
         let topology = Topology::new(UniqueVec::new());
         let leader_key_pair = KeyPair::generate().unwrap();
         let (finalized_wsv, _, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair);
+            create_data_for_test(&chain_id, &topology, leader_key_pair);
         let wsv = finalized_wsv.clone();
 
         // Change block height
-        block.payload_mut().header.height = 42;
+        payload_mut(&mut block).header.height = 42;
 
         let result = handle_block_sync(&chain_id, block, &wsv, &finalized_wsv);
         assert!(matches!(
@@ -1353,8 +1356,7 @@ mod tests {
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (finalized_wsv, _, block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair);
+        let (finalized_wsv, _, block) = create_data_for_test(&chain_id, &topology, leader_key_pair);
         let wsv = finalized_wsv.clone();
         let result = handle_block_sync(&chain_id, block, &wsv, &finalized_wsv);
         assert!(matches!(result, Ok(BlockSyncOk::CommitBlock(_, _))))
@@ -1370,7 +1372,7 @@ mod tests {
             leader_key_pair.public_key().clone(),
         )]);
         let (finalized_wsv, kura, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair);
+            create_data_for_test(&chain_id, &topology, leader_key_pair);
         let mut wsv = finalized_wsv.clone();
 
         let validated_block =
@@ -1382,7 +1384,7 @@ mod tests {
         assert_eq!(wsv.latest_block_view_change_index(), 0);
 
         // Increase block view change index
-        block.payload_mut().header.view_change_index = 42;
+        payload_mut(&mut block).header.view_change_index = 42;
 
         let result = handle_block_sync(&chain_id, block, &wsv, &finalized_wsv);
         assert!(matches!(result, Ok(BlockSyncOk::ReplaceTopBlock(_, _))))
@@ -1398,11 +1400,11 @@ mod tests {
             leader_key_pair.public_key().clone(),
         )]);
         let (finalized_wsv, kura, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair);
+            create_data_for_test(&chain_id, &topology, leader_key_pair);
         let mut wsv = finalized_wsv.clone();
 
         // Increase block view change index
-        block.payload_mut().header.view_change_index = 42;
+        payload_mut(&mut block).header.view_change_index = 42;
 
         let validated_block =
             ValidBlock::validate(block.clone(), &topology, &chain_id, &mut wsv).unwrap();
@@ -1413,7 +1415,7 @@ mod tests {
         assert_eq!(wsv.latest_block_view_change_index(), 42);
 
         // Decrease block view change index back
-        block.payload_mut().header.view_change_index = 0;
+        payload_mut(&mut block).header.view_change_index = 0;
 
         let result = handle_block_sync(&chain_id, block, &wsv, &finalized_wsv);
         assert!(matches!(
@@ -1436,13 +1438,13 @@ mod tests {
         let topology = Topology::new(UniqueVec::new());
         let leader_key_pair = KeyPair::generate().unwrap();
         let (finalized_wsv, _, mut block) =
-            create_data_for_test(&chain_id, &topology, &leader_key_pair);
+            create_data_for_test(&chain_id, &topology, leader_key_pair);
         let wsv = finalized_wsv.clone();
 
         // Change block height and view change index
         // Soft-fork on genesis block is not possible
-        block.payload_mut().header.view_change_index = 42;
-        block.payload_mut().header.height = 1;
+        payload_mut(&mut block).header.view_change_index = 42;
+        payload_mut(&mut block).header.height = 1;
 
         let result = handle_block_sync(&chain_id, block, &wsv, &finalized_wsv);
         assert!(matches!(

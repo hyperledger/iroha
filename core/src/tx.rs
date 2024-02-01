@@ -7,8 +7,9 @@
 //!
 //! This is also where the actual execution of instructions, as well
 //! as various forms of validation are performed.
+
 use eyre::Result;
-use iroha_crypto::{HashOf, SignatureVerificationFail, SignaturesOf};
+use iroha_crypto::SignatureVerificationFail;
 pub use iroha_data_model::prelude::*;
 use iroha_data_model::{
     isi::error::Mismatch,
@@ -49,7 +50,7 @@ impl AcceptedTransaction {
         tx: GenesisTransaction,
         expected_chain_id: &ChainId,
     ) -> Result<Self, AcceptTransactionFail> {
-        let actual_chain_id = &tx.0.payload().chain_id;
+        let actual_chain_id = tx.0.chain_id();
 
         if expected_chain_id != actual_chain_id {
             return Err(AcceptTransactionFail::ChainIdMismatch(Mismatch {
@@ -71,7 +72,7 @@ impl AcceptedTransaction {
         expected_chain_id: &ChainId,
         limits: &TransactionLimits,
     ) -> Result<Self, AcceptTransactionFail> {
-        let actual_chain_id = &tx.payload().chain_id;
+        let actual_chain_id = tx.chain_id();
 
         if expected_chain_id != actual_chain_id {
             return Err(AcceptTransactionFail::ChainIdMismatch(Mismatch {
@@ -80,11 +81,11 @@ impl AcceptedTransaction {
             }));
         }
 
-        if *iroha_genesis::GENESIS_ACCOUNT_ID == tx.payload().authority {
+        if *iroha_genesis::GENESIS_ACCOUNT_ID == *tx.authority() {
             return Err(AcceptTransactionFail::UnexpectedGenesisAccountSignature);
         }
 
-        match &tx.payload().instructions {
+        match &tx.instructions() {
             Executable::Instructions(instructions) => {
                 let instruction_count = instructions.len();
                 if Self::len_u64(instruction_count) > limits.max_instruction_number {
@@ -119,24 +120,12 @@ impl AcceptedTransaction {
         Ok(Self(tx))
     }
 
-    /// Transaction hash
-    pub fn hash(&self) -> HashOf<SignedTransaction> {
-        self.0.hash()
-    }
-
-    /// Payload of the transaction
-    pub fn payload(&self) -> &TransactionPayload {
-        self.0.payload()
-    }
-
-    pub(crate) fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
-        self.0.signatures()
-    }
-
+    #[inline]
     pub(crate) fn merge_signatures(&mut self, other: Self) -> bool {
         self.0.merge_signatures(other.0)
     }
 
+    #[inline]
     fn len_u64(instruction_count: usize) -> u64 {
         u64::try_from(instruction_count).expect("`usize` should always fit into `u64`")
     }
@@ -151,6 +140,12 @@ impl From<AcceptedTransaction> for SignedTransaction {
 impl From<AcceptedTransaction> for (AccountId, Executable) {
     fn from(source: AcceptedTransaction) -> Self {
         source.0.into()
+    }
+}
+
+impl AsRef<SignedTransaction> for AcceptedTransaction {
+    fn as_ref(&self) -> &SignedTransaction {
+        &self.0
     }
 }
 
@@ -193,7 +188,7 @@ impl TransactionExecutor {
         tx: AcceptedTransaction,
         wsv: &mut WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
-        let authority = &tx.payload().authority;
+        let authority = tx.as_ref().authority();
 
         if !wsv
             .domain(&authority.domain_id)
@@ -259,7 +254,7 @@ impl TransactionExecutor {
         wsv: &mut WorldStateView,
     ) -> Result<(), TransactionRejectionReason> {
         let tx: SignedTransaction = tx.into();
-        let authority = tx.payload().authority.clone();
+        let authority = tx.authority().clone();
 
         wsv.executor()
             .clone() // Cloning executor is a cheap operation

@@ -46,7 +46,7 @@ pub fn create_block(
     .unwrap();
 
     // Verify that transactions are valid
-    for tx in &block.payload().transactions {
+    for tx in block.as_ref().transactions() {
         assert_eq!(tx.error, None);
     }
 

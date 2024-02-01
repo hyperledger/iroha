@@ -10,7 +10,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use core::{cmp::Ordering, num::NonZeroU32};
+use core::{cmp::Ordering, num::NonZeroU32, time::Duration};
 
 pub use cursor::ForwardCursor;
 use derive_more::{Constructor, Display};
@@ -30,7 +30,7 @@ use self::{
     trigger::*,
 };
 use crate::{
-    account::Account,
+    account::{Account, AccountId},
     block::SignedBlock,
     seal,
     transaction::{SignedTransaction, TransactionPayload, TransactionValue},
@@ -177,7 +177,18 @@ pub mod model {
 
     /// Output of [`FindAllTransactions`] query
     #[derive(
-        Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        Debug,
+        Clone,
+        PartialOrd,
+        Ord,
+        PartialEq,
+        Eq,
+        Getters,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
     )]
     #[getset(get = "pub")]
     #[ffi_type]
@@ -185,6 +196,7 @@ pub mod model {
         /// The hash of the block to which `tx` belongs to
         pub block_hash: HashOf<SignedBlock>,
         /// Transaction
+        #[getset(skip)]
         pub transaction: Box<TransactionValue>,
     }
 
@@ -250,28 +262,9 @@ impl Query for QueryBox {
     type Output = Value;
 }
 
-impl TransactionQueryOutput {
-    #[inline]
-    /// Return payload of the transaction
-    pub fn payload(&self) -> &TransactionPayload {
-        self.transaction.payload()
-    }
-}
-
-impl PartialOrd for TransactionQueryOutput {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for TransactionQueryOutput {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        let tx1 = self.transaction.payload();
-        let tx2 = other.transaction.payload();
-
-        tx1.creation_time().cmp(&tx2.creation_time())
+impl AsRef<SignedTransaction> for TransactionQueryOutput {
+    fn as_ref(&self) -> &SignedTransaction {
+        &self.transaction.value
     }
 }
 

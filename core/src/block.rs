@@ -150,7 +150,7 @@ mod pending {
                 previous_block_hash,
                 transactions_hash: transactions
                     .iter()
-                    .map(TransactionValue::hash)
+                    .map(|value| value.as_ref().hash())
                     .collect::<MerkleTree<_>>()
                     .hash(),
             }
@@ -239,16 +239,9 @@ mod valid {
     /// Block that was validated and accepted
     #[derive(Debug, Clone)]
     #[repr(transparent)]
-    pub struct ValidBlock(pub(super) SignedBlock);
+    pub struct ValidBlock(pub(crate) SignedBlock);
 
     impl ValidBlock {
-        pub(crate) fn payload(&self) -> &BlockPayload {
-            self.0.payload()
-        }
-        pub(crate) fn signatures(&self) -> &SignaturesOf<BlockPayload> {
-            self.0.signatures()
-        }
-
         /// Validate a block against the current state of the world.
         ///
         /// # Errors
@@ -266,8 +259,8 @@ mod valid {
             expected_chain_id: &ChainId,
             wsv: &mut WorldStateView,
         ) -> Result<ValidBlock, (SignedBlock, BlockValidationError)> {
-            if !block.payload().header.is_genesis() {
-                let actual_commit_topology = &block.payload().commit_topology;
+            if !block.header().is_genesis() {
+                let actual_commit_topology = block.commit_topology();
                 let expected_commit_topology = &topology.ordered_peers;
 
                 if actual_commit_topology != expected_commit_topology {
@@ -291,7 +284,7 @@ mod valid {
             }
 
             let expected_block_height = wsv.height() + 1;
-            let actual_height = block.payload().header.height;
+            let actual_height = block.header().height;
 
             if expected_block_height != actual_height {
                 return Err((
@@ -304,7 +297,7 @@ mod valid {
             }
 
             let expected_previous_block_hash = wsv.latest_block_hash();
-            let actual_block_hash = block.payload().header.previous_block_hash;
+            let actual_block_hash = block.header().previous_block_hash;
 
             if expected_previous_block_hash != actual_block_hash {
                 return Err((
@@ -317,10 +310,8 @@ mod valid {
             }
 
             if block
-                .payload()
-                .transactions
-                .iter()
-                .any(|tx| wsv.has_transaction(tx.hash()))
+                .transactions()
+                .any(|tx| wsv.has_transaction(tx.as_ref().hash()))
             {
                 return Err((block, BlockValidationError::HasCommittedTransactions));
             }
@@ -344,11 +335,9 @@ mod valid {
             expected_chain_id: &ChainId,
             wsv: &mut WorldStateView,
         ) -> Result<(), TransactionValidationError> {
-            let is_genesis = block.payload().header.is_genesis();
+            let is_genesis = block.header().is_genesis();
 
-            block.payload()
-                .transactions
-                .iter()
+            block.transactions()
                 // TODO: Unnecessary clone?
                 .cloned()
                 .try_for_each(|TransactionValue{value, error}| {
@@ -395,7 +384,7 @@ mod valid {
                 return Err((self, SignatureVerificationError::LeaderMissing.into()));
             }
 
-            if !self.signatures().is_subset(&signatures) {
+            if !self.as_ref().signatures().is_subset(&signatures) {
                 return Err((self, SignatureVerificationError::SignatureMissing.into()));
             }
 
@@ -416,13 +405,13 @@ mod valid {
             self,
             topology: &Topology,
         ) -> Result<CommittedBlock, (Self, BlockValidationError)> {
-            if !self.payload().header.is_genesis() {
+            if !self.0.header().is_genesis() {
                 if let Err(err) = self.verify_signatures(topology) {
                     return Err((self, err.into()));
                 }
             }
 
-            Ok(CommittedBlock(self.0))
+            Ok(CommittedBlock(self))
         }
 
         /// Add additional signatures for [`Self`].
@@ -471,17 +460,17 @@ mod valid {
         /// - Missing proxy tail signature
         fn verify_signatures(&self, topology: &Topology) -> Result<(), SignatureVerificationError> {
             // TODO: Should the peer that serves genesis have a fixed role of ProxyTail in topology?
-            if !self.payload().header.is_genesis()
+            if !self.as_ref().header().is_genesis()
                 && topology.is_consensus_required().is_some()
                 && topology
-                    .filter_signatures_by_roles(&[Role::ProxyTail], self.signatures())
+                    .filter_signatures_by_roles(&[Role::ProxyTail], self.as_ref().signatures())
                     .is_empty()
             {
                 return Err(SignatureVerificationError::ProxyTailMissing);
             }
 
             #[allow(clippy::collapsible_else_if)]
-            if self.payload().header.is_genesis() {
+            if self.as_ref().header().is_genesis() {
                 // At genesis round we blindly take on the network topology from the genesis block.
             } else {
                 let roles = [
@@ -492,7 +481,7 @@ mod valid {
                 ];
 
                 let votes_count = topology
-                    .filter_signatures_by_roles(&roles, self.signatures())
+                    .filter_signatures_by_roles(&roles, self.as_ref().signatures())
                     .len();
                 if votes_count < topology.min_votes_for_commit() {
                     return Err(SignatureVerificationError::NotEnoughSignatures {
@@ -512,10 +501,21 @@ mod valid {
         }
     }
 
+    impl AsRef<SignedBlock> for ValidBlock {
+        fn as_ref(&self) -> &SignedBlock {
+            &self.0
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
         use crate::sumeragi::network_topology::test_peers;
+
+        fn payload(block: &ValidBlock) -> &BlockPayload {
+            let SignedBlock::V1(signed) = &block.0;
+            &signed.payload
+        }
 
         #[test]
         fn signature_verification_ok() {
@@ -529,7 +529,7 @@ mod valid {
             let topology = Topology::new(peers);
 
             let mut block = ValidBlock::new_dummy();
-            let payload = block.payload().clone();
+            let payload = payload(&block).clone();
             key_pairs
                 .iter()
                 .map(|key_pair| SignatureOf::new(key_pair, &payload))
@@ -551,7 +551,7 @@ mod valid {
             let topology = Topology::new(peers);
 
             let mut block = ValidBlock::new_dummy();
-            let payload = block.payload().clone();
+            let payload = payload(&block).clone();
             key_pairs
                 .iter()
                 .enumerate()
@@ -575,7 +575,7 @@ mod valid {
             let topology = Topology::new(peers);
 
             let mut block = ValidBlock::new_dummy();
-            let payload = block.payload().clone();
+            let payload = payload(&block).clone();
             let proxy_tail_signature = SignatureOf::new(&key_pairs[4], &payload);
             block
                 .add_signature(proxy_tail_signature)
@@ -603,7 +603,7 @@ mod valid {
             let topology = Topology::new(peers);
 
             let mut block = ValidBlock::new_dummy();
-            let payload = block.payload().clone();
+            let payload = payload(&block).clone();
             key_pairs
                 .iter()
                 .enumerate()
@@ -626,27 +626,11 @@ mod commit {
     /// Represents a block accepted by consensus.
     /// Every [`Self`] will have a different height.
     #[derive(Debug, Clone)]
-    // TODO: Make it pub(super) at most
-    pub struct CommittedBlock(pub(crate) SignedBlock);
-
-    impl CommittedBlock {
-        /// Calculate block hash
-        pub fn hash(&self) -> HashOf<SignedBlock> {
-            self.0.hash()
-        }
-        /// Get block payload
-        pub fn payload(&self) -> &BlockPayload {
-            self.0.payload()
-        }
-        /// Get block signatures
-        pub fn signatures(&self) -> &SignaturesOf<BlockPayload> {
-            self.0.signatures()
-        }
-    }
+    pub struct CommittedBlock(pub(crate) ValidBlock);
 
     impl CommittedBlock {
         pub(crate) fn produce_events(&self) -> Vec<PipelineEvent> {
-            let tx = self.payload().transactions.iter().map(|tx| {
+            let tx = self.as_ref().transactions().map(|tx| {
                 let status = tx.error.as_ref().map_or_else(
                     || PipelineStatus::Committed,
                     |error| PipelineStatus::Rejected(error.clone().into()),
@@ -655,13 +639,13 @@ mod commit {
                 PipelineEvent {
                     entity_kind: PipelineEntityKind::Transaction,
                     status,
-                    hash: tx.payload().hash().into(),
+                    hash: tx.as_ref().hash_of_payload().into(),
                 }
             });
             let current_block = core::iter::once(PipelineEvent {
                 entity_kind: PipelineEntityKind::Block,
                 status: PipelineStatus::Committed,
-                hash: self.hash().into(),
+                hash: self.as_ref().hash().into(),
             });
 
             tx.chain(current_block).collect()
@@ -670,20 +654,20 @@ mod commit {
 
     impl From<CommittedBlock> for ValidBlock {
         fn from(source: CommittedBlock) -> Self {
-            ValidBlock(source.0)
+            ValidBlock(source.0.into())
         }
     }
 
     impl From<CommittedBlock> for SignedBlock {
         fn from(source: CommittedBlock) -> Self {
-            source.0
+            source.0 .0
         }
     }
 
     // Invariants of [`CommittedBlock`] can't be violated through immutable reference
     impl AsRef<SignedBlock> for CommittedBlock {
         fn as_ref(&self) -> &SignedBlock {
-            &self.0
+            &self.0 .0
         }
     }
 }
@@ -704,8 +688,8 @@ mod tests {
         let committed_block = valid_block.clone().commit(&topology).unwrap();
 
         assert_eq!(
-            valid_block.payload().hash(),
-            committed_block.payload().hash()
+            valid_block.0.hash_of_payload(),
+            committed_block.as_ref().hash_of_payload()
         )
     }
 
@@ -746,10 +730,10 @@ mod tests {
             .sign(&alice_keys);
 
         // The first transaction should be confirmed
-        assert!(valid_block.payload().transactions[0].error.is_none());
+        assert!(valid_block.0.transactions().nth(0).unwrap().error.is_none());
 
         // The second transaction should be rejected
-        assert!(valid_block.payload().transactions[1].error.is_some());
+        assert!(valid_block.0.transactions().nth(1).unwrap().error.is_some());
     }
 
     #[tokio::test]
@@ -812,10 +796,10 @@ mod tests {
             .sign(&alice_keys);
 
         // The first transaction should fail
-        assert!(valid_block.payload().transactions[0].error.is_some());
+        assert!(valid_block.0.transactions().nth(0).unwrap().error.is_some());
 
         // The third transaction should succeed
-        assert!(valid_block.payload().transactions[2].error.is_none());
+        assert!(valid_block.0.transactions().nth(2).unwrap().error.is_none());
     }
 
     #[tokio::test]
@@ -869,13 +853,13 @@ mod tests {
 
         // The first transaction should be rejected
         assert!(
-            valid_block.payload().transactions[0].error.is_some(),
+            valid_block.0.transactions().nth(0).unwrap().error.is_some(),
             "The first transaction should be rejected, as it contains `Fail`."
         );
 
         // The second transaction should be accepted
         assert!(
-            valid_block.payload().transactions[1].error.is_none(),
+            valid_block.0.transactions().nth(1).unwrap().error.is_none(),
             "The second transaction should be accepted."
         );
     }
