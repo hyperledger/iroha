@@ -7,6 +7,7 @@ use std::{
     borrow::Cow,
     cell::RefCell,
     collections::{HashMap, HashSet},
+    convert::Infallible,
     env::VarError,
     error::Error,
     ffi::OsString,
@@ -245,12 +246,8 @@ impl TestEnv {
     }
 }
 
-#[derive(thiserror::Error, Debug, Copy, Clone)]
-#[error("should never occur")]
-pub struct NeverError;
-
-impl ReadEnv<NeverError> for TestEnv {
-    fn get(&self, key: impl AsRef<str>) -> Result<Option<Cow<'_, str>>, NeverError> {
+impl ReadEnv<Infallible> for TestEnv {
+    fn get(&self, key: impl AsRef<str>) -> Result<Option<Cow<'_, str>>, Infallible> {
         self.visited.borrow_mut().insert(key.as_ref().to_string());
         Ok(self
             .map
