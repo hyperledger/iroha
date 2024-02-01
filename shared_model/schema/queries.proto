@@ -46,14 +46,14 @@ message TxPaginationMeta {
   oneof opt_last_tx_height {
     uint64 last_tx_height = 7;
   }
-  oneof opt_tx_text{
-    uint64 tx_text = 8;
+  oneof opt_trans_text{
+    uint64 trans_text = 8;
   }
-  oneof opt_tx_account{
-    uint64 tx_account = 9;
+  oneof opt_trans_account{
+    uint64 trans_account = 9;
   }
-  oneof opt_tx_sent_from_account{
-    uint64 tx_sent_from_account = 10;
+  oneof opt_trans_sent_from_account{
+    uint64 trans_sent_from_account = 10;
   }
 }
 
