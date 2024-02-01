@@ -8,7 +8,7 @@ mod retry_period;
 pub mod ws;
 
 pub use iroha_config::parameters::actual::{
-    DevTelemetry as DevTelemetryConfig, RegularTelemetry as RegularTelemetryConfig,
+    DevTelemetry as DevTelemetryConfig, Telemetry as RegularTelemetryConfig,
 };
 pub use iroha_telemetry_derive::metrics;
 

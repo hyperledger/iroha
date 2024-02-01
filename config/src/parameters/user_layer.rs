@@ -199,7 +199,7 @@ impl Root {
             logger,
             queue,
             snapshot,
-            regular_telemetry,
+            telemetry: regular_telemetry,
             dev_telemetry,
             chain_wide,
         })
@@ -510,15 +510,7 @@ pub struct TelemetryDev {
 }
 
 impl Telemetry {
-    fn parse(
-        self,
-    ) -> Result<
-        (
-            Option<actual::RegularTelemetry>,
-            Option<actual::DevTelemetry>,
-        ),
-        Report,
-    > {
+    fn parse(self) -> Result<(Option<actual::Telemetry>, Option<actual::DevTelemetry>), Report> {
         let Self {
             name,
             url,
@@ -528,7 +520,7 @@ impl Telemetry {
         } = self;
 
         let regular = match (name, url) {
-            (Some(name), Some(url)) => Some(actual::RegularTelemetry {
+            (Some(name), Some(url)) => Some(actual::Telemetry {
                 name,
                 url,
                 max_retry_delay_exponent: max_retry_delay_exponent

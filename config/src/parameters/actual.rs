@@ -34,7 +34,7 @@ pub struct Root {
     pub logger: Logger,
     pub queue: Queue,
     pub snapshot: Snapshot,
-    pub regular_telemetry: Option<RegularTelemetry>,
+    pub telemetry: Option<Telemetry>,
     pub dev_telemetry: Option<DevTelemetry>,
     pub chain_wide: ChainWide,
 }
@@ -212,7 +212,7 @@ pub struct Torii {
 
 /// Complete configuration needed to start regular telemetry.
 #[derive(Debug, Clone)]
-pub struct RegularTelemetry {
+pub struct Telemetry {
     #[allow(missing_docs)]
     pub name: String,
     #[allow(missing_docs)]

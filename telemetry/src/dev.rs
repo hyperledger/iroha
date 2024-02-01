@@ -1,8 +1,7 @@
 //! Module with development telemetry
 
-use std::path::PathBuf;
-
 use eyre::{Result, WrapErr};
+use iroha_config::parameters::actual::DevTelemetry as Config;
 use iroha_logger::telemetry::Event as Telemetry;
 use tokio::{
     fs::OpenOptions,
@@ -15,10 +14,7 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 /// Starts telemetry writing to a file
 /// # Errors
 /// Fails if unable to open the file
-pub async fn start(
-    telemetry_file: PathBuf,
-    telemetry: Receiver<Telemetry>,
-) -> Result<JoinHandle<()>> {
+pub async fn start(config: Config, telemetry: Receiver<Telemetry>) -> Result<JoinHandle<()>> {
     let mut stream = crate::futures::get_stream(BroadcastStream::new(telemetry).fuse());
 
     let mut file = OpenOptions::new()
@@ -29,7 +25,7 @@ pub async fn start(
             //.append(true)
             .create(true)
             .truncate(true)
-            .open(telemetry_file)
+            .open(config.file)
             .await
             .wrap_err("Failed to create and open file for telemetry")?;
 
