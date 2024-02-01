@@ -74,27 +74,3 @@ std::optional<types::HeightType> TxPaginationMeta::lastTxHeight() const {
   }
   return types::HeightType(meta_.last_tx_height());
 }
-//trans_text
-std::optional<types::HeightType> TxPaginationMeta::transText() const {
-  if (meta_.opt_trans_text_case()
-      == iroha::protocol::TxPaginationMeta::OptTransTextCase::OPT_TRANS_TEXT_NOT_SET) {
-    return std::nullopt;
-  }
-  return types::HeightType(meta_.trans_text());
-}
-//trans_account
-std::optional<types::HeightType> TxPaginationMeta::transAccount() const {
-  if (meta_.opt_trans_account_case()
-      == iroha::protocol::TxPaginationMeta::OptTransAccountCase::OPT_TRANS_ACCOUNT_NOT_SET) {
-    return std::nullopt;
-  }
-  return types::HeightType(meta_.trans_account());
-}
-//trans_sent_from_account
-std::optional<types::HeightType> TxPaginationMeta::transSentFromAccount() const {
-  if (meta_.opt_trans_sent_from_account_case()
-      == iroha::protocol::TxPaginationMeta::OptTransSentFromAccountCase::OPT_TRANS_SENT_FROM_ACCOUNT_NOT_SET) {
-    return std::nullopt;
-  }
-  return types::HeightType(meta_.trans_sent_from_account());
-}

@@ -28,9 +28,6 @@ namespace shared_model {
       virtual std::optional<types::TimestampType> lastTxTime() const = 0;
       virtual std::optional<types::HeightType> firstTxHeight() const = 0;
       virtual std::optional<types::HeightType> lastTxHeight() const = 0;
-      virtual std::optional<types::HeightType> transText() const = 0;
-      virtual std::optional<types::HeightType> transAccount() const = 0;
-      virtual std::optional<types::HeightType> transSentFromAccount() const = 0;
       std::string toString() const override;
 
       bool operator==(const ModelType &rhs) const override;
