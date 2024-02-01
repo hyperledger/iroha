@@ -30,7 +30,7 @@ impl Iterator for BlockTransactionIter {
     type Item = BlockTransactionRef;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.1 < self.0.payload().transactions.len() {
+        if self.1 < self.0.transactions().len() {
             let res = Some(BlockTransactionRef(Arc::clone(&self.0), self.1));
 
             self.1 += 1;
@@ -47,10 +47,19 @@ impl BlockTransactionRef {
     }
 
     fn authority(&self) -> &AccountId {
-        &self.0.payload().transactions[self.1].payload().authority
+        self.0
+            .transactions()
+            .nth(self.1)
+            .expect("The transaction is not found")
+            .as_ref()
+            .authority()
     }
     fn value(&self) -> TransactionValue {
-        self.0.payload().transactions[self.1].clone()
+        self.0
+            .transactions()
+            .nth(self.1)
+            .expect("The transaction is not found")
+            .clone()
     }
 }
 
@@ -105,10 +114,8 @@ impl ValidQuery for FindTransactionByHash {
 
         let block_hash = block.hash();
 
-        block
-            .payload()
-            .transactions
-            .iter()
+        let mut transactions = block.transactions();
+        transactions
             .find(|transaction| transaction.value.hash() == tx_hash)
             .cloned()
             .map(Box::new)

@@ -373,7 +373,7 @@ mod tests {
 
         assert_eq!(
             FindBlockHeaderByHash::new(block.hash()).execute(&wsv)?,
-            block.payload().header
+            *block.header()
         );
 
         assert!(
@@ -445,9 +445,9 @@ mod tests {
             Err(Error::Find(FindError::Transaction(_)))
         ));
 
-        let found_accepted = FindTransactionByHash::new(va_tx.hash()).execute(&wsv)?;
+        let found_accepted = FindTransactionByHash::new(va_tx.as_ref().hash()).execute(&wsv)?;
         if found_accepted.transaction.error.is_none() {
-            assert_eq!(va_tx.hash(), found_accepted.transaction.hash())
+            assert_eq!(va_tx.as_ref().hash(), found_accepted.as_ref().hash())
         }
         Ok(())
     }

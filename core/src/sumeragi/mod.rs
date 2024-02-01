@@ -128,7 +128,7 @@ impl SumeragiHandle {
                 block_index += 1;
                 let mut block_txs_accepted = 0;
                 let mut block_txs_rejected = 0;
-                for tx in &block.payload().transactions {
+                for tx in block.transactions() {
                     if tx.error.is_none() {
                         block_txs_accepted += 1;
                     } else {
@@ -231,15 +231,15 @@ impl SumeragiHandle {
         mut current_topology: Topology,
     ) -> Topology {
         // NOTE: topology need to be updated up to block's view_change_index
-        current_topology.rotate_all_n(block.payload().header.view_change_index);
+        current_topology.rotate_all_n(block.header().view_change_index);
 
         let block = ValidBlock::validate(block.clone(), &current_topology, chain_id, wsv)
             .expect("Kura blocks should be valid")
             .commit(&current_topology)
             .expect("Kura blocks should be valid");
 
-        if block.payload().header.is_genesis() {
-            wsv.world_mut().trusted_peers_ids = block.payload().commit_topology.clone();
+        if block.as_ref().header().is_genesis() {
+            wsv.world_mut().trusted_peers_ids = block.as_ref().commit_topology().clone();
         }
 
         wsv.apply_without_execution(&block).expect(

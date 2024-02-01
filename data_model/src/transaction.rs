@@ -2,7 +2,6 @@
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{
-    cmp::Ordering,
     fmt::{Display, Formatter, Result as FmtResult},
     iter::IntoIterator,
     num::{NonZeroU32, NonZeroU64},
@@ -24,8 +23,7 @@ use crate::{
     account::AccountId,
     isi::{Instruction, InstructionBox},
     metadata::UnlimitedMetadata,
-    name::Name,
-    ChainId, Value,
+    ChainId,
 };
 
 #[model]
@@ -102,14 +100,14 @@ pub mod model {
     #[ffi_type]
     pub struct TransactionPayload {
         /// Unique id of the blockchain. Used for simple replay attack protection.
-        #[getset(skip)]
+        #[getset(skip)] // FIXME: ffi error
         pub chain_id: ChainId,
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
         pub creation_time_ms: u64,
         /// Account ID of transaction creator.
         pub authority: AccountId,
-        /// ISI or a `WebAssembly` smartcontract.
+        /// ISI or a `WebAssembly` smart contract.
         pub instructions: Executable,
         /// If transaction is not committed by this time it will be dropped.
         #[getset(skip)]
@@ -119,7 +117,7 @@ pub mod model {
         #[getset(skip)]
         pub nonce: Option<NonZeroU32>,
         /// Store for additional information.
-        #[getset(skip)]
+        #[getset(skip)] // FIXME: ffi error
         pub metadata: UnlimitedMetadata,
     }
 
@@ -171,10 +169,25 @@ pub mod model {
     }
 
     /// Transaction Value used in Instructions and Queries
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug,
+        PartialOrd,
+        Ord,
+        Getters,
+        Clone,
+        PartialEq,
+        Eq,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
     #[ffi_type]
+    #[getset(get = "pub")]
     pub struct TransactionValue {
         /// Committed transaction
+        #[getset(skip)]
         pub value: SignedTransaction,
         /// Reason of rejection
         pub error: Option<error::TransactionRejectionReason>,
@@ -228,52 +241,82 @@ impl WasmSmartContract {
     }
 }
 
-impl TransactionPayload {
-    /// Calculate transaction payload [`Hash`](`iroha_crypto::HashOf`).
-    pub fn hash(&self) -> iroha_crypto::HashOf<Self> {
-        iroha_crypto::HashOf::new(self)
-    }
-
-    /// Metadata.
-    // TODO: Should implement `HasMetadata` instead
-    pub fn metadata(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
-        self.metadata.iter()
-    }
-
-    /// Creation timestamp
-    pub fn creation_time(&self) -> Duration {
-        Duration::from_millis(self.creation_time_ms)
-    }
-
-    /// If transaction is not committed by this time it will be dropped.
-    pub fn time_to_live(&self) -> Option<Duration> {
-        self.time_to_live_ms
-            .map(|ttl| Duration::from_millis(ttl.into()))
-    }
-}
-
 #[cfg(any(feature = "ffi_export", feature = "ffi_import"))]
 declare_versioned!(SignedTransaction 1..2, Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, iroha_ffi::FfiType, IntoSchema);
 #[cfg(all(not(feature = "ffi_export"), not(feature = "ffi_import")))]
 declare_versioned!(SignedTransaction 1..2, Debug, Display, Clone, PartialEq, Eq, PartialOrd, Ord, FromVariant, IntoSchema);
 
 impl SignedTransaction {
-    /// Return transaction payload
-    // FIXME: Leaking concrete type TransactionPayload from Versioned container. Payload should be versioned
-    pub fn payload(&self) -> &TransactionPayload {
+    /// Return transaction instructions
+    #[inline]
+    pub fn instructions(&self) -> &Executable {
         let SignedTransaction::V1(tx) = self;
-        &tx.payload
+        tx.payload.instructions()
+    }
+
+    /// Return transaction authority
+    #[inline]
+    pub fn authority(&self) -> &AccountId {
+        let SignedTransaction::V1(tx) = self;
+        tx.payload.authority()
+    }
+
+    /// Return transaction metadata.
+    #[inline]
+    pub fn metadata(&self) -> &UnlimitedMetadata {
+        let SignedTransaction::V1(tx) = self;
+        &tx.payload.metadata
+    }
+
+    /// Creation timestamp as [`core::time::Duration`]
+    #[inline]
+    pub fn creation_time(&self) -> Duration {
+        let SignedTransaction::V1(tx) = self;
+        Duration::from_millis(tx.payload.creation_time_ms)
+    }
+
+    /// If transaction is not committed by this time it will be dropped.
+    #[inline]
+    pub fn time_to_live(&self) -> Option<Duration> {
+        let SignedTransaction::V1(tx) = self;
+        tx.payload
+            .time_to_live_ms
+            .map(|ttl| Duration::from_millis(ttl.into()))
+    }
+
+    /// Transaction nonce
+    #[inline]
+    pub fn nonce(&self) -> Option<NonZeroU32> {
+        let SignedTransaction::V1(tx) = self;
+        tx.payload.nonce
+    }
+
+    /// Transaction chain id
+    #[inline]
+    pub fn chain_id(&self) -> &ChainId {
+        let SignedTransaction::V1(tx) = self;
+        &tx.payload.chain_id
     }
 
     /// Return transaction signatures
+    #[inline]
     pub fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
         let SignedTransaction::V1(tx) = self;
         &tx.signatures
     }
 
     /// Calculate transaction [`Hash`](`iroha_crypto::HashOf`).
+    #[inline]
     pub fn hash(&self) -> iroha_crypto::HashOf<Self> {
         iroha_crypto::HashOf::new(self)
+    }
+
+    /// Calculate transaction payload [`Hash`](`iroha_crypto::HashOf`).
+    #[inline]
+    #[cfg(feature = "std")]
+    pub fn hash_of_payload(&self) -> iroha_crypto::HashOf<TransactionPayload> {
+        let SignedTransaction::V1(tx) = self;
+        iroha_crypto::HashOf::new(&tx.payload)
     }
 
     /// Sign transaction with provided key pair.
@@ -293,7 +336,7 @@ impl SignedTransaction {
     /// Add additional signatures to this transaction
     #[cfg(feature = "transparent_api")]
     pub fn merge_signatures(&mut self, other: Self) -> bool {
-        if self.payload().hash() != other.payload().hash() {
+        if self.hash_of_payload() != other.hash_of_payload() {
             return false;
         }
 
@@ -320,38 +363,9 @@ impl SignedTransactionV1 {
     }
 }
 
-impl TransactionValue {
-    /// Calculate transaction [`Hash`](`iroha_crypto::HashOf`).
-    pub fn hash(&self) -> iroha_crypto::HashOf<SignedTransaction> {
-        self.value.hash()
-    }
-
-    /// [`Transaction`] payload.
-    #[inline]
-    pub fn payload(&self) -> &TransactionPayload {
-        self.value.payload()
-    }
-
-    /// [`iroha_crypto::SignatureOf`]<[`TransactionPayload`]>.
-    #[inline]
-    pub fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
-        self.value.signatures()
-    }
-}
-
-impl PartialOrd for TransactionValue {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for TransactionValue {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.payload()
-            .creation_time_ms
-            .cmp(&other.payload().creation_time_ms)
+impl AsRef<SignedTransaction> for TransactionValue {
+    fn as_ref(&self) -> &SignedTransaction {
+        &self.value
     }
 }
 

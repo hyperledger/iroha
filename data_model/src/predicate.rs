@@ -1053,9 +1053,7 @@ pub mod value {
                 ValuePredicate::Numerical(pred) => pred.applies(input),
                 ValuePredicate::Display(pred) => pred.applies(&input.to_string()),
                 ValuePredicate::TimeStamp(pred) => match input {
-                    Value::Block(block) => {
-                        pred.applies(block.payload().header.timestamp().as_millis())
-                    }
+                    Value::Block(block) => pred.applies(block.header().timestamp().as_millis()),
                     _ => false,
                 },
                 ValuePredicate::Ipv4Addr(pred) => match input {

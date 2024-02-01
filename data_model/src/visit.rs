@@ -154,7 +154,7 @@ pub fn visit_transaction<V: Visit + ?Sized>(
     authority: &AccountId,
     transaction: &SignedTransaction,
 ) {
-    match transaction.payload().instructions() {
+    match transaction.instructions() {
         Executable::Wasm(wasm) => visitor.visit_wasm(authority, wasm),
         Executable::Instructions(instructions) => {
             for isi in instructions {
