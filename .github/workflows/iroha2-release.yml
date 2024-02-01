@@ -35,7 +35,6 @@ jobs:
           load: true
           file: Dockerfile
           tags: |
-            iroha2:${{ env.TAG }}
             hyperledger/iroha2:${{ env.TAG }}
             hyperledger/iroha2:${{ env.TAG }}-${{ env.RELEASE }}
             docker.soramitsu.co.jp/iroha2/iroha2:${{ env.TAG }}-${{ env.RELEASE }}

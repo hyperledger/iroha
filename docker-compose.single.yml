@@ -5,8 +5,6 @@ version: '3.8'
 services:
   iroha0:
     build: ./
-    image: iroha2:dev
-    container_name: iroha2-0
     platform: linux/amd64
     environment:
       IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000

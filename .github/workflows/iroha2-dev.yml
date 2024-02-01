@@ -26,7 +26,6 @@ jobs:
           load: true
           file: Dockerfile
           tags: |
-            iroha2:dev
             hyperledger/iroha2:dev
             docker.soramitsu.co.jp/iroha2/iroha2:dev
           cache-from: type=gha

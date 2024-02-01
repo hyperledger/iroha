@@ -5,7 +5,6 @@ version: '3.8'
 services:
   iroha0:
     image: hyperledger/iroha2:dev
-    container_name: iroha2-0
     platform: linux/amd64
     environment:
       IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
@@ -33,7 +32,6 @@ services:
       start_period: 1m
   iroha1:
     image: hyperledger/iroha2:dev
-    container_name: iroha2-1
     platform: linux/amd64
     environment:
       IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
@@ -58,7 +56,6 @@ services:
       start_period: 1s
   iroha2:
     image: hyperledger/iroha2:dev
-    container_name: iroha2-2
     platform: linux/amd64
     environment:
       IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
@@ -83,7 +80,6 @@ services:
       start_period: 1s
   iroha3:
     image: hyperledger/iroha2:dev
-    container_name: iroha2-3
     platform: linux/amd64
     environment:
       IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
