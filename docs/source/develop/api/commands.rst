@@ -21,6 +21,7 @@ Schema
     message AddAssetQuantity {
         string asset_id = 1;
         string amount = 2;
+        optional string description = 3;
     }
 
 .. note::
@@ -37,6 +38,7 @@ Structure
 
     "Asset ID", "id of the asset", "<asset_name>#<domain_id>", "usd#morgan"
     "Amount", "positive amount of the asset to add", "> 0", "200.02"
+    "Description", "description of the transaction", "Max length of description (set in genesis block, by default is 100*1024)", "Mint assets"
 
 Validation
 ^^^^^^^^^^
@@ -793,6 +795,7 @@ Schema
     message SubtractAssetQuantity {
         string asset_id = 1;
         string amount = 2;
+        optional string description = 3;
     }
 
 .. note::
@@ -808,6 +811,7 @@ Structure
 
     "Asset ID", "id of the asset", "<asset_name>#<domain_id>", "usd#morgan"
     "Amount", "positive amount of the asset to subtract", "> 0", "200"
+    "Description", "description of the transaction", "Max length of description (set in genesis block, by default is 100*1024)", "Burn assets"
 
 Validation
 ^^^^^^^^^^
