@@ -58,7 +58,7 @@ impl TransactionGossiper {
     }
 
     /// Construct [`Self`] from configuration
-    pub fn from_configuration(
+    pub fn from_config(
         chain_id: ChainId,
         config: Config,
         network: IrohaNetwork,

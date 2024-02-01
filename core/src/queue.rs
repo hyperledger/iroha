@@ -99,7 +99,7 @@ pub struct Failure {
 
 impl Queue {
     /// Makes queue from configuration
-    pub fn from_configuration(cfg: Config) -> Self {
+    pub fn from_config(cfg: Config) -> Self {
         Self {
             tx_hashes: ArrayQueue::new(cfg.size.get()),
             accepted_txs: DashMap::new(),
@@ -445,7 +445,7 @@ mod tests {
             query_handle,
         ));
 
-        let queue = Queue::from_configuration(config_factory());
+        let queue = Queue::from_config(config_factory());
 
         queue
             .push(accepted_tx("alice@wonderland", &key_pair), &wsv)
@@ -465,7 +465,7 @@ mod tests {
             query_handle,
         ));
 
-        let queue = Queue::from_configuration(Config {
+        let queue = Queue::from_config(Config {
             transaction_time_to_live: Duration::from_secs(100),
             size: max_transactions_in_queue,
             ..Config::default()
@@ -513,7 +513,7 @@ mod tests {
             ))
         };
 
-        let queue = Queue::from_configuration(config_factory());
+        let queue = Queue::from_config(config_factory());
         let instructions: [InstructionBox; 0] = [];
         let tx =
             TransactionBuilder::new(chain_id.clone(), "alice@wonderland".parse().expect("Valid"))
@@ -576,7 +576,7 @@ mod tests {
             kura,
             query_handle,
         ));
-        let queue = Queue::from_configuration(Config {
+        let queue = Queue::from_config(Config {
             transaction_time_to_live: Duration::from_secs(100),
             ..config_factory()
         });
@@ -603,7 +603,7 @@ mod tests {
         );
         let tx = accepted_tx("alice@wonderland", &alice_key);
         wsv.transactions.insert(tx.as_ref().hash(), 1);
-        let queue = Queue::from_configuration(config_factory());
+        let queue = Queue::from_config(config_factory());
         assert!(matches!(
             queue.push(tx, &wsv),
             Err(Failure {
@@ -626,7 +626,7 @@ mod tests {
             query_handle,
         );
         let tx = accepted_tx("alice@wonderland", &alice_key);
-        let queue = Queue::from_configuration(config_factory());
+        let queue = Queue::from_config(config_factory());
         queue.push(tx.clone(), &wsv).unwrap();
         wsv.transactions.insert(tx.as_ref().hash(), 1);
         assert_eq!(
@@ -649,7 +649,7 @@ mod tests {
             kura,
             query_handle,
         ));
-        let queue = Queue::from_configuration(Config {
+        let queue = Queue::from_config(Config {
             transaction_time_to_live: Duration::from_millis(200),
             ..config_factory()
         });
@@ -696,7 +696,7 @@ mod tests {
             kura,
             query_handle,
         ));
-        let queue = Queue::from_configuration(config_factory());
+        let queue = Queue::from_config(config_factory());
         queue
             .push(accepted_tx("alice@wonderland", &alice_key), &wsv)
             .expect("Failed to push tx into queue");
@@ -730,7 +730,7 @@ mod tests {
             kura,
             query_handle,
         ));
-        let queue = Queue::from_configuration(config_factory());
+        let queue = Queue::from_config(config_factory());
         let instructions = [Fail {
             message: "expired".to_owned(),
         }];
@@ -771,7 +771,7 @@ mod tests {
             query_handle,
         );
 
-        let queue = Arc::new(Queue::from_configuration(Config {
+        let queue = Arc::new(Queue::from_config(Config {
             transaction_time_to_live: Duration::from_secs(100),
             size: 100_000_000.try_into().unwrap(),
             ..Config::default()
@@ -844,7 +844,7 @@ mod tests {
             query_handle,
         ));
 
-        let queue = Queue::from_configuration(Config {
+        let queue = Queue::from_config(Config {
             future_threshold,
             ..Config::default()
         });
@@ -906,7 +906,7 @@ mod tests {
         let query_handle = LiveQueryStore::test().start();
         let mut wsv = WorldStateView::new(world, kura, query_handle);
 
-        let queue = Queue::from_configuration(Config {
+        let queue = Queue::from_config(Config {
             transaction_time_to_live: Duration::from_secs(100),
             size: 100.try_into().unwrap(),
             size_per_user: 1.try_into().unwrap(),

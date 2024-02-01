@@ -77,7 +77,6 @@ pub fn test_logger() -> LoggerHandle {
 
     LOGGER
         .get_or_init(|| {
-            // let mut config =
             // NOTE: if this config should be changed for some specific tests, consider
             // isolating those tests into a separate process and controlling default logger config
             // with ENV vars rather than by extending `test_logger` signature. This will both remain

@@ -74,7 +74,7 @@ pub struct LiveQueryStore {
 
 impl LiveQueryStore {
     /// Construct [`LiveQueryStore`] from configuration.
-    pub fn from_configuration(cfg: Config) -> Self {
+    pub fn from_config(cfg: Config) -> Self {
         Self {
             queries: IndexMap::new(),
             query_idle_time: cfg.query_idle_time,
@@ -86,7 +86,7 @@ impl LiveQueryStore {
     ///
     /// Not marked as `#[cfg(test)]` because it is used in benches as well.
     pub fn test() -> Self {
-        Self::from_configuration(Config::default())
+        Self::from_config(Config::default())
     }
 
     /// Start [`LiveQueryStore`]. Requires a [`tokio::runtime::Runtime`] being run

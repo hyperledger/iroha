@@ -41,7 +41,7 @@ macro_rules! impl_deserialize_from_str {
         impl<'de> $crate::serde::Deserialize<'de> for $ty {
             fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
             where
-                D: serde::Deserializer<'de>,
+                D: $crate::serde::Deserializer<'de>,
             {
                 String::deserialize(deserializer)?
                     .parse()
@@ -156,10 +156,7 @@ impl Emitter<MissingFieldError> {
         self.emit(MissingFieldError::new(field_name.as_ref()))
     }
 
-    pub fn try_unwrap_partial<P, O>(&mut self, partial: P) -> Option<O>
-    where
-        P: UnwrapPartial<Output = O>,
-    {
+    pub fn try_unwrap_partial<P: UnwrapPartial>(&mut self, partial: P) -> Option<P::Output> {
         partial.unwrap_partial().map_or_else(
             |err| {
                 self.emit_collection(err);

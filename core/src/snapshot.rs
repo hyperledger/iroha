@@ -137,7 +137,7 @@ impl SnapshotMaker {
     }
 
     /// Create [`Self`] from [`Configuration`]
-    pub fn from_configuration(config: &Config, sumeragi: SumeragiHandle) -> Self {
+    pub fn from_config(config: &Config, sumeragi: SumeragiHandle) -> Self {
         Self {
             sumeragi,
             snapshot_create_every: config.create_every,

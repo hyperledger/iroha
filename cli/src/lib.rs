@@ -212,8 +212,7 @@ impl Iroha {
         );
 
         let kura = Kura::new(&config.kura)?;
-        let live_query_store_handle =
-            LiveQueryStore::from_configuration(config.live_query_store).start();
+        let live_query_store_handle = LiveQueryStore::from_config(config.live_query_store).start();
 
         let block_count = kura.init()?;
         let wsv = try_read_snapshot(
@@ -225,7 +224,7 @@ impl Iroha {
         .map_or_else(
             |error| {
                 iroha_logger::warn!(%error, "Failed to load wsv from snapshot, creating empty wsv");
-                WorldStateView::from_configuration(
+                WorldStateView::from_config(
                     config.chain_wide,
                     world,
                     Arc::clone(&kura),
@@ -241,7 +240,7 @@ impl Iroha {
             },
         );
 
-        let queue = Arc::new(Queue::from_configuration(config.queue));
+        let queue = Arc::new(Queue::from_config(config.queue));
         match Self::start_telemetry(&logger, &config).await? {
             TelemetryStartStatus::Started => iroha_logger::info!("Telemetry started"),
             TelemetryStartStatus::NotStarted => iroha_logger::warn!("Telemetry not started"),
@@ -266,7 +265,7 @@ impl Iroha {
             .await
             .expect("Failed to join task with Sumeragi start");
 
-        let block_sync = BlockSynchronizer::from_configuration(
+        let block_sync = BlockSynchronizer::from_config(
             &config.block_sync,
             sumeragi.clone(),
             Arc::clone(&kura),
@@ -275,7 +274,7 @@ impl Iroha {
         )
         .start();
 
-        let gossiper = TransactionGossiper::from_configuration(
+        let gossiper = TransactionGossiper::from_config(
             config.iroha.chain_id.clone(),
             config.transaction_gossiper,
             network.clone(),
@@ -300,8 +299,7 @@ impl Iroha {
         }
         .start();
 
-        let snapshot_maker =
-            SnapshotMaker::from_configuration(&config.snapshot, sumeragi.clone()).start();
+        let snapshot_maker = SnapshotMaker::from_config(&config.snapshot, sumeragi.clone()).start();
 
         let kiso = KisoHandle::new(config.clone());
 

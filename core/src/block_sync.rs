@@ -104,7 +104,7 @@ impl BlockSynchronizer {
     }
 
     /// Create [`Self`] from [`Configuration`]
-    pub fn from_configuration(
+    pub fn from_config(
         config: &Config,
         sumeragi: SumeragiHandle,
         kura: Arc<Kura>,

@@ -397,7 +397,7 @@ impl WorldStateView {
     #[inline]
     pub fn new(world: World, kura: Arc<Kura>, query_handle: LiveQueryStoreHandle) -> Self {
         // Added to remain backward compatible with other code primary in tests
-        Self::from_configuration(Config::default(), world, kura, query_handle)
+        Self::from_config(Config::default(), world, kura, query_handle)
     }
 
     /// Get `Account`'s `Asset`s
@@ -915,7 +915,7 @@ impl WorldStateView {
 
     /// Construct [`WorldStateView`] with specific [`Configuration`].
     #[inline]
-    pub fn from_configuration(
+    pub fn from_config(
         config: Config,
         world: World,
         kura: Arc<Kura>,
