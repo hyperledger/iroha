@@ -23,11 +23,10 @@ fn must_execute_both_triggers() -> Result<()> {
             [instruction.clone()],
             Repeats::Indefinitely,
             account_id.clone(),
-            // FIXME: rewrite the filters using the builder DSL https://github.com/hyperledger/iroha/issues/3068
-            TriggeringFilterBox::Data(BySome(DataEntityFilter::ByAccount(AccountEventFilter {
+            TriggeringFilterBox::Data(DataEventFilter::ByAccount(AccountEventFilter {
                 id_matcher: None,
                 event_matcher: Some(AccountEventMatcher::ByCreated),
-            }))),
+            })),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -38,10 +37,10 @@ fn must_execute_both_triggers() -> Result<()> {
             [instruction],
             Repeats::Indefinitely,
             account_id,
-            TriggeringFilterBox::Data(BySome(DataEntityFilter::ByDomain(DomainEventFilter {
+            TriggeringFilterBox::Data(DataEventFilter::ByDomain(DomainEventFilter {
                 id_matcher: None,
                 event_matcher: Some(DomainEventMatcher::ByCreated),
-            }))),
+            })),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -91,11 +90,10 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
             [Mint::asset_numeric(1u32, asset_id.clone())],
             Repeats::Indefinitely,
             account_id,
-            // FIXME: rewrite the filters using the builder DSL https://github.com/hyperledger/iroha/issues/3068
-            TriggeringFilterBox::Data(BySome(DataEntityFilter::ByAccount(AccountEventFilter {
+            TriggeringFilterBox::Data(DataEventFilter::ByAccount(AccountEventFilter {
                 id_matcher: None,
                 event_matcher: Some(AccountEventMatcher::ByCreated),
-            }))),
+            })),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;

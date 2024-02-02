@@ -18,10 +18,8 @@
         "filter": {
             "Data": {
                 "ByDomain": {
-                    "origin_filter": "AcceptAll",
-                    "event_filter": {
-                        "ByAccount": "AcceptAll"
-                    }
+                    "origin_filter": null,
+                    "event_filter": "ByAccount"
                 }
             }
         },

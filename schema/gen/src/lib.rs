@@ -117,7 +117,6 @@ types!(
     ConstVec<PublicKey>,
     ConstVec<u8>,
     Container,
-    DataEntityFilter,
     DataEvent,
     DataEventFilter,
     Domain,

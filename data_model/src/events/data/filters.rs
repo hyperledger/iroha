@@ -1,9 +1,10 @@
-//! This module contains `EventFilter` and entities for filter
-
-// TODO write code documentation
-// - possible topics to cover: EventFilter vs EventMatcher
-// - how this maps to event hierarchy (events are hierarchical, but event filters are flat)
-// - how to construct event filters (should be done with builder API when they are implemented)
+//! This module contains filters for data events.
+//!
+//! (almost) Each event in [`super::events`], there's two corresponding types in this module:
+//! - `*EventMatcher` - matches one event kind (e.g. [`super::events::AccountEvent::Created`] with [`AccountEventMatcher::ByCreated`])
+//! - `*EventFilter` - struct combining an optional id matcher and an optional event matcher
+//!
+//! The ones not having a filter are [`super::events::ConfigurationEvent`] and [`super::events::ExecutorEvent`] (TODO: why?).
 
 use core::fmt::Debug;
 
@@ -12,215 +13,211 @@ use iroha_data_model_derive::model;
 pub use self::model::*;
 use super::*;
 
-/// Filter for all events
-pub type DataEventFilter = FilterOpt<DataEntityFilter>;
-
 #[model]
 pub mod model {
     use super::*;
 
-    /// Optional filter. May pass all items or may filter them by `F`
-    ///
-    /// It's better than `Optional<F>` because `Optional` already has its own `filter` method and it
-    /// would be ugly to use fully qualified syntax to call `Filter::filter()` method on it.
-    /// Also `FilterOpt` variant names look better for filter needs
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[serde(untagged)] // Unaffected by #3330
-    pub enum FilterOpt<F> {
-        /// Accept all items that will be passed to `filter()` method
-        #[serde(with = "accept_all_as_string")]
-        AcceptAll,
-        /// Use filter `F` to choose acceptable items passed to `filter()` method
-        BySome(F),
-    }
-
     #[derive(
         Debug, Clone, PartialEq, Eq, FromVariant, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
-    pub enum DataEntityFilter {
+    pub enum DataEventFilter {
+        /// Matches any data events ([`DataEvent`])
+        ByAny,
+        /// Matches only [`PeerEvent`]s
         ByPeer(PeerEventFilter),
+        /// Matches only [`DomainEvent`]s
         ByDomain(DomainEventFilter),
+        /// Matches only [`AccountEvent`]s
         ByAccount(AccountEventFilter),
+        /// Matches only [`AssetEvent`]s
         ByAsset(AssetEventFilter),
+        /// Matches only [`AssetDefinitionEvent`]s
         ByAssetDefinition(AssetDefinitionEventFilter),
+        /// Matches only [`TriggerEvent`]s
         ByTrigger(TriggerEventFilter),
+        /// Matches only [`RoleEvent`]s
         ByRole(RoleEventFilter),
         // We didn't have filters for these events before the refactor. Should we?
         // Configuration(ConfigurationEventFilter),
         // Executor(ExecutorEventFilter),
     }
 
+    /// An event filter for [`PeerEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct PeerEventFilter {
         pub id_matcher: Option<super::PeerId>,
         pub event_matcher: Option<PeerEventMatcher>,
     }
 
+    /// An event matcher for [`PeerEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum PeerEventMatcher {
+        /// Matches only [`PeerEvent::Added`]
         ByAdded,
+        /// Matches only [`PeerEvent::Removed`]
         ByRemoved,
     }
 
+    /// An event filter for [`DomainEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct DomainEventFilter {
+        /// If specified matches only events originating from this domain
         pub id_matcher: Option<super::DomainId>,
+        /// If specified matches only events of this type
         pub event_matcher: Option<DomainEventMatcher>,
     }
 
+    /// An event matcher for [`DomainEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum DomainEventMatcher {
+        /// Matches only [`DomainEvent::Created`]
         ByCreated,
+        /// Matches only [`DomainEvent::Deleted`]
         ByDeleted,
+        /// Matches only [`DomainEvent::MetadataInserted`]
         ByMetadataInserted,
+        /// Matches only [`DomainEvent::MetadataRemoved`]
         ByMetadataRemoved,
+        /// Matches only [`DomainEvent::OwnerChanged`]
         ByOwnerChanged,
         // we allow filtering for nested events, but if you need to specify an id matcher for, for example, AccountId, you need to use AccountFilter
-        // nested events
-        ByAccount,
-        ByAssetDefinition,
+        /// Matches only [`DomainEvent::Account`]
+        ByAccountAny,
+        /// Matches only [`DomainEvent::AssetDefinition`]
+        ByAssetDefinitionAny,
     }
 
+    /// An event filter for [`AccountEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct AccountEventFilter {
+        /// If specified matches only events originating from this account
         pub id_matcher: Option<super::AccountId>,
+        /// If specified matches only events of this type
         pub event_matcher: Option<AccountEventMatcher>,
     }
 
+    /// An event matcher for [`AccountEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum AccountEventMatcher {
+        /// Matches only [`AccountEvent::Created`]
         ByCreated,
+        /// Matches only [`AccountEvent::Deleted`]
         ByDeleted,
+        /// Matches only [`AccountEvent::AuthenticationAdded`]
         ByAuthenticationAdded,
+        /// Matches only [`AccountEvent::AuthenticationRemoved`]
         ByAuthenticationRemoved,
+        /// Matches only [`AccountEvent::PermissionAdded`]
         ByPermissionAdded,
+        /// Matches only [`AccountEvent::PermissionRemoved`]
         ByPermissionRemoved,
+        /// Matches only [`AccountEvent::RoleRevoked`]
         ByRoleRevoked,
+        /// Matches only [`AccountEvent::RoleGranted`]
         ByRoleGranted,
+        /// Matches only [`AccountEvent::MetadataInserted`]
         ByMetadataInserted,
+        /// Matches only [`AccountEvent::MetadataRemoved`]
         ByMetadataRemoved,
         // nested events
-        ByAsset,
+        /// Matches only [`AccountEvent::Asset`]
+        ByAssetAny,
     }
 
+    /// An event filter for [`AssetEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct AssetEventFilter {
+        /// If specified matches only events originating from this asset
         pub id_matcher: Option<super::AssetId>,
+        /// If specified matches only events of this type
         pub event_matcher: Option<AssetEventMatcher>,
     }
 
+    /// An event matcher for [`AssetEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum AssetEventMatcher {
+        /// Matches only [`AssetEvent::Created`]
         ByCreated,
+        /// Matches only [`AssetEvent::Deleted`]
         ByDeleted,
+        /// Matches only [`AssetEvent::Added`]
         ByAdded,
+        /// Matches only [`AssetEvent::Removed`]
         ByRemoved,
+        /// Matches only [`AssetEvent::MetadataInserted`]
         ByMetadataInserted,
+        /// Matches only [`AssetEvent::MetadataRemoved`]
         ByMetadataRemoved,
     }
 
+    /// An event filter for [`AssetDefinitionEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct AssetDefinitionEventFilter {
+        /// If specified matches only events originating from this asset definition
         pub id_matcher: Option<super::AssetDefinitionId>,
+        /// If specified matches only events of this type
         pub event_matcher: Option<AssetDefinitionEventMatcher>,
     }
 
+    /// An event matcher for [`AssetDefinitionEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum AssetDefinitionEventMatcher {
+        /// Matches only [`AssetDefinitionEvent::Created`]
         ByCreated,
+        /// Matches only [`AssetDefinitionEvent::MintabilityChanged`]
         ByMintabilityChanged,
+        /// Matches only [`AssetDefinitionEvent::OwnerChanged`]
         ByOwnerChanged,
+        /// Matches only [`AssetDefinitionEvent::Deleted`]
         ByDeleted,
+        /// Matches only [`AssetDefinitionEvent::MetadataInserted`]
         ByMetadataInserted,
+        /// Matches only [`AssetDefinitionEvent::MetadataRemoved`]
         ByMetadataRemoved,
+        /// Matches only [`AssetDefinitionEvent::TotalQuantityChanged`]
         ByTotalQuantityChanged,
     }
 
+    /// An event filter for [`TriggerEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct TriggerEventFilter {
+        /// If specified matches only events originating from this trigger
         pub id_matcher: Option<super::TriggerId>,
+        /// If specified matches only events of this type
         pub event_matcher: Option<TriggerEventMatcher>,
     }
 
+    /// An event matcher for [`TriggerEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum TriggerEventMatcher {
+        /// Matches only [`TriggerEvent::Created`]
         ByCreated,
+        /// Matches only [`TriggerEvent::Deleted`]
         ByDeleted,
+        /// Matches only [`TriggerEvent::Extended`]
         ByExtended,
+        /// Matches only [`TriggerEvent::Shortened`]
         ByShortened,
     }
 
+    /// An event filter for [`RoleEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct RoleEventFilter {
+        /// If specified matches only events originating from this role
         pub id_matcher: Option<super::RoleId>,
+        /// If specified matches only events of this type
         pub event_matcher: Option<RoleEventMatcher>,
     }
 
+    /// An event matcher for [`RoleEvent`]s
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub enum RoleEventMatcher {
+        /// Matches only [`RoleEvent::Created`]
         ByCreated,
+        /// Matches only [`RoleEvent::Deleted`]
         ByDeleted,
+        /// Matches only [`RoleEvent::PermissionRemoved`]
         ByPermissionRemoved,
-    }
-}
-
-mod accept_all_as_string {
-    //! Module to (de-)serialize `FilterOpt::AcceptAll` variant as string
-
-    #[cfg(not(feature = "std"))]
-    use alloc::format;
-
-    use serde::{Deserializer, Serializer};
-
-    /// Serialize bytes using `base64`
-    pub fn serialize<S: Serializer>(serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str("AcceptAll")
-    }
-
-    /// Deserialize bytes using `base64`
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<(), D::Error> {
-        struct Vis;
-
-        impl serde::de::Visitor<'_> for Vis {
-            type Value = ();
-
-            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
-                formatter.write_str("an AcceptAll string")
-            }
-
-            fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<Self::Value, E> {
-                if s == "AcceptAll" {
-                    Ok(())
-                } else {
-                    Err(E::custom(format!("expected AcceptAll, got {s}")))
-                }
-            }
-        }
-        deserializer.deserialize_str(Vis)
-    }
-}
-
-#[cfg(feature = "transparent_api")]
-impl<F: EventFilter> EventFilter for FilterOpt<F> {
-    type Event = F::Event;
-
-    fn matches(&self, item: &Self::Event) -> bool {
-        match self {
-            Self::AcceptAll => true,
-            Self::BySome(filter) => filter.matches(item),
-        }
     }
 }
 
@@ -271,8 +268,8 @@ impl EventFilter for DomainEventFilter {
                 (ByMetadataInserted, MetadataInserted(_)) => true,
                 (ByMetadataRemoved, MetadataRemoved(_)) => true,
                 (ByOwnerChanged, OwnerChanged(_)) => true,
-                (ByAccount, Account(_)) => true,
-                (ByAssetDefinition, AssetDefinition(_)) => true,
+                (ByAccountAny, Account(_)) => true,
+                (ByAssetDefinitionAny, AssetDefinition(_)) => true,
                 _ => false,
             }
         } else {
@@ -307,7 +304,7 @@ impl super::EventFilter for AccountEventFilter {
                 (ByRoleGranted, RoleGranted(_)) => true,
                 (ByMetadataInserted, MetadataInserted(_)) => true,
                 (ByMetadataRemoved, MetadataRemoved(_)) => true,
-                (ByAsset, Asset(_)) => true,
+                (ByAssetAny, Asset(_)) => true,
                 _ => false,
             }
         } else {
@@ -433,14 +430,15 @@ impl super::EventFilter for RoleEventFilter {
 }
 
 #[cfg(feature = "transparent_api")]
-impl EventFilter for DataEntityFilter {
+impl EventFilter for DataEventFilter {
     type Event = DataEvent;
 
     fn matches(&self, event: &DataEvent) -> bool {
-        use DataEntityFilter::*;
         use DataEvent::*;
+        use DataEventFilter::*;
 
         match (self, event) {
+            (ByAny, _) => true,
             (ByPeer(filter), Peer(event)) => filter.matches(event),
             (ByDomain(filter), Domain(event)) => filter.matches(event),
             (ByAccount(filter), Domain(DomainEvent::Account(event))) => filter.matches(event),
@@ -460,11 +458,9 @@ impl EventFilter for DataEntityFilter {
 pub mod prelude {
     pub use super::{
         AccountEventFilter, AccountEventMatcher, AssetDefinitionEventFilter,
-        AssetDefinitionEventMatcher, AssetEventFilter, AssetEventMatcher, DataEntityFilter,
-        DataEventFilter, DomainEventFilter, DomainEventMatcher,
-        FilterOpt::{self, *},
-        PeerEventFilter, PeerEventMatcher, RoleEventFilter, RoleEventMatcher, TriggerEventFilter,
-        TriggerEventMatcher,
+        AssetDefinitionEventMatcher, AssetEventFilter, AssetEventMatcher, DataEventFilter,
+        DomainEventFilter, DomainEventMatcher, PeerEventFilter, PeerEventMatcher, RoleEventFilter,
+        RoleEventMatcher, TriggerEventFilter, TriggerEventMatcher,
     };
 }
 
@@ -517,19 +513,18 @@ mod tests {
             DomainEvent::Account(AccountEvent::Asset(AssetEvent::Created(asset))).into();
 
         // test how the differently nested filters with with the events
-        // FIXME: rewrite the filters using the builder DSL https://github.com/hyperledger/iroha/issues/3068
-        let domain_filter = BySome(DataEntityFilter::ByDomain(DomainEventFilter {
+        let domain_filter = DataEventFilter::ByDomain(DomainEventFilter {
             id_matcher: Some(domain_id),
             event_matcher: None,
-        }));
-        let account_filter = BySome(DataEntityFilter::ByAccount(AccountEventFilter {
+        });
+        let account_filter = DataEventFilter::ByAccount(AccountEventFilter {
             id_matcher: Some(account_id),
             event_matcher: None,
-        }));
-        let asset_filter = BySome(DataEntityFilter::ByAsset(AssetEventFilter {
+        });
+        let asset_filter = DataEventFilter::ByAsset(AssetEventFilter {
             id_matcher: Some(asset_id),
             event_matcher: None,
-        }));
+        });
 
         // domain filter matches all of those, because all of those events happened in the same domain
         assert!(domain_filter.matches(&domain_created));
