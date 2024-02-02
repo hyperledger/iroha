@@ -167,6 +167,7 @@ Git Style Guide
 -  First line of commit message must contain summary of work done,
    second line must contain empty line, third and other lines can
    contain list of commit changes
+-  When merging to destination branche: use **Squash and merge**
 
 C++ Style Guide
 ~~~~~~~~~~~~~~~
