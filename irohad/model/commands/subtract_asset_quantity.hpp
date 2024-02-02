@@ -37,7 +37,7 @@ namespace iroha {
 
       SubtractAssetQuantity(const std::string &asset_id,
                             const std::string &amount,
-                            const std::string &title)
+                            const std::string &description)
           : asset_id(asset_id), amount(amount), description(description) {}
     };
   }  // namespace model
