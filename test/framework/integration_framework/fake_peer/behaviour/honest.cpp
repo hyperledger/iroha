@@ -7,16 +7,9 @@
 
 #include <boost/algorithm/string/join.hpp>
 #include <boost/range/adaptor/transformed.hpp>
-#include "backend/protobuf/proto_proposal_factory.hpp"
-#include "backend/protobuf/transaction.hpp"
 #include "common/bind.hpp"
-#include "common/result.hpp"
 #include "framework/integration_framework/fake_peer/block_storage.hpp"
-#include "framework/integration_framework/fake_peer/proposal_storage.hpp"
-#include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger.hpp"
-#include "module/shared_model/builders/protobuf/proposal.hpp"
-#include "validators/default_validator.hpp"
 
 using namespace iroha::expected;
 
