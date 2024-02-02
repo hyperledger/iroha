@@ -113,8 +113,8 @@ pub mod model {
     #[ffi_type]
     #[non_exhaustive]
     pub enum NotificationEventFilter {
-        AcceptAll,
-        TriggerCompleted(TriggerCompletedEventFilter),
+        ByAny,
+        ByTriggerCompleted(TriggerCompletedEventFilter),
     }
 
     /// Filter [`TriggerCompletedEvent`] by
@@ -152,8 +152,8 @@ impl super::EventFilter for NotificationEventFilter {
     #[inline]
     fn matches(&self, event: &Self::Event) -> bool {
         match (self, event) {
-            (Self::AcceptAll, _) => true,
-            (Self::TriggerCompleted(filter), NotificationEvent::TriggerCompleted(event)) => {
+            (Self::ByAny, _) => true,
+            (Self::ByTriggerCompleted(filter), NotificationEvent::TriggerCompleted(event)) => {
                 filter.matches(event)
             }
         }

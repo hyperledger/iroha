@@ -275,11 +275,10 @@ mod tests {
             vec![Mint::asset_numeric(1u32, rose_id)],
             Repeats::Indefinitely,
             account_id,
-            // FIXME: rewrite the filters using the builder DSL https://github.com/hyperledger/iroha/issues/3068
-            FilterBox::Data(BySome(DataEntityFilter::ByDomain(DomainEventFilter {
+            FilterBox::Data(DataEventFilter::ByDomain(DomainEventFilter {
                 id_matcher: None,
                 event_matcher: None,
-            }))),
+            })),
         );
         let trigger = Trigger::new(trigger_id, action);
 

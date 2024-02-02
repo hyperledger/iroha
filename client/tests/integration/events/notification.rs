@@ -35,7 +35,7 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
     let (sender, receiver) = mpsc::channel();
     let _handle = thread::spawn(move || -> Result<()> {
         let mut event_it = thread_client.listen_for_events(
-            NotificationEventFilter::TriggerCompleted(TriggerCompletedEventFilter::new(
+            NotificationEventFilter::ByTriggerCompleted(TriggerCompletedEventFilter::new(
                 Some(trigger_id),
                 Some(TriggerCompletedOutcomeType::Success),
             ))
@@ -84,7 +84,7 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
     let (sender, receiver) = mpsc::channel();
     let _handle = thread::spawn(move || -> Result<()> {
         let mut event_it = thread_client.listen_for_events(
-            NotificationEventFilter::TriggerCompleted(TriggerCompletedEventFilter::new(
+            NotificationEventFilter::ByTriggerCompleted(TriggerCompletedEventFilter::new(
                 Some(trigger_id),
                 Some(TriggerCompletedOutcomeType::Failure),
             ))

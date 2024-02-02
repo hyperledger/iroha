@@ -137,7 +137,7 @@
         "discriminant": 9
       },
       {
-        "tag": "ByAsset",
+        "tag": "ByAssetAny",
         "discriminant": 10
       }
     ]
@@ -743,45 +743,6 @@
       }
     ]
   },
-  "DataEntityFilter": {
-    "Enum": [
-      {
-        "tag": "ByPeer",
-        "discriminant": 0,
-        "type": "PeerEventFilter"
-      },
-      {
-        "tag": "ByDomain",
-        "discriminant": 1,
-        "type": "DomainEventFilter"
-      },
-      {
-        "tag": "ByAccount",
-        "discriminant": 2,
-        "type": "AccountEventFilter"
-      },
-      {
-        "tag": "ByAsset",
-        "discriminant": 3,
-        "type": "AssetEventFilter"
-      },
-      {
-        "tag": "ByAssetDefinition",
-        "discriminant": 4,
-        "type": "AssetDefinitionEventFilter"
-      },
-      {
-        "tag": "ByTrigger",
-        "discriminant": 5,
-        "type": "TriggerEventFilter"
-      },
-      {
-        "tag": "ByRole",
-        "discriminant": 6,
-        "type": "RoleEventFilter"
-      }
-    ]
-  },
   "DataEvent": {
     "Enum": [
       {
@@ -818,6 +779,49 @@
         "tag": "Executor",
         "discriminant": 6,
         "type": "ExecutorEvent"
+      }
+    ]
+  },
+  "DataEventFilter": {
+    "Enum": [
+      {
+        "tag": "ByAny",
+        "discriminant": 0
+      },
+      {
+        "tag": "ByPeer",
+        "discriminant": 1,
+        "type": "PeerEventFilter"
+      },
+      {
+        "tag": "ByDomain",
+        "discriminant": 2,
+        "type": "DomainEventFilter"
+      },
+      {
+        "tag": "ByAccount",
+        "discriminant": 3,
+        "type": "AccountEventFilter"
+      },
+      {
+        "tag": "ByAsset",
+        "discriminant": 4,
+        "type": "AssetEventFilter"
+      },
+      {
+        "tag": "ByAssetDefinition",
+        "discriminant": 5,
+        "type": "AssetDefinitionEventFilter"
+      },
+      {
+        "tag": "ByTrigger",
+        "discriminant": 6,
+        "type": "TriggerEventFilter"
+      },
+      {
+        "tag": "ByRole",
+        "discriminant": 7,
+        "type": "RoleEventFilter"
       }
     ]
   },
@@ -927,11 +931,11 @@
         "discriminant": 4
       },
       {
-        "tag": "ByAccount",
+        "tag": "ByAccountAny",
         "discriminant": 5
       },
       {
-        "tag": "ByAssetDefinition",
+        "tag": "ByAssetDefinitionAny",
         "discriminant": 6
       }
     ]
@@ -1100,7 +1104,7 @@
       {
         "tag": "Data",
         "discriminant": 1,
-        "type": "FilterOpt<DataEntityFilter>"
+        "type": "DataEventFilter"
       },
       {
         "tag": "Time",
@@ -1116,19 +1120,6 @@
         "tag": "Notification",
         "discriminant": 4,
         "type": "NotificationEventFilter"
-      }
-    ]
-  },
-  "FilterOpt<DataEntityFilter>": {
-    "Enum": [
-      {
-        "tag": "AcceptAll",
-        "discriminant": 0
-      },
-      {
-        "tag": "BySome",
-        "discriminant": 1,
-        "type": "DataEntityFilter"
       }
     ]
   },
@@ -2335,11 +2326,11 @@
   "NotificationEventFilter": {
     "Enum": [
       {
-        "tag": "AcceptAll",
+        "tag": "ByAny",
         "discriminant": 0
       },
       {
-        "tag": "TriggerCompleted",
+        "tag": "ByTriggerCompleted",
         "discriminant": 1,
         "type": "TriggerCompletedEventFilter"
       }
@@ -4122,7 +4113,7 @@
       {
         "tag": "Data",
         "discriminant": 1,
-        "type": "FilterOpt<DataEntityFilter>"
+        "type": "DataEventFilter"
       },
       {
         "tag": "Time",

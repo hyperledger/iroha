@@ -266,8 +266,8 @@ mod events {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let filter = match self {
                 Args::Pipeline => FilterBox::Pipeline(PipelineEventFilter::new()),
-                Args::Data => FilterBox::Data(DataEventFilter::AcceptAll),
-                Args::Notification => FilterBox::Notification(NotificationEventFilter::AcceptAll),
+                Args::Data => FilterBox::Data(DataEventFilter::ByAny),
+                Args::Notification => FilterBox::Notification(NotificationEventFilter::ByAny),
             };
             listen(filter, context)
         }

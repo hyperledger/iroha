@@ -32,6 +32,8 @@ macro_rules! data_event {
     };
 }
 
+// NOTE: if adding/editing events here, make sure to update the corresponding event filter in [`super::filter`]
+
 #[model]
 pub mod model {
     use super::*;
