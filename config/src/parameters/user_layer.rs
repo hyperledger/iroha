@@ -590,7 +590,7 @@ impl ChainWide {
             asset_definition_metadata_limits,
             account_metadata_limits,
             domain_metadata_limits,
-            identifier_length_limits,
+            ident_length_limits: identifier_length_limits,
             wasm_runtime: actual::WasmRuntime {
                 fuel_limit: wasm_fuel_limit,
                 max_memory: wasm_max_memory,

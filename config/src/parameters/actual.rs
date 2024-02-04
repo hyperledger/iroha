@@ -162,7 +162,7 @@ pub struct ChainWide {
     pub asset_definition_metadata_limits: MetadataLimits,
     pub account_metadata_limits: MetadataLimits,
     pub domain_metadata_limits: MetadataLimits,
-    pub identifier_length_limits: LengthLimits,
+    pub ident_length_limits: LengthLimits,
     pub wasm_runtime: WasmRuntime,
 }
 
@@ -183,7 +183,7 @@ impl Default for ChainWide {
             account_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
             asset_definition_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
             asset_metadata_limits: defaults::chain_wide::DEFAULT_METADATA_LIMITS,
-            identifier_length_limits: defaults::chain_wide::DEFAULT_IDENT_LENGTH_LIMITS,
+            ident_length_limits: defaults::chain_wide::DEFAULT_IDENT_LENGTH_LIMITS,
             wasm_runtime: WasmRuntime::default(),
         }
     }

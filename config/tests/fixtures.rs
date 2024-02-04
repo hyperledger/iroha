@@ -135,7 +135,7 @@ fn minimal_config_snapshot() -> Result<()> {
                     max_len: 1048576,
                     max_entry_byte_size: 4096,
                 },
-                identifier_length_limits: LengthLimits {
+                ident_length_limits: LengthLimits {
                     min: 1,
                     max: 128,
                 },

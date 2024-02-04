@@ -688,7 +688,7 @@ impl WorldStateView {
             WSV_ASSET_DEFINITION_METADATA_LIMITS => self.config.asset_definition_metadata_limits,
             WSV_ACCOUNT_METADATA_LIMITS => self.config.account_metadata_limits,
             WSV_DOMAIN_METADATA_LIMITS => self.config.domain_metadata_limits,
-            WSV_IDENT_LENGTH_LIMITS => self.config.identifier_length_limits,
+            WSV_IDENT_LENGTH_LIMITS => self.config.ident_length_limits,
             WASM_FUEL_LIMIT => self.config.wasm_runtime.fuel_limit,
             WASM_MAX_MEMORY => self.config.wasm_runtime.max_memory.0,
             TRANSACTION_LIMITS => self.config.transaction_limits,
