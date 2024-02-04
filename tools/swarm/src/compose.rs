@@ -189,7 +189,7 @@ impl DockerComposeServiceBuilder {
             volumes: volumes.into_iter().map(|(a, b)| PairColon(a, b)).collect(),
             ports,
             environment: compact_env.into(),
-            healthcheck: health_check.then(|| HealthCheck {
+            healthcheck: health_check.then_some(HealthCheck {
                 port: peer.port_api,
             }),
         }
@@ -808,6 +808,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn generate_peers_deterministically() {
         let root = Path::new("/");
         let seed = Some(b"iroha".to_vec());
