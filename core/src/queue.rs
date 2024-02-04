@@ -383,7 +383,6 @@ impl Queue {
 mod tests {
     use std::{ops::Mul, str::FromStr, sync::Arc, thread, time::Duration};
 
-    // use iroha_config::{base::proxy::Builder, queue::ConfigurationProxy};
     use iroha_data_model::{prelude::*, transaction::TransactionLimits};
     use iroha_primitives::must_use::MustUse;
     use rand::Rng as _;
