@@ -14,7 +14,7 @@ pub mod samples {
 
     use crate::{
         config::{
-            Config, DEFAULT_ADD_TRANSACTION_NONCE, DEFAULT_TRANSACTION_STATUS_TIMEOUT,
+            Config, DEFAULT_TRANSACTION_NONCE, DEFAULT_TRANSACTION_STATUS_TIMEOUT,
             DEFAULT_TRANSACTION_TIME_TO_LIVE,
         },
         crypto::KeyPair,
@@ -33,7 +33,7 @@ pub mod samples {
             basic_auth: None,
             transaction_ttl: DEFAULT_TRANSACTION_TIME_TO_LIVE,
             transaction_status_timeout: DEFAULT_TRANSACTION_STATUS_TIMEOUT,
-            transaction_add_nonce: DEFAULT_ADD_TRANSACTION_NONCE,
+            transaction_add_nonce: DEFAULT_TRANSACTION_NONCE,
         }
     }
 }

@@ -23,7 +23,7 @@ pub mod user_layer;
 #[allow(unsafe_code)]
 pub const DEFAULT_TRANSACTION_TIME_TO_LIVE: Duration = Duration::from_secs(100);
 pub const DEFAULT_TRANSACTION_STATUS_TIMEOUT: Duration = Duration::from_secs(15);
-pub const DEFAULT_ADD_TRANSACTION_NONCE: bool = false;
+pub const DEFAULT_TRANSACTION_NONCE: bool = false;
 
 /// Wrapper over `SmallStr` to provide basic auth login checking
 #[derive(Debug, Display, Clone, Serialize, PartialEq, Eq)]

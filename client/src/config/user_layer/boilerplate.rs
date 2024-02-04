@@ -14,7 +14,7 @@ use serde::Deserialize;
 use crate::config::{
     base::{FromEnvResult, ReadEnv},
     user_layer::{Account, Api, OnlyHttpUrl, Root, Transaction},
-    BasicAuth, DEFAULT_ADD_TRANSACTION_NONCE, DEFAULT_TRANSACTION_STATUS_TIMEOUT,
+    BasicAuth, DEFAULT_TRANSACTION_NONCE, DEFAULT_TRANSACTION_STATUS_TIMEOUT,
     DEFAULT_TRANSACTION_TIME_TO_LIVE,
 };
 
@@ -22,8 +22,9 @@ use crate::config::{
 #[serde(deny_unknown_fields, default)]
 pub struct RootPartial {
     pub chain_id: UserField<ChainId>,
+    pub torii_url: UserField<OnlyHttpUrl>,
+    pub basic_auth: UserField<BasicAuth>,
     pub account: AccountPartial,
-    pub api: ApiPartial,
     pub transaction: TransactionPartial,
 }
 
@@ -61,19 +62,15 @@ impl FromEnv for RootPartial {
     {
         let mut emitter = Emitter::new();
 
-        let api = ApiPartial::from_env(env).map_or_else(
-            |err| {
-                emitter.emit_collection(err);
-                None
-            },
-            Some,
-        );
+        let torii_url =
+            ParseEnvResult::parse_simple(&mut emitter, env, "TORII_URL", "torii_url").into();
 
         emitter.finish()?;
 
         Ok(Self {
             chain_id: None.into(),
-            api: api.unwrap(),
+            torii_url,
+            basic_auth: None.into(),
             account: AccountPartial::default(),
             transaction: TransactionPartial::default(),
         })
@@ -89,57 +86,20 @@ impl UnwrapPartial for RootPartial {
         if self.chain_id.is_none() {
             emitter.emit_missing_field("chain_id");
         }
+        if self.torii_url.is_none() {
+            emitter.emit_missing_field("torii_url");
+        }
         let account = emitter.try_unwrap_partial(self.account);
-        let api = emitter.try_unwrap_partial(self.api);
         let transaction = emitter.try_unwrap_partial(self.transaction);
 
         emitter.finish()?;
 
         Ok(Root {
             chain_id: self.chain_id.get().unwrap(),
-            account: account.unwrap(),
-            api: api.unwrap(),
-            transaction: transaction.unwrap(),
-        })
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Default, Merge)]
-#[serde(deny_unknown_fields, default)]
-pub struct ApiPartial {
-    pub torii_url: UserField<OnlyHttpUrl>,
-    pub basic_auth: UserField<BasicAuth>,
-}
-
-impl UnwrapPartial for ApiPartial {
-    type Output = Api;
-
-    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
-        Ok(Api {
-            torii_url: self
-                .torii_url
-                .get()
-                .ok_or_else(|| MissingFieldError::new("api.torii_url"))?,
+            torii_url: self.torii_url.get().unwrap(),
             basic_auth: self.basic_auth.get(),
-        })
-    }
-}
-
-impl FromEnv for ApiPartial {
-    fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self>
-    where
-        Self: Sized,
-    {
-        let mut emitter = Emitter::new();
-
-        let torii_url =
-            ParseEnvResult::parse_simple(&mut emitter, env, "TORII_URL", "api.torii_url").into();
-
-        emitter.finish()?;
-
-        Ok(Self {
-            torii_url,
-            basic_auth: None.into(),
+            account: account.unwrap(),
+            transaction: transaction.unwrap(),
         })
     }
 }
@@ -183,7 +143,7 @@ impl UnwrapPartial for AccountPartial {
 pub struct TransactionPartial {
     pub time_to_live: UserField<UserDuration>,
     pub status_timeout: UserField<UserDuration>,
-    pub add_nonce: UserField<bool>,
+    pub nonce: UserField<bool>,
 }
 
 impl UnwrapPartial for TransactionPartial {
@@ -199,10 +159,7 @@ impl UnwrapPartial for TransactionPartial {
                 .status_timeout
                 .get()
                 .map_or(DEFAULT_TRANSACTION_STATUS_TIMEOUT, UserDuration::get),
-            add_nonce: self
-                .add_nonce
-                .get()
-                .unwrap_or(DEFAULT_ADD_TRANSACTION_NONCE),
+            nonce: self.nonce.get().unwrap_or(DEFAULT_TRANSACTION_NONCE),
         })
     }
 }

@@ -15,8 +15,9 @@ use crate::config::BasicAuth;
 #[derive(Clone, Debug)]
 pub struct Root {
     pub chain_id: ChainId,
+    pub torii_url: OnlyHttpUrl,
+    pub basic_auth: Option<BasicAuth>,
     pub account: Account,
-    pub api: Api,
     pub transaction: Transaction,
 }
 
@@ -24,6 +25,8 @@ impl Root {
     pub fn parse(self) -> Result<super::Config, ErrorsCollection<Report>> {
         let Self {
             chain_id,
+            torii_url,
+            basic_auth,
             account:
                 Account {
                     id: account_id,
@@ -34,12 +37,8 @@ impl Root {
                 Transaction {
                     time_to_live: tx_ttl,
                     status_timeout: tx_timeout,
-                    add_nonce: tx_add_nonce,
+                    nonce: tx_add_nonce,
                 },
-            api: Api {
-                torii_url,
-                basic_auth,
-            },
         } = self;
 
         let mut emitter = Emitter::new();
@@ -82,10 +81,7 @@ impl Root {
 }
 
 #[derive(Debug, Clone)]
-pub struct Api {
-    pub torii_url: OnlyHttpUrl,
-    pub basic_auth: Option<BasicAuth>,
-}
+pub struct Api {}
 
 #[derive(Debug, Clone)]
 pub struct Account {
@@ -98,7 +94,7 @@ pub struct Account {
 pub struct Transaction {
     pub time_to_live: Duration,
     pub status_timeout: Duration,
-    pub add_nonce: bool,
+    pub nonce: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
