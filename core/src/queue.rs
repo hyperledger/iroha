@@ -54,9 +54,9 @@ pub struct Queue {
     /// Amount of transactions per user in the queue
     txs_per_user: DashMap<AccountId, usize>,
     /// The maximum number of transactions in the queue
-    max_txs: NonZeroUsize,
+    capacity: NonZeroUsize,
     /// The maximum number of transactions in the queue per user. Used to apply throttling
-    max_txs_per_user: NonZeroUsize,
+    capacity_per_user: NonZeroUsize,
     /// Length of time after which transactions are dropped.
     pub tx_time_to_live: Duration,
     /// A point in time that is considered `Future` we cannot use
@@ -101,11 +101,11 @@ impl Queue {
     /// Makes queue from configuration
     pub fn from_config(cfg: Config) -> Self {
         Self {
-            tx_hashes: ArrayQueue::new(cfg.size.get()),
+            tx_hashes: ArrayQueue::new(cfg.capacity.get()),
             accepted_txs: DashMap::new(),
             txs_per_user: DashMap::new(),
-            max_txs: cfg.size,
-            max_txs_per_user: cfg.size_per_user,
+            capacity: cfg.capacity,
+            capacity_per_user: cfg.capacity_per_user,
             tx_time_to_live: cfg.transaction_time_to_live,
             future_threshold: cfg.future_threshold,
         }
@@ -210,9 +210,9 @@ impl Queue {
             }
             Entry::Vacant(entry) => entry,
         };
-        if txs_len >= self.max_txs.get() {
+        if txs_len >= self.capacity.get() {
             warn!(
-                max = self.max_txs,
+                max = self.capacity,
                 "Achieved maximum amount of transactions"
             );
             return Err(Failure {
@@ -350,9 +350,9 @@ impl Queue {
             }
             Entry::Occupied(mut occupied) => {
                 let txs = *occupied.get();
-                if txs >= self.max_txs_per_user.get() {
+                if txs >= self.capacity_per_user.get() {
                     warn!(
-                        max_txs_per_user = self.max_txs_per_user,
+                        max_txs_per_user = self.capacity_per_user,
                         %account_id,
                         "Account reached maximum allowed number of transactions in the queue per user"
                     );
@@ -428,7 +428,7 @@ mod tests {
     fn config_factory() -> Config {
         Config {
             transaction_time_to_live: Duration::from_secs(100),
-            size: 100.try_into().unwrap(),
+            capacity: 100.try_into().unwrap(),
             ..Config::default()
         }
     }
@@ -453,7 +453,7 @@ mod tests {
 
     #[test]
     async fn push_tx_overflow() {
-        let max_transactions_in_queue = NonZeroUsize::new(10).unwrap();
+        let capacity = NonZeroUsize::new(10).unwrap();
 
         let key_pair = KeyPair::generate();
         let kura = Kura::blank_kura_for_testing();
@@ -466,11 +466,11 @@ mod tests {
 
         let queue = Queue::from_config(Config {
             transaction_time_to_live: Duration::from_secs(100),
-            size: max_transactions_in_queue,
+            capacity,
             ..Config::default()
         });
 
-        for _ in 0..max_transactions_in_queue.get() {
+        for _ in 0..capacity.get() {
             queue
                 .push(accepted_tx("alice@wonderland", &key_pair), &wsv)
                 .expect("Failed to push tx into queue");
@@ -772,7 +772,7 @@ mod tests {
 
         let queue = Arc::new(Queue::from_config(Config {
             transaction_time_to_live: Duration::from_secs(100),
-            size: 100_000_000.try_into().unwrap(),
+            capacity: 100_000_000.try_into().unwrap(),
             ..Config::default()
         }));
 
@@ -907,8 +907,8 @@ mod tests {
 
         let queue = Queue::from_config(Config {
             transaction_time_to_live: Duration::from_secs(100),
-            size: 100.try_into().unwrap(),
-            size_per_user: 1.try_into().unwrap(),
+            capacity: 100.try_into().unwrap(),
+            capacity_per_user: 1.try_into().unwrap(),
             ..Config::default()
         });
 

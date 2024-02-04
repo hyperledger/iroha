@@ -457,10 +457,10 @@ impl Network {
 #[derive(Debug, Clone, Copy)]
 pub struct Queue {
     /// The upper limit of the number of transactions waiting in the queue.
-    pub size: NonZeroUsize,
+    pub capacity: NonZeroUsize,
     /// The upper limit of the number of transactions waiting in the queue for single user.
     /// Use this option to apply throttling.
-    pub size_per_user: NonZeroUsize,
+    pub capacity_per_user: NonZeroUsize,
     /// The transaction will be dropped after this time if it is still in the queue.
     pub transaction_time_to_live: Duration,
     /// The threshold to determine if a transaction has been tampered to have a future timestamp.

@@ -558,10 +558,10 @@ impl FromEnvDefaultFallback for NetworkPartial {}
 #[serde(deny_unknown_fields, default)]
 pub struct QueuePartial {
     /// The upper limit of the number of transactions waiting in the queue.
-    pub size: UserField<NonZeroUsize>,
+    pub capacity: UserField<NonZeroUsize>,
     /// The upper limit of the number of transactions waiting in the queue for single user.
     /// Use this option to apply throttling.
-    pub size_per_user: UserField<NonZeroUsize>,
+    pub capacity_per_user: UserField<NonZeroUsize>,
     /// The transaction will be dropped after this time if it is still in the queue.
     pub transaction_time_to_live: UserField<UserDuration>,
     /// The threshold to determine if a transaction has been tampered to have a future timestamp.
@@ -573,9 +573,9 @@ impl UnwrapPartial for QueuePartial {
 
     fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
         Ok(Queue {
-            size: self.size.unwrap_or(DEFAULT_MAX_TRANSACTIONS_IN_QUEUE),
-            size_per_user: self
-                .size_per_user
+            capacity: self.capacity.unwrap_or(DEFAULT_MAX_TRANSACTIONS_IN_QUEUE),
+            capacity_per_user: self
+                .capacity_per_user
                 .unwrap_or(DEFAULT_MAX_TRANSACTIONS_IN_QUEUE),
             transaction_time_to_live: self
                 .transaction_time_to_live

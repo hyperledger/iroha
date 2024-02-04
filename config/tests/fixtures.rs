@@ -99,8 +99,8 @@ fn minimal_config_snapshot() -> Result<()> {
                 tokio_console_addr: 127.0.0.1:5555,
             },
             queue: Queue {
-                size: 65536,
-                size_per_user: 65536,
+                capacity: 65536,
+                capacity_per_user: 65536,
                 transaction_time_to_live: 86400s,
                 future_threshold: 1s,
             },
@@ -332,8 +332,8 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 tokio_console_addr: None,
             },
             queue: QueuePartial {
-                size: None,
-                size_per_user: None,
+                capacity: None,
+                capacity_per_user: None,
                 transaction_time_to_live: None,
                 future_threshold: None,
             },
