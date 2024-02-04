@@ -81,9 +81,6 @@ impl Root {
 }
 
 #[derive(Debug, Clone)]
-pub struct Api {}
-
-#[derive(Debug, Clone)]
 pub struct Account {
     pub id: AccountId,
     pub public_key: PublicKey,

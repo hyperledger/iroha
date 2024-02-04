@@ -13,7 +13,7 @@ use serde::Deserialize;
 
 use crate::config::{
     base::{FromEnvResult, ReadEnv},
-    user_layer::{Account, Api, OnlyHttpUrl, Root, Transaction},
+    user_layer::{Account, OnlyHttpUrl, Root, Transaction},
     BasicAuth, DEFAULT_TRANSACTION_NONCE, DEFAULT_TRANSACTION_STATUS_TIMEOUT,
     DEFAULT_TRANSACTION_TIME_TO_LIVE,
 };
