@@ -4,8 +4,6 @@ use std::{env, path::PathBuf};
 use clap::Parser;
 use color_eyre::eyre::Result;
 
-const DEFAULT_CONFIG_PATH: &str = "config.toml";
-
 fn is_colouring_supported() -> bool {
     supports_color::on(supports_color::Stream::Stdout).is_some()
 }
@@ -19,14 +17,7 @@ fn default_terminal_colors_str() -> clap::builder::OsStr {
 #[command(name = "iroha", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
 struct Args {
     /// Path to the configuration file
-    #[arg(
-        long,
-        short,
-        env("IROHA_CONFIG"),
-        value_name("PATH"),
-        value_hint(clap::ValueHint::FilePath),
-        default_value_t = DEFAULT_CONFIG_PATH.to_owned()
-    )]
+    #[arg(long, short, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
     config: String,
     /// Whether to enable ANSI colored output or not
     ///
