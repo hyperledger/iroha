@@ -10,7 +10,7 @@
 use eyre::Result;
 use iroha_config::{
     client_api::{ConfigurationDTO, Logger as LoggerDTO},
-    parameters::actual::Root,
+    parameters::actual::Root as Config,
 };
 use iroha_logger::Level;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -27,7 +27,7 @@ pub struct KisoHandle {
 
 impl KisoHandle {
     /// Spawn a new actor
-    pub fn new(state: Root) -> Self {
+    pub fn new(state: Config) -> Self {
         let (actor_sender, actor_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (log_level_update, _) = watch::channel(state.logger.level);
         let mut actor = Actor {
@@ -106,7 +106,7 @@ pub enum Error {
 
 struct Actor {
     handle: mpsc::Receiver<Message>,
-    state: Root,
+    state: Config,
     // Current implementation is somewhat not scalable in terms of code writing: for any
     // future dynamic parameter, it will require its own `subscribe_on_<field>` function in [`KisoHandle`],
     // new channel here, and new [`Message`] variant. If boilerplate expands, a more general solution will be
