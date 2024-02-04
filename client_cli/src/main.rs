@@ -21,8 +21,6 @@ use iroha_client::{
 };
 use iroha_primitives::addr::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
-const DEFAULT_CONFIG_PATH: &str = "iroha_client.toml";
-
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
 /// Should be combined with `#[command(flatten)]` attr.
 #[derive(clap::Args, Debug, Clone)]
@@ -92,14 +90,8 @@ impl FromStr for ValueArg {
 #[command(name = "iroha_client_cli", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
 struct Args {
     /// Path to the configuration file
-    #[arg(
-        short,
-        long,
-        value_name("PATH"),
-        value_hint(clap::ValueHint::FilePath),
-        default_value_t = DEFAULT_CONFIG_PATH.to_owned()
-    )]
-    config: String,
+    #[arg(short, long, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
+    config: PathBuf,
     /// More verbose output
     #[arg(short, long)]
     verbose: bool,

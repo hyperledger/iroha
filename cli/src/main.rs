@@ -18,7 +18,7 @@ fn default_terminal_colors_str() -> clap::builder::OsStr {
 struct Args {
     /// Path to the configuration file
     #[arg(long, short, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
-    config: String,
+    config: PathBuf,
     /// Whether to enable ANSI colored output or not
     ///
     /// By default, Iroha determines whether the terminal supports colors or not.
@@ -57,8 +57,7 @@ async fn main() -> Result<()> {
         color_eyre::install()?;
     }
 
-    let (config, genesis) =
-        iroha::read_config_and_genesis(PathBuf::from(args.config), args.submit_genesis)?;
+    let (config, genesis) = iroha::read_config_and_genesis(args.config, args.submit_genesis)?;
     let logger = iroha_logger::init_global(&config.logger, args.terminal_colors)?;
 
     iroha_logger::info!(
@@ -88,7 +87,7 @@ mod tests {
     fn default_args() -> Result<()> {
         let args = Args::try_parse_from(["test"])?;
 
-        assert_eq!(args.config, "config.toml".to_owned());
+        assert_eq!(args.config, PathBuf::from("config.toml"));
         assert_eq!(args.terminal_colors, is_colouring_supported());
         assert_eq!(args.submit_genesis, false);
 
@@ -118,7 +117,7 @@ mod tests {
     fn user_provided_config_path_works() -> Result<()> {
         let args = Args::try_parse_from(["test", "--config", "/home/custom/file.json"])?;
 
-        assert_eq!(args.config, "/home/custom/file.json".to_owned());
+        assert_eq!(args.config, PathBuf::from("/home/custom/file.json"));
 
         Ok(())
     }
