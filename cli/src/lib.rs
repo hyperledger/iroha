@@ -488,22 +488,12 @@ fn genesis_domain(public_key: PublicKey) -> Domain {
     domain
 }
 
-// FIXME: update docs
-/// Read and parse Iroha configuration and genesis block.
-///
-/// The pipeline of configuration reading is as follows:
-///
-/// 1. Construct a layer with default values
-/// 2. If [`Path`] resolves, construct a layer from the file and merge it into the previous one
-/// 3. Construct a layer from ENV vars and merge it into the previous one
-/// 4. Check whether the final layer contains the complete configuration
-///
-/// After reading it, this function ensures validity of genesis configuration and constructs the
-/// [`GenesisNetwork`] according to it.
+/// Read configuration and then a genesis block if specified.
 ///
 /// # Errors
-/// - If provided user configuration is invalid or incomplete
-/// - If genesis config is invalid
+/// - If failed to read the config
+/// - If failed to load the genesis block
+/// - If failed to build a genesis network
 pub fn read_config_and_genesis(
     path: impl AsRef<Path>,
     submit_genesis: bool,
