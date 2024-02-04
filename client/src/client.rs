@@ -1630,7 +1630,7 @@ mod tests {
                     .with_executable(tx1.instructions().clone())
                     .with_metadata(tx1.metadata().clone());
 
-            tx.set_creation_time(tx1.creation_time().as_millis().try_into().unwrap());
+            tx.set_creation_time_ms(tx1.creation_time().as_millis().try_into().unwrap());
             if let Some(nonce) = tx1.nonce() {
                 tx.set_nonce(nonce);
             }

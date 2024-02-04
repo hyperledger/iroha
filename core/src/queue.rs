@@ -381,7 +381,7 @@ impl Queue {
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Mul, str::FromStr, sync::Arc, thread, time::Duration};
+    use std::{str::FromStr, sync::Arc, thread, time::Duration};
 
     use iroha_data_model::{prelude::*, transaction::TransactionLimits};
     use iroha_primitives::must_use::MustUse;
@@ -860,7 +860,7 @@ mod tests {
             .with_executable(tx.0.instructions().clone());
 
             let creation_time: u64 = tx.0.creation_time().as_millis().try_into().unwrap();
-            new_tx.set_creation_time(creation_time + future_threshold.mul(2).as_millis() as u64);
+            new_tx.set_creation_time_ms(creation_time + (future_threshold * 2).as_millis() as u64);
 
             let new_tx = new_tx.sign(&alice_key);
             let limits = TransactionLimits {
