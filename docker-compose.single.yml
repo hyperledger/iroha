@@ -24,8 +24,8 @@ services:
     init: true
     command: iroha --submit-genesis
     healthcheck:
-      test: if ! [[ `curl -X GET http://127.0.0.1:8080/status/blocks` =~ [1-9] ]]; then exit 1; fi
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 1s
+      test: test $(curl -s http://127.0.0.1:8080/status/blocks) -gt 0
+      interval: 2s
+      timeout: 1s
+      retries: 30
+      start_period: 4s

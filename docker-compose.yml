@@ -25,11 +25,11 @@ services:
     init: true
     command: iroha --submit-genesis
     healthcheck:
-      test: if ! [[ `curl -X GET http://127.0.0.1:8080/status/blocks` =~ [1-9] ]]; then exit 1; fi
-      interval: 30s
-      timeout: 10s
-      retries: 6
-      start_period: 1m
+      test: test $(curl -s http://127.0.0.1:8080/status/blocks) -gt 0
+      interval: 2s
+      timeout: 1s
+      retries: 30
+      start_period: 4s
   iroha1:
     image: hyperledger/iroha2:dev
     platform: linux/amd64
@@ -49,11 +49,11 @@ services:
     - ./configs/peer:/config
     init: true
     healthcheck:
-      test: if ! [[ `curl -X GET http://127.0.0.1:8081/status/blocks` =~ [1-9] ]]; then exit 1; fi
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 1s
+      test: test $(curl -s http://127.0.0.1:8081/status/blocks) -gt 0
+      interval: 2s
+      timeout: 1s
+      retries: 30
+      start_period: 4s
   iroha2:
     image: hyperledger/iroha2:dev
     platform: linux/amd64
@@ -73,11 +73,11 @@ services:
     - ./configs/peer:/config
     init: true
     healthcheck:
-      test: if ! [[ `curl -X GET http://127.0.0.1:8082/status/blocks` =~ [1-9] ]]; then exit 1; fi
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 1s
+      test: test $(curl -s http://127.0.0.1:8082/status/blocks) -gt 0
+      interval: 2s
+      timeout: 1s
+      retries: 30
+      start_period: 4s
   iroha3:
     image: hyperledger/iroha2:dev
     platform: linux/amd64
@@ -97,8 +97,8 @@ services:
     - ./configs/peer:/config
     init: true
     healthcheck:
-      test: if ! [[ `curl -X GET http://127.0.0.1:8083/status/blocks` =~ [1-9] ]]; then exit 1; fi
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 1s
+      test: test $(curl -s http://127.0.0.1:8083/status/blocks) -gt 0
+      interval: 2s
+      timeout: 1s
+      retries: 30
+      start_period: 4s

@@ -23,6 +23,7 @@ fn main() -> Result<()> {
         source: image_source,
         outfile: target_file_raw,
         config_dir: config_dir_raw,
+        health_check,
     } = Cli::parse();
 
     let seed = seed.map(String::into_bytes);
@@ -52,6 +53,7 @@ fn main() -> Result<()> {
         image_source,
         peers,
         seed,
+        health_check,
     }
     .build_and_write(banner_enabled)?;
 
