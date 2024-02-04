@@ -91,7 +91,7 @@ fn minimal_config_snapshot() -> Result<()> {
                 batch_size: 500,
             },
             live_query_store: LiveQueryStore {
-                query_idle_time: 30s,
+                idle_time: 30s,
             },
             logger: Logger {
                 level: INFO,
@@ -109,7 +109,7 @@ fn minimal_config_snapshot() -> Result<()> {
                 store_path: "./storage",
                 creation_enabled: true,
             },
-            regular_telemetry: None,
+            telemetry: None,
             dev_telemetry: None,
             chain_wide: ChainWide {
                 max_transactions_in_block: 512,

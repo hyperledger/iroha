@@ -69,7 +69,7 @@ type LiveQuery = Batched<Vec<Value>>;
 #[derive(Debug)]
 pub struct LiveQueryStore {
     queries: IndexMap<QueryId, (LiveQuery, Instant)>,
-    query_idle_time: Duration,
+    idle_time: Duration,
 }
 
 impl LiveQueryStore {
@@ -77,7 +77,7 @@ impl LiveQueryStore {
     pub fn from_config(cfg: Config) -> Self {
         Self {
             queries: IndexMap::new(),
-            query_idle_time: cfg.query_idle_time,
+            idle_time: cfg.idle_time,
         }
     }
 
@@ -99,14 +99,14 @@ impl LiveQueryStore {
 
         let (message_sender, mut message_receiver) = mpsc::channel(1);
 
-        let mut idle_interval = tokio::time::interval(self.query_idle_time);
+        let mut idle_interval = tokio::time::interval(self.idle_time);
 
         tokio::task::spawn(async move {
             loop {
                 tokio::select! {
                     _ = idle_interval.tick() => {
                         self.queries
-                            .retain(|_, (_, last_access_time)| last_access_time.elapsed() <= self.query_idle_time);
+                            .retain(|_, (_, last_access_time)| last_access_time.elapsed() <= self.idle_time);
                     },
                     msg = message_receiver.recv() => {
                         let Some(msg) = msg else {

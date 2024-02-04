@@ -614,7 +614,7 @@ impl Torii {
         };
 
         let query = actual::LiveQueryStore {
-            query_idle_time: self.query_idle_time,
+            idle_time: self.query_idle_time,
         };
 
         (torii, query)

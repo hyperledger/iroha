@@ -129,13 +129,13 @@ pub struct Sumeragi {
 
 #[derive(Debug, Clone, Copy)]
 pub struct LiveQueryStore {
-    pub query_idle_time: Duration,
+    pub idle_time: Duration,
 }
 
 impl Default for LiveQueryStore {
     fn default() -> Self {
         Self {
-            query_idle_time: defaults::torii::DEFAULT_QUERY_IDLE_TIME,
+            idle_time: defaults::torii::DEFAULT_QUERY_IDLE_TIME,
         }
     }
 }
