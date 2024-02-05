@@ -20,7 +20,6 @@ use crate::config::user_layer::RootPartial;
 
 pub mod user_layer;
 
-#[allow(unsafe_code)]
 pub const DEFAULT_TRANSACTION_TIME_TO_LIVE: Duration = Duration::from_secs(100);
 pub const DEFAULT_TRANSACTION_STATUS_TIMEOUT: Duration = Duration::from_secs(15);
 pub const DEFAULT_TRANSACTION_NONCE: bool = false;
