@@ -12,7 +12,7 @@ This is the list of maintainers, including their email addresses for direct comm
 | Dmitri Venger         | [@dmitrivenger](https://github.com/dmitrivenger)     | venger@soramitsu.co.jp          | Project manager                                                               |
 | Bogdan Mingela        | [@Mingela](https://github.com/Mingela)               | mingela@soramitsu.co.jp         | Iroha Team Lead                                                               |
 | Aleksandr Petrosyan   | [@appetrosyan](https://github.com/appetrosyan)       | ap886@cantab.ac.uk              | Iroha 2 architect                                                             |
-| Daniil Polyakov       | [@Arjentix](https://github.com/Arjentix)             | daniil.polyakov@soramitsu.co.jp | Development: Rust                                                             |
+| Daniil Polyakov       | [@Arjentix](https://github.com/Arjentix)             | daniil.polyakov@soramitsu.co.jp | Development: Rust, C++                                                        |
 | Marin Veršić          | [@mversic](https://github.com/mversic)               | versic@soramitsu.co.jp          | Tech lead, development: Rust, Java                                            |
 | Sam H. Smith          | [@SamHSmith](https://github.com/SamHSmith)           | smith@soramitsu.co.jp           | Development: Rust, C                                                          |
 | Shanin Roman          | [@Erigara](https://github.com/Erigara)               | shanin@soramitsu.co.jp          | Development: Rust                                                             |
