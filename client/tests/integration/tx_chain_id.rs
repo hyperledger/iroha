@@ -11,7 +11,7 @@ fn send_tx_with_different_chain_id() {
     // Given
     let sender_account_id = AccountId::from_str("sender@wonderland").expect("Valid");
     let sender_keypair = KeyPair::generate().expect("Failed to generate sender KeyPair.");
-    let reciver_account_id = AccountId::from_str("reciver@wonderland").expect("Valid");
+    let receiver_account_id = AccountId::from_str("receiver@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("test_asset#wonderland").expect("Valid");
     let to_transfer = 1;
     let create_sender_accout = Register::account(Account::new(
