@@ -36,7 +36,6 @@ class Config:
         """
         if not os.path.exists(path_config_client_cli):
             raise IOError(f"No config file found at {path_config_client_cli}")
-        # TODO use toml
         with open(path_config_client_cli, 'r', encoding='utf-8') as config_file:
             self._config = tomlkit.load(config_file)
         self.file = path_config_client_cli

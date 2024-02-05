@@ -14,11 +14,15 @@ use iroha_genesis::RawGenesisBlock;
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::{Deserialize, Serialize};
 use url::Url;
+pub use user_layer::{Logger, Queue, Snapshot};
 
 use crate::{
     kura::Mode,
     logger::Format,
-    parameters::{defaults, user_layer},
+    parameters::{
+        defaults, user_layer,
+        user_layer::{CliContext, RootPartial},
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -116,10 +120,6 @@ impl Default for Queue {
         }
     }
 }
-
-pub use user_layer::{Logger, Queue, Snapshot};
-
-use crate::parameters::user_layer::{CliContext, RootPartial};
 
 #[derive(Debug, Clone)]
 pub struct Sumeragi {

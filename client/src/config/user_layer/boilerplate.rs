@@ -54,7 +54,6 @@ impl RootPartial {
     }
 }
 
-// FIXME: should config be read from ENV?
 impl FromEnv for RootPartial {
     fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self>
     where

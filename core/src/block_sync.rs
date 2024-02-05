@@ -191,11 +191,6 @@ pub mod message {
                     previous_hash,
                     peer_id,
                 }) => {
-                    // FIXME: is it okay to remove this behaviour?
-                    // if block_sync.block_batch_size == 0 {
-                    //     warn!("Error: not sending any blocks as batch_size is equal to zero.");
-                    //     return;
-                    // }
                     let local_latest_block_hash = block_sync.latest_hash;
                     if *latest_hash == local_latest_block_hash
                         || *previous_hash == local_latest_block_hash
