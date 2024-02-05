@@ -2764,7 +2764,6 @@ dependencies = [
  "merge",
  "nonzero_ext",
  "once_cell",
- "parse-display",
  "proptest",
  "serde",
  "serde_json",

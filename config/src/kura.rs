@@ -1,11 +1,9 @@
 use iroha_config_base::{impl_deserialize_from_str, impl_serialize_display};
-use serde::Serializer;
+use serde::{Deserialize, Serialize, Serializer};
 
 /// Kura initialization mode.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, parse_display::Display, parse_display::FromStr,
-)]
-#[display(style = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum::EnumString, strum::Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum Mode {
     /// Strict validation of all blocks.
     #[default]

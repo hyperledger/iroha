@@ -33,7 +33,6 @@ cfg-if = { workspace = true }
 once_cell = { workspace = true }
 nonzero_ext = "0.3.0"
 toml = { workspace = true }
-parse-display = { workspace = true }
 merge = "0.1.0"
 
 [dev-dependencies]

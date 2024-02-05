@@ -13,10 +13,8 @@ pub fn into_tracing_level(level: Level) -> tracing::Level {
 }
 
 /// Reflects formatters in [`tracing_subscriber::fmt::format`]
-#[derive(
-    Debug, Copy, Clone, Eq, PartialEq, parse_display::Display, parse_display::FromStr, Default,
-)]
-#[display(style = "snake_case")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, strum::Display, strum::EnumString, Default)]
+#[strum(serialize_all = "snake_case")]
 pub enum Format {
     /// See [`tracing_subscriber::fmt::format::Full`]
     #[default]

@@ -974,7 +974,6 @@ pub mod model {
     /// Log level for reading from environment and (de)serializing
     #[derive(
         Debug,
-        Display,
         Clone,
         Copy,
         Default,
@@ -988,7 +987,8 @@ pub mod model {
         Decode,
         FromRepr,
         IntoSchema,
-        parse_display::FromStr,
+        strum::Display,
+        strum::EnumString,
     )]
     #[allow(clippy::upper_case_acronyms)]
     #[repr(u8)]
