@@ -58,9 +58,9 @@ fn send_tx_with_different_chain_id() {
     test_client
         .submit_transaction_blocking(&asset_transfer_tx_0)
         .unwrap();
-    assert!(test_client
+    test_client
         .submit_transaction_blocking(&asset_transfer_tx_1)
-        .is_err());
+        .unwrap_err();
 }
 
 fn asset_id_new(definition_name: &str, definition_domain: &str, account_id: AccountId) -> AssetId {
