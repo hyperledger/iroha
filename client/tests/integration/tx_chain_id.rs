@@ -55,9 +55,9 @@ fn send_tx_with_different_chain_id() {
         .with_instructions([trasfer_instruction])
         .sign(sender_keypair)
         .expect("Failed to sign sender transaction, chainId = 1");
-    assert!(test_client
+    test_client
         .submit_transaction_blocking(&asset_transfer_tx_0)
-        .is_ok());
+        .unwrap();
     assert!(test_client
         .submit_transaction_blocking(&asset_transfer_tx_1)
         .is_err());
