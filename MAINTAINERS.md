@@ -17,7 +17,8 @@ This is the list of maintainers, including their email addresses for direct comm
 | Sam H. Smith          | [@SamHSmith](https://github.com/SamHSmith)           | smith@soramitsu.co.jp           | Development: Rust, C                                                          |
 | Shanin Roman          | [@Erigara](https://github.com/Erigara)               | shanin@soramitsu.co.jp          | Development: Rust                                                             |
 | Dmitry Balashov       | [@0x009922](https://github.com/0x009922)             | dbalashov@soramitsu.co.jp       | Development: Rust, TypeScript, JavaScript                                     |
-| Grzegorz Bazior       | [@baziorek](https://github.com/baziorek)             | bazior@agh.edu.pl               | Development: C++, Python, JavaScript, TypeScript                              |
+| Grzegorz Bazior       | [@baziorek](https://github.com/baziorek)             | g.bazior@yodiss.pl              | Development: C++, Python                                                      |
+| Shunkichi Sato        | [@s8sato](https://github.com/s8sato)                 | s.sato@soramitsu.co.jp          | Development: Rust                                                             |
 | Andrey Kostiuchenko   | [@arndey](https://github.com/arndey)                 | kostiuchenko@soramitsu.co.jp    | Developer: Java, Kotlin                                                       |
 | Timur Guskov          | [@gv-timur](https://github.com/gv-timur)             | guskov@soramitsu.co.jp          | Development: Java                                                             |
 | Dmitriy Creed         | [@Cre-eD](https://github.com/Cre-eD)                 | creed@soramitsu.co.jp           | DevSecOps                                                                     |
