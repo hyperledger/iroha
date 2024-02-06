@@ -430,7 +430,11 @@ fn account_id_new(account_name: &str, account_domain: &str) -> AccountId {
     )
 }
 
-fn asset_id_new(definition_name: &str, definition_domain: &str, account_id: AccountId) -> AssetId {
+pub fn asset_id_new(
+    definition_name: &str,
+    definition_domain: &str,
+    account_id: AccountId,
+) -> AssetId {
     AssetId::new(
         AssetDefinitionId::new(
             definition_domain.parse().expect("Valid"),
