@@ -147,21 +147,21 @@ impl_instruction! {
     Register<AssetDefinition>,
     Register<Asset>,
     Register<Role>,
-    Register<Trigger<TriggeringFilterBox>>,
+    Register<Trigger<TriggeringEventFilterBox>>,
     Unregister<Peer>,
     Unregister<Domain>,
     Unregister<Account>,
     Unregister<AssetDefinition>,
     Unregister<Asset>,
     Unregister<Role>,
-    Unregister<Trigger<TriggeringFilterBox>>,
+    Unregister<Trigger<TriggeringEventFilterBox>>,
     Mint<PublicKey, Account>,
     Mint<SignatureCheckCondition, Account>,
     Mint<Numeric, Asset>,
-    Mint<u32, Trigger<TriggeringFilterBox>>,
+    Mint<u32, Trigger<TriggeringEventFilterBox>>,
     Burn<PublicKey, Account>,
     Burn<Numeric, Asset>,
-    Burn<u32, Trigger<TriggeringFilterBox>>,
+    Burn<u32, Trigger<TriggeringEventFilterBox>>,
     Transfer<Account, DomainId, Account>,
     Transfer<Account, AssetDefinitionId, Account>,
     Transfer<Asset, Numeric, Account>,
@@ -485,9 +485,9 @@ mod transparent {
         }
     }
 
-    impl Register<Trigger<TriggeringFilterBox>> {
+    impl Register<Trigger<TriggeringEventFilterBox>> {
         /// Constructs a new [`Register`] for a [`Trigger`].
-        pub fn trigger(new_trigger: Trigger<TriggeringFilterBox>) -> Self {
+        pub fn trigger(new_trigger: Trigger<TriggeringEventFilterBox>) -> Self {
             Self {
                 object: new_trigger,
             }
@@ -511,7 +511,7 @@ mod transparent {
         Register<AssetDefinition> |
         Register<Asset> |
         Register<Role> |
-        Register<Trigger<TriggeringFilterBox>>
+        Register<Trigger<TriggeringEventFilterBox>>
     => RegisterBox => InstructionBox[Register],
     => RegisterBoxRef<'a> => InstructionBoxRef<'a>[Register]
     }
@@ -542,7 +542,7 @@ mod transparent {
         Unregister<AssetDefinition> |
         Unregister<Asset> |
         Unregister<Role> |
-        Unregister<Trigger<TriggeringFilterBox>>
+        Unregister<Trigger<TriggeringEventFilterBox>>
     => UnregisterBox => InstructionBox[Unregister],
     => UnregisterBoxRef<'a> => InstructionBoxRef<'a>[Unregister]
     }
@@ -597,7 +597,7 @@ mod transparent {
         }
     }
 
-    impl Unregister<Trigger<TriggeringFilterBox>> {
+    impl Unregister<Trigger<TriggeringEventFilterBox>> {
         /// Constructs a new [`Unregister`] for a [`Trigger`].
         pub fn trigger(trigger_id: TriggerId) -> Self {
             Self {
@@ -650,7 +650,7 @@ mod transparent {
         }
     }
 
-    impl Mint<u32, Trigger<TriggeringFilterBox>> {
+    impl Mint<u32, Trigger<TriggeringEventFilterBox>> {
         /// Constructs a new [`Mint`] for repetition count of [`Trigger`].
         pub fn trigger_repetitions(repetitions: u32, trigger_id: TriggerId) -> Self {
             Self {
@@ -683,7 +683,7 @@ mod transparent {
         Mint<PublicKey, Account> |
         Mint<SignatureCheckCondition, Account> |
         Mint<Numeric, Asset> |
-        Mint<u32, Trigger<TriggeringFilterBox>>
+        Mint<u32, Trigger<TriggeringEventFilterBox>>
     => MintBox => InstructionBox[Mint],
     => MintBoxRef<'a> => InstructionBoxRef<'a>[Mint]
     }
@@ -719,7 +719,7 @@ mod transparent {
         }
     }
 
-    impl Burn<u32, Trigger<TriggeringFilterBox>> {
+    impl Burn<u32, Trigger<TriggeringEventFilterBox>> {
         /// Constructs a new [`Burn`] for repetition count of [`Trigger`].
         pub fn trigger_repetitions(repetitions: u32, trigger_id: TriggerId) -> Self {
             Self {
@@ -744,7 +744,7 @@ mod transparent {
     impl_into_box! {
         Burn<PublicKey, Account> |
         Burn<Numeric, Asset> |
-        Burn<u32, Trigger<TriggeringFilterBox>>
+        Burn<u32, Trigger<TriggeringEventFilterBox>>
     => BurnBox => InstructionBox[Burn],
     => BurnBoxRef<'a> => InstructionBoxRef<'a>[Burn]
     }
@@ -1102,7 +1102,7 @@ isi_box! {
         /// Register [`Role`].
         Role(Register<Role>),
         /// Register [`Trigger`].
-        Trigger(Register<Trigger<TriggeringFilterBox>>)
+        Trigger(Register<Trigger<TriggeringEventFilterBox >>)
     }
 }
 
@@ -1127,7 +1127,7 @@ isi_box! {
         /// Unregister [`Role`].
         Role(Unregister<Role>),
         /// Unregister [`Trigger`].
-        Trigger(Unregister<Trigger<TriggeringFilterBox>>)
+        Trigger(Unregister<Trigger<TriggeringEventFilterBox >>)
     }
 }
 
@@ -1145,7 +1145,7 @@ isi_box! {
         /// Mint for [`Asset`].
         Asset(Mint<Numeric, Asset>),
         /// Mint [`Trigger`] repetitions.
-        TriggerRepetitions(Mint<u32, Trigger<TriggeringFilterBox>>),
+        TriggerRepetitions(Mint<u32, Trigger<TriggeringEventFilterBox >>),
     }
 }
 
@@ -1177,7 +1177,7 @@ isi_box! {
         /// Burn [`Asset`].
         Asset(Burn<Numeric, Asset>),
         /// Burn [`Trigger`] repetitions.
-        TriggerRepetitions(Burn<u32, Trigger<TriggeringFilterBox>>),
+        TriggerRepetitions(Burn<u32, Trigger<TriggeringEventFilterBox >>),
     }
 }
 

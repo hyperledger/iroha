@@ -23,7 +23,7 @@ fn must_execute_both_triggers() -> Result<()> {
             [instruction.clone()],
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggeringFilterBox::Data(DataEventFilter::ByAccount(AccountEventFilter {
+            TriggeringEventFilterBox::Data(DataEventFilter::ByAccount(AccountEventFilter {
                 id_matcher: None,
                 event_matcher: Some(AccountEventMatcher::ByCreated),
             })),
@@ -37,7 +37,7 @@ fn must_execute_both_triggers() -> Result<()> {
             [instruction],
             Repeats::Indefinitely,
             account_id,
-            TriggeringFilterBox::Data(DataEventFilter::ByDomain(DomainEventFilter {
+            TriggeringEventFilterBox::Data(DataEventFilter::ByDomain(DomainEventFilter {
                 id_matcher: None,
                 event_matcher: Some(DomainEventMatcher::ByCreated),
             })),
@@ -90,7 +90,7 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
             [Mint::asset_numeric(1u32, asset_id.clone())],
             Repeats::Indefinitely,
             account_id,
-            TriggeringFilterBox::Data(DataEventFilter::ByAccount(AccountEventFilter {
+            TriggeringEventFilterBox::Data(DataEventFilter::ByAccount(AccountEventFilter {
                 id_matcher: None,
                 event_matcher: Some(AccountEventMatcher::ByCreated),
             })),

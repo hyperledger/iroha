@@ -31,7 +31,7 @@ use self::{
 use crate::{
     account::{Account, AccountId},
     block::{BlockHeader, SignedBlock},
-    events::TriggeringFilterBox,
+    events::TriggeringEventFilterBox,
     metadata::MetadataValueBox,
     seal,
     transaction::{SignedTransaction, TransactionPayload, TransactionValue},
@@ -364,9 +364,9 @@ impl_query! {
     FindAllPeers => Vec<crate::peer::Peer>,
     FindAllParameters => Vec<crate::parameter::Parameter>,
     FindAllActiveTriggerIds => Vec<crate::trigger::TriggerId>,
-    FindTriggerById => crate::trigger::Trigger<TriggeringFilterBox>,
+    FindTriggerById => crate::trigger::Trigger<TriggeringEventFilterBox>,
     FindTriggerKeyValueByIdAndKey => MetadataValueBox,
-    FindTriggersByDomainId => Vec<crate::trigger::Trigger<TriggeringFilterBox>>,
+    FindTriggersByDomainId => Vec<crate::trigger::Trigger<TriggeringEventFilterBox>>,
     FindAllTransactions => Vec<TransactionQueryOutput>,
     FindTransactionsByAccountId => Vec<TransactionQueryOutput>,
     FindTransactionByHash => TransactionQueryOutput,
@@ -477,7 +477,7 @@ from_and_try_from_value_identifiable!(
     Account(crate::account::Account),
     AssetDefinition(crate::asset::AssetDefinition),
     Asset(crate::asset::Asset),
-    Trigger(crate::trigger::Trigger<TriggeringFilterBox>),
+    Trigger(crate::trigger::Trigger<TriggeringEventFilterBox>),
     Role(crate::role::Role),
     Parameter(crate::parameter::Parameter),
 );
@@ -986,6 +986,7 @@ pub mod trigger {
     use super::{MetadataValueBox, Query, QueryType};
     use crate::{
         domain::prelude::*,
+        events::TriggeringEventFilterBox,
         prelude::InstructionBox,
         trigger::{Trigger, TriggerId},
         Executable, Identifiable, Name,

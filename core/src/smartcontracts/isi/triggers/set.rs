@@ -88,13 +88,15 @@ pub trait LoadedActionTrait {
     fn mintable(&self) -> bool;
 
     /// Convert action to a boxed representation
-    fn into_boxed(self) -> LoadedAction<TriggeringFilterBox>;
+    fn into_boxed(self) -> LoadedAction<TriggeringEventFilterBox>;
 
     /// Same as [`into_boxed()`](LoadedActionTrait::into_boxed) but clones `self`
-    fn clone_and_box(&self) -> LoadedAction<TriggeringFilterBox>;
+    fn clone_and_box(&self) -> LoadedAction<TriggeringEventFilterBox>;
 }
 
-impl<F: EventFilter + Into<TriggeringFilterBox> + Clone> LoadedActionTrait for LoadedAction<F> {
+impl<F: EventFilter + Into<TriggeringEventFilterBox> + Clone> LoadedActionTrait
+    for LoadedAction<F>
+{
     fn executable(&self) -> &LoadedExecutable {
         &self.executable
     }
@@ -119,7 +121,7 @@ impl<F: EventFilter + Into<TriggeringFilterBox> + Clone> LoadedActionTrait for L
         self.filter.mintable()
     }
 
-    fn into_boxed(self) -> LoadedAction<TriggeringFilterBox> {
+    fn into_boxed(self) -> LoadedAction<TriggeringEventFilterBox> {
         let Self {
             executable,
             repeats,
@@ -137,7 +139,7 @@ impl<F: EventFilter + Into<TriggeringFilterBox> + Clone> LoadedActionTrait for L
         }
     }
 
-    fn clone_and_box(&self) -> LoadedAction<TriggeringFilterBox> {
+    fn clone_and_box(&self) -> LoadedAction<TriggeringEventFilterBox> {
         self.clone().into_boxed()
     }
 }

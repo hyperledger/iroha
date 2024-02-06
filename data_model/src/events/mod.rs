@@ -72,7 +72,7 @@ pub mod model {
     )]
     // TODO: Temporarily made opaque
     #[ffi_type(opaque)]
-    pub enum FilterBox {
+    pub enum EventFilterBox {
         /// Listen to pipeline events with filter.
         Pipeline(pipeline::PipelineEventFilter),
         /// Listen to data events with filter.
@@ -92,7 +92,7 @@ pub mod model {
     )]
     // TODO: Temporarily made opaque
     #[ffi_type(opaque)]
-    pub enum TriggeringFilterBox {
+    pub enum TriggeringEventFilterBox {
         /// Listen to pipeline events with filter.
         Pipeline(pipeline::PipelineEventFilter),
         /// Listen to data events with filter.
@@ -133,7 +133,7 @@ pub trait EventFilter {
 }
 
 #[cfg(feature = "transparent_api")]
-impl EventFilter for FilterBox {
+impl EventFilter for EventFilterBox {
     type Event = Event;
 
     /// Apply filter to event.
@@ -162,7 +162,7 @@ impl EventFilter for FilterBox {
 }
 
 #[cfg(feature = "transparent_api")]
-impl EventFilter for TriggeringFilterBox {
+impl EventFilter for TriggeringEventFilterBox {
     type Event = Event;
 
     /// Apply filter to event.
@@ -210,7 +210,7 @@ pub mod stream {
         /// Request sent by the client to subscribe to events.
         #[derive(Debug, Clone, Constructor, Decode, Encode, IntoSchema)]
         #[repr(transparent)]
-        pub struct EventSubscriptionRequest(pub FilterBox);
+        pub struct EventSubscriptionRequest(pub EventFilterBox);
     }
 
     impl From<EventMessage> for Event {
@@ -228,7 +228,7 @@ pub mod prelude {
     pub use super::EventFilter;
     pub use super::{
         data::prelude::*, execute_trigger::prelude::*, notification::prelude::*,
-        pipeline::prelude::*, time::prelude::*, Event, FilterBox, TriggeringEventType,
-        TriggeringFilterBox,
+        pipeline::prelude::*, time::prelude::*, Event, EventFilterBox, TriggeringEventFilterBox,
+        TriggeringEventType,
     };
 }

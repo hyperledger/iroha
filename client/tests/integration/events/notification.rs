@@ -21,7 +21,7 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
             vec![InstructionBox::from(instruction)],
             Repeats::Indefinitely,
             asset_id.account_id.clone(),
-            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
                 asset_id.account_id,
             )),
@@ -70,7 +70,7 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
             vec![InstructionBox::from(instruction)],
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
                 account_id,
             )),

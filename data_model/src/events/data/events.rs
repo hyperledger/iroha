@@ -486,7 +486,7 @@ mod trigger {
     use super::*;
 
     data_event! {
-        #[has_origin(origin = Trigger<FilterBox>)]
+        #[has_origin(origin = Trigger<TriggeringEventFilterBox>)]
         pub enum TriggerEvent {
             Created(TriggerId),
             Deleted(TriggerId),

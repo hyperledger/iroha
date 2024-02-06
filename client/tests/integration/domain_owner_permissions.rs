@@ -310,7 +310,7 @@ fn domain_owner_trigger_permissions() -> Result<()> {
             Repeats::from(2_u32),
             bob_id,
             // FIXME: due to restriction in `ExecuteTriggerEventFilter` it's impossible to execute trigger on behalf of multiple users
-            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
                 alice_id,
             )),
