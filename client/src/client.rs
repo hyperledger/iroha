@@ -1000,57 +1000,37 @@ impl Client {
         )
     }
 
-    /// Check if two transactions are the same. Compare their contents excluding the creation time.
-    fn equals_excluding_creation_time(
-        first: &TransactionPayload,
-        second: &TransactionPayload,
-    ) -> bool {
-        first.authority() == second.authority()
-            && first.instructions() == second.instructions()
-            && first.time_to_live() == second.time_to_live()
-            && first.metadata().eq(second.metadata())
-    }
-
-    /// Find the original transaction in the pending local tx
-    /// queue.  Should be used for an MST case.  Takes pagination as
-    /// parameter.
+    /// Find the original transaction in the local pending tx queue.
+    /// Should be used for an MST case.
     ///
     /// # Errors
-    /// - if subscribing to websocket fails
-    pub fn get_original_transaction_with_pagination(
+    /// - if sending request fails
+    pub fn get_original_matching_transactions(
         &self,
         transaction: &SignedTransaction,
         retry_count: u32,
         retry_in: Duration,
-        pagination: Pagination,
-    ) -> Result<Option<SignedTransaction>> {
-        let pagination = pagination.into_query_parameters();
+    ) -> Result<Vec<SignedTransaction>> {
+        let url = self
+            .torii_url
+            .join(crate::config::torii::MATCHING_PENDING_TRANSACTIONS)
+            .expect("Valid URI");
+        let body = transaction.encode();
+
         for _ in 0..retry_count {
-            let response = DefaultRequestBuilder::new(
-                HttpMethod::GET,
-                self.torii_url
-                    .join(crate::config::torii::PENDING_TRANSACTIONS)
-                    .expect("Valid URI"),
-            )
-            .params(pagination.clone())
-            .headers(self.headers.clone())
-            .build()?
-            .send()?;
+            let response = DefaultRequestBuilder::new(HttpMethod::POST, url.clone())
+                .headers(self.headers.clone())
+                .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
+                .body(body.clone())
+                .build()?
+                .send()?;
 
             if response.status() == StatusCode::OK {
                 let pending_transactions: Vec<SignedTransaction> =
                     DecodeAll::decode_all(&mut response.body().as_slice())?;
 
-                let transaction = pending_transactions
-                    .into_iter()
-                    .find(|pending_transaction| {
-                        Self::equals_excluding_creation_time(
-                            pending_transaction.payload(),
-                            transaction.payload(),
-                        )
-                    });
-                if transaction.is_some() {
-                    return Ok(transaction);
+                if !pending_transactions.is_empty() {
+                    return Ok(pending_transactions);
                 }
                 thread::sleep(retry_in);
             } else {
@@ -1061,26 +1041,7 @@ impl Client {
                 ));
             }
         }
-        Ok(None)
-    }
-
-    /// Find the original transaction in the local pending tx queue.
-    /// Should be used for an MST case.
-    ///
-    /// # Errors
-    /// - if sending request fails
-    pub fn get_original_transaction(
-        &self,
-        transaction: &SignedTransaction,
-        retry_count: u32,
-        retry_in: Duration,
-    ) -> Result<Option<SignedTransaction>> {
-        self.get_original_transaction_with_pagination(
-            transaction,
-            retry_count,
-            retry_in,
-            Pagination::default(),
-        )
+        Ok(Vec::new())
     }
 
     /// Get value of config on peer

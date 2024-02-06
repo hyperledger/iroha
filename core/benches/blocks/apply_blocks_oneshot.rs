@@ -9,10 +9,16 @@ mod apply_blocks;
 
 use apply_blocks::WsvApplyBlocks;
 
-#[tokio::main]
-async fn main() {
-    iroha_logger::test_logger();
+fn main() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed building the Runtime");
+    {
+        let _guard = rt.enter();
+        iroha_logger::test_logger();
+    }
     iroha_logger::info!("Starting...");
-    let bench = WsvApplyBlocks::setup().expect("Failed to setup benchmark");
+    let bench = WsvApplyBlocks::setup(rt.handle()).expect("Failed to setup benchmark");
     WsvApplyBlocks::measure(&bench).expect("Failed to execute benchmark");
 }

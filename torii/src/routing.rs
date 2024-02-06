@@ -10,8 +10,7 @@ use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
 use iroha_config::client_api::ConfigurationDTO;
 use iroha_core::{
-    query::{pagination::Paginate, store::LiveQueryStoreHandle},
-    smartcontracts::query::ValidQueryRequest,
+    query::store::LiveQueryStoreHandle, smartcontracts::query::ValidQueryRequest,
     sumeragi::SumeragiHandle,
 };
 use iroha_data_model::{
@@ -24,6 +23,7 @@ use iroha_data_model::{
         cursor::ForwardCursor, http, sorting::Sorting, Pagination, QueryRequest,
         QueryWithParameters,
     },
+    transaction::TransactionPayload,
     BatchedResponse,
 };
 #[cfg(feature = "telemetry")]
@@ -146,20 +146,34 @@ pub async fn handle_schema() -> Json {
     reply::json(&iroha_schema_gen::build_schemas())
 }
 
+/// Check if two transactions are the same. Compare their contents excluding the creation time.
+fn transaction_payload_eq_excluding_creation_time(
+    first: &TransactionPayload,
+    second: &TransactionPayload,
+) -> bool {
+    first.authority() == second.authority()
+        && first.instructions() == second.instructions()
+        && first.time_to_live() == second.time_to_live()
+        && first.metadata().eq(second.metadata())
+}
+
 #[iroha_futures::telemetry_future]
 pub async fn handle_pending_transactions(
     queue: Arc<Queue>,
     sumeragi: SumeragiHandle,
-    pagination: Pagination,
+    transaction: SignedTransaction,
 ) -> Result<Scale<Vec<SignedTransaction>>> {
     let query_response = sumeragi.apply_wsv(|wsv| {
         queue
             .all_transactions(wsv)
             .map(Into::into)
-            .paginate(pagination)
-            .collect::<Vec<_>>()
-        // TODO:
-        //.batched(fetch_size)
+            .filter(|current_transaction: &SignedTransaction| {
+                transaction_payload_eq_excluding_creation_time(
+                    current_transaction.payload(),
+                    transaction.payload(),
+                )
+            })
+            .collect()
     });
 
     Ok(Scale(query_response))

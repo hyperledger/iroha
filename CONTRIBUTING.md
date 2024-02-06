@@ -266,6 +266,45 @@ tokio-console http://127.0.0.1:5555
 
 </details>
 
+### Profiling
+
+<details> <summary> Expand to learn ho to profile iroha. </summary>
+
+To optimize performance it's useful to profile iroha.
+
+To do that you should compile iroha with `profiling` profile and with `wasm_profiling` compilation flag: 
+
+```bash
+RUSTFLAGS="-C force-frame-pointers=on --cfg wasm_profiling" cargo build --profile profiling
+```
+
+Then start iroha and attach profiler of your choice to the iroha pid.
+
+Alternatively it's possible to build iroha inside docker with profiler support and profile iroha this way.
+
+```bash
+docker build -f Dockerfile.glibc --build-arg="PROFILE=profiling" --build-arg='RUSTFLAGS=-C force-frame-pointers=on --cfg wasm_profiling' -t iroha2:profiling .
+```
+
+E.g. using perf (available only on linux):
+
+```bash
+# to capture profile
+sudo perf record -g -p <PID>
+# to analyze profile
+sudo perf report
+```
+
+To be able to observe profile of the executor during iroha profiling, executor should be compiled without stripping symbols.
+It can be done by running:
+
+```bash
+# compile executor without optimizations
+cargo run --bin iroha_wasm_builder_cli -- build ./path/to/executor --outfile executor.wasm
+```
+
+</details>
+
 ## Style Guides
 
 Please follow these guidelines when you make code contributions to our project:

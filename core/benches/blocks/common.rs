@@ -170,9 +170,16 @@ pub fn restore_every_nth(
     instructions
 }
 
-pub fn build_wsv(account_id: &AccountId, key_pair: &KeyPair) -> WorldStateView {
+pub fn build_wsv(
+    rt: &tokio::runtime::Handle,
+    account_id: &AccountId,
+    key_pair: &KeyPair,
+) -> WorldStateView {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::test().start();
+    let query_handle = {
+        let _guard = rt.enter();
+        LiveQueryStore::test().start()
+    };
     let mut domain = Domain::new(account_id.domain_id.clone()).build(account_id);
     domain.accounts.insert(
         account_id.clone(),
