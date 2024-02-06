@@ -44,9 +44,9 @@ RUN curl -fL https://golang.org/dl/go1.17.2.linux-$(dpkg --print-architecture).t
 ENV GOPATH=/opt/gopath
 RUN mkdir ${GOPATH}
 ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
+RUN go install github.com/golang/protobuf/protoc-gen-go
 RUN go get github.com/golang/protobuf/protoc-gen-go
 RUN export PATH="$PATH:$(go env GOPATH)/bin" # according to: https://grpc.io/docs/languages/go/quickstart/
-RUN go mod init $(go env GOPATH) # according to: https://golangdocs.com/create-go-modules
 
 ## Rust-lang stuff for iroha+ursa
 ENV RUSTUP_HOME=/opt/rust
