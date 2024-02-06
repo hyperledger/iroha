@@ -107,6 +107,9 @@ pub enum Error {
     #[cfg(feature = "telemetry")]
     /// Error while getting Prometheus metrics
     Prometheus(#[source] eyre::Report),
+    #[cfg(feature = "profiling")]
+    /// Failed to get pprof profile
+    Pprof(#[source] eyre::Report),
     /// Error while resuming cursor
     UnknownCursor,
 }
@@ -166,6 +169,8 @@ impl Error {
             },
             #[cfg(feature = "telemetry")]
             Prometheus(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            #[cfg(feature = "profiling")]
+            Pprof(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 

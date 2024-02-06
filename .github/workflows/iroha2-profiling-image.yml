@@ -16,7 +16,13 @@ on:
         default: profiling
       IROHA2_RUSTFLAGS:
         required: false
-        default: -C force-frame-pointers=on --cfg wasm_profiling
+        default: -C force-frame-pointers=on
+      IROHA2_FEATURES:
+        required: false
+        default: profiling
+      IROHA2_CARGOFLAGS:
+        required: false
+        default: -Z build-std
 
 jobs:
   registry:
@@ -51,6 +57,8 @@ jobs:
           build-args: |
             "PROFILE=${{ github.event.inputs.IROHA2_PROFILE }}"
             "RUSTFLAGS=${{ github.event.inputs.IROHA2_RUSTFLAGS }}"
+            "FEATURES=${{ github.event.inputs.IROHA2_FEATURES }}"
+            "CARGOFLAGS=${{ github.event.inputs.IROHA2_CARGOFLAGS }}"
           file: ${{ github.event.inputs.IROHA2_DOCKERFILE }}
           # This context specification is required
           context: .

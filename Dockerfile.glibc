@@ -18,7 +18,9 @@ WORKDIR /iroha
 COPY . .
 ARG PROFILE="deploy"
 ARG RUSTFLAGS=""
-RUN RUSTFLAGS="${RUSTFLAGS}" mold --run cargo build --target x86_64-unknown-linux-gnu --profile "${PROFILE}"
+ARG FEATURES=""
+ARG CARGOFLAGS=""
+RUN RUSTFLAGS="${RUSTFLAGS}" mold --run cargo ${CARGOFLAGS} build --target x86_64-unknown-linux-gnu --profile "${PROFILE}" --features "${FEATURES}"
 
 # final image
 FROM debian:bookworm-slim

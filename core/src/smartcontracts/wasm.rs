@@ -262,7 +262,7 @@ fn create_config() -> Result<Config> {
         .consume_fuel(true)
         .cache_config_load_default()
         .map_err(Error::Initialization)?;
-    #[cfg(wasm_profiling)]
+    #[cfg(feature = "profiling")]
     {
         config.profiler(wasmtime::ProfilingStrategy::PerfMap);
     }
