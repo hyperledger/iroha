@@ -22,6 +22,7 @@ mod set_parameter;
 mod sorting;
 mod transfer_asset;
 mod triggers;
+mod tx_chainid;
 mod tx_history;
 mod tx_rollback;
 mod unregister_peer;
