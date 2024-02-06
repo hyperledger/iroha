@@ -2,20 +2,18 @@
 use alloc::{borrow::ToOwned as _, format, string::String, vec, vec::Vec};
 use core::{hash, marker::PhantomData, num::NonZeroU8, str::FromStr};
 
-#[cfg(all(feature = "std", not(feature = "ffi_import")))]
+#[cfg(not(feature = "ffi_import"))]
 use blake2::{
     digest::{Update, VariableOutput},
     Blake2bVar,
 };
 use derive_more::{DebugCustom, Deref, DerefMut, Display};
-#[cfg(any(feature = "std", feature = "ffi_import"))]
-use iroha_macro::ffi_impl_opaque;
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::DeserializeFromStr;
 
-use crate::{error::Error, hex_decode};
+use crate::{hex_decode, ParseError};
 
 /// Hash of Iroha entities. Currently supports only blake2b-32.
 /// The least significant bit of hash is set to 1.
@@ -64,8 +62,6 @@ impl Hash {
     }
 }
 
-#[cfg(any(feature = "std", feature = "ffi_import"))]
-#[ffi_impl_opaque]
 impl Hash {
     /// Hash the given bytes.
     #[must_use]
@@ -142,11 +138,11 @@ impl Encode for Hash {
 }
 
 impl FromStr for Hash {
-    type Err = Error;
+    type Err = ParseError;
 
     fn from_str(key: &str) -> Result<Self, Self::Err> {
         let hash: [u8; Self::LENGTH] = hex_decode(key)?.try_into().map_err(|hash_vec| {
-            Error::Parse(format!(
+            ParseError(format!(
                 "Unable to parse {hash_vec:?} as [u8; {}]",
                 Self::LENGTH
             ))
@@ -154,7 +150,7 @@ impl FromStr for Hash {
 
         Hash::is_lsb_1(&hash)
             .then_some(hash)
-            .ok_or_else(|| Error::Parse("expect least significant bit of hash to be 1".to_owned()))
+            .ok_or_else(|| ParseError("expect least significant bit of hash to be 1".to_owned()))
             .map(Self::prehashed)
     }
 }
@@ -221,6 +217,7 @@ impl<T> Clone for HashOf<T> {
 }
 impl<T> Copy for HashOf<T> {}
 
+#[allow(clippy::unconditional_recursion)] // False-positive
 impl<T> PartialEq for HashOf<T> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
@@ -269,7 +266,6 @@ impl<T> HashOf<T> {
     }
 }
 
-#[cfg(any(feature = "std", feature = "ffi_import"))]
 impl<T: Encode> HashOf<T> {
     /// Construct typed hash
     #[must_use]
@@ -318,13 +314,9 @@ mod ffi {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "std")]
-    #[cfg(not(feature = "ffi_import"))]
     use super::*;
 
     #[test]
-    #[cfg(feature = "std")]
-    #[cfg(not(feature = "ffi_import"))]
     fn blake2_32b() {
         let mut hasher = Blake2bVar::new(32).unwrap();
         hasher.update(&hex_literal::hex!("6920616d2064617461"));

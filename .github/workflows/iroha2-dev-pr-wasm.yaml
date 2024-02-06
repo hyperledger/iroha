@@ -33,4 +33,4 @@ jobs:
         run: cargo install --path tools/wasm_test_runner
       - name: Run smart contract tests on WebAssembly VM
         working-directory: smart_contract
-        run: mold --run cargo test --tests --target wasm32-unknown-unknown --no-fail-fast --quiet
+        run: mold --run cargo test --release --tests --target wasm32-unknown-unknown --no-fail-fast --quiet

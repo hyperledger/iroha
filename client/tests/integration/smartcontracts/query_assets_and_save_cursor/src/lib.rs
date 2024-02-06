@@ -16,6 +16,8 @@ use lol_alloc::{FreeListAllocator, LockedAllocator};
 #[global_allocator]
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
+getrandom::register_custom_getrandom!(iroha_smart_contract::stub_getrandom);
+
 /// Execute [`FindAllAssets`] and save cursor to the owner's metadata.
 #[iroha_smart_contract::main]
 fn main(owner: AccountId) {

@@ -32,8 +32,7 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
         AccountId::from_str("alice@wonderland").expect("checked"),
     )
     .with_instructions([transfer])
-    .sign(keypair.clone())
-    .expect("Failed to sign.");
+    .sign(&keypair);
     let transaction_limits = TransactionLimits {
         max_instruction_number: 4096,
         max_wasm_size_bytes: 0,
@@ -54,13 +53,10 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let topology = Topology::new(UniqueVec::new());
     let mut block = BlockBuilder::new(vec![tx], topology, Vec::new())
         .chain(0, &mut wsv)
-        .sign(KeyPair::generate().unwrap())
-        .unwrap();
+        .sign(&KeyPair::generate().unwrap());
 
     for _ in 1..n_executors {
-        block = block
-            .sign(KeyPair::generate().expect("Failed to generate KeyPair."))
-            .unwrap();
+        block = block.sign(&KeyPair::generate().unwrap());
     }
     let mut block_store = BlockStore::new(dir.path(), LockStatus::Unlocked);
     block_store.create_files_if_they_do_not_exist().unwrap();

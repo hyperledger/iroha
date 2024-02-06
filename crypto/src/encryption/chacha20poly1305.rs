@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 use aead::{
     generic_array::{
         typenum::{U0, U12, U16, U32, U36},

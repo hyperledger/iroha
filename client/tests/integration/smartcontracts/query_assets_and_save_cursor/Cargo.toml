@@ -15,4 +15,5 @@ iroha_smart_contract.workspace = true
 
 panic-halt.workspace = true
 lol_alloc.workspace = true
+getrandom.workspace = true
 serde_json = { version = "1.0.108", default-features = false }

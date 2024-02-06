@@ -486,10 +486,7 @@ impl Peer {
         let key_pair = KeyPair::generate()?;
         let p2p_address = local_unique_port()?;
         let api_address = local_unique_port()?;
-        let id = PeerId {
-            address: p2p_address.clone(),
-            public_key: key_pair.public_key().clone(),
-        };
+        let id = PeerId::new(p2p_address.clone(), key_pair.public_key().clone());
         let shutdown = None;
         Ok(Self {
             id,

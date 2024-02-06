@@ -4,7 +4,7 @@
 use derive_more::{Deref, DerefMut};
 use eyre::Result;
 use indexmap::IndexSet;
-use iroha_crypto::{HashOf, KeyPair, PublicKey, SignatureOf, SignaturesOf};
+use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
 use iroha_data_model::{block::SignedBlock, prelude::PeerId};
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
@@ -54,13 +54,10 @@ impl ProofBuilder {
     }
 
     /// Sign this message with the peer's public and private key.
-    ///
-    /// # Errors
-    /// Can fail during creation of signature
-    pub fn sign(mut self, key_pair: KeyPair) -> Result<SignedProof> {
-        let signature = SignatureOf::new(key_pair, &self.0.payload)?;
+    pub fn sign(mut self, key_pair: &KeyPair) -> SignedProof {
+        let signature = SignatureOf::new(key_pair, &self.0.payload);
         self.0.signatures.insert(signature);
-        Ok(self.0)
+        self.0
     }
 }
 
@@ -76,8 +73,7 @@ impl SignedProof {
 
     /// Verify if the proof is valid, given the peers in `topology`.
     fn verify(&self, peers: &[PeerId], max_faults: usize) -> bool {
-        let peer_public_keys: IndexSet<&PublicKey> =
-            peers.iter().map(|peer_id| &peer_id.public_key).collect();
+        let peer_public_keys: IndexSet<_> = peers.iter().map(PeerId::public_key).collect();
 
         let valid_count = self
             .signatures

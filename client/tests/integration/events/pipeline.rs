@@ -51,7 +51,7 @@ fn test_with_instruction_and_status_and_port(
 
     // Given
     let submitter = client;
-    let transaction = submitter.build_transaction(instruction, UnlimitedMetadata::new())?;
+    let transaction = submitter.build_transaction(instruction, UnlimitedMetadata::new());
     let hash = transaction.payload().hash();
     let mut handles = Vec::new();
     for listener in clients {

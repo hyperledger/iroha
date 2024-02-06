@@ -17,22 +17,25 @@
 
 mod chacha20poly1305;
 
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+
 use aead::{
     generic_array::{typenum::Unsigned, ArrayLength, GenericArray},
     Aead, Error as AeadError, KeyInit, Payload,
 };
 use displaydoc::Display;
 use rand::{rngs::OsRng, RngCore};
-use thiserror::Error;
 
 pub use self::chacha20poly1305::ChaCha20Poly1305;
 use crate::SessionKey;
 
 /// An error that can occur during encryption or decryption
-#[derive(Error, Display, Debug)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
+#[derive(Display, Debug)]
 pub enum Error {
     /// Failed to generate nonce for an encryption operation
-    NonceGeneration(#[source] rand::Error),
+    NonceGeneration(#[cfg_attr(feature = "std", source)] rand::Error),
     /// Failed to encrypt data
     Encryption(AeadError),
     /// Failed to decrypt data
@@ -68,10 +71,8 @@ fn random_bytes<T: ArrayLength<u8>>() -> Result<GenericArray<u8, T>, Error> {
 /// let encryptor = SymmetricEncryptor::<ChaCha20Poly1305>::new_with_key(&key);
 /// let aad = b"Using ChaCha20Poly1305 to encrypt data";
 /// let message = b"Hidden message";
-/// let res = encryptor.encrypt_easy(aad.as_ref(), message.as_ref());
-/// assert!(res.is_ok());
+/// let ciphertext = encryptor.encrypt_easy(aad.as_ref(), message.as_ref()).unwrap();
 ///
-/// let ciphertext = res.unwrap();
 /// let res = encryptor.decrypt_easy(aad.as_ref(), ciphertext.as_slice());
 /// assert_eq!(res.unwrap().as_slice(), message);
 /// ```

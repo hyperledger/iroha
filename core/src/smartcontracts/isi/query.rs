@@ -270,14 +270,14 @@ mod tests {
             let instructions: [InstructionBox; 0] = [];
             let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
                 .with_instructions(instructions)
-                .sign(ALICE_KEYS.clone())?;
+                .sign(&ALICE_KEYS);
             AcceptedTransaction::accept(tx, &chain_id, &limits)?
         };
         let invalid_tx = {
             let isi = Fail::new("fail".to_owned());
             let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
                 .with_instructions([isi.clone(), isi])
-                .sign(ALICE_KEYS.clone())?;
+                .sign(&ALICE_KEYS);
             AcceptedTransaction::accept(tx, &chain_id, &huge_limits)?
         };
 
@@ -287,7 +287,7 @@ mod tests {
         let topology = Topology::new(UniqueVec::new());
         let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
             .chain(0, &mut wsv)
-            .sign(ALICE_KEYS.clone())?
+            .sign(&ALICE_KEYS)
             .commit(&topology)
             .expect("Block is valid");
 
@@ -297,7 +297,7 @@ mod tests {
         for _ in 1u64..blocks {
             let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                 .chain(0, &mut wsv)
-                .sign(ALICE_KEYS.clone())?
+                .sign(&ALICE_KEYS)
                 .commit(&topology)
                 .expect("Block is valid");
 
@@ -420,7 +420,7 @@ mod tests {
         let instructions: [InstructionBox; 0] = [];
         let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
             .with_instructions(instructions)
-            .sign(ALICE_KEYS.clone())?;
+            .sign(&ALICE_KEYS);
 
         let tx_limits = &wsv.transaction_executor().transaction_limits;
         let va_tx = AcceptedTransaction::accept(tx, &chain_id, tx_limits)?;
@@ -428,7 +428,7 @@ mod tests {
         let topology = Topology::new(UniqueVec::new());
         let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
             .chain(0, &mut wsv)
-            .sign(ALICE_KEYS.clone())?
+            .sign(&ALICE_KEYS)
             .commit(&topology)
             .expect("Block is valid");
 
@@ -437,7 +437,7 @@ mod tests {
 
         let unapplied_tx = TransactionBuilder::new(chain_id, ALICE_ID.clone())
             .with_instructions([Unregister::account("account@domain".parse().unwrap())])
-            .sign(ALICE_KEYS.clone())?;
+            .sign(&ALICE_KEYS);
         let wrong_hash = unapplied_tx.hash();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);
         assert!(matches!(
