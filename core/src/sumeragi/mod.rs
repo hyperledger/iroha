@@ -8,7 +8,7 @@ use std::{
 };
 
 use eyre::{Result, WrapErr as _};
-use iroha_config::parameters::actual::{Iroha as IrohaConfig, Sumeragi as SumeragiConfig};
+use iroha_config::parameters::actual::{Common as CommonConfig, Sumeragi as SumeragiConfig};
 use iroha_crypto::{KeyPair, SignatureOf};
 use iroha_data_model::{block::SignedBlock, prelude::*};
 use iroha_genesis::GenesisNetwork;
@@ -258,7 +258,7 @@ impl SumeragiHandle {
     pub fn start(
         SumeragiStartArgs {
             sumeragi_config,
-            iroha_config,
+            common_config,
             events_sender,
             mut wsv,
             queue,
@@ -297,7 +297,7 @@ impl SumeragiHandle {
             (&mut blocks_iter).take(block_count.saturating_sub(skip_block_count + 1));
         for block in block_iter_except_last {
             current_topology =
-                Self::replay_block(&iroha_config.chain_id, &block, &mut wsv, current_topology);
+                Self::replay_block(&common_config.chain_id, &block, &mut wsv, current_topology);
         }
 
         // finalized_wsv is one block behind
@@ -305,7 +305,7 @@ impl SumeragiHandle {
 
         if let Some(block) = blocks_iter.next() {
             current_topology =
-                Self::replay_block(&iroha_config.chain_id, &block, &mut wsv, current_topology);
+                Self::replay_block(&common_config.chain_id, &block, &mut wsv, current_topology);
         }
 
         info!("Sumeragi has finished loading blocks and setting up the WSV");
@@ -319,13 +319,13 @@ impl SumeragiHandle {
         #[cfg(not(debug_assertions))]
         let debug_force_soft_fork = false;
 
-        let peer_id = iroha_config.peer_id();
+        let peer_id = common_config.peer_id();
 
         let sumeragi = main_loop::Sumeragi {
-            chain_id: iroha_config.chain_id,
-            key_pair: iroha_config.key_pair,
-            queue: Arc::clone(&queue),
+            chain_id: common_config.chain_id,
+            key_pair: common_config.key_pair,
             peer_id,
+            queue: Arc::clone(&queue),
             events_sender,
             public_wsv_sender,
             public_finalized_wsv_sender,
@@ -423,8 +423,8 @@ impl VotingBlock {
 /// Arguments for [`SumeragiHandle::start`] function
 #[allow(missing_docs)]
 pub struct SumeragiStartArgs {
-    pub iroha_config: IrohaConfig,
     pub sumeragi_config: SumeragiConfig,
+    pub common_config: CommonConfig,
     pub events_sender: EventsSender,
     pub wsv: WorldStateView,
     pub queue: Arc<Queue>,

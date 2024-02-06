@@ -606,7 +606,7 @@ mod tests {
 
     use iroha_config::{
         base::{FromEnv, TestEnv, UnwrapPartial},
-        parameters::user_layer::{CliContext, RootPartial},
+        parameters::user::{CliContext, RootPartial},
     };
     use iroha_crypto::{KeyGenConfiguration, KeyPair};
     use iroha_primitives::addr::{socket_addr, SocketAddr};

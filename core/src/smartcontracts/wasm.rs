@@ -342,7 +342,7 @@ pub mod state {
     /// on any supported platform
     pub fn store_limits_from_config(config: &IrohaWasmConfig) -> StoreLimits {
         StoreLimitsBuilder::new()
-            .memory_size(config.max_memory.get() as usize)
+            .memory_size(config.max_memory_bytes as usize)
             .instances(1)
             .memories(1)
             .tables(1)

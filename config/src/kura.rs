@@ -1,5 +1,6 @@
+//! Configuration tools related to Kura specifically.
+
 use iroha_config_base::{impl_deserialize_from_str, impl_serialize_display};
-use serde::{Deserialize, Serialize, Serializer};
 
 /// Kura initialization mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum::EnumString, strum::Display)]

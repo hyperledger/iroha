@@ -1,33 +1,36 @@
+//! "Actual" layer of Iroha configuration parameters. It contains strongly-typed validated
+//! structures in a way that is efficient for Iroha internally.
+
 use std::{
-    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
+    num::NonZeroU32,
     path::{Path, PathBuf},
     time::Duration,
 };
 
-use iroha_config_base::{ByteSize, FromEnv, StdEnv, UnwrapPartial};
+use iroha_config_base::{FromEnv, StdEnv, UnwrapPartial};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
-    LengthLimits, Level,
+    LengthLimits,
 };
-use iroha_genesis::RawGenesisBlock;
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::{Deserialize, Serialize};
 use url::Url;
-pub use user_layer::{Logger, Queue, Snapshot};
+pub use user::{Logger, Queue, Snapshot};
 
 use crate::{
     kura::Mode,
-    logger::Format,
     parameters::{
-        defaults, user_layer,
-        user_layer::{CliContext, RootPartial},
+        defaults, user,
+        user::{CliContext, RootPartial},
     },
 };
 
+/// Parsed configuration root
 #[derive(Debug, Clone)]
+#[allow(missing_docs)]
 pub struct Root {
-    pub iroha: Iroha,
+    pub common: Common,
     pub genesis: Genesis,
     pub torii: Torii,
     pub kura: Kura,
@@ -58,19 +61,23 @@ impl Root {
     }
 }
 
+/// Common options shared between multiple places
+#[allow(missing_docs)]
 #[derive(Debug, Clone)]
-pub struct Iroha {
+pub struct Common {
     pub chain_id: ChainId,
     pub key_pair: KeyPair,
     pub p2p_address: SocketAddr,
 }
 
-impl Iroha {
+impl Common {
+    /// Construct an id of this peer
     pub fn peer_id(&self) -> PeerId {
         PeerId::new(self.p2p_address.clone(), self.key_pair.public_key().clone())
     }
 }
 
+/// Parsed genesis configuration
 #[derive(Debug, Clone)]
 pub enum Genesis {
     /// The peer can only observe the genesis block
@@ -88,6 +95,7 @@ pub enum Genesis {
 }
 
 impl Genesis {
+    /// Access the public key, which is always present in the genesis config
     pub fn public_key(&self) -> &PublicKey {
         match self {
             Self::Partial { public_key } => public_key,
@@ -95,6 +103,7 @@ impl Genesis {
         }
     }
 
+    /// Access the key pair, if present
     pub fn key_pair(&self) -> Option<&KeyPair> {
         match self {
             Self::Partial { .. } => None,
@@ -103,6 +112,7 @@ impl Genesis {
     }
 }
 
+#[allow(missing_docs)]
 #[derive(Debug, Clone)]
 pub struct Kura {
     pub init_mode: Mode,
@@ -122,12 +132,14 @@ impl Default for Queue {
 }
 
 #[derive(Debug, Clone)]
+#[allow(missing_docs)]
 pub struct Sumeragi {
     pub trusted_peers: UniqueVec<PeerId>,
     pub debug_force_soft_fork: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
+#[allow(missing_docs)]
 pub struct LiveQueryStore {
     pub idle_time: Duration,
 }
@@ -140,6 +152,7 @@ impl Default for LiveQueryStore {
     }
 }
 
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy)]
 pub struct BlockSync {
     pub gossip_period: Duration,
@@ -147,12 +160,14 @@ pub struct BlockSync {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[allow(missing_docs)]
 pub struct TransactionGossiper {
     pub gossip_period: Duration,
     pub batch_size: NonZeroU32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[allow(missing_docs)]
 pub struct ChainWide {
     pub max_transactions_in_block: NonZeroU32,
     pub block_time: Duration,
@@ -167,6 +182,7 @@ pub struct ChainWide {
 }
 
 impl ChainWide {
+    /// Calculate pipeline time based on the block time and commit time
     pub fn pipeline_time(&self) -> Duration {
         self.block_time + self.commit_time
     }
@@ -189,43 +205,43 @@ impl Default for ChainWide {
     }
 }
 
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct WasmRuntime {
     pub fuel_limit: u64,
-    pub max_memory: ByteSize<u32>,
+    // TODO: wrap into a `Bytes` newtype
+    pub max_memory_bytes: u32,
 }
 
 impl Default for WasmRuntime {
     fn default() -> Self {
         Self {
             fuel_limit: defaults::chain_wide::DEFAULT_WASM_FUEL_LIMIT,
-            max_memory: ByteSize(defaults::chain_wide::DEFAULT_WASM_MAX_MEMORY),
+            max_memory_bytes: defaults::chain_wide::DEFAULT_WASM_MAX_MEMORY_BYTES,
         }
     }
 }
 
 #[derive(Debug, Clone)]
+#[allow(missing_docs)]
 pub struct Torii {
     pub address: SocketAddr,
-    pub max_content_len: ByteSize<u64>,
+    pub max_content_len_bytes: u64,
 }
 
 /// Complete configuration needed to start regular telemetry.
 #[derive(Debug, Clone)]
+#[allow(missing_docs)]
 pub struct Telemetry {
-    #[allow(missing_docs)]
     pub name: String,
-    #[allow(missing_docs)]
     pub url: Url,
-    #[allow(missing_docs)]
     pub min_retry_period: Duration,
-    #[allow(missing_docs)]
     pub max_retry_delay_exponent: u8,
 }
 
 /// Complete configuration needed to start dev telemetry.
 #[derive(Debug, Clone)]
+#[allow(missing_docs)]
 pub struct DevTelemetry {
-    #[allow(missing_docs)]
     pub file: PathBuf,
 }

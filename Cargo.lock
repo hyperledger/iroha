@@ -2785,8 +2785,10 @@ dependencies = [
  "drop_bomb",
  "eyre",
  "merge",
+ "num-traits",
  "serde",
  "thiserror",
+ "toml 0.8.8",
 ]
 
 [[package]]

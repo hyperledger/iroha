@@ -17,3 +17,7 @@ derive_more = { workspace = true, features = ["from", "deref", "deref_mut"] }
 eyre = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
+num-traits = "0.2.17"
+
+[dev-dependencies]
+toml = { workspace = true }

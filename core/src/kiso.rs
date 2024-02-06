@@ -158,7 +158,7 @@ mod tests {
     use super::*;
 
     fn test_config() -> Root {
-        use iroha_config::parameters::user_layer::CliContext;
+        use iroha_config::parameters::user::CliContext;
 
         Root::load(
             // FIXME Specifying path here might break!

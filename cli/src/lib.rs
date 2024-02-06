@@ -9,7 +9,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use std::{path::Path, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use iroha_config::parameters::{actual::Root as Config, user_layer::CliContext};
+use iroha_config::parameters::{actual::Root as Config, user::CliContext};
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerHandle},
     gossiper::{TransactionGossiper, TransactionGossiperHandle},
@@ -199,8 +199,8 @@ impl Iroha {
         logger: LoggerHandle,
     ) -> Result<Self> {
         let network = IrohaNetwork::start(
-            config.iroha.p2p_address.clone(),
-            config.iroha.key_pair.clone(),
+            config.common.p2p_address.clone(),
+            config.common.key_pair.clone(),
         )
         .await
         .wrap_err("Unable to start P2P-network")?;
@@ -250,7 +250,7 @@ impl Iroha {
 
         let start_args = SumeragiStartArgs {
             sumeragi_config: config.sumeragi.clone(),
-            iroha_config: config.iroha.clone(),
+            common_config: config.common.clone(),
             events_sender: events_sender.clone(),
             wsv,
             queue: Arc::clone(&queue),
@@ -268,13 +268,13 @@ impl Iroha {
             &config.block_sync,
             sumeragi.clone(),
             Arc::clone(&kura),
-            config.iroha.peer_id(),
+            config.common.peer_id(),
             network.clone(),
         )
         .start();
 
         let gossiper = TransactionGossiper::from_config(
-            config.iroha.chain_id.clone(),
+            config.common.chain_id.clone(),
             config.transaction_gossiper,
             network.clone(),
             Arc::clone(&queue),
@@ -303,7 +303,7 @@ impl Iroha {
         let kiso = KisoHandle::new(config.clone());
 
         let torii = Torii::new(
-            config.iroha.chain_id.clone(),
+            config.common.chain_id.clone(),
             kiso.clone(),
             config.torii,
             Arc::clone(&queue),
@@ -507,7 +507,7 @@ pub fn read_config_and_genesis(
         let raw_block = RawGenesisBlock::from_path(file)?;
 
         Some(
-            GenesisNetwork::new(raw_block, &config.iroha.chain_id, &key_pair)
+            GenesisNetwork::new(raw_block, &config.common.chain_id, &key_pair)
                 .wrap_err("Failed to construct the genesis")?,
         )
     } else {
@@ -550,7 +550,7 @@ mod tests {
 
     mod config_integration {
         use assertables::{assert_contains, assert_contains_as_result};
-        use iroha_config::parameters::user_layer::RootPartial as PartialUserConfig;
+        use iroha_config::parameters::user::RootPartial as PartialUserConfig;
         use iroha_crypto::KeyPair;
         use iroha_genesis::{ExecutorMode, ExecutorPath};
         use iroha_primitives::addr::socket_addr;
@@ -563,10 +563,10 @@ mod tests {
 
             let mut base = PartialUserConfig::default();
 
-            base.iroha.chain_id.set(ChainId::from("0"));
-            base.iroha.public_key.set(pubkey.clone());
-            base.iroha.private_key.set(privkey.clone());
-            base.iroha.p2p_address.set(socket_addr!(127.0.0.1:1337));
+            base.chain_id.set(ChainId::from("0"));
+            base.public_key.set(pubkey.clone());
+            base.private_key.set(privkey.clone());
+            base.network.address.set(socket_addr!(127.0.0.1:1337));
 
             base.genesis.public_key.set(pubkey);
             base.genesis.private_key.set(privkey);

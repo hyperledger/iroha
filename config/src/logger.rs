@@ -1,3 +1,5 @@
+//! Configuration utils related to Logger specifically.
+
 use iroha_config_base::{impl_deserialize_from_str, impl_serialize_display};
 pub use iroha_data_model::Level;
 

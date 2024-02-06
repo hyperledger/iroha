@@ -1,18 +1,21 @@
+//! User configuration view.
+
 mod boilerplate;
 
-use std::{fs::File, io::Read, path::Path, str::FromStr, time::Duration};
+use std::{str::FromStr, time::Duration};
 
 pub use boilerplate::*;
 use eyre::{eyre, Context, Report};
-use iroha_config::base::{Emitter, ErrorsCollection, FromEnvDefaultFallback, Merge, UnwrapPartial};
+use iroha_config::base::{Emitter, ErrorsCollection};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::{account::AccountId, ChainId};
-use serde::{Deserialize, Deserializer};
 use url::Url;
 
 use crate::config::BasicAuth;
 
+/// Root of the user configuration
 #[derive(Clone, Debug)]
+#[allow(missing_docs)]
 pub struct Root {
     pub chain_id: ChainId,
     pub torii_url: OnlyHttpUrl,
@@ -22,6 +25,8 @@ pub struct Root {
 }
 
 impl Root {
+    /// Validates user configuration for semantic errors and constructs a complete
+    /// [`super::Config`].
     pub fn parse(self) -> Result<super::Config, ErrorsCollection<Report>> {
         let Self {
             chain_id,
@@ -81,6 +86,7 @@ impl Root {
 }
 
 #[derive(Debug, Clone)]
+#[allow(missing_docs)]
 pub struct Account {
     pub id: AccountId,
     pub public_key: PublicKey,
@@ -88,12 +94,14 @@ pub struct Account {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[allow(missing_docs)]
 pub struct Transaction {
     pub time_to_live: Duration,
     pub status_timeout: Duration,
     pub nonce: bool,
 }
 
+/// A [`Url`] that might only have HTTP scheme inside
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct OnlyHttpUrl(Url);
 
@@ -112,12 +120,18 @@ impl FromStr for OnlyHttpUrl {
     }
 }
 
+/// Possible errors that might occur for [`FromStr::from_str`] for [`OnlyHttpUrl`].
 #[derive(Debug, thiserror::Error)]
 pub enum ParseHttpUrlError {
+    /// Unable to parse the url
     #[error(transparent)]
     Parse(#[from] url::ParseError),
+    /// Parsed fine, but doesn't contain HTTP
     #[error("expected `http` scheme, found: `{found}`")]
-    NotHttp { found: String },
+    NotHttp {
+        /// What scheme was actually found
+        found: String,
+    },
 }
 
 iroha_config::base::impl_deserialize_from_str!(OnlyHttpUrl);
@@ -134,7 +148,7 @@ mod tests {
     fn parses_all_envs() {
         let env = TestEnv::new().set("TORII_URL", "http://localhost:8080");
 
-        let layer = RootPartial::from_env(&env).expect("should not fail since env is valid");
+        let _layer = RootPartial::from_env(&env).expect("should not fail since env is valid");
 
         assert_eq!(env.unvisited(), HashSet::new())
     }

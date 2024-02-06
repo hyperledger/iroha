@@ -2,10 +2,10 @@
 use std::{collections::HashSet, path::Path, str::FromStr, time::Duration};
 
 use iroha_config::{
-    base::{UnwrapPartial, UserDuration},
+    base::{HumanDuration, UnwrapPartial},
     parameters::{
         actual::Root as Config,
-        user_layer::{CliContext, RootPartial as UserConfig},
+        user::{CliContext, RootPartial as UserConfig},
     },
 };
 use iroha_crypto::{KeyPair, PublicKey};
@@ -70,10 +70,10 @@ pub fn get_user_config(
 
     let mut config = UserConfig::new();
 
-    config.iroha.chain_id.set(chain_id);
-    config.iroha.public_key.set(public_key.clone());
-    config.iroha.private_key.set(private_key.clone());
-    config.iroha.p2p_address.set(DEFAULT_P2P_ADDR);
+    config.chain_id.set(chain_id);
+    config.public_key.set(public_key.clone());
+    config.private_key.set(private_key.clone());
+    config.network.address.set(DEFAULT_P2P_ADDR);
     config
         .chain_wide
         .max_transactions_in_block
@@ -87,7 +87,7 @@ pub fn get_user_config(
     config
         .network
         .block_gossip_period
-        .set(UserDuration(Duration::from_millis(500)));
+        .set(HumanDuration(Duration::from_millis(500)));
     config.genesis.private_key.set(private_key);
     config.genesis.public_key.set(public_key);
     config.genesis.file.set("./genesis.json".into());

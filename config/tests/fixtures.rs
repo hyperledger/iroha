@@ -5,7 +5,7 @@ use std::{
 };
 
 use eyre::Result;
-use iroha_config::parameters::user_layer::{CliContext, RootPartial};
+use iroha_config::parameters::user::{CliContext, RootPartial};
 use iroha_config_base::{FromEnv, TestEnv, UnwrapPartial as _};
 
 fn fixtures_dir() -> PathBuf {
@@ -47,7 +47,7 @@ fn minimal_config_snapshot() -> Result<()> {
 
     let expected = expect_test::expect![[r#"
         Root {
-            iroha: Iroha {
+            common: Common {
                 chain_id: ChainId(
                     "0",
                 ),
@@ -62,9 +62,7 @@ fn minimal_config_snapshot() -> Result<()> {
             },
             torii: Torii {
                 address: 127.0.0.1:8080,
-                max_content_len: ByteSize(
-                    16777216,
-                ),
+                max_content_len_bytes: 16777216,
             },
             kura: Kura {
                 init_mode: Strict,
@@ -106,7 +104,7 @@ fn minimal_config_snapshot() -> Result<()> {
             },
             snapshot: Snapshot {
                 create_every: 60s,
-                store_path: "./storage",
+                store_path: "./storage/snapshot",
                 creation_enabled: true,
             },
             telemetry: None,
@@ -141,9 +139,7 @@ fn minimal_config_snapshot() -> Result<()> {
                 },
                 wasm_runtime: WasmRuntime {
                     fuel_limit: 23000000,
-                    max_memory: ByteSize(
-                        524288000,
-                    ),
+                    max_memory_bytes: 524288000,
                 },
             },
         }"#]];
@@ -207,7 +203,7 @@ fn self_is_presented_in_trusted_peers() -> Result<()> {
     assert!(config
         .sumeragi
         .trusted_peers
-        .contains(&config.iroha.peer_id()));
+        .contains(&config.common.peer_id()));
 
     Ok(())
 }
@@ -219,11 +215,11 @@ fn missing_fields() -> Result<()> {
         .expect_err("should fail with missing fields");
 
     let expected = expect_test::expect![[r#"
-        missing field: `iroha.chain_id`
-        missing field: `iroha.public_key`
-        missing field: `iroha.private_key`
-        missing field: `iroha.p2p_address`
+        missing field: `chain_id`
+        missing field: `public_key`
+        missing field: `private_key`
         missing field: `genesis.public_key`
+        missing field: `network.address`
         missing field: `torii.address`"#]];
     expected.assert_eq(&format!("{error:#}"));
 
@@ -270,22 +266,17 @@ fn full_envs_set_is_consumed() -> Result<()> {
     let expected = expect_test::expect![[r#"
         RootPartial {
             extends: None,
-            iroha: IrohaPartial {
-                chain_id: Some(
-                    ChainId(
-                        "0-0",
-                    ),
+            chain_id: Some(
+                ChainId(
+                    "0-0",
                 ),
-                public_key: Some(
-                    {digest: ed25519, payload: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
-                ),
-                private_key: Some(
-                    {digest: ed25519, payload: 8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
-                ),
-                p2p_address: Some(
-                    127.0.0.1:5432,
-                ),
-            },
+            ),
+            public_key: Some(
+                {digest: ed25519, payload: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
+            ),
+            private_key: Some(
+                {digest: ed25519, payload: 8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
+            ),
             genesis: GenesisPartial {
                 public_key: Some(
                     {digest: ed25519, payload: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
@@ -317,6 +308,9 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 },
             },
             network: NetworkPartial {
+                address: Some(
+                    127.0.0.1:5432,
+                ),
                 block_gossip_period: None,
                 max_blocks_per_gossip: None,
                 max_transactions_per_gossip: None,

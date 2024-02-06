@@ -1,10 +1,7 @@
 //! Module for client-related configuration and structs
 
-// FIXME
-#![allow(unused, missing_docs)]
-
 use core::str::FromStr;
-use std::{num::NonZeroU64, path::Path, time::Duration};
+use std::{path::Path, time::Duration};
 
 use derive_more::Display;
 use eyre::Result;
@@ -16,12 +13,15 @@ use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::config::user_layer::RootPartial;
+use crate::config::user::RootPartial;
 
-pub mod user_layer;
+pub mod user;
 
+#[allow(missing_docs)]
 pub const DEFAULT_TRANSACTION_TIME_TO_LIVE: Duration = Duration::from_secs(100);
+#[allow(missing_docs)]
 pub const DEFAULT_TRANSACTION_STATUS_TIMEOUT: Duration = Duration::from_secs(15);
+#[allow(missing_docs)]
 pub const DEFAULT_TRANSACTION_NONCE: bool = false;
 
 /// Wrapper over `SmallStr` to provide basic auth login checking
@@ -69,7 +69,9 @@ pub struct BasicAuth {
     pub password: SmallStr,
 }
 
+/// Complete client configuration
 #[derive(Clone, Debug, Serialize)]
+#[allow(missing_docs)]
 pub struct Config {
     pub chain_id: ChainId,
     pub account_id: AccountId,

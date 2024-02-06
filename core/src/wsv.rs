@@ -690,7 +690,7 @@ impl WorldStateView {
             WSV_DOMAIN_METADATA_LIMITS => self.config.domain_metadata_limits,
             WSV_IDENT_LENGTH_LIMITS => self.config.ident_length_limits,
             WASM_FUEL_LIMIT => self.config.wasm_runtime.fuel_limit,
-            WASM_MAX_MEMORY => self.config.wasm_runtime.max_memory.0,
+            WASM_MAX_MEMORY => self.config.wasm_runtime.max_memory_bytes,
             TRANSACTION_LIMITS => self.config.transaction_limits,
         }
     }

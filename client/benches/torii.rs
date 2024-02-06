@@ -141,7 +141,7 @@ fn instruction_submits(criterion: &mut Criterion) {
             .domain("wonderland".parse().expect("Valid"))
             .account(
                 "alice".parse().expect("Valid"),
-                configuration.iroha.key_pair.public_key().clone(),
+                configuration.common.key_pair.public_key().clone(),
             )
             .finish_domain()
             .executor(

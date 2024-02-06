@@ -127,7 +127,7 @@ impl TestGenesis for GenesisNetwork {
             first_transaction.append_instruction(isi);
         }
 
-        GenesisNetwork::new(genesis, &cfg.iroha.chain_id, {
+        GenesisNetwork::new(genesis, &cfg.common.chain_id, {
             use iroha_config::parameters::actual::Genesis;
             if let Genesis::Full { key_pair, .. } = &cfg.genesis {
                 key_pair
@@ -399,13 +399,13 @@ impl Drop for Peer {
 impl Peer {
     /// Returns per peer config with all addresses, keys, and id set up.
     fn get_config(&self, configuration: Configuration) -> Configuration {
-        use iroha_config::parameters::actual::{Iroha, Torii};
+        use iroha_config::parameters::actual::{Common, Torii};
 
         Configuration {
-            iroha: Iroha {
+            common: Common {
                 key_pair: self.key_pair.clone(),
                 p2p_address: self.p2p_address.clone(),
-                ..configuration.iroha
+                ..configuration.common
             },
             torii: Torii {
                 address: self.api_address.clone(),
@@ -761,7 +761,7 @@ impl TestConfiguration for Configuration {
     fn test() -> Self {
         use iroha_config::{
             base::{FromEnv as _, StdEnv, UnwrapPartial as _},
-            parameters::user_layer::{CliContext, RootPartial},
+            parameters::user::{CliContext, RootPartial},
         };
 
         let mut layer = iroha::samples::get_user_config(
@@ -772,8 +772,8 @@ impl TestConfiguration for Configuration {
         .merge(RootPartial::from_env(&StdEnv).expect("test env variables should parse properly"));
 
         let (public_key, private_key) = KeyPair::generate().into();
-        layer.iroha.public_key.set(public_key);
-        layer.iroha.private_key.set(private_key);
+        layer.public_key.set(public_key);
+        layer.private_key.set(private_key);
 
         layer
             .unwrap_partial()

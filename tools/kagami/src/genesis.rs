@@ -4,7 +4,7 @@ use clap::{ArgGroup, Parser, Subcommand};
 use iroha_config::parameters::defaults::chain_wide::{
     DEFAULT_BLOCK_TIME, DEFAULT_COMMIT_TIME, DEFAULT_IDENT_LENGTH_LIMITS, DEFAULT_MAX_TXS,
     DEFAULT_METADATA_LIMITS, DEFAULT_TRANSACTION_LIMITS, DEFAULT_WASM_FUEL_LIMIT,
-    DEFAULT_WASM_MAX_MEMORY,
+    DEFAULT_WASM_MAX_MEMORY_BYTES,
 };
 use iroha_data_model::{
     asset::AssetValueType,
@@ -192,7 +192,7 @@ pub fn generate_default(executor: ExecutorMode) -> color_eyre::Result<RawGenesis
         .add_parameter(WSV_DOMAIN_METADATA_LIMITS, DEFAULT_METADATA_LIMITS)?
         .add_parameter(WSV_IDENT_LENGTH_LIMITS, DEFAULT_IDENT_LENGTH_LIMITS)?
         .add_parameter(WASM_FUEL_LIMIT, DEFAULT_WASM_FUEL_LIMIT)?
-        .add_parameter(WASM_MAX_MEMORY, DEFAULT_WASM_MAX_MEMORY)?
+        .add_parameter(WASM_MAX_MEMORY, DEFAULT_WASM_MAX_MEMORY_BYTES)?
         .into_create_parameters();
 
     let first_tx = genesis

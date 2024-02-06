@@ -79,7 +79,7 @@ impl Torii {
             query_service,
             kura,
             address: config.address,
-            transaction_max_content_length: config.max_content_len.get(),
+            transaction_max_content_length: config.max_content_len_bytes,
         }
     }
 

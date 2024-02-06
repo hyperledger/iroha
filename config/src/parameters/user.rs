@@ -1,18 +1,27 @@
+//! User configuration view. Contains structures in a format that is
+//! convenient from the user perspective. It is less strict and not necessarily valid upon
+//! successful parsing of the user-provided content.
+//!
+//! It begins with [`Root`], containing sub-modules. Every structure has its `-Partial`
+//! representation (e.g. [`RootPartial`]).
+
+// This module's usage is documented in high detail in the Configuration Reference
+// (TODO link to docs)
+#![allow(missing_docs)]
+
 use std::{
     error::Error,
     fmt::Debug,
-    io::Read,
     num::{NonZeroU32, NonZeroUsize},
-    ops::{Add, Div},
     path::PathBuf,
-    str::FromStr,
     time::Duration,
 };
 
+pub use boilerplate::*;
 use eyre::{eyre, Report, WrapErr};
 use iroha_config_base::{
-    ByteSize, Emitter, ErrorsCollection, FromEnv, FromEnvDefaultFallback, Merge, ParseEnvResult,
-    ReadEnv, UnwrapPartial, UnwrapPartialResult,
+    Emitter, ErrorsCollection, HumanBytes, Merge, ParseEnvResult, ReadEnv, UnwrapPartial,
+    UnwrapPartialResult,
 };
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::{
@@ -26,72 +35,16 @@ use url::Url;
 use crate::{
     kura::Mode,
     logger::Format,
-    parameters::{
-        actual,
-        defaults::{logger::*, telemetry::*},
-    },
+    parameters::{actual, defaults::telemetry::*},
 };
 
 mod boilerplate;
-pub use boilerplate::*;
-
-#[derive(Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
-#[serde(untagged)]
-pub enum ExtendsPaths {
-    #[default]
-    None,
-    Single(PathBuf),
-    Multiple(Vec<PathBuf>),
-}
-
-impl Merge for ExtendsPaths {
-    fn merge(&mut self, other: Self) {
-        match (self, other) {
-            (Self::None, Self::None) => {}
-            _ => unreachable!(
-                "It is a bug. `ExtendsPaths` should be resolved to `None` before merging."
-            ),
-        }
-    }
-}
-
-pub enum ExtendsPathsIter<'a> {
-    None,
-    Single(Option<&'a PathBuf>),
-    Multiple(std::slice::Iter<'a, PathBuf>),
-}
-
-impl ExtendsPaths {
-    #[allow(clippy::iter_without_into_iter)] // extra for this case
-    pub fn iter(&self) -> ExtendsPathsIter<'_> {
-        match &self {
-            Self::None => ExtendsPathsIter::None,
-            Self::Single(x) => ExtendsPathsIter::Single(Some(x)),
-            Self::Multiple(vec) => ExtendsPathsIter::Multiple(vec.iter()),
-        }
-    }
-
-    /// Marks this instance as used, so that subsequent [`Merge`] doesn't fail
-    pub fn used(&mut self) {
-        *self = Self::None
-    }
-}
-
-impl<'a> Iterator for ExtendsPathsIter<'a> {
-    type Item = &'a PathBuf;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::None => None,
-            Self::Single(x) => x.take(),
-            Self::Multiple(iter) => iter.next(),
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct Root {
-    iroha: Iroha,
+    chain_id: ChainId,
+    public_key: PublicKey,
+    private_key: PrivateKey,
     genesis: Genesis,
     kura: Kura,
     sumeragi: Sumeragi,
@@ -108,13 +61,13 @@ impl Root {
     pub fn parse(self, cli: CliContext) -> Result<actual::Root, ErrorsCollection<Report>> {
         let mut emitter = Emitter::new();
 
-        let iroha = self.iroha.parse().map_or_else(
-            |err| {
-                emitter.emit(err);
-                None
-            },
-            Some,
-        );
+        let key_pair =
+            KeyPair::new(self.public_key, self.private_key)
+                .wrap_err("failed to construct a key pair from `iroha.public_key` and `iroha.private_key` configuration parameters")
+            .map_or_else(|err| {
+            emitter.emit(err);
+            None
+        }, Some);
 
         let genesis = self.genesis.parse(cli).map_or_else(
             |err| {
@@ -127,28 +80,27 @@ impl Root {
 
         let kura = self.kura.parse();
 
-        let sumeragi = match self.sumeragi.parse() {
-            Ok(mut sumeragi) => {
-                if !cli.submit_genesis && sumeragi.trusted_peers.len() == 0 {
-                    emitter.emit(eyre!("\
-                        The network consists from this one peer only (no `sumeragi.trusted_peers` provided). \
-                        Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
-                        Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, \
-                        and `genesis.file` configuration parameters, or increase the number of trusted peers in \
-                        the network using `sumeragi.trusted_peers` configuration parameter.\
-                    "));
-                    None
-                } else {
-                    Some(sumeragi)
-                }
-            }
-            Err(err) => {
+        let sumeragi = self.sumeragi.parse().map_or_else(
+            |err| {
                 emitter.emit(err);
                 None
-            }
-        };
+            },
+            Some,
+        );
 
-        let (block_sync, transaction_gossiper) = self.network.parse();
+        if let Some(ref config) = sumeragi {
+            if !cli.submit_genesis && config.trusted_peers.len() == 0 {
+                emitter.emit(eyre!("\
+                    The network consists from this one peer only (no `sumeragi.trusted_peers` provided). \
+                    Since `--submit-genesis` is not set, there is no way to receive the genesis block. \
+                    Either provide the genesis by setting `--submit-genesis` argument, `genesis.private_key`, \
+                    and `genesis.file` configuration parameters, or increase the number of trusted peers in \
+                    the network using `sumeragi.trusted_peers` configuration parameter.\
+                "));
+            }
+        }
+
+        let (p2p_address, block_sync, transaction_gossiper) = self.network.parse();
 
         let logger = self.logger;
         let queue = self.queue;
@@ -166,29 +118,29 @@ impl Root {
 
         let chain_wide = self.chain_wide.parse();
 
-        if let Some(iroha) = &iroha {
-            if iroha.p2p_address == torii.address {
-                emitter.emit(eyre!(
-                    "`iroha.p2p_address` and `torii.address` should not be the same"
-                ))
-            }
+        if p2p_address == torii.address {
+            emitter.emit(eyre!(
+                "`iroha.p2p_address` and `torii.address` should not be the same"
+            ))
         }
 
         emitter.finish()?;
 
-        let (regular_telemetry, dev_telemetry) = telemetries.unwrap();
-        let iroha = iroha.unwrap();
+        let peer = actual::Common {
+            chain_id: self.chain_id,
+            key_pair: key_pair.unwrap(),
+            p2p_address,
+        };
+        let (telemetry, dev_telemetry) = telemetries.unwrap();
         let genesis = genesis.unwrap();
         let sumeragi = {
-            let mut cfg = sumeragi.unwrap();
-            cfg.trusted_peers.push(iroha.peer_id());
-            cfg
+            let mut x = sumeragi.unwrap();
+            x.trusted_peers.push(peer.peer_id());
+            x
         };
 
-        // TODO: validate that p2p_address and torii.address are not the same
-
         Ok(actual::Root {
-            iroha,
+            common: peer,
             genesis,
             torii,
             kura,
@@ -199,7 +151,7 @@ impl Root {
             logger,
             queue,
             snapshot,
-            telemetry: regular_telemetry,
+            telemetry,
             dev_telemetry,
             chain_wide,
         })
@@ -209,26 +161,6 @@ impl Root {
 #[derive(Copy, Clone)]
 pub struct CliContext {
     pub submit_genesis: bool,
-}
-
-#[derive(Debug)]
-pub struct Iroha {
-    pub chain_id: ChainId,
-    pub public_key: PublicKey,
-    pub private_key: PrivateKey,
-    pub p2p_address: SocketAddr,
-}
-
-impl Iroha {
-    fn parse(self) -> Result<actual::Iroha, Report> {
-        let key_pair = KeyPair::new(self.public_key, self.private_key).wrap_err("failed to construct a key pair from `iroha.public_key` and `iroha.private_key` configuration parameters")?;
-
-        Ok(actual::Iroha {
-            chain_id: self.chain_id,
-            key_pair,
-            p2p_address: self.p2p_address,
-        })
-    }
 }
 
 pub(crate) fn private_key_from_env<E: Error>(
@@ -244,16 +176,17 @@ pub(crate) fn private_key_from_env<E: Error>(
 
     let digest_function = ParseEnvResult::parse_simple(emitter, env, &digest_env, &digest_name);
 
+    // FIXME: errors handling is a mess
     let payload = match env
-        .get(&payload_env)
-        .map_err(|err| eyre!("{err}"))
+        .read_env(&payload_env)
+        .map_err(|err| eyre!("failed to read {payload_name}: {err}"))
         .wrap_err("oops")
     {
         Ok(Some(value)) => ParseEnvResult::Value(value),
         Ok(None) => ParseEnvResult::None,
         Err(err) => {
             emitter.emit(err);
-            ParseEnvResult::ParseError
+            ParseEnvResult::Error
         }
     };
 
@@ -286,13 +219,13 @@ pub(crate) fn private_key_from_env<E: Error>(
                 &digest_env
             ));
         }
-        (ParseEnvResult::ParseError, _) | (_, ParseEnvResult::ParseError) => {
+        (ParseEnvResult::Error, _) | (_, ParseEnvResult::Error) => {
             // emitter already has these errors
             // adding this branch for exhaustiveness
         }
     }
 
-    ParseEnvResult::ParseError
+    ParseEnvResult::Error
 }
 
 #[derive(Debug)]
@@ -358,7 +291,7 @@ impl Kura {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct KuraDebug {
     output_new_blocks: bool,
 }
@@ -385,7 +318,7 @@ impl Sumeragi {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct SumeragiDebug {
     pub force_soft_fork: bool,
 }
@@ -424,8 +357,10 @@ fn construct_unique_vec<T: Debug + PartialEq>(
     Ok(unique)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Network {
+    /// Peer-to-peer address
+    pub address: SocketAddr,
     pub block_gossip_period: Duration,
     pub max_blocks_per_gossip: NonZeroU32,
     pub max_transactions_per_gossip: NonZeroU32,
@@ -433,8 +368,9 @@ pub struct Network {
 }
 
 impl Network {
-    fn parse(self) -> (actual::BlockSync, actual::TransactionGossiper) {
+    fn parse(self) -> (SocketAddr, actual::BlockSync, actual::TransactionGossiper) {
         let Self {
+            address,
             max_blocks_per_gossip,
             max_transactions_per_gossip,
             block_gossip_period,
@@ -442,6 +378,7 @@ impl Network {
         } = self;
 
         (
+            address,
             actual::BlockSync {
                 gossip_period: block_gossip_period,
                 batch_size: max_blocks_per_gossip,
@@ -467,6 +404,7 @@ pub struct Queue {
     pub future_threshold: Duration,
 }
 
+#[allow(missing_copy_implementations)] // triggered without tokio-console
 #[derive(Debug, Clone)]
 pub struct Logger {
     /// Level of logging verbosity
@@ -488,7 +426,7 @@ impl Default for Logger {
             level: Level::default(),
             format: Format::default(),
             #[cfg(feature = "tokio-console")]
-            tokio_console_addr: DEFAULT_TOKIO_CONSOLE_ADDR,
+            tokio_console_addr: super::defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR,
         }
     }
 }
@@ -550,7 +488,7 @@ pub struct Snapshot {
     pub creation_enabled: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct ChainWide {
     pub max_transactions_in_block: NonZeroU32,
     pub block_time: Duration,
@@ -562,7 +500,7 @@ pub struct ChainWide {
     pub domain_metadata_limits: MetadataLimits,
     pub identifier_length_limits: LengthLimits,
     pub wasm_fuel_limit: u64,
-    pub wasm_max_memory: ByteSize<u32>,
+    pub wasm_max_memory: HumanBytes<u32>,
 }
 
 impl ChainWide {
@@ -593,7 +531,7 @@ impl ChainWide {
             ident_length_limits: identifier_length_limits,
             wasm_runtime: actual::WasmRuntime {
                 fuel_limit: wasm_fuel_limit,
-                max_memory: wasm_max_memory,
+                max_memory_bytes: wasm_max_memory.get(),
             },
         }
     }
@@ -602,7 +540,7 @@ impl ChainWide {
 #[derive(Debug)]
 pub struct Torii {
     pub address: SocketAddr,
-    pub max_content_len: ByteSize<u64>,
+    pub max_content_len: HumanBytes<u64>,
     pub query_idle_time: Duration,
 }
 
@@ -610,7 +548,7 @@ impl Torii {
     fn parse(self) -> (actual::Torii, actual::LiveQueryStore) {
         let torii = actual::Torii {
             address: self.address,
-            max_content_len: self.max_content_len,
+            max_content_len_bytes: self.max_content_len.get(),
         };
 
         let query = actual::LiveQueryStore {
@@ -625,8 +563,7 @@ impl Torii {
 mod tests {
     use iroha_config_base::{FromEnv, TestEnv};
 
-    use super::*;
-    use crate::parameters::user_layer::boilerplate::{IrohaPartial, RootPartial};
+    use super::super::user::boilerplate::RootPartial;
 
     #[test]
     fn parses_private_key_from_env() {
@@ -634,7 +571,7 @@ mod tests {
             .set("PRIVATE_KEY_DIGEST", "ed25519")
             .set("PRIVATE_KEY_PAYLOAD", "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
 
-        let private_key = IrohaPartial::from_env(&env)
+        let private_key = RootPartial::from_env(&env)
             .expect("input is valid, should not fail")
             .private_key
             .get()
@@ -648,7 +585,7 @@ mod tests {
     fn fails_to_parse_private_key_in_env_without_digest() {
         let env = TestEnv::new().set("PRIVATE_KEY_DIGEST", "ed25519");
         let error =
-            IrohaPartial::from_env(&env).expect_err("private key is incomplete, should fail");
+            RootPartial::from_env(&env).expect_err("private key is incomplete, should fail");
         let expected = expect_test::expect![
             "`PRIVATE_KEY_DIGEST` env was provided, but `PRIVATE_KEY_PAYLOAD` was not"
         ];
@@ -659,7 +596,7 @@ mod tests {
     fn fails_to_parse_private_key_in_env_without_payload() {
         let env = TestEnv::new().set("PRIVATE_KEY_PAYLOAD", "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
         let error =
-            IrohaPartial::from_env(&env).expect_err("private key is incomplete, should fail");
+            RootPartial::from_env(&env).expect_err("private key is incomplete, should fail");
         let expected = expect_test::expect![
             "`PRIVATE_KEY_PAYLOAD` env was provided, but `PRIVATE_KEY_DIGEST` was not"
         ];
@@ -672,7 +609,7 @@ mod tests {
             .set("PRIVATE_KEY_DIGEST", "ed25519")
             .set("PRIVATE_KEY_PAYLOAD", "foo");
 
-        let error = IrohaPartial::from_env(&env).expect_err("input is invalid, should fail");
+        let error = RootPartial::from_env(&env).expect_err("input is invalid, should fail");
 
         let expected = expect_test::expect!["failed to construct `iroha.private_key` from `PRIVATE_KEY_DIGEST` and `PRIVATE_KEY_PAYLOAD` environment variables"];
         expected.assert_eq(&format!("{error:#}"));
@@ -684,7 +621,7 @@ mod tests {
             .set("PRIVATE_KEY_DIGEST", "foo")
             .set("PRIVATE_KEY_PAYLOAD", "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
 
-        let error = IrohaPartial::from_env(&env).expect_err("input is invalid, should fail");
+        let error = RootPartial::from_env(&env).expect_err("input is invalid, should fail");
 
         // TODO: print the bad value and supported ones
         let expected = expect_test::expect!["failed to parse `iroha.private_key.digest_function` field from `PRIVATE_KEY_DIGEST` env variable"];
@@ -697,68 +634,12 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_iroha_namespace_with_not_all_fields_works() {
+    fn deserialize_network_namespace_with_not_all_fields_works() {
         let _layer: RootPartial = toml::toml! {
-            [iroha]
-            p2p_address = "127.0.0.1:8080"
+            [network]
+            address = "127.0.0.1:8080"
         }
         .try_into()
-        .expect("should not fail when not all fields in `iroha` are presented at a time");
-    }
-
-    #[derive(Deserialize, Default)]
-    #[serde(default)]
-    struct TestExtends {
-        extends: ExtendsPaths,
-    }
-
-    #[test]
-    fn parse_empty_extends() {
-        let value: TestExtends = toml::from_str("").expect("should be fine with empty input");
-
-        assert_eq!(value.extends, ExtendsPaths::None);
-    }
-
-    #[test]
-    fn parse_single_extends_path() {
-        let value: TestExtends = toml::toml! {
-            extends = "./path"
-        }
-        .try_into()
-        .unwrap();
-
-        assert_eq!(value.extends, ExtendsPaths::Single("./path".into()));
-    }
-
-    #[test]
-    fn parse_multiple_extends_paths() {
-        let value: TestExtends = toml::toml! {
-            extends = ["foo", "bar", "baz"]
-        }
-        .try_into()
-        .unwrap();
-
-        assert_eq!(
-            value.extends,
-            ExtendsPaths::Multiple(vec!["foo".into(), "bar".into(), "baz".into()])
-        );
-    }
-
-    #[test]
-    fn iterating_over_extends() {
-        impl ExtendsPaths {
-            fn as_str_vec(&self) -> Vec<&str> {
-                self.iter().map(|p| p.to_str().unwrap()).collect()
-            }
-        }
-
-        let empty = ExtendsPaths::None;
-        assert_eq!(empty.as_str_vec(), Vec::<&str>::new());
-
-        let single = ExtendsPaths::Single("single".into());
-        assert_eq!(single.as_str_vec(), vec!["single"]);
-
-        let multi = ExtendsPaths::Multiple(vec!["foo".into(), "bar".into(), "baz".into()]);
-        assert_eq!(multi.as_str_vec(), vec!["foo", "bar", "baz"]);
+        .expect("should not fail when not all fields in `network` are presented at a time");
     }
 }
