@@ -1,1 +1,75 @@
-# TODO: show default values, point out required fields
+## For the full reference, go to (TODO put link)
+
+## You can use another TOML file to extend from.
+## For a single file extension:
+# extends = "./base.toml"
+## For a chain of extensions:
+# extends = ["base-1.toml", "base-2.toml"]
+
+# chain_id =
+# public_key =
+# private_key.digest_function =
+# private_key.payload =
+
+[network]
+# address =
+# block_gossip_period = "10s"
+# max_blocks_per_gossip = 4
+# max_transactions_per_gossip = 500
+# transaction_gossip_period = "1s"
+
+[genesis]
+# public_key =
+
+## Combine these with `--submit-genesis` CLI argument
+# file =
+# private_key.digest_function =
+# private_key.payload =
+
+[torii]
+# address =
+# max_content_len = "16mb"
+# query_idle_time = "30s"
+
+[kura]
+# init_mode = "strict"
+# block_store_path = "./storage"
+
+[kura.debug]
+# output_new_blocks = false
+
+## Add more of this section for each trusted peer
+# [[sumeragi.trusted_peers]]
+# address =
+# public_key =
+
+[sumeragi.debug]
+# force_soft_fork = false
+
+[logger]
+# level = "INFO"
+# format = "full"
+
+[queue]
+# capacity = 65536
+# capacity_per_user = 65536
+# transaction_time_to_live = "86400s"
+# future_threshold = "1s"
+
+[snapshot]
+# create_every = "60s"
+# store_path = "./storage/snapshot"
+# creation_enabled = true
+
+[telemetry]
+# name =
+# url =
+# min_retry_period =
+# max_retry_delay_exponent =
+
+[telemetry.dev]
+## FIXME: is it JSON5?
+# file = "./dev-telemetry.json5"
+
+## TODO: remove it from the config file entirely
+# [chain_wide]
