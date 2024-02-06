@@ -46,7 +46,7 @@ RUN mkdir ${GOPATH}
 ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
 RUN go get github.com/golang/protobuf/protoc-gen-go
 RUN export PATH="$PATH:$(go env GOPATH)/bin" # according to: https://grpc.io/docs/languages/go/quickstart/
-RUN go mod init # according to: https://golangdocs.com/create-go-modules
+RUN go mod init $(go env GOPATH) # according to: https://golangdocs.com/create-go-modules
 
 ## pip3 contains fresher versions of packages than apt
 RUN pip3 install --no-cache-dir cmake ninja
