@@ -45,7 +45,7 @@ ENV GOPATH=/opt/gopath
 RUN mkdir ${GOPATH}
 ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
 RUN go get github.com/golang/protobuf/protoc-gen-go
-RUN go mod download github.com/golang/protobuf
+RUN go mod tidy # according to: https://stackoverflow.com/questions/67203641/missing-go-sum-entry-for-module-providing-package-package-name
 RUN export PATH="$PATH:$(go env GOPATH)/bin" # according to: https://grpc.io/docs/languages/go/quickstart/
 
 ## pip3 contains fresher versions of packages than apt
