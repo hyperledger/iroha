@@ -45,8 +45,8 @@ ENV GOPATH=/opt/gopath
 RUN mkdir ${GOPATH}
 ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
 RUN go get github.com/golang/protobuf/protoc-gen-go
-RUN go mod tidy -e # according to: https://stackoverflow.com/questions/67203641/missing-go-sum-entry-for-module-providing-package-package-name
 RUN export PATH="$PATH:$(go env GOPATH)/bin" # according to: https://grpc.io/docs/languages/go/quickstart/
+RUN go mod init # according to: https://golangdocs.com/create-go-modules
 
 ## pip3 contains fresher versions of packages than apt
 RUN pip3 install --no-cache-dir cmake ninja
