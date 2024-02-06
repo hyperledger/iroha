@@ -20,7 +20,7 @@ pub mod isi {
 
     use super::{super::prelude::*, *};
 
-    impl Execute for Register<Trigger<TriggeringFilterBox>> {
+    impl Execute for Register<Trigger<TriggeringEventFilterBox>> {
         #[metrics(+"register_trigger")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let new_trigger = self.object;
@@ -38,25 +38,25 @@ pub mod isi {
             let triggers = wsv.triggers_mut();
             let trigger_id = new_trigger.id().clone();
             let success = match &new_trigger.action.filter {
-                TriggeringFilterBox::Data(_) => triggers.add_data_trigger(
+                TriggeringEventFilterBox::Data(_) => triggers.add_data_trigger(
                     &engine,
                     new_trigger
                         .try_into()
                         .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                 ),
-                TriggeringFilterBox::Pipeline(_) => triggers.add_pipeline_trigger(
+                TriggeringEventFilterBox::Pipeline(_) => triggers.add_pipeline_trigger(
                     &engine,
                     new_trigger
                         .try_into()
                         .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                 ),
-                TriggeringFilterBox::Time(_) => triggers.add_time_trigger(
+                TriggeringEventFilterBox::Time(_) => triggers.add_time_trigger(
                     &engine,
                     new_trigger
                         .try_into()
                         .map_err(|e: &str| Error::Conversion(e.to_owned()))?,
                 ),
-                TriggeringFilterBox::ExecuteTrigger(_) => triggers.add_by_call_trigger(
+                TriggeringEventFilterBox::ExecuteTrigger(_) => triggers.add_by_call_trigger(
                     &engine,
                     new_trigger
                         .try_into()
@@ -79,7 +79,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Unregister<Trigger<TriggeringFilterBox>> {
+    impl Execute for Unregister<Trigger<TriggeringEventFilterBox>> {
         #[metrics(+"unregister_trigger")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let trigger_id = self.object_id.clone();
@@ -98,7 +98,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Mint<u32, Trigger<TriggeringFilterBox>> {
+    impl Execute for Mint<u32, Trigger<TriggeringEventFilterBox>> {
         #[metrics(+"mint_trigger_repetitions")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let id = self.destination_id;
@@ -130,7 +130,7 @@ pub mod isi {
         }
     }
 
-    impl Execute for Burn<u32, Trigger<TriggeringFilterBox>> {
+    impl Execute for Burn<u32, Trigger<TriggeringEventFilterBox>> {
         #[metrics(+"burn_trigger_repetitions")]
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
             let trigger = self.destination_id;
@@ -159,7 +159,7 @@ pub mod isi {
 
             wsv.triggers()
                 .inspect_by_id(id, |action| -> Result<(), Error> {
-                    let allow_execute = if let TriggeringFilterBox::ExecuteTrigger(filter) =
+                    let allow_execute = if let TriggeringEventFilterBox::ExecuteTrigger(filter) =
                         action.clone_and_box().filter
                     {
                         let event = ExecuteTriggerEvent {
@@ -194,7 +194,7 @@ pub mod isi {
 pub mod query {
     //! Queries associated to triggers.
     use iroha_data_model::{
-        events::TriggeringFilterBox,
+        events::TriggeringEventFilterBox,
         metadata::MetadataValueBox,
         query::error::QueryExecutionFail as Error,
         trigger::{Trigger, TriggerId},
@@ -215,7 +215,10 @@ pub mod query {
 
     impl ValidQuery for FindTriggerById {
         #[metrics(+"find_trigger_by_id")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<Trigger<TriggeringFilterBox>, Error> {
+        fn execute(
+            &self,
+            wsv: &WorldStateView,
+        ) -> Result<Trigger<TriggeringEventFilterBox>, Error> {
             let id = &self.id;
             iroha_logger::trace!(%id);
             // Can't use just `LoadedActionTrait::clone_and_box` cause this will trigger lifetime mismatch
@@ -256,7 +259,7 @@ pub mod query {
         fn execute<'wsv>(
             &self,
             wsv: &'wsv WorldStateView,
-        ) -> eyre::Result<Box<dyn Iterator<Item = Trigger<TriggeringFilterBox>> + 'wsv>, Error>
+        ) -> eyre::Result<Box<dyn Iterator<Item = Trigger<TriggeringEventFilterBox>> + 'wsv>, Error>
         {
             let domain_id = &self.domain_id;
 

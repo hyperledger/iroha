@@ -271,11 +271,11 @@ mod tests {
         );
         let rose_id = AssetId::new(rose_definition_id, account_id.clone());
         let trigger_id = "mint_rose".parse().expect("Valid");
-        let action = Action::<FilterBox>::new(
+        let action = Action::<EventFilterBox>::new(
             vec![Mint::asset_numeric(1u32, rose_id)],
             Repeats::Indefinitely,
             account_id,
-            FilterBox::Data(DataEventFilter::ByDomain(DomainEventFilter {
+            EventFilterBox::Data(DataEventFilter::ByDomain(DomainEventFilter {
                 id_matcher: None,
                 event_matcher: None,
             })),
@@ -284,7 +284,7 @@ mod tests {
 
         decode_sample(
             "trigger.bin",
-            String::from("Trigger<TriggeringFilterBox>"),
+            String::from("Trigger<TriggeringEventFilterBox>"),
             &trigger,
         );
     }

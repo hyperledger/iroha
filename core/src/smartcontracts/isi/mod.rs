@@ -378,7 +378,7 @@ mod tests {
                 Vec::<InstructionBox>::new(),
                 Repeats::Indefinitely,
                 account_id.clone(),
-                TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+                TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                     trigger_id.clone(),
                     account_id.clone(),
                 )),

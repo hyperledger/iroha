@@ -672,7 +672,7 @@ pub trait TestClient: Sized {
     fn test_with_account(api_url: &SocketAddr, keys: KeyPair, account_id: &AccountId) -> Self;
 
     /// Loop for events with filter and handler function
-    fn for_each_event(self, event_filter: FilterBox, f: impl Fn(Result<Event>));
+    fn for_each_event(self, event_filter: EventFilterBox, f: impl Fn(Result<Event>));
 
     /// Submit instruction with polling
     ///
@@ -811,7 +811,7 @@ impl TestClient for Client {
         Client::new(config)
     }
 
-    fn for_each_event(self, event_filter: FilterBox, f: impl Fn(Result<Event>)) {
+    fn for_each_event(self, event_filter: EventFilterBox, f: impl Fn(Result<Event>)) {
         for event_result in self
             .listen_for_events(event_filter)
             .expect("Failed to create event iterator.")

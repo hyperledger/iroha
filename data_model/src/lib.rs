@@ -18,7 +18,7 @@ use alloc::{
 use core::{fmt, fmt::Debug, ops::RangeInclusive, str::FromStr};
 
 use derive_more::{Constructor, Display, From, FromStr};
-use events::TriggeringFilterBox;
+use events::TriggeringEventFilterBox;
 use getset::Getters;
 use iroha_crypto::PublicKey;
 use iroha_data_model_derive::{model, EnumRef, IdEqOrdHash};
@@ -86,7 +86,7 @@ mod seal {
         Register<AssetDefinition>,
         Register<Asset>,
         Register<Role>,
-        Register<Trigger<TriggeringFilterBox> >,
+        Register<Trigger<TriggeringEventFilterBox> >,
 
         Unregister<Peer>,
         Unregister<Domain>,
@@ -94,16 +94,16 @@ mod seal {
         Unregister<AssetDefinition>,
         Unregister<Asset>,
         Unregister<Role>,
-        Unregister<Trigger<TriggeringFilterBox> >,
+        Unregister<Trigger<TriggeringEventFilterBox> >,
 
         Mint<PublicKey, Account>,
         Mint<SignatureCheckCondition, Account>,
         Mint<Numeric, Asset>,
-        Mint<u32, Trigger<TriggeringFilterBox> >,
+        Mint<u32, Trigger<TriggeringEventFilterBox> >,
 
         Burn<PublicKey, Account>,
         Burn<Numeric, Asset>,
-        Burn<u32, Trigger<TriggeringFilterBox> >,
+        Burn<u32, Trigger<TriggeringEventFilterBox> >,
 
         Transfer<Account, DomainId, Account>,
         Transfer<Account, AssetDefinitionId, Account>,
@@ -722,7 +722,7 @@ pub mod model {
         /// [`Asset`](`asset::Asset`) variant.
         Asset(asset::Asset),
         /// [`Trigger`](`trigger::Trigger`) variant.
-        Trigger(trigger::Trigger<TriggeringFilterBox>),
+        Trigger(trigger::Trigger<TriggeringEventFilterBox>),
         /// [`Role`](`role::Role`) variant.
         Role(role::Role),
         /// [`Parameter`](`parameter::Parameter`) variant.
@@ -916,7 +916,7 @@ impl_encode_as_identifiable_box! {
     account::Account,
     asset::AssetDefinition,
     asset::Asset,
-    trigger::Trigger<TriggeringFilterBox>,
+    trigger::Trigger<TriggeringEventFilterBox>,
     role::Role,
     parameter::Parameter,
 }

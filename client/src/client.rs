@@ -323,7 +323,7 @@ impl_query_output! {
     crate::data_model::metadata::MetadataValueBox,
     crate::data_model::query::TransactionQueryOutput,
     crate::data_model::permission::PermissionTokenSchema,
-    crate::data_model::trigger::Trigger<crate::data_model::events::TriggeringFilterBox>,
+    crate::data_model::trigger::Trigger<crate::data_model::events::TriggeringEventFilterBox>,
     crate::data_model::prelude::Numeric,
 }
 
@@ -905,7 +905,7 @@ impl Client {
     /// - Forwards from [`events_api::EventIterator::new`]
     pub fn listen_for_events(
         &self,
-        event_filter: FilterBox,
+        event_filter: EventFilterBox,
     ) -> Result<impl Iterator<Item = Result<Event>>> {
         iroha_logger::trace!(?event_filter);
         events_api::EventIterator::new(self.events_handler(event_filter)?)
@@ -918,7 +918,7 @@ impl Client {
     /// - Forwards from [`events_api::AsyncEventStream::new`]
     pub async fn listen_for_events_async(
         &self,
-        event_filter: FilterBox,
+        event_filter: EventFilterBox,
     ) -> Result<AsyncEventStream> {
         iroha_logger::trace!(?event_filter, "Async listening with");
         events_api::AsyncEventStream::new(self.events_handler(event_filter)?).await
@@ -929,7 +929,7 @@ impl Client {
     /// # Errors
     /// Fails if handler construction fails
     #[inline]
-    pub fn events_handler(&self, event_filter: FilterBox) -> Result<events_api::flow::Init> {
+    pub fn events_handler(&self, event_filter: EventFilterBox) -> Result<events_api::flow::Init> {
         events_api::flow::Init::new(
             event_filter,
             self.headers.clone(),
@@ -1235,7 +1235,7 @@ pub mod events_api {
         /// Initialization struct for Events API flow.
         pub struct Init {
             /// Event filter
-            filter: FilterBox,
+            filter: EventFilterBox,
             /// HTTP request headers
             headers: HashMap<String, String>,
             /// TORII URL
@@ -1249,7 +1249,7 @@ pub mod events_api {
             /// Fails if [`transform_ws_url`] fails.
             #[inline]
             pub(in super::super) fn new(
-                filter: FilterBox,
+                filter: EventFilterBox,
                 headers: HashMap<String, String>,
                 url: Url,
             ) -> Result<Self> {

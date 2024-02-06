@@ -19,7 +19,9 @@ pub enum Error {
     Stream(Box<StreamError>),
     /// Error from converting received message to filter
     #[error("Can't retrieve subscription filter: {0}")]
-    CantRetrieveSubscriptionFilter(#[from] ErrorTryFromEnum<EventSubscriptionRequest, FilterBox>),
+    CantRetrieveSubscriptionFilter(
+        #[from] ErrorTryFromEnum<EventSubscriptionRequest, EventFilterBox>,
+    ),
     /// Error from provided websocket
     #[error("WebSocket error: {0}")]
     WebSocket(#[from] warp::Error),
@@ -42,7 +44,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[derive(Debug)]
 pub struct Consumer {
     stream: WebSocket,
-    filter: FilterBox,
+    filter: EventFilterBox,
 }
 
 impl Consumer {

@@ -28,7 +28,7 @@ fn failed_trigger_revert() -> Result<()> {
             instructions,
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggeringFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
                 account_id,
             )),

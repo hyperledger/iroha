@@ -73,30 +73,30 @@ pub mod model {
 }
 
 #[ffi_impl_opaque]
-impl Trigger<TriggeringFilterBox> {
+impl Trigger<TriggeringEventFilterBox> {
     /// [`Id`] of the [`Trigger`].
     pub fn id(&self) -> &TriggerId {
         &self.id
     }
 
     /// Action to be performed when the trigger matches.
-    pub fn action(&self) -> &action::Action<TriggeringFilterBox> {
+    pub fn action(&self) -> &action::Action<TriggeringEventFilterBox> {
         &self.action
     }
 }
 
-impl Registered for Trigger<TriggeringFilterBox> {
+impl Registered for Trigger<TriggeringEventFilterBox> {
     type With = Self;
 }
 
 macro_rules! impl_try_from_box {
     ($($variant:ident => $filter_type:ty),+ $(,)?) => {
         $(
-            impl TryFrom<Trigger<TriggeringFilterBox>> for Trigger<$filter_type> {
+            impl TryFrom<Trigger<TriggeringEventFilterBox>> for Trigger<$filter_type> {
                 type Error = &'static str;
 
-                fn try_from(boxed: Trigger<TriggeringFilterBox>) -> Result<Self, Self::Error> {
-                    if let TriggeringFilterBox::$variant(concrete_filter) = boxed.action.filter {
+                fn try_from(boxed: Trigger<TriggeringEventFilterBox>) -> Result<Self, Self::Error> {
+                    if let TriggeringEventFilterBox::$variant(concrete_filter) = boxed.action.filter {
                         let action = action::Action::new(
                             boxed.action.executable,
                             boxed.action.repeats,
@@ -108,7 +108,7 @@ macro_rules! impl_try_from_box {
                             action,
                         })
                     } else {
-                        Err(concat!("Expected `TriggeringFilterBox::", stringify!($variant),"`, but another variant found"))
+                        Err(concat!("Expected `TriggeringEventFilterBox::", stringify!($variant),"`, but another variant found"))
                     }
                 }
             }
@@ -222,7 +222,7 @@ pub mod action {
     }
 
     #[ffi_impl_opaque]
-    impl Action<TriggeringFilterBox> {
+    impl Action<TriggeringEventFilterBox> {
         /// The executable linked to this action
         pub fn executable(&self) -> &Executable {
             &self.executable
@@ -238,7 +238,7 @@ pub mod action {
             &self.authority
         }
         /// Defines events which trigger the `Action`
-        pub fn filter(&self) -> &TriggeringFilterBox {
+        pub fn filter(&self) -> &TriggeringEventFilterBox {
             &self.filter
         }
     }
@@ -330,20 +330,22 @@ mod tests {
 
     #[test]
     fn trigger_with_filterbox_can_be_unboxed() {
-        /// Should fail to compile if a new variant will be added to `TriggeringFilterBox`
+        /// Should fail to compile if a new variant will be added to `TriggeringEventFilterBox`
         #[allow(dead_code)]
-        fn compile_time_check(boxed: Trigger<TriggeringFilterBox>) {
+        fn compile_time_check(boxed: Trigger<TriggeringEventFilterBox>) {
             match &boxed.action.filter {
-                TriggeringFilterBox::Data(_) => Trigger::<DataEventFilter>::try_from(boxed)
+                TriggeringEventFilterBox::Data(_) => Trigger::<DataEventFilter>::try_from(boxed)
                     .map(|_| ())
                     .unwrap(),
-                TriggeringFilterBox::Pipeline(_) => Trigger::<PipelineEventFilter>::try_from(boxed)
+                TriggeringEventFilterBox::Pipeline(_) => {
+                    Trigger::<PipelineEventFilter>::try_from(boxed)
+                        .map(|_| ())
+                        .unwrap()
+                }
+                TriggeringEventFilterBox::Time(_) => Trigger::<TimeEventFilter>::try_from(boxed)
                     .map(|_| ())
                     .unwrap(),
-                TriggeringFilterBox::Time(_) => Trigger::<TimeEventFilter>::try_from(boxed)
-                    .map(|_| ())
-                    .unwrap(),
-                TriggeringFilterBox::ExecuteTrigger(_) => {
+                TriggeringEventFilterBox::ExecuteTrigger(_) => {
                     Trigger::<ExecuteTriggerEventFilter>::try_from(boxed)
                         .map(|_| ())
                         .unwrap()

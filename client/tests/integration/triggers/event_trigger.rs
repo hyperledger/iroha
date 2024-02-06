@@ -24,7 +24,7 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
             vec![instruction],
             Repeats::Indefinitely,
             account_id,
-            TriggeringFilterBox::Data(DataEventFilter::ByAssetDefinition(
+            TriggeringEventFilterBox::Data(DataEventFilter::ByAssetDefinition(
                 AssetDefinitionEventFilter {
                     id_matcher: None,
                     event_matcher: Some(AssetDefinitionEventMatcher::ByCreated),

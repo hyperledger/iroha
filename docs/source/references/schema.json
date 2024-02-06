@@ -192,7 +192,7 @@
       }
     ]
   },
-  "Action<TriggeringFilterBox>": {
+  "Action<TriggeringEventFilterBox>": {
     "Struct": [
       {
         "name": "executable",
@@ -208,7 +208,7 @@
       },
       {
         "name": "filter",
-        "type": "TriggeringFilterBox"
+        "type": "TriggeringEventFilterBox"
       },
       {
         "name": "metadata",
@@ -667,7 +667,7 @@
       }
     ]
   },
-  "Burn<u32, Trigger<TriggeringFilterBox>>": {
+  "Burn<u32, Trigger<TriggeringEventFilterBox>>": {
     "Struct": [
       {
         "name": "object",
@@ -694,7 +694,7 @@
       {
         "tag": "TriggerRepetitions",
         "discriminant": 2,
-        "type": "Burn<u32, Trigger<TriggeringFilterBox>>"
+        "type": "Burn<u32, Trigger<TriggeringEventFilterBox>>"
       }
     ]
   },
@@ -995,8 +995,37 @@
       }
     ]
   },
+  "EventFilterBox": {
+    "Enum": [
+      {
+        "tag": "Pipeline",
+        "discriminant": 0,
+        "type": "PipelineEventFilter"
+      },
+      {
+        "tag": "Data",
+        "discriminant": 1,
+        "type": "DataEventFilter"
+      },
+      {
+        "tag": "Time",
+        "discriminant": 2,
+        "type": "TimeEventFilter"
+      },
+      {
+        "tag": "ExecuteTrigger",
+        "discriminant": 3,
+        "type": "ExecuteTriggerEventFilter"
+      },
+      {
+        "tag": "Notification",
+        "discriminant": 4,
+        "type": "NotificationEventFilter"
+      }
+    ]
+  },
   "EventMessage": "Event",
-  "EventSubscriptionRequest": "FilterBox",
+  "EventSubscriptionRequest": "EventFilterBox",
   "Executable": {
     "Enum": [
       {
@@ -1091,35 +1120,6 @@
       {
         "name": "message",
         "type": "String"
-      }
-    ]
-  },
-  "FilterBox": {
-    "Enum": [
-      {
-        "tag": "Pipeline",
-        "discriminant": 0,
-        "type": "PipelineEventFilter"
-      },
-      {
-        "tag": "Data",
-        "discriminant": 1,
-        "type": "DataEventFilter"
-      },
-      {
-        "tag": "Time",
-        "discriminant": 2,
-        "type": "TimeEventFilter"
-      },
-      {
-        "tag": "ExecuteTrigger",
-        "discriminant": 3,
-        "type": "ExecuteTriggerEventFilter"
-      },
-      {
-        "tag": "Notification",
-        "discriminant": 4,
-        "type": "NotificationEventFilter"
       }
     ]
   },
@@ -1639,7 +1639,7 @@
       {
         "tag": "Trigger",
         "discriminant": 9,
-        "type": "Trigger<TriggeringFilterBox>"
+        "type": "Trigger<TriggeringEventFilterBox>"
       },
       {
         "tag": "Role",
@@ -2167,7 +2167,7 @@
       }
     ]
   },
-  "Mint<u32, Trigger<TriggeringFilterBox>>": {
+  "Mint<u32, Trigger<TriggeringEventFilterBox>>": {
     "Struct": [
       {
         "name": "object",
@@ -2194,7 +2194,7 @@
       {
         "tag": "TriggerRepetitions",
         "discriminant": 2,
-        "type": "Mint<u32, Trigger<TriggeringFilterBox>>"
+        "type": "Mint<u32, Trigger<TriggeringEventFilterBox>>"
       }
     ]
   },
@@ -3075,11 +3075,11 @@
       }
     ]
   },
-  "Register<Trigger<TriggeringFilterBox>>": {
+  "Register<Trigger<TriggeringEventFilterBox>>": {
     "Struct": [
       {
         "name": "object",
-        "type": "Trigger<TriggeringFilterBox>"
+        "type": "Trigger<TriggeringEventFilterBox>"
       }
     ]
   },
@@ -3118,7 +3118,7 @@
       {
         "tag": "Trigger",
         "discriminant": 6,
-        "type": "Register<Trigger<TriggeringFilterBox>>"
+        "type": "Register<Trigger<TriggeringEventFilterBox>>"
       }
     ]
   },
@@ -3335,10 +3335,6 @@
       {
         "tag": "ByPermissionRemoved",
         "discriminant": 2
-      },
-      {
-        "tag": "ByPermissionAdded",
-        "discriminant": 3
       }
     ]
   },
@@ -3962,7 +3958,7 @@
       }
     ]
   },
-  "Trigger<TriggeringFilterBox>": {
+  "Trigger<TriggeringEventFilterBox>": {
     "Struct": [
       {
         "name": "id",
@@ -3970,7 +3966,7 @@
       },
       {
         "name": "action",
-        "type": "Action<TriggeringFilterBox>"
+        "type": "Action<TriggeringEventFilterBox>"
       }
     ]
   },
@@ -4103,7 +4099,7 @@
       }
     ]
   },
-  "TriggeringFilterBox": {
+  "TriggeringEventFilterBox": {
     "Enum": [
       {
         "tag": "Pipeline",
@@ -4194,7 +4190,7 @@
       }
     ]
   },
-  "Unregister<Trigger<TriggeringFilterBox>>": {
+  "Unregister<Trigger<TriggeringEventFilterBox>>": {
     "Struct": [
       {
         "name": "object_id",
@@ -4237,7 +4233,7 @@
       {
         "tag": "Trigger",
         "discriminant": 6,
-        "type": "Unregister<Trigger<TriggeringFilterBox>>"
+        "type": "Unregister<Trigger<TriggeringEventFilterBox>>"
       }
     ]
   },
