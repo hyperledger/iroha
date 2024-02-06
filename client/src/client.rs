@@ -13,7 +13,7 @@ use derive_more::{DebugCustom, Display};
 use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
-use iroha_config::client_api::ConfigurationDTO;
+pub use iroha_config::client_api::ConfigurationDTO;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_torii_const::uri as torii_uri;
