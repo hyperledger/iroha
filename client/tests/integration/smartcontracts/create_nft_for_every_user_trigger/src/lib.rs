@@ -13,6 +13,8 @@ use lol_alloc::{FreeListAllocator, LockedAllocator};
 #[global_allocator]
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
+getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
+
 #[iroha_trigger::main]
 fn main(_owner: AccountId, _event: Event) {
     iroha_trigger::log::info!("Executing trigger");

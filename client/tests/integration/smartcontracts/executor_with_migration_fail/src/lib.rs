@@ -15,6 +15,8 @@ use lol_alloc::{FreeListAllocator, LockedAllocator};
 #[global_allocator]
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
+getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
+
 #[derive(Constructor, ValidateEntrypoints, Validate, Visit)]
 struct Executor {
     verdict: Result,

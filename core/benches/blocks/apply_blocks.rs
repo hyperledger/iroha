@@ -40,8 +40,7 @@ impl WsvApplyBlocks {
             instructions
                 .into_iter()
                 .map(|instructions| {
-                    let block =
-                        create_block(&mut wsv, instructions, account_id.clone(), key_pair.clone());
+                    let block = create_block(&mut wsv, instructions, account_id.clone(), &key_pair);
                     wsv.apply_without_execution(&block).map(|()| block)
                 })
                 .collect::<Result<Vec<_>, _>>()?

@@ -1,15 +1,13 @@
 //! Merkle tree implementation.
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{collections::VecDeque, format, string::String, vec, vec::Vec};
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
 
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
 
-#[cfg(feature = "std")]
-use crate::Hash;
-use crate::HashOf;
+use crate::{Hash, HashOf};
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate `T`
 #[derive(Debug, TypeId, Decode, Encode)]
@@ -79,7 +77,6 @@ impl<T> CompleteBTree<Option<HashOf<T>>> for MerkleTree<T> {
     }
 }
 
-#[cfg(feature = "std")]
 impl<T> FromIterator<HashOf<T>> for MerkleTree<T> {
     fn from_iter<I: IntoIterator<Item = HashOf<T>>>(iter: I) -> Self {
         let mut queue = iter.into_iter().map(Some).collect::<VecDeque<_>>();
@@ -162,7 +159,6 @@ impl<T> MerkleTree<T> {
     }
 
     /// Add `hash` to the tail of the tree.
-    #[cfg(feature = "std")]
     pub fn add(&mut self, hash: HashOf<T>) {
         // If the tree is perfect, increment its height to double the leaf capacity.
         if self.max_nodes_at_height() == self.len() {
@@ -183,7 +179,6 @@ impl<T> MerkleTree<T> {
         self.update(self.len().saturating_sub(1));
     }
 
-    #[cfg(feature = "std")]
     fn update(&mut self, idx: usize) {
         let mut node = match self.get(idx) {
             Some(node) => *node,
@@ -209,7 +204,6 @@ impl<T> MerkleTree<T> {
         }
     }
 
-    #[cfg(feature = "std")]
     fn nodes_pair_hash(
         l_node: Option<&HashOf<T>>,
         r_node: Option<&HashOf<T>>,
@@ -252,7 +246,7 @@ impl<T> LeafHashIterator<T> {
     }
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::Hash;

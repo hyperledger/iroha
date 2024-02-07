@@ -279,24 +279,18 @@ impl SignedTransaction {
     }
 
     /// Sign transaction with provided key pair.
-    ///
-    /// # Errors
-    ///
-    /// Fails if signature creation fails
     #[cfg(feature = "std")]
-    pub fn sign(
-        self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
+    #[must_use]
+    pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
         let SignedTransaction::V1(mut tx) = self;
-        let signature = iroha_crypto::SignatureOf::new(key_pair, &tx.payload)?;
+        let signature = iroha_crypto::SignatureOf::new(key_pair, &tx.payload);
         tx.signatures.insert(signature);
 
-        Ok(SignedTransactionV1 {
+        SignedTransactionV1 {
             payload: tx.payload,
             signatures: tx.signatures,
         }
-        .into())
+        .into()
     }
 
     /// Add additional signatures to this transaction
@@ -745,22 +739,16 @@ mod http {
         }
 
         /// Sign transaction with provided key pair.
-        ///
-        /// # Errors
-        ///
-        /// Fails if signature creation fails
         #[cfg(feature = "std")]
-        pub fn sign(
-            self,
-            key_pair: iroha_crypto::KeyPair,
-        ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
-            let signatures = SignaturesOf::new(key_pair, &self.payload)?;
+        #[must_use]
+        pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
+            let signatures = SignaturesOf::new(key_pair, &self.payload);
 
-            Ok(SignedTransactionV1 {
+            SignedTransactionV1 {
                 payload: self.payload,
                 signatures,
             }
-            .into())
+            .into()
         }
     }
 }

@@ -253,13 +253,7 @@ fn submit(
 ) -> Result<()> {
     let iroha_client = Client::new(context.configuration())?;
     let instructions = instructions.into();
-    #[cfg(debug_assertions)]
-    let err_msg = format!("Failed to build transaction from instruction {instructions:?}");
-    #[cfg(not(debug_assertions))]
-    let err_msg = "Failed to build transaction.";
-    let tx = iroha_client
-        .build_transaction(instructions, metadata)
-        .wrap_err(err_msg)?;
+    let tx = iroha_client.build_transaction(instructions, metadata);
     let transactions = if context.skip_mst_check() {
         vec![tx]
     } else {
@@ -276,8 +270,9 @@ fn submit(
                             instead of submitting a new transaction (no)?")
                 .interact()
                 .wrap_err("Failed to show interactive prompt.")? => {
-                    original_transactions.into_iter().map(|transaction|
-                    iroha_client.sign_transaction(transaction).wrap_err("Failed to sign transaction.")).collect::<Result<Vec<_>,_>>()?
+                    original_transactions.into_iter().map(|transaction| {
+                        iroha_client.sign_transaction(transaction)
+                    }).collect()
                 }
             _ => vec![tx],
         }
@@ -1052,17 +1047,17 @@ mod peer {
     #[derive(clap::Subcommand, Debug)]
     pub enum Args {
         /// Register subcommand of peer
-        Register(Register),
+        Register(Box<Register>),
         /// Unregister subcommand of peer
-        Unregister(Unregister),
+        Unregister(Box<Unregister>),
     }
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            match_all!(
-                (self, context),
-                { Args::Register, Args::Unregister }
-            )
+            match self {
+                Args::Register(register) => RunArgs::run(*register, context),
+                Args::Unregister(unregister) => RunArgs::run(*unregister, context),
+            }
         }
     }
 
@@ -1086,9 +1081,8 @@ mod peer {
                 key,
                 metadata,
             } = self;
-            let register_peer = iroha_client::data_model::isi::Register::peer(Peer::new(
-                PeerId::new(&address, &key),
-            ));
+            let register_peer =
+                iroha_client::data_model::isi::Register::peer(Peer::new(PeerId::new(address, key)));
             submit([register_peer], metadata.load()?, context).wrap_err("Failed to register peer")
         }
     }
@@ -1114,7 +1108,7 @@ mod peer {
                 metadata,
             } = self;
             let unregister_peer =
-                iroha_client::data_model::isi::Unregister::peer(PeerId::new(&address, &key));
+                iroha_client::data_model::isi::Unregister::peer(PeerId::new(address, key));
             submit([unregister_peer], metadata.load()?, context)
                 .wrap_err("Failed to unregister peer")
         }

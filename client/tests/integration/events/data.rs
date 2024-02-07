@@ -150,9 +150,7 @@ fn transaction_execution_should_produce_events(
 
     // submit transaction to produce events
     init_receiver.recv()?;
-    let transaction = client
-        .build_transaction(executable, UnlimitedMetadata::new())
-        .unwrap();
+    let transaction = client.build_transaction(executable, UnlimitedMetadata::new());
     client.submit_transaction_blocking(&transaction)?;
 
     // assertion

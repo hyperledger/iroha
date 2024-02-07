@@ -391,12 +391,10 @@ fn generate_key_pair(
     base_seed: Option<&[u8]>,
     additional_seed: &[u8],
 ) -> color_eyre::Result<KeyPair, IrohaCryptoError> {
-    let cfg = base_seed
-        .map(|base| {
-            let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
-            KeyGenConfiguration::default().use_seed(seed)
-        })
-        .unwrap_or_default();
+    let cfg = base_seed.map_or_else(KeyGenConfiguration::from_random, |base| {
+        let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
+        KeyGenConfiguration::from_seed(seed)
+    });
 
     KeyPair::generate_with_configuration(cfg)
 }
@@ -422,7 +420,7 @@ mod peer_generator {
 
     impl Peer {
         pub fn id(&self) -> PeerId {
-            PeerId::new(&self.addr(self.port_p2p), self.key_pair.public_key())
+            PeerId::new(self.addr(self.port_p2p), self.key_pair.public_key().clone())
         }
 
         pub fn addr(&self, port: u16) -> SocketAddr {
@@ -615,10 +613,11 @@ mod tests {
                 let mut map = BTreeMap::new();
 
                 let chain_id = ChainId::new("00000000-0000-0000-0000-000000000000");
-                let key_pair = KeyPair::generate_with_configuration(
-                    KeyGenConfiguration::default().use_seed(vec![1, 5, 1, 2, 2, 3, 4, 1, 2, 3]),
-                )
-                .unwrap();
+                let key_pair =
+                    KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(vec![
+                        1, 5, 1, 2, 2, 3, 4, 1, 2, 3,
+                    ]))
+                    .unwrap();
 
                 map.insert(
                     "iroha0".to_owned(),
@@ -686,10 +685,9 @@ mod tests {
     fn empty_genesis_public_key_is_skipped_in_env() {
         let chain_id = ChainId::new("00000000-0000-0000-0000-000000000000");
 
-        let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().use_seed(vec![0, 1, 2]),
-        )
-        .unwrap();
+        let key_pair =
+            KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(vec![0, 1, 2]))
+                .unwrap();
 
         let env: FullPeerEnv = CompactPeerEnv {
             chain_id,

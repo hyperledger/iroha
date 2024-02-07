@@ -25,14 +25,13 @@ pub fn create_block(
     wsv: &mut WorldStateView,
     instructions: Vec<InstructionBox>,
     account_id: AccountId,
-    key_pair: KeyPair,
+    key_pair: &KeyPair,
 ) -> CommittedBlock {
     let chain_id = ChainId::new("0");
 
     let transaction = TransactionBuilder::new(chain_id.clone(), account_id)
         .with_instructions(instructions)
-        .sign(key_pair.clone())
-        .unwrap();
+        .sign(key_pair);
     let limits = wsv.transaction_executor().transaction_limits;
 
     let topology = Topology::new(UniqueVec::new());
@@ -43,7 +42,6 @@ pub fn create_block(
     )
     .chain(0, wsv)
     .sign(key_pair)
-    .unwrap()
     .commit(&topology)
     .unwrap();
 

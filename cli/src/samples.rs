@@ -30,16 +30,10 @@ pub fn get_trusted_peers(public_key: Option<&PublicKey>) -> HashSet<PeerId> {
         ),
     ]
     .iter()
-    .map(|(a, k)| PeerId {
-        address: a.parse().expect("Valid"),
-        public_key: PublicKey::from_str(k).unwrap(),
-    })
+    .map(|(a, k)| PeerId::new(a.parse().expect("Valid"), PublicKey::from_str(k).unwrap()))
     .collect();
     if let Some(pubkey) = public_key {
-        trusted_peers.insert(PeerId {
-            address: DEFAULT_TORII_P2P_ADDR.clone(),
-            public_key: pubkey.clone(),
-        });
+        trusted_peers.insert(PeerId::new(DEFAULT_TORII_P2P_ADDR.clone(), pubkey.clone()));
     }
     trusted_peers
 }

@@ -70,7 +70,7 @@
       "max_wasm_size_bytes": 4194304
     },
     "WASM_RUNTIME_CONFIG": {
-      "FUEL_LIMIT": 23000000,
+      "FUEL_LIMIT": 30000000,
       "MAX_MEMORY": 524288000
     }
   },

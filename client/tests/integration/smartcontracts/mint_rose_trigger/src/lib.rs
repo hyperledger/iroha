@@ -13,6 +13,8 @@ use lol_alloc::{FreeListAllocator, LockedAllocator};
 #[global_allocator]
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
+getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
+
 /// Mint 1 rose for owner
 #[iroha_trigger::main]
 fn main(owner: AccountId, _event: Event) {

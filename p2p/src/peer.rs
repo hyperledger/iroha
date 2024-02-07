@@ -370,8 +370,8 @@ mod run {
 mod state {
     //! Module for peer stages.
 
-    use iroha_crypto::{KeyPair, PublicKey, Signature};
-    use iroha_primitives::{addr::SocketAddr, const_vec::ConstVec};
+    use iroha_crypto::{KeyGenOption, KeyPair, PublicKey, Signature};
+    use iroha_primitives::addr::SocketAddr;
 
     use super::{cryptographer::Cryptographer, *};
 
@@ -418,8 +418,8 @@ mod state {
             }: Self,
         ) -> Result<SendKey<E>, crate::Error> {
             let key_exchange = K::new();
-            let (kx_local_pk, kx_local_sk) = key_exchange.keypair(None)?;
-            let (algorithm, kx_local_pk_raw) = kx_local_pk.clone().into_raw();
+            let (kx_local_pk, kx_local_sk) = key_exchange.keypair(KeyGenOption::Random);
+            let (algorithm, kx_local_pk_raw) = kx_local_pk.to_raw();
             let write_half = &mut connection.write;
             garbage::write(write_half).await?;
             write_half.write_all(&kx_local_pk_raw).await?;
@@ -430,9 +430,9 @@ mod state {
                 // Then we have servers public key
                 let mut key = vec![0_u8; 32];
                 let _ = read_half.read_exact(&mut key).await?;
-                PublicKey::from_raw(algorithm, ConstVec::new(key))
+                PublicKey::from_raw(algorithm, &key).map_err(iroha_crypto::error::Error::from)?
             };
-            let shared_key = key_exchange.compute_shared_secret(&kx_local_sk, &kx_remote_pk);
+            let shared_key = key_exchange.compute_shared_secret(&kx_local_sk, &kx_remote_pk)?;
             let cryptographer = Cryptographer::new(&shared_key);
             Ok(SendKey {
                 peer_addr,
@@ -463,20 +463,20 @@ mod state {
             }: Self,
         ) -> Result<SendKey<E>, crate::Error> {
             let key_exchange = K::new();
-            let (kx_local_pk, kx_local_sk) = key_exchange.keypair(None)?;
-            let (algorithm, kx_local_pk_raw) = kx_local_pk.clone().into_raw();
+            let (kx_local_pk, kx_local_sk) = key_exchange.keypair(KeyGenOption::Random);
+            let (algorithm, kx_local_pk_raw) = kx_local_pk.to_raw();
             let read_half = &mut connection.read;
             let kx_remote_pk = {
                 garbage::read(read_half).await?;
                 // And then we have clients public key
                 let mut key = vec![0_u8; 32];
                 let _ = read_half.read_exact(&mut key).await?;
-                PublicKey::from_raw(algorithm, ConstVec::new(key))
+                PublicKey::from_raw(algorithm, &key).map_err(iroha_crypto::error::Error::from)?
             };
             let write_half = &mut connection.write;
             garbage::write(write_half).await?;
             write_half.write_all(&kx_local_pk_raw).await?;
-            let shared_key = key_exchange.compute_shared_secret(&kx_local_sk, &kx_remote_pk);
+            let shared_key = key_exchange.compute_shared_secret(&kx_local_sk, &kx_remote_pk)?;
             let cryptographer = Cryptographer::new(&shared_key);
             Ok(SendKey {
                 peer_addr,
@@ -513,7 +513,7 @@ mod state {
             let write_half = &mut connection.write;
 
             let payload = create_payload(&kx_local_pk, &kx_remote_pk);
-            let signature = Signature::new(key_pair, &payload)?;
+            let signature = Signature::new(&key_pair, &payload);
             let data = signature.encode();
 
             let data = &cryptographer.encrypt(data.as_slice())?;
@@ -570,10 +570,7 @@ mod state {
 
             let (remote_pub_key, _) = signature.into();
 
-            let peer_id = PeerId {
-                address: peer_addr,
-                public_key: remote_pub_key,
-            };
+            let peer_id = PeerId::new(peer_addr, remote_pub_key);
 
             Ok(Ready {
                 peer_id,
@@ -592,10 +589,9 @@ mod state {
     }
 
     fn create_payload(kx_local_pk: &PublicKey, kx_remote_pk: &PublicKey) -> Vec<u8> {
-        let mut payload =
-            Vec::with_capacity(kx_local_pk.payload().len() + kx_remote_pk.payload().len());
-        payload.extend(kx_local_pk.payload());
-        payload.extend(kx_remote_pk.payload());
+        let mut payload = Vec::with_capacity(kx_local_pk.size_hint() + kx_remote_pk.size_hint());
+        kx_local_pk.encode_to(&mut payload);
+        kx_remote_pk.encode_to(&mut payload);
         payload
     }
 }

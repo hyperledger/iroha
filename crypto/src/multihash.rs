@@ -1,4 +1,5 @@
 //! Module with multihash implementation
+
 #[cfg(not(feature = "std"))]
 use alloc::{
     string::{String, ToString as _},
@@ -9,7 +10,7 @@ use alloc::{
 use derive_more::Display;
 use iroha_primitives::const_vec::ConstVec;
 
-use crate::{varint, Algorithm, NoSuchAlgorithm, PublicKey};
+use crate::{varint, Algorithm, NoSuchAlgorithm, ParseError, PublicKey, PublicKeyInner};
 
 /// ed25519 public string
 pub const ED_25519_PUB_STR: &str = "ed25519-pub";
@@ -39,6 +40,28 @@ pub enum DigestFunction {
     /// Bls12381G2
     #[display(fmt = "{BLS12_381_G2_PUB}")]
     Bls12381G2Pub = 0xeb,
+}
+
+impl From<DigestFunction> for Algorithm {
+    fn from(f: DigestFunction) -> Self {
+        match f {
+            DigestFunction::Ed25519Pub => Self::Ed25519,
+            DigestFunction::Secp256k1Pub => Self::Secp256k1,
+            DigestFunction::Bls12381G1Pub => Self::BlsNormal,
+            DigestFunction::Bls12381G2Pub => Self::BlsSmall,
+        }
+    }
+}
+
+impl From<Algorithm> for DigestFunction {
+    fn from(a: Algorithm) -> Self {
+        match a {
+            Algorithm::Ed25519 => Self::Ed25519Pub,
+            Algorithm::Secp256k1 => Self::Secp256k1Pub,
+            Algorithm::BlsNormal => Self::Bls12381G1Pub,
+            Algorithm::BlsSmall => Self::Bls12381G2Pub,
+        }
+    }
 }
 
 impl core::str::FromStr for DigestFunction {
@@ -83,17 +106,15 @@ impl From<DigestFunction> for u64 {
     }
 }
 
-/// Multihash
+/// Multihash.
+///
+/// Offers a middleware representation of [`PublicKey`] which can be converted
+/// to/from bytes or string.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Multihash {
-    /// digest
-    pub digest_function: DigestFunction,
-    /// hash payload
-    pub payload: ConstVec<u8>,
-}
+pub struct Multihash(PublicKeyInner);
 
 impl TryFrom<Vec<u8>> for Multihash {
-    type Error = MultihashConvertError;
+    type Error = ParseError;
 
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
         let idx = bytes
@@ -101,7 +122,7 @@ impl TryFrom<Vec<u8>> for Multihash {
             .enumerate()
             .find(|&(_, &byte)| (byte & 0b1000_0000) == 0)
             .ok_or_else(|| {
-                Self::Error::new(String::from(
+                ParseError(String::from(
                     "Failed to find last byte(byte smaller than 128)",
                 ))
             })?
@@ -111,27 +132,26 @@ impl TryFrom<Vec<u8>> for Multihash {
         let mut bytes = bytes.iter().copied();
 
         let digest_function: u64 = varint::VarUint::new(digest_function)
-            .map_err(|err| Self::Error::new(err.to_string()))?
+            .map_err(|err| ParseError(err.to_string()))?
             .try_into()
-            .map_err(|err: varint::ConvertError| Self::Error::new(err.to_string()))?;
-        let digest_function = digest_function.try_into()?;
+            .map_err(|err: varint::ConvertError| ParseError(err.to_string()))?;
+        let digest_function =
+            DigestFunction::try_from(digest_function).map_err(|err| ParseError(err.to_string()))?;
+        let algorithm = Algorithm::from(digest_function);
 
         let digest_size = bytes
             .next()
-            .ok_or_else(|| Self::Error::new(String::from("Digest size not found")))?;
+            .ok_or_else(|| ParseError(String::from("Digest size not found")))?;
 
         let payload: Vec<u8> = bytes.collect();
         if payload.len() != digest_size as usize {
-            return Err(Self::Error::new(String::from(
+            return Err(ParseError(String::from(
                 "Digest size not equal to actual length",
             )));
         }
         let payload = ConstVec::new(payload);
 
-        Ok(Self {
-            digest_function,
-            payload,
-        })
+        Ok(Self::from(*PublicKey::from_raw(algorithm, &payload)?.0))
     }
 }
 
@@ -141,50 +161,32 @@ impl TryFrom<&Multihash> for Vec<u8> {
     fn try_from(multihash: &Multihash) -> Result<Self, Self::Error> {
         let mut bytes = vec![];
 
-        let digest_function: u64 = multihash.digest_function.into();
+        let (algorithm, payload) = multihash.0.to_raw();
+        let digest_function: DigestFunction = algorithm.into();
+        let digest_function: u64 = digest_function.into();
         let digest_function: varint::VarUint = digest_function.into();
         let mut digest_function = digest_function.into();
         bytes.append(&mut digest_function);
-        bytes.push(multihash.payload.len().try_into().map_err(|_e| {
+        bytes.push(payload.len().try_into().map_err(|_e| {
             MultihashConvertError::new(String::from("Digest size can't fit into u8"))
         })?);
-        bytes.extend_from_slice(multihash.payload.as_ref());
+        bytes.extend_from_slice(payload.as_ref());
 
         Ok(bytes)
     }
 }
 
-impl From<Multihash> for PublicKey {
+impl From<Multihash> for PublicKeyInner {
     #[inline]
     fn from(multihash: Multihash) -> Self {
-        let digest_function = match multihash.digest_function {
-            DigestFunction::Ed25519Pub => Algorithm::Ed25519,
-            DigestFunction::Secp256k1Pub => Algorithm::Secp256k1,
-            DigestFunction::Bls12381G1Pub => Algorithm::BlsNormal,
-            DigestFunction::Bls12381G2Pub => Algorithm::BlsSmall,
-        };
-
-        Self {
-            digest_function,
-            payload: multihash.payload,
-        }
+        multihash.0
     }
 }
 
-impl From<PublicKey> for Multihash {
+impl From<PublicKeyInner> for Multihash {
     #[inline]
-    fn from(public_key: PublicKey) -> Self {
-        let digest_function = match public_key.digest_function() {
-            Algorithm::Ed25519 => DigestFunction::Ed25519Pub,
-            Algorithm::Secp256k1 => DigestFunction::Secp256k1Pub,
-            Algorithm::BlsNormal => DigestFunction::Bls12381G1Pub,
-            Algorithm::BlsSmall => DigestFunction::Bls12381G2Pub,
-        };
-
-        Self {
-            digest_function,
-            payload: public_key.payload,
-        }
+    fn from(public_key: PublicKeyInner) -> Self {
+        Self(public_key)
     }
 }
 
@@ -216,38 +218,40 @@ mod tests {
     use super::*;
     use crate::hex_decode;
 
-    fn parse_const_bytes(hex: &str) -> ConstVec<u8> {
-        ConstVec::new(hex_decode(hex).expect("Failed to decode hex bytes"))
-    }
-
     #[test]
     fn multihash_to_bytes() {
-        let multihash = &Multihash {
-            digest_function: DigestFunction::Ed25519Pub,
-            payload: parse_const_bytes(
-                "1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4",
-            ),
-        };
-        let bytes: Vec<u8> = multihash.try_into().expect("Failed to serialize multihash");
+        let multihash = Multihash(
+            *PublicKey::from_raw(
+                Algorithm::Ed25519,
+                &hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
+                    .unwrap(),
+            )
+            .unwrap()
+            .0,
+        );
+        let bytes = Vec::try_from(&multihash).expect("Failed to serialize multihash");
         assert_eq!(
             hex_decode("ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
-                .expect("Failed to decode"),
+                .unwrap(),
             bytes
         );
     }
 
     #[test]
     fn multihash_from_bytes() {
-        let multihash = Multihash {
-            digest_function: DigestFunction::Ed25519Pub,
-            payload: parse_const_bytes(
-                "1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4",
-            ),
-        };
+        let multihash = Multihash(
+            *PublicKey::from_raw(
+                Algorithm::Ed25519,
+                &hex_decode("1509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
+                    .unwrap(),
+            )
+            .unwrap()
+            .0,
+        );
         let bytes =
             hex_decode("ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4")
-                .expect("Failed to decode");
-        let multihash_decoded: Multihash = bytes.try_into().expect("Failed to decode.");
+                .unwrap();
+        let multihash_decoded: Multihash = bytes.try_into().unwrap();
         assert_eq!(multihash, multihash_decoded);
     }
 

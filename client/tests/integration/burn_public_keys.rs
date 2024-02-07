@@ -18,13 +18,10 @@ fn submit(
     let tx = if let Some((account_id, keypair)) = submitter {
         TransactionBuilder::new(chain_id, account_id)
             .with_instructions(instructions)
-            .sign(keypair)
-            .unwrap()
+            .sign(&keypair)
     } else {
-        let tx = client
-            .build_transaction(instructions, UnlimitedMetadata::default())
-            .unwrap();
-        client.sign_transaction(tx).unwrap()
+        let tx = client.build_transaction(instructions, UnlimitedMetadata::default());
+        client.sign_transaction(tx)
     };
 
     (tx.hash(), client.submit_transaction_blocking(&tx))

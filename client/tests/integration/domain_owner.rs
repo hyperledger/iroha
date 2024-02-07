@@ -29,7 +29,7 @@ fn domain_owner_domain_permissions() -> Result<()> {
     // Asset definitions can't be registered by "bob@kingdom" by default
     let transaction = TransactionBuilder::new(chain_id.clone(), bob_id.clone())
         .with_instructions([Register::asset_definition(coin.clone())])
-        .sign(bob_keypair.clone())?;
+        .sign(&bob_keypair);
     let err = test_client
         .submit_transaction_blocking(&transaction)
         .expect_err("Tx should fail due to permissions");
@@ -57,7 +57,7 @@ fn domain_owner_domain_permissions() -> Result<()> {
     test_client.submit_blocking(Grant::permission(token.clone(), bob_id.clone()))?;
     let transaction = TransactionBuilder::new(chain_id, bob_id.clone())
         .with_instructions([Register::asset_definition(coin)])
-        .sign(bob_keypair)?;
+        .sign(&bob_keypair);
     test_client.submit_transaction_blocking(&transaction)?;
     test_client.submit_blocking(Revoke::permission(token, bob_id.clone()))?;
 
@@ -175,7 +175,7 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
     let coin = AssetDefinition::quantity(coin_id.clone());
     let transaction = TransactionBuilder::new(chain_id, bob_id.clone())
         .with_instructions([Register::asset_definition(coin)])
-        .sign(bob_keypair)?;
+        .sign(&bob_keypair);
     test_client.submit_transaction_blocking(&transaction)?;
 
     // check that "alice@wonderland" as owner of domain can transfer asset definitions in her domain
@@ -246,7 +246,7 @@ fn domain_owner_asset_permissions() -> Result<()> {
             Register::asset_definition(coin),
             Register::asset_definition(store),
         ])
-        .sign(bob_keypair)?;
+        .sign(&bob_keypair);
     test_client.submit_transaction_blocking(&transaction)?;
 
     // check that "alice@wonderland" as owner of domain can register and unregister assets in her domain

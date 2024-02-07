@@ -31,6 +31,8 @@ use serde_json::json;
 #[global_allocator]
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
+getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
+
 use alloc::format;
 
 mod token {

@@ -366,6 +366,8 @@ pub mod string {
 
     #[cfg(test)]
     mod tests {
+        use iroha_primitives::addr::socket_addr;
+
         use super::*;
 
         mod id_box {
@@ -496,10 +498,7 @@ pub mod string {
                 let (public_key, _) = iroha_crypto::KeyPair::generate()
                     .expect("Should not panic")
                     .into();
-                let id = IdBox::PeerId(peer::PeerId {
-                    address: "localhost:123".parse().unwrap(),
-                    public_key,
-                });
+                let id = IdBox::PeerId(peer::PeerId::new(socket_addr!(127.0.0.1:123), public_key));
                 assert!(StringPredicate::contains("123").applies(&id));
             }
         }
@@ -1155,6 +1154,7 @@ pub mod value {
 
     #[cfg(test)]
     mod test {
+        use iroha_primitives::addr::socket_addr;
         use peer::Peer;
         use prelude::Metadata;
 
@@ -1197,10 +1197,7 @@ pub mod value {
 
                 assert!(
                     !pred.applies(&Value::Identifiable(IdentifiableBox::Peer(Peer {
-                        id: peer::PeerId {
-                            address: "localhost:123".parse().unwrap(),
-                            public_key
-                        }
+                        id: peer::PeerId::new(socket_addr!(127.0.0.1:123), public_key)
                     })))
                 );
             }

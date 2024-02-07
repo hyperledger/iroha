@@ -49,7 +49,7 @@ fn live_query_is_dropped_after_smart_contract_end() -> Result<()> {
     let transaction = client.build_transaction(
         WasmSmartContract::from_compiled(wasm),
         UnlimitedMetadata::default(),
-    )?;
+    );
     client.submit_transaction_blocking(&transaction)?;
 
     let metadata_value = client.request(FindAccountKeyValueByIdAndKey::new(

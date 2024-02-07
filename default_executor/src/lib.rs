@@ -14,6 +14,8 @@ use lol_alloc::{FreeListAllocator, LockedAllocator};
 #[global_allocator]
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
+getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
+
 /// Executor that replaces some of [`Validate`]'s methods with sensible defaults
 ///
 /// # Warning

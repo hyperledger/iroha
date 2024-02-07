@@ -15,7 +15,7 @@ pub use iroha_smart_contract as smart_contract;
 pub use iroha_smart_contract_utils::{debug, encode_with_length_prefix};
 #[cfg(not(test))]
 use iroha_smart_contract_utils::{decode_with_length_prefix_from_raw, encode_and_execute};
-pub use smart_contract::{data_model, parse};
+pub use smart_contract::{data_model, parse, stub_getrandom};
 
 pub mod default;
 pub mod permission;
