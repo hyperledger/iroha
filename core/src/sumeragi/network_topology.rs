@@ -194,6 +194,26 @@ impl Topology {
         // Rotate all once for every view_change
         topology.rotate_all_n(view_change_index);
 
+        {
+            // FIXME: This is a hack to prevent consensus from running amock due to
+            // a bug in the implementation by reverting to predictable ordering
+
+            let view_change_limit: usize = view_change_index
+                .saturating_sub(10)
+                .try_into()
+                .expect("u64 must fit into usize");
+
+            if view_change_limit > 1 {
+                iroha_logger::error!("Restarting consensus(internal bug). Report to developers");
+                let mut peers: Vec<_> = topology.ordered_peers.iter().cloned().collect();
+
+                peers.sort();
+                let peers_count = peers.len();
+                peers.rotate_right(view_change_limit % peers_count);
+                topology = Topology::new(peers.into_iter().collect());
+            }
+        }
+
         topology
     }
 
