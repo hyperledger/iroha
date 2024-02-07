@@ -386,3 +386,81 @@ pub fn handle_status(
         Ok(reply)
     }
 }
+
+#[cfg(feature = "profiling")]
+pub mod profiling {
+    use std::num::{NonZeroU16, NonZeroU64};
+
+    use pprof::protos::Message;
+    use serde::{Deserialize, Serialize};
+
+    use super::*;
+
+    /// Query params used to configure profile gathering
+    #[derive(Serialize, Deserialize, Clone, Copy)]
+    pub struct ProfileParams {
+        /// How often to sample iroha
+        #[serde(default = "ProfileParams::default_frequency")]
+        frequency: NonZeroU16,
+        /// How long to sample iroha
+        #[serde(default = "ProfileParams::default_seconds")]
+        seconds: NonZeroU64,
+    }
+
+    impl ProfileParams {
+        fn default_frequency() -> NonZeroU16 {
+            NonZeroU16::new(99).unwrap()
+        }
+
+        fn default_seconds() -> NonZeroU64 {
+            NonZeroU64::new(10).unwrap()
+        }
+    }
+
+    /// Serve pprof protobuf profiles
+    pub async fn handle_profile(
+        ProfileParams { frequency, seconds }: ProfileParams,
+        profiling_lock: std::sync::Arc<tokio::sync::Mutex<()>>,
+    ) -> Result<Vec<u8>> {
+        match profiling_lock.try_lock() {
+            Ok(_guard) => {
+                let mut body = Vec::new();
+                {
+                    // Create profiler guard
+                    let guard = pprof::ProfilerGuardBuilder::default()
+                        .frequency(frequency.get() as i32)
+                        .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+                        .build()
+                        .map_err(|e| {
+                            Error::Pprof(eyre::eyre!(
+                                "pprof::ProfilerGuardBuilder::build fail: {}",
+                                e
+                            ))
+                        })?;
+
+                    // Collect profiles for seconds
+                    tokio::time::sleep(tokio::time::Duration::from_secs(seconds.get())).await;
+
+                    let report = guard
+                        .report()
+                        .build()
+                        .map_err(|e| Error::Pprof(eyre::eyre!("generate report fail: {}", e)))?;
+
+                    let profile = report.pprof().map_err(|e| {
+                        Error::Pprof(eyre::eyre!("generate pprof from report fail: {}", e))
+                    })?;
+
+                    profile.write_to_vec(&mut body).map_err(|e| {
+                        Error::Pprof(eyre::eyre!("encode pprof into bytes fail: {}", e))
+                    })?;
+                }
+
+                Ok(body)
+            }
+            Err(_) => {
+                // profile already running return error
+                Err(Error::Pprof(eyre::eyre!("profiling already running")))
+            }
+        }
+    }
+}

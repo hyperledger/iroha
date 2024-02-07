@@ -127,6 +127,30 @@ impl Torii {
         let get_router = get_router.or(warp::path(uri::SCHEMA)
             .and_then(|| async { Ok::<_, Infallible>(routing::handle_schema().await) }));
 
+        #[cfg(feature = "profiling")]
+        let get_router = {
+            // `warp` panics if there is `/` in the string given to the `warp::path` filter
+            // Path filter has to be boxed to have a single uniform type during iteration
+            let profile_router_path = uri::PROFILE
+                .split('/')
+                .skip_while(|p| p.is_empty())
+                .fold(warp::any().boxed(), |path_filter, path| {
+                    path_filter.and(warp::path(path)).boxed()
+                });
+
+            let profiling_lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+            get_router.or(profile_router_path
+                .and(warp::query::<routing::profiling::ProfileParams>())
+                .and_then(move |params| {
+                    let profiling_lock = Arc::clone(&profiling_lock);
+                    async move {
+                        Ok::<_, Infallible>(
+                            routing::profiling::handle_profile(params, profiling_lock).await,
+                        )
+                    }
+                }))
+        };
+
         let post_router = warp::post()
             .and(
                 endpoint4(
@@ -279,6 +303,9 @@ pub enum Error {
     #[cfg(feature = "telemetry")]
     /// Failed to get Prometheus metrics
     Prometheus(#[source] eyre::Report),
+    #[cfg(feature = "profiling")]
+    /// Failed to get pprof profile
+    Pprof(#[source] eyre::Report),
     #[cfg(feature = "telemetry")]
     /// Failed to get status
     StatusFailure(#[source] eyre::Report),
@@ -315,6 +342,8 @@ impl Error {
             },
             #[cfg(feature = "telemetry")]
             Prometheus(_) | StatusFailure(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            #[cfg(feature = "profiling")]
+            Pprof(_) => StatusCode::INTERNAL_SERVER_ERROR,
             ConfigurationFailure(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
