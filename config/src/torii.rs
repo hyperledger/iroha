@@ -74,6 +74,8 @@ pub mod uri {
     pub const SCHEMA: &str = "schema";
     /// URI for getting the API version currently used
     pub const API_VERSION: &str = "api_version";
+    /// URI for getting cpu profile
+    pub const PROFILE: &str = "debug/pprof/profile";
 }
 
 #[cfg(test)]

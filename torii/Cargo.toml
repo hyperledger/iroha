@@ -20,6 +20,8 @@ workspace = true
 [features]
 # Enables Telemetry (i.e. Status, Metrics, and API Version) endpoints
 telemetry = ["iroha_telemetry", "iroha_core/telemetry", "serde_json"]
+# Enables profiling endpoint
+profiling = ["pprof"]
 # Enables Data Model Schema endpoint
 schema = ["iroha_schema_gen"]
 
@@ -46,3 +48,5 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
 async-trait = { workspace = true }
 parity-scale-codec = { workspace = true, features = ["derive"] }
+# TODO: switch to original crate once fix is merged (https://github.com/tikv/pprof-rs/pull/241)
+pprof = { git = " https://github.com/Erigara/pprof-rs", branch = "fix_pointer_align", optional = true, default-features = false, features = ["protobuf-codec", "frame-pointer", "cpp"] }

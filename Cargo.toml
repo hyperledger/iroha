@@ -256,4 +256,4 @@ lto = true
 
 [profile.profiling]
 inherits = "release"
-debug = "line-tables-only"
+debug = "limited"
