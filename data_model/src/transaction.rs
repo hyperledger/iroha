@@ -230,7 +230,6 @@ impl WasmSmartContract {
 
 impl TransactionPayload {
     /// Calculate transaction payload [`Hash`](`iroha_crypto::HashOf`).
-    #[cfg(feature = "std")]
     pub fn hash(&self) -> iroha_crypto::HashOf<Self> {
         iroha_crypto::HashOf::new(self)
     }
@@ -273,13 +272,11 @@ impl SignedTransaction {
     }
 
     /// Calculate transaction [`Hash`](`iroha_crypto::HashOf`).
-    #[cfg(feature = "std")]
     pub fn hash(&self) -> iroha_crypto::HashOf<Self> {
         iroha_crypto::HashOf::new(self)
     }
 
     /// Sign transaction with provided key pair.
-    #[cfg(feature = "std")]
     #[must_use]
     pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
         let SignedTransaction::V1(mut tx) = self;
@@ -294,7 +291,6 @@ impl SignedTransaction {
     }
 
     /// Add additional signatures to this transaction
-    #[cfg(feature = "std")]
     #[cfg(feature = "transparent_api")]
     pub fn merge_signatures(&mut self, other: Self) -> bool {
         if self.payload().hash() != other.payload().hash() {
@@ -326,7 +322,6 @@ impl SignedTransactionV1 {
 
 impl TransactionValue {
     /// Calculate transaction [`Hash`](`iroha_crypto::HashOf`).
-    #[cfg(feature = "std")]
     pub fn hash(&self) -> iroha_crypto::HashOf<SignedTransaction> {
         self.value.hash()
     }
@@ -372,14 +367,8 @@ mod candidate {
     }
 
     impl SignedTransactionCandidate {
-        #[cfg(feature = "std")]
         fn validate(self) -> Result<SignedTransactionV1, &'static str> {
             self.validate_signatures()?;
-            self.validate_instructions()
-        }
-
-        #[cfg(not(feature = "std"))]
-        fn validate(self) -> Result<SignedTransactionV1, &'static str> {
             self.validate_instructions()
         }
 
@@ -396,7 +385,6 @@ mod candidate {
             })
         }
 
-        #[cfg(feature = "std")]
         fn validate_signatures(&self) -> Result<(), &'static str> {
             self.signatures
                 .verify(&self.payload)
@@ -739,7 +727,6 @@ mod http {
         }
 
         /// Sign transaction with provided key pair.
-        #[cfg(feature = "std")]
         #[must_use]
         pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
             let signatures = SignaturesOf::new(key_pair, &self.payload);

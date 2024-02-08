@@ -1149,7 +1149,6 @@ pub mod http {
 
         impl SignedQueryCandidate {
             fn validate(self) -> Result<SignedQueryV1, &'static str> {
-                #[cfg(feature = "std")]
                 if self.signature.verify(&self.payload).is_err() {
                     return Err("Query signature not valid");
                 }
