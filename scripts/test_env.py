@@ -19,7 +19,7 @@ import urllib.error
 import urllib.request
 import tomli_w
 
-SWARM_CONFIGS_DIRECTORY = pathlib.Path("config_samples/swarm")
+SWARM_CONFIGS_DIRECTORY = pathlib.Path("configs/swarm")
 SHARED_CONFIG_FILE_NAME = "config.base.toml"
 
 class Network:

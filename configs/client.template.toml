@@ -1,0 +1,20 @@
+# chain_id =
+
+## Might be set via `TORII_URL` env var
+# torii_url =
+
+[basic_auth]
+# login =
+# password =
+
+[account]
+# id =
+# public_key =
+# private_key.digest_function =
+# private_key.payload =
+
+[transaction]
+# time_to_live = 100_000
+# status_timeout = 100_000
+# nonce = false
+

@@ -18,6 +18,6 @@ trap 'rm -rf -- "$IROHA2_GENESIS_PATH" "$KURA_BLOCK_STORE_PATH"' EXIT
 
 # Create invalid genesis
 # NewAssetDefinition replaced with AssetDefinition
-sed 's/NewAssetDefinition/AssetDefinition/' ./config_samples/swarm/genesis.json > $IROHA2_GENESIS_PATH
+sed 's/NewAssetDefinition/AssetDefinition/' ./configs/swarm/genesis.json > $IROHA2_GENESIS_PATH
 
 timeout 1m target/debug/iroha --submit-genesis 2>&1 | tee /dev/stderr | grep -q 'Transaction validation failed in genesis block'

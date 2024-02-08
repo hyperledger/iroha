@@ -3,8 +3,8 @@ set -e
 
 case $1 in
     "genesis")
-        cargo run --release --bin kagami -- genesis --executor-path-in-genesis ./executor.wasm | diff - config_samples/swarm/genesis.json || {
-            echo 'Please re-generate the genesis with `cargo run --release --bin kagami -- genesis --executor-path-in-genesis ./executor.wasm > config_samples/swarm/genesis.json`'
+        cargo run --release --bin kagami -- genesis --executor-path-in-genesis ./executor.wasm | diff - configs/swarm/genesis.json || {
+            echo 'Please re-generate the genesis with `cargo run --release --bin kagami -- genesis --executor-path-in-genesis ./executor.wasm > configs/swarm/genesis.json`'
             exit 1
         };;
     "schema")
@@ -19,7 +19,7 @@ case $1 in
             # FIXME: not nice; add an option to `kagami swarm` to print content into stdout?
             #        it is not a default behaviour because Kagami resolves `build` path relative
             #        to the output file location
-            temp_file="config_samples/swarm/docker-compose.TMP.yml"
+            temp_file="configs/swarm/docker-compose.TMP.yml"
             full_cmd="$cmd_base --outfile $temp_file"
 
             eval "$full_cmd"
@@ -30,19 +30,19 @@ case $1 in
         }
 
         command_base_for_single() {
-            echo "cargo run --release --bin iroha_swarm -- -p 1 -s Iroha --force --config-dir ./config_samples/swarm --health-check --build ."
+            echo "cargo run --release --bin iroha_swarm -- -p 1 -s Iroha --force --config-dir ./configs/swarm --health-check --build ."
         }
 
         command_base_for_multiple_local() {
-            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./config_samples/swarm --health-check --build ."
+            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/swarm --health-check --build ."
         }
 
         command_base_for_default() {
-            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./config_samples/swarm --health-check --image hyperledger/iroha2:dev"
+            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/swarm --health-check --image hyperledger/iroha2:dev"
         }
 
 
-        do_check "$(command_base_for_single)" "config_samples/swarm/docker-compose.single.yml"
-        do_check "$(command_base_for_multiple_local)" "config_samples/swarm/docker-compose.local.yml"
-        do_check "$(command_base_for_default)" "config_samples/swarm/docker-compose.yml"
+        do_check "$(command_base_for_single)" "configs/swarm/docker-compose.single.yml"
+        do_check "$(command_base_for_multiple_local)" "configs/swarm/docker-compose.local.yml"
+        do_check "$(command_base_for_default)" "configs/swarm/docker-compose.yml"
 esac

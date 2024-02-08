@@ -190,7 +190,7 @@ pub fn build_wsv(
 
     {
         let path_to_executor = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../config_samples/swarm/executor.wasm");
+            .join("../configs/swarm/executor.wasm");
         let wasm = std::fs::read(&path_to_executor)
             .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_executor.display()));
         let executor = Executor::new(WasmSmartContract::from_compiled(wasm));

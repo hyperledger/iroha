@@ -3,7 +3,7 @@
 ## You can use another TOML file to extend from.
 ## For a single file extension:
 # extends = "./base.toml"
-## For a chain of extensions:
+## Or, for a chain of extensions:
 # extends = ["base-1.toml", "base-2.toml"]
 
 # chain_id =

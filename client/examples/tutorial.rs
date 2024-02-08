@@ -8,7 +8,7 @@ use iroha_client::config::Config;
 
 fn main() {
     // #region rust_config_load
-    let config = Config::load("../config_samples/swarm/client.toml").unwrap();
+    let config = Config::load("../configs/swarm/client.toml").unwrap();
     // #endregion rust_config_load
 
     // Your code goes here…
