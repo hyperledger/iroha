@@ -5,8 +5,7 @@ use std::{path::Path, time::Duration};
 
 use derive_more::Display;
 use eyre::Result;
-pub use iroha_config::base;
-use iroha_config::base::UnwrapPartial;
+use iroha_config::{base, base::UnwrapPartial};
 use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, ChainId};
 use iroha_primitives::small::SmallStr;
