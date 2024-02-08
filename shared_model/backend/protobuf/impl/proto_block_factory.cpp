@@ -5,8 +5,6 @@
 
 #include "backend/protobuf/proto_block_factory.hpp"
 
-#include <sstream>
-
 #include <boost/assert.hpp>
 #include "backend/protobuf/block.hpp"
 
