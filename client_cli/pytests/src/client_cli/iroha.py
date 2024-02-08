@@ -51,7 +51,12 @@ class Iroha(ClientCli):
         :rtype: List[str]
         """
         self._execute_command('domain')
-        domains = json.loads(self.stdout)
+        try:
+            domains = json.loads(self.stdout)
+        except json.decoder.JSONDecodeError as e:
+            print(f"JSON decode error occurred with this input:", self.stdout)
+            print(f"STDERR:", self.stderr)
+            raise
         domains_dict = { domain["id"]: domain for domain in domains }
         return domains_dict
 

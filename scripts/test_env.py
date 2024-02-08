@@ -38,9 +38,7 @@ class Network:
         logging.info("Generating shared configuration...")
         trusted_peers = [{"address": f"{peer.host_ip}:{peer.p2p_port}", "public_key": peer.public_key} for peer in self.peers]
         shared_config = {
-            "iroha": {
-                "chain_id": "00000000-0000-0000-0000-000000000000",
-            },
+            "chain_id": "00000000-0000-0000-0000-000000000000",
             "genesis": {
                 "public_key": self.peers[0].public_key
             },
@@ -116,10 +114,10 @@ class _Peer:
 
         config = {
             "extends": f"../{SHARED_CONFIG_FILE_NAME}",
-            "iroha": {
-                "public_key": self.public_key,
-                "private_key": self.private_key,
-                "p2p_address": f"{self.host_ip}:{self.p2p_port}"
+            "public_key": self.public_key,
+            "private_key": self.private_key,
+            "network": {
+                "address":  f"{self.host_ip}:{self.p2p_port}"
             },
             "torii": {
                 "address": f"{self.host_ip}:{self.api_port}"

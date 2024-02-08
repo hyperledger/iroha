@@ -48,7 +48,7 @@ class Config:
 
         :return: None
         """
-        parsed_url = urlparse(self._config['api']["torii_url"])
+        parsed_url = urlparse(self._config["torii_url"])
         random_port = random.randint(self.port_min, self.port_max)
         self._envs["TORII_URL"] = parsed_url._replace(netloc=f"{parsed_url.hostname}:{random_port}").geturl()
 
