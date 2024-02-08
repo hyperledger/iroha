@@ -606,6 +606,7 @@ fn process_message_independent(
                 if cache_full || (deadline_reached && cache_non_empty) {
                     let transactions = sumeragi.transaction_cache.clone();
                     info!(%addr, txns=%transactions.len(), "Creating block...");
+                    let create_block_start_time = Instant::now();
 
                     // TODO: properly process triggers!
                     let mut new_wsv = sumeragi.wsv.clone();
@@ -625,10 +626,15 @@ fn process_message_independent(
                         }
                     };
 
+                    let created_in = create_block_start_time.elapsed();
                     if let Some(current_topology) = current_topology.is_consensus_required() {
-                        info!(%addr, block_payload_hash=%new_block.payload().hash(), "Block created");
-                        *voting_block = Some(VotingBlock::new(new_block.clone(), new_wsv));
+                        info!(%addr, created_in_ms=%created_in.as_millis(), block_payload_hash=%new_block.payload().hash(), "Block created");
 
+                        if created_in > sumeragi.pipeline_time() / 2 {
+                            warn!("Creating block takes too much time. This might prevent consensus from operating. Consider increasing `commit_time` or decreasing `max_transactions_in_block`");
+                        }
+
+                        *voting_block = Some(VotingBlock::new(new_block.clone(), new_wsv));
                         let msg = MessagePacket::new(
                             view_change_proof_chain.clone(),
                             Some(BlockCreated::from(new_block).into()),
