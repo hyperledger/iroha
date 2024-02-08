@@ -52,13 +52,23 @@ fn minimal_config_snapshot() -> Result<()> {
                     "0",
                 ),
                 key_pair: KeyPair {
-                    public_key: {digest: ed25519, payload: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
-                    private_key: {digest: ed25519, payload: 8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
+                    public_key: PublicKey(
+                        ed25519(
+                            "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                        ),
+                    ),
+                    private_key: ed25519(
+                        "8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                    ),
                 },
                 p2p_address: 127.0.0.1:1337,
             },
             genesis: Partial {
-                public_key: {digest: ed25519, payload: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
+                public_key: PublicKey(
+                    ed25519(
+                        "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                    ),
+                ),
             },
             torii: Torii {
                 address: 127.0.0.1:8080,
@@ -74,7 +84,11 @@ fn minimal_config_snapshot() -> Result<()> {
                     [
                         PeerId {
                             address: 127.0.0.1:1338,
-                            public_key: {digest: ed25519, payload: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
+                            public_key: PublicKey(
+                                ed25519(
+                                    "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                                ),
+                            ),
                         },
                     ],
                 ),
@@ -138,7 +152,7 @@ fn minimal_config_snapshot() -> Result<()> {
                     max: 128,
                 },
                 wasm_runtime: WasmRuntime {
-                    fuel_limit: 23000000,
+                    fuel_limit: 30000000,
                     max_memory_bytes: 524288000,
                 },
             },
@@ -272,17 +286,29 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 ),
             ),
             public_key: Some(
-                {digest: ed25519, payload: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
+                PublicKey(
+                    ed25519(
+                        "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                    ),
+                ),
             ),
             private_key: Some(
-                {digest: ed25519, payload: 8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
+                ed25519(
+                    "8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                ),
             ),
             genesis: GenesisPartial {
                 public_key: Some(
-                    {digest: ed25519, payload: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
+                    PublicKey(
+                        ed25519(
+                            "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                        ),
+                    ),
                 ),
                 private_key: Some(
-                    {digest: ed25519, payload: 8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB},
+                    ed25519(
+                        "8F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544168B6CB894F84F8BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB",
+                    ),
                 ),
                 file: None,
             },
