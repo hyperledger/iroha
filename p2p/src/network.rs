@@ -321,7 +321,7 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         }
 
         for public_key in to_disconnect {
-            self.disconnect_peer(public_key)
+            self.disconnect_peer(&public_key)
         }
     }
 
@@ -344,8 +344,8 @@ impl<T: Pload, K: Kex, E: Enc> NetworkBase<T, K, E> {
         );
     }
 
-    fn disconnect_peer(&mut self, public_key: PublicKey) {
-        let peer = match self.peers.remove(&public_key) {
+    fn disconnect_peer(&mut self, public_key: &PublicKey) {
+        let peer = match self.peers.remove(public_key) {
             Some(peer) => peer,
             _ => return iroha_logger::warn!(?public_key, "Not found peer to disconnect"),
         };

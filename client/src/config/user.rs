@@ -2,16 +2,45 @@
 
 mod boilerplate;
 
-use std::{str::FromStr, time::Duration};
+use std::{fs::File, io::Read, path::Path, str::FromStr, time::Duration};
 
 pub use boilerplate::*;
 use eyre::{eyre, Context, Report};
 use iroha_config::base::{Emitter, ErrorsCollection};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::{account::AccountId, ChainId};
+use merge::Merge;
 use url::Url;
 
 use crate::config::BasicAuth;
+
+impl RootPartial {
+    /// Reads the partial layer from TOML
+    ///
+    /// # Errors
+    /// - File not found
+    /// - Not valid TOML or content
+    pub fn from_toml(path: impl AsRef<Path>) -> eyre::Result<Self> {
+        let contents = {
+            let mut contents = String::new();
+            File::open(path.as_ref())
+                .wrap_err_with(|| {
+                    eyre!("cannot open file at location `{}`", path.as_ref().display())
+                })?
+                .read_to_string(&mut contents)?;
+            contents
+        };
+        let layer: Self = toml::from_str(&contents).wrap_err("failed to parse toml")?;
+        Ok(layer)
+    }
+
+    /// Merge other into self
+    #[must_use]
+    pub fn merge(mut self, other: Self) -> Self {
+        Merge::merge(&mut self, other);
+        self
+    }
+}
 
 /// Root of the user configuration
 #[derive(Clone, Debug)]
@@ -27,6 +56,9 @@ pub struct Root {
 impl Root {
     /// Validates user configuration for semantic errors and constructs a complete
     /// [`super::Config`].
+    ///
+    /// # Errors
+    /// If a set of validity errors occurs.
     pub fn parse(self) -> Result<super::Config, ErrorsCollection<Report>> {
         let Self {
             chain_id,

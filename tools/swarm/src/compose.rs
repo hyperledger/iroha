@@ -722,6 +722,7 @@ mod tests {
         };
 
         let actual = serde_yaml::to_string(&compose).expect("Should be serialisable");
+        #[allow(clippy::needless_raw_string_hashes)]
         let expected = expect_test::expect![[r#"
             version: '3.8'
             services:
@@ -771,6 +772,7 @@ mod tests {
         .into();
 
         let actual = serde_yaml::to_string(&env).unwrap();
+        #[allow(clippy::needless_raw_string_hashes)]
         let expected = expect_test::expect![[r#"
             CHAIN_ID: 00000000-0000-0000-0000-000000000000
             PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD

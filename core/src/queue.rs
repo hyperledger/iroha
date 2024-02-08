@@ -859,8 +859,10 @@ mod tests {
             )
             .with_executable(tx.0.instructions().clone());
 
-            let creation_time: u64 = tx.0.creation_time().as_millis().try_into().unwrap();
-            new_tx.set_creation_time_ms(creation_time + (future_threshold * 2).as_millis() as u64);
+            new_tx.set_creation_time_ms(
+                tx.0.payload().creation_time_ms
+                    + u64::try_from((future_threshold * 2).as_millis()).unwrap(),
+            );
 
             let new_tx = new_tx.sign(&alice_key);
             let limits = TransactionLimits {

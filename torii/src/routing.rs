@@ -423,7 +423,7 @@ pub mod profiling {
                 {
                     // Create profiler guard
                     let guard = pprof::ProfilerGuardBuilder::default()
-                        .frequency(frequency.get().into())
+                        .frequency(i32::from(frequency.get()))
                         .blocklist(&["libc", "libgcc", "pthread", "vdso"])
                         .build()
                         .map_err(|e| {

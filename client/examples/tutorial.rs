@@ -13,8 +13,6 @@ fn main() {
 
     // Your code goes here…
 
-    json_config_client_test(config.clone())
-        .expect("JSON config client example is expected to work correctly");
     domain_registration_test(config.clone())
         .expect("Domain registration example is expected to work correctly");
     account_definition_test().expect("Account definition example is expected to work correctly");
@@ -28,15 +26,6 @@ fn main() {
         .expect("Asset burning example is expected to work correctly");
     // output_visualising_test(&config).expect(msg: "Visualising outputs example is expected to work correctly");
     println!("Success!");
-}
-
-fn json_config_client_test(config: Config) -> Result<(), Error> {
-    use iroha_client::client::Client;
-
-    // Initialise a client with a provided config
-    let _current_client = Client::new(config);
-
-    Ok(())
 }
 
 fn domain_registration_test(config: Config) -> Result<(), Error> {

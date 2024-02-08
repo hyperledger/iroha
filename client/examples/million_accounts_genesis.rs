@@ -40,7 +40,7 @@ fn main_genesis() {
 
     let chain_id = get_chain_id();
     let configuration = get_config(
-        unique_vec![peer.id.clone()],
+        &unique_vec![peer.id.clone()],
         Some(chain_id.clone()),
         Some(get_key_pair()),
     );

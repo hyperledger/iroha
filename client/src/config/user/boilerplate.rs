@@ -2,9 +2,8 @@
 
 #![allow(missing_docs)]
 
-use std::{error::Error, fs::File, io::Read, path::Path};
+use std::error::Error;
 
-use eyre::{eyre, Context};
 use iroha_config::base::{
     Emitter, FromEnv, HumanDuration, Merge, ParseEnvResult, UnwrapPartial, UnwrapPartialResult,
     UserField,
@@ -33,26 +32,7 @@ pub struct RootPartial {
 impl RootPartial {
     pub fn new() -> Self {
         // TODO: gen with macro
-        Default::default()
-    }
-
-    pub fn from_toml(path: impl AsRef<Path>) -> eyre::Result<Self> {
-        let contents = {
-            let mut contents = String::new();
-            File::open(path.as_ref())
-                .wrap_err_with(|| {
-                    eyre!("cannot open file at location `{}`", path.as_ref().display())
-                })?
-                .read_to_string(&mut contents)?;
-            contents
-        };
-        let layer: Self = toml::from_str(&contents).wrap_err("failed to parse toml")?;
-        Ok(layer)
-    }
-
-    pub fn merge(mut self, other: Self) -> Self {
-        Merge::merge(&mut self, other);
-        self
+        Self::default()
     }
 }
 

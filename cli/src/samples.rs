@@ -59,7 +59,7 @@ pub fn get_trusted_peers(public_key: Option<&PublicKey>) -> HashSet<PeerId> {
 /// # Panics
 /// - when [`KeyPair`] generation fails (rare case).
 pub fn get_user_config(
-    peers: UniqueVec<PeerId>,
+    peers: &UniqueVec<PeerId>,
     chain_id: Option<ChainId>,
     key_pair: Option<KeyPair>,
 ) -> UserConfig {
@@ -103,7 +103,7 @@ pub fn get_user_config(
 /// # Panics
 /// - when [`KeyPair`] generation fails (rare case).
 pub fn get_config(
-    trusted_peers: UniqueVec<PeerId>,
+    trusted_peers: &UniqueVec<PeerId>,
     chain_id: Option<ChainId>,
     key_pair: Option<KeyPair>,
 ) -> Config {

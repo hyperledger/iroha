@@ -507,7 +507,7 @@ pub fn read_config_and_genesis(
         let raw_block = RawGenesisBlock::from_path(file)?;
 
         Some(
-            GenesisNetwork::new(raw_block, &config.common.chain_id, &key_pair)
+            GenesisNetwork::new(raw_block, &config.common.chain_id, key_pair)
                 .wrap_err("Failed to construct the genesis")?,
         )
     } else {
@@ -607,7 +607,7 @@ mod tests {
 
             // When
 
-            let (config, genesis) = read_config_and_genesis(&config_path, true)?;
+            let (config, genesis) = read_config_and_genesis(config_path, true)?;
 
             // Then
 
@@ -656,7 +656,7 @@ mod tests {
 
             // When & Then
 
-            let report = read_config_and_genesis(&config_path, false).unwrap_err();
+            let report = read_config_and_genesis(config_path, false).unwrap_err();
 
             assert_contains!(
                 format!("{report:#}"),

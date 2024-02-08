@@ -12,8 +12,10 @@
 use std::{
     error::Error,
     fmt::Debug,
+    fs::File,
+    io::Read,
     num::{NonZeroU32, NonZeroUsize},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
@@ -57,7 +59,85 @@ pub struct Root {
     chain_wide: ChainWide,
 }
 
+impl RootPartial {
+    /// Read the partial from TOML file
+    ///
+    /// # Errors
+    /// - If file is not found, or not a valid TOML
+    /// - If failed to parse data into a layer
+    /// - If failed to read other configurations specified in `extends`
+    pub fn from_toml(path: impl AsRef<Path>) -> eyre::Result<Self, eyre::Error> {
+        let contents = {
+            let mut file = File::open(path.as_ref()).wrap_err_with(|| {
+                eyre!("cannot open file at location `{}`", path.as_ref().display())
+            })?;
+            let mut contents = String::new();
+            file.read_to_string(&mut contents)?;
+            contents
+        };
+        let mut layer: Self = toml::from_str(&contents).wrap_err("failed to parse toml")?;
+
+        let base_path = path
+            .as_ref()
+            .parent()
+            .expect("the config file path could not be empty or root");
+
+        layer.normalise_paths(base_path);
+
+        if let Some(paths) = layer.extends.take() {
+            let base = paths
+                .iter()
+                .try_fold(None, |acc: Option<RootPartial>, extends_path| {
+                    // extends path is not normalised relative to the config file yet
+                    let full_path = base_path.join(extends_path);
+
+                    let base = Self::from_toml(&full_path)
+                        .wrap_err_with(|| eyre!("cannot extend from `{}`", full_path.display()))?;
+
+                    match acc {
+                        None => Ok::<Option<RootPartial>, Report>(Some(base)),
+                        Some(other_base) => Ok(Some(other_base.merge(base))),
+                    }
+                })?;
+            if let Some(base) = base {
+                layer = base.merge(layer)
+            };
+        }
+
+        Ok(layer)
+    }
+
+    /// **Note:** this function doesn't affect `extends`
+    fn normalise_paths(&mut self, relative_to: impl AsRef<Path>) {
+        let path = relative_to.as_ref();
+
+        macro_rules! patch {
+            ($value:expr) => {
+                $value.as_mut().map(|x| {
+                    *x = path.join(&x);
+                })
+            };
+        }
+
+        patch!(self.genesis.file);
+        patch!(self.snapshot.store_path);
+        patch!(self.kura.block_store_path);
+        patch!(self.telemetry.dev.file);
+    }
+
+    // FIXME workaround the inconvenient way `Merge::merge` works
+    #[must_use]
+    pub fn merge(mut self, other: Self) -> Self {
+        Merge::merge(&mut self, other);
+        self
+    }
+}
+
 impl Root {
+    /// Parses user configuration view into the internal repr.
+    ///
+    /// # Errors
+    /// If any invalidity found.
     pub fn parse(self, cli: CliContext) -> Result<actual::Root, ErrorsCollection<Report>> {
         let mut emitter = Emitter::new();
 

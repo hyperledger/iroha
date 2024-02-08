@@ -765,7 +765,7 @@ impl TestConfiguration for Configuration {
         };
 
         let mut layer = iroha::samples::get_user_config(
-            UniqueVec::new(),
+            &UniqueVec::new(),
             Some(get_chain_id()),
             Some(get_key_pair()),
         )

@@ -101,12 +101,18 @@ pub trait ReadEnv<E> {
     /// part, it might be convenient to parse the string while just borrowing it
     /// (e.g. with [`FromStr`]), but might be also convenient to own the value. [`Cow`] covers all
     /// of this.
+    ///
+    /// # Errors
+    /// For any reason an implementor might have.
     fn read_env(&self, key: impl AsRef<str>) -> Result<Option<Cow<'_, str>>, E>;
 }
 
 /// Constructs from environment variables
 pub trait FromEnv {
     /// Constructs from environment variables using [`ReadEnv`]
+    ///
+    /// # Errors
+    /// For any reason an implementor might have.
     // `E: Error` so that it could be wrapped into a Report
     fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self>
     where
@@ -162,6 +168,9 @@ impl<T: Debug> Emitter<T> {
 
     /// Transform the emitter into a [`Result`], containing an [`ErrorCollection`] if
     /// any errors were emitted.
+    ///
+    /// # Errors
+    /// If any errors were emitted.
     pub fn finish(mut self) -> Result<(), ErrorsCollection<T>> {
         self.bomb.defuse();
 
@@ -170,6 +179,12 @@ impl<T: Debug> Emitter<T> {
         } else {
             Err(ErrorsCollection(self.errors))
         }
+    }
+}
+
+impl<T: Debug> Default for Emitter<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -449,7 +464,10 @@ pub trait UnwrapPartial {
     /// The output of unwrapping, i.e. the full layer
     type Output;
 
-    /// Unwraps the partial, emitting multiple [`MissingFieldError`] in case of absense.
+    /// Unwraps the partial into a structure with all required fields present.
+    ///
+    /// # Errors
+    /// If there are absent fields, returns a bulk of [`MissingFieldError`]s.
     fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output>;
 }
 

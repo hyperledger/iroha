@@ -1,3 +1,5 @@
+#![allow(clippy::needless_raw_string_hashes)] // triggered by `expect_test` snapshots
+
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -38,6 +40,7 @@ fn test_env_from_file(p: impl AsRef<Path>) -> TestEnv {
 /// This test not only asserts that the minimal set of fields is enough;
 /// it also gives an insight into every single default value
 #[test]
+#[allow(clippy::too_many_lines)]
 fn minimal_config_snapshot() -> Result<()> {
     let config = RootPartial::from_toml(fixtures_dir().join("minimal_with_trusted_peers.toml"))?
         .unwrap_partial()?
@@ -270,6 +273,7 @@ fn inconsistent_genesis_config() -> Result<()> {
 /// Aims the purpose of checking that every single provided env variable is consumed and parsed
 /// into a valid config.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn full_envs_set_is_consumed() -> Result<()> {
     let env = test_env_from_file(fixtures_dir().join("full.env"));
 
