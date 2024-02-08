@@ -44,6 +44,8 @@ macro_rules! impl_deserialize_from_str {
             where
                 D: $crate::serde::Deserializer<'de>,
             {
+                use $crate::serde::Deserialize;
+
                 String::deserialize(deserializer)?
                     .parse()
                     .map_err($crate::serde::de::Error::custom)
