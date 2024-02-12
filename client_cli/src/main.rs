@@ -55,9 +55,21 @@ impl MetadataArgs {
         Ok(value.unwrap_or_default())
     }
 }
-/// Wrapper around Value to accept possible values and fallback to json
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValueArg(Value);
+
+/// Re-usable clap `--value <Value>` (`-v`) argument.
+/// Should be combined with `#[command(flatten)]` attr.
+#[derive(clap::Args, Debug, Clone, PartialEq, Eq)]
+pub struct ValueArg {
+    /// Wrapper around Value to accept possible values and fallback to json.
+    /// The following types are supported:
+    /// Numbers: with a suffix, e.g. 42_u32 or 1000_u128
+    /// Booleans: false/true
+    /// IPv4/IPv6: e.g. 127.0.0.1, ::1
+    /// Iroha Public Key Multihash: e.g. ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0
+    /// JSON: e.g. {"Vec":[{"String":"a"},{"String":"b"}]}
+    #[arg(short, long)]
+    value: Value,
+}
 
 impl FromStr for ValueArg {
     type Err = Error;
@@ -70,7 +82,7 @@ impl FromStr for ValueArg {
             .or_else(|_| s.parse::<NumericValue>().map(Value::Numeric))
             .or_else(|_| s.parse::<PublicKey>().map(Value::PublicKey))
             .or_else(|_| serde_json::from_str::<Value>(s).map_err(Into::into))
-            .map(ValueArg)
+            .map(|value| ValueArg { value })
     }
 }
 
@@ -510,8 +522,7 @@ mod domain {
             /// A key of metadata
             #[arg(short, long)]
             key: Name,
-            /// A value of metadata
-            #[arg(short, long)]
+            #[command(flatten)]
             value: ValueArg,
         }
 
@@ -520,7 +531,7 @@ mod domain {
                 let Self {
                     id,
                     key,
-                    value: ValueArg(value),
+                    value: ValueArg { value },
                 } = self;
                 let set_key_value = SetKeyValue::domain(id, key, value);
                 submit([set_key_value], UnlimitedMetadata::new(), context)
@@ -973,14 +984,7 @@ mod asset {
         /// The key for the store value
         #[clap(long)]
         pub key: Name,
-        /// The value to be associated with the specified key.
-        /// The following types are supported:
-        /// Numbers: with a suffix, e.g. 42_u32 or 1000_u128
-        /// Booleans: false/true
-        /// IPv4/IPv6: e.g. 127.0.0.1, ::1
-        /// Iroha Public Key Multihash: e.g. ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0
-        /// JSON: e.g. {"Vec":[{"String":"a"},{"String":"b"}]}
-        #[clap(long)]
+        #[command(flatten)]
         pub value: ValueArg,
     }
 
@@ -989,7 +993,7 @@ mod asset {
             let Self {
                 asset_id,
                 key,
-                value: ValueArg(value),
+                value: ValueArg { value },
             } = self;
 
             let set = iroha_client::data_model::isi::SetKeyValue::asset(asset_id, key, value);
@@ -1184,9 +1188,9 @@ mod tests {
     fn parse_value_arg_cases() {
         macro_rules! case {
             ($input:expr, $expected:expr) => {
-                let ValueArg(actual) =
+                let ValueArg { value } =
                     ValueArg::from_str($input).expect("should not fail with valid input");
-                assert_eq!(actual, $expected);
+                assert_eq!(value, $expected);
             };
         }
 

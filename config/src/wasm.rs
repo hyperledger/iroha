@@ -7,7 +7,7 @@ use self::default::*;
 /// Module with a set of default values.
 pub mod default {
     /// Default amount of fuel provided for execution
-    pub const DEFAULT_FUEL_LIMIT: u64 = 30_000_000;
+    pub const DEFAULT_FUEL_LIMIT: u64 = 55_000_000;
     /// Default amount of memory given for smart contract
     pub const DEFAULT_MAX_MEMORY: u32 = 500 * 2_u32.pow(20); // 500 MiB
 }
