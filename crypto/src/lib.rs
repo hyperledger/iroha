@@ -649,13 +649,18 @@ impl PrivateKey {
     }
 
     /// Key payload
-    pub fn payload(&self) -> Vec<u8> {
+    fn payload(&self) -> Vec<u8> {
         match self.0.borrow() {
             PrivateKeyInner::Ed25519(key) => key.to_keypair_bytes().to_vec(),
             PrivateKeyInner::Secp256k1(key) => key.to_bytes().to_vec(),
             PrivateKeyInner::BlsNormal(key) => key.to_bytes(),
             PrivateKeyInner::BlsSmall(key) => key.to_bytes(),
         }
+    }
+
+    /// Split the key into its algorithm and payload. Reverse conversion to [`Self::from_raw`].
+    pub fn into_raw(self) -> (Algorithm, Vec<u8>) {
+        (self.algorithm(), self.payload())
     }
 }
 

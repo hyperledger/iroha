@@ -333,17 +333,18 @@ impl From<CompactPeerEnv> for FullPeerEnv {
         let (genesis_private_key_digest, genesis_private_key_payload, genesis_file) = value
             .genesis_private_key
             .map_or((None, None, None), |private_key| {
+                let (algorithm, payload) = private_key.into_raw();
                 (
-                    Some(private_key.algorithm()),
-                    Some(SerializeAsHex(private_key.payload())),
+                    Some(algorithm),
+                    Some(SerializeAsHex(payload)),
                     Some(PATH_TO_GENESIS.to_string()),
                 )
             });
 
-        let (private_key_digest, private_key_payload) = (
-            value.key_pair.private_key().algorithm(),
-            SerializeAsHex(value.key_pair.private_key().payload()),
-        );
+        let (private_key_digest, private_key_payload) = {
+            let (algorithm, payload) = value.key_pair.private_key().clone().into_raw();
+            (algorithm, SerializeAsHex(payload))
+        };
 
         Self {
             chain_id: value.chain_id,
