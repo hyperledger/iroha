@@ -135,7 +135,6 @@ declare_versioned!(SignedBlock 1..2, Debug, Clone, PartialEq, Eq, PartialOrd, Or
 
 impl BlockPayload {
     /// Calculate block payload [`Hash`](`iroha_crypto::HashOf`).
-    #[cfg(feature = "std")]
     pub fn hash(&self) -> iroha_crypto::HashOf<Self> {
         iroha_crypto::HashOf::new(self)
     }
@@ -188,13 +187,11 @@ impl SignedBlock {
     }
 
     /// Calculate block hash
-    #[cfg(feature = "std")]
     pub fn hash(&self) -> HashOf<Self> {
         iroha_crypto::HashOf::new(self)
     }
 
     /// Add additional signatures to this block
-    #[cfg(feature = "std")]
     #[cfg(feature = "transparent_api")]
     #[must_use]
     pub fn sign(mut self, key_pair: &KeyPair) -> Self {
@@ -209,7 +206,6 @@ impl SignedBlock {
     /// # Errors
     ///
     /// If given signature doesn't match block hash
-    #[cfg(feature = "std")]
     #[cfg(feature = "transparent_api")]
     pub fn add_signature(
         &mut self,
@@ -224,7 +220,6 @@ impl SignedBlock {
     }
 
     /// Add additional signatures to this block
-    #[cfg(feature = "std")]
     #[cfg(feature = "transparent_api")]
     pub fn replace_signatures(
         &mut self,
@@ -261,9 +256,7 @@ mod candidate {
 
     impl SignedBlockCandidate {
         fn validate(self) -> Result<SignedBlockV1, &'static str> {
-            #[cfg(feature = "std")]
             self.validate_signatures()?;
-            #[cfg(feature = "std")]
             self.validate_header()?;
 
             if self.payload.transactions.is_empty() {
@@ -276,7 +269,6 @@ mod candidate {
             })
         }
 
-        #[cfg(feature = "std")]
         fn validate_header(&self) -> Result<(), &'static str> {
             let actual_txs_hash = self.payload.header().transactions_hash;
 
@@ -296,7 +288,6 @@ mod candidate {
             Ok(())
         }
 
-        #[cfg(feature = "std")]
         fn validate_signatures(&self) -> Result<(), &'static str> {
             self.signatures
                 .verify(&self.payload)

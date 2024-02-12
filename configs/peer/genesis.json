@@ -154,7 +154,7 @@
         "NewParameter": "?WSVIdentLengthLimits=1,128_LL"
       },
       {
-        "NewParameter": "?WASMFuelLimit=30000000"
+        "NewParameter": "?WASMFuelLimit=55000000"
       },
       {
         "NewParameter": "?WASMMaxMemory=524288000"
