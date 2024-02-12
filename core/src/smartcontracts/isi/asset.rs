@@ -323,8 +323,6 @@ pub mod isi {
             eyre::Error: From<<AssetValue as TryAsMut<Self>>::Error>,
             Value: From<Self>,
         {
-            println!("Hereeeeeeeeeeeeeeeee");
-
             let source_id = transfer.source_id;
             let destination_id = AssetId::new(
                 source_id.definition_id.clone(),
