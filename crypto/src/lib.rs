@@ -113,14 +113,14 @@ impl FromStr for Algorithm {
 /// Options for key generation
 #[cfg(not(feature = "ffi_import"))]
 #[derive(Debug, Clone)]
-pub enum KeyGenOption {
+pub enum KeyGenOption<K = PrivateKey> {
     /// Use random number generator
     #[cfg(feature = "rand")]
     Random,
     /// Use seed
     UseSeed(Vec<u8>),
     /// Derive from private key
-    FromPrivateKey(Box<PrivateKey>),
+    FromPrivateKey(K),
 }
 
 ffi::ffi_item! {
@@ -158,7 +158,7 @@ impl KeyGenConfiguration {
 
     /// Construct using private key with [`Ed25519`](Algorithm::Ed25519) algorithm
     #[must_use]
-    pub fn from_private_key(private_key: impl Into<Box<PrivateKey>>) -> Self {
+    pub fn from_private_key(private_key: impl Into<PrivateKey>) -> Self {
         Self {
             key_gen_option: KeyGenOption::FromPrivateKey(private_key.into()),
             algorithm: Algorithm::default(),
@@ -546,7 +546,7 @@ impl FromStr for PublicKey {
 impl From<PrivateKey> for PublicKey {
     fn from(private_key: PrivateKey) -> Self {
         let algorithm = private_key.algorithm();
-        let key_gen_option = KeyGenOption::FromPrivateKey(Box::new(private_key));
+        let key_gen_option = KeyGenOption::FromPrivateKey(private_key);
 
         let inner = match algorithm {
             Algorithm::Ed25519 => {

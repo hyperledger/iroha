@@ -370,7 +370,7 @@ mod run {
 mod state {
     //! Module for peer stages.
 
-    use iroha_crypto::{KeyGenOption, KeyPair, PublicKey, Signature};
+    use iroha_crypto::{KeyGenOption, KeyPair, Signature};
     use iroha_primitives::addr::SocketAddr;
 
     use super::{cryptographer::Cryptographer, *};
@@ -416,13 +416,14 @@ mod state {
                 key_pair,
                 mut connection,
             }: Self,
-        ) -> Result<SendKey<E>, crate::Error> {
+        ) -> Result<SendKey<K, E>, crate::Error> {
             let key_exchange = K::new();
             let (kx_local_pk, kx_local_sk) = key_exchange.keypair(KeyGenOption::Random);
-            let (algorithm, kx_local_pk_raw) = kx_local_pk.to_raw();
             let write_half = &mut connection.write;
             garbage::write(write_half).await?;
-            write_half.write_all(&kx_local_pk_raw).await?;
+            write_half
+                .write_all(K::encode_public_key(&kx_local_pk))
+                .await?;
             // Read server hello with node's public key
             let read_half = &mut connection.read;
             let kx_remote_pk = {
@@ -430,9 +431,9 @@ mod state {
                 // Then we have servers public key
                 let mut key = vec![0_u8; 32];
                 let _ = read_half.read_exact(&mut key).await?;
-                PublicKey::from_raw(algorithm, &key).map_err(iroha_crypto::error::Error::from)?
+                K::decode_public_key(key).map_err(iroha_crypto::error::Error::from)?
             };
-            let shared_key = key_exchange.compute_shared_secret(&kx_local_sk, &kx_remote_pk)?;
+            let shared_key = key_exchange.compute_shared_secret(&kx_local_sk, &kx_remote_pk);
             let cryptographer = Cryptographer::new(&shared_key);
             Ok(SendKey {
                 peer_addr,
@@ -461,22 +462,22 @@ mod state {
                 mut connection,
                 ..
             }: Self,
-        ) -> Result<SendKey<E>, crate::Error> {
+        ) -> Result<SendKey<K, E>, crate::Error> {
             let key_exchange = K::new();
             let (kx_local_pk, kx_local_sk) = key_exchange.keypair(KeyGenOption::Random);
-            let (algorithm, kx_local_pk_raw) = kx_local_pk.to_raw();
+            let kx_local_pk_raw = K::encode_public_key(&kx_local_pk);
             let read_half = &mut connection.read;
             let kx_remote_pk = {
                 garbage::read(read_half).await?;
                 // And then we have clients public key
                 let mut key = vec![0_u8; 32];
                 let _ = read_half.read_exact(&mut key).await?;
-                PublicKey::from_raw(algorithm, &key).map_err(iroha_crypto::error::Error::from)?
+                K::decode_public_key(key).map_err(iroha_crypto::error::Error::from)?
             };
             let write_half = &mut connection.write;
             garbage::write(write_half).await?;
-            write_half.write_all(&kx_local_pk_raw).await?;
-            let shared_key = key_exchange.compute_shared_secret(&kx_local_sk, &kx_remote_pk)?;
+            write_half.write_all(kx_local_pk_raw).await?;
+            let shared_key = key_exchange.compute_shared_secret(&kx_local_sk, &kx_remote_pk);
             let cryptographer = Cryptographer::new(&shared_key);
             Ok(SendKey {
                 peer_addr,
@@ -490,16 +491,16 @@ mod state {
     }
 
     /// Peer that needs to send key.
-    pub(super) struct SendKey<E: Enc> {
+    pub(super) struct SendKey<K: Kex, E: Enc> {
         peer_addr: SocketAddr,
         key_pair: KeyPair,
-        kx_local_pk: PublicKey,
-        kx_remote_pk: PublicKey,
+        kx_local_pk: K::PublicKey,
+        kx_remote_pk: K::PublicKey,
         connection: Connection,
         cryptographer: Cryptographer<E>,
     }
 
-    impl<E: Enc> SendKey<E> {
+    impl<K: Kex, E: Enc> SendKey<K, E> {
         pub(super) async fn send_our_public_key(
             Self {
                 peer_addr,
@@ -509,10 +510,10 @@ mod state {
                 mut connection,
                 cryptographer,
             }: Self,
-        ) -> Result<GetKey<E>, crate::Error> {
+        ) -> Result<GetKey<K, E>, crate::Error> {
             let write_half = &mut connection.write;
 
-            let payload = create_payload(&kx_local_pk, &kx_remote_pk);
+            let payload = create_payload::<K>(&kx_local_pk, &kx_remote_pk);
             let signature = Signature::new(&key_pair, &payload);
             let data = signature.encode();
 
@@ -535,15 +536,15 @@ mod state {
     }
 
     /// Peer that needs to get key.
-    pub struct GetKey<E: Enc> {
+    pub struct GetKey<K: Kex, E: Enc> {
         peer_addr: SocketAddr,
         connection: Connection,
-        kx_local_pk: PublicKey,
-        kx_remote_pk: PublicKey,
+        kx_local_pk: K::PublicKey,
+        kx_remote_pk: K::PublicKey,
         cryptographer: Cryptographer<E>,
     }
 
-    impl<E: Enc> GetKey<E> {
+    impl<K: Kex, E: Enc> GetKey<K, E> {
         /// Read the peer's public key
         pub(super) async fn read_their_public_key(
             Self {
@@ -565,7 +566,7 @@ mod state {
             let signature: Signature = DecodeAll::decode_all(&mut data.as_slice())?;
 
             // Swap order of keys since we are verifying for other peer order remote/local keys is reversed
-            let payload = create_payload(&kx_remote_pk, &kx_local_pk);
+            let payload = create_payload::<K>(&kx_remote_pk, &kx_local_pk);
             signature.verify(&payload)?;
 
             let (remote_pub_key, _) = signature.into();
@@ -588,10 +589,9 @@ mod state {
         pub cryptographer: Cryptographer<E>,
     }
 
-    fn create_payload(kx_local_pk: &PublicKey, kx_remote_pk: &PublicKey) -> Vec<u8> {
-        let mut payload = Vec::with_capacity(kx_local_pk.size_hint() + kx_remote_pk.size_hint());
-        kx_local_pk.encode_to(&mut payload);
-        kx_remote_pk.encode_to(&mut payload);
+    fn create_payload<K: Kex>(kx_local_pk: &K::PublicKey, kx_remote_pk: &K::PublicKey) -> Vec<u8> {
+        let mut payload = Vec::from(K::encode_public_key(kx_local_pk));
+        payload.extend_from_slice(K::encode_public_key(kx_remote_pk));
         payload
     }
 }
@@ -633,10 +633,10 @@ mod handshake {
     }
 
     stage!(connect_to: Connecting => ConnectedTo);
-    stage!(send_client_hello::<K, E>: ConnectedTo => SendKey<E>);
-    stage!(read_client_hello::<K, E>: ConnectedFrom => SendKey<E>);
-    stage!(send_our_public_key: SendKey<E> => GetKey<E>);
-    stage!(read_their_public_key: GetKey<E> => Ready<E>);
+    stage!(send_client_hello::<K, E>: ConnectedTo => SendKey<K, E>);
+    stage!(read_client_hello::<K, E>: ConnectedFrom => SendKey<K, E>);
+    stage!(send_our_public_key: SendKey<K, E> => GetKey<K, E>);
+    stage!(read_their_public_key: GetKey<K, E> => Ready<E>);
 
     #[async_trait]
     pub(super) trait Handshake<K: Kex, E: Enc> {
@@ -666,8 +666,8 @@ mod handshake {
         };
     }
 
-    impl_handshake!(base_case GetKey<E>);
-    impl_handshake!(SendKey<E>);
+    impl_handshake!(base_case GetKey<K, E>);
+    impl_handshake!(SendKey<K, E>);
     impl_handshake!(ConnectedFrom);
     impl_handshake!(ConnectedTo);
     impl_handshake!(Connecting);

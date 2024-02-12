@@ -93,7 +93,7 @@ mod test {
     #[test]
     fn ed25519_load_keys() {
         let secret = PrivateKey::from_hex(Algorithm::Ed25519, PRIVATE_KEY).unwrap();
-        let (p1, s1) = Ed25519Sha512::keypair(KeyGenOption::FromPrivateKey(Box::new(secret)));
+        let (p1, s1) = Ed25519Sha512::keypair(KeyGenOption::FromPrivateKey(secret));
 
         assert_eq!(
             PrivateKey(Box::new(crate::PrivateKeyInner::Ed25519(s1))),
@@ -108,7 +108,7 @@ mod test {
     #[test]
     fn ed25519_verify() {
         let secret = PrivateKey::from_hex(Algorithm::Ed25519, PRIVATE_KEY).unwrap();
-        let (p, _) = Ed25519Sha512::keypair(KeyGenOption::FromPrivateKey(Box::new(secret)));
+        let (p, _) = Ed25519Sha512::keypair(KeyGenOption::FromPrivateKey(secret));
 
         Ed25519Sha512::verify(MESSAGE_1, hex::decode(SIGNATURE_1).unwrap().as_slice(), &p).unwrap();
 
@@ -129,7 +129,7 @@ mod test {
     #[test]
     fn ed25519_sign() {
         let secret = PrivateKey::from_hex(Algorithm::Ed25519, PRIVATE_KEY).unwrap();
-        let (p, s) = Ed25519Sha512::keypair(KeyGenOption::FromPrivateKey(Box::new(secret)));
+        let (p, s) = Ed25519Sha512::keypair(KeyGenOption::FromPrivateKey(secret));
 
         let sig = Ed25519Sha512::sign(MESSAGE_1, &s);
         Ed25519Sha512::verify(MESSAGE_1, &sig, &p).unwrap();
