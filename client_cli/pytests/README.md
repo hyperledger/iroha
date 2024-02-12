@@ -54,6 +54,7 @@ The test model has the following structure:
 	 ```shell
 	 # Must be executed from the repo root:
 	 ./scripts/test_env.py setup
+     # Note: make sure you have installed packages from `./scripts/requirements.txt`
 	 ```
 
    By default, this builds `iroha`, `iroha_client_cli`, and `kagami` binaries, and runs four peers with their API exposed through the `8080`-`8083` ports.\

@@ -36,8 +36,7 @@ jobs:
           cargo build --bin iroha
       - name: Setup test Iroha 2 environment on bare metal
         run: |
-        # TODO
-        #  pip3 install -r scripts/requirements.txt --no-input
+          pip3 install -r scripts/requirements.txt --no-input --break-system-packages
           ./scripts/test_env.py setup
       - name: Mark binaries as executable
         run: |
