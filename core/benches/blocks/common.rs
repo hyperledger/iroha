@@ -15,6 +15,7 @@ use iroha_data_model::{
     isi::InstructionBox,
     prelude::*,
     transaction::TransactionLimits,
+    ChainId,
 };
 use iroha_primitives::unique_vec::UniqueVec;
 use serde_json::json;
@@ -24,23 +25,23 @@ pub fn create_block(
     wsv: &mut WorldStateView,
     instructions: Vec<InstructionBox>,
     account_id: AccountId,
-    key_pair: KeyPair,
+    key_pair: &KeyPair,
 ) -> CommittedBlock {
-    let transaction = TransactionBuilder::new(account_id)
+    let chain_id = ChainId::new("0");
+
+    let transaction = TransactionBuilder::new(chain_id.clone(), account_id)
         .with_instructions(instructions)
-        .sign(key_pair.clone())
-        .unwrap();
+        .sign(key_pair);
     let limits = wsv.transaction_executor().transaction_limits;
 
     let topology = Topology::new(UniqueVec::new());
     let block = BlockBuilder::new(
-        vec![AcceptedTransaction::accept(transaction, &limits).unwrap()],
+        vec![AcceptedTransaction::accept(transaction, &chain_id, &limits).unwrap()],
         topology.clone(),
         Vec::new(),
     )
     .chain(0, wsv)
     .sign(key_pair)
-    .unwrap()
     .commit(&topology)
     .unwrap();
 
@@ -63,7 +64,7 @@ pub fn populate_wsv(
         let domain_id = construct_domain_id(i);
         let domain = Domain::new(domain_id.clone());
         instructions.push(Register::domain(domain).into());
-        let can_unregister_domain = Grant::permission_token(
+        let can_unregister_domain = Grant::permission(
             PermissionToken::new(
                 "CanUnregisterDomain".parse().unwrap(),
                 &json!({ "domain_id": domain_id.clone() }),
@@ -75,7 +76,7 @@ pub fn populate_wsv(
             let account_id = construct_account_id(j, domain_id.clone());
             let account = Account::new(account_id.clone(), []);
             instructions.push(Register::account(account).into());
-            let can_unregister_account = Grant::permission_token(
+            let can_unregister_account = Grant::permission(
                 PermissionToken::new(
                     "CanUnregisterAccount".parse().unwrap(),
                     &json!({ "account_id": account_id.clone() }),
@@ -91,7 +92,7 @@ pub fn populate_wsv(
                 iroha_data_model::asset::AssetValueType::Quantity,
             );
             instructions.push(Register::asset_definition(asset_definition).into());
-            let can_unregister_asset_definition = Grant::permission_token(
+            let can_unregister_asset_definition = Grant::permission(
                 PermissionToken::new(
                     "CanUnregisterAssetDefinition".parse().unwrap(),
                     &json!({ "asset_definition_id": asset_definition_id }),
@@ -167,9 +168,16 @@ pub fn restore_every_nth(
     instructions
 }
 
-pub fn build_wsv(account_id: &AccountId, key_pair: &KeyPair) -> WorldStateView {
+pub fn build_wsv(
+    rt: &tokio::runtime::Handle,
+    account_id: &AccountId,
+    key_pair: &KeyPair,
+) -> WorldStateView {
     let kura = iroha_core::kura::Kura::blank_kura_for_testing();
-    let query_handle = LiveQueryStore::test().start();
+    let query_handle = {
+        let _guard = rt.enter();
+        LiveQueryStore::test().start()
+    };
     let mut domain = Domain::new(account_id.domain_id.clone()).build(account_id);
     domain.accounts.insert(
         account_id.clone(),
@@ -200,14 +208,14 @@ fn construct_domain_id(i: usize) -> DomainId {
 
 fn construct_account_id(i: usize, domain_id: DomainId) -> AccountId {
     AccountId::new(
-        Name::from_str(&format!("non_inlinable_account_name_{i}")).unwrap(),
         domain_id,
+        Name::from_str(&format!("non_inlinable_account_name_{i}")).unwrap(),
     )
 }
 
 fn construct_asset_definition_id(i: usize, domain_id: DomainId) -> AssetDefinitionId {
     AssetDefinitionId::new(
-        Name::from_str(&format!("non_inlinable_asset_definition_name_{i}")).unwrap(),
         domain_id,
+        Name::from_str(&format!("non_inlinable_asset_definition_name_{i}")).unwrap(),
     )
 }

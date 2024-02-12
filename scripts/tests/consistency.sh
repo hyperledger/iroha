@@ -40,19 +40,19 @@ case $1 in
         }
 
         command_base_for_single() {
-            echo "cargo run --release --bin iroha_swarm -- -p 1 -s Iroha --force --config-dir ./configs/peer --build ."
+            echo "cargo run --release --bin iroha_swarm -- -p 1 -s Iroha --force --config-dir ./configs/peer --health-check --build ."
         }
 
         command_base_for_multiple_local() {
-            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/peer --build ."
+            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/peer --health-check --build ."
         }
 
         command_base_for_default() {
-            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/peer --image hyperledger/iroha2:dev"
+            echo "cargo run --release --bin iroha_swarm -- -p 4 -s Iroha --force --config-dir ./configs/peer --health-check --image hyperledger/iroha2:dev"
         }
 
 
-        do_check "$(command_base_for_single)" "docker-compose.dev.single.yml"
-        do_check "$(command_base_for_multiple_local)" "docker-compose.dev.local.yml"
-        do_check "$(command_base_for_default)" "docker-compose.dev.yml"
+        do_check "$(command_base_for_single)" "docker-compose.single.yml"
+        do_check "$(command_base_for_multiple_local)" "docker-compose.local.yml"
+        do_check "$(command_base_for_default)" "docker-compose.yml"
 esac

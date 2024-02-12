@@ -6,12 +6,10 @@ use derive_more::Display;
 use eyre::{Result, WrapErr};
 use iroha_config_base::derive::{Error as ConfigError, Proxy};
 use iroha_crypto::prelude::*;
-use iroha_data_model::{prelude::*, transaction::TransactionLimits};
+use iroha_data_model::{prelude::*, ChainId};
 use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
 use url::Url;
-
-use crate::wsv::default::DEFAULT_TRANSACTION_LIMITS;
 
 #[allow(unsafe_code)]
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: NonZeroU64 =
@@ -69,6 +67,8 @@ pub struct BasicAuth {
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_")]
 pub struct Configuration {
+    /// Unique id of the blockchain. Used for simple replay attack protection.
+    pub chain_id: ChainId,
     /// Public key of the user account.
     #[config(serde_as_str)]
     pub public_key: PublicKey,
@@ -84,13 +84,6 @@ pub struct Configuration {
     pub transaction_time_to_live_ms: Option<NonZeroU64>,
     /// Transaction status wait timeout in milliseconds.
     pub transaction_status_timeout_ms: u64,
-    /// The limits to which transactions must adhere to
-    // NOTE: If you want this functionality, implement it in the app manually
-    #[deprecated(
-        note = "This parameter is not used and takes no effect and will be removed in future releases. \
-        If you want this functionality, implement it in the app manually."
-    )]
-    pub transaction_limits: TransactionLimits,
     /// If `true` add nonce, which make different hashes for transactions which occur repeatedly and simultaneously
     pub add_transaction_nonce: bool,
 }
@@ -98,6 +91,7 @@ pub struct Configuration {
 impl Default for ConfigurationProxy {
     fn default() -> Self {
         Self {
+            chain_id: None,
             public_key: None,
             private_key: None,
             account_id: None,
@@ -105,7 +99,6 @@ impl Default for ConfigurationProxy {
             torii_api_url: None,
             transaction_time_to_live_ms: Some(Some(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS)),
             transaction_status_timeout_ms: Some(DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS),
-            transaction_limits: Some(DEFAULT_TRANSACTION_LIMITS),
             add_transaction_nonce: Some(DEFAULT_ADD_TRANSACTION_NONCE),
         }
     }
@@ -187,7 +180,7 @@ mod tests {
         // TODO: make tests to check generated key validity
         fn arb_keys_from_seed()
             (seed in prop::collection::vec(any::<u8>(), 33..64)) -> (PublicKey, PrivateKey) {
-                let (public_key, private_key) = KeyPair::generate_with_configuration(KeyGenConfiguration::default().use_seed(seed)).expect("Seed was invalid").into();
+                let (public_key, private_key) = KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(seed)).expect("Seed was invalid").into();
                 (public_key, private_key)
             }
     }
@@ -208,17 +201,17 @@ mod tests {
     prop_compose! {
         fn arb_proxy()
             (
+                chain_id in prop::option::of(Just(crate::iroha::tests::placeholder_chain_id())),
                 (public_key, private_key) in arb_keys_with_option(),
                 account_id in prop::option::of(Just(placeholder_account())),
                 basic_auth in prop::option::of(Just(None)),
                 torii_api_url in prop::option::of(Just(format!("http://{DEFAULT_API_ADDR}").parse().unwrap())),
                 transaction_time_to_live_ms in prop::option::of(Just(Some(DEFAULT_TRANSACTION_TIME_TO_LIVE_MS))),
                 transaction_status_timeout_ms in prop::option::of(Just(DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS)),
-                transaction_limits in prop::option::of(Just(DEFAULT_TRANSACTION_LIMITS)),
                 add_transaction_nonce in prop::option::of(Just(DEFAULT_ADD_TRANSACTION_NONCE)),
             )
             -> ConfigurationProxy {
-            ConfigurationProxy { public_key, private_key, account_id, basic_auth, torii_api_url, transaction_time_to_live_ms, transaction_status_timeout_ms, transaction_limits, add_transaction_nonce }
+            ConfigurationProxy { chain_id, public_key, private_key, account_id, basic_auth, torii_api_url, transaction_time_to_live_ms, transaction_status_timeout_ms, add_transaction_nonce }
         }
     }
 
@@ -236,10 +229,6 @@ mod tests {
                 assert_eq!(arb_cfg.account_id, example_cfg.account_id);
                 assert_eq!(arb_cfg.transaction_time_to_live_ms, example_cfg.transaction_time_to_live_ms);
                 assert_eq!(arb_cfg.transaction_status_timeout_ms, example_cfg.transaction_status_timeout_ms);
-                #[allow(deprecated)] // For testing purposes only
-                {
-                    assert_eq!(arb_cfg.transaction_limits, example_cfg.transaction_limits);
-                }
                 assert_eq!(arb_cfg.add_transaction_nonce, example_cfg.add_transaction_nonce);
             }
         }

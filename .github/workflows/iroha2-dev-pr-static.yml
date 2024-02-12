@@ -47,10 +47,10 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Lints without features
         if: always()
-        run: cargo clippy -Zlints --workspace --benches --tests --examples --no-default-features --quiet
+        run: cargo clippy --workspace --benches --tests --examples --no-default-features --quiet
       - name: Lints with all features enabled
         if: always()
-        run: cargo clippy -Zlints --workspace --benches --tests --examples --all-features --quiet
+        run: cargo clippy --workspace --benches --tests --examples --all-features --quiet
       - name: Documentation
         if: always()
         run: cargo doc --no-deps --quiet

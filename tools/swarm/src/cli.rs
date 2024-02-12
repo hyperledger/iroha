@@ -10,6 +10,14 @@ pub struct Cli {
     /// The Unicode `seed` string for deterministic key-generation.
     #[arg(long, short)]
     pub seed: Option<String>,
+    /// Includes a health check configuration to each service in the Docker Compose output.
+    ///
+    /// The health checks use predefined settings.
+    ///
+    /// For more details on health check configurations in Docker Compose files, visit:
+    /// https://docs.docker.com/compose/compose-file/compose-file-v3/#healthcheck
+    #[arg(long)]
+    pub health_check: bool,
     /// Re-create the target file if it already exists.
     #[arg(long)]
     pub force: bool,

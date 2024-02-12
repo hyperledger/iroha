@@ -253,40 +253,41 @@ fn submit(
 ) -> Result<()> {
     let iroha_client = Client::new(context.configuration())?;
     let instructions = instructions.into();
-    #[cfg(debug_assertions)]
-    let err_msg = format!("Failed to build transaction from instruction {instructions:?}");
-    #[cfg(not(debug_assertions))]
-    let err_msg = "Failed to build transaction.";
-    let tx = iroha_client
-        .build_transaction(instructions, metadata)
-        .wrap_err(err_msg)?;
-    let tx = if context.skip_mst_check() {
-        tx
+    let tx = iroha_client.build_transaction(instructions, metadata);
+    let transactions = if context.skip_mst_check() {
+        vec![tx]
     } else {
-        match iroha_client.get_original_transaction(
+        match iroha_client.get_original_matching_transactions(
             &tx,
             RETRY_COUNT_MST,
             RETRY_IN_MST,
         ) {
-            Ok(Some(original_transaction)) if Confirm::new()
-                .with_prompt("There is a similar transaction from your account waiting for more signatures. \
-                            This could be because it wasn't signed with the right key, \
-                            or because it's a multi-signature transaction (MST). \
-                            Do you want to sign this transaction (yes) \
+            Ok(original_transactions) if !original_transactions.is_empty() && Confirm::new()
+                .with_prompt("There are similar transactions from your account waiting for more signatures. \
+                            This could be because they weren't signed with the right key, \
+                            or because they're a multi-signature transactions (MST). \
+                            Do you want to sign these transactions (yes) \
                             instead of submitting a new transaction (no)?")
                 .interact()
-                .wrap_err("Failed to show interactive prompt.")? => iroha_client.sign_transaction(original_transaction).wrap_err("Failed to sign transaction.")?,
-            _ => tx,
+                .wrap_err("Failed to show interactive prompt.")? => {
+                    original_transactions.into_iter().map(|transaction| {
+                        iroha_client.sign_transaction(transaction)
+                    }).collect()
+                }
+            _ => vec![tx],
         }
     };
-    #[cfg(debug_assertions)]
-    let err_msg = format!("Failed to submit transaction {tx:?}");
     #[cfg(not(debug_assertions))]
     let err_msg = "Failed to submit transaction.";
-    let hash = iroha_client
-        .submit_transaction_blocking(&tx)
-        .wrap_err(err_msg)?;
-    context.print_data(&hash)?;
+    for tx in transactions {
+        #[cfg(debug_assertions)]
+        let err_msg = format!("Failed to submit transaction {tx:?}");
+        let hash = iroha_client
+            .submit_transaction_blocking(&tx)
+            .wrap_err(err_msg)?;
+        context.print_data(&hash)?;
+    }
+
     Ok(())
 }
 
@@ -724,7 +725,7 @@ mod account {
                 permission,
                 metadata,
             } = self;
-            let grant = iroha_client::data_model::isi::Grant::permission_token(permission.0, id);
+            let grant = iroha_client::data_model::isi::Grant::permission(permission.0, id);
             submit([grant], metadata.load()?, context)
                 .wrap_err("Failed to grant the permission to the account")
         }
@@ -795,9 +796,9 @@ mod asset {
     /// Register subcommand of asset
     #[derive(clap::Args, Debug)]
     pub struct Register {
-        /// Asset id for registering (in form of `name#domain_name')
-        #[arg(short, long)]
-        pub id: AssetDefinitionId,
+        /// Asset definition id for registering (in form of `asset#domain_name`)
+        #[arg(long)]
+        pub definition_id: AssetDefinitionId,
         /// Mintability of asset
         #[arg(short, long)]
         pub unmintable: bool,
@@ -811,16 +812,16 @@ mod asset {
     impl RunArgs for Register {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
-                id,
+                definition_id,
                 value_type,
                 unmintable,
                 metadata,
             } = self;
             let mut asset_definition = match value_type {
-                AssetValueType::Quantity => AssetDefinition::quantity(id),
-                AssetValueType::BigQuantity => AssetDefinition::big_quantity(id),
-                AssetValueType::Fixed => AssetDefinition::fixed(id),
-                AssetValueType::Store => AssetDefinition::store(id),
+                AssetValueType::Quantity => AssetDefinition::quantity(definition_id),
+                AssetValueType::BigQuantity => AssetDefinition::big_quantity(definition_id),
+                AssetValueType::Fixed => AssetDefinition::fixed(definition_id),
+                AssetValueType::Store => AssetDefinition::store(definition_id),
             };
             if unmintable {
                 asset_definition = asset_definition.mintable_once();
@@ -835,12 +836,9 @@ mod asset {
     /// Command for minting asset in existing Iroha account
     #[derive(clap::Args, Debug)]
     pub struct Mint {
-        /// Account id where asset is stored (in form of `name@domain_name')
+        /// Asset id for the asset (in form of `asset##account@domain_name`)
         #[arg(long)]
-        pub account: AccountId,
-        /// Asset id from which to mint (in form of `name#domain_name')
-        #[arg(long)]
-        pub asset: AssetDefinitionId,
+        pub asset_id: AssetId,
         /// Quantity to mint
         #[arg(short, long)]
         pub quantity: u32,
@@ -851,15 +849,12 @@ mod asset {
     impl RunArgs for Mint {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
-                account,
-                asset,
+                asset_id,
                 quantity,
                 metadata,
             } = self;
-            let mint_asset = iroha_client::data_model::isi::Mint::asset_quantity(
-                quantity,
-                AssetId::new(asset, account),
-            );
+            let mint_asset =
+                iroha_client::data_model::isi::Mint::asset_quantity(quantity, asset_id);
             submit([mint_asset], metadata.load()?, context)
                 .wrap_err("Failed to mint asset of type `NumericValue::U32`")
         }
@@ -868,12 +863,9 @@ mod asset {
     /// Command for minting asset in existing Iroha account
     #[derive(clap::Args, Debug)]
     pub struct Burn {
-        /// Account id where asset is stored (in form of `name@domain_name')
+        /// Asset id for the asset (in form of `asset##account@domain_name`)
         #[arg(long)]
-        pub account: AccountId,
-        /// Asset id from which to mint (in form of `name#domain_name')
-        #[arg(long)]
-        pub asset: AssetDefinitionId,
+        pub asset_id: AssetId,
         /// Quantity to mint
         #[arg(short, long)]
         pub quantity: u32,
@@ -884,15 +876,12 @@ mod asset {
     impl RunArgs for Burn {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
-                account,
-                asset,
+                asset_id,
                 quantity,
                 metadata,
             } = self;
-            let burn_asset = iroha_client::data_model::isi::Burn::asset_quantity(
-                quantity,
-                AssetId::new(asset, account),
-            );
+            let burn_asset =
+                iroha_client::data_model::isi::Burn::asset_quantity(quantity, asset_id);
             submit([burn_asset], metadata.load()?, context)
                 .wrap_err("Failed to burn asset of type `NumericValue::U32`")
         }
@@ -901,15 +890,12 @@ mod asset {
     /// Transfer asset between accounts
     #[derive(clap::Args, Debug)]
     pub struct Transfer {
-        /// Account from which to transfer (in form `name@domain_name')
-        #[arg(short, long)]
-        pub from: AccountId,
-        /// Account to which to transfer (in form `name@domain_name')
-        #[arg(short, long)]
+        /// Account to which to transfer (in form `name@domain_name`)
+        #[arg(long)]
         pub to: AccountId,
-        /// Asset id to transfer (in form like `name#domain_name')
-        #[arg(short, long)]
-        pub asset_id: AssetDefinitionId,
+        /// Asset id to transfer (in form like `asset##account@domain_name`)
+        #[arg(long)]
+        pub asset_id: AssetId,
         /// Quantity of asset as number
         #[arg(short, long)]
         pub quantity: u32,
@@ -920,17 +906,13 @@ mod asset {
     impl RunArgs for Transfer {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self {
-                from,
                 to,
                 asset_id,
                 quantity,
                 metadata,
             } = self;
-            let transfer_asset = iroha_client::data_model::isi::Transfer::asset_quantity(
-                AssetId::new(asset_id, from),
-                quantity,
-                to,
-            );
+            let transfer_asset =
+                iroha_client::data_model::isi::Transfer::asset_quantity(asset_id, quantity, to);
             submit([transfer_asset], metadata.load()?, context).wrap_err("Failed to transfer asset")
         }
     }
@@ -938,19 +920,15 @@ mod asset {
     /// Get info of asset
     #[derive(clap::Args, Debug)]
     pub struct Get {
-        /// Account where asset is stored (in form of `name@domain_name')
+        /// Asset id for the asset (in form of `asset##account@domain_name`)
         #[arg(long)]
-        pub account: AccountId,
-        /// Asset name to lookup (in form of `name#domain_name')
-        #[arg(long)]
-        pub asset: AssetDefinitionId,
+        pub asset_id: AssetId,
     }
 
     impl RunArgs for Get {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self { account, asset } = self;
+            let Self { asset_id } = self;
             let iroha_client = Client::new(context.configuration())?;
-            let asset_id = AssetId::new(asset, account);
             let asset = iroha_client
                 .request(asset::by_id(asset_id))
                 .wrap_err("Failed to get asset.")?;
@@ -989,7 +967,7 @@ mod asset {
 
     #[derive(clap::Args, Debug)]
     pub struct SetKeyValue {
-        /// AssetId for the Store asset (in form of `asset##account@domain_name')
+        /// Asset id for the Store asset (in form of `asset##account@domain_name`)
         #[clap(long)]
         pub asset_id: AssetId,
         /// The key for the store value
@@ -1021,7 +999,7 @@ mod asset {
     }
     #[derive(clap::Args, Debug)]
     pub struct RemoveKeyValue {
-        /// AssetId for the Store asset (in form of `asset##account@domain_name')
+        /// Asset id for the Store asset (in form of `asset##account@domain_name`)
         #[clap(long)]
         pub asset_id: AssetId,
         /// The key for the store value
@@ -1040,7 +1018,7 @@ mod asset {
 
     #[derive(clap::Args, Debug)]
     pub struct GetKeyValue {
-        /// AssetId for the Store asset (in form of `asset##account@domain_name')
+        /// Asset id for the Store asset (in form of `asset##account@domain_name`)
         #[clap(long)]
         pub asset_id: AssetId,
         /// The key for the store value
@@ -1069,17 +1047,17 @@ mod peer {
     #[derive(clap::Subcommand, Debug)]
     pub enum Args {
         /// Register subcommand of peer
-        Register(Register),
+        Register(Box<Register>),
         /// Unregister subcommand of peer
-        Unregister(Unregister),
+        Unregister(Box<Unregister>),
     }
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            match_all!(
-                (self, context),
-                { Args::Register, Args::Unregister }
-            )
+            match self {
+                Args::Register(register) => RunArgs::run(*register, context),
+                Args::Unregister(unregister) => RunArgs::run(*unregister, context),
+            }
         }
     }
 
@@ -1103,9 +1081,8 @@ mod peer {
                 key,
                 metadata,
             } = self;
-            let register_peer = iroha_client::data_model::isi::Register::peer(Peer::new(
-                PeerId::new(&address, &key),
-            ));
+            let register_peer =
+                iroha_client::data_model::isi::Register::peer(Peer::new(PeerId::new(address, key)));
             submit([register_peer], metadata.load()?, context).wrap_err("Failed to register peer")
         }
     }
@@ -1131,7 +1108,7 @@ mod peer {
                 metadata,
             } = self;
             let unregister_peer =
-                iroha_client::data_model::isi::Unregister::peer(PeerId::new(&address, &key));
+                iroha_client::data_model::isi::Unregister::peer(PeerId::new(address, key));
             submit([unregister_peer], metadata.load()?, context)
                 .wrap_err("Failed to unregister peer")
         }

@@ -4,7 +4,7 @@ use std::{alloc, marker::PhantomData, mem::MaybeUninit};
 
 use iroha_ffi::{
     ffi_export,
-    slice::{OutBoxedSlice, SliceRef},
+    slice::{OutBoxedSlice, RefSlice},
     FfiConvert, FfiOutPtrRead, FfiReturn, FfiType,
 };
 
@@ -168,7 +168,7 @@ fn transparent_vec_to_vec() {
         TransparentStruct::new(GenericTransparentStruct::new(3)),
     ];
 
-    let mut store = Vec::default();
+    let mut store = Box::default();
     let mut output = MaybeUninit::new(OutBoxedSlice::from_raw_parts(core::ptr::null_mut(), 0));
 
     unsafe {
@@ -196,7 +196,7 @@ fn transparent_slice_to_slice() {
         TransparentStruct::new(GenericTransparentStruct::new(2)),
         TransparentStruct::new(GenericTransparentStruct::new(3)),
     ];
-    let mut output = MaybeUninit::new(SliceRef::from_raw_parts(core::ptr::null(), 0));
+    let mut output = MaybeUninit::new(RefSlice::from_raw_parts(core::ptr::null(), 0));
 
     unsafe {
         assert_eq!(

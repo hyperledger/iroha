@@ -14,6 +14,7 @@ use iroha_data_model::{
     asset::AssetDefinition,
     executor::Executor,
     prelude::{Metadata, *},
+    ChainId,
 };
 use iroha_schema::IntoSchema;
 use once_cell::sync::Lazy;
@@ -24,7 +25,7 @@ pub static GENESIS_DOMAIN_ID: Lazy<DomainId> = Lazy::new(|| "genesis".parse().ex
 
 /// [`AccountId`] of the genesis account.
 pub static GENESIS_ACCOUNT_ID: Lazy<AccountId> =
-    Lazy::new(|| AccountId::new("genesis".parse().expect("Valid"), GENESIS_DOMAIN_ID.clone()));
+    Lazy::new(|| AccountId::new(GENESIS_DOMAIN_ID.clone(), "genesis".parse().expect("Valid")));
 
 /// Genesis transaction
 #[derive(Debug, Clone)]
@@ -45,7 +46,11 @@ impl GenesisNetwork {
     /// - If fails to sign a transaction (which means that the `key_pair` is malformed rather
     ///   than anything else)
     /// - If transactions set is empty
-    pub fn new(raw_block: RawGenesisBlock, genesis_key_pair: &KeyPair) -> Result<GenesisNetwork> {
+    pub fn new(
+        raw_block: RawGenesisBlock,
+        chain_id: &ChainId,
+        genesis_key_pair: &KeyPair,
+    ) -> Result<GenesisNetwork> {
         // First instruction should be Executor upgrade.
         // This makes possible to grant permissions to users in genesis.
         let transactions_iter = std::iter::once(GenesisTransactionBuilder {
@@ -58,17 +63,9 @@ impl GenesisNetwork {
         .chain(raw_block.transactions);
 
         let transactions = transactions_iter
-            .enumerate()
-            .map(|(i, raw_transaction)| {
-                raw_transaction
-                    // FIXME: fix underlying chain of `.sign` so that it doesn't
-                    //        consume the key pair unnecessarily. It might be costly to clone
-                    //        the key pair for a large genesis.
-                    .sign(genesis_key_pair.clone())
-                    .map(GenesisTransaction)
-                    .wrap_err_with(|| eyre!("Failed to sign transaction at index {i}"))
-            })
-            .collect::<Result<Vec<_>>>()?;
+            .map(|raw_transaction| raw_transaction.sign(chain_id.clone(), genesis_key_pair))
+            .map(GenesisTransaction)
+            .collect();
 
         Ok(GenesisNetwork { transactions })
     }
@@ -185,14 +182,9 @@ pub struct GenesisTransactionBuilder {
 
 impl GenesisTransactionBuilder {
     /// Convert [`GenesisTransactionBuilder`] into [`SignedTransaction`] with signature.
-    ///
-    /// # Errors
-    /// Fails if signing or accepting fails.
-    pub fn sign(
-        self,
-        genesis_key_pair: KeyPair,
-    ) -> core::result::Result<SignedTransaction, iroha_crypto::error::Error> {
-        TransactionBuilder::new(GENESIS_ACCOUNT_ID.clone())
+    #[must_use]
+    fn sign(self, chain_id: ChainId, genesis_key_pair: &KeyPair) -> SignedTransaction {
+        TransactionBuilder::new(chain_id, GENESIS_ACCOUNT_ID.clone())
             .with_instructions(self.isi)
             .sign(genesis_key_pair)
     }
@@ -309,7 +301,7 @@ impl<S> RawGenesisDomainBuilder<S> {
     /// Add an account to this domain without a public key.
     #[cfg(test)]
     fn account_without_public_key(mut self, account_name: Name) -> Self {
-        let account_id = AccountId::new(account_name, self.domain_id.clone());
+        let account_id = AccountId::new(self.domain_id.clone(), account_name);
         self.transaction
             .isi
             .push(Register::account(Account::new(account_id, [])).into());
@@ -328,7 +320,7 @@ impl<S> RawGenesisDomainBuilder<S> {
         public_key: PublicKey,
         metadata: Metadata,
     ) -> Self {
-        let account_id = AccountId::new(account_name, self.domain_id.clone());
+        let account_id = AccountId::new(self.domain_id.clone(), account_name);
         let register =
             Register::account(Account::new(account_id, [public_key]).with_metadata(metadata));
         self.transaction.isi.push(register.into());
@@ -337,7 +329,7 @@ impl<S> RawGenesisDomainBuilder<S> {
 
     /// Add [`AssetDefinition`] to current domain.
     pub fn asset(mut self, asset_name: Name, asset_value_type: AssetValueType) -> Self {
-        let asset_definition_id = AssetDefinitionId::new(asset_name, self.domain_id.clone());
+        let asset_definition_id = AssetDefinitionId::new(self.domain_id.clone(), asset_name);
         let asset_definition = match asset_value_type {
             AssetValueType::Quantity => AssetDefinition::quantity(asset_definition_id),
             AssetValueType::BigQuantity => AssetDefinition::big_quantity(asset_definition_id),
@@ -364,8 +356,11 @@ mod tests {
 
     #[test]
     fn load_new_genesis_block() -> Result<()> {
+        let chain_id = ChainId::new("0");
+
         let genesis_key_pair = KeyPair::generate()?;
         let (alice_public_key, _) = KeyPair::generate()?.into();
+
         let _genesis_block = GenesisNetwork::new(
             RawGenesisBlockBuilder::default()
                 .domain("wonderland".parse()?)
@@ -373,6 +368,7 @@ mod tests {
                 .finish_domain()
                 .executor(dummy_executor())
                 .build(),
+            &chain_id,
             &genesis_key_pair,
         )?;
         Ok(())
@@ -407,7 +403,7 @@ mod tests {
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[1],
                 Register::account(Account::new(
-                    AccountId::new("alice".parse().unwrap(), domain_id.clone()),
+                    AccountId::new(domain_id.clone(), "alice".parse().unwrap()),
                     []
                 ))
                 .into()
@@ -415,7 +411,7 @@ mod tests {
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[2],
                 Register::account(Account::new(
-                    AccountId::new("bob".parse().unwrap(), domain_id),
+                    AccountId::new(domain_id, "bob".parse().unwrap()),
                     []
                 ))
                 .into()
@@ -430,7 +426,7 @@ mod tests {
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[4],
                 Register::account(Account::new(
-                    AccountId::new("Cheshire_Cat".parse().unwrap(), domain_id),
+                    AccountId::new(domain_id, "Cheshire_Cat".parse().unwrap()),
                     []
                 ))
                 .into()
@@ -445,7 +441,7 @@ mod tests {
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[6],
                 Register::account(Account::new(
-                    AccountId::new("Mad_Hatter".parse().unwrap(), domain_id),
+                    AccountId::new(domain_id, "Mad_Hatter".parse().unwrap()),
                     [public_key.parse().unwrap()],
                 ))
                 .into()

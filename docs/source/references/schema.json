@@ -424,12 +424,12 @@
   "AssetDefinitionId": {
     "Struct": [
       {
-        "name": "name",
-        "type": "Name"
-      },
-      {
         "name": "domain_id",
         "type": "DomainId"
+      },
+      {
+        "name": "name",
+        "type": "Name"
       }
     ]
   },
@@ -821,6 +821,7 @@
       }
     ]
   },
+  "ChainId": "String",
   "ConfigurationEvent": {
     "Enum": [
       {
@@ -3065,7 +3066,7 @@
   "PublicKey": {
     "Struct": [
       {
-        "name": "digest_function",
+        "name": "algorithm",
         "type": "Algorithm"
       },
       {
@@ -4122,6 +4123,10 @@
   },
   "TransactionPayload": {
     "Struct": [
+      {
+        "name": "chain_id",
+        "type": "ChainId"
+      },
       {
         "name": "creation_time_ms",
         "type": "u64"

@@ -255,8 +255,8 @@ mod tests {
     fn decode_trigger_sample() {
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let rose_definition_id = AssetDefinitionId::new(
-            "rose".parse().expect("Valid"),
             "wonderland".parse().expect("Valid"),
+            "rose".parse().expect("Valid"),
         );
         let rose_id = AssetId::new(rose_definition_id, account_id.clone());
         let trigger_id = "mint_rose".parse().expect("Valid");

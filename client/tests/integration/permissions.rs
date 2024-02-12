@@ -6,6 +6,7 @@ use iroha_client::{
     crypto::KeyPair,
     data_model::prelude::*,
 };
+use iroha_data_model::permission::PermissionToken;
 use iroha_genesis::GenesisNetwork;
 use serde_json::json;
 use test_network::{PeerBuilder, *};
@@ -17,7 +18,7 @@ fn genesis_transactions_are_validated() {
 
     // Setting up genesis
 
-    let genesis = GenesisNetwork::test_with_instructions([Grant::permission_token(
+    let genesis = GenesisNetwork::test_with_instructions([Grant::permission(
         PermissionToken::new("InvalidToken".parse().unwrap(), &json!(null)),
         AccountId::from_str("alice@wonderland").unwrap(),
     )
@@ -62,6 +63,8 @@ fn get_assets(iroha_client: &Client, id: &AccountId) -> Vec<Asset> {
 #[test]
 #[ignore = "ignore, more in #2851"]
 fn permissions_disallow_asset_transfer() {
+    let chain_id = ChainId::new("0");
+
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
     wait_for_genesis_committed(&[iroha_client.clone()], 0);
 
@@ -94,10 +97,9 @@ fn permissions_disallow_asset_transfer() {
         quantity,
         alice_id.clone(),
     );
-    let transfer_tx = TransactionBuilder::new(mouse_id)
+    let transfer_tx = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([transfer_asset])
-        .sign(mouse_keypair)
-        .expect("Failed to sign mouse transaction");
+        .sign(&mouse_keypair);
     let err = iroha_client
         .submit_transaction_blocking(&transfer_tx)
         .expect_err("Transaction was not rejected.");
@@ -118,6 +120,8 @@ fn permissions_disallow_asset_transfer() {
 #[test]
 #[ignore = "ignore, more in #2851"]
 fn permissions_disallow_asset_burn() {
+    let chain_id = ChainId::new("0");
+
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_735).start_with_runtime();
 
     let alice_id = "alice@wonderland".parse().expect("Valid");
@@ -144,10 +148,9 @@ fn permissions_disallow_asset_burn() {
         quantity,
         AssetId::new(asset_definition_id, mouse_id.clone()),
     );
-    let burn_tx = TransactionBuilder::new(mouse_id)
+    let burn_tx = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([burn_asset])
-        .sign(mouse_keypair)
-        .expect("Failed to sign mouse transaction");
+        .sign(&mouse_keypair);
 
     let err = iroha_client
         .submit_transaction_blocking(&burn_tx)
@@ -192,33 +195,43 @@ fn account_can_query_only_its_own_domain() -> Result<()> {
 
 #[test]
 fn permissions_differ_not_only_by_names() {
+    let chain_id = ChainId::new("0");
+
     let (_rt, _not_drop, client) = <PeerBuilder>::new().with_port(10_745).start_with_runtime();
 
     let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
-    let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
+    let mouse_id: AccountId = "mouse@outfit".parse().expect("Valid");
     let mouse_keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
 
-    // Registering `Store` asset definitions
-    let hat_definition_id: AssetDefinitionId = "hat#wonderland".parse().expect("Valid");
-    let new_hat_definition = AssetDefinition::store(hat_definition_id.clone());
-    let shoes_definition_id: AssetDefinitionId = "shoes#wonderland".parse().expect("Valid");
-    let new_shoes_definition = AssetDefinition::store(shoes_definition_id.clone());
-    client
-        .submit_all_blocking([
-            Register::asset_definition(new_hat_definition),
-            Register::asset_definition(new_shoes_definition),
-        ])
-        .expect("Failed to register new asset definitions");
-
     // Registering mouse
+    let outfit_domain: DomainId = "outfit".parse().unwrap();
+    let create_outfit_domain = Register::domain(Domain::new(outfit_domain.clone()));
     let new_mouse_account = Account::new(mouse_id.clone(), [mouse_keypair.public_key().clone()]);
     client
-        .submit_blocking(Register::account(new_mouse_account))
+        .submit_all_blocking([
+            InstructionBox::from(create_outfit_domain),
+            Register::account(new_mouse_account).into(),
+        ])
         .expect("Failed to register mouse");
+
+    // Registering `Store` asset definitions
+    let hat_definition_id: AssetDefinitionId = "hat#outfit".parse().expect("Valid");
+    let new_hat_definition = AssetDefinition::store(hat_definition_id.clone());
+    let transfer_shoes_domain = Transfer::domain(alice_id.clone(), outfit_domain, mouse_id.clone());
+    let shoes_definition_id: AssetDefinitionId = "shoes#outfit".parse().expect("Valid");
+    let new_shoes_definition = AssetDefinition::store(shoes_definition_id.clone());
+    let instructions: [InstructionBox; 3] = [
+        Register::asset_definition(new_hat_definition).into(),
+        Register::asset_definition(new_shoes_definition).into(),
+        transfer_shoes_domain.into(),
+    ];
+    client
+        .submit_all_blocking(instructions)
+        .expect("Failed to register new asset definitions");
 
     // Granting permission to Alice to modify metadata in Mouse's hats
     let mouse_hat_id = AssetId::new(hat_definition_id, mouse_id.clone());
-    let allow_alice_to_set_key_value_in_hats = Grant::permission_token(
+    let allow_alice_to_set_key_value_in_hats = Grant::permission(
         PermissionToken::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
             &json!({ "asset_id": mouse_hat_id }),
@@ -226,10 +239,9 @@ fn permissions_differ_not_only_by_names() {
         alice_id.clone(),
     );
 
-    let grant_hats_access_tx = TransactionBuilder::new(mouse_id.clone())
+    let grant_hats_access_tx = TransactionBuilder::new(chain_id.clone(), mouse_id.clone())
         .with_instructions([allow_alice_to_set_key_value_in_hats])
-        .sign(mouse_keypair.clone())
-        .expect("Failed to sign mouse transaction");
+        .sign(&mouse_keypair);
     client
         .submit_transaction_blocking(&grant_hats_access_tx)
         .expect("Failed grant permission to modify Mouse's hats");
@@ -255,7 +267,7 @@ fn permissions_differ_not_only_by_names() {
         .expect_err("Expected Alice to fail to modify Mouse's shoes");
 
     // Granting permission to Alice to modify metadata in Mouse's shoes
-    let allow_alice_to_set_key_value_in_shoes = Grant::permission_token(
+    let allow_alice_to_set_key_value_in_shoes = Grant::permission(
         PermissionToken::new(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
             &json!({ "asset_id": mouse_shoes_id }),
@@ -263,10 +275,9 @@ fn permissions_differ_not_only_by_names() {
         alice_id,
     );
 
-    let grant_shoes_access_tx = TransactionBuilder::new(mouse_id)
+    let grant_shoes_access_tx = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([allow_alice_to_set_key_value_in_shoes])
-        .sign(mouse_keypair)
-        .expect("Failed to sign mouse transaction");
+        .sign(&mouse_keypair);
 
     client
         .submit_transaction_blocking(&grant_shoes_access_tx)
@@ -281,6 +292,8 @@ fn permissions_differ_not_only_by_names() {
 #[test]
 #[allow(deprecated)]
 fn stored_vs_granted_token_payload() -> Result<()> {
+    let chain_id = ChainId::new("0");
+
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
     wait_for_genesis_committed(&[iroha_client.clone()], 0);
 
@@ -304,7 +317,7 @@ fn stored_vs_granted_token_payload() -> Result<()> {
 
     // Allow alice to mint mouse asset and mint initial value
     let mouse_asset = AssetId::new(asset_definition_id, mouse_id.clone());
-    let allow_alice_to_set_key_value_in_mouse_asset = Grant::permission_token(
+    let allow_alice_to_set_key_value_in_mouse_asset = Grant::permission(
         PermissionToken::from_str_unchecked(
             "CanSetKeyValueInUserAsset".parse().unwrap(),
             // NOTE: Introduced additional whitespaces in the serialized form
@@ -313,10 +326,9 @@ fn stored_vs_granted_token_payload() -> Result<()> {
         alice_id,
     );
 
-    let transaction = TransactionBuilder::new(mouse_id)
+    let transaction = TransactionBuilder::new(chain_id, mouse_id)
         .with_instructions([allow_alice_to_set_key_value_in_mouse_asset])
-        .sign(mouse_keypair)
-        .expect("Failed to sign mouse transaction");
+        .sign(&mouse_keypair);
     iroha_client
         .submit_transaction_blocking(&transaction)
         .expect("Failed to grant permission to alice.");
@@ -339,7 +351,7 @@ fn permission_tokens_are_unified() {
     // Given
     let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
 
-    let allow_alice_to_transfer_rose_1 = Grant::permission_token(
+    let allow_alice_to_transfer_rose_1 = Grant::permission(
         PermissionToken::from_str_unchecked(
             "CanTransferUserAsset".parse().unwrap(),
             // NOTE: Introduced additional whitespaces in the serialized form
@@ -348,7 +360,7 @@ fn permission_tokens_are_unified() {
         alice_id.clone(),
     );
 
-    let allow_alice_to_transfer_rose_2 = Grant::permission_token(
+    let allow_alice_to_transfer_rose_2 = Grant::permission(
         PermissionToken::from_str_unchecked(
             "CanTransferUserAsset".parse().unwrap(),
             // NOTE: Introduced additional whitespaces in the serialized form
@@ -364,4 +376,51 @@ fn permission_tokens_are_unified() {
     let _ = iroha_client
         .submit_blocking(allow_alice_to_transfer_rose_2)
         .expect_err("permission tokens are not unified");
+}
+
+#[test]
+fn associated_permission_tokens_removed_on_unregister() {
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(11_240).start_with_runtime();
+    wait_for_genesis_committed(&[iroha_client.clone()], 0);
+
+    let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
+    let kingdom_id: DomainId = "kingdom".parse().expect("Valid");
+    let kingdom = Domain::new(kingdom_id.clone());
+
+    // register kingdom and give bob permissions in this domain
+    let register_domain = Register::domain(kingdom);
+    let bob_to_set_kv_in_domain_token = PermissionToken::new(
+        "CanSetKeyValueInDomain".parse().unwrap(),
+        &json!({ "domain_id": kingdom_id }),
+    );
+    let allow_bob_to_set_kv_in_domain =
+        Grant::permission(bob_to_set_kv_in_domain_token.clone(), bob_id.clone());
+
+    iroha_client
+        .submit_all_blocking([
+            InstructionBox::from(register_domain),
+            allow_bob_to_set_kv_in_domain.into(),
+        ])
+        .expect("failed to register domain and grant permission");
+
+    // check that bob indeed have granted permission
+    assert!(iroha_client
+        .request(client::permission::by_account_id(bob_id.clone()))
+        .and_then(std::iter::Iterator::collect::<QueryResult<Vec<PermissionToken>>>)
+        .expect("failed to get permissions for bob")
+        .into_iter()
+        .any(|token| { token == bob_to_set_kv_in_domain_token }));
+
+    // unregister kingdom
+    iroha_client
+        .submit_blocking(Unregister::domain(kingdom_id))
+        .expect("failed to unregister domain");
+
+    // check that permission is removed from bob
+    assert!(iroha_client
+        .request(client::permission::by_account_id(bob_id))
+        .and_then(std::iter::Iterator::collect::<QueryResult<Vec<PermissionToken>>>)
+        .expect("failed to get permissions for bob")
+        .into_iter()
+        .all(|token| { token != bob_to_set_kv_in_domain_token }));
 }

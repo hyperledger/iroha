@@ -31,6 +31,8 @@ use serde_json::json;
 #[global_allocator]
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
+getrandom::register_custom_getrandom!(iroha_executor::stub_getrandom);
+
 use alloc::format;
 
 mod token {
@@ -118,7 +120,7 @@ impl Executor {
         accounts
             .iter()
             .try_for_each(|(account, domain_id)| {
-                Revoke::permission_token(
+                Revoke::permission(
                     PermissionToken::new(
                         can_unregister_domain_definition_id.clone(),
                         &json!({ "domain_id": domain_id }),
@@ -137,7 +139,7 @@ impl Executor {
                     )
                 })?;
 
-                Grant::permission_token(
+                Grant::permission(
                     PermissionToken::new(
                         can_control_domain_lives_definition_id.clone(),
                         &json!(null),

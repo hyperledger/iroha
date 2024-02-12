@@ -13,6 +13,8 @@ use lol_alloc::{FreeListAllocator, LockedAllocator};
 #[global_allocator]
 static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
 
+getrandom::register_custom_getrandom!(iroha_trigger::stub_getrandom);
+
 #[iroha_trigger::main]
 fn main(_owner: AccountId, _event: Event) {
     iroha_trigger::log::info!("Executing trigger");
@@ -21,8 +23,17 @@ fn main(_owner: AccountId, _event: Event) {
 
     let limits = MetadataLimits::new(256, 256);
 
+    let bad_domain_ids: [DomainId; 2] = [
+        "genesis".parse().dbg_unwrap(),
+        "garden_of_live_flowers".parse().dbg_unwrap(),
+    ];
+
     for account in accounts_cursor {
         let account = account.dbg_unwrap();
+
+        if bad_domain_ids.contains(account.id().domain_id()) {
+            continue;
+        }
 
         let mut metadata = Metadata::new();
         let name = format!(

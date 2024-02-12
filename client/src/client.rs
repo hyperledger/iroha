@@ -31,7 +31,7 @@ use crate::{
         prelude::*,
         query::{Pagination, Query, Sorting},
         transaction::TransactionPayload,
-        BatchedResponse, ValidationFail,
+        BatchedResponse, ChainId, ValidationFail,
     },
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
@@ -63,30 +63,17 @@ pub type QueryResult<T> = core::result::Result<T, ClientQueryError>;
 /// Trait for signing transactions
 pub trait Sign {
     /// Sign transaction with provided key pair.
-    ///
-    /// # Errors
-    ///
-    /// Fails if signature creation fails
-    fn sign(
-        self,
-        key_pair: crate::crypto::KeyPair,
-    ) -> Result<SignedTransaction, crate::crypto::error::Error>;
+    fn sign(self, key_pair: &crate::crypto::KeyPair) -> SignedTransaction;
 }
 
 impl Sign for TransactionBuilder {
-    fn sign(
-        self,
-        key_pair: crate::crypto::KeyPair,
-    ) -> Result<SignedTransaction, crate::crypto::error::Error> {
+    fn sign(self, key_pair: &crate::crypto::KeyPair) -> SignedTransaction {
         self.sign(key_pair)
     }
 }
 
 impl Sign for SignedTransaction {
-    fn sign(
-        self,
-        key_pair: crate::crypto::KeyPair,
-    ) -> Result<SignedTransaction, crate::crypto::error::Error> {
+    fn sign(self, key_pair: &crate::crypto::KeyPair) -> SignedTransaction {
         self.sign(key_pair)
     }
 }
@@ -344,6 +331,8 @@ impl_query_output! {
 )]
 #[display(fmt = "{}@{torii_url}", "key_pair.public_key()")]
 pub struct Client {
+    /// Unique id of the blockchain. Used for simple replay attack protection.
+    pub chain_id: ChainId,
     /// Url for accessing iroha node
     pub torii_url: Url,
     /// Accounts keypair
@@ -440,6 +429,7 @@ impl Client {
         }
 
         Ok(Self {
+            chain_id: configuration.chain_id.clone(),
             torii_url: configuration.torii_api_url.clone(),
             key_pair: KeyPair::new(
                 configuration.public_key.clone(),
@@ -465,8 +455,8 @@ impl Client {
         &self,
         instructions: impl Into<Executable>,
         metadata: UnlimitedMetadata,
-    ) -> Result<SignedTransaction> {
-        let tx_builder = TransactionBuilder::new(self.account_id.clone());
+    ) -> SignedTransaction {
+        let tx_builder = TransactionBuilder::new(self.chain_id.clone(), self.account_id.clone());
 
         let mut tx_builder = match instructions.into() {
             Executable::Instructions(instructions) => tx_builder.with_instructions(instructions),
@@ -481,30 +471,23 @@ impl Client {
             tx_builder.set_nonce(nonce);
         };
 
-        tx_builder
-            .with_metadata(metadata)
-            .sign(self.key_pair.clone())
-            .wrap_err("Failed to sign transaction")
+        tx_builder.with_metadata(metadata).sign(&self.key_pair)
     }
 
     /// Signs transaction
     ///
     /// # Errors
     /// Fails if signature generation fails
-    pub fn sign_transaction<Tx: Sign>(&self, transaction: Tx) -> Result<SignedTransaction> {
-        transaction
-            .sign(self.key_pair.clone())
-            .wrap_err("Failed to sign transaction")
+    pub fn sign_transaction<Tx: Sign>(&self, transaction: Tx) -> SignedTransaction {
+        transaction.sign(&self.key_pair)
     }
 
     /// Signs query
     ///
     /// # Errors
     /// Fails if signature generation fails
-    pub fn sign_query(&self, query: QueryBuilder) -> Result<SignedQuery> {
-        query
-            .sign(self.key_pair.clone())
-            .wrap_err("Failed to sign query")
+    pub fn sign_query(&self, query: QueryBuilder) -> SignedQuery {
+        query.sign(&self.key_pair)
     }
 
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
@@ -554,7 +537,7 @@ impl Client {
         instructions: impl IntoIterator<Item = impl Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<TransactionPayload>> {
-        self.submit_transaction(&self.build_transaction(instructions, metadata)?)
+        self.submit_transaction(&self.build_transaction(instructions, metadata))
     }
 
     /// Submit a prebuilt transaction.
@@ -743,14 +726,11 @@ impl Client {
         instructions: impl IntoIterator<Item = impl Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<TransactionPayload>> {
-        let transaction = self.build_transaction(instructions, metadata)?;
+        let transaction = self.build_transaction(instructions, metadata);
         self.submit_transaction_blocking(&transaction)
     }
 
     /// Lower-level Query API entry point. Prepares an http-request and returns it with an http-response handler.
-    ///
-    /// # Errors
-    /// Fails if query signing fails.
     ///
     /// # Examples
     ///
@@ -814,12 +794,12 @@ impl Client {
         pagination: Pagination,
         sorting: Sorting,
         fetch_size: FetchSize,
-    ) -> Result<(DefaultRequestBuilder, QueryResponseHandler<R::Output>)>
+    ) -> (DefaultRequestBuilder, QueryResponseHandler<R::Output>)
     where
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         let query_builder = QueryBuilder::new(request, self.account_id.clone()).with_filter(filter);
-        let request = self.sign_query(query_builder)?.encode_versioned();
+        let request = self.sign_query(query_builder).encode_versioned();
 
         let query_request = QueryRequest {
             torii_url: self.torii_url.clone(),
@@ -831,10 +811,10 @@ impl Client {
             ),
         };
 
-        Ok((
+        (
             query_request.clone().assemble(),
             QueryResponseHandler::new(query_request),
-        ))
+        )
     }
 
     /// Create a request with pagination, sorting and add the filter.
@@ -855,7 +835,7 @@ impl Client {
     {
         iroha_logger::trace!(?request, %pagination, ?sorting, ?filter);
         let (req, mut resp_handler) =
-            self.prepare_query_request::<R>(request, filter, pagination, sorting, fetch_size)?;
+            self.prepare_query_request::<R>(request, filter, pagination, sorting, fetch_size);
 
         let response = req.build()?.send()?;
         let value = resp_handler.handle(&response)?;
@@ -997,57 +977,37 @@ impl Client {
         )
     }
 
-    /// Check if two transactions are the same. Compare their contents excluding the creation time.
-    fn equals_excluding_creation_time(
-        first: &TransactionPayload,
-        second: &TransactionPayload,
-    ) -> bool {
-        first.authority() == second.authority()
-            && first.instructions() == second.instructions()
-            && first.time_to_live() == second.time_to_live()
-            && first.metadata().eq(second.metadata())
-    }
-
-    /// Find the original transaction in the pending local tx
-    /// queue.  Should be used for an MST case.  Takes pagination as
-    /// parameter.
+    /// Find the original transaction in the local pending tx queue.
+    /// Should be used for an MST case.
     ///
     /// # Errors
-    /// - if subscribing to websocket fails
-    pub fn get_original_transaction_with_pagination(
+    /// - if sending request fails
+    pub fn get_original_matching_transactions(
         &self,
         transaction: &SignedTransaction,
         retry_count: u32,
         retry_in: Duration,
-        pagination: Pagination,
-    ) -> Result<Option<SignedTransaction>> {
-        let pagination = pagination.into_query_parameters();
+    ) -> Result<Vec<SignedTransaction>> {
+        let url = self
+            .torii_url
+            .join(crate::config::torii::MATCHING_PENDING_TRANSACTIONS)
+            .expect("Valid URI");
+        let body = transaction.encode();
+
         for _ in 0..retry_count {
-            let response = DefaultRequestBuilder::new(
-                HttpMethod::GET,
-                self.torii_url
-                    .join(crate::config::torii::PENDING_TRANSACTIONS)
-                    .expect("Valid URI"),
-            )
-            .params(pagination.clone())
-            .headers(self.headers.clone())
-            .build()?
-            .send()?;
+            let response = DefaultRequestBuilder::new(HttpMethod::POST, url.clone())
+                .headers(self.headers.clone())
+                .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
+                .body(body.clone())
+                .build()?
+                .send()?;
 
             if response.status() == StatusCode::OK {
                 let pending_transactions: Vec<SignedTransaction> =
                     DecodeAll::decode_all(&mut response.body().as_slice())?;
 
-                let transaction = pending_transactions
-                    .into_iter()
-                    .find(|pending_transaction| {
-                        Self::equals_excluding_creation_time(
-                            pending_transaction.payload(),
-                            transaction.payload(),
-                        )
-                    });
-                if transaction.is_some() {
-                    return Ok(transaction);
+                if !pending_transactions.is_empty() {
+                    return Ok(pending_transactions);
                 }
                 thread::sleep(retry_in);
             } else {
@@ -1058,26 +1018,7 @@ impl Client {
                 ));
             }
         }
-        Ok(None)
-    }
-
-    /// Find the original transaction in the local pending tx queue.
-    /// Should be used for an MST case.
-    ///
-    /// # Errors
-    /// - if sending request fails
-    pub fn get_original_transaction(
-        &self,
-        transaction: &SignedTransaction,
-        retry_count: u32,
-        retry_in: Duration,
-    ) -> Result<Option<SignedTransaction>> {
-        self.get_original_transaction_with_pagination(
-            transaction,
-            retry_count,
-            retry_in,
-            Pagination::default(),
-        )
+        Ok(Vec::new())
     }
 
     /// Get value of config on peer
@@ -1666,6 +1607,7 @@ mod tests {
         let (public_key, private_key) = KeyPair::generate().unwrap().into();
 
         let cfg = ConfigurationProxy {
+            chain_id: Some(ChainId::new("0")),
             public_key: Some(public_key),
             private_key: Some(private_key),
             account_id: Some(
@@ -1681,22 +1623,28 @@ mod tests {
         .expect("Client config should build as all required fields were provided");
         let client = Client::new(&cfg).expect("Invalid client configuration");
 
-        let build_transaction = || {
-            client
-                .build_transaction(Vec::<InstructionBox>::new(), UnlimitedMetadata::new())
-                .unwrap()
-        };
+        let build_transaction =
+            || client.build_transaction(Vec::<InstructionBox>::new(), UnlimitedMetadata::new());
         let tx1 = build_transaction();
-        let mut tx2 = build_transaction();
+        let tx2 = build_transaction();
         assert_ne!(tx1.payload().hash(), tx2.payload().hash());
 
-        tx2.payload_mut().creation_time_ms = tx1
-            .payload()
-            .creation_time()
-            .as_millis()
-            .try_into()
-            .expect("Valid");
-        tx2.payload_mut().nonce = tx1.payload().nonce;
+        let tx2 = {
+            let mut tx =
+                TransactionBuilder::new(client.chain_id.clone(), client.account_id.clone())
+                    .with_executable(tx1.payload().instructions.clone())
+                    .with_metadata(tx1.payload().metadata.clone());
+
+            tx.set_creation_time(tx1.payload().creation_time_ms);
+            if let Some(nonce) = tx1.payload().nonce {
+                tx.set_nonce(nonce);
+            }
+            if let Some(transaction_ttl) = client.transaction_ttl {
+                tx.set_ttl(transaction_ttl);
+            }
+
+            client.sign_transaction(tx)
+        };
         assert_eq!(tx1.payload().hash(), tx2.payload().hash());
     }
 
@@ -1708,6 +1656,7 @@ mod tests {
         };
 
         let cfg = ConfigurationProxy {
+            chain_id: Some(ChainId::new("0")),
             public_key: Some(
                 "ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0"
                     .parse()

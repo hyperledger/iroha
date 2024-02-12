@@ -54,10 +54,7 @@ async fn network_create() {
     tokio::time::sleep(delay).await;
 
     info!("Connecting to peer...");
-    let peer1 = PeerId {
-        address: address.clone(),
-        public_key: public_key.clone(),
-    };
+    let peer1 = PeerId::new(address.clone(), public_key.clone());
     let topology = HashSet::from([peer1.clone()]);
     network.update_topology(UpdateTopology(topology));
     tokio::time::sleep(delay).await;
@@ -174,14 +171,8 @@ async fn two_networks() {
     network2.subscribe_to_peers_messages(actor2);
 
     info!("Connecting peers...");
-    let peer1 = PeerId {
-        address: address1.clone(),
-        public_key: public_key1,
-    };
-    let peer2 = PeerId {
-        address: address2.clone(),
-        public_key: public_key2,
-    };
+    let peer1 = PeerId::new(address1.clone(), public_key1);
+    let peer2 = PeerId::new(address2.clone(), public_key2);
     let topology1 = HashSet::from([peer2.clone()]);
     let topology2 = HashSet::from([peer1.clone()]);
     // Connect peers with each other
@@ -237,10 +228,7 @@ async fn multiple_networks() {
         let address = socket_addr!(127.0.0.1: 12_015 + ( i * 5));
         let key_pair = KeyPair::generate().unwrap();
         let public_key = key_pair.public_key().clone();
-        peers.push(PeerId {
-            address,
-            public_key,
-        });
+        peers.push(PeerId::new(address, public_key));
         key_pairs.push(key_pair);
     }
 

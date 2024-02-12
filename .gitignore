@@ -49,3 +49,4 @@ result
 /test/
 /iroha-java/
 /lcov.info
+**/test-smartcontracts/

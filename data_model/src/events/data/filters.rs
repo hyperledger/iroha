@@ -222,7 +222,7 @@ mod tests {
             metadata: Metadata::default(),
             owned_by: domain_owner_id,
         };
-        let account_id = AccountId::new(account_name, domain_id.clone());
+        let account_id = AccountId::new(domain_id.clone(), account_name);
         let account = Account {
             id: account_id.clone(),
             assets: AssetsMap::default(),
@@ -231,7 +231,7 @@ mod tests {
             metadata: Metadata::default(),
         };
         let asset_id = AssetId::new(
-            AssetDefinitionId::new(asset_name, domain_id.clone()),
+            AssetDefinitionId::new(domain_id.clone(), asset_name),
             account_id.clone(),
         );
         let asset = Asset::new(asset_id.clone(), 0u32);

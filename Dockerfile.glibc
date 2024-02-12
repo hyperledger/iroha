@@ -1,16 +1,13 @@
-#base stage
-FROM archlinux:base-devel AS builder
+# base stage
+FROM debian:bookworm-slim AS builder
 
-# Force-sync packages, install archlinux-keyring, repopulate keys
-RUN pacman -Syy
-RUN pacman -S archlinux-keyring --noconfirm --disable-download-timeout
-RUN rm -rf /etc/pacman.d/gnupg/* && pacman-key --init && pacman-key --populate archlinux
+# install required packages
+RUN apt-get update -y && \
+     apt-get install -y curl build-essential mold
 
-# Install updates
-RUN pacman -Syu --noconfirm --disable-download-timeout
-
-# Set up Rust toolchain
-RUN pacman -S rustup mold wget --noconfirm --disable-download-timeout
+# set up Rust toolchain
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 RUN rustup toolchain install nightly-2024-01-12
 RUN rustup default nightly-2024-01-12
 RUN rustup target add wasm32-unknown-unknown
@@ -19,15 +16,18 @@ RUN rustup component add rust-src
 # builder stage
 WORKDIR /iroha
 COPY . .
-RUN mold --run cargo build --target x86_64-unknown-linux-gnu --profile deploy
+ARG PROFILE="deploy"
+ARG RUSTFLAGS=""
+ARG FEATURES=""
+ARG CARGOFLAGS=""
+RUN RUSTFLAGS="${RUSTFLAGS}" mold --run cargo ${CARGOFLAGS} build --target x86_64-unknown-linux-gnu --profile "${PROFILE}" --features "${FEATURES}"
 
 # final image
-FROM alpine:3.18
+FROM debian:bookworm-slim
 
-ENV  GLIBC_REPO=https://github.com/sgerrand/alpine-pkg-glibc
-ENV  GLIBC_VERSION=2.35-r1
+ARG PROFILE="deploy"
 ARG  STORAGE=/storage
-ARG  TARGET_DIR=/iroha/target/x86_64-unknown-linux-gnu/deploy
+ARG  TARGET_DIR=/iroha/target/x86_64-unknown-linux-gnu/${PROFILE}
 ENV  BIN_PATH=/usr/local/bin/
 ENV  CONFIG_DIR=/config
 ENV  IROHA2_CONFIG_PATH=$CONFIG_DIR/config.json
@@ -39,12 +39,9 @@ ENV  UID=1001
 ENV  GID=1001
 
 RUN  set -ex && \
-     apk --update add libstdc++ curl ca-certificates gcompat && \
-     for pkg in glibc-${GLIBC_VERSION} glibc-bin-${GLIBC_VERSION}; \
-         do curl -sSL ${GLIBC_REPO}/releases/download/${GLIBC_VERSION}/${pkg}.apk -o /tmp/${pkg}.apk; done && \
-     apk add --force-overwrite --allow-untrusted /tmp/*.apk && \
-     rm -v /tmp/*.apk && \
-     addgroup -g $GID $USER && \
+     apt-get update -y && \
+     apt-get install -y curl ca-certificates && \
+     addgroup --gid $GID $USER && \
      adduser \
      --disabled-password \
      --gecos "" \

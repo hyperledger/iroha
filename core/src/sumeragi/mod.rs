@@ -26,10 +26,7 @@ pub mod view_change;
 
 use parking_lot::Mutex;
 
-use self::{
-    message::{Message, *},
-    view_change::ProofChain,
-};
+use self::{message::*, view_change::ProofChain};
 use crate::{kura::Kura, prelude::*, queue::Queue, EventsSender, IrohaNetwork, NetworkMessage};
 
 /*
@@ -55,7 +52,7 @@ pub struct SumeragiHandle {
     _thread_handle: Arc<ThreadHandler>,
     // Should be dropped after `_thread_handle` to prevent sumeargi thread from panicking
     control_message_sender: mpsc::SyncSender<ControlFlowMessage>,
-    message_sender: mpsc::SyncSender<MessagePacket>,
+    message_sender: mpsc::SyncSender<BlockMessage>,
 }
 
 impl SumeragiHandle {
@@ -203,20 +200,21 @@ impl SumeragiHandle {
         &self.metrics
     }
 
+    /// Deposit a sumeragi control flow network message.
+    pub fn incoming_control_flow_message(&self, msg: ControlFlowMessage) {
+        if let Err(error) = self.control_message_sender.try_send(msg) {
+            self.metrics.dropped_messages.inc();
+            error!(
+                ?error,
+                "This peer is faulty. \
+                 Incoming control messages have to be dropped due to low processing speed."
+            );
+        }
+    }
+
     /// Deposit a sumeragi network message.
-    pub fn incoming_message(&self, msg: MessagePacket) {
-        if msg.message.is_none() {
-            if let Err(error) = self.control_message_sender.try_send(ControlFlowMessage {
-                view_change_proofs: msg.view_change_proofs,
-            }) {
-                self.metrics.dropped_messages.inc();
-                error!(
-                    ?error,
-                    "This peer is faulty. \
-                     Incoming control messages have to be dropped due to low processing speed."
-                );
-            }
-        } else if let Err(error) = self.message_sender.try_send(msg) {
+    pub fn incoming_block_message(&self, msg: BlockMessage) {
+        if let Err(error) = self.message_sender.try_send(msg) {
             self.metrics.dropped_messages.inc();
             error!(
                 ?error,
@@ -227,6 +225,7 @@ impl SumeragiHandle {
     }
 
     fn replay_block(
+        chain_id: &ChainId,
         block: &SignedBlock,
         wsv: &mut WorldStateView,
         mut current_topology: Topology,
@@ -234,7 +233,7 @@ impl SumeragiHandle {
         // NOTE: topology need to be updated up to block's view_change_index
         current_topology.rotate_all_n(block.payload().header.view_change_index);
 
-        let block = ValidBlock::validate(block.clone(), &current_topology, wsv)
+        let block = ValidBlock::validate(block.clone(), &current_topology, chain_id, wsv)
             .expect("Kura blocks should be valid")
             .commit(&current_topology)
             .expect("Kura blocks should be valid");
@@ -258,6 +257,7 @@ impl SumeragiHandle {
     #[allow(clippy::too_many_lines)]
     pub fn start(
         SumeragiStartArgs {
+            chain_id,
             configuration,
             events_sender,
             mut wsv,
@@ -296,14 +296,14 @@ impl SumeragiHandle {
         let block_iter_except_last =
             (&mut blocks_iter).take(block_count.saturating_sub(skip_block_count + 1));
         for block in block_iter_except_last {
-            current_topology = Self::replay_block(&block, &mut wsv, current_topology);
+            current_topology = Self::replay_block(&chain_id, &block, &mut wsv, current_topology);
         }
 
         // finalized_wsv is one block behind
         let finalized_wsv = wsv.clone();
 
         if let Some(block) = blocks_iter.next() {
-            current_topology = Self::replay_block(&block, &mut wsv, current_topology);
+            current_topology = Self::replay_block(&chain_id, &block, &mut wsv, current_topology);
         }
 
         info!("Sumeragi has finished loading blocks and setting up the WSV");
@@ -318,6 +318,7 @@ impl SumeragiHandle {
         let debug_force_soft_fork = false;
 
         let sumeragi = main_loop::Sumeragi {
+            chain_id,
             key_pair: configuration.key_pair.clone(),
             queue: Arc::clone(&queue),
             peer_id: configuration.peer_id.clone(),
@@ -417,8 +418,9 @@ impl VotingBlock {
 
 /// Arguments for [`SumeragiHandle::start`] function
 #[allow(missing_docs)]
-pub struct SumeragiStartArgs<'args> {
-    pub configuration: &'args Configuration,
+pub struct SumeragiStartArgs {
+    pub chain_id: ChainId,
+    pub configuration: Box<Configuration>,
     pub events_sender: EventsSender,
     pub wsv: WorldStateView,
     pub queue: Arc<Queue>,

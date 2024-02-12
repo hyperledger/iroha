@@ -207,6 +207,8 @@ impl MeasurerUnit {
 
     /// Spawn who periodically submits transactions
     fn spawn_transaction_submitter(&self, shutdown_signal: mpsc::Receiver<()>) -> JoinHandle<()> {
+        let chain_id = ChainId::new("0");
+
         let submitter = self.client.clone();
         let interval_us_per_tx = self.config.interval_us_per_tx;
         let instructions = self.instructions();
@@ -218,13 +220,12 @@ impl MeasurerUnit {
             for instruction in instructions {
                 match shutdown_signal.try_recv() {
                     Err(mpsc::TryRecvError::Empty) => {
-                        let mut transaction = TransactionBuilder::new(alice_id.clone())
-                            .with_instructions([instruction]);
+                        let mut transaction =
+                            TransactionBuilder::new(chain_id.clone(), alice_id.clone())
+                                .with_instructions([instruction]);
                         transaction.set_nonce(nonce); // Use nonce to avoid transaction duplication within the same thread
 
-                        let transaction = submitter
-                            .sign_transaction(transaction)
-                            .expect("Failed to sign transaction");
+                        let transaction = submitter.sign_transaction(transaction);
                         if let Err(error) = submitter.submit_transaction(&transaction) {
                             iroha_logger::error!(?error, "Failed to submit transaction");
                         }

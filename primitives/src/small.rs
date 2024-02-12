@@ -118,6 +118,7 @@ mod small_vector {
         }
     }
 
+    #[allow(clippy::unconditional_recursion)] // False-positive
     impl<A: Array> PartialEq for SmallVec<A>
     where
         A::Item: PartialEq,

@@ -78,7 +78,7 @@ pub mod model {
         pub asset_definitions: AssetDefinitionsMap,
         /// Total amount of [`Asset`].
         pub asset_total_quantities: AssetTotalQuantityMap,
-        /// IPFS link to the [`Domain`] logo
+        /// IPFS link to the [`Domain`] logo.
         #[getset(get = "pub")]
         pub logo: Option<IpfsPath>,
         /// [`Metadata`] of this `Domain` as a key-value store.

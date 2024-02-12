@@ -25,8 +25,9 @@ use parity_scale_codec::{Decode, Encode};
 use tokio::sync::broadcast;
 
 use crate::{
-    block_sync::message::Message as BlockSyncMessage, prelude::*,
-    sumeragi::message::MessagePacket as SumeragiPacket,
+    block_sync::message::Message as BlockSyncMessage,
+    prelude::*,
+    sumeragi::message::{BlockMessage, ControlFlowMessage},
 };
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
@@ -59,8 +60,10 @@ pub type EventsSender = broadcast::Sender<Event>;
 /// The network message
 #[derive(Clone, Debug, Encode, Decode)]
 pub enum NetworkMessage {
-    /// Blockchain message
-    SumeragiPacket(Box<SumeragiPacket>),
+    /// Blockchain concensus data message
+    SumeragiBlock(Box<BlockMessage>),
+    /// Blockchain concensus control flow message
+    SumeragiControlFlow(Box<ControlFlowMessage>),
     /// Block sync message
     BlockSync(Box<BlockSyncMessage>),
     /// Transaction gossiper message

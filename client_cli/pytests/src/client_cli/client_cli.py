@@ -166,8 +166,9 @@ class ClientCli:
         """
         self.command.insert(3, 'asset')
         if asset_definition and account and value_of_value_type:
-            self.command.append('--account=' + account.name + '@' + asset_definition.domain)
-            self.command.append('--asset=' + repr(asset_definition))
+            self.command.append(
+                '--asset-id='
+                + asset_definition.name + '#' + account.domain + '#' + account.name + '@' + asset_definition.domain)
             self.command.append(
                 '--' + asset_definition.value_type.lower() + '=' + value_of_value_type)
             self.execute()
@@ -190,9 +191,9 @@ class ClientCli:
         """
         self.command.append('asset')
         self.command.append('transfer')
-        self.command.append('--from=' + repr(source_account))
         self.command.append('--to=' + repr(target_account))
-        self.command.append('--asset-id=' + repr(asset))
+        self.command.append(
+            '--asset-id=' + asset.name + '#' + source_account.domain + '#' + source_account.name + '@' + asset.domain)
         self.command.append('--quantity=' + quantity)
         self.execute()
         return self
@@ -211,8 +212,8 @@ class ClientCli:
         """
         self.command.append('asset')
         self.command.append('burn')
-        self.command.append('--account=' + repr(account))
-        self.command.append('--asset=' + repr(asset))
+        self.command.append(
+            '--asset-id=' + asset.name + '#' + account.domain + '#' + account.name + '@' + asset.domain)
         self.command.append('--quantity=' + quantity)
         self.execute()
         return self
@@ -230,7 +231,7 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.append('--id=' + asset + '#' + domain)
+        self.command.append('--definition-id=' + asset + '#' + domain)
         self.command.append('--value-type=' + value_type)
         self.execute()
         return self

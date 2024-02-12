@@ -11,28 +11,25 @@ license.workspace = true
 workspace = true
 
 [features]
-default = ["std"]
+default = ["std", "rand"]
 # Enable static linkage of the rust standard library.
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
 std = [
-    "dep:blake2",
-    "dep:digest",
-    "dep:sha2",
-    "dep:hkdf",
-    "dep:amcl",
-    "dep:amcl_wrapper",
-    "dep:signature",
-    "dep:ed25519-dalek",
-    "dep:curve25519-dalek",
-    "dep:x25519-dalek",
-    "dep:rand",
-    "dep:rand_chacha",
-    "dep:zeroize",
-    "dep:arrayref",
-    "dep:aead",
-    "dep:chacha20poly1305",
-    "dep:elliptic-curve",
-    "dep:k256",
+    "rand/std",
+    "blake2/std",
+    "digest/std",
+    "sha2/std",
+    "hkdf/std",
+    "w3f-bls/std",
+    "signature/std",
+    "ed25519-dalek/std",
+    "rand/std",
+    "rand_chacha/std",
+    "zeroize/std",
+    "aead/std",
+    "chacha20poly1305/std",
+    "elliptic-curve/std",
+    "k256/std",
     "dep:thiserror",
     "displaydoc/std",
 ]
@@ -41,6 +38,9 @@ std = [
 
 # Expose FFI API for dynamic linking (Internal use only)
 ffi_export = ["std", "iroha_ffi", "iroha_primitives/ffi_export"]
+
+# Allow creating key using random number generator which is tricky in some environments like Smart Contracts
+rand = []
 
 [dependencies]
 iroha_primitives = { workspace = true }
@@ -58,37 +58,37 @@ getset = { workspace = true }
 thiserror = { version = "1.0.50", optional = true }
 displaydoc = { version = "0.2.4", default-features = false }
 
-digest = { version = "0.10.7", optional = true }
-blake2 = { version = "0.10.6", optional = true }
-sha2 = { version = "0.10.8", optional = true }
-hkdf = { version = "0.12.3", optional = true }
-amcl = { version = "0.2.0", optional = true, default-features = false, features = ["secp256k1"] }
-amcl_wrapper = { version = "0.4.0", optional = true }
+digest = { version = "0.10.7", default-features = false, features = ["alloc"]}
+blake2 = { version = "0.10.6", default-features = false }
+sha2 = { version = "0.10.8", default-features = false }
+hkdf = { version = "0.12.3", default-features = false }
+w3f-bls = { version = "0.1.3", default-features = false }
 
-signature = { version = "2.1.0", optional = true }
-ed25519-dalek = { version = "2.0.0", optional = true, features = ["rand_core"] }
-curve25519-dalek = { version = "4.1.1", optional = true }
-x25519-dalek = { version = "2.0.0", optional = true, features = ["static_secrets"] }
+signature = { version = "2.1.0", default-features = false, features = ["alloc"] }
+ed25519-dalek = { version = "2.1.0", default-features = false, features = ["alloc", "rand_core", "zeroize"] }
+curve25519-dalek = { version = "4.1.1", default-features = false }
+x25519-dalek = { version = "2.0.0", default-features = false, features = ["static_secrets"] }
 
-rand = { workspace = true, optional = true }
-rand_chacha = { version = "0.3.1", optional = true }
+rand = { workspace = true, default-features = false, features = ["std_rng", "alloc"]}
+rand_chacha = { version = "0.3.1", default-features = false }
 
 
-zeroize = { version = "1.6.0", optional = true }
-arrayref = { version = "0.3.7", optional = true }
+zeroize = { version = "1.6.0", default-features = false }
+arrayref = { version = "0.3.7", default-features = false }
 
-aead = { version = "0.5.2", optional = true }
-chacha20poly1305 = { version = "0.10.1", optional = true }
+aead = { version = "0.5.2", default-features = false, features = ["alloc"] }
+chacha20poly1305 = { version = "0.10.1", default-features = false }
 
-elliptic-curve = { version = "0.13.6", optional = true }
-k256 = { version = "0.13.1", optional = true, features = ["ecdsa", "sha256"]}
+elliptic-curve = { version = "0.13.6", default-features = false }
+k256 = { version = "0.13.1", default-features = false, features = ["alloc", "ecdsa", "sha256"]}
 
 [dev-dependencies]
 hex-literal = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["std"]}
 
 # these crypto libraries are not used to implement actual crypto algorithms
 # but to test some of the primitives against them
+amcl = { version = "0.2.0", default-features = false, features = ["secp256k1"] }
 secp256k1 = { version = "0.28.0", features = ["rand", "serde"] }
 libsodium-sys-stable = "1.20.3"
 openssl = { version = "0.10.59", features = ["vendored"] }

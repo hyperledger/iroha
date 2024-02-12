@@ -3,6 +3,7 @@ use std::fmt::Debug;
 
 use iroha_config_base::derive::{view, Error as ConfigError, Proxy};
 use iroha_crypto::prelude::*;
+use iroha_data_model::ChainId;
 use serde::{Deserialize, Serialize};
 
 use super::*;
@@ -14,6 +15,9 @@ view! {
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_")]
     pub struct Configuration {
+        /// Unique id of the blockchain. Used for simple replay attack protection.
+        #[config(serde_as_str)]
+        pub chain_id: ChainId,
         /// Public key of this peer
         #[config(serde_as_str)]
         pub public_key: PublicKey,
@@ -64,6 +68,7 @@ view! {
 impl Default for ConfigurationProxy {
     fn default() -> Self {
         Self {
+            chain_id: None,
             public_key: None,
             private_key: None,
             kura: Some(Box::default()),
@@ -115,7 +120,7 @@ impl ConfigurationProxy {
             if let Some(torii_proxy) = &mut self.torii {
                 if sumeragi_proxy.peer_id.is_none() {
                     sumeragi_proxy.peer_id = Some(iroha_data_model::prelude::PeerId::new(
-                        &torii_proxy
+                        torii_proxy
                             .p2p_addr
                             .clone()
                             .ok_or(ConfigError::MissingField {
@@ -123,7 +128,7 @@ impl ConfigurationProxy {
                                 message:
                                     "`p2p_addr` should not be set to `null` or `None` explicitly.",
                             })?,
-                        &self.public_key.clone().expect(
+                        self.public_key.clone().expect(
                             "Iroha `public_key` should have been initialized above at the latest",
                         ),
                     ));
@@ -165,7 +170,7 @@ impl ConfigurationProxy {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::path::PathBuf;
 
     use proptest::prelude::*;
@@ -200,8 +205,13 @@ mod tests {
             .boxed()
     }
 
+    pub fn placeholder_chain_id() -> ChainId {
+        ChainId::new("0")
+    }
+
     prop_compose! {
         fn arb_proxy()(
+            chain_id in prop::option::of(Just(placeholder_chain_id())),
             (public_key, private_key) in arb_keys(),
             kura in prop::option::of(kura::tests::arb_proxy().prop_map(Box::new)),
             sumeragi in (prop::option::of(sumeragi::tests::arb_proxy().prop_map(Box::new))),
@@ -216,7 +226,7 @@ mod tests {
             snapshot in prop::option::of(snapshot::tests::arb_proxy().prop_map(Box::new)),
             live_query_store in prop::option::of(live_query_store::tests::arb_proxy()),
             ) -> ConfigurationProxy {
-            ConfigurationProxy { public_key, private_key, kura, sumeragi, torii, block_sync, queue,
+            ConfigurationProxy { chain_id, public_key, private_key, kura, sumeragi, torii, block_sync, queue,
                                  logger, genesis, wsv, network, telemetry, snapshot, live_query_store }
         }
     }

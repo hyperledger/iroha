@@ -1,38 +1,32 @@
 // pub(crate) for inner modules it is not redundant, the contents of `signature` module get re-exported at root
 #![allow(clippy::redundant_pub_crate)]
 
-#[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
 pub(crate) mod bls;
 
-#[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
 pub(crate) mod ed25519;
 
-#[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
 pub(crate) mod secp256k1;
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_set, format, string::String, vec, vec::Vec};
-use core::marker::PhantomData;
+use alloc::{
+    boxed::Box, collections::btree_set, format, string::String, string::ToString as _, vec,
+    vec::Vec,
+};
+use core::{borrow::Borrow as _, marker::PhantomData};
 #[cfg(feature = "std")]
-#[cfg(not(feature = "ffi_import"))]
 use std::collections::btree_set;
 
 use derive_more::{Deref, DerefMut};
-use iroha_macro::ffi_impl_opaque;
 use iroha_primitives::const_vec::ConstVec;
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
 #[cfg(not(feature = "ffi_import"))]
 use serde::{Deserialize, Serialize};
 
-#[cfg(any(feature = "std", feature = "import_ffi"))]
-use crate::Error;
-use crate::{ffi, PublicKey};
-#[cfg(feature = "std")]
-use crate::{HashOf, KeyPair};
+use crate::{ffi, Error, HashOf, KeyPair, PublicKey};
 
 ffi::ffi_item! {
     /// Represents signature of the data (`Block` or `Transaction` for example).
@@ -52,7 +46,6 @@ ffi::ffi_item! {
     }
 }
 
-#[ffi_impl_opaque]
 impl Signature {
     /// Key payload
     pub fn payload(&self) -> &[u8] {
@@ -63,46 +56,38 @@ impl Signature {
     ///
     /// # Errors
     /// Fails if signing fails
-    #[cfg(any(feature = "std", feature = "import_ffi"))]
-    pub fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Self, Error> {
-        let (public_key, private_key) = key_pair.into();
-
-        let algorithm: crate::Algorithm = private_key.digest_function();
-
-        let signature = match algorithm {
-            crate::Algorithm::Ed25519 => ed25519::Ed25519Sha512::sign(payload, &private_key),
-            crate::Algorithm::Secp256k1 => {
-                secp256k1::EcdsaSecp256k1Sha256::sign(payload, &private_key)
+    pub fn new(key_pair: &KeyPair, payload: &[u8]) -> Self {
+        let signature = match key_pair.private_key.0.borrow() {
+            crate::PrivateKeyInner::Ed25519(sk) => ed25519::Ed25519Sha512::sign(payload, sk),
+            crate::PrivateKeyInner::Secp256k1(sk) => {
+                secp256k1::EcdsaSecp256k1Sha256::sign(payload, sk)
             }
-            crate::Algorithm::BlsSmall => bls::BlsSmall::sign(payload, &private_key),
-            crate::Algorithm::BlsNormal => bls::BlsNormal::sign(payload, &private_key),
-        }?;
-        Ok(Self {
-            public_key,
+            crate::PrivateKeyInner::BlsSmall(sk) => bls::BlsSmall::sign(payload, sk),
+            crate::PrivateKeyInner::BlsNormal(sk) => bls::BlsNormal::sign(payload, sk),
+        };
+        Self {
+            public_key: key_pair.public_key.clone(),
             payload: ConstVec::new(signature),
-        })
+        }
     }
 
-    /// Verify `message` using signed data and [`KeyPair::public_key`].
+    /// Verify `payload` using signed data and [`KeyPair::public_key`].
     ///
     /// # Errors
     /// Fails if message didn't pass verification
-    #[cfg(any(feature = "std", feature = "import_ffi"))]
     pub fn verify(&self, payload: &[u8]) -> Result<(), Error> {
-        let algorithm: crate::Algorithm = self.public_key.digest_function();
-
-        match algorithm {
-            crate::Algorithm::Ed25519 => {
-                ed25519::Ed25519Sha512::verify(payload, self.payload(), &self.public_key)
+        match self.public_key.0.borrow() {
+            crate::PublicKeyInner::Ed25519(pk) => {
+                ed25519::Ed25519Sha512::verify(payload, self.payload(), pk)
             }
-            crate::Algorithm::Secp256k1 => {
-                secp256k1::EcdsaSecp256k1Sha256::verify(payload, self.payload(), &self.public_key)
+            crate::PublicKeyInner::Secp256k1(pk) => {
+                secp256k1::EcdsaSecp256k1Sha256::verify(payload, self.payload(), pk)
             }
-            crate::Algorithm::BlsSmall => {
-                bls::BlsSmall::verify(payload, self.payload(), &self.public_key)
+            crate::PublicKeyInner::BlsSmall(pk) => {
+                bls::BlsSmall::verify(payload, self.payload(), pk)
             }
-            crate::Algorithm::BlsNormal => {
-                bls::BlsNormal::verify(payload, self.payload(), &self.public_key)
+            crate::PublicKeyInner::BlsNormal(pk) => {
+                bls::BlsNormal::verify(payload, self.payload(), pk)
             }
         }?;
 
@@ -166,6 +151,7 @@ impl<T> Clone for SignatureOf<T> {
     }
 }
 
+#[allow(clippy::unconditional_recursion)] // False-positive
 impl<T> PartialEq for SignatureOf<T> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
@@ -214,9 +200,9 @@ impl<T> SignatureOf<T> {
     ///
     /// # Errors
     /// Fails if signing fails
-    #[cfg(any(feature = "std", feature = "import_ffi"))]
-    fn from_hash(key_pair: KeyPair, hash: HashOf<T>) -> Result<Self, Error> {
-        Signature::new(key_pair, hash.as_ref()).map(|signature| Self(signature, PhantomData))
+    #[inline]
+    fn from_hash(key_pair: &KeyPair, hash: HashOf<T>) -> Self {
+        Self(Signature::new(key_pair, hash.as_ref()), PhantomData)
     }
 
     /// Verify signature for this hash
@@ -224,13 +210,11 @@ impl<T> SignatureOf<T> {
     /// # Errors
     ///
     /// Fails if the given hash didn't pass verification
-    #[cfg(any(feature = "std", feature = "import_ffi"))]
     fn verify_hash(&self, hash: HashOf<T>) -> Result<(), Error> {
         self.0.verify(hash.as_ref())
     }
 }
 
-#[cfg(any(feature = "std", feature = "import_ffi"))]
 impl<T: parity_scale_codec::Encode> SignatureOf<T> {
     /// Create [`SignatureOf`] by signing the given value with [`KeyPair::private_key`].
     /// The value provided will be hashed before being signed. If you already have the
@@ -238,7 +222,8 @@ impl<T: parity_scale_codec::Encode> SignatureOf<T> {
     ///
     /// # Errors
     /// Fails if signing fails
-    pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
+    #[inline]
+    pub fn new(key_pair: &KeyPair, value: &T) -> Self {
         Self::from_hash(key_pair, HashOf::new(value))
     }
 
@@ -286,6 +271,7 @@ impl<T> Clone for SignatureWrapperOf<T> {
     }
 }
 
+#[allow(clippy::unconditional_recursion)] // False-positive
 #[cfg(not(feature = "ffi_import"))]
 impl<T> PartialEq for SignatureWrapperOf<T> {
     fn eq(&self, other: &Self) -> bool {
@@ -349,6 +335,7 @@ impl<T> Clone for SignaturesOf<T> {
     }
 }
 
+#[allow(clippy::unconditional_recursion)] // False-positive
 #[cfg(not(feature = "ffi_import"))]
 impl<T> PartialEq for SignaturesOf<T> {
     fn eq(&self, other: &Self) -> bool {
@@ -465,7 +452,6 @@ impl<T> SignaturesOf<T> {
     ///
     /// # Errors
     /// Fails if verificatoin of any signature fails
-    #[cfg(feature = "std")]
     pub fn verify_hash(&self, hash: HashOf<T>) -> Result<(), SignatureVerificationFail<T>> {
         self.iter().try_for_each(|signature| {
             signature
@@ -483,15 +469,15 @@ impl<T> SignaturesOf<T> {
     }
 }
 
-#[cfg(feature = "std")]
 #[cfg(not(feature = "ffi_import"))]
 impl<T: Encode> SignaturesOf<T> {
     /// Create new signatures container
     ///
     /// # Errors
     /// Forwards [`SignatureOf::new`] errors
-    pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
-        SignatureOf::new(key_pair, value).map(Self::from)
+    #[inline]
+    pub fn new(key_pair: &KeyPair, value: &T) -> Self {
+        SignatureOf::new(key_pair, value).into()
     }
 
     /// Verifies all signatures
@@ -540,76 +526,69 @@ impl<T> std::error::Error for SignatureVerificationFail<T> {}
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "std")]
     use super::*;
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
     use crate::KeyGenConfiguration;
 
     #[test]
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
+    #[cfg(feature = "rand")]
     fn create_signature_ed25519() {
         let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().with_algorithm(crate::Algorithm::Ed25519),
+            KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::Ed25519),
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
-        let signature =
-            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
+        let signature = Signature::new(&key_pair, message);
         assert!(*signature.public_key() == *key_pair.public_key());
-        assert!(signature.verify(message).is_ok());
+        signature.verify(message).unwrap();
     }
 
     #[test]
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
+    #[cfg(feature = "rand")]
     fn create_signature_secp256k1() {
         let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().with_algorithm(crate::Algorithm::Secp256k1),
+            KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::Secp256k1),
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
-        let signature =
-            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
+        let signature = Signature::new(&key_pair, message);
         assert!(*signature.public_key() == *key_pair.public_key());
-        assert!(signature.verify(message).is_ok());
+        signature.verify(message).unwrap();
     }
 
     #[test]
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
+    #[cfg(feature = "rand")]
     fn create_signature_bls_normal() {
         let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().with_algorithm(crate::Algorithm::BlsNormal),
+            KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::BlsNormal),
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
-        let signature =
-            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
+        let signature = Signature::new(&key_pair, message);
         assert!(*signature.public_key() == *key_pair.public_key());
-        assert!(signature.verify(message).is_ok());
+        signature.verify(message).unwrap();
     }
 
     #[test]
-    #[cfg(any(feature = "std", feature = "ffi_import"))]
+    #[cfg(all(feature = "rand", any(feature = "std", feature = "ffi_import")))]
     fn create_signature_bls_small() {
         let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().with_algorithm(crate::Algorithm::BlsSmall),
+            KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::BlsSmall),
         )
         .expect("Failed to generate key pair.");
         let message = b"Test message to sign.";
-        let signature =
-            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
+        let signature = Signature::new(&key_pair, message);
         assert!(*signature.public_key() == *key_pair.public_key());
-        assert!(signature.verify(message).is_ok());
+        signature.verify(message).unwrap();
     }
 
     #[test]
-    #[cfg(feature = "std")]
-    #[cfg(not(feature = "ffi_import"))]
+    #[cfg(all(feature = "rand", not(feature = "ffi_import")))]
     fn signatures_of_deduplication_by_public_key() {
         let key_pair = KeyPair::generate().expect("Failed to generate keys");
         let signatures = [
-            SignatureOf::new(key_pair.clone(), &1).expect("Failed to sign"),
-            SignatureOf::new(key_pair.clone(), &2).expect("Failed to sign"),
-            SignatureOf::new(key_pair, &3).expect("Failed to sign"),
+            SignatureOf::new(&key_pair, &1),
+            SignatureOf::new(&key_pair, &2),
+            SignatureOf::new(&key_pair, &3),
         ]
         .into_iter()
         .collect::<SignaturesOf<u8>>();
@@ -618,7 +597,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "std")]
     #[cfg(not(feature = "ffi_import"))]
     fn signature_wrapper_btree_and_hash_sets_consistent_results() {
         use std::collections::{BTreeSet, HashSet};
@@ -631,7 +609,7 @@ mod tests {
                 .flat_map(|key| {
                     core::iter::repeat_with(move || key.clone())
                         .zip(0..)
-                        .map(|(key, i)| SignatureOf::new(key, &i).expect("Failed to sign"))
+                        .map(|(key, i)| SignatureOf::new(&key, &i))
                         .take(signatures_per_key)
                 })
                 .map(SignatureWrapperOf)

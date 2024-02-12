@@ -41,7 +41,7 @@ impl FromAttributes for ValidateAttribute {
     // but we still _want_ to validate that each attribute parses successfully
     // this is to ensure that we provide the user with as much validation as possible, instead of bailing out early
     // `Option::or_else` would NOT work here, as it would not validate conditions after the first valid one
-    #[allow(clippy::or_fun_call)]
+    #[allow(clippy::or_fun_call, clippy::too_many_lines)]
     fn from_attributes(attrs: &[Attribute]) -> darling::Result<Self> {
         let mut accumulator = darling::error::Accumulator::default();
 

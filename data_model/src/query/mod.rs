@@ -1231,16 +1231,13 @@ pub mod http {
         /// # Errors
         /// Fails if signature creation fails.
         #[inline]
-        pub fn sign(
-            self,
-            key_pair: iroha_crypto::KeyPair,
-        ) -> Result<SignedQuery, iroha_crypto::error::Error> {
-            SignatureOf::new(key_pair, &self.payload)
-                .map(|signature| SignedQueryV1 {
-                    payload: self.payload,
-                    signature,
-                })
-                .map(Into::into)
+        #[must_use]
+        pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedQuery {
+            SignedQueryV1 {
+                signature: SignatureOf::new(key_pair, &self.payload),
+                payload: self.payload,
+            }
+            .into()
         }
     }
 

@@ -35,7 +35,7 @@ fn import_shared_fns() {
 mod ffi {
     use std::alloc;
 
-    use iroha_ffi::{def_ffi_fns, slice::SliceMut, FfiReturn, FfiType};
+    use iroha_ffi::{def_ffi_fns, slice::RefMutSlice, FfiReturn, FfiType};
 
     iroha_ffi::handles! {ExternFfiStruct}
 
@@ -56,7 +56,7 @@ mod ffi {
 
     #[no_mangle]
     unsafe extern "C" fn FfiStruct__new(
-        input: SliceMut<u8>,
+        input: RefMutSlice<u8>,
         output: *mut *mut ExternFfiStruct,
     ) -> FfiReturn {
         let string = String::from_utf8(input.into_rust().expect("Defined").to_vec());

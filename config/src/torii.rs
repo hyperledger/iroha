@@ -62,7 +62,7 @@ pub mod uri {
     /// The web socket uri used to subscribe to blocks stream.
     pub const BLOCKS_STREAM: &str = "block/stream";
     /// Get pending transactions.
-    pub const PENDING_TRANSACTIONS: &str = "pending_transactions";
+    pub const MATCHING_PENDING_TRANSACTIONS: &str = "matching_pending_transactions";
     /// The URI for local config changing inspecting
     pub const CONFIGURATION: &str = "configuration";
     /// URI to report status for administration
@@ -74,6 +74,8 @@ pub mod uri {
     pub const SCHEMA: &str = "schema";
     /// URI for getting the API version currently used
     pub const API_VERSION: &str = "api_version";
+    /// URI for getting cpu profile
+    pub const PROFILE: &str = "debug/pprof/profile";
 }
 
 #[cfg(test)]

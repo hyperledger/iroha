@@ -92,19 +92,19 @@ impl Topology {
         for role in roles {
             match (role, self.is_non_empty(), self.is_consensus_required()) {
                 (Role::Leader, Some(topology), _) => {
-                    public_keys.insert(&topology.leader().public_key);
+                    public_keys.insert(topology.leader().public_key());
                 }
                 (Role::ProxyTail, _, Some(topology)) => {
                     public_keys.insert(&topology.proxy_tail().public_key);
                 }
                 (Role::ValidatingPeer, _, Some(topology)) => {
                     for peer in topology.validating_peers() {
-                        public_keys.insert(&peer.public_key);
+                        public_keys.insert(peer.public_key());
                     }
                 }
                 (Role::ObservingPeer, _, Some(topology)) => {
                     for peer in topology.observing_peers() {
-                        public_keys.insert(&peer.public_key);
+                        public_keys.insert(peer.public_key());
                     }
                 }
                 _ => {}
@@ -194,6 +194,26 @@ impl Topology {
         // Rotate all once for every view_change
         topology.rotate_all_n(view_change_index);
 
+        {
+            // FIXME: This is a hack to prevent consensus from running amock due to
+            // a bug in the implementation by reverting to predictable ordering
+
+            let view_change_limit: usize = view_change_index
+                .saturating_sub(10)
+                .try_into()
+                .expect("u64 must fit into usize");
+
+            if view_change_limit > 1 {
+                iroha_logger::error!("Restarting consensus(internal bug). Report to developers");
+                let mut peers: Vec<_> = topology.ordered_peers.iter().cloned().collect();
+
+                peers.sort();
+                let peers_count = peers.len();
+                peers.rotate_right(view_change_limit % peers_count);
+                topology = Topology::new(peers.into_iter().collect());
+            }
+        }
+
         topology
     }
 
@@ -265,7 +285,7 @@ macro_rules! test_peers {
     }};
     ($($id:literal),+$(,)?: $key_pair_iter:expr) => {
         ::iroha_primitives::unique_vec![
-            $(PeerId::new(&(([0, 0, 0, 0], $id).into()), $key_pair_iter.next().expect("Not enough key pairs").public_key())),+
+            $(PeerId::new(([0, 0, 0, 0], $id).into(), $key_pair_iter.next().expect("Not enough key pairs").public_key().clone())),+
         ]
     };
 }
@@ -344,7 +364,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =
@@ -386,7 +406,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =
@@ -419,7 +439,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =
@@ -453,7 +473,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =
@@ -488,7 +508,7 @@ mod tests {
         let dummy = "value to sign";
         let signatures = key_pairs
             .iter()
-            .map(|key_pair| SignatureOf::new(key_pair.clone(), &dummy).expect("Failed to sign"))
+            .map(|key_pair| SignatureOf::new(key_pair, &dummy))
             .collect::<Vec<SignatureOf<_>>>();
 
         let leader_signatures =

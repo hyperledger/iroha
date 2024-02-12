@@ -128,8 +128,11 @@ impl NetworkRelay {
         }
 
         match msg {
-            SumeragiPacket(data) => {
-                self.sumeragi.incoming_message(*data);
+            SumeragiBlock(data) => {
+                self.sumeragi.incoming_block_message(*data);
+            }
+            SumeragiControlFlow(data) => {
+                self.sumeragi.incoming_control_flow_message(*data);
             }
             BlockSync(data) => self.block_sync.message(*data).await,
             TransactionGossiper(data) => self.gossiper.gossip(*data).await,
@@ -251,8 +254,9 @@ impl Iroha {
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
-        let sumeragi = SumeragiHandle::start(SumeragiStartArgs {
-            configuration: &config.sumeragi,
+        let start_args = SumeragiStartArgs {
+            chain_id: config.chain_id.clone(),
+            configuration: config.sumeragi.clone(),
             events_sender: events_sender.clone(),
             wsv,
             queue: Arc::clone(&queue),
@@ -260,18 +264,23 @@ impl Iroha {
             network: network.clone(),
             genesis_network: genesis,
             block_count,
-        });
+        };
+        // Starting Sumeragi requires no async context enabled
+        let sumeragi = tokio::task::spawn_blocking(move || SumeragiHandle::start(start_args))
+            .await
+            .expect("Failed to join task with Sumeragi start");
 
         let block_sync = BlockSynchronizer::from_configuration(
             &config.block_sync,
             sumeragi.clone(),
             Arc::clone(&kura),
-            PeerId::new(&config.torii.p2p_addr, &config.public_key),
+            PeerId::new(config.torii.p2p_addr.clone(), config.public_key.clone()),
             network.clone(),
         )
         .start();
 
         let gossiper = TransactionGossiper::from_configuration(
+            config.chain_id.clone(),
             &config.sumeragi,
             network.clone(),
             Arc::clone(&queue),
@@ -301,6 +310,7 @@ impl Iroha {
         let kiso = KisoHandle::new(config.clone());
 
         let torii = Torii::new(
+            config.chain_id,
             kiso.clone(),
             &config.torii,
             Arc::clone(&queue),
@@ -449,7 +459,8 @@ impl Iroha {
                 // FIXME: don't like neither the message nor inability to throw Result to the outside
                 .expect("Cannot proceed without working subscriptions");
 
-            // NOTE: Triggered by tokio::select
+            // See https://github.com/tokio-rs/tokio/issues/5616 and
+            // https://github.com/rust-lang/rust-clippy/issues/10636
             #[allow(clippy::redundant_pub_crate)]
             loop {
                 tokio::select! {
@@ -583,7 +594,7 @@ pub fn read_config(
         .wrap_err("Invalid genesis configuration")?
     {
         Some(
-            GenesisNetwork::new(raw_block, &key_pair)
+            GenesisNetwork::new(raw_block, &config.chain_id, &key_pair)
                 .wrap_err("Failed to construct the genesis")?,
         )
     } else {
@@ -634,20 +645,23 @@ mod tests {
         use super::*;
 
         fn config_factory() -> Result<ConfigurationProxy> {
-            let mut base = ConfigurationProxy::default();
-
             let key_pair = KeyPair::generate()?;
 
-            base.public_key = Some(key_pair.public_key().clone());
-            base.private_key = Some(key_pair.private_key().clone());
+            let mut base = ConfigurationProxy {
+                chain_id: Some(ChainId::new("0")),
+
+                public_key: Some(key_pair.public_key().clone()),
+                private_key: Some(key_pair.private_key().clone()),
+
+                ..ConfigurationProxy::default()
+            };
+            let genesis = base.genesis.as_mut().unwrap();
+            genesis.private_key = Some(Some(key_pair.private_key().clone()));
+            genesis.public_key = Some(key_pair.public_key().clone());
 
             let torii = base.torii.as_mut().unwrap();
             torii.p2p_addr = Some(socket_addr!(127.0.0.1:1337));
             torii.api_url = Some(socket_addr!(127.0.0.1:1337));
-
-            let genesis = base.genesis.as_mut().unwrap();
-            genesis.private_key = Some(Some(key_pair.private_key().clone()));
-            genesis.public_key = Some(key_pair.public_key().clone());
 
             Ok(base)
         }

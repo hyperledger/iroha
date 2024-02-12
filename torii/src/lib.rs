@@ -23,6 +23,7 @@ use iroha_core::{
     sumeragi::SumeragiHandle,
     EventsSender,
 };
+use iroha_data_model::ChainId;
 use iroha_primitives::addr::SocketAddr;
 use tokio::{sync::Notify, task};
 use utils::*;
@@ -41,6 +42,7 @@ mod stream;
 
 /// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii {
+    chain_id: Arc<ChainId>,
     kiso: KisoHandle,
     queue: Arc<Queue>,
     events: EventsSender,
@@ -56,6 +58,7 @@ impl Torii {
     /// Construct `Torii`.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        chain_id: ChainId,
         kiso: KisoHandle,
         config: &ToriiConfiguration,
         queue: Arc<Queue>,
@@ -66,6 +69,7 @@ impl Torii {
         kura: Arc<Kura>,
     ) -> Self {
         Self {
+            chain_id: Arc::new(chain_id),
             kiso,
             queue,
             events,
@@ -86,17 +90,11 @@ impl Torii {
             .and_then(|| async { Ok::<_, Infallible>(routing::handle_health()) });
 
         let get_router = warp::get().and(
-            endpoint3(
-                routing::handle_pending_transactions,
-                warp::path(uri::PENDING_TRANSACTIONS)
-                    .and(add_state!(self.queue, self.sumeragi,))
-                    .and(routing::paginate()),
-            )
-            .or(warp::path(uri::CONFIGURATION)
+            warp::path(uri::CONFIGURATION)
                 .and(add_state!(self.kiso))
                 .and_then(|kiso| async move {
                     Ok::<_, Infallible>(WarpResult(routing::handle_get_configuration(kiso).await))
-                })),
+                }),
         );
 
         #[cfg(feature = "telemetry")]
@@ -129,17 +127,47 @@ impl Torii {
         let get_router = get_router.or(warp::path(uri::SCHEMA)
             .and_then(|| async { Ok::<_, Infallible>(routing::handle_schema().await) }));
 
+        #[cfg(feature = "profiling")]
+        let get_router = {
+            // `warp` panics if there is `/` in the string given to the `warp::path` filter
+            // Path filter has to be boxed to have a single uniform type during iteration
+            let profile_router_path = uri::PROFILE
+                .split('/')
+                .skip_while(|p| p.is_empty())
+                .fold(warp::any().boxed(), |path_filter, path| {
+                    path_filter.and(warp::path(path)).boxed()
+                });
+
+            let profiling_lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+            get_router.or(profile_router_path
+                .and(warp::query::<routing::profiling::ProfileParams>())
+                .and_then(move |params| {
+                    let profiling_lock = Arc::clone(&profiling_lock);
+                    async move {
+                        Ok::<_, Infallible>(
+                            routing::profiling::handle_profile(params, profiling_lock).await,
+                        )
+                    }
+                }))
+        };
+
         let post_router = warp::post()
             .and(
-                endpoint3(
+                endpoint4(
                     routing::handle_transaction,
                     warp::path(uri::TRANSACTION)
-                        .and(add_state!(self.queue, self.sumeragi))
+                        .and(add_state!(self.chain_id, self.queue, self.sumeragi))
                         .and(warp::body::content_length_limit(
                             self.transaction_max_content_length,
                         ))
                         .and(body::versioned()),
                 )
+                .or(endpoint3(
+                    routing::handle_pending_transactions,
+                    warp::path(uri::MATCHING_PENDING_TRANSACTIONS)
+                        .and(add_state!(self.queue, self.sumeragi))
+                        .and(body::versioned()),
+                ))
                 .or(endpoint3(
                     routing::handle_queries,
                     warp::path(uri::QUERY)
@@ -275,6 +303,9 @@ pub enum Error {
     #[cfg(feature = "telemetry")]
     /// Failed to get Prometheus metrics
     Prometheus(#[source] eyre::Report),
+    #[cfg(feature = "profiling")]
+    /// Failed to get pprof profile
+    Pprof(#[source] eyre::Report),
     #[cfg(feature = "telemetry")]
     /// Failed to get status
     StatusFailure(#[source] eyre::Report),
@@ -311,6 +342,8 @@ impl Error {
             },
             #[cfg(feature = "telemetry")]
             Prometheus(_) | StatusFailure(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            #[cfg(feature = "profiling")]
+            Pprof(_) => StatusCode::INTERNAL_SERVER_ERROR,
             ConfigurationFailure(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }

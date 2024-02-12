@@ -260,7 +260,7 @@ pub fn ffi_type_derive(input: TokenStream) -> TokenStream {
 ///     /* function implementation */
 ///     FfiReturn::Ok
 /// }
-/// extern "C" fn Foo__bar(handle: *const Foo, output: *mut SliceRef<u8>) -> FfiReturn {
+/// extern "C" fn Foo__bar(handle: *const Foo, output: *mut RefSlice<u8>) -> FfiReturn {
 ///     /* function implementation */
 ///     FfiReturn::Ok
 /// }

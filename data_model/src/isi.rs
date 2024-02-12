@@ -916,7 +916,7 @@ mod transparent {
 
     impl Grant<PermissionToken> {
         /// Constructs a new [`Grant`] for a [`PermissionToken`].
-        pub fn permission_token(permission_token: PermissionToken, to: AccountId) -> Self {
+        pub fn permission(permission_token: PermissionToken, to: AccountId) -> Self {
             Self {
                 object: permission_token,
                 destination_id: to,
@@ -961,7 +961,7 @@ mod transparent {
 
     impl Revoke<PermissionToken> {
         /// Constructs a new [`Revoke`] for a [`PermissionToken`].
-        pub fn permission_token(permission_token: PermissionToken, from: AccountId) -> Self {
+        pub fn permission(permission_token: PermissionToken, from: AccountId) -> Self {
             Self {
                 object: permission_token,
                 destination_id: from,
@@ -1295,7 +1295,7 @@ pub mod error {
                 String,
             ),
             /// Entity missing
-            Find(#[cfg_attr(feature = "std", source)] Box<FindError>),
+            Find(#[cfg_attr(feature = "std", source)] FindError),
             /// Repeated instruction
             Repetition(#[cfg_attr(feature = "std", source)] RepetitionError),
             /// Mintability assertion failed

@@ -1,32 +1,34 @@
 ## Maintainers
 
-Maintainers of Hyperledger Iroha project
-are supposed to help contributors by explain them project details,
-such as architecture, process, existing issues.
+Maintainers of the Hyperledger Iroha project
+are supposed to help contributors by explaining them project details,
+such as architecture, process, and existing issues.
 
-This is the list of maintainers, including their email address for direct communications:
+This is the list of maintainers, including their email addresses for direct communication:
 
-|          Name          |     GitHub Id            |               email            |         Area of expertise       |
-|------------------------|--------------------------|--------------------------------|---------------------------------|
-| Makoto Takemiya        | @takemiyamakoto          | takemiya@soramitsu.co.jp       | Product vision                  |
-| Ryu Okada              | @ryuo88                  | okada@soramitsu.co.jp          | Product vision                  |
-| Nikolai Iushkevich     | @neewy                   | n.yushkevich@hotmail.com       | Development                     |
-| Fyodor Muratov         | @muratovv                | fyodor@soramitsu.co.jp         | Architecture, Java library, QA  |
-| Andrei Lebedev         | @lebdron                 | andrei@soramitsu.co.jp         | Research                        |
-| Sergei Solonets        | @Solonets                | ssolonets@gmail.com            | Development                     |
-| Yanno Ban              | @yannoban                | ban.yanno@nbc.org.kh           | Development                     |
-| Dumitru Savva          | @x3medima17              | savva@soramitsu.co.jp          | Development                     |
-| Nikita Alekseev        | @nickaleks               | alekseev@soramitsu.co.jp       | Development                     |
-| Victor Drobny          | @victordrobny            | drobny@soramitsu.co.jp         | Development                     |
-| Bulat Nasrulin         | @grimadas                | bulat@soramitsu.co.jp          | Development                     |
-| Kamil Salakhiev        | @kamilsa                 | kamil@soramitsu.co.jp          | Development                     |
-| Igor Egorov            | @igor-egorov             | igor@soramitsu.co.jp           | Development, Android library    |
-| Konstantin Munichev    | @luckychess              | konstantin@soramitsu.co.jp     | Security                        |
-| Evgenii Mininbaev      | @l4l                     | evgenii@soramitsu.co.jp        | Security, Python library        |
-| Vyacheslav Bikbaev     | @laSinteZ                | viacheslav@soramitsu.co.jp     | Documentation, NodeJS library   |
-| Arseniy Fokin          | @stinger112              | stinger112@gmail.com           | NodeJS library                  |
-| Alexey Chernyshov      | @Alexey-N-Chernyshov     | chernyshov@soramitsu.co.jp     | Development                     |
-| Artyom Bakhtin         | @bakhtin                 | a@bakhtin.net                  | Ansible, Jenkins, artifacts     |
-| Anatoly Tyukushin      | @tyvision                | tyukushin@soramitsu.co.jp      | Ansible, Jenkins                |
-| Nikita Puzankov        | @humb1t                  | puzankov@soramitsu.co.jp       | Development                     |
-| Egor Ivkov             | @eadventurous            | ivkov@soramitsu.co.jp          | Development                     |
+|         Name          |                      GitHub Id                       |              email              |                               Area of expertise                               |
+| --------------------- | ---------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------- |
+| Makoto Takemiya       | [@takemiyamakoto](https://github.com/takemiyamakoto) | takemiya@soramitsu.co.jp        | Product vision                                                                |
+| Dmitri Venger         | [@dmitrivenger](https://github.com/dmitrivenger)     | venger@soramitsu.co.jp          | Project manager                                                               |
+| Bogdan Mingela        | [@Mingela](https://github.com/Mingela)               | mingela@soramitsu.co.jp         | Iroha Team Lead                                                               |
+| Aleksandr Petrosyan   | [@appetrosyan](https://github.com/appetrosyan)       | ap886@cantab.ac.uk              | Iroha 2 architect                                                             |
+| Daniil Polyakov       | [@Arjentix](https://github.com/Arjentix)             | daniil.polyakov@soramitsu.co.jp | Development: Rust, C++                                                        |
+| Marin Veršić          | [@mversic](https://github.com/mversic)               | versic@soramitsu.co.jp          | Tech lead, development: Rust, Java                                            |
+| Sam H. Smith          | [@SamHSmith](https://github.com/SamHSmith)           | smith@soramitsu.co.jp           | Development: Rust, C                                                          |
+| Shanin Roman          | [@Erigara](https://github.com/Erigara)               | shanin@soramitsu.co.jp          | Development: Rust                                                             |
+| Dmitry Balashov       | [@0x009922](https://github.com/0x009922)             | dbalashov@soramitsu.co.jp       | Development: Rust, TypeScript, JavaScript                                     |
+| Grzegorz Bazior       | [@baziorek](https://github.com/baziorek)             | g.bazior@yodiss.pl              | Development: C++, Python                                                      |
+| Shunkichi Sato        | [@s8sato](https://github.com/s8sato)                 | s.sato@soramitsu.co.jp          | Development: Rust                                                             |
+| Andrey Kostiuchenko   | [@arndey](https://github.com/arndey)                 | kostiuchenko@soramitsu.co.jp    | Developer: Java, Kotlin                                                       |
+| Timur Guskov          | [@gv-timur](https://github.com/gv-timur)             | guskov@soramitsu.co.jp          | Development: Java                                                             |
+| Dmitriy Creed         | [@Cre-eD](https://github.com/Cre-eD)                 | creed@soramitsu.co.jp           | DevSecOps                                                                     |
+| Vasily Zyabkin        | [@BAStos525](https://github.com/BAStos525)           | zyabkin@soramitsu.co.jp         | DevOps                                                                        |
+| Ekaterina Mekhnetsova | [@outoftardis](https://github.com/outoftardis)       | mekhnetsova@soramitsu.co.jp     | Documentation                                                                 |
+| William Richter       | [@WRRicht3r](https://github.com/WRRicht3r)           | richter@soramitsu.co.jp         | Documentation                                                                 |
+| Victor Gridnevsky     | [@6r1d](https://github.com/6r1d)                     | gridnevsky@soramitsu.co.jp      | Community manager, documentation, development: JavaScript, TypeScript, Python |
+| Alexander Strokov     | [@astrokov7](https://github.com/astrokov7)           | strokov@soramitsu.co.jp         | QA, Python                                                                    |
+| Michael Timofeev      | [@timofeevmd](https://github.com/timofeevmd)         | timofeev@soramitsu.co.jp        | QA                                                                            |
+| Nikita Strygin        | [@DCNick3](https://github.com/DCNick3)               | moslike6@gmail.com              | Development: Rust                                                             |
+| Bogdan Yamkovoy       | [@yamkovoy](https://github.com/yamkovoy)             | yamkovoy@soramitsu.co.jp        | Documentation                                                                 |
+| Vladislav Amuzinski   | [@VAmuzing](https://github.com/VAmuzing)             | amuzinski@soramitsu.co.jp       | Development: Rust                                                             |
+| Artem Stukalov        | [@Stukalov-A-M](https://github.com/Stukalov-A-M)     | stukalov@soramitsu.co.jp        | Documentation: examples                                                       |

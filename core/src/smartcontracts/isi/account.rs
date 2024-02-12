@@ -198,12 +198,26 @@ pub mod isi {
 
     impl Execute for Transfer<Account, AssetDefinitionId, Account> {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-            wsv.asset_definition_mut(&self.object)?.owned_by = self.destination_id.clone();
+            let Transfer {
+                source_id,
+                object,
+                destination_id,
+            } = self;
 
+            let _ = wsv.account(&source_id)?;
+            let _ = wsv.account(&destination_id)?;
+
+            let asset_definition = wsv.asset_definition_mut(&object)?;
+
+            if asset_definition.owned_by != source_id {
+                return Err(Error::Find(FindError::Account(source_id)));
+            }
+
+            asset_definition.owned_by = destination_id.clone();
             wsv.emit_events(Some(AssetDefinitionEvent::OwnerChanged(
                 AssetDefinitionOwnerChanged {
-                    asset_definition_id: self.object,
-                    new_owner: self.destination_id,
+                    asset_definition_id: object,
+                    new_owner: destination_id,
                 },
             )));
 

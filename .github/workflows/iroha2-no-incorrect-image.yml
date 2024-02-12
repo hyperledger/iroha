@@ -1,0 +1,25 @@
+name: I2::CI::check_for_incorrect_images
+
+on:
+  push:
+    branches:
+      - iroha2-dev
+      - iroha2-stable
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v1
+        with:
+          python-version: "3.11"
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: pip install -r .github/scripts/ci_test/requirements.txt --no-input
+      - name: Check containers on iroha2-stable branch
+        if: github.base_ref == 'iroha2-stable'
+        run: python .github/scripts/ci_test/ci_image_scan.py --allow iroha2:stable -- docker-compose*.yml
+      - name: Check containers on iroha2-dev branch
+        if: github.base_ref == 'iroha2-dev'
+        run: python .github/scripts/ci_test/ci_image_scan.py --allow iroha2:dev -- docker-compose*.yml

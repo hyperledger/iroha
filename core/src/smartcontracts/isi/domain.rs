@@ -287,11 +287,25 @@ pub mod isi {
 
     impl Execute for Transfer<Account, DomainId, Account> {
         fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
-            wsv.domain_mut(&self.object)?.owned_by = self.destination_id.clone();
+            let Transfer {
+                source_id,
+                object,
+                destination_id,
+            } = self;
 
+            let _ = wsv.account(&source_id)?;
+            let _ = wsv.account(&destination_id)?;
+
+            let domain = wsv.domain_mut(&object)?;
+
+            if domain.owned_by != source_id {
+                return Err(Error::Find(FindError::Account(source_id)));
+            }
+
+            domain.owned_by = destination_id.clone();
             wsv.emit_events(Some(DomainEvent::OwnerChanged(DomainOwnerChanged {
-                domain_id: self.object,
-                new_owner: self.destination_id,
+                domain_id: object,
+                new_owner: destination_id,
             })));
 
             Ok(())

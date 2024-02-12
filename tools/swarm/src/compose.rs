@@ -11,10 +11,13 @@ use color_eyre::eyre::{eyre, Context, ContextCompat};
 use iroha_crypto::{
     error::Error as IrohaCryptoError, KeyGenConfiguration, KeyPair, PrivateKey, PublicKey,
 };
-use iroha_data_model::prelude::PeerId;
-use iroha_primitives::addr::SocketAddr;
+use iroha_data_model::{prelude::PeerId, ChainId};
+use iroha_primitives::addr::{socket_addr, SocketAddr};
 use peer_generator::Peer;
-use serde::{ser::Error as _, Serialize, Serializer};
+use serde::{
+    ser::{Error as _, SerializeMap},
+    Serialize, Serializer,
+};
 
 use crate::{cli::SourceParsed, util::AbsolutePath};
 
@@ -88,6 +91,17 @@ impl Serialize for PlatformArchitecture {
     }
 }
 
+pub struct DockerComposeServiceBuilder {
+    chain_id: ChainId,
+    peer: Peer,
+    source: ServiceSource,
+    volumes: Vec<(String, String)>,
+    trusted_peers: BTreeSet<PeerId>,
+    genesis_public_key: PublicKey,
+    genesis_private_key: Option<PrivateKey>,
+    health_check: bool,
+}
+
 #[derive(Serialize, Debug)]
 pub struct DockerComposeService {
     #[serde(flatten)]
@@ -99,17 +113,53 @@ pub struct DockerComposeService {
     init: AlwaysTrue,
     #[serde(skip_serializing_if = "ServiceCommand::is_none")]
     command: ServiceCommand,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    healthcheck: Option<HealthCheck>,
 }
 
-impl DockerComposeService {
+impl DockerComposeServiceBuilder {
     pub fn new(
-        peer: &Peer,
+        chain_id: ChainId,
+        peer: Peer,
         source: ServiceSource,
         volumes: Vec<(String, String)>,
         trusted_peers: BTreeSet<PeerId>,
         genesis_public_key: PublicKey,
-        genesis_private_key: Option<PrivateKey>,
     ) -> Self {
+        Self {
+            chain_id,
+            peer,
+            source,
+            volumes,
+            trusted_peers,
+            genesis_public_key,
+            genesis_private_key: None,
+            health_check: false,
+        }
+    }
+
+    pub fn set_health_check(mut self, flag: bool) -> Self {
+        self.health_check = flag;
+        self
+    }
+
+    pub fn submit_genesis_with(mut self, private_key: PrivateKey) -> Self {
+        self.genesis_private_key = Some(private_key);
+        self
+    }
+
+    pub fn build(self) -> DockerComposeService {
+        let Self {
+            chain_id,
+            peer,
+            source,
+            volumes,
+            trusted_peers,
+            genesis_public_key,
+            genesis_private_key,
+            health_check,
+        } = self;
+
         let ports = vec![
             PairColon(peer.port_p2p, peer.port_p2p),
             PairColon(peer.port_api, peer.port_api),
@@ -122,15 +172,16 @@ impl DockerComposeService {
         };
 
         let compact_env = CompactPeerEnv {
+            chain_id,
             trusted_peers,
             genesis_public_key,
             genesis_private_key,
             key_pair: peer.key_pair.clone(),
-            p2p_addr: peer.addr(peer.port_p2p),
-            api_addr: peer.addr(peer.port_api),
+            p2p_addr: socket_addr!(0.0.0.0:peer.port_p2p),
+            api_addr: socket_addr!(0.0.0.0:peer.port_api),
         };
 
-        Self {
+        DockerComposeService {
             source,
             platform: PlatformArchitecture,
             command,
@@ -138,6 +189,9 @@ impl DockerComposeService {
             volumes: volumes.into_iter().map(|(a, b)| PairColon(a, b)).collect(),
             ports,
             environment: compact_env.into(),
+            healthcheck: health_check.then_some(HealthCheck {
+                port: peer.port_api,
+            }),
         }
     }
 }
@@ -178,6 +232,43 @@ impl Serialize for ServiceCommand {
     }
 }
 
+/// Serializes as a Iroha health check according to the
+/// [spec](https://docs.docker.com/compose/compose-file/compose-file-v3/#healthcheck).
+#[derive(Debug)]
+struct HealthCheck {
+    #[allow(dead_code)]
+    port: u16,
+}
+
+const HEALTH_CHECK_INTERVAL: &str = "2s"; // half of default pipeline time
+
+const HEALTH_CHECK_TIMEOUT: &str = "1s"; // status request usually resolves immediately
+
+const HEALTH_CHECK_RETRIES: u8 = 30u8; // try within one minute given the interval
+
+const HEALTH_CHECK_START_PERIOD: &str = "4s"; // default pipeline time
+
+impl Serialize for HealthCheck {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(5))?;
+        map.serialize_entry(
+            "test",
+            &format!(
+                "test $(curl -s http://127.0.0.1:{}/status/blocks) -gt 0",
+                self.port
+            ),
+        )?;
+        map.serialize_entry("interval", HEALTH_CHECK_INTERVAL)?;
+        map.serialize_entry("timeout", HEALTH_CHECK_TIMEOUT)?;
+        map.serialize_entry("retries", &HEALTH_CHECK_RETRIES)?;
+        map.serialize_entry("start_period", HEALTH_CHECK_START_PERIOD)?;
+        map.end()
+    }
+}
+
 /// Serializes as `"{0}:{1}"`
 #[derive(derive_more::Display, Debug)]
 #[display(fmt = "{_0}:{_1}")]
@@ -209,6 +300,7 @@ pub enum ServiceSource {
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "UPPERCASE")]
 struct FullPeerEnv {
+    iroha_chain_id: ChainId,
     iroha_config: String,
     iroha_public_key: PublicKey,
     iroha_private_key: SerializeAsJsonStr<PrivateKey>,
@@ -224,6 +316,7 @@ struct FullPeerEnv {
 }
 
 struct CompactPeerEnv {
+    chain_id: ChainId,
     key_pair: KeyPair,
     genesis_public_key: PublicKey,
     /// Genesis private key is only needed for a peer that is submitting the genesis block
@@ -246,6 +339,7 @@ impl From<CompactPeerEnv> for FullPeerEnv {
                 });
 
         Self {
+            iroha_chain_id: value.chain_id,
             iroha_config: PATH_TO_CONFIG.to_string(),
             iroha_public_key: value.key_pair.public_key().clone(),
             iroha_private_key: SerializeAsJsonStr(value.key_pair.private_key().clone()),
@@ -291,6 +385,7 @@ pub struct DockerComposeBuilder<'a> {
     pub peers: NonZeroU16,
     /// Crypto seed to use for keys generation
     pub seed: Option<&'a [u8]>,
+    pub health_check: bool,
 }
 
 impl DockerComposeBuilder<'_> {
@@ -302,6 +397,7 @@ impl DockerComposeBuilder<'_> {
             )
         })?;
 
+        let chain_id = ChainId::new("00000000-0000-0000-0000-000000000000");
         let peers = peer_generator::generate_peers(self.peers, self.seed)
             .wrap_err("Failed to generate peers")?;
         let genesis_key_pair = generate_key_pair(self.seed, GENESIS_KEYPAIR_SEED)
@@ -321,15 +417,15 @@ impl DockerComposeBuilder<'_> {
             DIR_CONFIG_IN_DOCKER.to_owned(),
         )];
 
-        let trusted_peers: BTreeSet<PeerId> =
-            peers.values().map(peer_generator::Peer::id).collect();
+        let trusted_peers: BTreeSet<PeerId> = peers.values().map(Peer::id_as_a_service).collect();
 
         let mut peers_iter = peers.iter();
 
         let first_peer_service = {
             let (name, peer) = peers_iter.next().expect("There is non-zero count of peers");
-            let service = DockerComposeService::new(
-                peer,
+            let service = DockerComposeServiceBuilder::new(
+                chain_id.clone(),
+                peer.clone(),
                 service_source.clone(),
                 volumes.clone(),
                 trusted_peers
@@ -338,16 +434,19 @@ impl DockerComposeBuilder<'_> {
                     .cloned()
                     .collect(),
                 genesis_key_pair.public_key().clone(),
-                Some(genesis_key_pair.private_key().clone()),
-            );
+            )
+            .submit_genesis_with(genesis_key_pair.private_key().clone())
+            .set_health_check(self.health_check)
+            .build();
 
             (name.clone(), service)
         };
 
         let services = peers_iter
             .map(|(name, peer)| {
-                let service = DockerComposeService::new(
-                    peer,
+                let service = DockerComposeServiceBuilder::new(
+                    chain_id.clone(),
+                    peer.clone(),
                     service_source.clone(),
                     volumes.clone(),
                     trusted_peers
@@ -358,8 +457,9 @@ impl DockerComposeBuilder<'_> {
                         .cloned()
                         .collect(),
                     genesis_key_pair.public_key().clone(),
-                    None,
-                );
+                )
+                .set_health_check(self.health_check)
+                .build();
 
                 (name.clone(), service)
             })
@@ -383,12 +483,10 @@ fn generate_key_pair(
     base_seed: Option<&[u8]>,
     additional_seed: &[u8],
 ) -> color_eyre::Result<KeyPair, IrohaCryptoError> {
-    let cfg = base_seed
-        .map(|base| {
-            let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
-            KeyGenConfiguration::default().use_seed(seed)
-        })
-        .unwrap_or_default();
+    let cfg = base_seed.map_or_else(KeyGenConfiguration::from_random, |base| {
+        let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
+        KeyGenConfiguration::from_seed(seed)
+    });
 
     KeyPair::generate_with_configuration(cfg)
 }
@@ -405,6 +503,7 @@ mod peer_generator {
     const BASE_PORT_API: u16 = 8080;
     const BASE_SERVICE_NAME: &'_ str = "iroha";
 
+    #[derive(Clone)]
     pub struct Peer {
         pub name: String,
         pub port_p2p: u16,
@@ -413,15 +512,15 @@ mod peer_generator {
     }
 
     impl Peer {
-        pub fn id(&self) -> PeerId {
-            PeerId::new(&self.addr(self.port_p2p), self.key_pair.public_key())
-        }
-
-        pub fn addr(&self, port: u16) -> SocketAddr {
-            SocketAddr::Host(SocketAddrHost {
+        /// [`PeerId`] with an address containing service name as a host, therefore reachable
+        /// from other Docker Compose services.
+        pub fn id_as_a_service(&self) -> PeerId {
+            let address = SocketAddr::Host(SocketAddrHost {
                 host: self.name.clone().into(),
-                port,
-            })
+                port: self.port_p2p,
+            });
+
+            PeerId::new(address.clone(), self.key_pair.public_key().clone())
         }
     }
 
@@ -504,6 +603,7 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
     struct TestEnv {
         env: HashMap<String, String>,
         /// Set of env variables that weren't fetched yet
@@ -513,11 +613,22 @@ mod tests {
     impl From<FullPeerEnv> for TestEnv {
         fn from(peer_env: FullPeerEnv) -> Self {
             let json = serde_json::to_string(&peer_env).expect("Must be serializable");
-            let env: HashMap<_, _> =
+            let env: HashMap<_, serde_json::Value> =
                 serde_json::from_str(&json).expect("Must be deserializable into a hash map");
             let untouched = env.keys().cloned().collect();
             Self {
-                env,
+                env: env
+                    .into_iter()
+                    .map(|(k, v)| {
+                        let s = if let serde_json::Value::String(s) = v {
+                            s
+                        } else {
+                            v.to_string()
+                        };
+
+                        (k, s)
+                    })
+                    .collect(),
                 untouched: RefCell::new(untouched),
             }
         }
@@ -557,6 +668,7 @@ mod tests {
     fn default_config_with_swarm_env_is_exhaustive() {
         let keypair = KeyPair::generate().unwrap();
         let env: TestEnv = CompactPeerEnv {
+            chain_id: ChainId::new("00000000-0000-0000-0000-000000000000"),
             key_pair: keypair.clone(),
             genesis_public_key: keypair.public_key().clone(),
             genesis_private_key: Some(keypair.private_key().clone()),
@@ -593,10 +705,12 @@ mod tests {
             services: {
                 let mut map = BTreeMap::new();
 
-                let key_pair = KeyPair::generate_with_configuration(
-                    KeyGenConfiguration::default().use_seed(vec![1, 5, 1, 2, 2, 3, 4, 1, 2, 3]),
-                )
-                .unwrap();
+                let chain_id = ChainId::new("00000000-0000-0000-0000-000000000000");
+                let key_pair =
+                    KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(vec![
+                        1, 5, 1, 2, 2, 3, 4, 1, 2, 3,
+                    ]))
+                    .unwrap();
 
                 map.insert(
                     "iroha0".to_owned(),
@@ -604,6 +718,7 @@ mod tests {
                         platform: PlatformArchitecture,
                         source: ServiceSource::Build(PathBuf::from(".")),
                         environment: CompactPeerEnv {
+                            chain_id,
                             key_pair: key_pair.clone(),
                             genesis_public_key: key_pair.public_key().clone(),
                             genesis_private_key: Some(key_pair.private_key().clone()),
@@ -623,6 +738,7 @@ mod tests {
                         )],
                         init: AlwaysTrue,
                         command: ServiceCommand::SubmitGenesis,
+                        healthcheck: None,
                     },
                 );
 
@@ -638,6 +754,7 @@ mod tests {
                 build: .
                 platform: linux/amd64
                 environment:
+                  IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   IROHA_CONFIG: /config/config.json
                   IROHA_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
                   IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8"}'
@@ -660,11 +777,14 @@ mod tests {
 
     #[test]
     fn empty_genesis_public_key_is_skipped_in_env() {
-        let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().use_seed(vec![0, 1, 2]),
-        )
-        .unwrap();
+        let chain_id = ChainId::new("00000000-0000-0000-0000-000000000000");
+
+        let key_pair =
+            KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(vec![0, 1, 2]))
+                .unwrap();
+
         let env: FullPeerEnv = CompactPeerEnv {
+            chain_id,
             key_pair: key_pair.clone(),
             genesis_public_key: key_pair.public_key().clone(),
             genesis_private_key: None,
@@ -676,6 +796,7 @@ mod tests {
 
         let actual = serde_yaml::to_string(&env).unwrap();
         let expected = expect_test::expect![[r#"
+            IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
             IROHA_CONFIG: /config/config.json
             IROHA_PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
             IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"6bf163fd75192b81a78cb20c5f8cb917f591ac6635f2577e6ca305c27a456a5d415388a90fa238196737746a70565d041cfb32eaa0c89ff8cb244c7f832a6ebd"}'
@@ -687,6 +808,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn generate_peers_deterministically() {
         let root = Path::new("/");
         let seed = Some(b"iroha".to_vec());
@@ -703,6 +825,7 @@ mod tests {
                 path: AbsolutePath::from_virtual(&PathBuf::from("/test/iroha-cloned"), root),
             },
             seed,
+            health_check: true,
         }
         .build()
         .expect("should build with no errors");
@@ -715,11 +838,12 @@ mod tests {
                 build: ./iroha-cloned
                 platform: linux/amd64
                 environment:
+                  IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   IROHA_CONFIG: /config/config.json
                   IROHA_PUBLIC_KEY: ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13
                   IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5f8d1291bf6b762ee748a87182345d135fd167062857aa4f20ba39f25e74c4b0f0321eb4139163c35f88bf78520ff7071499d7f4e79854550028a196c7b49e13"}'
-                  TORII_P2P_ADDR: iroha0:1337
-                  TORII_API_URL: iroha0:8080
+                  TORII_P2P_ADDR: 0.0.0.0:1337
+                  TORII_API_URL: 0.0.0.0:8080
                   IROHA_GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   IROHA_GENESIS_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9"}'
                   IROHA_GENESIS_FILE: /config/genesis.json
@@ -731,15 +855,22 @@ mod tests {
                 - ./config:/config
                 init: true
                 command: iroha --submit-genesis
+                healthcheck:
+                  test: test $(curl -s http://127.0.0.1:8080/status/blocks) -gt 0
+                  interval: 2s
+                  timeout: 1s
+                  retries: 30
+                  start_period: 4s
               iroha1:
                 build: ./iroha-cloned
                 platform: linux/amd64
                 environment:
+                  IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   IROHA_CONFIG: /config/config.json
                   IROHA_PUBLIC_KEY: ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C
                   IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"8d34d2c6a699c61e7a9d5aabbbd07629029dfb4f9a0800d65aa6570113edb465a88554aa5c86d28d0eebec497235664433e807881cd31e12a1af6c4d8b0f026c"}'
-                  TORII_P2P_ADDR: iroha1:1338
-                  TORII_API_URL: iroha1:8081
+                  TORII_P2P_ADDR: 0.0.0.0:1338
+                  TORII_API_URL: 0.0.0.0:8081
                   IROHA_GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
@@ -748,15 +879,22 @@ mod tests {
                 volumes:
                 - ./config:/config
                 init: true
+                healthcheck:
+                  test: test $(curl -s http://127.0.0.1:8081/status/blocks) -gt 0
+                  interval: 2s
+                  timeout: 1s
+                  retries: 30
+                  start_period: 4s
               iroha2:
                 build: ./iroha-cloned
                 platform: linux/amd64
                 environment:
+                  IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   IROHA_CONFIG: /config/config.json
                   IROHA_PUBLIC_KEY: ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4
                   IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"cf4515a82289f312868027568c0da0ee3f0fde7fef1b69deb47b19fde7cbc169312c1b7b5de23d366adcf23cd6db92ce18b2aa283c7d9f5033b969c2dc2b92f4"}'
-                  TORII_P2P_ADDR: iroha2:1339
-                  TORII_API_URL: iroha2:8082
+                  TORII_P2P_ADDR: 0.0.0.0:1339
+                  TORII_API_URL: 0.0.0.0:8082
                   IROHA_GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
@@ -765,15 +903,22 @@ mod tests {
                 volumes:
                 - ./config:/config
                 init: true
+                healthcheck:
+                  test: test $(curl -s http://127.0.0.1:8082/status/blocks) -gt 0
+                  interval: 2s
+                  timeout: 1s
+                  retries: 30
+                  start_period: 4s
               iroha3:
                 build: ./iroha-cloned
                 platform: linux/amd64
                 environment:
+                  IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
                   IROHA_CONFIG: /config/config.json
                   IROHA_PUBLIC_KEY: ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE
                   IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"ab0e99c2b845b4ac7b3e88d25a860793c7eb600a25c66c75cba0bae91e955aa6854457b2e3d6082181da73dc01c1e6f93a72d0c45268dc8845755287e98a5dee"}'
-                  TORII_P2P_ADDR: iroha3:1340
-                  TORII_API_URL: iroha3:8083
+                  TORII_P2P_ADDR: 0.0.0.0:1340
+                  TORII_API_URL: 0.0.0.0:8083
                   IROHA_GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
@@ -782,6 +927,12 @@ mod tests {
                 volumes:
                 - ./config:/config
                 init: true
+                healthcheck:
+                  test: test $(curl -s http://127.0.0.1:8083/status/blocks) -gt 0
+                  interval: 2s
+                  timeout: 1s
+                  retries: 30
+                  start_period: 4s
         "#]];
         expected.assert_eq(&yaml);
     }

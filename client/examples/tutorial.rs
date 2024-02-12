@@ -74,9 +74,7 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
     // Prepare a transaction
     let metadata = UnlimitedMetadata::default();
     let instructions: Vec<InstructionBox> = vec![create_looking_glass.into()];
-    let tx = iroha_client
-        .build_transaction(instructions, metadata)
-        .wrap_err("Error building a domain registration transaction")?;
+    let tx = iroha_client.build_transaction(instructions, metadata);
     // #endregion domain_register_example_prepare_tx
 
     // #region domain_register_example_submit_tx
@@ -148,7 +146,7 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     // Account's RegisterBox
     let metadata = UnlimitedMetadata::new();
     let instructions: Vec<InstructionBox> = vec![create_account.into()];
-    let tx = iroha_client.build_transaction(instructions, metadata)?;
+    let tx = iroha_client.build_transaction(instructions, metadata);
     // #endregion register_account_prepare_tx
 
     // #region register_account_submit_tx

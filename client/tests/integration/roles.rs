@@ -46,6 +46,8 @@ fn register_role_with_empty_token_params() -> Result<()> {
 /// @s8sato added: This test represents #2081 case.
 #[test]
 fn register_and_grant_role_for_metadata_access() -> Result<()> {
+    let chain_id = ChainId::new("0");
+
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_700).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -76,9 +78,9 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
 
     // Mouse grants role to Alice
     let grant_role = Grant::role(role_id.clone(), alice_id.clone());
-    let grant_role_tx = TransactionBuilder::new(mouse_id.clone())
+    let grant_role_tx = TransactionBuilder::new(chain_id, mouse_id.clone())
         .with_instructions([grant_role])
-        .sign(mouse_key_pair)?;
+        .sign(&mouse_key_pair);
     test_client.submit_transaction_blocking(&grant_role_tx)?;
 
     // Alice modifies Mouse's metadata

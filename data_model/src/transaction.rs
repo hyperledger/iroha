@@ -25,7 +25,7 @@ use crate::{
     isi::{Instruction, InstructionBox},
     metadata::UnlimitedMetadata,
     name::Name,
-    Value,
+    ChainId, Value,
 };
 
 #[model]
@@ -101,6 +101,9 @@ pub mod model {
     #[getset(get = "pub")]
     #[ffi_type]
     pub struct TransactionPayload {
+        /// Unique id of the blockchain. Used for simple replay attack protection.
+        #[getset(skip)]
+        pub chain_id: ChainId,
         /// Creation timestamp (unix time in milliseconds).
         #[getset(skip)]
         pub creation_time_ms: u64,
@@ -160,12 +163,11 @@ pub mod model {
     #[cfg_attr(not(feature = "std"), display(fmt = "Signed transaction"))]
     #[cfg_attr(feature = "std", display(fmt = "{}", "self.hash()"))]
     #[ffi_type]
-    // TODO: All fields in this struct should be private
     pub struct SignedTransactionV1 {
         /// [`iroha_crypto::SignatureOf`]<[`TransactionPayload`]>.
-        pub signatures: SignaturesOf<TransactionPayload>,
+        pub(super) signatures: SignaturesOf<TransactionPayload>,
         /// [`Transaction`] payload.
-        pub payload: TransactionPayload,
+        pub(super) payload: TransactionPayload,
     }
 
     /// Transaction Value used in Instructions and Queries
@@ -264,21 +266,6 @@ impl SignedTransaction {
         &tx.payload
     }
 
-    /// Used to inject faulty payload for testing
-    #[cfg(feature = "transparent_api")]
-    pub fn payload_mut(&mut self) -> &mut TransactionPayload {
-        let SignedTransaction::V1(tx) = self;
-        &mut tx.payload
-    }
-
-    /// Used to inject faulty payload for testing
-    #[cfg(debug_assertions)]
-    #[cfg(not(feature = "transparent_api"))]
-    pub fn payload_mut(&mut self) -> &mut TransactionPayload {
-        let SignedTransaction::V1(tx) = self;
-        &mut tx.payload
-    }
-
     /// Return transaction signatures
     pub fn signatures(&self) -> &SignaturesOf<TransactionPayload> {
         let SignedTransaction::V1(tx) = self;
@@ -292,24 +279,18 @@ impl SignedTransaction {
     }
 
     /// Sign transaction with provided key pair.
-    ///
-    /// # Errors
-    ///
-    /// Fails if signature creation fails
     #[cfg(feature = "std")]
-    pub fn sign(
-        self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
+    #[must_use]
+    pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
         let SignedTransaction::V1(mut tx) = self;
-        let signature = iroha_crypto::SignatureOf::new(key_pair, &tx.payload)?;
+        let signature = iroha_crypto::SignatureOf::new(key_pair, &tx.payload);
         tx.signatures.insert(signature);
 
-        Ok(SignedTransactionV1 {
+        SignedTransactionV1 {
             payload: tx.payload,
             signatures: tx.signatures,
         }
-        .into())
+        .into()
     }
 
     /// Add additional signatures to this transaction
@@ -676,7 +657,7 @@ mod http {
         /// Construct [`Self`].
         #[inline]
         #[cfg(feature = "std")]
-        pub fn new(authority: AccountId) -> Self {
+        pub fn new(chain_id: ChainId, authority: AccountId) -> Self {
             let creation_time_ms = crate::current_time()
                 .as_millis()
                 .try_into()
@@ -684,6 +665,7 @@ mod http {
 
             Self {
                 payload: TransactionPayload {
+                    chain_id,
                     authority,
                     creation_time_ms,
                     nonce: None,
@@ -712,6 +694,12 @@ mod http {
         /// Add wasm to this transaction
         pub fn with_wasm(mut self, wasm: WasmSmartContract) -> Self {
             self.payload.instructions = wasm.into();
+            self
+        }
+
+        /// Set executable for this transaction
+        pub fn with_executable(mut self, executable: Executable) -> Self {
+            self.payload.instructions = executable;
             self
         }
 
@@ -744,23 +732,23 @@ mod http {
             self
         }
 
-        /// Sign transaction with provided key pair.
-        ///
-        /// # Errors
-        ///
-        /// Fails if signature creation fails
-        #[cfg(feature = "std")]
-        pub fn sign(
-            self,
-            key_pair: iroha_crypto::KeyPair,
-        ) -> Result<SignedTransaction, iroha_crypto::error::Error> {
-            let signatures = SignaturesOf::new(key_pair, &self.payload)?;
+        /// Set creation time of transaction
+        pub fn set_creation_time(&mut self, creation_time_ms: u64) -> &mut Self {
+            self.payload.creation_time_ms = creation_time_ms;
+            self
+        }
 
-            Ok(SignedTransactionV1 {
+        /// Sign transaction with provided key pair.
+        #[cfg(feature = "std")]
+        #[must_use]
+        pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
+            let signatures = SignaturesOf::new(key_pair, &self.payload);
+
+            SignedTransactionV1 {
                 payload: self.payload,
                 signatures,
             }
-            .into())
+            .into()
         }
     }
 }

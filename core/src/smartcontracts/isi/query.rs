@@ -249,6 +249,8 @@ mod tests {
         valid_tx_per_block: usize,
         invalid_tx_per_block: usize,
     ) -> Result<WorldStateView> {
+        let chain_id = ChainId::new("0");
+
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let mut wsv = WorldStateView::new(world_with_test_domains(), kura.clone(), query_handle);
@@ -266,17 +268,17 @@ mod tests {
 
         let valid_tx = {
             let instructions: [InstructionBox; 0] = [];
-            let tx = TransactionBuilder::new(ALICE_ID.clone())
+            let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
                 .with_instructions(instructions)
-                .sign(ALICE_KEYS.clone())?;
-            AcceptedTransaction::accept(tx, &limits)?
+                .sign(&ALICE_KEYS);
+            AcceptedTransaction::accept(tx, &chain_id, &limits)?
         };
         let invalid_tx = {
             let isi = Fail::new("fail".to_owned());
-            let tx = TransactionBuilder::new(ALICE_ID.clone())
+            let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
                 .with_instructions([isi.clone(), isi])
-                .sign(ALICE_KEYS.clone())?;
-            AcceptedTransaction::accept(tx, &huge_limits)?
+                .sign(&ALICE_KEYS);
+            AcceptedTransaction::accept(tx, &chain_id, &huge_limits)?
         };
 
         let mut transactions = vec![valid_tx; valid_tx_per_block];
@@ -285,7 +287,7 @@ mod tests {
         let topology = Topology::new(UniqueVec::new());
         let first_block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
             .chain(0, &mut wsv)
-            .sign(ALICE_KEYS.clone())?
+            .sign(&ALICE_KEYS)
             .commit(&topology)
             .expect("Block is valid");
 
@@ -295,7 +297,7 @@ mod tests {
         for _ in 1u64..blocks {
             let block = BlockBuilder::new(transactions.clone(), topology.clone(), Vec::new())
                 .chain(0, &mut wsv)
-                .sign(ALICE_KEYS.clone())?
+                .sign(&ALICE_KEYS)
                 .commit(&topology)
                 .expect("Block is valid");
 
@@ -409,31 +411,33 @@ mod tests {
 
     #[test]
     async fn find_transaction() -> Result<()> {
+        let chain_id = ChainId::new("0");
+
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
         let mut wsv = WorldStateView::new(world_with_test_domains(), kura.clone(), query_handle);
 
         let instructions: [InstructionBox; 0] = [];
-        let tx = TransactionBuilder::new(ALICE_ID.clone())
+        let tx = TransactionBuilder::new(chain_id.clone(), ALICE_ID.clone())
             .with_instructions(instructions)
-            .sign(ALICE_KEYS.clone())?;
+            .sign(&ALICE_KEYS);
 
         let tx_limits = &wsv.transaction_executor().transaction_limits;
-        let va_tx = AcceptedTransaction::accept(tx, tx_limits)?;
+        let va_tx = AcceptedTransaction::accept(tx, &chain_id, tx_limits)?;
 
         let topology = Topology::new(UniqueVec::new());
         let vcb = BlockBuilder::new(vec![va_tx.clone()], topology.clone(), Vec::new())
             .chain(0, &mut wsv)
-            .sign(ALICE_KEYS.clone())?
+            .sign(&ALICE_KEYS)
             .commit(&topology)
             .expect("Block is valid");
 
         wsv.apply(&vcb)?;
         kura.store_block(vcb);
 
-        let unapplied_tx = TransactionBuilder::new(ALICE_ID.clone())
+        let unapplied_tx = TransactionBuilder::new(chain_id, ALICE_ID.clone())
             .with_instructions([Unregister::account("account@domain".parse().unwrap())])
-            .sign(ALICE_KEYS.clone())?;
+            .sign(&ALICE_KEYS);
         let wrong_hash = unapplied_tx.hash();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);
         assert!(matches!(

@@ -7,30 +7,10 @@ use parity_scale_codec::{Decode, Encode};
 use super::view_change;
 use crate::block::{CommittedBlock, ValidBlock};
 
-/// Helper structure, wrapping messages and view change proofs.
-#[derive(Debug, Clone, Decode, Encode)]
-pub struct MessagePacket {
-    /// Proof of view change. As part of this message handling, all
-    /// peers which agree with view change should sign it.
-    pub view_change_proofs: view_change::ProofChain,
-    /// Actual Sumeragi message in this packet.
-    pub message: Option<Message>,
-}
-
-impl MessagePacket {
-    /// Construct [`Self`]
-    pub fn new(view_change_proofs: view_change::ProofChain, message: Option<Message>) -> Self {
-        Self {
-            view_change_proofs,
-            message,
-        }
-    }
-}
-
 #[allow(clippy::enum_variant_names)]
 /// Message's variants that are used by peers to communicate in the process of consensus.
 #[derive(Debug, Clone, Decode, Encode, FromVariant)]
-pub enum Message {
+pub enum BlockMessage {
     /// This message is sent by leader to all validating peers, when a new block is created.
     BlockCreated(BlockCreated),
     /// This message is sent by validating peers to proxy tail and observing peers when they have signed this block.
@@ -42,18 +22,17 @@ pub enum Message {
 }
 
 /// Specialization of `MessagePacket`
+#[derive(Debug, Clone, Decode, Encode)]
 pub struct ControlFlowMessage {
     /// Proof of view change. As part of this message handling, all
     /// peers which agree with view change should sign it.
     pub view_change_proofs: view_change::ProofChain,
 }
 
-impl From<ControlFlowMessage> for MessagePacket {
-    fn from(m: ControlFlowMessage) -> MessagePacket {
-        MessagePacket {
-            view_change_proofs: m.view_change_proofs,
-            message: None,
-        }
+impl ControlFlowMessage {
+    /// Helper function to construct a `ControlFlowMessage`
+    pub fn new(view_change_proofs: view_change::ProofChain) -> ControlFlowMessage {
+        ControlFlowMessage { view_change_proofs }
     }
 }
 

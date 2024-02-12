@@ -9,7 +9,7 @@ pub use iroha_smart_contract_utils::debug;
 #[cfg(not(test))]
 use iroha_smart_contract_utils::decode_with_length_prefix_from_raw;
 pub use iroha_trigger_derive::main;
-pub use smart_contract::data_model;
+pub use smart_contract::{data_model, stub_getrandom};
 
 pub mod log {
     //! WASM logging utilities

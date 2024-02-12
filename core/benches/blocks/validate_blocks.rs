@@ -22,13 +22,13 @@ impl WsvValidateBlocks {
     /// - Failed to parse [`AccountId`]
     /// - Failed to generate [`KeyPair`]
     /// - Failed to create instructions for block
-    pub fn setup() -> Result<Self> {
+    pub fn setup(rt: &tokio::runtime::Handle) -> Result<Self> {
         let domains = 100;
         let accounts_per_domain = 1000;
         let assets_per_domain = 1000;
         let account_id: AccountId = "alice@wonderland".parse()?;
         let key_pair = KeyPair::generate()?;
-        let wsv = build_wsv(&account_id, &key_pair);
+        let wsv = build_wsv(rt, &account_id, &key_pair);
 
         let nth = 100;
         let instructions = [
@@ -69,7 +69,7 @@ impl WsvValidateBlocks {
         assert_eq!(wsv.height(), 0);
         for (instructions, i) in instructions.into_iter().zip(1..) {
             finalized_wsv = wsv.clone();
-            let block = create_block(&mut wsv, instructions, account_id.clone(), key_pair.clone());
+            let block = create_block(&mut wsv, instructions, account_id.clone(), &key_pair);
             wsv.apply_without_execution(&block)?;
             assert_eq!(wsv.height(), i);
             assert_eq!(wsv.height(), finalized_wsv.height() + 1);

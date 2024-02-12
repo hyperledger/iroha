@@ -7,7 +7,8 @@ use iroha_data_model::isi::InstructionBox;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
 use test_network::{
-    get_key_pair, wait_for_genesis_committed, Peer as TestPeer, PeerBuilder, TestRuntime,
+    get_chain_id, get_key_pair, wait_for_genesis_committed, Peer as TestPeer, PeerBuilder,
+    TestRuntime,
 };
 use tokio::runtime::Runtime;
 
@@ -36,9 +37,15 @@ fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
 
 fn main_genesis() {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
-    let configuration = get_config(unique_vec![peer.id.clone()], Some(get_key_pair()));
+
+    let chain_id = get_chain_id();
+    let configuration = get_config(
+        unique_vec![peer.id.clone()],
+        Some(chain_id.clone()),
+        Some(get_key_pair()),
+    );
     let rt = Runtime::test();
-    let genesis = GenesisNetwork::new(generate_genesis(1_000_000_u32), &{
+    let genesis = GenesisNetwork::new(generate_genesis(1_000_000_u32), &chain_id, &{
         let private_key = configuration
             .genesis
             .private_key
@@ -70,8 +77,8 @@ fn create_million_accounts_directly() {
     for i in 0_u32..1_000_000_u32 {
         let domain_id: DomainId = format!("wonderland-{i}").parse().expect("Valid");
         let normal_account_id = AccountId::new(
-            format!("bob-{i}").parse().expect("Valid"),
             domain_id.clone(),
+            format!("bob-{i}").parse().expect("Valid"),
         );
         let create_domain: InstructionBox = Register::domain(Domain::new(domain_id)).into();
         let create_account = Register::account(Account::new(normal_account_id.clone(), [])).into();

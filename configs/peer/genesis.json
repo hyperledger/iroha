@@ -107,6 +107,15 @@
         }
       },
       {
+        "Transfer": {
+          "Domain": {
+            "source_id": "genesis@genesis",
+            "object": "wonderland",
+            "destination_id": "alice@wonderland"
+          }
+        }
+      },
+      {
         "Grant": {
           "PermissionToken": {
             "object": {
@@ -145,7 +154,7 @@
         "NewParameter": "?WSVIdentLengthLimits=1,128_LL"
       },
       {
-        "NewParameter": "?WASMFuelLimit=23000000"
+        "NewParameter": "?WASMFuelLimit=30000000"
       },
       {
         "NewParameter": "?WASMMaxMemory=524288000"

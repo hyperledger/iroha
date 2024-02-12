@@ -106,7 +106,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
     );
     let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
-    let tx = test_client.build_transaction(instructions, metadata)?;
+    let tx = test_client.build_transaction(instructions, metadata);
     test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
@@ -137,7 +137,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
     );
     let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
-    let tx = test_client.build_transaction(instructions, metadata)?;
+    let tx = test_client.build_transaction(instructions, metadata);
     test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
@@ -169,7 +169,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
     );
     let instructions: [InstructionBox; 2] = [create_asset.into(), mint.into()];
-    let tx = test_client.build_transaction(instructions, metadata)?;
+    let tx = test_client.build_transaction(instructions, metadata);
     test_client.submit_transaction(&tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
         let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
@@ -269,7 +269,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     };
 
     let grant_alice_asset_transfer_permission = |asset_id: AssetId, owner_keypair: KeyPair| {
-        let allow_alice_to_transfer_asset = Grant::permission_token(
+        let allow_alice_to_transfer_asset = Grant::permission(
             PermissionToken::new(
                 "CanTransferUserAsset".parse().unwrap(),
                 &json!({ "asset_id": asset_id }),
@@ -277,10 +277,11 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             alice_id.clone(),
         );
 
-        let grant_asset_transfer_tx = TransactionBuilder::new(asset_id.account_id().clone())
-            .with_instructions([allow_alice_to_transfer_asset])
-            .sign(owner_keypair)
-            .expect("Failed to sign seller transaction");
+        let chain_id = ChainId::new("0");
+        let grant_asset_transfer_tx =
+            TransactionBuilder::new(chain_id, asset_id.account_id().clone())
+                .with_instructions([allow_alice_to_transfer_asset])
+                .sign(&owner_keypair);
 
         test_client
             .submit_transaction_blocking(&grant_asset_transfer_tx)
@@ -424,16 +425,16 @@ fn transfer_asset_definition() {
 
 fn account_id_new(account_name: &str, account_domain: &str) -> AccountId {
     AccountId::new(
-        account_name.parse().expect("Valid"),
         account_domain.parse().expect("Valid"),
+        account_name.parse().expect("Valid"),
     )
 }
 
 fn asset_id_new(definition_name: &str, definition_domain: &str, account_id: AccountId) -> AssetId {
     AssetId::new(
         AssetDefinitionId::new(
-            definition_name.parse().expect("Valid"),
             definition_domain.parse().expect("Valid"),
+            definition_name.parse().expect("Valid"),
         ),
         account_id,
     )
@@ -449,8 +450,8 @@ mod register {
     pub fn account(account_name: &str, domain_name: &str) -> Register<Account> {
         Register::account(Account::new(
             AccountId::new(
-                account_name.parse().expect("Valid"),
                 domain_name.parse().expect("Valid"),
+                account_name.parse().expect("Valid"),
             ),
             [],
         ))
@@ -458,8 +459,8 @@ mod register {
 
     pub fn asset_definition(asset_name: &str, domain_name: &str) -> Register<AssetDefinition> {
         Register::asset_definition(AssetDefinition::quantity(AssetDefinitionId::new(
-            asset_name.parse().expect("Valid"),
             domain_name.parse().expect("Valid"),
+            asset_name.parse().expect("Valid"),
         )))
     }
 }
