@@ -22,7 +22,7 @@ services:
     - 1337:1337
     - 8080:8080
     volumes:
-    - ../../configs/peer:/config
+    - ./:/config
     init: true
     command: iroha --submit-genesis
     healthcheck:
@@ -47,7 +47,7 @@ services:
     - 1338:1338
     - 8081:8081
     volumes:
-    - ../../configs/peer:/config
+    - ./:/config
     init: true
     healthcheck:
       test: test $(curl -s http://127.0.0.1:8081/status/blocks) -gt 0
@@ -71,7 +71,7 @@ services:
     - 1339:1339
     - 8082:8082
     volumes:
-    - ../../configs/peer:/config
+    - ./:/config
     init: true
     healthcheck:
       test: test $(curl -s http://127.0.0.1:8082/status/blocks) -gt 0
@@ -95,7 +95,7 @@ services:
     - 1340:1340
     - 8083:8083
     volumes:
-    - ../../configs/peer:/config
+    - ./:/config
     init: true
     healthcheck:
       test: test $(curl -s http://127.0.0.1:8083/status/blocks) -gt 0

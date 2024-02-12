@@ -21,7 +21,7 @@ services:
     - 1337:1337
     - 8080:8080
     volumes:
-    - ../../configs/peer:/config
+    - ./:/config
     init: true
     command: iroha --submit-genesis
     healthcheck:
