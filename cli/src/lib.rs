@@ -607,7 +607,7 @@ mod tests {
 
             // When
 
-            let (config, genesis) = read_config_and_genesis(config_path, true)?;
+            let (config, genesis) = read_config_and_genesis(Some(config_path), true)?;
 
             // Then
 
@@ -656,7 +656,7 @@ mod tests {
 
             // When & Then
 
-            let report = read_config_and_genesis(config_path, false).unwrap_err();
+            let report = read_config_and_genesis(Some(config_path), false).unwrap_err();
 
             assert_contains!(
                 format!("{report:#}"),

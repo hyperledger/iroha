@@ -162,7 +162,7 @@ mod tests {
 
         Root::load(
             // FIXME Specifying path here might break!
-            "../config/iroha_test_config.toml",
+            Some("../config/iroha_test_config.toml"),
             CliContext {
                 submit_genesis: true,
             },

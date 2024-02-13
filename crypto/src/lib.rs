@@ -662,7 +662,7 @@ impl PrivateKey {
     ///
     /// `into_raw()` without copying is not provided because underlying crypto
     /// libraries do not provide move functionality.
-    pub fn to_raw(self) -> (Algorithm, Vec<u8>) {
+    pub fn to_raw(&self) -> (Algorithm, Vec<u8>) {
         (self.algorithm(), self.payload())
     }
 }
