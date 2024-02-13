@@ -658,8 +658,11 @@ impl PrivateKey {
         }
     }
 
-    /// Split the key into its algorithm and payload. Reverse conversion to [`Self::from_raw`].
-    pub fn into_raw(self) -> (Algorithm, Vec<u8>) {
+    /// Extracts the raw bytes from the private key, copying the payload.
+    ///
+    /// `into_raw()` without copying is not provided because underlying crypto
+    /// libraries do not provide move functionality.
+    pub fn to_raw(self) -> (Algorithm, Vec<u8>) {
         (self.algorithm(), self.payload())
     }
 }

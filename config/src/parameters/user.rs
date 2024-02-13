@@ -657,7 +657,7 @@ mod tests {
             .get()
             .expect("private key is provided, should not fail");
 
-        let (algorithm, payload) = private_key.into_raw();
+        let (algorithm, payload) = private_key.to_raw();
         assert_eq!(algorithm, "ed25519".parse().unwrap());
         assert_eq!(hex::encode(payload), "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb");
     }
