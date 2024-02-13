@@ -43,8 +43,7 @@ impl GenesisNetwork {
     /// Construct [`GenesisNetwork`] from configuration.
     ///
     /// # Errors
-    /// If fails to sign a transaction (which means that the `key_pair` is malformed rather
-    /// than anything else)
+    /// If fails to resolve the executor
     pub fn new(
         raw_block: RawGenesisBlock,
         chain_id: &ChainId,
