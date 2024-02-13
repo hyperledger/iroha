@@ -58,7 +58,7 @@ pub mod chain_wide {
     pub const DEFAULT_MAX_TXS: NonZeroU32 = nonzero!(2_u32.pow(9));
     pub const DEFAULT_BLOCK_TIME: Duration = Duration::from_secs(2);
     pub const DEFAULT_COMMIT_TIME: Duration = Duration::from_secs(4);
-    pub const DEFAULT_WASM_FUEL_LIMIT: u64 = 30_000_000;
+    pub const DEFAULT_WASM_FUEL_LIMIT: u64 = 55_000_000;
     // TODO: wrap into a `Bytes` newtype
     pub const DEFAULT_WASM_MAX_MEMORY_BYTES: u32 = 500 * 2_u32.pow(20);
 
