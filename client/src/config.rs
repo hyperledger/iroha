@@ -5,7 +5,10 @@ use std::{path::Path, time::Duration};
 
 use derive_more::Display;
 use eyre::Result;
-use iroha_config::{base, base::UnwrapPartial};
+use iroha_config::{
+    base,
+    base::{FromEnv, StdEnv, UnwrapPartial},
+};
 use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, ChainId};
 use iroha_primitives::small::SmallStr;
@@ -14,7 +17,7 @@ use url::Url;
 
 use crate::config::user::RootPartial;
 
-pub mod user;
+mod user;
 
 #[allow(missing_docs)]
 pub const DEFAULT_TRANSACTION_TIME_TO_LIVE: Duration = Duration::from_secs(100);
@@ -90,6 +93,8 @@ impl Config {
     /// - unable to load config from a TOML file
     /// - the config is invalid
     pub fn load(path: impl AsRef<Path>) -> std::result::Result<Self, eyre::Report> {
-        Ok(RootPartial::from_toml(path)?.unwrap_partial()?.parse()?)
+        let config = RootPartial::from_toml(path)?;
+        let config = config.merge(RootPartial::from_env(&StdEnv)?);
+        Ok(config.unwrap_partial()?.parse()?)
     }
 }

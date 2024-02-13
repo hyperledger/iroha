@@ -30,6 +30,7 @@ pub struct RootPartial {
 }
 
 impl RootPartial {
+    #[allow(unused)]
     pub fn new() -> Self {
         // TODO: gen with macro
         Self::default()
