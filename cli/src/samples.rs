@@ -78,7 +78,7 @@ pub fn get_user_config(
         .chain_wide
         .max_transactions_in_block
         .set(2.try_into().unwrap());
-    config.sumeragi.trusted_peers.peers = peers.to_vec();
+    config.sumeragi.trusted_peers.set(peers.to_vec());
     config.torii.address.set(DEFAULT_TORII_ADDR);
     config
         .network

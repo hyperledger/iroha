@@ -378,7 +378,7 @@ pub struct KuraDebug {
 
 #[derive(Debug)]
 pub struct Sumeragi {
-    pub trusted_peers: Vec<PeerId>,
+    pub trusted_peers: Option<Vec<PeerId>>,
     pub debug: SumeragiDebug,
 }
 
@@ -389,7 +389,7 @@ impl Sumeragi {
             debug: SumeragiDebug { force_soft_fork },
         } = self;
 
-        let trusted_peers = construct_unique_vec(trusted_peers)?;
+        let trusted_peers = construct_unique_vec(trusted_peers.unwrap_or(vec![]))?;
 
         Ok(actual::Sumeragi {
             trusted_peers,
@@ -401,26 +401,6 @@ impl Sumeragi {
 #[derive(Debug, Copy, Clone)]
 pub struct SumeragiDebug {
     pub force_soft_fork: bool,
-}
-
-#[derive(Deserialize, Serialize, Default, PartialEq, Eq, Debug, Clone)]
-#[serde(transparent)]
-pub struct UserTrustedPeers {
-    // FIXME: doesn't raise an error on finding duplicates during deserialization
-    pub peers: Vec<PeerId>,
-}
-
-impl UnwrapPartial for UserTrustedPeers {
-    type Output = Vec<PeerId>;
-    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
-        Ok(self.peers)
-    }
-}
-
-impl Merge for UserTrustedPeers {
-    fn merge(&mut self, other: Self) {
-        self.peers = other.peers;
-    }
 }
 
 // FIXME: handle duplicates properly, not here, and with details

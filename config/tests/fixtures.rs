@@ -155,7 +155,7 @@ fn minimal_config_snapshot() -> Result<()> {
                     max: 128,
                 },
                 wasm_runtime: WasmRuntime {
-                    fuel_limit: 30000000,
+                    fuel_limit: 55000000,
                     max_memory_bytes: 524288000,
                 },
             },
@@ -330,9 +330,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 },
             },
             sumeragi: SumeragiPartial {
-                trusted_peers: UserTrustedPeers {
-                    peers: [],
-                },
+                trusted_peers: None,
                 debug: SumeragiDebugPartial {
                     force_soft_fork: None,
                 },

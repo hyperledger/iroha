@@ -16,8 +16,10 @@ use iroha_config_base::{
 };
 use iroha_crypto::{PrivateKey, PublicKey};
 use iroha_data_model::{
-    metadata::Limits as MetadataLimits, transaction::TransactionLimits, ChainId, LengthLimits,
-    Level,
+    metadata::Limits as MetadataLimits,
+    prelude::{ChainId, PeerId},
+    transaction::TransactionLimits,
+    LengthLimits, Level,
 };
 use iroha_primitives::addr::SocketAddr;
 use serde::{Deserialize, Serialize};
@@ -31,7 +33,7 @@ use crate::{
         user,
         user::{
             ChainWide, Genesis, Kura, KuraDebug, Logger, Network, Queue, Root, Snapshot, Sumeragi,
-            SumeragiDebug, Telemetry, TelemetryDev, Torii, UserTrustedPeers,
+            SumeragiDebug, Telemetry, TelemetryDev, Torii,
         },
     },
 };
@@ -350,7 +352,7 @@ impl FromEnv for KuraPartial {
 #[derive(Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
 pub struct SumeragiPartial {
-    pub trusted_peers: UserTrustedPeers,
+    pub trusted_peers: UserField<Vec<PeerId>>,
     pub debug: SumeragiDebugPartial,
 }
 
@@ -359,14 +361,6 @@ impl UnwrapPartial for SumeragiPartial {
 
     fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
         let mut emitter = Emitter::new();
-
-        let trusted_peers = self.trusted_peers.unwrap_partial().map_or_else(
-            |err| {
-                emitter.emit_collection(err);
-                None
-            },
-            Some,
-        );
 
         let debug = self.debug.unwrap_partial().map_or_else(
             |err| {
@@ -379,7 +373,7 @@ impl UnwrapPartial for SumeragiPartial {
         emitter.finish()?;
 
         Ok(Sumeragi {
-            trusted_peers: trusted_peers.unwrap(),
+            trusted_peers: self.trusted_peers.get(),
             debug: debug.unwrap(),
         })
     }
@@ -573,7 +567,7 @@ impl UnwrapPartial for TelemetryDevPartial {
 
     fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
         Ok(TelemetryDev {
-            file: self.file.get(),
+            out_file: self.file.get(),
         })
     }
 }
