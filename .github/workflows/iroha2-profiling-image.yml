@@ -26,7 +26,9 @@ on:
 
 jobs:
   registry:
-    runs-on: [self-hosted, Linux, iroha2-dev-push]
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
     steps:
       - uses: actions/checkout@v4
       - uses: docker/login-action@v3
