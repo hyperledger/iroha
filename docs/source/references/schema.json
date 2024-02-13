@@ -578,6 +578,11 @@
         "tag": "Fixed",
         "discriminant": 2,
         "type": "Transfer<Asset, Fixed, Account>"
+      },
+      {
+        "tag": "Store",
+        "discriminant": 3,
+        "type": "Transfer<Asset, Metadata, Account>"
       }
     ]
   },
@@ -4246,6 +4251,22 @@
       {
         "name": "object",
         "type": "Fixed"
+      },
+      {
+        "name": "destination_id",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "Transfer<Asset, Metadata, Account>": {
+    "Struct": [
+      {
+        "name": "source_id",
+        "type": "AssetId"
+      },
+      {
+        "name": "object",
+        "type": "Metadata"
       },
       {
         "name": "destination_id",

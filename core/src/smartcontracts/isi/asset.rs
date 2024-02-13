@@ -33,7 +33,7 @@ impl Registrable for NewAssetDefinition {
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
-    use iroha_data_model::isi::error::MintabilityError;
+    use iroha_data_model::{asset::AssetValue, isi::error::MintabilityError, metadata::Metadata};
 
     use super::*;
     use crate::smartcontracts::account::isi::forbid_minting;
@@ -98,6 +98,37 @@ pub mod isi {
                 key: self.key,
                 value: Box::new(value),
             })));
+
+            Ok(())
+        }
+    }
+
+    impl Execute for Transfer<Asset, Metadata, Account> {
+        #[metrics(+"transfer_store")]
+        fn execute(self, _authority: &AccountId, wsv: &mut WorldStateView) -> Result<(), Error> {
+            let asset_id = self.source_id;
+            assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
+            let account_id = asset_id.account_id.clone();
+
+            let asset = wsv.account_mut(&account_id).and_then(|account| {
+                account
+                    .remove_asset(&asset_id)
+                    .ok_or_else(|| FindError::Asset(asset_id.clone()))
+            })?;
+
+            let destination_store = {
+                let destination_id =
+                    AssetId::new(asset_id.definition_id.clone(), self.destination_id.clone());
+                let destination_store_asset =
+                    wsv.asset_or_insert(destination_id.clone(), asset.value)?;
+
+                destination_store_asset.clone()
+            };
+
+            wsv.emit_events([
+                AssetEvent::Deleted(asset_id),
+                AssetEvent::Created(destination_store),
+            ]);
 
             Ok(())
         }

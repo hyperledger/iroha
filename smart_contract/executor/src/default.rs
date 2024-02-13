@@ -15,7 +15,7 @@ pub use asset::{
     visit_mint_asset_big_quantity, visit_mint_asset_fixed, visit_mint_asset_quantity,
     visit_register_asset, visit_remove_asset_key_value, visit_set_asset_key_value,
     visit_transfer_asset_big_quantity, visit_transfer_asset_fixed, visit_transfer_asset_quantity,
-    visit_unregister_asset,
+    visit_transfer_asset_store, visit_unregister_asset,
 };
 pub use asset_definition::{
     visit_register_asset_definition, visit_remove_asset_definition_key_value,
@@ -919,7 +919,7 @@ pub mod asset_definition {
 }
 
 pub mod asset {
-    use iroha_smart_contract::data_model::isi::Instruction;
+    use iroha_smart_contract::data_model::{isi::Instruction, metadata::Metadata};
     use iroha_smart_contract_utils::Encode;
     use permission::{asset::is_asset_owner, asset_definition::is_asset_definition_owner};
 
@@ -1169,6 +1169,14 @@ pub mod asset {
         executor: &mut V,
         authority: &AccountId,
         isi: &Transfer<Asset, Fixed, Account>,
+    ) {
+        validate_transfer_asset(executor, authority, isi);
+    }
+
+    pub fn visit_transfer_asset_store<V: Validate + ?Sized>(
+        executor: &mut V,
+        authority: &AccountId,
+        isi: &Transfer<Asset, Metadata, Account>,
     ) {
         validate_transfer_asset(executor, authority, isi);
     }

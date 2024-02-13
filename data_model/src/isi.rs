@@ -149,6 +149,7 @@ pub mod model {
     impl Instruction for Transfer<Asset, u32, Account> {}
     impl Instruction for Transfer<Asset, u128, Account> {}
     impl Instruction for Transfer<Asset, Fixed, Account> {}
+    impl Instruction for Transfer<Asset, Metadata, Account> {}
 
     impl Instruction for Grant<PermissionToken> {}
     impl Instruction for Grant<RoleId> {}
@@ -166,7 +167,7 @@ pub mod model {
 
 mod transparent {
     use super::*;
-    use crate::{account::NewAccount, domain::NewDomain};
+    use crate::{account::NewAccount, domain::NewDomain, metadata::Metadata};
 
     macro_rules! isi {
         ($($meta:meta)* $item:item) => {
@@ -847,6 +848,17 @@ mod transparent {
         }
     }
 
+    impl Transfer<Asset, Metadata, Account> {
+        /// Constructs a new [`Transfer`] for an [`Asset`] of [`Store`] type.
+        pub fn asset_store(asset_id: AssetId, to: AccountId) -> Self {
+            Self {
+                source_id: asset_id,
+                object: Metadata::new(),
+                destination_id: to,
+            }
+        }
+    }
+
     impl_display! {
         Transfer<S, O, D>
         where
@@ -865,6 +877,7 @@ mod transparent {
     impl_into_box! {
         Transfer<Asset, u32, Account> |
         Transfer<Asset, u128, Account> |
+        Transfer<Asset, Metadata, Account> |
         Transfer<Asset, Fixed, Account> => AssetTransferBox ==> TransferBox::Asset
     }
 
@@ -873,6 +886,7 @@ mod transparent {
         Transfer<Account, AssetDefinitionId, Account> |
         Transfer<Asset, u32, Account> |
         Transfer<Asset, u128, Account> |
+        Transfer<Asset, Metadata, Account> |
         Transfer<Asset, Fixed, Account> => TransferBox ==> InstructionBox::Transfer
     }
 
@@ -1194,6 +1208,8 @@ isi_box! {
         BigQuantity(Transfer<Asset, u128, Account>),
         /// Transfer [`Asset`] of [`Fixed`] type.
         Fixed(Transfer<Asset, Fixed, Account>),
+        /// Transfer [`Asset`] of [`Store`] type.
+        Store(Transfer<Asset, Metadata, Account>),
     }
 }
 

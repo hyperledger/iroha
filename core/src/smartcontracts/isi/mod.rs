@@ -167,6 +167,7 @@ impl Execute for AssetTransferBox {
             Self::Quantity(isi) => isi.execute(authority, wsv),
             Self::BigQuantity(isi) => isi.execute(authority, wsv),
             Self::Fixed(isi) => isi.execute(authority, wsv),
+            Self::Store(isi) => isi.execute(authority, wsv),
         }
     }
 }

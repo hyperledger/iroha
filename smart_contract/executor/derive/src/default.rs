@@ -141,6 +141,7 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn2::DeriveInput) -> To
         "fn visit_transfer_asset_quantity(operation: &Transfer<Asset, u32, Account>)",
         "fn visit_transfer_asset_big_quantity(operation: &Transfer<Asset, u128, Account>)",
         "fn visit_transfer_asset_fixed(operation: &Transfer<Asset, Fixed, Account>)",
+        "fn visit_transfer_asset_store(operation: &Transfer<Asset, Metadata, Account>)",
         "fn visit_set_asset_key_value(operation: &SetKeyValue<Asset>)",
         "fn visit_remove_asset_key_value(operation: &RemoveKeyValue<Asset>)",
         "fn visit_register_asset_definition(operation: &Register<AssetDefinition>)",
