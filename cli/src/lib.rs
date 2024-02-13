@@ -494,8 +494,8 @@ fn genesis_domain(public_key: PublicKey) -> Domain {
 /// - If failed to read the config
 /// - If failed to load the genesis block
 /// - If failed to build a genesis network
-pub fn read_config_and_genesis(
-    path: impl AsRef<Path>,
+pub fn read_config_and_genesis<P: AsRef<Path>>(
+    path: Option<P>,
     submit_genesis: bool,
 ) -> Result<(Config, Option<GenesisNetwork>)> {
     use iroha_config::parameters::actual::Genesis;

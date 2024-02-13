@@ -18,7 +18,7 @@ fn default_terminal_colors_str() -> clap::builder::OsStr {
 struct Args {
     /// Path to the configuration file
     #[arg(long, short, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
-    config: PathBuf,
+    config: Option<PathBuf>,
     /// Whether to enable ANSI colored output or not
     ///
     /// By default, Iroha determines whether the terminal supports colors or not.
@@ -85,7 +85,7 @@ mod tests {
     #[test]
     #[allow(clippy::bool_assert_comparison)] // for expressiveness
     fn default_args() -> Result<()> {
-        let args = Args::try_parse_from(["test", "--config", "config.toml"])?;
+        let args = Args::try_parse_from(["test"])?;
 
         assert_eq!(args.terminal_colors, is_colouring_supported());
         assert_eq!(args.submit_genesis, false);
@@ -97,11 +97,11 @@ mod tests {
     #[allow(clippy::bool_assert_comparison)] // for expressiveness
     fn terminal_colors_works_as_expected() -> Result<()> {
         fn try_with(arg: &str) -> Result<bool> {
-            Ok(Args::try_parse_from(["test", arg, "--config", "config.toml"])?.terminal_colors)
+            Ok(Args::try_parse_from(["test", arg])?.terminal_colors)
         }
 
         assert_eq!(
-            Args::try_parse_from(["test", "--config", "config.toml"])?.terminal_colors,
+            Args::try_parse_from(["test"])?.terminal_colors,
             is_colouring_supported()
         );
         assert_eq!(try_with("--terminal-colors")?, true);
@@ -116,7 +116,7 @@ mod tests {
     fn user_provided_config_path_works() -> Result<()> {
         let args = Args::try_parse_from(["test", "--config", "/home/custom/file.json"])?;
 
-        assert_eq!(args.config, PathBuf::from("/home/custom/file.json"));
+        assert_eq!(args.config, Some(PathBuf::from("/home/custom/file.json")));
 
         Ok(())
     }
