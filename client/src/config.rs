@@ -26,22 +26,17 @@ pub const DEFAULT_TRANSACTION_STATUS_TIMEOUT: Duration = Duration::from_secs(15)
 #[allow(missing_docs)]
 pub const DEFAULT_TRANSACTION_NONCE: bool = false;
 
-/// Wrapper over `SmallStr` to provide basic auth login checking
+/// Valid web auth login string. See [`WebLogin::from_str`]
 #[derive(Debug, Display, Clone, Serialize, PartialEq, Eq)]
 pub struct WebLogin(SmallStr);
 
-impl WebLogin {
-    /// Construct new [`Self`]
+impl FromStr for WebLogin {
+    type Err = eyre::ErrReport;
+
+    /// Validates that the string is a valid web login
     ///
     /// # Errors
     /// Fails if `login` contains `:` character, which is the binary representation of the '\0'.
-    pub fn new(login: &str) -> Result<Self> {
-        Self::from_str(login)
-    }
-}
-
-impl FromStr for WebLogin {
-    type Err = eyre::ErrReport;
     fn from_str(login: &str) -> Result<Self> {
         if login.contains(':') {
             eyre::bail!("The `:` character, in `{login}` is not allowed");
