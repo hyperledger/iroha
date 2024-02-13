@@ -21,17 +21,13 @@ use std::{
 
 pub use boilerplate::*;
 use eyre::{eyre, Report, WrapErr};
-use iroha_config_base::{
-    Emitter, ErrorsCollection, HumanBytes, Merge, ParseEnvResult, ReadEnv, UnwrapPartial,
-    UnwrapPartialResult,
-};
+use iroha_config_base::{Emitter, ErrorsCollection, HumanBytes, Merge, ParseEnvResult, ReadEnv};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::{
     metadata::Limits as MetadataLimits, peer::PeerId, transaction::TransactionLimits, ChainId,
     LengthLimits, Level,
 };
 use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
-use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::{
@@ -504,7 +500,7 @@ pub struct Telemetry {
 
 #[derive(Debug)]
 pub struct TelemetryDev {
-    pub file: Option<PathBuf>,
+    pub out_file: Option<PathBuf>,
 }
 
 impl Telemetry {
@@ -514,7 +510,7 @@ impl Telemetry {
             url,
             max_retry_delay_exponent,
             min_retry_period,
-            dev: TelemetryDev { file },
+            dev: TelemetryDev { out_file: file },
         } = self;
 
         let regular = match (name, url) {
@@ -535,7 +531,9 @@ impl Telemetry {
             }
         };
 
-        let dev = file.map(|file| actual::DevTelemetry { file: file.clone() });
+        let dev = file.map(|file| actual::DevTelemetry {
+            out_file: file.clone(),
+        });
 
         Ok((regular, dev))
     }

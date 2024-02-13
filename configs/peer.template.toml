@@ -69,7 +69,7 @@
 
 [telemetry.dev]
 ## FIXME: is it JSON5?
-# file = "./dev-telemetry.json5"
+# out_file = "./dev-telemetry.json5"
 
 ## TODO: remove it from the config file entirely
 # [chain_wide]

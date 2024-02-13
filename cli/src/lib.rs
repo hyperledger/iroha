@@ -626,7 +626,7 @@ mod tests {
                 config
                     .dev_telemetry
                     .expect("dev telemetry should be set")
-                    .file
+                    .out_file
                     .absolutize()?,
                 dir.path().join("logs/telemetry")
             );

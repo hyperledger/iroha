@@ -243,5 +243,5 @@ pub struct Telemetry {
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct DevTelemetry {
-    pub file: PathBuf,
+    pub out_file: PathBuf,
 }

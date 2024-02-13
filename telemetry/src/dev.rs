@@ -25,7 +25,7 @@ pub async fn start(config: Config, telemetry: Receiver<Telemetry>) -> Result<Joi
             //.append(true)
             .create(true)
             .truncate(true)
-            .open(config.file)
+            .open(config.out_file)
             .await
             .wrap_err("Failed to create and open file for telemetry")?;
 
