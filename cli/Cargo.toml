@@ -19,6 +19,8 @@ workspace = true
 
 [features]
 default = ["bridge", "telemetry", "schema-endpoint"]
+# Enables profiling endpoint
+profiling = ["pprof"]
 
 # Support interoperability with popular blockchain networks (Substrate, Ether, etc.)
 bridge = ["iroha_core/bridge"]
@@ -79,6 +81,9 @@ dashmap = { workspace = true }
 
 thread-local-panic-hook = { version = "0.1.0", optional = true }
 uuid = { version = "1.4.1", features = ["v4"] }
+
+# TODO: switch to original crate once fix is merged (https://github.com/tikv/pprof-rs/pull/241)
+pprof = { git = " https://github.com/Erigara/pprof-rs", branch = "fix_pointer_align", optional = true, default-features = false, features = ["protobuf-codec", "frame-pointer", "cpp"] }
 
 [dev-dependencies]
 serial_test = "2.0.0"

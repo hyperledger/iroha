@@ -267,6 +267,54 @@ tokio-console http://127.0.0.1:5555
 
 </details>
 
+### Profiling
+
+<details> <summary> Expand to learn ho to profile iroha. </summary>
+
+To optimize performance it's useful to profile iroha.
+
+To do that you should compile iroha with `profiling` profile and with `profiling` feature: 
+
+```bash
+RUSTFLAGS="-C force-frame-pointers=on" cargo +nightly -Z build-std build --target your-desired-target --profile profiling --features profiling
+```
+
+Then start iroha and attach profiler of your choice to the iroha pid.
+
+Alternatively it's possible to build iroha inside docker with profiler support and profile iroha this way.
+
+```bash
+docker build -f Dockerfile.glibc --build-arg="PROFILE=profiling" --build-arg='RUSTFLAGS=-C force-frame-pointers=on' --build-arg='FEATURES=profiling' --build-arg='CARGOFLAGS=-Z build-std' -t iroha2:profiling .
+```
+
+E.g. using perf (available only on linux):
+
+```bash
+# to capture profile
+sudo perf record -g -p <PID>
+# to analyze profile
+sudo perf report
+```
+
+To be able to observe profile of the executor during iroha profiling, executor should be compiled without stripping symbols.
+It can be done by running:
+
+```bash
+# compile executor without optimizations
+cargo run --bin iroha_wasm_builder_cli -- build ./path/to/executor --outfile executor.wasm
+```
+
+With profiling feature enabled iroha exposes endpoint to scrap pprof profiles:
+
+```bash
+# profile iroha for 30 seconds and get protobuf profile
+curl host:port/debug/pprof/profile?seconds=30 -o profile.pb
+# analyze profile in browser (required installed go)
+go tool pprof -web profile.pb
+```
+
+</details>
+
 ## Style Guides
 
 Please follow these guidelines when you make code contributions to our project:

@@ -33,6 +33,8 @@ dex = []
 dev-telemetry = ["telemetry", "iroha_telemetry/dev-telemetry"]
 # Support Prometheus metrics. See https://prometheus.io/.
 expensive-telemetry = ["iroha_telemetry/metric-instrumentation"]
+# Profiler integration for wasmtime
+profiling = []
 
 [badges]
 is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
