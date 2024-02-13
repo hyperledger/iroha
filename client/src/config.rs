@@ -88,7 +88,7 @@ impl Config {
     ///
     /// # Errors
     /// - unable to load config from a TOML file
-    /// - unable to validate loaded config
+    /// - the config is invalid
     pub fn load(path: impl AsRef<Path>) -> std::result::Result<Self, eyre::Report> {
         Ok(RootPartial::from_toml(path)?.unwrap_partial()?.parse()?)
     }

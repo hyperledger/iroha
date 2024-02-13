@@ -52,7 +52,7 @@ impl Root {
     /// # Errors
     /// - unable to load config from a TOML file
     /// - unable to parse config from envs
-    /// - unable to validate loaded config
+    /// - the config is invalid
     pub fn load(path: impl AsRef<Path>, cli: CliContext) -> Result<Self, eyre::Report> {
         let config = RootPartial::from_toml(path)?;
         let config = config.merge(RootPartial::from_env(&StdEnv)?);
