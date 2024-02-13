@@ -7,7 +7,7 @@ on:
       - '**.rs'
       - '**.json'
       - '**.toml'
-      - '.github/workflows/**.yml'
+      - '.github/workflows/iroha2-dev-pr.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
