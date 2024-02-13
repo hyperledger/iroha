@@ -6,7 +6,7 @@ use error::*;
 use import::traits::{
     ExecuteOperations as _, GetExecutorPayloads as _, SetPermissionTokenSchema as _,
 };
-use iroha_config::parameters::actual::WasmRuntime as IrohaWasmConfig;
+use iroha_config::parameters::actual::WasmRuntime as Config;
 use iroha_data_model::{
     account::AccountId,
     executor::{self, MigrationResult},
@@ -25,7 +25,8 @@ use iroha_logger::debug;
 use iroha_logger::{error_span as wasm_log_span, prelude::tracing::Span};
 use iroha_wasm_codec::{self as codec, WasmUsize};
 use wasmtime::{
-    Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, TypedFunc,
+    Caller, Config as WasmtimeConfig, Engine, Linker, Module, Store, StoreLimits,
+    StoreLimitsBuilder, TypedFunc,
 };
 
 use crate::{
@@ -265,8 +266,8 @@ pub fn create_engine() -> Engine {
         .expect("Failed to create WASM engine with a predefined configuration. This is a bug")
 }
 
-fn create_config() -> Result<Config> {
-    let mut config = Config::new();
+fn create_config() -> Result<WasmtimeConfig> {
+    let mut config = WasmtimeConfig::new();
     config
         .consume_fuel(true)
         .cache_config_load_default()
@@ -340,7 +341,7 @@ pub mod state {
     ///
     /// Panics if failed to convert `u32` into `usize` which should not happen
     /// on any supported platform
-    pub fn store_limits_from_config(config: &IrohaWasmConfig) -> StoreLimits {
+    pub fn store_limits_from_config(config: &Config) -> StoreLimits {
         StoreLimitsBuilder::new()
             .memory_size(config.max_memory_bytes as usize)
             .instances(1)
@@ -367,7 +368,7 @@ pub mod state {
         /// Create new [`OrdinaryState`]
         pub fn new(
             authority: AccountId,
-            config: IrohaWasmConfig,
+            config: Config,
             log_span: Span,
             wsv: W,
             specific_state: S,
@@ -560,7 +561,7 @@ pub mod state {
 pub struct Runtime<S> {
     engine: Engine,
     linker: Linker<S>,
-    config: IrohaWasmConfig,
+    config: Config,
 }
 
 impl<S> Runtime<S> {
@@ -588,7 +589,7 @@ impl<S> Runtime<S> {
 
     fn get_typed_func<P: wasmtime::WasmParams, R: wasmtime::WasmResults>(
         instance: &wasmtime::Instance,
-        mut store: &mut wasmtime::Store<S>,
+        mut store: &mut Store<S>,
         func_name: &'static str,
     ) -> Result<wasmtime::TypedFunc<P, R>, ExportError> {
         instance
@@ -1402,7 +1403,7 @@ impl<'wrld> import::traits::SetPermissionTokenSchema<state::executor::Migrate<'w
 #[derive(Default)]
 pub struct RuntimeBuilder<S> {
     engine: Option<Engine>,
-    config: Option<IrohaWasmConfig>,
+    config: Option<Config>,
     linker: Option<Linker<S>>,
 }
 
@@ -1427,7 +1428,7 @@ impl<S> RuntimeBuilder<S> {
     /// Sets the [`Configuration`] to be used by the [`Runtime`]
     #[must_use]
     #[inline]
-    pub fn with_config(mut self, config: IrohaWasmConfig) -> Self {
+    pub fn with_config(mut self, config: Config) -> Self {
         self.config = Some(config);
         self
     }
