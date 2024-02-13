@@ -1,7 +1,7 @@
 //! Configuration utils related to Logger specifically.
 
-use iroha_config_base::{impl_deserialize_from_str, impl_serialize_display};
 pub use iroha_data_model::Level;
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 /// Convert [`Level`] into [`tracing::Level`]
 pub fn into_tracing_level(level: Level) -> tracing::Level {
@@ -15,7 +15,18 @@ pub fn into_tracing_level(level: Level) -> tracing::Level {
 }
 
 /// Reflects formatters in [`tracing_subscriber::fmt::format`]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, strum::Display, strum::EnumString, Default)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    strum::Display,
+    strum::EnumString,
+    Default,
+    SerializeDisplay,
+    DeserializeFromStr,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum Format {
     /// See [`tracing_subscriber::fmt::format::Full`]
@@ -28,9 +39,6 @@ pub enum Format {
     /// See [`tracing_subscriber::fmt::format::Json`]
     Json,
 }
-
-impl_serialize_display!(Format);
-impl_deserialize_from_str!(Format);
 
 #[cfg(test)]
 pub mod tests {

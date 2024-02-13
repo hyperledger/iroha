@@ -10,6 +10,7 @@ use iroha_config::base::{Emitter, ErrorsCollection};
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::{account::AccountId, ChainId};
 use merge::Merge;
+use serde_with::DeserializeFromStr;
 use url::Url;
 
 use crate::config::BasicAuth;
@@ -134,7 +135,7 @@ pub struct Transaction {
 }
 
 /// A [`Url`] that might only have HTTP scheme inside
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, DeserializeFromStr)]
 pub struct OnlyHttpUrl(Url);
 
 impl FromStr for OnlyHttpUrl {
@@ -165,8 +166,6 @@ pub enum ParseHttpUrlError {
         found: String,
     },
 }
-
-iroha_config::base::impl_deserialize_from_str!(OnlyHttpUrl);
 
 #[cfg(test)]
 mod tests {

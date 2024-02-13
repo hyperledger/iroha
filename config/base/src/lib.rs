@@ -20,40 +20,6 @@ pub use merge::Merge;
 pub use serde;
 use serde::{Deserialize, Serialize};
 
-/// Implement [`serde::Serialize`] using `Display` for a given type
-#[macro_export]
-macro_rules! impl_serialize_display {
-    ($ty:ty) => {
-        impl $crate::serde::Serialize for $ty {
-            fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-            where
-                S: serde::Serializer,
-            {
-                serializer.collect_str(self)
-            }
-        }
-    };
-}
-
-/// Implement [`serde::Deserialize`] using [`FromStr`] for a given type
-#[macro_export]
-macro_rules! impl_deserialize_from_str {
-    ($ty:ty) => {
-        impl<'de> $crate::serde::Deserialize<'de> for $ty {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-            where
-                D: $crate::serde::Deserializer<'de>,
-            {
-                use $crate::serde::Deserialize;
-
-                String::deserialize(deserializer)?
-                    .parse()
-                    .map_err($crate::serde::de::Error::custom)
-            }
-        }
-    };
-}
-
 /// [`Duration`], but can parse a human-readable string.
 /// TODO: currently deserializes just as [`Duration`]
 #[derive(Debug, Copy, Clone, Deserialize, Serialize, Ord, PartialOrd, Eq, PartialEq)]

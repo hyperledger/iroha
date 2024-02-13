@@ -13,6 +13,7 @@ use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, ChainId};
 use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 use url::Url;
 
 use crate::config::user::RootPartial;
@@ -27,7 +28,7 @@ pub const DEFAULT_TRANSACTION_STATUS_TIMEOUT: Duration = Duration::from_secs(15)
 pub const DEFAULT_TRANSACTION_NONCE: bool = false;
 
 /// Valid web auth login string. See [`WebLogin::from_str`]
-#[derive(Debug, Display, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Display, Clone, PartialEq, Eq, DeserializeFromStr, SerializeDisplay)]
 pub struct WebLogin(SmallStr);
 
 impl FromStr for WebLogin {
@@ -43,17 +44,6 @@ impl FromStr for WebLogin {
         }
 
         Ok(Self(SmallStr::from_str(login)))
-    }
-}
-
-/// Deserializing `WebLogin` with `FromStr` implementation
-impl<'de> Deserialize<'de> for WebLogin {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        FromStr::from_str(&s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -91,5 +81,20 @@ impl Config {
         let config = RootPartial::from_toml(path)?;
         let config = config.merge(RootPartial::from_env(&StdEnv)?);
         Ok(config.unwrap_partial()?.parse()?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn web_login_ok() {
+        let _ok = WebLogin::from_str("alice").expect("input is valid");
+    }
+
+    #[test]
+    fn web_login_bad() {
+        let _err = WebLogin::from_str("alice:wonderland").expect_err("input has `:`");
     }
 }

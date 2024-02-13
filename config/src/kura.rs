@@ -1,9 +1,22 @@
 //! Configuration tools related to Kura specifically.
 
-use iroha_config_base::{impl_deserialize_from_str, impl_serialize_display};
+// use iroha_config_base::{impl_deserialize_from_str, impl_serialize_display};
+
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 /// Kura initialization mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum::EnumString, strum::Display)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    strum::EnumString,
+    strum::Display,
+    DeserializeFromStr,
+    SerializeDisplay,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum Mode {
     /// Strict validation of all blocks.
@@ -12,9 +25,6 @@ pub enum Mode {
     /// Fast initialization with basic checks.
     Fast,
 }
-
-impl_serialize_display!(Mode);
-impl_deserialize_from_str!(Mode);
 
 #[cfg(test)]
 mod tests {
