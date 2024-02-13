@@ -32,7 +32,7 @@ displaydoc = { workspace = true }
 derive_more = { workspace = true }
 cfg-if = { workspace = true }
 once_cell = { workspace = true }
-nonzero_ext = "0.3.0"
+nonzero_ext = {  workspace = true }
 toml = { workspace = true }
 merge = "0.1.0"
 
