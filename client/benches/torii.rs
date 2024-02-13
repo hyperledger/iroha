@@ -49,7 +49,7 @@ fn query_requests(criterion: &mut Criterion) {
     .expect("genesis creation failed");
 
     let builder = PeerBuilder::new()
-        .with_configuration(configuration)
+        .with_config(configuration)
         .with_into_genesis(genesis);
 
     rt.block_on(builder.start_with_peer(&mut peer));
@@ -156,7 +156,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     )
     .expect("failed to create genesis");
     let builder = PeerBuilder::new()
-        .with_configuration(configuration)
+        .with_config(configuration)
         .with_into_genesis(genesis);
     rt.block_on(builder.start_with_peer(&mut peer));
     let mut group = criterion.benchmark_group("instruction-requests");

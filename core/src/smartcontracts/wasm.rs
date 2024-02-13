@@ -1427,7 +1427,7 @@ impl<S> RuntimeBuilder<S> {
     /// Sets the [`Configuration`] to be used by the [`Runtime`]
     #[must_use]
     #[inline]
-    pub fn with_configuration(mut self, config: IrohaWasmConfig) -> Self {
+    pub fn with_config(mut self, config: IrohaWasmConfig) -> Self {
         self.config = Some(config);
         self
     }

@@ -8,7 +8,7 @@ use iroha_client::{
         prelude::*,
     },
 };
-use iroha_config::parameters::actual::Root as Configuration;
+use iroha_config::parameters::actual::Root as Config;
 use test_network::*;
 
 // Needed to re-enable ignored tests.
@@ -41,7 +41,7 @@ fn test_with_instruction_and_status_and_port(
         Network::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), Some(port));
     let clients = network.clients();
     wait_for_genesis_committed(&clients, 0);
-    let pipeline_time = Configuration::pipeline_time();
+    let pipeline_time = Config::pipeline_time();
 
     client.submit_all_blocking(
         ParametersBuilder::new()

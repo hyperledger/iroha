@@ -8,7 +8,7 @@
 #[cfg(feature = "telemetry")]
 use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
-use iroha_config::client_api::ConfigurationDTO;
+use iroha_config::client_api::ConfigDTO;
 use iroha_core::{
     query::store::LiveQueryStoreHandle, smartcontracts::query::ValidQueryRequest,
     sumeragi::SumeragiHandle,
@@ -182,10 +182,7 @@ pub async fn handle_get_configuration(kiso: KisoHandle) -> Result<Json> {
 }
 
 #[iroha_futures::telemetry_future]
-pub async fn handle_post_configuration(
-    kiso: KisoHandle,
-    value: ConfigurationDTO,
-) -> Result<impl Reply> {
+pub async fn handle_post_configuration(kiso: KisoHandle, value: ConfigDTO) -> Result<impl Reply> {
     kiso.update_with_dto(value).await?;
     Ok(reply::with_status(reply::reply(), StatusCode::ACCEPTED))
 }

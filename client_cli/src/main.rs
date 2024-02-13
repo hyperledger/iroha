@@ -135,7 +135,7 @@ trait RunContext {
     /// Get access to configuration
     fn configuration(&self) -> &Config;
 
-    fn client_from_configuration(&self) -> Client {
+    fn client_from_config(&self) -> Client {
         Client::new(self.configuration().clone())
     }
 
@@ -238,7 +238,7 @@ fn submit(
     metadata: UnlimitedMetadata,
     context: &mut dyn RunContext,
 ) -> Result<()> {
-    let iroha_client = context.client_from_configuration();
+    let iroha_client = context.client_from_config();
     let instructions = instructions.into();
     let tx = iroha_client.build_transaction(instructions, metadata);
     let transactions = if context.skip_mst_check() {
@@ -323,7 +323,7 @@ mod events {
     }
 
     fn listen(filter: FilterBox, context: &mut dyn RunContext) -> Result<()> {
-        let iroha_client = context.client_from_configuration();
+        let iroha_client = context.client_from_config();
         eprintln!("Listening to events with filter: {filter:?}");
         iroha_client
             .listen_for_events(filter)
@@ -353,7 +353,7 @@ mod blocks {
     }
 
     fn listen(height: NonZeroU64, context: &mut dyn RunContext) -> Result<()> {
-        let iroha_client = context.client_from_configuration();
+        let iroha_client = context.client_from_config();
         eprintln!("Listening to blocks from height: {height}");
         iroha_client
             .listen_for_blocks(height)
@@ -418,7 +418,7 @@ mod domain {
 
     impl RunArgs for List {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let client = context.client_from_configuration();
+            let client = context.client_from_config();
 
             let vec = match self {
                 Self::All => client
@@ -654,7 +654,7 @@ mod account {
 
     impl RunArgs for List {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let client = context.client_from_configuration();
+            let client = context.client_from_config();
 
             let vec = match self {
                 Self::All => client
@@ -724,7 +724,7 @@ mod account {
 
     impl RunArgs for ListPermissions {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let client = context.client_from_configuration();
+            let client = context.client_from_config();
             let find_all_permissions = FindPermissionTokensByAccountId::new(self.id);
             let permissions = client
                 .request(find_all_permissions)
@@ -911,7 +911,7 @@ mod asset {
     impl RunArgs for Get {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { asset_id } = self;
-            let iroha_client = context.client_from_configuration();
+            let iroha_client = context.client_from_config();
             let asset = iroha_client
                 .request(asset::by_id(asset_id))
                 .wrap_err("Failed to get asset.")?;
@@ -931,7 +931,7 @@ mod asset {
 
     impl RunArgs for List {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let client = context.client_from_configuration();
+            let client = context.client_from_config();
 
             let vec = match self {
                 Self::All => client
@@ -1005,7 +1005,7 @@ mod asset {
     impl RunArgs for GetKeyValue {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { asset_id, key } = self;
-            let client = context.client_from_configuration();
+            let client = context.client_from_config();
             let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id, key);
             let asset = client
                 .request(find_key_value)

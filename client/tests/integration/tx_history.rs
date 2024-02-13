@@ -9,7 +9,7 @@ use iroha_client::{
     client::{transaction, QueryResult},
     data_model::{prelude::*, query::Pagination},
 };
-use iroha_config::parameters::actual::Root as Configuration;
+use iroha_config::parameters::actual::Root as Config;
 use test_network::*;
 
 #[ignore = "ignore, more in #2851"]
@@ -18,7 +18,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_715).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
-    let pipeline_time = Configuration::pipeline_time();
+    let pipeline_time = Config::pipeline_time();
 
     // Given
     let account_id = AccountId::from_str("alice@wonderland")?;

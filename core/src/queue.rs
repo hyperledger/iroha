@@ -115,11 +115,7 @@ impl Queue {
         !self.is_expired(tx) && !tx.is_in_blockchain(wsv)
     }
 
-    /// Checks if this transaction is waiting longer than specified in
-    /// `transaction_time_to_live` from `QueueConfiguration` or
-    /// `time_to_live_ms` of this transaction.  Meaning that the
-    /// transaction will be expired as soon as the lesser of the
-    /// specified TTLs was reached.
+    /// Checks if the transaction is waiting longer than its TTL or than the TTL from [`Config`].
     pub fn is_expired(&self, tx: &AcceptedTransaction) -> bool {
         let tx_creation_time = tx.as_ref().creation_time();
 

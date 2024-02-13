@@ -9,10 +9,10 @@ use futures::{prelude::*, stream::FuturesUnordered};
 use iroha::Iroha;
 use iroha_client::{
     client::{Client, QueryOutput},
-    config::Config as ClientConfiguration,
+    config::Config as ClientConfig,
     data_model::{isi::Instruction, peer::Peer as DataModelPeer, prelude::*, query::Query, Level},
 };
-use iroha_config::parameters::actual::Root as Configuration;
+use iroha_config::parameters::actual::Root as Config;
 use iroha_crypto::prelude::*;
 use iroha_data_model::ChainId;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock};
@@ -76,7 +76,7 @@ pub trait TestGenesis: Sized {
 
 impl TestGenesis for GenesisNetwork {
     fn test_with_instructions(extra_isi: impl IntoIterator<Item = InstructionBox>) -> Self {
-        let cfg = Configuration::test();
+        let cfg = Config::test();
 
         // TODO: Fix this somehow. Probably we need to make `kagami` a library (#3253).
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -175,16 +175,12 @@ impl Network {
         offline_peers: u32,
         start_port: Option<u16>,
     ) -> (Self, Client) {
-        let mut configuration = Configuration::test();
-        configuration.logger.level = Level::INFO;
-        let network = Network::new_with_offline_peers(
-            Some(configuration),
-            n_peers,
-            offline_peers,
-            start_port,
-        )
-        .await
-        .expect("Failed to init peers");
+        let mut config = Config::test();
+        config.logger.level = Level::INFO;
+        let network =
+            Network::new_with_offline_peers(Some(config), n_peers, offline_peers, start_port)
+                .await
+                .expect("Failed to init peers");
         let client = Client::test(
             &Network::peers(&network)
                 .choose(&mut thread_rng())
@@ -215,17 +211,17 @@ impl Network {
                 .api_address,
         );
 
-        let mut config = Configuration::test();
+        let mut config = Config::test();
         config.sumeragi.trusted_peers =
             UniqueVec::from_iter(self.peers().map(|peer| &peer.id).cloned());
 
         let peer = PeerBuilder::new()
-            .with_configuration(config)
+            .with_config(config)
             .with_genesis(GenesisNetwork::test())
             .start()
             .await;
 
-        time::sleep(Configuration::pipeline_time() + Configuration::block_sync_gossip_time()).await;
+        time::sleep(Config::pipeline_time() + Config::block_sync_gossip_time()).await;
 
         let add_peer = Register::peer(DataModelPeer::new(peer.id.clone()));
         client.submit(add_peer).expect("Failed to add new peer.");
@@ -245,7 +241,7 @@ impl Network {
     /// - (RARE) Creating new peers and collecting into a [`HashMap`] fails.
     /// - Creating new [`Peer`] instance fails.
     pub async fn new_with_offline_peers(
-        default_configuration: Option<Configuration>,
+        default_config: Option<Config>,
         n_peers: u32,
         offline_peers: u32,
         start_port: Option<u16>,
@@ -270,12 +266,12 @@ impl Network {
             .map(PeerBuilder::build)
             .collect::<Result<Vec<_>>>()?;
 
-        let mut configuration = default_configuration.unwrap_or_else(Configuration::test);
-        configuration.sumeragi.trusted_peers =
+        let mut config = default_config.unwrap_or_else(Config::test);
+        config.sumeragi.trusted_peers =
             UniqueVec::from_iter(peers.iter().map(|peer| peer.id.clone()));
 
         let mut genesis_peer = peers.remove(0);
-        let genesis_builder = builders.remove(0).with_configuration(configuration.clone());
+        let genesis_builder = builders.remove(0).with_config(config.clone());
 
         // Offset by one to account for genesis
         let online_peers = n_peers - offline_peers - 1;
@@ -289,11 +285,7 @@ impl Network {
             .zip(peers.iter_mut())
             .choose_multiple(rng, online_peers as usize)
         {
-            futures.push(
-                builder
-                    .with_configuration(configuration.clone())
-                    .start_with_peer(peer),
-            );
+            futures.push(builder.with_config(config.clone()).start_with_peer(peer));
         }
         futures.collect::<()>().await;
 
@@ -397,32 +389,32 @@ impl Drop for Peer {
 
 impl Peer {
     /// Returns per peer config with all addresses, keys, and id set up.
-    fn get_config(&self, configuration: Configuration) -> Configuration {
+    fn get_config(&self, config: Config) -> Config {
         use iroha_config::parameters::actual::{Common, Torii};
 
-        Configuration {
+        Config {
             common: Common {
                 key_pair: self.key_pair.clone(),
                 p2p_address: self.p2p_address.clone(),
-                ..configuration.common
+                ..config.common
             },
             torii: Torii {
                 address: self.api_address.clone(),
-                ..configuration.torii
+                ..config.torii
             },
-            ..configuration
+            ..config
         }
     }
 
     /// Starts a peer with arguments.
     async fn start(
         &mut self,
-        configuration: Configuration,
+        config: Config,
         genesis: Option<GenesisNetwork>,
         temp_dir: Arc<TempDir>,
     ) {
-        let mut configuration = self.get_config(configuration);
-        configuration.kura.block_store_path = temp_dir.path().to_str().unwrap().into();
+        let mut config = self.get_config(config);
+        config.kura.block_store_path = temp_dir.path().to_str().unwrap().into();
         let info_span = iroha_logger::info_span!(
             "test-peer",
             p2p_addr = %self.p2p_address,
@@ -433,7 +425,7 @@ impl Peer {
 
         let handle = task::spawn(
             async move {
-                let mut iroha = Iroha::new(configuration, genesis, logger)
+                let mut iroha = Iroha::new(config, genesis, logger)
                     .await
                     .expect("Failed to start iroha");
                 let job_handle = iroha.start_as_task().unwrap();
@@ -516,7 +508,7 @@ impl<T: Into<Option<GenesisNetwork>>> From<T> for WithGenesis {
 /// `PeerBuilder`.
 #[derive(Default)]
 pub struct PeerBuilder {
-    configuration: Option<Configuration>,
+    config: Option<Config>,
     genesis: WithGenesis,
     temp_dir: Option<Arc<TempDir>>,
     port: Option<u16>,
@@ -560,8 +552,8 @@ impl PeerBuilder {
 
     /// Set Iroha configuration
     #[must_use]
-    pub fn with_configuration(mut self, configuration: Configuration) -> Self {
-        self.configuration = Some(configuration);
+    pub fn with_config(mut self, config: Config) -> Self {
+        self.config = Some(config);
         self
     }
 
@@ -595,8 +587,8 @@ impl PeerBuilder {
 
     /// Accept a peer and starts it.
     pub async fn start_with_peer(self, peer: &mut Peer) {
-        let configuration = self.configuration.unwrap_or_else(|| {
-            let mut config = Configuration::test();
+        let config = self.config.unwrap_or_else(|| {
+            let mut config = Config::test();
             config.sumeragi.trusted_peers = unique_vec![peer.id.clone()];
             config
         });
@@ -609,7 +601,7 @@ impl PeerBuilder {
             .temp_dir
             .unwrap_or_else(|| Arc::new(TempDir::new().expect("Failed to create temp dir.")));
 
-        peer.start(configuration, genesis, temp_dir).await;
+        peer.start(config, genesis, temp_dir).await;
     }
 
     /// Create and start a peer with preapplied arguments.
@@ -621,16 +613,13 @@ impl PeerBuilder {
 
     /// Create and start a peer, create a client and connect it to the peer and return both.
     pub async fn start_with_client(self) -> (Peer, Client) {
-        let configuration = self
-            .configuration
-            .clone()
-            .unwrap_or_else(Configuration::test);
+        let config = self.config.clone().unwrap_or_else(Config::test);
 
         let peer = self.start().await;
 
         let client = Client::test(&peer.api_address);
 
-        time::sleep(configuration.chain_wide.pipeline_time()).await;
+        time::sleep(config.chain_wide.pipeline_time()).await;
 
         (peer, client)
     }
@@ -656,7 +645,7 @@ pub trait TestRuntime {
 }
 
 /// Peer configuration mocking trait.
-pub trait TestConfiguration {
+pub trait TestConfig {
     /// Creates test configuration
     fn test() -> Self;
     /// Returns default pipeline time.
@@ -666,7 +655,7 @@ pub trait TestConfiguration {
 }
 
 /// Client configuration mocking trait.
-pub trait TestClientConfiguration {
+pub trait TestClientConfig {
     /// Creates test client configuration
     fn test(api_address: &SocketAddr) -> Self;
 }
@@ -756,7 +745,7 @@ impl TestRuntime for Runtime {
     }
 }
 
-impl TestConfiguration for Configuration {
+impl TestConfig for Config {
     fn test() -> Self {
         use iroha_config::{
             base::{FromEnv as _, StdEnv, UnwrapPartial as _},
@@ -792,7 +781,7 @@ impl TestConfiguration for Configuration {
     }
 }
 
-impl TestClientConfiguration for ClientConfiguration {
+impl TestClientConfig for ClientConfig {
     fn test(api_address: &SocketAddr) -> Self {
         iroha_client::samples::get_client_config(
             get_chain_id(),
@@ -806,20 +795,20 @@ impl TestClientConfiguration for ClientConfiguration {
 
 impl TestClient for Client {
     fn test(api_addr: &SocketAddr) -> Self {
-        Client::new(ClientConfiguration::test(api_addr))
+        Client::new(ClientConfig::test(api_addr))
     }
 
     fn test_with_key(api_addr: &SocketAddr, keys: KeyPair) -> Self {
-        let mut configuration = ClientConfiguration::test(api_addr);
-        configuration.key_pair = keys;
-        Client::new(configuration)
+        let mut config = ClientConfig::test(api_addr);
+        config.key_pair = keys;
+        Client::new(config)
     }
 
     fn test_with_account(api_addr: &SocketAddr, keys: KeyPair, account_id: &AccountId) -> Self {
-        let mut configuration = ClientConfiguration::test(api_addr);
-        configuration.account_id = account_id.clone();
-        configuration.key_pair = keys;
-        Client::new(configuration)
+        let mut config = ClientConfig::test(api_addr);
+        config.account_id = account_id.clone();
+        config.key_pair = keys;
+        Client::new(config)
     }
 
     fn for_each_event(self, event_filter: FilterBox, f: impl Fn(Result<Event>)) {
@@ -896,6 +885,6 @@ impl TestClient for Client {
         <R::Output as QueryOutput>::Target: core::fmt::Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        self.poll_request_with_period(request, Configuration::pipeline_time() / 2, 10, f)
+        self.poll_request_with_period(request, Config::pipeline_time() / 2, 10, f)
     }
 }

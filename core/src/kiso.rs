@@ -1,6 +1,6 @@
 //! Actor responsible for configuration state and its dynamic updates.
 //!
-//! Currently the API exposed by [`KisoHandle`] works only with [`ConfigurationDTO`], because
+//! Currently the API exposed by [`KisoHandle`] works only with [`ConfigDTO`], because
 //! no any part of Iroha is interested in the whole state. However, the API could be extended
 //! in future.
 //!
@@ -9,7 +9,7 @@
 
 use eyre::Result;
 use iroha_config::{
-    client_api::{ConfigurationDTO, Logger as LoggerDTO},
+    client_api::{ConfigDTO, Logger as LoggerDTO},
     parameters::actual::Root as Config,
 };
 use iroha_logger::Level;
@@ -42,11 +42,11 @@ impl KisoHandle {
         }
     }
 
-    /// Fetch the [`ConfigurationDTO`] from the actor's state.
+    /// Fetch the [`ConfigDTO`] from the actor's state.
     ///
     /// # Errors
     /// If communication with actor fails.
-    pub async fn get_dto(&self) -> Result<ConfigurationDTO, Error> {
+    pub async fn get_dto(&self) -> Result<ConfigDTO, Error> {
         let (tx, rx) = oneshot::channel();
         let msg = Message::GetDTO { respond_to: tx };
         let _ = self.actor.send(msg).await;
@@ -61,7 +61,7 @@ impl KisoHandle {
     ///
     /// # Errors
     /// If communication with actor fails.
-    pub async fn update_with_dto(&self, dto: ConfigurationDTO) -> Result<(), Error> {
+    pub async fn update_with_dto(&self, dto: ConfigDTO) -> Result<(), Error> {
         let (tx, rx) = oneshot::channel();
         let msg = Message::UpdateWithDTO {
             dto,
@@ -86,10 +86,10 @@ impl KisoHandle {
 
 enum Message {
     GetDTO {
-        respond_to: oneshot::Sender<ConfigurationDTO>,
+        respond_to: oneshot::Sender<ConfigDTO>,
     },
     UpdateWithDTO {
-        dto: ConfigurationDTO,
+        dto: ConfigDTO,
         respond_to: oneshot::Sender<Result<(), Error>>,
     },
     SubscribeOnLogLevel {
@@ -124,12 +124,12 @@ impl Actor {
     fn handle_message(&mut self, msg: Message) {
         match msg {
             Message::GetDTO { respond_to } => {
-                let dto = ConfigurationDTO::from(&self.state);
+                let dto = ConfigDTO::from(&self.state);
                 let _ = respond_to.send(dto);
             }
             Message::UpdateWithDTO {
                 dto:
-                    ConfigurationDTO {
+                    ConfigDTO {
                         logger: LoggerDTO { level: new_level },
                     },
                 respond_to,
@@ -151,7 +151,7 @@ mod tests {
     use std::time::Duration;
 
     use iroha_config::{
-        client_api::{ConfigurationDTO, Logger as LoggerDTO},
+        client_api::{ConfigDTO, Logger as LoggerDTO},
         parameters::actual::Root,
     };
 
@@ -189,7 +189,7 @@ mod tests {
             .await
             .expect_err("Watcher should not be active initially");
 
-        kiso.update_with_dto(ConfigurationDTO {
+        kiso.update_with_dto(ConfigDTO {
             logger: LoggerDTO {
                 level: NEW_LOG_LEVEL,
             },

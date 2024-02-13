@@ -6,7 +6,7 @@ use iroha_client::{
     crypto::{KeyPair, PublicKey},
     data_model::prelude::*,
 };
-use iroha_config::parameters::actual::Root as Configuration;
+use iroha_config::parameters::actual::Root as Config;
 use iroha_primitives::fixed::Fixed;
 use serde_json::json;
 use test_network::*;
@@ -205,7 +205,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
 fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_520).start_with_runtime();
     wait_for_genesis_committed(&[test_client.clone()], 0);
-    let pipeline_time = Configuration::pipeline_time();
+    let pipeline_time = Config::pipeline_time();
 
     // Given
     let normal_asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");

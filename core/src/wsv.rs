@@ -521,7 +521,7 @@ impl WorldStateView {
             }
             Wasm(LoadedWasm { module, .. }) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::<wasm::state::Trigger>::new()
-                    .with_configuration(self.config.wasm_runtime)
+                    .with_config(self.config.wasm_runtime)
                     .with_engine(self.engine.clone()) // Cloning engine is cheap
                     .build()?;
                 wasm_runtime
@@ -584,7 +584,7 @@ impl WorldStateView {
             }
             Executable::Wasm(bytes) => {
                 let mut wasm_runtime = wasm::RuntimeBuilder::<wasm::state::SmartContract>::new()
-                    .with_configuration(self.config.wasm_runtime)
+                    .with_config(self.config.wasm_runtime)
                     .with_engine(self.engine.clone()) // Cloning engine is cheap
                     .build()?;
                 wasm_runtime

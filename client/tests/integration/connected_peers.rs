@@ -8,7 +8,7 @@ use iroha_client::{
         peer::Peer as DataModelPeer,
     },
 };
-use iroha_config::parameters::actual::Root as Configuration;
+use iroha_config::parameters::actual::Root as Config;
 use iroha_primitives::unique_vec;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use test_network::*;
@@ -29,7 +29,7 @@ fn connected_peers_with_f_1_0_1() -> Result<()> {
 fn register_new_peer() -> Result<()> {
     let (_rt, network, _) = Network::start_test_with_runtime(4, Some(11_180));
     wait_for_genesis_committed(&network.clients(), 0);
-    let pipeline_time = Configuration::pipeline_time();
+    let pipeline_time = Config::pipeline_time();
 
     let mut peer_clients: Vec<_> = Network::peers(&network)
         .zip(Network::clients(&network))
@@ -38,13 +38,13 @@ fn register_new_peer() -> Result<()> {
     check_status(&peer_clients, 1);
 
     // Start new peer
-    let mut configuration = Configuration::test();
+    let mut configuration = Config::test();
     configuration.sumeragi.trusted_peers =
         unique_vec![peer_clients.choose(&mut thread_rng()).unwrap().0.id.clone()];
     let rt = Runtime::test();
     let new_peer = rt.block_on(
         PeerBuilder::new()
-            .with_configuration(configuration)
+            .with_config(configuration)
             .with_into_genesis(WithGenesis::None)
             .with_port(11_225)
             .start(),
@@ -75,7 +75,7 @@ fn connected_peers_with_f(faults: u64, start_port: Option<u16>) -> Result<()> {
         start_port,
     );
     wait_for_genesis_committed(&network.clients(), 0);
-    let pipeline_time = Configuration::pipeline_time();
+    let pipeline_time = Config::pipeline_time();
 
     let mut peer_clients: Vec<_> = Network::peers(&network)
         .zip(Network::clients(&network))

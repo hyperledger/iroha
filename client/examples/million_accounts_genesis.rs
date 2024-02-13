@@ -57,7 +57,7 @@ fn main_genesis() {
 
     let builder = PeerBuilder::new()
         .with_into_genesis(genesis)
-        .with_configuration(configuration);
+        .with_config(configuration);
 
     // This only submits the genesis. It doesn't check if the accounts
     // are created, because that check is 1) not needed for what the

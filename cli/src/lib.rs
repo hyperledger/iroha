@@ -314,7 +314,7 @@ impl Iroha {
             Arc::clone(&kura),
         );
 
-        Self::spawn_configuration_updates_broadcasting(kiso.clone(), logger.clone());
+        Self::spawn_config_updates_broadcasting(kiso.clone(), logger.clone());
 
         Self::start_listening_signal(Arc::clone(&notify_shutdown))?;
 
@@ -402,7 +402,7 @@ impl Iroha {
     #[cfg(not(feature = "telemetry"))]
     async fn start_telemetry(
         _logger: &LoggerHandle,
-        _config: &TelemetryConfiguration,
+        _config: &Config,
     ) -> Result<TelemetryStartStatus> {
         Ok(TelemetryStartStatus::NotStarted)
     }
@@ -438,7 +438,7 @@ impl Iroha {
     /// Spawns a task which subscribes on updates from configuration actor
     /// and broadcasts them further to interested actors. This way, neither config actor nor other ones know
     /// about each other, achieving loose coupling of code and system.
-    fn spawn_configuration_updates_broadcasting(
+    fn spawn_config_updates_broadcasting(
         kiso: KisoHandle,
         logger: LoggerHandle,
     ) -> task::JoinHandle<()> {

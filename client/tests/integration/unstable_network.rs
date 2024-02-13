@@ -5,7 +5,7 @@ use iroha_client::{
     client::{self, Client, QueryResult},
     data_model::{prelude::*, Level},
 };
-use iroha_config::parameters::actual::Root as Configuration;
+use iroha_config::parameters::actual::Root as Config;
 use rand::seq::SliceRandom;
 use test_network::*;
 use tokio::runtime::Runtime;
@@ -52,7 +52,7 @@ fn unstable_network(
     let rt = Runtime::test();
     // Given
     let (network, iroha_client) = rt.block_on(async {
-        let mut configuration = Configuration::test();
+        let mut configuration = Config::test();
         configuration.chain_wide.max_transactions_in_block =
             MAX_TRANSACTIONS_IN_BLOCK.try_into().unwrap();
         configuration.logger.level = Level::INFO;
@@ -73,7 +73,7 @@ fn unstable_network(
     });
     wait_for_genesis_committed(&network.clients(), n_offline_peers);
 
-    let pipeline_time = Configuration::pipeline_time();
+    let pipeline_time = Config::pipeline_time();
 
     let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
@@ -113,7 +113,7 @@ fn unstable_network(
         iroha_client
             .poll_request_with_period(
                 client::asset::by_account_id(account_id.clone()),
-                Configuration::pipeline_time(),
+                Config::pipeline_time(),
                 4,
                 |result| {
                     let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
