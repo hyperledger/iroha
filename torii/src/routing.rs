@@ -23,7 +23,6 @@ use iroha_data_model::{
         cursor::ForwardCursor, http, sorting::Sorting, Pagination, QueryRequest,
         QueryWithParameters,
     },
-    transaction::TransactionPayload,
     BatchedResponse,
 };
 #[cfg(feature = "telemetry")]
@@ -89,7 +88,7 @@ pub async fn handle_transaction(
         .push(transaction, &wsv)
         .map_err(|queue::Failure { tx, err }| {
             iroha_logger::warn!(
-                tx_hash=%tx.payload().hash(), ?err,
+                tx_hash=%tx.as_ref().hash_of_payload(), ?err,
                 "Failed to push into queue"
             );
 
@@ -148,8 +147,8 @@ pub async fn handle_schema() -> Json {
 
 /// Check if two transactions are the same. Compare their contents excluding the creation time.
 fn transaction_payload_eq_excluding_creation_time(
-    first: &TransactionPayload,
-    second: &TransactionPayload,
+    first: &SignedTransaction,
+    second: &SignedTransaction,
 ) -> bool {
     first.authority() == second.authority()
         && first.instructions() == second.instructions()
@@ -168,10 +167,7 @@ pub async fn handle_pending_transactions(
             .all_transactions(wsv)
             .map(Into::into)
             .filter(|current_transaction: &SignedTransaction| {
-                transaction_payload_eq_excluding_creation_time(
-                    current_transaction.payload(),
-                    transaction.payload(),
-                )
+                transaction_payload_eq_excluding_creation_time(current_transaction, &transaction)
             })
             .collect()
     });

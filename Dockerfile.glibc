@@ -3,7 +3,7 @@ FROM debian:bookworm-slim AS builder
 
 # install required packages
 RUN apt-get update -y && \
-     apt-get install -y curl build-essential mold
+     apt-get install -y curl build-essential mold pkg-config libssl-dev
 
 # set up Rust toolchain
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y

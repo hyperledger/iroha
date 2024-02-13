@@ -569,7 +569,7 @@ impl Client {
         transaction: &SignedTransaction,
     ) -> Result<HashOf<TransactionPayload>> {
         let (init_sender, init_receiver) = tokio::sync::oneshot::channel();
-        let hash = transaction.payload().hash();
+        let hash = transaction.hash_of_payload();
 
         thread::scope(|spawner| {
             let submitter_handle = spawner.spawn(move || -> Result<()> {
@@ -673,7 +673,7 @@ impl Client {
             )
             .headers(self.headers.clone())
             .body(transaction_bytes),
-            transaction.payload().hash(),
+            transaction.hash_of_payload(),
         )
     }
 
@@ -1627,16 +1627,16 @@ mod tests {
             || client.build_transaction(Vec::<InstructionBox>::new(), UnlimitedMetadata::new());
         let tx1 = build_transaction();
         let tx2 = build_transaction();
-        assert_ne!(tx1.payload().hash(), tx2.payload().hash());
+        assert_ne!(tx1.hash_of_payload(), tx2.hash_of_payload());
 
         let tx2 = {
             let mut tx =
                 TransactionBuilder::new(client.chain_id.clone(), client.account_id.clone())
-                    .with_executable(tx1.payload().instructions.clone())
-                    .with_metadata(tx1.payload().metadata.clone());
+                    .with_executable(tx1.instructions().clone())
+                    .with_metadata(tx1.metadata().clone());
 
-            tx.set_creation_time(tx1.payload().creation_time_ms);
-            if let Some(nonce) = tx1.payload().nonce {
+            tx.set_creation_time(tx1.creation_time().as_millis().try_into().unwrap());
+            if let Some(nonce) = tx1.nonce() {
                 tx.set_nonce(nonce);
             }
             if let Some(transaction_ttl) = client.transaction_ttl {
@@ -1645,7 +1645,7 @@ mod tests {
 
             client.sign_transaction(tx)
         };
-        assert_eq!(tx1.payload().hash(), tx2.payload().hash());
+        assert_eq!(tx1.hash_of_payload(), tx2.hash_of_payload());
     }
 
     #[test]

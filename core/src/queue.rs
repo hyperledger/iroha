@@ -18,9 +18,10 @@ use crate::prelude::*;
 impl AcceptedTransaction {
     // TODO: We should have another type of transaction like `CheckedTransaction` in the type system?
     fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
-        let authority = &self.payload().authority;
+        let authority = self.as_ref().authority();
 
         let transaction_signatories = self
+            .as_ref()
             .signatures()
             .iter()
             .map(|signature| signature.public_key())
@@ -36,7 +37,7 @@ impl AcceptedTransaction {
 
     /// Check if [`self`] is committed or rejected.
     fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
-        wsv.has_transaction(self.hash())
+        wsv.has_transaction(self.as_ref().hash())
     }
 }
 
@@ -119,9 +120,9 @@ impl Queue {
     /// transaction will be expired as soon as the lesser of the
     /// specified TTLs was reached.
     pub fn is_expired(&self, tx: &AcceptedTransaction) -> bool {
-        let tx_creation_time = tx.payload().creation_time();
+        let tx_creation_time = tx.as_ref().creation_time();
 
-        let time_limit = tx.payload().time_to_live().map_or_else(
+        let time_limit = tx.as_ref().time_to_live().map_or_else(
             || self.tx_time_to_live,
             |tx_time_to_live| core::cmp::min(self.tx_time_to_live, tx_time_to_live),
         );
@@ -131,7 +132,7 @@ impl Queue {
 
     /// If `true`, this transaction is regarded to have been tampered to have a future timestamp.
     fn is_in_future(&self, tx: &AcceptedTransaction) -> bool {
-        let tx_timestamp = Duration::from_millis(tx.payload().creation_time_ms);
+        let tx_timestamp = tx.as_ref().creation_time();
         tx_timestamp.saturating_sub(iroha_data_model::current_time()) > self.future_threshold
     }
 
@@ -175,7 +176,7 @@ impl Queue {
         } else {
             tx.check_signature_condition(wsv)
                 .map_err(|reason| Error::SignatureCondition {
-                    tx_hash: tx.payload().hash(),
+                    tx_hash: tx.as_ref().hash_of_payload(),
                     reason,
                 })
         }
@@ -193,13 +194,13 @@ impl Queue {
 
         // Get `txs_len` before entry to avoid deadlock
         let txs_len = self.accepted_txs.len();
-        let hash = tx.payload().hash();
+        let hash = tx.as_ref().hash_of_payload();
         let entry = match self.accepted_txs.entry(hash) {
             Entry::Occupied(mut old_tx) => {
                 // MST case
-                let signatures_amount_before = old_tx.get().signatures().len();
+                let signatures_amount_before = old_tx.get().as_ref().signatures().len();
                 assert!(old_tx.get_mut().merge_signatures(tx));
-                let signatures_amount_after = old_tx.get().signatures().len();
+                let signatures_amount_after = old_tx.get().as_ref().signatures().len();
                 let new_signatures_amount = signatures_amount_after - signatures_amount_before;
                 if new_signatures_amount > 0 {
                     debug!(%hash, new_signatures_amount, "Signatures added to existing multisignature transaction");
@@ -219,7 +220,7 @@ impl Queue {
             });
         }
 
-        if let Err(err) = self.check_and_increase_per_user_tx_count(&tx.payload().authority) {
+        if let Err(err) = self.check_and_increase_per_user_tx_count(tx.as_ref().authority()) {
             return Err(Failure { tx, err });
         }
 
@@ -231,7 +232,7 @@ impl Queue {
                 .accepted_txs
                 .remove(&err_hash)
                 .expect("Inserted just before match");
-            self.decrease_per_user_tx_count(&err_tx.payload().authority);
+            self.decrease_per_user_tx_count(err_tx.as_ref().authority());
             Failure {
                 tx: err_tx,
                 err: Error::Full,
@@ -266,13 +267,13 @@ impl Queue {
             if tx.is_in_blockchain(wsv) {
                 debug!("Transaction is already in blockchain");
                 let (_, tx) = entry.remove_entry();
-                self.decrease_per_user_tx_count(&tx.payload().authority);
+                self.decrease_per_user_tx_count(tx.as_ref().authority());
                 continue;
             }
             if self.is_expired(tx) {
                 debug!("Transaction is expired");
                 let (_, tx) = entry.remove_entry();
-                self.decrease_per_user_tx_count(&tx.payload().authority);
+                self.decrease_per_user_tx_count(tx.as_ref().authority());
                 expired_transactions.push(tx);
                 continue;
             }
@@ -324,10 +325,12 @@ impl Queue {
             self.pop_from_queue(&mut seen_queue, wsv, &mut expired_transactions_queue)
         });
 
-        let transactions_hashes: IndexSet<HashOf<TransactionPayload>> =
-            transactions.iter().map(|tx| tx.payload().hash()).collect();
+        let transactions_hashes: IndexSet<HashOf<TransactionPayload>> = transactions
+            .iter()
+            .map(|tx| tx.as_ref().hash_of_payload())
+            .collect();
         let txs = txs_from_queue
-            .filter(|tx| !transactions_hashes.contains(&tx.payload().hash()))
+            .filter(|tx| !transactions_hashes.contains(&tx.as_ref().hash_of_payload()))
             .take(max_txs_in_block - transactions.len());
         transactions.extend(txs);
 
@@ -607,7 +610,7 @@ mod tests {
             query_handle,
         );
         let tx = accepted_tx("alice@wonderland", &alice_key);
-        wsv.transactions.insert(tx.hash(), 1);
+        wsv.transactions.insert(tx.as_ref().hash(), 1);
         let queue = Queue::from_configuration(&Configuration {
             transaction_time_to_live_ms: 100_000,
             max_transactions_in_queue: 100,
@@ -645,7 +648,7 @@ mod tests {
                 .expect("Default queue config should always build")
         });
         queue.push(tx.clone(), &wsv).unwrap();
-        wsv.transactions.insert(tx.hash(), 1);
+        wsv.transactions.insert(tx.as_ref().hash(), 1);
         assert_eq!(
             queue
                 .collect_transactions_for_block(&wsv, max_txs_in_block)
@@ -730,12 +733,12 @@ mod tests {
         let a = queue
             .collect_transactions_for_block(&wsv, max_txs_in_block)
             .into_iter()
-            .map(|tx| tx.hash())
+            .map(|tx| tx.as_ref().hash())
             .collect::<Vec<_>>();
         let b = queue
             .collect_transactions_for_block(&wsv, max_txs_in_block)
             .into_iter()
-            .map(|tx| tx.hash())
+            .map(|tx| tx.as_ref().hash())
             .collect::<Vec<_>>();
         assert_eq!(a.len(), 1);
         assert_eq!(a, b);
@@ -844,7 +847,7 @@ mod tests {
                     for tx in
                         queue_arc_clone.collect_transactions_for_block(&wsv_clone, max_txs_in_block)
                     {
-                        wsv_clone.transactions.insert(tx.hash(), 1);
+                        wsv_clone.transactions.insert(tx.as_ref().hash(), 1);
                     }
                     // Simulate random small delays
                     thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..25)));
@@ -894,9 +897,10 @@ mod tests {
                 chain_id.clone(),
                 AccountId::from_str(alice_id).expect("Valid"),
             )
-            .with_executable(tx.0.payload().instructions.clone());
+            .with_executable(tx.0.instructions().clone());
 
-            new_tx.set_creation_time(tx.0.payload().creation_time_ms + 2 * future_threshold_ms);
+            let creation_time: u64 = tx.0.creation_time().as_millis().try_into().unwrap();
+            new_tx.set_creation_time(creation_time + 2 * future_threshold_ms);
 
             let new_tx = new_tx.sign(&alice_key);
             let limits = TransactionLimits {
@@ -977,7 +981,7 @@ mod tests {
         assert_eq!(transactions.len(), 2);
         for transaction in transactions {
             // Put transaction hashes into wsv as if they were in the blockchain
-            wsv.transactions.insert(transaction.hash(), 1);
+            wsv.transactions.insert(transaction.as_ref().hash(), 1);
         }
         // Cleanup transactions
         let transactions = queue.collect_transactions_for_block(&wsv, 10);

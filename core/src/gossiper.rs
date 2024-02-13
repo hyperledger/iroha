@@ -126,10 +126,10 @@ impl TransactionGossiper {
                         tx,
                         err: crate::queue::Error::InBlockchain,
                     }) => {
-                        iroha_logger::debug!(tx_payload_hash = %tx.payload().hash(), "Transaction already in blockchain, ignoring...")
+                        iroha_logger::debug!(tx_payload_hash = %tx.as_ref().hash_of_payload(), "Transaction already in blockchain, ignoring...")
                     }
                     Err(crate::queue::Failure { tx, err }) => {
-                        iroha_logger::error!(?err, tx_payload_hash = %tx.payload().hash(), "Failed to enqueue transaction.")
+                        iroha_logger::error!(?err, tx_payload_hash = %tx.as_ref().hash_of_payload(), "Failed to enqueue transaction.")
                     }
                 },
                 Err(err) => iroha_logger::error!(%err, "Transaction rejected"),

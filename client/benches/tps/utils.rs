@@ -127,18 +127,8 @@ impl Config {
                     .next()
                     .expect("The block is not yet in WSV. Need more sleep?");
                 (
-                    block
-                        .payload()
-                        .transactions
-                        .iter()
-                        .filter(|tx| tx.error.is_none())
-                        .count(),
-                    block
-                        .payload()
-                        .transactions
-                        .iter()
-                        .filter(|tx| tx.error.is_some())
-                        .count(),
+                    block.transactions().filter(|tx| tx.error.is_none()).count(),
+                    block.transactions().filter(|tx| tx.error.is_some()).count(),
                 )
             })
             .fold((0, 0), |acc, pair| (acc.0 + pair.0, acc.1 + pair.1));

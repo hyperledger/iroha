@@ -63,6 +63,7 @@ pub mod model {
         pub transactions_hash: Option<HashOf<MerkleTree<SignedTransaction>>>,
         /// Value of view change index. Used to resolve soft forks.
         pub view_change_index: u64,
+        #[getset(skip)]
         /// Estimation of consensus duration (in milliseconds).
         pub consensus_estimation_ms: u64,
     }
@@ -143,6 +144,7 @@ impl BlockPayload {
 impl BlockHeader {
     /// Checks if it's a header of a genesis block.
     #[inline]
+    #[cfg(feature = "transparent_api")]
     pub const fn is_genesis(&self) -> bool {
         self.height == 1
     }
@@ -166,37 +168,56 @@ impl SignedBlockV1 {
 }
 
 impl SignedBlock {
-    /// Block payload
-    // FIXME: Leaking concrete type BlockPayload from Versioned container. Payload should be versioned
-    pub fn payload(&self) -> &BlockPayload {
+    /// Block transactions
+    #[inline]
+    pub fn transactions(&self) -> impl ExactSizeIterator<Item = &TransactionValue> {
         let SignedBlock::V1(block) = self;
-        block.payload()
+        block.payload.transactions.iter()
     }
 
-    /// Used to inject faulty payload for testing
-    #[cfg(feature = "transparent_api")]
-    pub fn payload_mut(&mut self) -> &mut BlockPayload {
+    /// Block header
+    #[inline]
+    pub fn header(&self) -> &BlockHeader {
         let SignedBlock::V1(block) = self;
-        &mut block.payload
+        block.payload.header()
+    }
+
+    /// Block commit topology
+    #[inline]
+    #[cfg(feature = "transparent_api")]
+    pub fn commit_topology(&self) -> &UniqueVec<peer::PeerId> {
+        let SignedBlock::V1(block) = self;
+        &block.payload.commit_topology
     }
 
     /// Signatures of peers which approved this block.
+    #[inline]
     pub fn signatures(&self) -> &SignaturesOf<BlockPayload> {
         let SignedBlock::V1(block) = self;
         &block.signatures
     }
 
     /// Calculate block hash
+    #[inline]
     pub fn hash(&self) -> HashOf<Self> {
         iroha_crypto::HashOf::new(self)
+    }
+
+    /// Calculate block payload [`Hash`](`iroha_crypto::HashOf`).
+    #[inline]
+    #[cfg(feature = "std")]
+    #[cfg(feature = "transparent_api")]
+    pub fn hash_of_payload(&self) -> iroha_crypto::HashOf<BlockPayload> {
+        let SignedBlock::V1(block) = self;
+        iroha_crypto::HashOf::new(&block.payload)
     }
 
     /// Add additional signatures to this block
     #[cfg(feature = "transparent_api")]
     #[must_use]
     pub fn sign(mut self, key_pair: &KeyPair) -> Self {
-        let signature = iroha_crypto::SignatureOf::new(key_pair, self.payload());
         let SignedBlock::V1(block) = &mut self;
+        let signature = iroha_crypto::SignatureOf::new(key_pair, &block.payload);
         block.signatures.insert(signature);
         self
     }
@@ -211,7 +232,8 @@ impl SignedBlock {
         &mut self,
         signature: iroha_crypto::SignatureOf<BlockPayload>,
     ) -> Result<(), iroha_crypto::error::Error> {
-        signature.verify(self.payload())?;
+        let SignedBlock::V1(block) = self;
+        signature.verify(&block.payload)?;
 
         let SignedBlock::V1(block) = self;
         block.signatures.insert(signature);
@@ -276,7 +298,7 @@ mod candidate {
                 .payload
                 .transactions
                 .iter()
-                .map(TransactionValue::hash)
+                .map(|value| value.as_ref().hash())
                 .collect::<MerkleTree<_>>()
                 .hash();
 

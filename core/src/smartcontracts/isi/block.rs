@@ -30,9 +30,7 @@ impl ValidQuery for FindAllBlockHeaders {
         wsv: &'wsv WorldStateView,
     ) -> Result<Box<dyn Iterator<Item = BlockHeader> + 'wsv>, QueryExecutionFail> {
         Ok(Box::new(
-            wsv.all_blocks()
-                .rev()
-                .map(|block| block.payload().header.clone()),
+            wsv.all_blocks().rev().map(|block| block.header().clone()),
         ))
     }
 }
@@ -47,6 +45,6 @@ impl ValidQuery for FindBlockHeaderByHash {
             .find(|block| block.hash() == hash)
             .ok_or_else(|| QueryExecutionFail::Find(FindError::Block(hash)))?;
 
-        Ok(block.payload().header.clone())
+        Ok(block.header().clone())
     }
 }
