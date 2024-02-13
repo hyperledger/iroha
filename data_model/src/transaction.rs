@@ -735,8 +735,9 @@ mod http {
         }
 
         /// Set creation time of transaction
-        pub fn set_creation_time_ms(&mut self, value: u64) -> &mut Self {
-            self.payload.creation_time_ms = value;
+        pub fn set_creation_time(&mut self, value: Duration) -> &mut Self {
+            self.payload.creation_time_ms =
+                u64::try_from(value.as_millis()).expect("should never exceed u64");
             self
         }
 
