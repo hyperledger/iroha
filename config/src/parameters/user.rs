@@ -418,8 +418,8 @@ impl UnwrapPartial for UserTrustedPeers {
 }
 
 impl Merge for UserTrustedPeers {
-    fn merge(&mut self, mut other: Self) {
-        self.peers.append(other.peers.as_mut())
+    fn merge(&mut self, other: Self) {
+        self.peers = other.peers;
     }
 }
 
