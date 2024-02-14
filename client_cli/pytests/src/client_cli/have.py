@@ -3,12 +3,20 @@ This module contains functions for checking expected results in tests.
 """
 
 import json
+
 import allure
 
 from src.client_cli import client_cli, iroha, match
 
 
 def expected_in_actual(expected, actual) -> bool:
+    """
+    Check if the expected result is present in the actual result.
+
+    :param expected: The expected result.
+    :param actual: The actual result.
+    :return: True if expected is in actual, False otherwise.
+    """
     allure.attach(
         json.dumps(actual),
         name='actual',
@@ -28,7 +36,7 @@ def domain(expected, owned_by=None):
 
     :param expected: The expected domain object.
     :param owned_by: The owner of the domain, default is None.
-    :return: True if the domain is present (and owned by the specified owner if provided), False otherwise.
+    :return: True if the domain is present and owned by the specified owner if provided.
     """
 
     def domain_in_domains() -> bool:
@@ -70,7 +78,9 @@ def asset_definition(expected):
     expected_domain = expected.split('#')[1]
 
     def asset_definition_in_asset_definitions() -> bool:
-        asset_definitions = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected_domain}"}}}}').asset_definitions()
+        asset_definitions = (
+            iroha.list_filter(
+                f'{{"Identifiable": {{"Is": "{expected_domain}"}}}}').asset_definitions())
         return expected_in_actual(expected, asset_definitions)
 
     return client_cli.wait_for(asset_definition_in_asset_definitions)
@@ -100,15 +110,15 @@ def asset_has_quantity(expected_asset_id, expected_quantity):
     """
 
     def check_quantity() -> bool:
-        assets = iroha.list_filter(f'{{"Identifiable": {{"Is": "{expected_asset_id}"}}}}').assets()
+        assets = iroha.list_filter(
+            f'{{"Identifiable": {{"Is": "{expected_asset_id}"}}}}').assets()
         actual_quantity = None
-        for asset in assets:
-            if asset == expected_asset_id:
+        for asset_item in assets:
+            if asset_item == expected_asset_id:
                 actual_quantity = assets.get(expected_asset_id, {})["value"]["Quantity"]
                 break
-
         if actual_quantity is None:
-            raise Exception(f"Asset with ID {expected_asset_id} not found.")
+            raise ValueError(f"Asset with ID {expected_asset_id} not found.")
 
         allure.attach(
             json.dumps(actual_quantity),

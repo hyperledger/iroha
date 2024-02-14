@@ -6,6 +6,8 @@ use iroha_config::parameters::actual::Root as Config;
 use test_network::*;
 
 #[test]
+// This test suite is also covered at the UI level in the iroha_client_cli tests
+// in test_register_domains.py
 fn client_add_domain_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()>
 {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_500).start_with_runtime();

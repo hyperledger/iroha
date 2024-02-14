@@ -3,13 +3,64 @@ Helper functions module tests.
 """
 
 import binascii
+import json
+import os
 import random
+import re
 import string
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from common.consts import ReservedChars, fake
 
+
+def extract_hash(stdout):
+    """
+    Extracts a SHA-256 hash from the given string.
+
+    :param stdout: The  string from which to extract the hash.
+    :return: The extracted hash if found, otherwise None.
+    """
+    if not isinstance(stdout, str) or not stdout.strip():
+        return None
+    pattern = r'"([A-Fa-f0-9]{64})"'
+    match = re.search(pattern, stdout)
+    return match.group(1) if match else None
+
+def get_peers_config_files(path_to_configs):
+    """
+    Returns a list of config file paths from the given directory.
+    """
+    config_files = []
+    for entry in os.listdir(path_to_configs):
+        if entry.endswith('.json') and 'config_to_peer' in entry:
+            config_files.append(os.path.join(path_to_configs, entry))
+    return config_files
+
+def read_isi_from_json(file_path):
+    """
+    Reads ISI instruction from a JSON file.
+
+    :param file_path: Path to the JSON file containing ISI instruction.
+    :return: Dictionary with ISI instruction.
+    """
+    with open(file_path, 'r', encoding='utf-8') as file:
+        isi_data = json.load(file)
+    return isi_data
+
+
+def write_isi_to_json(isi_data, file_path):
+    """
+    Writes ISI instruction to a JSON file.
+
+    :param isi_data: Dictionary with ISI instruction.
+    :param file_path: Path to save the JSON file.
+    """
+    if not isinstance(isi_data, list):
+        isi_data = [isi_data]
+    with open(file_path, 'w', encoding='utf-8') as file:
+        json.dump(isi_data, file, indent=4)
 
 def generate_random_string_with_reserved_char():
     """
@@ -55,7 +106,8 @@ def generate_random_string_without_reserved_chars(length):
     """
     Generate a random string with the specified length, excluding reserved characters.
     """
-    allowed_chars = [c for c in [*string.ascii_letters, *string.digits] if c not in ReservedChars.ALL.value]
+    allowed_chars = \
+        [c for c in [*string.ascii_letters, *string.digits] if c not in ReservedChars.ALL.value]
     return generate_random_string(length, allowed_chars)
 
 

@@ -1,8 +1,8 @@
-import pytest
-import allure
+from test import before_all, before_each
 
-from test import (
-    before_each)
+import allure
+import pytest
+
 
 @pytest.fixture(scope="function", autouse=True)
 def atomicity_test_setup():

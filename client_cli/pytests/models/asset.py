@@ -4,6 +4,7 @@ This module contains the AssetDefinition and Asset classes.
 
 from dataclasses import dataclass
 
+
 @dataclass
 class AssetDefinition:
     """
@@ -39,10 +40,13 @@ class Asset:
 
     :param definition: The asset definition of the asset.
     :type definition: AssetDefinition
+    :param account: The account of the asset.
+    :type definition: str
     :param value: The value of the asset.
     :type value: str
     """
     definition: AssetDefinition
+    account: str
     value: str
 
     def __repr__(self):

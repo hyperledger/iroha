@@ -22,7 +22,8 @@ class Stderr(Enum):
     INVALID_VALUE_TYPE = 'Matching variant not found'
     RESERVED_CHARACTER = 'The `@` character is reserved for `account@domain` constructs,' \
                          ' `#` — for `asset#domain` and `$` — for `trigger$domain`.'
-    WHITESPACES = "White space not allowed"
+    WHITESPACES = 'White space not allowed'
+    INSUFFICIENT_FUNDS = 'Not enough quantity to transfer/burn'
 
 
 class ReservedChars(Enum):
@@ -40,6 +41,6 @@ class ValueTypes(Enum):
     """
     QUANTITY = 'Quantity'  # unsigned 32-bit integer
     STORE = 'Store' #storing key-values in object's metadata
-    # BIG_QUANTITY = 'BigQuantity' unsigned 128-bit integer
+    BIG_QUANTITY = 'BigQuantity' #unsigned 128-bit integer
     # FIXED = 'Fixed' 64-bit fixed-precision number with
     # nine significant digits after the decimal point

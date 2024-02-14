@@ -1,7 +1,9 @@
 import json
+
 import allure
 
-from src.client_cli import iroha, client_cli
+from src.client_cli import client_cli, iroha
+
 
 # using existing account with asset to have at least one in response
 def test_filter_by_domain(GIVEN_currently_account_quantity_with_two_quantity_of_asset):

@@ -12,6 +12,7 @@ use test_network::*;
 
 mod account;
 mod asset;
+mod query_errors;
 mod role;
 
 #[test]

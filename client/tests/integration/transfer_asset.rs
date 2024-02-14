@@ -15,6 +15,8 @@ use iroha_primitives::fixed::Fixed;
 use test_network::*;
 
 #[test]
+// This test suite is also covered at the UI level in the iroha_client_cli tests
+// in test_tranfer_assets.py
 fn simulate_transfer_quantity() {
     simulate_transfer(
         200_u32,
@@ -51,7 +53,8 @@ fn simulate_transfer_fixed() {
 }
 
 #[test]
-#[ignore = "long"]
+// This test is also covered at the UI level in the iroha_client_cli tests
+// in test_tranfer_assets.py
 #[should_panic(expected = "insufficient funds")]
 fn simulate_insufficient_funds() {
     simulate_transfer(

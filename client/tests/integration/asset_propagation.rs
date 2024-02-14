@@ -13,6 +13,8 @@ use iroha_config::parameters::actual::Root as Config;
 use test_network::*;
 
 #[test]
+// This test is also covered at the UI level in the iroha_client_cli tests
+// in test_mint_asset.py
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(
 ) -> Result<()> {
     // Given

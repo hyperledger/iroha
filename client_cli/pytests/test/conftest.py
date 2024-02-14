@@ -1,4 +1,5 @@
 # pylint: disable=redefined-outer-name
+# pylint: disable=invalid-name
 """
 This module contains pytest fixtures for testing.
 """
@@ -7,10 +8,20 @@ import pytest
 
 from common.consts import ValueTypes
 from common.helpers import *
-from models import Account, AssetDefinition, Domain, Asset
+from common.settings import PEERS_CONFIGS_PATH
+from models import Account, Asset, AssetDefinition, Domain
 from src.client_cli import client_cli, config
 
+
 # General fixtures
+@pytest.fixture(scope='session', autouse=True)
+def before_all():
+    """Initial setup for all test sessions.
+    This fixture generates configurations based on peers and is automatically
+    used for every test session."""
+    config.generate_by_peers(PEERS_CONFIGS_PATH)
+    yield
+
 @pytest.fixture(scope='function', autouse=True)
 def before_each():
     """Fixture to set up and reset the client_cli state."""
@@ -21,32 +32,32 @@ def before_each():
 
 # Fixtures for creating objects (domains, accounts, asset definitions, assets)
 @pytest.fixture()
-def GIVEN_new_one_existing_domain():
-    """Fixture to create and register an existing domain."""
+def GIVEN_registered_domain():
+    """Fixture to create and register a domain."""
     domain = Domain(fake_name())
-    with allure.step(f'GIVEN an existing domain {domain.name}'):
+    with allure.step(f'GIVEN a registered domain {domain.name}'):
         client_cli.register().domain(domain.name)
     return domain
 
 @pytest.fixture()
-def GIVEN_existing_domain_with_uppercase_letter(
-        GIVEN_new_one_existing_domain):
-    """Fixture to create and register an existing domain, but with uppercase letter."""
-    domain = GIVEN_new_one_existing_domain
+def GIVEN_registered_domain_with_uppercase_letter(
+        GIVEN_registered_domain):
+    """Fixture to create and register a domain, but with uppercase letter."""
+    domain = GIVEN_registered_domain
     domain.name = name_with_uppercase_letter(domain.name)
-    with allure.step(f'GIVEN an existing domain {domain.name}'):
+    with allure.step(f'GIVEN a registered domain {domain.name}'):
         client_cli.register().domain(domain.name)
     return domain
 
 @pytest.fixture()
-def GIVEN_new_one_existing_account(GIVEN_new_one_existing_domain, GIVEN_public_key):
-    """Fixture to create and register an existing account."""
+def GIVEN_registered_account(GIVEN_registered_domain, GIVEN_public_key):
+    """Fixture to create an account."""
     name = fake_name()
     account = Account(
         name=name,
-        domain=GIVEN_new_one_existing_domain.name,
+        domain=GIVEN_registered_domain.name,
         public_key=GIVEN_public_key)
-    with allure.step(f'GIVEN the account "{name}" in the "{GIVEN_new_one_existing_domain.name}" domain'):
+    with allure.step(f'GIVEN the account "{name}" in the "{GIVEN_registered_domain.name}" domain'):
         client_cli.register().account(
             account=account.name,
             domain=account.domain,
@@ -60,7 +71,8 @@ def GIVEN_currently_authorized_account():
         name=config.account_name,
         domain=config.account_domain,
         public_key=config.public_key)
-    with allure.step(f'GIVEN the currently authorized account "{account.name}" in the "{account.domain}" domain'):
+    with allure.step(f'GIVEN the currently authorized account "{account.name}" '
+                     f'in the "{account.domain}" domain'):
         return account
 
 @pytest.fixture()
@@ -72,7 +84,9 @@ def GIVEN_currently_account_quantity_with_two_quantity_of_asset(
     asset_def = AssetDefinition(name=GIVEN_fake_asset_name,
                                 domain=GIVEN_currently_authorized_account.domain,
                                 value_type=GIVEN_quantity_value_type)
-    asset = Asset(definition=asset_def, value='2')
+    asset = Asset(definition=asset_def,
+                  value='2',
+                  account=GIVEN_currently_authorized_account.name)
     name = fake_name()
     with allure.step(f'GIVEN the asset_definition "{name}" '
                      f'in the "{GIVEN_currently_authorized_account.domain}" domain'):
@@ -87,35 +101,100 @@ def GIVEN_currently_account_quantity_with_two_quantity_of_asset(
         )
     return asset
 
+@pytest.fixture()
+def GIVEN_quantity_asset_for_account(
+        request,
+        GIVEN_quantity_value_type,
+        GIVEN_fake_asset_name,
+        GIVEN_quantity_value):
+    """Fixture to get an asset for a given account and domain with specified quantity."""
+    account, domain = request.param.split('@')
+    account = Account(
+        name=account,
+        domain=domain)
+
+    asset_def = AssetDefinition(name=GIVEN_fake_asset_name,
+                                domain=domain,
+                                value_type=GIVEN_quantity_value_type)
+    asset = Asset(definition=asset_def,
+                  value=GIVEN_quantity_value,
+                  account=account.name)
+
+    with allure.step(f'GIVEN the asset_definition "{asset_def.name}" '
+                     f'in the "{domain}" domain'):
+        client_cli.register().asset().definition(
+            asset=asset.definition.name,
+            domain=asset.definition.domain,
+            value_type=asset.definition.value_type)
+        client_cli.mint().asset(
+            account=account,
+            asset_definition=asset.definition,
+            value_of_value_type=asset.value)
+
+    return asset
+
 
 
 @pytest.fixture()
-def GIVEN_existing_asset_definition_with_quantity_value_type(
-        GIVEN_new_one_existing_domain,
+def GIVEN_registered_asset_definition_with_quantity_value_type(
+        GIVEN_registered_domain,
         GIVEN_quantity_value_type,
         GIVEN_fake_asset_name):
-    """Fixture to create and register an existing asset definition with random value type."""
+    """Fixture to create and register an asset definition with quantity value type."""
     asset_def = AssetDefinition(name=GIVEN_fake_asset_name,
-                                domain=GIVEN_new_one_existing_domain.name,
+                                domain=GIVEN_registered_domain.name,
                                 value_type=GIVEN_quantity_value_type)
     with allure.step(f'GIVEN the asset_definition "{GIVEN_fake_asset_name}" '
-                     f'in the "{GIVEN_new_one_existing_domain.name}" domain'):
+                     f'in the "{GIVEN_registered_domain.name}" domain'):
         client_cli.register().asset().definition(asset=asset_def.name,
                                                  domain=asset_def.domain,
                                                  value_type=asset_def.value_type)
     return asset_def
 
 @pytest.fixture()
-def GIVEN_existing_asset_definition_with_store_value_type(
-        GIVEN_new_one_existing_domain,
+def GIVEN_minted_asset_quantity(
+        GIVEN_registered_asset_definition_with_quantity_value_type,
+        GIVEN_registered_account,
+        GIVEN_quantity_value):
+    """Fixture to create and return an asset with a specified quantity.
+        It takes a registered asset definition, a registered account, and a quantity value."""
+    asset = Asset(account=GIVEN_registered_account,
+                  definition=GIVEN_registered_asset_definition_with_quantity_value_type,
+                  value=GIVEN_quantity_value)
+    client_cli.mint().asset(
+        account=asset.account,
+        asset_definition=asset.definition,
+        value_of_value_type=asset.value
+    )
+    return asset
+
+@pytest.fixture()
+def GIVEN_registered_asset_definition_with_big_quantity_value_type(
+        GIVEN_registered_domain,
+        GIVEN_big_quantity_value_type,
+        GIVEN_fake_asset_name):
+    """Fixture to create and register an asset definition with big quantity value type."""
+    asset_def = AssetDefinition(name=GIVEN_fake_asset_name,
+                                domain=GIVEN_registered_domain.name,
+                                value_type=GIVEN_big_quantity_value_type)
+    with allure.step(f'GIVEN the asset_definition "{GIVEN_fake_asset_name}" '
+                     f'in the "{GIVEN_registered_domain.name}" domain'):
+        client_cli.register().asset().definition(asset=asset_def.name,
+                                                 domain=asset_def.domain,
+                                                 value_type=asset_def.value_type)
+    return asset_def
+
+@pytest.fixture()
+def GIVEN_registered_asset_definition_with_store_value_type(
+        GIVEN_registered_domain,
         GIVEN_store_value_type,
         GIVEN_fake_asset_name):
-    """Fixture to create and register an existing asset definition with store value type."""
+    """Fixture to create and register an asset definition with store value type."""
     asset_def = AssetDefinition(name=GIVEN_fake_asset_name,
-                                domain=GIVEN_new_one_existing_domain.name,
+                                domain=GIVEN_registered_domain.name,
                                 value_type=GIVEN_store_value_type)
     with allure.step(f'GIVEN the asset_definition "{GIVEN_fake_asset_name}" '
-                     f'in the "{GIVEN_new_one_existing_domain.name}" domain'):
+                     f'in the "{GIVEN_registered_domain.name}" domain'):
         client_cli.register().asset().definition(asset=asset_def.name,
                                                  domain=asset_def.domain,
                                                  value_type=asset_def.value_type)
@@ -160,8 +239,13 @@ def GIVEN_random_character():
 
 @pytest.fixture()
 def GIVEN_random_invalid_base64_character():
-    """Fixture to provide a random invalid base64 character (not a-z,A-Z,0-9,+,/,=)."""
-    letter = random.choice([ch for ch in string.printable if not (ch.isalpha() or ch.isdigit() or ch == "=" or ch == "+" or ch == "/")])
+    """Fixture to provide a random invalid base64 character
+    (not a-z,A-Z,0-9,+,/,=).
+    """
+    invalid_chars = [ch for ch in string.printable
+                     if not (ch.isalpha() or ch.isdigit()
+                             or ch in ["=", "+", "/"])]
+    letter = random.choice(invalid_chars)
     with allure.step(f'GIVEN a "{letter}" name'):
         return letter
 
@@ -171,7 +255,9 @@ def GIVEN_key_with_invalid_character_in_key(
         GIVEN_public_key,
         GIVEN_random_invalid_base64_character):
     """Fixture to provide a public key with an invalid character."""
-    invalid_key = key_with_invalid_character_in_key(GIVEN_public_key, GIVEN_random_invalid_base64_character)
+    invalid_key = key_with_invalid_character_in_key(
+        GIVEN_public_key,
+        GIVEN_random_invalid_base64_character)
     with allure.step(f'GIVEN an invalid key "{invalid_key}"'):
         return invalid_key
 
@@ -190,27 +276,34 @@ def GIVEN_store_value_type():
         return value_type
 
 @pytest.fixture()
+def GIVEN_big_quantity_value_type():
+    """Fixture to provide a big quantity value type."""
+    value_type = ValueTypes.BIG_QUANTITY.value
+    with allure.step(f'GIVEN a "{value_type}" value type'):
+        return value_type
+
+@pytest.fixture()
 def GIVEN_quantity_value():
     """Fixture to provide a random quantity value based on the given value type."""
-    rand_int = str(random.getrandbits(32))
+    rand_int = str((random.getrandbits(32))-1)
     return rand_int
 
 @pytest.fixture()
 def GIVEN_128_lenght_name():
     ident = generate_random_string_without_reserved_chars(128)
-    with allure.step(f'GIVEN a name with 128 lenght "{ident}"'):
+    with allure.step(f'GIVEN a name with 128 length "{ident}"'):
         return ident
 
 @pytest.fixture()
 def GIVEN_129_lenght_name():
     ident = generate_random_string_without_reserved_chars(129)
-    with allure.step(f'GIVEN a name with 129 lenght "{ident}"'):
+    with allure.step(f'GIVEN a name with 129 length "{ident}"'):
         return ident
 
 @pytest.fixture()
 def GIVEN_127_lenght_name():
     ident = generate_random_string_without_reserved_chars(127)
-    with allure.step(f'GIVEN a name with 127 lenght "{ident}"'):
+    with allure.step(f'GIVEN a name with 127 length "{ident}"'):
         return ident
 
 @pytest.fixture()
@@ -226,4 +319,3 @@ def GIVEN_string_with_whitespaces():
     new_string = generate_random_string_with_whitespace()
     with allure.step(f'GIVEN a "{new_string}" string'):
         return new_string
-

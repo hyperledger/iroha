@@ -1,17 +1,12 @@
-import pytest
-import allure
+from test import (GIVEN_127_lenght_name, GIVEN_129_lenght_name,
+                  GIVEN_fake_name, GIVEN_key_with_invalid_character_in_key,
+                  GIVEN_not_existing_name, GIVEN_public_key,
+                  GIVEN_random_character, GIVEN_registered_account,
+                  GIVEN_registered_domain, before_all, before_each)
 
-from test import (
-    GIVEN_127_lenght_name,
-    GIVEN_129_lenght_name,
-    GIVEN_new_one_existing_account,
-    GIVEN_new_one_existing_domain,
-    GIVEN_fake_name,
-    GIVEN_key_with_invalid_character_in_key,
-    GIVEN_not_existing_name,
-    GIVEN_public_key,
-    GIVEN_random_character,
-    before_each)
+import allure
+import pytest
+
 
 @pytest.fixture(scope="function", autouse=True)
 def account_test_setup():
