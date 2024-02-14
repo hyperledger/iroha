@@ -3,6 +3,7 @@ This module provides an Account class for working with Iroha network accounts.
 """
 from dataclasses import dataclass
 
+
 @dataclass
 class Account:
     """
@@ -17,7 +18,7 @@ class Account:
     """
     name: str
     domain: str
-    public_key: str
+    public_key: str = None
 
     def __repr__(self):
         return f"{self.name}@{self.domain}"

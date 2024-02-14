@@ -1,11 +1,13 @@
 import json
+
 import allure
 
-from src.client_cli import iroha, client_cli
+from src.client_cli import client_cli, iroha
 
-def test_filter_by_domain(GIVEN_new_one_existing_domain):
+
+def test_filter_by_domain(GIVEN_registered_domain):
     def condition():
-        domain_name = GIVEN_new_one_existing_domain.name
+        domain_name = GIVEN_registered_domain.name
         with allure.step(
                 f'WHEN client_cli query domains filtered by name "{domain_name}"'):
             domains = iroha.list_filter(f'{{"Identifiable": {{"Is": "{domain_name}"}}}}').domains()

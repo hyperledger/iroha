@@ -3,6 +3,7 @@ This module contains the Domain class.
 """
 from dataclasses import dataclass
 
+
 @dataclass
 class Domain:
     """

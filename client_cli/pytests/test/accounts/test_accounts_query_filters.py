@@ -1,12 +1,14 @@
 import json
+
 import allure
 
-from src.client_cli import iroha, client_cli
+from src.client_cli import client_cli, iroha
+
 
 # using existing account to have at least one account in response
-def test_filter_by_domain(GIVEN_new_one_existing_account):
+def test_filter_by_domain(GIVEN_registered_account):
     def condition():
-        domain = GIVEN_new_one_existing_account.domain
+        domain = GIVEN_registered_account.domain
         with allure.step(
                 f'WHEN client_cli query accounts '
                 f'in the "{domain}" domain'):
@@ -20,9 +22,9 @@ def test_filter_by_domain(GIVEN_new_one_existing_account):
             return accounts and all(account.endswith(domain) for account in accounts)
     client_cli.wait_for(condition)
 
-def test_filter_by_account_name(GIVEN_new_one_existing_account):
+def test_filter_by_account_name(GIVEN_registered_account):
     def condition():
-        name = GIVEN_new_one_existing_account.name
+        name = GIVEN_registered_account.name
         with allure.step(
                 f'WHEN client_cli query accounts with name "{name}"'):
             accounts = iroha.list_filter(f'{{"Identifiable": {{"StartsWith": "{name}@"}}}}').accounts()
@@ -35,9 +37,9 @@ def test_filter_by_account_name(GIVEN_new_one_existing_account):
             return accounts and all(account.startswith(name) for account in accounts)
     client_cli.wait_for(condition)
 
-def test_filter_by_account_id(GIVEN_new_one_existing_account):
+def test_filter_by_account_id(GIVEN_registered_account):
     def condition():
-        account_id = GIVEN_new_one_existing_account.name + "@" + GIVEN_new_one_existing_account.domain
+        account_id = GIVEN_registered_account.name + "@" + GIVEN_registered_account.domain
         with allure.step(
                 f'WHEN client_cli query accounts with account id "{account_id}"'):
             accounts = iroha.list_filter(f'{{"Identifiable": {{"Is": "{account_id}"}}}}').accounts()

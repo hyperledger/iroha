@@ -4,7 +4,8 @@ This module contains the Iroha class, which is a subclass of ClientCli.
 
 import json
 from typing import Dict, List
-from src.client_cli.client_cli import ClientCli, Config
+
+from src.client_cli.client_cli import ClientCli
 
 
 class Iroha(ClientCli):
@@ -13,14 +14,6 @@ class Iroha(ClientCli):
     for interacting with the Iroha network.
     """
 
-    def __init__(self, config: Config):
-        """
-        :param config: A configuration object containing the details for the client.
-        :type config: Config
-        :param path: The path where the client executable is located.
-        :type path: str
-        """
-        super().__init__(config)
 
     def _execute_command(self, command_name: str):
         """
@@ -32,16 +25,28 @@ class Iroha(ClientCli):
         self.command.insert(3, command_name)
         self.execute()
 
-    def should(self, _expected):
+    def should(self, *args, **kwargs):
         """
         Placeholder method for implementing assertions.
 
-        :param expected: The expected value.
-        :type expected: str
+        :param kwargs:
         :return: The current Iroha object.
         :rtype: Iroha
         """
         return self
+
+    def should_not(self, func):
+        """
+        Decorator that inverts the result of the check function.
+
+        :param func: The function to be inverted.
+        :return: Inverted result of the function.
+        """
+
+        def wrapper(*args, **kwargs):
+            return not func(*args, **kwargs)
+
+        return wrapper
 
     def domains(self) -> Dict[str, Dict]:
         """
