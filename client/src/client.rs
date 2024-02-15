@@ -311,7 +311,6 @@ macro_rules! impl_query_output {
 impl_query_output! {
     bool,
     crate::data_model::Value,
-    crate::data_model::numeric::NumericValue,
     crate::data_model::role::Role,
     crate::data_model::asset::Asset,
     crate::data_model::asset::AssetDefinition,
@@ -322,6 +321,7 @@ impl_query_output! {
     crate::data_model::query::TransactionQueryOutput,
     crate::data_model::permission::PermissionTokenSchema,
     crate::data_model::trigger::Trigger<crate::data_model::events::TriggeringFilterBox>,
+    crate::data_model::prelude::Numeric,
 }
 
 /// Iroha client

@@ -32,7 +32,7 @@ fn multisignature_transactions_should_be_accepted_after_fully_signed() -> Result
     let key_pair_2 = KeyPair::generate();
     let asset_definition_id = AssetDefinitionId::from_str("camomile#wonderland")?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let set_signature_condition = Mint::account_signature_check_condition(
         SignatureCheckCondition::AllAccountSignaturesAnd(
             vec![key_pair_2.public_key().clone()].into(),
@@ -46,9 +46,9 @@ fn multisignature_transactions_should_be_accepted_after_fully_signed() -> Result
     client.submit_all_blocking(instructions)?;
 
     //When
-    let quantity: u32 = 200;
+    let quantity = Numeric::new(200, 0);
     let asset_id = AssetId::new(asset_definition_id, alice_id.clone());
-    let mint_asset = Mint::asset_quantity(quantity, asset_id.clone());
+    let mint_asset = Mint::asset_numeric(quantity, asset_id.clone());
 
     client_config.account_id = alice_id.clone();
     client_config.key_pair = alice_key_pair;
@@ -95,7 +95,7 @@ fn multisignature_transactions_should_be_accepted_after_fully_signed() -> Result
         .iter()
         .find(|asset| *asset.id() == asset_id)
         .expect("Failed to find expected asset");
-    assert_eq!(AssetValue::Quantity(quantity), *camomile_asset.value());
+    assert_eq!(AssetValue::Numeric(quantity), *camomile_asset.value());
 
     Ok(())
 }

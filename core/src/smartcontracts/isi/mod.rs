@@ -113,11 +113,8 @@ impl Execute for AssetMintBox {
         authority: &AccountId,
         wsv: &mut WorldStateView,
     ) -> std::prelude::v1::Result<(), Error> {
-        match self {
-            Self::Quantity(isi) => isi.execute(authority, wsv),
-            Self::BigQuantity(isi) => isi.execute(authority, wsv),
-            Self::Fixed(isi) => isi.execute(authority, wsv),
-        }
+        let Self::Numeric(isi) = self;
+        isi.execute(authority, wsv)
     }
 }
 
@@ -138,11 +135,8 @@ impl Execute for AssetBurnBox {
         authority: &AccountId,
         wsv: &mut WorldStateView,
     ) -> std::prelude::v1::Result<(), Error> {
-        match self {
-            Self::Quantity(isi) => isi.execute(authority, wsv),
-            Self::BigQuantity(isi) => isi.execute(authority, wsv),
-            Self::Fixed(isi) => isi.execute(authority, wsv),
-        }
+        let Self::Numeric(isi) = self;
+        isi.execute(authority, wsv)
     }
 }
 
@@ -164,9 +158,7 @@ impl Execute for AssetTransferBox {
         wsv: &mut WorldStateView,
     ) -> std::prelude::v1::Result<(), Error> {
         match self {
-            Self::Quantity(isi) => isi.execute(authority, wsv),
-            Self::BigQuantity(isi) => isi.execute(authority, wsv),
-            Self::Fixed(isi) => isi.execute(authority, wsv),
+            Self::Numeric(isi) => isi.execute(authority, wsv),
             Self::Store(isi) => isi.execute(authority, wsv),
         }
     }

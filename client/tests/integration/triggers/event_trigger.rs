@@ -17,7 +17,7 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
-    let instruction = Mint::asset_quantity(1_u32, asset_id.clone());
+    let instruction = Mint::asset_numeric(Numeric::new(1, 0), asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
@@ -42,16 +42,16 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
 
     let tea_definition_id = "tea#wonderland".parse()?;
     let register_tea_definition =
-        Register::asset_definition(AssetDefinition::quantity(tea_definition_id));
+        Register::asset_definition(AssetDefinition::numeric(tea_definition_id));
     test_client.submit_blocking(register_tea_definition)?;
 
     let new_value = get_asset_value(&mut test_client, asset_id)?;
-    assert_eq!(new_value, prev_value + 1);
+    assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
 
     Ok(())
 }
 
-fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
+fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<Numeric> {
     let asset = client.request(client::asset::by_id(asset_id))?;
-    Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
+    Ok(*TryAsRef::<Numeric>::try_as_ref(asset.value())?)
 }

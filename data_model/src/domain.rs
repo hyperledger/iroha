@@ -6,6 +6,7 @@ use alloc::{format, string::String, vec::Vec};
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
+use iroha_primitives::numeric::Numeric;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,7 @@ use crate::{
     ipfs::IpfsPath,
     metadata::Metadata,
     prelude::*,
-    HasMetadata, Name, NumericValue, Registered,
+    HasMetadata, Name, Registered,
 };
 
 #[model]
@@ -177,7 +178,7 @@ impl Domain {
     pub fn asset_total_quantity(
         &self,
         asset_definition_id: &AssetDefinitionId,
-    ) -> Option<&NumericValue> {
+    ) -> Option<&Numeric> {
         self.asset_total_quantities.get(asset_definition_id)
     }
 
@@ -240,10 +241,10 @@ impl Domain {
     pub fn add_asset_total_quantity(
         &mut self,
         asset_definition_id: AssetDefinitionId,
-        initial_amount: impl Into<NumericValue>,
-    ) -> Option<NumericValue> {
+        initial_amount: Numeric,
+    ) -> Option<Numeric> {
         self.asset_total_quantities
-            .insert(asset_definition_id, initial_amount.into())
+            .insert(asset_definition_id, initial_amount)
     }
 
     /// Remove asset total amount from the [`Domain`] and return it
@@ -251,7 +252,7 @@ impl Domain {
     pub fn remove_asset_total_quantity(
         &mut self,
         asset_definition_id: &AssetDefinitionId,
-    ) -> Option<NumericValue> {
+    ) -> Option<Numeric> {
         self.asset_total_quantities.remove(asset_definition_id)
     }
 }

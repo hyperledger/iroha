@@ -14,7 +14,7 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id);
     let trigger_id = TriggerId::from_str("mint_rose")?;
 
-    let instruction = Mint::asset_quantity(1_u32, asset_id.clone());
+    let instruction = Mint::asset_numeric(Numeric::new(1, 0), asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
         trigger_id.clone(),
         Action::new(

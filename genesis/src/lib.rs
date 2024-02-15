@@ -11,7 +11,7 @@ use derive_more::From;
 use eyre::{eyre, ErrReport, Result, WrapErr};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{
-    asset::AssetDefinition,
+    asset::{AssetDefinition, AssetValueType},
     executor::Executor,
     prelude::{Metadata, *},
     ChainId,
@@ -338,12 +338,7 @@ impl<S> RawGenesisDomainBuilder<S> {
     /// Add [`AssetDefinition`] to current domain.
     pub fn asset(mut self, asset_name: Name, asset_value_type: AssetValueType) -> Self {
         let asset_definition_id = AssetDefinitionId::new(self.domain_id.clone(), asset_name);
-        let asset_definition = match asset_value_type {
-            AssetValueType::Quantity => AssetDefinition::quantity(asset_definition_id),
-            AssetValueType::BigQuantity => AssetDefinition::big_quantity(asset_definition_id),
-            AssetValueType::Fixed => AssetDefinition::fixed(asset_definition_id),
-            AssetValueType::Store => AssetDefinition::store(asset_definition_id),
-        };
+        let asset_definition = AssetDefinition::new(asset_definition_id, asset_value_type);
         self.transaction
             .isi
             .push(Register::asset_definition(asset_definition).into());
@@ -397,7 +392,10 @@ mod tests {
             .finish_domain()
             .domain("meadow".parse().unwrap())
             .account("Mad_Hatter".parse().unwrap(), public_key.parse().unwrap())
-            .asset("hats".parse().unwrap(), AssetValueType::BigQuantity)
+            .asset(
+                "hats".parse().unwrap(),
+                AssetValueType::Numeric(NumericSpec::default()),
+            )
             .finish_domain();
 
         // In real cases executor should be constructed from a wasm blob
@@ -456,8 +454,8 @@ mod tests {
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[7],
-                Register::asset_definition(AssetDefinition::big_quantity(
-                    "hats#meadow".parse().unwrap()
+                Register::asset_definition(AssetDefinition::numeric(
+                    "hats#meadow".parse().unwrap(),
                 ))
                 .into()
             );

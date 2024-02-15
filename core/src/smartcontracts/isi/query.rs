@@ -37,7 +37,7 @@ macro_rules! impl_lazy {
 }
 impl_lazy! {
     bool,
-    iroha_data_model::numeric::NumericValue,
+    iroha_data_model::prelude::Numeric,
     iroha_data_model::role::Role,
     iroha_data_model::asset::Asset,
     iroha_data_model::asset::AssetDefinition,
@@ -191,7 +191,7 @@ mod tests {
         assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
-            .add_asset_definition(AssetDefinition::quantity(asset_definition_id).build(&ALICE_ID))
+            .add_asset_definition(AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID))
             .is_none());
         World::with([domain], PeersIds::new())
     }
@@ -204,7 +204,7 @@ mod tests {
             Account::new(ALICE_ID.clone(), ALICE_KEYS.public_key().clone()).build(&ALICE_ID);
         assert!(domain
             .add_asset_definition(
-                AssetDefinition::quantity(asset_definition_id.clone()).build(&ALICE_ID)
+                AssetDefinition::numeric(asset_definition_id.clone()).build(&ALICE_ID)
             )
             .is_none());
 
@@ -239,7 +239,7 @@ mod tests {
         assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
-            .add_asset_definition(AssetDefinition::quantity(asset_definition_id).build(&ALICE_ID))
+            .add_asset_definition(AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID))
             .is_none());
         Ok(World::with([domain], PeersIds::new()))
     }
@@ -471,7 +471,7 @@ mod tests {
             let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
             assert!(domain
                 .add_asset_definition(
-                    AssetDefinition::quantity(asset_definition_id).build(&ALICE_ID)
+                    AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID)
                 )
                 .is_none());
             let query_handle = LiveQueryStore::test().start();

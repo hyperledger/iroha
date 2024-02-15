@@ -67,9 +67,9 @@ fn query_requests(criterion: &mut Criterion) {
     let create_account = Register::account(Account::new(account_id.clone(), public_key));
     let asset_definition_id = AssetDefinitionId::new(domain_id, "xor".parse().expect("Valid"));
     let create_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
-    let quantity: u32 = 200;
-    let mint_asset = Mint::asset_quantity(
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
+    let quantity = Numeric::new(200, 0);
+    let mint_asset = Mint::asset_numeric(
         quantity,
         AssetId::new(asset_definition_id, account_id.clone()),
     );
@@ -181,8 +181,8 @@ fn instruction_submits(criterion: &mut Criterion) {
     let mut failures_count = 0;
     let _dropable = group.bench_function("instructions", |b| {
         b.iter(|| {
-            let quantity: u32 = 200;
-            let mint_asset = Mint::asset_quantity(
+            let quantity = Numeric::new(200, 0);
+            let mint_asset = Mint::asset_numeric(
                 quantity,
                 AssetId::new(asset_definition_id.clone(), account_id.clone()),
             );

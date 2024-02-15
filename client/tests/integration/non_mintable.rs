@@ -17,13 +17,13 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset = Register::asset_definition(
-        AssetDefinition::quantity(asset_definition_id.clone()).mintable_once(),
+        AssetDefinition::numeric(asset_definition_id.clone()).mintable_once(),
     );
 
     let metadata = UnlimitedMetadata::default();
 
-    let mint = Mint::asset_quantity(
-        200_u32,
+    let mint = Mint::asset_numeric(
+        Numeric::new(200, 0),
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
     );
 
@@ -36,7 +36,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
         let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
         assets.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
-                && *asset.value() == AssetValue::Quantity(200_u32)
+                && *asset.value() == AssetValue::Numeric(Numeric::new(200, 0))
         })
     })?;
 
@@ -49,7 +49,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
             let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
             assets.iter().any(|asset| {
                 asset.id().definition_id == asset_definition_id
-                    && *asset.value() == AssetValue::Quantity(400_u32)
+                    && *asset.value() == AssetValue::Numeric(Numeric::new(400, 0))
             })
         })
         .is_err());
@@ -65,13 +65,13 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset: InstructionBox = Register::asset_definition(
-        AssetDefinition::quantity(asset_definition_id.clone()).mintable_once(),
+        AssetDefinition::numeric(asset_definition_id.clone()).mintable_once(),
     )
     .into();
 
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
     let register_asset: InstructionBox =
-        Register::asset(Asset::new(asset_id.clone(), 1_u32)).into();
+        Register::asset(Asset::new(asset_id.clone(), Numeric::new(1, 0))).into();
 
     // We can register the non-mintable token
     test_client.submit_all([create_asset, register_asset.clone()])?;
@@ -79,7 +79,7 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
         let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
         assets.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
-                && *asset.value() == AssetValue::Quantity(1_u32)
+                && *asset.value() == AssetValue::Numeric(Numeric::new(1, 0))
         })
     })?;
 
@@ -87,7 +87,7 @@ fn non_mintable_asset_cannot_be_minted_if_registered_with_non_zero_value() -> Re
     assert!(test_client.submit_blocking(register_asset).is_err());
 
     // And can't be minted
-    let mint = Mint::asset_quantity(1_u32, asset_id);
+    let mint = Mint::asset_numeric(Numeric::new(1, 0), asset_id);
     assert!(test_client.submit_blocking(mint).is_err());
 
     Ok(())
@@ -102,12 +102,12 @@ fn non_mintable_asset_can_be_minted_if_registered_with_zero_value() -> Result<()
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset = Register::asset_definition(
-        AssetDefinition::quantity(asset_definition_id.clone()).mintable_once(),
+        AssetDefinition::numeric(asset_definition_id.clone()).mintable_once(),
     );
 
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
-    let register_asset = Register::asset(Asset::new(asset_id.clone(), 0_u32));
-    let mint = Mint::asset_quantity(1_u32, asset_id);
+    let register_asset = Register::asset(Asset::new(asset_id.clone(), Numeric::ZERO));
+    let mint = Mint::asset_numeric(Numeric::new(1, 0), asset_id);
 
     // We can register the non-mintable token wih zero value and then mint it
     let instructions: [InstructionBox; 3] =
@@ -117,7 +117,7 @@ fn non_mintable_asset_can_be_minted_if_registered_with_zero_value() -> Result<()
         let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
         assets.iter().any(|asset| {
             asset.id().definition_id == asset_definition_id
-                && *asset.value() == AssetValue::Quantity(1_u32)
+                && *asset.value() == AssetValue::Numeric(Numeric::new(1, 0))
         })
     })?;
     Ok(())

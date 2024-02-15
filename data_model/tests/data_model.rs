@@ -2,9 +2,9 @@ use iroha_data_model::{prelude::*, ParseError};
 
 #[test]
 fn transfer_isi_should_be_valid() {
-    let _instruction = Transfer::asset_quantity(
+    let _instruction = Transfer::asset_numeric(
         "btc##seller@crypto".parse().expect("Valid"),
-        12_u32,
+        Numeric::new(12, 0),
         "buyer@crypto".parse().expect("Valid"),
     );
 }

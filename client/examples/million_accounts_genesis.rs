@@ -26,7 +26,7 @@ fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
             )
             .asset(
                 format!("xor-{i}").parse().expect("Valid"),
-                AssetValueType::Quantity,
+                AssetValueType::Numeric(NumericSpec::default()),
             )
             .finish_domain();
     }

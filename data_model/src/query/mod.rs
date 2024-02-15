@@ -294,8 +294,8 @@ impl_query! {
     FindAssetsByAssetDefinitionId => Vec<crate::asset::Asset>,
     FindAssetsByDomainId => Vec<crate::asset::Asset>,
     FindAssetsByDomainIdAndAssetDefinitionId => Vec<crate::asset::Asset>,
-    FindAssetQuantityById => crate::NumericValue,
-    FindTotalAssetQuantityByAssetDefinitionId => crate::NumericValue,
+    FindAssetQuantityById => crate::Numeric,
+    FindTotalAssetQuantityByAssetDefinitionId => crate::Numeric,
     FindAssetKeyValueByIdAndKey => MetadataValue,
     FindAssetDefinitionKeyValueByIdAndKey => MetadataValue,
     FindAllDomains => Vec<crate::domain::Domain>,
@@ -557,6 +557,7 @@ pub mod asset {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
+    use iroha_primitives::numeric::Numeric;
     use parity_scale_codec::Encode;
 
     use super::{MetadataValue, Query, QueryType};

@@ -3,6 +3,7 @@
 
 use getset::Getters;
 use iroha_data_model_derive::{model, Filter, HasOrigin};
+use iroha_primitives::numeric::Numeric;
 
 pub use self::model::*;
 use super::*;
@@ -186,7 +187,7 @@ mod asset {
         #[ffi_type]
         pub struct AssetDefinitionTotalQuantityChanged {
             pub asset_definition_id: AssetDefinitionId,
-            pub total_amount: NumericValue,
+            pub total_amount: Numeric,
         }
 
         /// [`Self`] represents updated total asset quantity.
