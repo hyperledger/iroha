@@ -336,7 +336,7 @@ mod tests {
     use crate::{domain::DomainId, name::Name};
 
     fn make_key() -> PublicKey {
-        KeyPair::generate().unwrap().public_key().clone()
+        KeyPair::generate().public_key().clone()
     }
 
     fn check_signature_check_condition(

@@ -188,12 +188,12 @@ ffi::ffi_item! {
 
 impl KeyPair {
     /// Generates a pair of Public and Private key with [`Algorithm::default()`] selected as generation algorithm.
-    ///
-    /// # Errors
-    /// Fails if decoding fails
     #[cfg(feature = "rand")]
-    pub fn generate() -> Result<Self, Error> {
-        Self::generate_with_configuration(KeyGenConfiguration::from_random())
+    pub fn generate() -> Self {
+        Self::generate_with_configuration(
+            KeyGenConfiguration::from_random().with_algorithm(Algorithm::Ed25519),
+        )
+        .expect("Ed25519 key generation from random bytes should never fail")
     }
 }
 
@@ -227,7 +227,8 @@ impl KeyPair {
     /// Generates a pair of Public and Private key with the corresponding [`KeyGenConfiguration`].
     ///
     /// # Errors
-    /// Fails if decoding fails
+    ///
+    /// Fails if used [`Secp256k1`](Algorithm::Secp256k1) algorithm with seed less than `32` bytes.
     pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, Error> {
         let key_gen_option = match (configuration.algorithm, configuration.key_gen_option) {
             (Algorithm::Secp256k1, KeyGenOption::UseSeed(seed)) if seed.len() < 32 => {

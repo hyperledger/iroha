@@ -244,7 +244,7 @@ mod tests {
         let mut wsv = WorldStateView::new(world, kura.clone(), query_handle);
         let genesis_account_id = AccountId::from_str("genesis@genesis")?;
         let account_id = AccountId::from_str("alice@wonderland")?;
-        let (public_key, _) = KeyPair::generate()?.into();
+        let (public_key, _) = KeyPair::generate().into();
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         Register::domain(Domain::new(DomainId::from_str("wonderland")?))
             .execute(&genesis_account_id, &mut wsv)?;
@@ -394,9 +394,7 @@ mod tests {
         let trigger_id = TriggerId::from_str("test_trigger_id")?;
 
         // register fake account
-        let (public_key, _) = KeyPair::generate()
-            .expect("Failed to generate KeyPair")
-            .into();
+        let (public_key, _) = KeyPair::generate().into();
         let register_account =
             Register::account(Account::new(fake_account_id.clone(), [public_key]));
         register_account.execute(&account_id, &mut wsv)?;

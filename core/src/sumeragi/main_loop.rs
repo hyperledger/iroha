@@ -1184,7 +1184,7 @@ mod tests {
     use crate::{query::store::LiveQueryStore, smartcontracts::Registrable};
 
     /// Used to inject faulty payload for testing
-    fn payload_mut<'a>(block: &'a mut SignedBlock) -> &'a mut BlockPayload {
+    fn payload_mut(block: &mut SignedBlock) -> &mut BlockPayload {
         let SignedBlock::V1(signed) = block;
         &mut signed.payload
     }
@@ -1192,11 +1192,11 @@ mod tests {
     fn create_data_for_test(
         chain_id: &ChainId,
         topology: &Topology,
-        leader_key_pair: KeyPair,
+        leader_key_pair: &KeyPair,
     ) -> (WorldStateView, Arc<Kura>, SignedBlock) {
         // Predefined world state
         let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
-        let alice_keys = KeyPair::generate().expect("Valid");
+        let alice_keys = KeyPair::generate();
         let account =
             Account::new(alice_id.clone(), [alice_keys.public_key().clone()]).build(&alice_id);
         let domain_id = "wonderland".parse().expect("Valid");
@@ -1225,7 +1225,7 @@ mod tests {
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx.clone(), tx], topology.clone(), Vec::new())
             .chain(0, &mut wsv)
-            .sign(&leader_key_pair);
+            .sign(leader_key_pair);
 
         let genesis = block.commit(topology).expect("Block is valid");
         wsv.apply(&genesis).expect("Failed to apply block");
@@ -1263,7 +1263,7 @@ mod tests {
         // Creating a block of two identical transactions and validating it
         let block = BlockBuilder::new(vec![tx1, tx2], topology.clone(), Vec::new())
             .chain(0, &mut wsv.clone())
-            .sign(&leader_key_pair);
+            .sign(leader_key_pair);
 
         (wsv, kura, block.into())
     }
@@ -1273,13 +1273,13 @@ mod tests {
     async fn block_sync_invalid_block() {
         let chain_id = ChainId::new("0");
 
-        let leader_key_pair = KeyPair::generate().unwrap();
+        let leader_key_pair = KeyPair::generate();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
         let (finalized_wsv, _, mut block) =
-            create_data_for_test(&chain_id, &topology, leader_key_pair);
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
         let wsv = finalized_wsv.clone();
 
         // Malform block to make it invalid
@@ -1293,13 +1293,13 @@ mod tests {
     async fn block_sync_invalid_soft_fork_block() {
         let chain_id = ChainId::new("0");
 
-        let leader_key_pair = KeyPair::generate().unwrap();
+        let leader_key_pair = KeyPair::generate();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
         let (finalized_wsv, kura, mut block) =
-            create_data_for_test(&chain_id, &topology, leader_key_pair);
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
         let mut wsv = finalized_wsv.clone();
 
         let validated_block =
@@ -1325,9 +1325,9 @@ mod tests {
         let chain_id = ChainId::new("0");
 
         let topology = Topology::new(UniqueVec::new());
-        let leader_key_pair = KeyPair::generate().unwrap();
+        let leader_key_pair = KeyPair::generate();
         let (finalized_wsv, _, mut block) =
-            create_data_for_test(&chain_id, &topology, leader_key_pair);
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
         let wsv = finalized_wsv.clone();
 
         // Change block height
@@ -1351,12 +1351,13 @@ mod tests {
     async fn block_sync_commit_block() {
         let chain_id = ChainId::new("0");
 
-        let leader_key_pair = KeyPair::generate().unwrap();
+        let leader_key_pair = KeyPair::generate();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
-        let (finalized_wsv, _, block) = create_data_for_test(&chain_id, &topology, leader_key_pair);
+        let (finalized_wsv, _, block) =
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
         let wsv = finalized_wsv.clone();
         let result = handle_block_sync(&chain_id, block, &wsv, &finalized_wsv);
         assert!(matches!(result, Ok(BlockSyncOk::CommitBlock(_, _))))
@@ -1366,13 +1367,13 @@ mod tests {
     async fn block_sync_replace_top_block() {
         let chain_id = ChainId::new("0");
 
-        let leader_key_pair = KeyPair::generate().unwrap();
+        let leader_key_pair = KeyPair::generate();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
         let (finalized_wsv, kura, mut block) =
-            create_data_for_test(&chain_id, &topology, leader_key_pair);
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
         let mut wsv = finalized_wsv.clone();
 
         let validated_block =
@@ -1394,13 +1395,13 @@ mod tests {
     async fn block_sync_small_view_change_index() {
         let chain_id = ChainId::new("0");
 
-        let leader_key_pair = KeyPair::generate().unwrap();
+        let leader_key_pair = KeyPair::generate();
         let topology = Topology::new(unique_vec![PeerId::new(
             "127.0.0.1:8080".parse().unwrap(),
             leader_key_pair.public_key().clone(),
         )]);
         let (finalized_wsv, kura, mut block) =
-            create_data_for_test(&chain_id, &topology, leader_key_pair);
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
         let mut wsv = finalized_wsv.clone();
 
         // Increase block view change index
@@ -1436,9 +1437,9 @@ mod tests {
         let chain_id = ChainId::new("0");
 
         let topology = Topology::new(UniqueVec::new());
-        let leader_key_pair = KeyPair::generate().unwrap();
+        let leader_key_pair = KeyPair::generate();
         let (finalized_wsv, _, mut block) =
-            create_data_for_test(&chain_id, &topology, leader_key_pair);
+            create_data_for_test(&chain_id, &topology, &leader_key_pair);
         let wsv = finalized_wsv.clone();
 
         // Change block height and view change index

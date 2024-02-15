@@ -53,7 +53,7 @@ fn register_offline_peer() -> Result<()> {
     check_status(&peer_clients, 1);
 
     let address = socket_addr!(128.0.0.2:8085);
-    let key_pair = KeyPair::generate().unwrap();
+    let key_pair = KeyPair::generate();
     let public_key = key_pair.public_key().clone();
     let peer_id = PeerId::new(address, public_key);
     let register_peer = Register::peer(DataModelPeer::new(peer_id));

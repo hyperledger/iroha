@@ -1604,7 +1604,7 @@ mod tests {
 
     #[test]
     fn txs_same_except_for_nonce_have_different_hashes() {
-        let (public_key, private_key) = KeyPair::generate().unwrap().into();
+        let (public_key, private_key) = KeyPair::generate().into();
 
         let cfg = ConfigurationProxy {
             chain_id: Some(ChainId::new("0")),

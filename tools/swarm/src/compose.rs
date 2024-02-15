@@ -666,7 +666,7 @@ mod tests {
 
     #[test]
     fn default_config_with_swarm_env_is_exhaustive() {
-        let keypair = KeyPair::generate().unwrap();
+        let keypair = KeyPair::generate();
         let env: TestEnv = CompactPeerEnv {
             chain_id: ChainId::new("00000000-0000-0000-0000-000000000000"),
             key_pair: keypair.clone(),
