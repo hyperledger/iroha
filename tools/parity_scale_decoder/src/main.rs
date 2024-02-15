@@ -41,7 +41,6 @@ use iroha_data_model::{
 use iroha_primitives::{
     addr::{Ipv4Addr, Ipv6Addr},
     conststr::ConstString,
-    fixed::{FixNum, Fixed},
 };
 use parity_scale_codec::DecodeAll;
 
@@ -265,7 +264,7 @@ mod tests {
         let rose_id = AssetId::new(rose_definition_id, account_id.clone());
         let trigger_id = "mint_rose".parse().expect("Valid");
         let action = Action::<FilterBox>::new(
-            vec![Mint::asset_quantity(1_u32, rose_id)],
+            vec![Mint::asset_numeric(Numeric::new(1, 0), rose_id)],
             Repeats::Indefinitely,
             account_id,
             // FIXME: rewrite the filters using the builder DSL https://github.com/hyperledger/iroha/issues/3068

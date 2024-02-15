@@ -29,18 +29,18 @@ use derive_more::Into;
 use derive_more::{AsRef, Constructor, DebugCustom, Deref, Display, From, FromStr};
 use events::TriggeringFilterBox;
 use getset::Getters;
+pub use integer::model::Integer;
 use iroha_crypto::{HashOf, PublicKey};
 use iroha_data_model_derive::{
     model, EnumRef, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize,
 };
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_primitives::{
-    fixed,
+    numeric::Numeric,
     small::{Array as SmallArray, SmallVec},
 };
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
-pub use numeric::model::NumericValue;
 use parity_scale_codec::{Decode, Encode};
 use prelude::{Executable, SignedTransaction, TransactionQueryOutput};
 use serde::{Deserialize, Serialize};
@@ -56,11 +56,11 @@ pub mod block;
 pub mod domain;
 pub mod events;
 pub mod executor;
+pub mod integer;
 pub mod ipfs;
 pub mod isi;
 pub mod metadata;
 pub mod name;
-pub mod numeric;
 pub mod peer;
 pub mod permission;
 #[cfg(feature = "http")]
@@ -73,6 +73,8 @@ pub mod trigger;
 pub mod visit;
 
 mod seal {
+    use iroha_primitives::numeric::Numeric;
+
     use crate::prelude::*;
 
     pub trait Sealed {}
@@ -115,22 +117,16 @@ mod seal {
 
         Mint<PublicKey, Account>,
         Mint<SignatureCheckCondition, Account>,
-        Mint<u32, Asset>,
-        Mint<u128, Asset>,
-        Mint<Fixed, Asset>,
+        Mint<Numeric, Asset>,
         Mint<u32, Trigger<TriggeringFilterBox> >,
 
         Burn<PublicKey, Account>,
-        Burn<u32, Asset>,
-        Burn<u128, Asset>,
-        Burn<Fixed, Asset>,
+        Burn<Numeric, Asset>,
         Burn<u32, Trigger<TriggeringFilterBox> >,
 
         Transfer<Account, DomainId, Account>,
         Transfer<Account, AssetDefinitionId, Account>,
-        Transfer<Asset, u32, Account>,
-        Transfer<Asset, u128, Account>,
-        Transfer<Asset, Fixed, Account>,
+        Transfer<Asset, Numeric, Account>,
         Transfer<Asset, Metadata, Account>,
 
         Grant<PermissionToken>,
@@ -431,7 +427,7 @@ pub mod parameter {
                         let val = val_candidate.parse::<u64>().map_err(|_| ParseError {
                             reason: "Failed to parse the `val` part of the `Parameter` as `u64`.",
                         })?;
-                        Ok(Self::new(param_id, Value::Numeric(NumericValue::from(val))))
+                        Ok(Self::new(param_id, Value::Integer(Integer::U64(val))))
                     }
                 } else {
                     Err(ParseError {
@@ -561,7 +557,7 @@ pub mod parameter {
                 ),
                 Parameter::new(
                     ParameterId::from_str("Int").expect("Failed to parse `ParameterId`"),
-                    Value::Numeric(NumericValue::U64(42)),
+                    Value::Numeric(Numeric::new(42, 0)),
                 ),
             ];
 
@@ -810,7 +806,11 @@ pub mod model {
         Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
         #[serde_partially_tagged(untagged)]
         #[debug(fmt = "{_0:?}")]
-        Numeric(NumericValue),
+        Numeric(Numeric),
+        // Workaround to allow integer values in parameter
+        #[serde_partially_tagged(untagged)]
+        #[debug(fmt = "{_0:?}")]
+        Integer(Integer),
         Executor(executor::Executor),
         LogLevel(Level),
     }
@@ -1231,6 +1231,7 @@ impl fmt::Display for Value {
             Value::Ipv4Addr(v) => fmt::Display::fmt(&v, f),
             Value::Ipv6Addr(v) => fmt::Display::fmt(&v, f),
             Value::Numeric(v) => fmt::Display::fmt(&v, f),
+            Value::Integer(v) => fmt::Display::fmt(&v, f),
             Value::MetadataLimits(v) => fmt::Display::fmt(&v, f),
             Value::TransactionLimits(v) => fmt::Display::fmt(&v, f),
             Value::LengthLimits(v) => fmt::Display::fmt(&v, f),
@@ -1265,6 +1266,7 @@ impl Value {
             | TransactionLimits(_)
             | LengthLimits(_)
             | Numeric(_)
+            | Integer(_)
             | Executor(_)
             | LogLevel(_)
             | SignatureCheckCondition(_) => 1_usize,
@@ -1388,14 +1390,14 @@ macro_rules! from_and_try_from_and_try_as_value_hash {
     };
 }
 
-macro_rules! from_and_try_from_and_try_as_value_numeric {
+macro_rules! from_and_try_from_and_try_as_value_integer {
     ( $( $variant:ident($ty:ty),)+ $(,)? ) => { $(
         impl TryFrom<Value> for $ty {
             type Error = ErrorTryFromEnum<Value, Self>;
 
             #[inline]
             fn try_from(value: Value) -> Result<Self, Self::Error> {
-                if let Value::Numeric(NumericValue::$variant(value)) = value {
+                if let Value::Integer(Integer::$variant(value)) = value {
                     Ok(value)
                 } else {
                     Err(Self::Error::default())
@@ -1406,16 +1408,16 @@ macro_rules! from_and_try_from_and_try_as_value_numeric {
         impl From<$ty> for Value {
             #[inline]
             fn from(value: $ty) -> Self {
-                Value::Numeric(NumericValue::$variant(value))
+                Value::Integer(Integer::$variant(value))
             }
         }
 
-        impl TryAsMut<$ty> for NumericValue {
-            type Error = crate::EnumTryAsError<$ty, NumericValue>;
+        impl TryAsMut<$ty> for Integer {
+            type Error = crate::EnumTryAsError<$ty, Integer>;
 
             #[inline]
             fn try_as_mut(&mut self) -> Result<&mut $ty, Self::Error> {
-                if let NumericValue:: $variant (value) = self {
+                if let Integer:: $variant (value) = self {
                     Ok(value)
                 } else {
                     Err(crate::EnumTryAsError::got(*self))
@@ -1423,12 +1425,12 @@ macro_rules! from_and_try_from_and_try_as_value_numeric {
             }
         }
 
-        impl TryAsRef<$ty> for NumericValue {
-            type Error = crate::EnumTryAsError<$ty, NumericValue>;
+        impl TryAsRef<$ty> for Integer {
+            type Error = crate::EnumTryAsError<$ty, Integer>;
 
             #[inline]
             fn try_as_ref(&self) -> Result<& $ty, Self::Error> {
-                if let NumericValue:: $variant (value) = self {
+                if let Integer:: $variant (value) = self {
                     Ok(value)
                 } else {
                     Err(crate::EnumTryAsError::got(*self))
@@ -1471,11 +1473,10 @@ from_and_try_from_and_try_as_value_hash! {
     Block(HashOf<SignedBlock>),
 }
 
-from_and_try_from_and_try_as_value_numeric! {
+from_and_try_from_and_try_as_value_integer! {
     U32(u32),
     U64(u64),
     U128(u128),
-    Fixed(fixed::Fixed),
 }
 
 impl TryFrom<Value> for RegistrableBox {
@@ -1592,16 +1593,6 @@ where
                 .map_err(|_e| Self::Error::default());
         }
         Err(Self::Error::default())
-    }
-}
-
-impl TryFrom<f64> for Value {
-    type Error = <f64 as TryInto<fixed::Fixed>>::Error;
-    fn try_from(value: f64) -> Result<Self, Self::Error> {
-        value
-            .try_into()
-            .map(NumericValue::Fixed)
-            .map(Value::Numeric)
     }
 }
 
@@ -1993,7 +1984,10 @@ mod ffi {
 pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
     pub use iroha_crypto::PublicKey;
-    pub use iroha_primitives::fixed::Fixed;
+    pub use iroha_primitives::{
+        fixed::Fixed,
+        numeric::{Numeric, NumericSpec},
+    };
 
     #[cfg(feature = "std")]
     pub use super::current_time;
@@ -2002,8 +1996,8 @@ pub mod prelude {
         executor::prelude::*, isi::prelude::*, metadata::prelude::*, name::prelude::*,
         parameter::prelude::*, peer::prelude::*, permission::prelude::*, query::prelude::*,
         role::prelude::*, transaction::prelude::*, trigger::prelude::*, ChainId, EnumTryAsError,
-        HasMetadata, IdBox, Identifiable, IdentifiableBox, LengthLimits, NumericValue,
-        PredicateTrait, RegistrableBox, ToValue, TryAsMut, TryAsRef, TryToValue, UpgradableBox,
-        ValidationFail, Value,
+        HasMetadata, IdBox, Identifiable, IdentifiableBox, Integer, LengthLimits, PredicateTrait,
+        RegistrableBox, ToValue, TryAsMut, TryAsRef, TryToValue, UpgradableBox, ValidationFail,
+        Value,
     };
 }

@@ -61,7 +61,7 @@ Check the [Bash guide in Iroha Tutorial](https://hyperledger.github.io/iroha-2-d
 ```bash
 ./iroha_client_cli domain register --id="Soramitsu"
 ./iroha_client_cli account register --id="White Rabbit@Soramitsu" --key=""
-./iroha_client_cli asset register --id="XOR#Soramitsu" --value-type=Quantity
+./iroha_client_cli asset register --id="XOR#Soramitsu" --value-type=Numeric
 ./iroha_client_cli asset mint --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
 ./iroha_client_cli asset get --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu"
 ```
@@ -106,7 +106,7 @@ To do so, you must first register an Asset Definition and only then add some Ass
 Every asset has its own value type. In this example, it is defined as `Quantity`, a 32-bit unsigned integer. We also support `BigQuantity` and `Fixed`, which are a 128-bit unsigned integer and a 64-bit fixed-precision binary fraction, as well as `Store` for key-value structured data.
 
 ```bash
-./iroha_client_cli asset register --id="XOR#Soramitsu" --value-type=Quantity
+./iroha_client_cli asset register --id="XOR#Soramitsu" --value-type=Numeric
 ./iroha_client_cli asset mint --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010
 ```
 

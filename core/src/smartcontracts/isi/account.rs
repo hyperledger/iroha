@@ -25,13 +25,16 @@ impl Registrable for iroha_data_model::account::NewAccount {
 /// - Revoke permissions or roles
 pub mod isi {
     use iroha_data_model::{
+        asset::{AssetValue, AssetValueType},
         isi::{
             error::{MintabilityError, RepetitionError},
             InstructionType,
         },
         query::error::QueryExecutionFail,
     };
+    use iroha_primitives::numeric::Numeric;
 
+    use self::asset::isi::assert_numeric_spec;
     use super::*;
     use crate::role::{AsRoleIdWithOwnerRef, RoleIdWithOwner, RoleIdWithOwnerRef};
 
@@ -49,26 +52,17 @@ pub mod isi {
                             .expect("Account exists");
 
                         match asset.value {
-                            AssetValue::Quantity(increment) => {
-                                wsv.increase_asset_total_amount(
-                                    &asset_id.definition_id,
-                                    increment,
-                                )?;
-                            }
-                            AssetValue::BigQuantity(increment) => {
-                                wsv.increase_asset_total_amount(
-                                    &asset_id.definition_id,
-                                    increment,
-                                )?;
-                            }
-                            AssetValue::Fixed(increment) => {
+                            AssetValue::Numeric(increment) => {
                                 wsv.increase_asset_total_amount(
                                     &asset_id.definition_id,
                                     increment,
                                 )?;
                             }
                             AssetValue::Store(_) => {
-                                wsv.increase_asset_total_amount(&asset_id.definition_id, 1_u32)?;
+                                wsv.increase_asset_total_amount(
+                                    &asset_id.definition_id,
+                                    Numeric::ONE,
+                                )?;
                             }
                         }
                         Ok(())
@@ -97,17 +91,11 @@ pub mod isi {
             })?;
 
             match asset.value {
-                AssetValue::Quantity(increment) => {
-                    wsv.decrease_asset_total_amount(&asset.id.definition_id, increment)?;
-                }
-                AssetValue::BigQuantity(increment) => {
-                    wsv.decrease_asset_total_amount(&asset.id.definition_id, increment)?;
-                }
-                AssetValue::Fixed(increment) => {
+                AssetValue::Numeric(increment) => {
                     wsv.decrease_asset_total_amount(&asset.id.definition_id, increment)?;
                 }
                 AssetValue::Store(_) => {
-                    wsv.decrease_asset_total_amount(&asset.id.definition_id, 1_u32)?;
+                    wsv.decrease_asset_total_amount(&asset.id.definition_id, Numeric::ONE)?;
                 }
             }
 
@@ -434,7 +422,16 @@ pub mod isi {
         wsv: &mut WorldStateView,
         value: &AssetValue,
     ) -> Result<(), Error> {
-        let definition = asset::isi::assert_asset_type(definition_id, wsv, value.value_type())?;
+        let expected_asset_value_type = match value.value_type() {
+            AssetValueType::Numeric(_) => asset::isi::expected_asset_value_type_numeric,
+            AssetValueType::Store => asset::isi::expected_asset_value_type_store,
+        };
+        let definition =
+            asset::isi::assert_asset_type(definition_id, wsv, expected_asset_value_type)?;
+        if let AssetValue::Numeric(numeric) = value {
+            assert_numeric_spec(numeric, &definition)?;
+        }
+
         match definition.mintable {
             Mintable::Infinitely => Ok(()),
             Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
@@ -474,7 +471,7 @@ pub mod isi {
         #[test]
         fn cannot_forbid_minting_on_asset_mintable_infinitely() -> Result<(), ParseError> {
             let authority = "alice@wonderland".parse()?;
-            let mut definition = AssetDefinition::quantity("test#hello".parse()?).build(&authority);
+            let mut definition = AssetDefinition::numeric("test#hello".parse()?).build(&authority);
             assert!(super::forbid_minting(&mut definition).is_err());
             Ok(())
         }

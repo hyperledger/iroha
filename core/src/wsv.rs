@@ -20,7 +20,7 @@ use iroha_data_model::{
     query::error::{FindError, QueryExecutionFail},
 };
 use iroha_logger::prelude::*;
-use iroha_primitives::small::SmallVec;
+use iroha_primitives::{numeric::Numeric, small::SmallVec};
 use parking_lot::Mutex;
 use range_bounds::RoleIdByAccountBounds;
 use serde::{
@@ -1105,7 +1105,7 @@ impl WorldStateView {
     pub fn asset_total_amount(
         &self,
         definition_id: &AssetDefinitionId,
-    ) -> Result<NumericValue, FindError> {
+    ) -> Result<Numeric, FindError> {
         self.domain(&definition_id.domain_id)?
             .asset_total_quantities
             .get(definition_id)
@@ -1118,23 +1118,15 @@ impl WorldStateView {
     /// # Errors
     /// - [`AssetDefinition`], [`Domain`] not found
     /// - Overflow
-    pub fn increase_asset_total_amount<I>(
+    pub fn increase_asset_total_amount(
         &mut self,
         definition_id: &AssetDefinitionId,
-        increment: I,
-    ) -> Result<(), Error>
-    where
-        I: iroha_primitives::CheckedOp + Copy,
-        NumericValue: From<I> + TryAsMut<I>,
-        eyre::Error: From<<NumericValue as TryAsMut<I>>::Error>,
-    {
+        increment: Numeric,
+    ) -> Result<(), Error> {
         let domain = self.domain_mut(&definition_id.domain_id)?;
-        let asset_total_amount: &mut I = domain
+        let asset_total_amount: &mut Numeric = domain
             .asset_total_quantities.get_mut(definition_id)
-            .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount")
-            .try_as_mut()
-            .map_err(eyre::Error::from)
-            .map_err(|e| Error::Conversion(e.to_string()))?;
+            .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount");
         *asset_total_amount = asset_total_amount
             .checked_add(increment)
             .ok_or(MathError::Overflow)?;
@@ -1144,7 +1136,7 @@ impl WorldStateView {
             Some(DomainEvent::AssetDefinition(
                 AssetDefinitionEvent::TotalQuantityChanged(AssetDefinitionTotalQuantityChanged {
                     asset_definition_id: definition_id.clone(),
-                    total_amount: NumericValue::from(asset_total_amount),
+                    total_amount: asset_total_amount,
                 }),
             ))
         });
@@ -1157,23 +1149,15 @@ impl WorldStateView {
     /// # Errors
     /// - [`AssetDefinition`], [`Domain`] not found
     /// - Not enough quantity
-    pub fn decrease_asset_total_amount<I>(
+    pub fn decrease_asset_total_amount(
         &mut self,
         definition_id: &AssetDefinitionId,
-        decrement: I,
-    ) -> Result<(), Error>
-    where
-        I: iroha_primitives::CheckedOp + Copy,
-        NumericValue: From<I> + TryAsMut<I>,
-        eyre::Error: From<<NumericValue as TryAsMut<I>>::Error>,
-    {
+        decrement: Numeric,
+    ) -> Result<(), Error> {
         let domain = self.domain_mut(&definition_id.domain_id)?;
-        let asset_total_amount: &mut I = domain
+        let asset_total_amount: &mut Numeric = domain
             .asset_total_quantities.get_mut(definition_id)
-            .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount")
-            .try_as_mut()
-            .map_err(eyre::Error::from)
-            .map_err(|e| Error::Conversion(e.to_string()))?;
+            .expect("Asset total amount not being found is a bug: check `Register<AssetDefinition>` to insert initial total amount");
         *asset_total_amount = asset_total_amount
             .checked_sub(decrement)
             .ok_or(MathError::NotEnoughQuantity)?;
@@ -1183,7 +1167,7 @@ impl WorldStateView {
             Some(DomainEvent::AssetDefinition(
                 AssetDefinitionEvent::TotalQuantityChanged(AssetDefinitionTotalQuantityChanged {
                     asset_definition_id: definition_id.clone(),
-                    total_amount: NumericValue::from(asset_total_amount),
+                    total_amount: asset_total_amount,
                 }),
             ))
         });

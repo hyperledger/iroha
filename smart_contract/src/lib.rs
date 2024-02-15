@@ -485,14 +485,14 @@ mod tests {
     }
 
     const QUERY_RESULT: Result<QueryOutputCursor<Value>, ValidationFail> = Ok(QueryOutputCursor {
-        batch: Value::Numeric(NumericValue::U32(1234_u32)),
+        batch: Value::Numeric(Numeric::new(1234, 0)),
         cursor: ForwardCursor::new(None, None),
     });
     const ISI_RESULT: Result<(), ValidationFail> = Ok(());
 
     fn get_test_instruction() -> InstructionBox {
         let new_asset_id = "tulip##alice@wonderland".parse().unwrap();
-        let register_isi = Register::asset(Asset::new(new_asset_id, 1_u32));
+        let register_isi = Register::asset(Asset::new(new_asset_id, Numeric::new(1, 0)));
 
         register_isi.into()
     }

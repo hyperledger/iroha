@@ -42,7 +42,7 @@ fn build_test_transaction(keys: &KeyPair, chain_id: ChainId) -> SignedTransactio
         domain_name.parse().expect("Valid"),
     );
     let create_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id)).into();
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id)).into();
     let instructions = [create_domain, create_account, create_asset];
 
     TransactionBuilder::new(

@@ -1232,10 +1232,10 @@ mod tests {
         kura.store_block(genesis);
 
         // Making two transactions that have the same instruction
-        let create_asset_definition1 = Register::asset_definition(AssetDefinition::quantity(
+        let create_asset_definition1 = Register::asset_definition(AssetDefinition::numeric(
             "xor1#wonderland".parse().expect("Valid"),
         ));
-        let create_asset_definition2 = Register::asset_definition(AssetDefinition::quantity(
+        let create_asset_definition2 = Register::asset_definition(AssetDefinition::numeric(
             "xor2#wonderland".parse().expect("Valid"),
         ));
 

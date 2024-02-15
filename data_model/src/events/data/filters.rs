@@ -202,6 +202,8 @@ mod tests {
     #[test]
     #[cfg(feature = "transparent_api")]
     fn entity_scope() {
+        use iroha_primitives::numeric::Numeric;
+
         let domain_name = "wonderland".parse().expect("Valid");
         let account_name = "alice".parse().expect("Valid");
         let asset_name = "rose".parse().expect("Valid");
@@ -227,7 +229,7 @@ mod tests {
             AssetDefinitionId::new(domain_id.clone(), asset_name),
             account_id.clone(),
         );
-        let asset = Asset::new(asset_id.clone(), 0u32);
+        let asset = Asset::new(asset_id.clone(), Numeric::ZERO);
 
         // Create three events with three levels of nesting
         // the first one is just a domain event

@@ -19,7 +19,7 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
     let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
     let create_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let key_pair = KeyPair::generate();
     let add_signatory = Mint::account_public_key(key_pair.public_key().clone(), account_id.clone());
 
@@ -27,8 +27,8 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
     client.submit_all(instructions)?;
     thread::sleep(pipeline_time * 2);
     //When
-    let quantity: u32 = 200;
-    let mint_asset = Mint::asset_quantity(
+    let quantity = Numeric::new(200, 0);
+    let mint_asset = Mint::asset_numeric(
         quantity,
         AssetId::new(asset_definition_id.clone(), account_id.clone()),
     );
@@ -40,7 +40,7 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
 
             assets.iter().any(|asset| {
                 asset.id().definition_id == asset_definition_id
-                    && *asset.value() == AssetValue::Quantity(quantity)
+                    && *asset.value() == AssetValue::Numeric(quantity)
             })
         },
     )?;

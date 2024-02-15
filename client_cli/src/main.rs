@@ -59,7 +59,7 @@ impl MetadataArgs {
 pub struct ValueArg {
     /// Wrapper around Value to accept possible values and fallback to json.
     /// The following types are supported:
-    /// Numbers: with a suffix, e.g. 42_u32 or 1000_u128
+    /// Numbers: decimal with optional point
     /// Booleans: false/true
     /// IPv4/IPv6: e.g. 127.0.0.1, ::1
     /// Iroha Public Key Multihash: e.g. ed01207233BFC89DCBD68C19FDE6CE6158225298EC1131B6A130D1AEB454C1AB5183C0
@@ -76,7 +76,7 @@ impl FromStr for ValueArg {
             .map(Value::Bool)
             .or_else(|_| s.parse::<Ipv4Addr>().map(Value::Ipv4Addr))
             .or_else(|_| s.parse::<Ipv6Addr>().map(Value::Ipv6Addr))
-            .or_else(|_| s.parse::<NumericValue>().map(Value::Numeric))
+            .or_else(|_| s.parse::<Numeric>().map(Value::Numeric))
             .or_else(|_| s.parse::<PublicKey>().map(Value::PublicKey))
             .or_else(|_| serde_json::from_str::<Value>(s).map_err(Into::into))
             .map(|value| ValueArg { value })
@@ -755,12 +755,7 @@ mod asset {
                 unmintable,
                 metadata,
             } = self;
-            let mut asset_definition = match value_type {
-                AssetValueType::Quantity => AssetDefinition::quantity(definition_id),
-                AssetValueType::BigQuantity => AssetDefinition::big_quantity(definition_id),
-                AssetValueType::Fixed => AssetDefinition::fixed(definition_id),
-                AssetValueType::Store => AssetDefinition::store(definition_id),
-            };
+            let mut asset_definition = AssetDefinition::new(definition_id, value_type);
             if unmintable {
                 asset_definition = asset_definition.mintable_once();
             }
@@ -779,7 +774,7 @@ mod asset {
         pub asset_id: AssetId,
         /// Quantity to mint
         #[arg(short, long)]
-        pub quantity: u32,
+        pub quantity: Numeric,
         #[command(flatten)]
         pub metadata: MetadataArgs,
     }
@@ -791,8 +786,7 @@ mod asset {
                 quantity,
                 metadata,
             } = self;
-            let mint_asset =
-                iroha_client::data_model::isi::Mint::asset_quantity(quantity, asset_id);
+            let mint_asset = iroha_client::data_model::isi::Mint::asset_numeric(quantity, asset_id);
             submit([mint_asset], metadata.load()?, context)
                 .wrap_err("Failed to mint asset of type `NumericValue::U32`")
         }
@@ -806,7 +800,7 @@ mod asset {
         pub asset_id: AssetId,
         /// Quantity to mint
         #[arg(short, long)]
-        pub quantity: u32,
+        pub quantity: Numeric,
         #[command(flatten)]
         pub metadata: MetadataArgs,
     }
@@ -818,8 +812,7 @@ mod asset {
                 quantity,
                 metadata,
             } = self;
-            let burn_asset =
-                iroha_client::data_model::isi::Burn::asset_quantity(quantity, asset_id);
+            let burn_asset = iroha_client::data_model::isi::Burn::asset_numeric(quantity, asset_id);
             submit([burn_asset], metadata.load()?, context)
                 .wrap_err("Failed to burn asset of type `NumericValue::U32`")
         }
@@ -836,7 +829,7 @@ mod asset {
         pub asset_id: AssetId,
         /// Quantity of asset as number
         #[arg(short, long)]
-        pub quantity: u32,
+        pub quantity: Numeric,
         #[command(flatten)]
         pub metadata: MetadataArgs,
     }
@@ -850,7 +843,7 @@ mod asset {
                 metadata,
             } = self;
             let transfer_asset =
-                iroha_client::data_model::isi::Transfer::asset_quantity(asset_id, quantity, to);
+                iroha_client::data_model::isi::Transfer::asset_numeric(asset_id, quantity, to);
             submit([transfer_asset], metadata.load()?, context).wrap_err("Failed to transfer asset")
         }
     }
@@ -1138,12 +1131,8 @@ mod tests {
         case!("false", Value::Bool(false));
 
         // Numeric values
-        case!("123_u32", Value::Numeric(NumericValue::U32(123)));
-        case!("123_u64", Value::Numeric(NumericValue::U64(123)));
-        case!("123_u128", Value::Numeric(NumericValue::U128(123)));
-
-        let expected_fixed = NumericValue::Fixed(123.0.try_into().unwrap());
-        case!("123.0_fx", Value::Numeric(expected_fixed));
+        case!("123", Value::Numeric(Numeric::new(123, 0)));
+        case!("123.0", Value::Numeric(Numeric::new(1230, 1)));
 
         // Public Key
         let public_key_str =

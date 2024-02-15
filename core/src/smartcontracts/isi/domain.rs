@@ -105,21 +105,7 @@ pub mod isi {
                 .into());
             }
 
-            #[allow(clippy::match_same_arms)]
-            match asset_definition.value_type {
-                AssetValueType::Fixed => {
-                    domain.add_asset_total_quantity(asset_definition_id, Fixed::ZERO);
-                }
-                AssetValueType::Quantity => {
-                    domain.add_asset_total_quantity(asset_definition_id, u32::MIN);
-                }
-                AssetValueType::BigQuantity => {
-                    domain.add_asset_total_quantity(asset_definition_id, u128::MIN);
-                }
-                AssetValueType::Store => {
-                    domain.add_asset_total_quantity(asset_definition_id, u32::MIN);
-                }
-            }
+            domain.add_asset_total_quantity(asset_definition_id, Numeric::ZERO);
 
             domain.add_asset_definition(asset_definition.clone());
 

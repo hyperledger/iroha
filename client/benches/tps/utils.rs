@@ -161,7 +161,7 @@ impl MeasurerUnit {
         let register_me = Register::account(Account::new(account_id, keypair.public_key().clone()));
         self.client.submit_blocking(register_me)?;
 
-        let mint_a_rose = Mint::asset_quantity(1_u32, asset_id);
+        let mint_a_rose = Mint::asset_numeric(Numeric::new(1, 0), asset_id);
         self.client.submit_blocking(mint_a_rose)?;
 
         Ok(self)
@@ -238,7 +238,7 @@ impl MeasurerUnit {
     }
 
     fn mint(&self) -> InstructionBox {
-        Mint::asset_quantity(1_u32, asset_id(self.name)).into()
+        Mint::asset_numeric(Numeric::new(1, 0), asset_id(self.name)).into()
     }
 }
 

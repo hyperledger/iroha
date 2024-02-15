@@ -74,7 +74,7 @@ fn permissions_disallow_asset_transfer() {
     let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
     let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
     let create_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let mouse_keypair = KeyPair::generate();
 
     let alice_start_assets = get_assets(&iroha_client, &alice_id);
@@ -82,8 +82,8 @@ fn permissions_disallow_asset_transfer() {
         .submit_blocking(create_asset)
         .expect("Failed to prepare state.");
 
-    let quantity: u32 = 200;
-    let mint_asset = Mint::asset_quantity(
+    let quantity = Numeric::new(200, 0);
+    let mint_asset = Mint::asset_numeric(
         quantity,
         AssetId::new(asset_definition_id.clone(), bob_id.clone()),
     );
@@ -92,7 +92,7 @@ fn permissions_disallow_asset_transfer() {
         .expect("Failed to create asset.");
 
     //When
-    let transfer_asset = Transfer::asset_quantity(
+    let transfer_asset = Transfer::asset_numeric(
         AssetId::new(asset_definition_id, bob_id),
         quantity,
         alice_id.clone(),
@@ -129,7 +129,7 @@ fn permissions_disallow_asset_burn() {
     let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let mouse_keypair = KeyPair::generate();
 
     let alice_start_assets = get_assets(&iroha_client, &alice_id);
@@ -138,13 +138,13 @@ fn permissions_disallow_asset_burn() {
         .submit_blocking(create_asset)
         .expect("Failed to prepare state.");
 
-    let quantity: u32 = 200;
+    let quantity = Numeric::new(200, 0);
     let mint_asset =
-        Mint::asset_quantity(quantity, AssetId::new(asset_definition_id.clone(), bob_id));
+        Mint::asset_numeric(quantity, AssetId::new(asset_definition_id.clone(), bob_id));
     iroha_client
         .submit_blocking(mint_asset)
         .expect("Failed to create asset.");
-    let burn_asset = Burn::asset_quantity(
+    let burn_asset = Burn::asset_numeric(
         quantity,
         AssetId::new(asset_definition_id, mouse_id.clone()),
     );

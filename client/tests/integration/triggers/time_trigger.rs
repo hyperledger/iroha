@@ -45,7 +45,7 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     let schedule = TimeSchedule::starting_at(start_time).with_period(PERIOD);
-    let instruction = Mint::asset_quantity(1_u32, asset_id.clone());
+    let instruction = Mint::asset_numeric(Numeric::new(1, 0), asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
@@ -70,10 +70,16 @@ fn time_trigger_execution_count_error_should_be_less_than_15_percent() -> Result
     let average_count = finish_time.saturating_sub(start_time).as_millis() / PERIOD.as_millis();
 
     let actual_value = get_asset_value(&mut test_client, asset_id)?;
-    let expected_value = prev_value + u32::try_from(average_count)?;
-    let acceptable_error = expected_value as f32 * (f32::from(ACCEPTABLE_ERROR_PERCENT) / 100.0);
-    let error = (core::cmp::max(actual_value, expected_value)
-        - core::cmp::min(actual_value, expected_value)) as f32;
+    let expected_value = prev_value
+        .checked_add(Numeric::new(average_count, 0))
+        .unwrap();
+    let acceptable_error =
+        f64::from(expected_value) * (f64::from(ACCEPTABLE_ERROR_PERCENT) / 100.0);
+    let error = f64::from(
+        core::cmp::max(actual_value, expected_value)
+            .checked_sub(core::cmp::min(actual_value, expected_value))
+            .unwrap(),
+    );
     assert!(
         error < acceptable_error,
         "error = {error}, but acceptable error = {acceptable_error}"
@@ -118,13 +124,13 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
         usize::try_from(PERIOD.as_millis() / DEFAULT_CONSENSUS_ESTIMATION.as_millis() + 1)?,
     )?;
 
-    let value = test_client
+    let value: Value = test_client
         .request(FindAssetDefinitionKeyValueByIdAndKey {
             id: asset_definition_id,
             key,
         })?
         .into();
-    assert!(matches!(value, Value::Numeric(NumericValue::U32(3_u32))));
+    assert_eq!(value, 3u32.to_value());
 
     Ok(())
 }
@@ -145,7 +151,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     // Start listening BEFORE submitting any transaction not to miss any block committed event
     let event_listener = get_block_committed_event_listener(&test_client)?;
 
-    let instruction = Mint::asset_quantity(1_u32, asset_id.clone());
+    let instruction = Mint::asset_numeric(Numeric::new(1, 0), asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
@@ -159,7 +165,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
 
     for _ in event_listener.take(CHECKS_COUNT) {
         let new_value = get_asset_value(&mut test_client, asset_id.clone())?;
-        assert_eq!(new_value, prev_value + 1);
+        assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
         prev_value = new_value;
 
         // ISI just to create a new block
@@ -280,9 +286,9 @@ fn get_block_committed_event_listener(
 }
 
 /// Get asset numeric value
-fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
+fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<Numeric> {
     let asset = client.request(client::asset::by_id(asset_id))?;
-    Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
+    Ok(*TryAsRef::<Numeric>::try_as_ref(asset.value())?)
 }
 
 /// Submit some sample ISIs to create new blocks

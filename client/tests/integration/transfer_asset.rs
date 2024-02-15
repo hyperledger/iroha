@@ -11,66 +11,25 @@ use iroha_data_model::{
     isi::InstructionBox,
     name::Name,
 };
-use iroha_primitives::fixed::Fixed;
 use test_network::*;
 
 #[test]
 // This test suite is also covered at the UI level in the iroha_client_cli tests
 // in test_tranfer_assets.py
-fn simulate_transfer_quantity() {
+fn simulate_transfer_numeric() {
     simulate_transfer(
-        200_u32,
-        &20_u32,
-        AssetDefinition::quantity,
-        Mint::asset_quantity,
-        Transfer::asset_quantity,
+        Numeric::new(200, 0),
+        &Numeric::new(20, 0),
+        AssetDefinition::numeric,
+        Mint::asset_numeric,
+        Transfer::asset_numeric,
         10_710,
     )
 }
 
 #[test]
-fn simulate_transfer_big_quantity() {
-    simulate_transfer(
-        200_u128,
-        &20_u128,
-        AssetDefinition::big_quantity,
-        Mint::asset_big_quantity,
-        Transfer::asset_big_quantity,
-        10_785,
-    )
-}
-
-#[test]
-fn simulate_transfer_fixed() {
-    simulate_transfer(
-        Fixed::try_from(200_f64).unwrap(),
-        &Fixed::try_from(20_f64).unwrap(),
-        AssetDefinition::fixed,
-        Mint::asset_fixed,
-        Transfer::asset_fixed,
-        10_790,
-    )
-}
-
-#[test]
-#[ignore = "long"]
-#[should_panic(expected = "insufficient funds")]
-// This test is also covered at the UI level in the iroha_client_cli tests
-// in test_tranfer_assets.py
-fn simulate_insufficient_funds() {
-    simulate_transfer(
-        Fixed::try_from(20_f64).unwrap(),
-        &Fixed::try_from(200_f64).unwrap(),
-        AssetDefinition::fixed,
-        Mint::asset_fixed,
-        Transfer::asset_fixed,
-        10_800,
-    )
-}
-
-#[test]
 fn simulate_transfer_store_asset() {
-    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_805).start_with_runtime();
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(11_145).start_with_runtime();
     wait_for_genesis_committed(&[iroha_client.clone()], 0);
     let (alice_id, mouse_id) = generate_two_ids();
     let create_mouse = create_mouse(mouse_id.clone());

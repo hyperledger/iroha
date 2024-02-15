@@ -1,7 +1,7 @@
 //! Arbitrary precision numeric type for iroha assets
 
 #[cfg(not(feature = "std"))]
-use alloc::{string::ToString, vec, vec::Vec, string::String, format};
+use alloc::{format, string::String, string::ToString, vec, vec::Vec};
 use core::str::FromStr;
 
 use parity_scale_codec::{Decode, Encode};
@@ -228,6 +228,24 @@ impl NumericSpec {
         }
 
         Ok(())
+    }
+
+    /// Create [`NumericSpec`] which accepts any numeric value
+    #[inline]
+    pub const fn unconstrained() -> Self {
+        NumericSpec { scale: None }
+    }
+
+    /// Create [`NumericSpec`] which accepts only integer values
+    #[inline]
+    pub const fn integer() -> Self {
+        Self { scale: Some(0) }
+    }
+
+    /// Create [`NumericSpec`] which accepts numeric values with scale up to given decimal places
+    #[inline]
+    pub const fn fractional(scale: u32) -> Self {
+        Self { scale: Some(scale) }
     }
 }
 

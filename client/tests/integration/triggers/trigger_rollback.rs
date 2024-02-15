@@ -17,7 +17,7 @@ fn failed_trigger_revert() -> Result<()> {
     let account_id = AccountId::from_str("alice@wonderland")?;
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland")?;
     let create_asset =
-        Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
+        Register::asset_definition(AssetDefinition::numeric(asset_definition_id.clone()));
     let instructions: [InstructionBox; 2] = [
         create_asset.into(),
         Fail::new("Always fail".to_owned()).into(),

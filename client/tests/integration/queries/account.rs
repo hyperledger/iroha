@@ -16,7 +16,7 @@ fn find_accounts_with_asset() -> Result<()> {
 
     // Registering new asset definition
     let definition_id = AssetDefinitionId::from_str("test_coin#wonderland").expect("Valid");
-    let asset_definition = AssetDefinition::quantity(definition_id.clone());
+    let asset_definition = AssetDefinition::numeric(definition_id.clone());
     test_client.submit_blocking(Register::asset_definition(asset_definition.clone()))?;
 
     // Checking results before all
@@ -24,10 +24,10 @@ fn find_accounts_with_asset() -> Result<()> {
         test_client.request(client::asset::definition_by_id(definition_id.clone()))?;
 
     assert_eq!(received_asset_definition.id(), asset_definition.id());
-    assert_eq!(
+    assert!(matches!(
         received_asset_definition.value_type(),
-        AssetValueType::Quantity
-    );
+        AssetValueType::Numeric(_)
+    ));
 
     let accounts: [AccountId; 5] = [
         "alice@wonderland".parse().expect("Valid"),
@@ -50,7 +50,7 @@ fn find_accounts_with_asset() -> Result<()> {
         .iter()
         .cloned()
         .map(|account_id| AssetId::new(definition_id.clone(), account_id))
-        .map(|asset_id| Mint::asset_quantity(1_u32, asset_id))
+        .map(|asset_id| Mint::asset_numeric(Numeric::new(1, 0), asset_id))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(mint_asset)?;
 
@@ -63,7 +63,7 @@ fn find_accounts_with_asset() -> Result<()> {
     assert_eq!(received_asset_definition.id(), asset_definition.id());
     assert_eq!(
         received_asset_definition.value_type(),
-        AssetValueType::Quantity
+        AssetValueType::Numeric(NumericSpec::default()),
     );
 
     let found_accounts = test_client
