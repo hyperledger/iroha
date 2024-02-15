@@ -17,6 +17,7 @@ class AssetDefinition:
     :param value_type: The value type of the asset definition.
     :type value_type: str
     """
+
     name: str
     domain: str
     value_type: str
@@ -33,6 +34,7 @@ class AssetDefinition:
         """
         return f"{self.name}#{self.domain}"
 
+
 @dataclass
 class Asset:
     """
@@ -45,6 +47,7 @@ class Asset:
     :param value: The value of the asset.
     :type value: str
     """
+
     definition: AssetDefinition
     account: str
     value: str

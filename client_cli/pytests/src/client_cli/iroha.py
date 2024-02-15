@@ -14,7 +14,6 @@ class Iroha(ClientCli):
     for interacting with the Iroha network.
     """
 
-
     def _execute_command(self, command_name: str):
         """
         Execute a command by inserting the command_name into the command list and then executing it.
@@ -72,10 +71,13 @@ class Iroha(ClientCli):
         :return: List of accounts ids.
         :rtype: List[str]
         """
-        self._execute_command('account')
-        accounts = json.loads(self.stdout)
-        accounts = [account["id"] for account in accounts]
-        return accounts
+        self._execute_command("account")
+        if self.stdout is not None:
+            accounts = json.loads(self.stdout)
+            accounts = [account["id"] for account in accounts]
+            return accounts
+        else:
+            return []
 
     def assets(self) -> Dict[str, str]:
         """
@@ -85,10 +87,13 @@ class Iroha(ClientCli):
         :return:  Dictionary of assets.
         :rtype: Dict[str, Any]
         """
-        self._execute_command('asset')
-        assets = json.loads(self.stdout)
-        asset_dict = {asset["id"]: asset for asset in assets}
-        return asset_dict
+        self._execute_command("asset")
+        if self.stdout is not None:
+            assets = json.loads(self.stdout)
+            asset_dict = {asset["id"]: asset for asset in assets}
+            return asset_dict
+        else:
+            return {}
 
     def asset_definitions(self) -> Dict[str, str]:
         """
@@ -98,13 +103,16 @@ class Iroha(ClientCli):
         :return: Dict of asset definitions ids with there value type.
         :rtype: Dict[str, str]
         """
-        self._execute_command('domain')
-        domains = json.loads(self.stdout)
-        asset_definitions = {}
-        for domain in domains:
-            asset_defs = domain.get('asset_definitions')
-            for asset_def in asset_defs.values():
-                value_type = asset_def.get('value_type')
-                if value_type:
-                    asset_definitions[asset_def['id']] = value_type
-        return asset_definitions
+        self._execute_command("domain")
+        if self.stdout is not None:
+            domains = json.loads(self.stdout)
+            asset_definitions = {}
+            for domain in domains:
+                asset_defs = domain.get("asset_definitions")
+                for asset_def in asset_defs.values():
+                    value_type = asset_def.get("value_type")
+                    if value_type:
+                        asset_definitions[asset_def["id"]] = value_type
+            return asset_definitions
+        else:
+            return {}

@@ -18,11 +18,12 @@ pytest = "*"
 allure-pytest = "*"
 pytest-xdist = "*"
 mypy = "*"
-isort = "*"
+black = "*"
+flake8 = "*"
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^2.17.1"
-isort = "^5.12.0"
+isort = "^5.13.2"
 
 [build-system]
 requires = ["poetry-core"]

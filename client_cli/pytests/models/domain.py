@@ -1,6 +1,7 @@
 """
 This module contains the Domain class.
 """
+
 from dataclasses import dataclass
 
 
@@ -12,8 +13,8 @@ class Domain:
     :param name: The name of the domain.
     :type name: str
     """
-    name: str
 
+    name: str
 
     def get_name(self):
         """

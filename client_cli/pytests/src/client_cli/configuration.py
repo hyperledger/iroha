@@ -1,6 +1,7 @@
 """
 This module provides a Config class to manage Iroha network configuration.
 """
+
 import tomlkit
 import glob
 import json
@@ -20,6 +21,7 @@ class Config:
     :param port_max: The maximum port number for the TORII_API_URL.
     :type port_max: int
     """
+
     def __init__(self, port_min, port_max):
         self._config = None
         self.file = None
@@ -47,7 +49,8 @@ class Config:
         """
         if self._config is None:
             raise ValueError(
-                "No configuration loaded. Use load() method to load the configuration.")
+                "No configuration loaded. Use load() method to load the configuration."
+            )
 
         if self.port_min >= self.port_max:
             raise ValueError("port_min must be less than port_max.")
@@ -56,10 +59,10 @@ class Config:
 
         for port in range(self.port_min, self.port_max + 1):
             config_copy = self._config.copy()
-            config_copy['TORII_API_URL'] = f"http://localhost:{port}"
+            config_copy["TORII_API_URL"] = f"http://localhost:{port}"
             file_name = f"config_to_peer_{port}.json"
             file_path = os.path.join(peers_configs_dir, file_name)
-            with open(file_path, 'w', encoding='utf-8') as config_file:
+            with open(file_path, "w", encoding="utf-8") as config_file:
                 json.dump(config_copy, config_file, indent=4)
 
     def select_random_peer_config(self):
@@ -69,10 +72,11 @@ class Config:
 
         :return: None
         """
-        peers_configs = glob.glob('path/to/peers/configs/*.json')
+        peers_configs = glob.glob("path/to/peers/configs/*.json")
         if not peers_configs:
             raise ValueError(
-                "Peer configuration files not found. First generate them using generate_by_peers.")
+                "Peer configuration files not found. First generate them using generate_by_peers."
+            )
 
         chosen_config_file = random.choice(peers_configs)
 
@@ -130,7 +134,7 @@ class Config:
         :return: The account name.
         :rtype: str
         """
-        return self.account_id.split('@')[0]
+        return self.account_id.split("@")[0]
 
     @property
     def account_domain(self):
@@ -140,7 +144,7 @@ class Config:
         :return: The account domain.
         :rtype: str
         """
-        return self.account_id.split('@')[1]
+        return self.account_id.split("@")[1]
 
     @property
     def public_key(self):
