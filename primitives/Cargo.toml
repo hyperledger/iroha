@@ -42,6 +42,8 @@ smallstr = { version = "0.3.0", default-features = false, features = ["serde", "
 thiserror = { workspace = true, optional = true }
 displaydoc = { workspace = true }
 
+rust_decimal = { version = "1.34", default-features = false, features = ["serde", "serde-with-str", "c-repr"] }
+
 [dev-dependencies]
 serde_json = { workspace = true, features = ["alloc"] }
 trybuild = { workspace = true }
