@@ -19,6 +19,7 @@ pub mod const_vec;
 pub mod conststr;
 pub mod fixed;
 pub mod must_use;
+pub mod numeric;
 pub mod riffle_iter;
 pub mod small;
 pub mod unique_vec;
