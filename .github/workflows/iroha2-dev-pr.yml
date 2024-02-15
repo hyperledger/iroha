@@ -49,8 +49,8 @@ jobs:
       - name: Run tests, with coverage
         run: |
           mold --run cargo llvm-cov clean --workspace
-          mold --run cargo llvm-cov --doc --no-report --all-features --workspace --no-fail-fast
-          mold --run cargo llvm-cov --no-report --ignore-filename-regex main.rs --all-features --workspace --no-fail-fast
+          mold --run cargo llvm-cov --doc --no-report --all-features --workspace --no-fail-fast --ignore-filename-regex='(^client_cli/|main\.rs)'
+          mold --run cargo llvm-cov --no-report --ignore-filename-regex='(^client_cli/|main\.rs)' --all-features --workspace --no-fail-fast
       - name: Generate lcov report
         run: |
           # generate report without tests
