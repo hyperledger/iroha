@@ -2,7 +2,7 @@
 This module provides helper functions for matching expected and actual values in Iroha objects.
 """
 
-import allure
+import allure  # type: ignore
 
 
 def client_cli_have_error(expected: str, actual: str):
@@ -15,6 +15,10 @@ def client_cli_have_error(expected: str, actual: str):
     try:
         assert expected in actual
     except AssertionError as error:
-        allure.attach(actual, name='actual', attachment_type=allure.attachment_type.TEXT)
-        allure.attach(expected, name='expected', attachment_type=allure.attachment_type.TEXT)
+        allure.attach(
+            actual, name="actual", attachment_type=allure.attachment_type.TEXT
+        )
+        allure.attach(
+            expected, name="expected", attachment_type=allure.attachment_type.TEXT
+        )
         raise error

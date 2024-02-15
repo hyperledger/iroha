@@ -2,17 +2,17 @@
 This module contains the ClientCli class, which is responsible for building and executing
 commands for interacting with Iroha blockchain using the Iroha command-line client.
 """
+
 import shlex
 import subprocess
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Callable
 
-import allure
+import allure  # type: ignore
 
 from common.helpers import extract_hash, read_isi_from_json, write_isi_to_json
-from common.settings import (BASE_DIR, CLIENT_CLI_PATH, PATH_CONFIG_CLIENT_CLI,
-                             ROOT_DIR)
+from common.settings import BASE_DIR, CLIENT_CLI_PATH, PATH_CONFIG_CLIENT_CLI, ROOT_DIR
 from src.client_cli.configuration import Config
 
 
@@ -20,11 +20,12 @@ class ClientCli:
     """
     A class to represent the Iroha client command line interface.
     """
+
     BASE_PATH = CLIENT_CLI_PATH
     # --skip-mst-check flag is used because
     # MST isn't used in the tests
     # and don't using this flag results in tests being broken by interactive prompt
-    BASE_FLAGS = ['--config=' + PATH_CONFIG_CLIENT_CLI, '--skip-mst-check']
+    BASE_FLAGS = ["--config=" + PATH_CONFIG_CLIENT_CLI, "--skip-mst-check"]
 
     def __init__(self, config: Config):
         """
@@ -69,7 +70,8 @@ class ClientCli:
         while not condition():
             if monotonic() - start_time > timeout:
                 raise TimeoutError(
-                    f"Expected condition to be satisfied after waiting for '{timeout}' seconds.")
+                    f"Expected condition to be satisfied after waiting for '{timeout}' seconds."
+                )
             sleep(0.25)
 
     def reset(self):
@@ -87,7 +89,7 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.append('register')
+        self.command.append("register")
         return self
 
     def mint(self):
@@ -97,7 +99,7 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.append('mint')
+        self.command.append("mint")
         return self
 
     def list_all(self):
@@ -107,8 +109,8 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.append('list')
-        self.command.append('all')
+        self.command.append("list")
+        self.command.append("all")
         return self
 
     def list_filter(self, filter_criteria):
@@ -116,8 +118,8 @@ class ClientCli:
         Appends the 'list filter' command to the command list.
         :param filter_criteria: Criteria to filter the list.
         """
-        self.command.append('list')
-        self.command.append('filter')
+        self.command.append("list")
+        self.command.append("filter")
         self.command.append(filter_criteria)
         return self
 
@@ -130,8 +132,8 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.insert(3, 'domain')
-        self.command.append('--id=' + domain)
+        self.command.insert(3, "domain")
+        self.command.append("--id=" + domain)
         self.execute()
         return self
 
@@ -148,9 +150,9 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.insert(3, 'account')
-        self.command.append('--id=' + account + '@' + domain)
-        self.command.append('--key=ed0120' + key)
+        self.command.insert(3, "account")
+        self.command.append("--id=" + account + "@" + domain)
+        self.command.append("--key=ed0120" + key)
         self.execute()
         return self
 
@@ -167,13 +169,21 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.insert(3, 'asset')
+        self.command.insert(3, "asset")
         if asset_definition and account and value_of_value_type:
             self.command.append(
-                '--asset-id='
-                + asset_definition.name + '#' + account.domain + '#' + account.name + '@' + asset_definition.domain)
+                "--asset-id="
+                + asset_definition.name
+                + "#"
+                + account.domain
+                + "#"
+                + account.name
+                + "@"
+                + asset_definition.domain
+            )
             self.command.append(
-                '--' + asset_definition.value_type.lower() + '=' + value_of_value_type)
+                "--" + asset_definition.value_type.lower() + "=" + value_of_value_type
+            )
             self.execute()
         return self
 
@@ -192,12 +202,20 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.append('asset')
-        self.command.append('transfer')
-        self.command.append('--to=' + repr(target_account))
+        self.command.append("asset")
+        self.command.append("transfer")
+        self.command.append("--to=" + repr(target_account))
         self.command.append(
-            '--asset-id=' + asset.name + '#' + source_account.domain + '#' + source_account.name + '@' + asset.domain)
-        self.command.append('--quantity=' + quantity)
+            "--asset-id="
+            + asset.name
+            + "#"
+            + source_account.domain
+            + "#"
+            + source_account.name
+            + "@"
+            + asset.domain
+        )
+        self.command.append("--quantity=" + quantity)
         self.execute()
         return self
 
@@ -213,11 +231,19 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.append('asset')
-        self.command.append('burn')
+        self.command.append("asset")
+        self.command.append("burn")
         self.command.append(
-            '--asset-id=' + asset.name + '#' + account.domain + '#' + account.name + '@' + asset.domain)
-        self.command.append('--quantity=' + quantity)
+            "--asset-id="
+            + asset.name
+            + "#"
+            + account.domain
+            + "#"
+            + account.name
+            + "@"
+            + asset.domain
+        )
+        self.command.append("--quantity=" + quantity)
         self.execute()
         return self
 
@@ -234,8 +260,8 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.append('--definition-id=' + asset + '#' + domain)
-        self.command.append('--value-type=' + value_type)
+        self.command.append("--definition-id=" + asset + "#" + domain)
+        self.command.append("--value-type=" + value_type)
         self.execute()
         return self
 
@@ -248,16 +274,22 @@ class ClientCli:
         """
 
         json_template_path = (
-                Path(BASE_DIR)/'pytests'/'common'/'json_isi_examples'/'register_trigger.json')
+            Path(BASE_DIR)
+            / "pytests"
+            / "common"
+            / "json_isi_examples"
+            / "register_trigger.json"
+        )
         trigger_data = read_isi_from_json(str(json_template_path))
         trigger_data[0]["Register"]["Trigger"]["action"]["authority"] = str(account)
 
-        json_temp_file_path = Path(ROOT_DIR) / 'isi_register_trigger.json'
+        json_temp_file_path = Path(ROOT_DIR) / "isi_register_trigger.json"
         write_isi_to_json(trigger_data, str(json_temp_file_path))
 
         self._execute_pipe(
-            ['cat', str(json_temp_file_path)],
-            [self.BASE_PATH] + self.BASE_FLAGS + ['json'])
+            ["cat", str(json_temp_file_path)],
+            [self.BASE_PATH] + self.BASE_FLAGS + ["json"],
+        )
 
         return self
 
@@ -270,19 +302,24 @@ class ClientCli:
         """
 
         json_template_path = (
-                Path(BASE_DIR) /'pytests'/'common'/'json_isi_examples'/'unregister_asset.json')
+            Path(BASE_DIR)
+            / "pytests"
+            / "common"
+            / "json_isi_examples"
+            / "unregister_asset.json"
+        )
         asset_data = read_isi_from_json(str(json_template_path))
         asset_data[0]["Unregister"]["Asset"]["object_id"] = str(asset_id)
 
-        json_temp_file_path = Path(ROOT_DIR) / 'isi_unregister_asset.json'
+        json_temp_file_path = Path(ROOT_DIR) / "isi_unregister_asset.json"
         write_isi_to_json(asset_data, str(json_temp_file_path))
 
         self._execute_pipe(
-            ['cat', str(json_temp_file_path)],
-            [self.BASE_PATH] + self.BASE_FLAGS + ['json'])
+            ["cat", str(json_temp_file_path)],
+            [self.BASE_PATH] + self.BASE_FLAGS + ["json"],
+        )
 
         return self
-
 
     def should(self, _expected):
         """
@@ -308,9 +345,9 @@ class ClientCli:
         else:
             command = [self.BASE_PATH] + self.BASE_FLAGS + shlex.split(command)
 
-        if '|' in command:
-            pipe_index = command.index('|')
-            self._execute_pipe(command[:pipe_index], command[pipe_index + 1:])
+        if "|" in command:
+            pipe_index = command.index("|")
+            self._execute_pipe(command[:pipe_index], command[pipe_index + 1 :])
         else:
             self._execute_single(command)
 
@@ -356,8 +393,12 @@ class ClientCli:
         """
         Attaches stdout and stderr to Allure reports.
         """
-        allure.attach(self.stdout, name='stdout', attachment_type=allure.attachment_type.TEXT)
-        allure.attach(self.stderr, name='stderr', attachment_type=allure.attachment_type.TEXT)
+        allure.attach(
+            self.stdout, name="stdout", attachment_type=allure.attachment_type.TEXT
+        )
+        allure.attach(
+            self.stderr, name="stderr", attachment_type=allure.attachment_type.TEXT
+        )
 
     @property
     def config(self) -> Config:

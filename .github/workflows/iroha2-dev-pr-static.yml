@@ -8,6 +8,7 @@ on:
       - '**.json'
       - '**.toml'
       - '.github/workflows/**.yml'
+      - 'client_cli/pytests/**/*.py'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -54,3 +55,31 @@ jobs:
       - name: Documentation
         if: always()
         run: cargo doc --no-deps --quiet
+  python_static_analysis:
+    runs-on: ubuntu-latest
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-01-12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies using Poetry
+        working-directory: client_cli/pytests
+        run: |
+          poetry install
+
+      - name: Check code formatting with Black
+        working-directory: client_cli/pytests
+        run: |
+          poetry run black --check .
+
+      - name: Run mypy (Type Checker)
+        working-directory: client_cli/pytests
+        run: |
+          poetry run mypy --explicit-package-bases .
+
+      - name: Run flake8 (Linter)
+        working-directory: client_cli/pytests
+        run: |
+          poetry run flake8 . --max-line-length=110 --ignore=F401,W503,E203
+
+
