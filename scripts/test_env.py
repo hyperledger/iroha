@@ -123,10 +123,10 @@ class _Peer:
                 "address": f"{self.host_ip}:{self.api_port}"
             },
             "kura": {
-                "block_store_path": "storage"
+                "store_dir": "storage"
             },
             "snapshot": {
-                "store_path": "storage/snapshot"
+                "store_dir": "storage/snapshot"
             },
             # it is not available in debug iroha build
             # "logger": {
