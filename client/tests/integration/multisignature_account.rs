@@ -6,14 +6,14 @@ use iroha_client::{
     crypto::KeyPair,
     data_model::prelude::*,
 };
-use iroha_config::iroha::Configuration;
+use iroha_config::parameters::actual::Root as Config;
 use test_network::*;
 
 #[test]
 fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
     let (_rt, peer, client) = <PeerBuilder>::new().with_port(10_605).start_with_runtime();
     wait_for_genesis_committed(&[client.clone()], 0);
-    let pipeline_time = Configuration::pipeline_time();
+    let pipeline_time = Config::pipeline_time();
 
     // Given
     let account_id: AccountId = "alice@wonderland".parse().expect("Valid");

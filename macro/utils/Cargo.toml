@@ -19,4 +19,4 @@ darling = { workspace = true }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
 manyhow = { workspace = true }
-drop_bomb = "0.1.5"
+drop_bomb = { workspace = true }

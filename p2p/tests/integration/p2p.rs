@@ -3,15 +3,14 @@ use std::{
     fmt::Debug,
     sync::{
         atomic::{AtomicU32, Ordering},
-        Arc, Once,
+        Arc,
     },
 };
 
 use futures::{prelude::*, stream::FuturesUnordered, task::AtomicWaker};
-use iroha_config_base::proxy::Builder;
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::PeerId;
-use iroha_logger::{prelude::*, ConfigurationProxy};
+use iroha_logger::{prelude::*, test_logger};
 use iroha_p2p::{network::message::*, NetworkHandle};
 use iroha_primitives::addr::socket_addr;
 use parity_scale_codec::{Decode, Encode};
@@ -24,16 +23,7 @@ use tokio::{
 struct TestMessage(String);
 
 fn setup_logger() {
-    static INIT: Once = Once::new();
-
-    INIT.call_once(|| {
-        let mut config = ConfigurationProxy::default()
-            .build()
-            .expect("Default logger config failed to build. This is a programmer error");
-        config.level = iroha_logger::Level::TRACE;
-        config.format = iroha_logger::Format::Pretty;
-        iroha_logger::init_global(&config, true).unwrap();
-    })
+    test_logger();
 }
 
 /// This test creates a network and one peer.

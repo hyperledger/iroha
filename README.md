@@ -124,9 +124,7 @@ docker compose up
 With the `docker-compose` instance running, use [Iroha Client CLI](./client_cli/README.md):
 
 ```bash
-cp configs/client/config.json target/debug/config.json
-cd target/debug
-./iroha_client_cli --help
+cargo run --bin iroha_client_cli -- --config ./configs/swarm/client.toml
 ```
 
 ## Integration
@@ -166,12 +164,7 @@ A brief overview on how to configure and maintain an Iroha instance:
 There is a set of configuration parameters that could be passed either through a configuration file or environment variables.
 
 ```shell
-# look for `config.json` or `config.json5` (won't fail if files are not found)
-iroha 
-
-# Override default config path through CLI or ENV
-iroha --config /path/to/config.json
-IROHA_CONFIG=/path/to/config.json iroha
+iroha --config /path/to/config.toml
 ```
 
 **Note:** detailed configuration reference is [work in progress](https://github.com/hyperledger/iroha-2-docs/issues/392).
@@ -207,11 +200,7 @@ The details of the `Health` endpoint can be found in the [API Reference > Torii 
 
 Iroha can produce both JSON-formatted as well as `prometheus`-readable metrics at the `status` and `metrics` endpoints respectively.
 
-The [`prometheus`](https://prometheus.io/docs/introduction/overview/) monitoring system is the de-factor standard for monitoring long-running services such as an Iroha peer. In order to get started, [install `prometheus`](https://prometheus.io/docs/introduction/first_steps/) and execute the following in the project root:
-
-```
-prometheus --config.file=configs/prometheus.yml
-```
+The [`prometheus`](https://prometheus.io/docs/introduction/overview/) monitoring system is the de-factor standard for monitoring long-running services such as an Iroha peer. In order to get started, [install `prometheus`](https://prometheus.io/docs/introduction/first_steps/) and use `configs/prometheus.template.yml` for configuration.
 
 ### Storage
 

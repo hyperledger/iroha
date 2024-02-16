@@ -17,8 +17,10 @@ import sys
 import time
 import urllib.error
 import urllib.request
-import uuid
+import tomli_w
 
+SWARM_CONFIGS_DIRECTORY = pathlib.Path("configs/swarm")
+SHARED_CONFIG_FILE_NAME = "config.base.toml"
 
 class Network:
     """
@@ -27,36 +29,32 @@ class Network:
     def __init__(self, args: argparse.Namespace):
         logging.info("Setting up test environment...")
 
-        self.out_dir = args.out_dir
-        peers_dir = args.out_dir.joinpath("peers")
+        self.out_dir = pathlib.Path(args.out_dir)
+        peers_dir = self.out_dir / "peers"
         os.makedirs(peers_dir, exist_ok=True)
-        self.shared_env = dict(os.environ)
 
         self.peers = [_Peer(args, i) for i in range(args.n_peers)]
 
-        try:
-            shutil.copy2(f"{args.root_dir}/configs/peer/config.json", peers_dir)
-            # genesis should be supplied only for the first peer
-            peer_0_dir = self.peers[0].peer_dir
-            shutil.copy2(f"{args.root_dir}/configs/peer/genesis.json", peer_0_dir)
-            # assuming that `genesis.json` contains path to the executor as `./executor.wasm`
-            shutil.copy2(f"{args.root_dir}/configs/peer/executor.wasm", peer_0_dir)
-        except FileNotFoundError:
-            logging.error(f"Some of the config files are missing. \
-                          Please provide them in the `{args.root_dir}/configs/peer` directory")
-            sys.exit(1)
+        logging.info("Generating shared configuration...")
+        trusted_peers = [{"address": f"{peer.host_ip}:{peer.p2p_port}", "public_key": peer.public_key} for peer in self.peers]
+        shared_config = {
+            "chain_id": "00000000-0000-0000-0000-000000000000",
+            "genesis": {
+                "public_key": self.peers[0].public_key
+            },
+            "sumeragi": {
+                "trusted_peers": trusted_peers
+            },
+            "logger": {
+                "level": "INFO",
+                "format": "pretty",
+            }
+        }
+        with open(peers_dir / SHARED_CONFIG_FILE_NAME, "wb") as f:
+            tomli_w.dump(shared_config, f)
+
         copy_or_prompt_build_bin("iroha", args.root_dir, peers_dir)
 
-        self.shared_env["IROHA_CHAIN_ID"] = "00000000-0000-0000-0000-000000000000"
-        self.shared_env["IROHA_CONFIG"] = str(peers_dir.joinpath("config.json"))
-        self.shared_env["IROHA_GENESIS_PUBLIC_KEY"] = self.peers[0].public_key
-
-        logging.info("Generating trusted peers...")
-        self.trusted_peers = []
-        for peer in self.peers:
-            peer_entry = {"address": f"{peer.host_ip}:{peer.p2p_port}", "public_key": peer.public_key}
-            self.trusted_peers.append(json.dumps(peer_entry))
-        self.shared_env["SUMERAGI_TRUSTED_PEERS"] = f"[{','.join(self.trusted_peers)}]"
 
     def wait_for_genesis(self, n_tries: int):
         for i in range(n_tries):
@@ -79,7 +77,7 @@ class Network:
 
     def run(self):
         for i, peer in enumerate(self.peers):
-            peer.run(shared_env=self.shared_env, submit_genesis=(i == 0))
+            peer.run(submit_genesis=(i == 0))
         self.wait_for_genesis(20)
 
 class _Peer:
@@ -93,14 +91,15 @@ class _Peer:
         self.p2p_port = 1337 + nth
         self.api_port = 8080 + nth
         self.tokio_console_port = 5555 + nth
-        self.out_dir = args.out_dir
-        self.root_dir = args.root_dir
-        self.peer_dir = self.out_dir.joinpath(f"peers/{self.name}")
+        self.out_dir = pathlib.Path(args.out_dir)
+        self.root_dir = pathlib.Path(args.root_dir)
+        self.peer_dir = self.out_dir / "peers" / self.name
+        self.config_path = self.peer_dir / "config.toml"
         self.host_ip = args.host_ip
 
         logging.info(f"Peer {self.name} generating key pair...")
 
-        command = [f"{self.out_dir}/kagami", "crypto", "-j"]
+        command = [self.out_dir / "kagami", "crypto", "-j"]
         if args.peer_name_as_seed:
             command.extend(["-s", self.name])
         kagami = subprocess.run(command, capture_output=True)
@@ -108,42 +107,67 @@ class _Peer:
             logging.error("Kagami failed to generate a key pair.")
             sys.exit(3)
         str_keypair = kagami.stdout
-        json_keypair = json.loads(str_keypair)
-        # public key is a string, private key is a json object
-        self.public_key = json_keypair['public_key']
-        self.private_key = json.dumps(json_keypair['private_key'])
+        # dict with `{ public_key: string, private_key: { digest_function: string, payload: string } }`
+        self.key_pair = json.loads(str_keypair)
 
         os.makedirs(self.peer_dir, exist_ok=True)
-        os.makedirs(self.peer_dir.joinpath("storage"), exist_ok=True)
 
+        config = {
+            "extends": f"../{SHARED_CONFIG_FILE_NAME}",
+            "public_key": self.public_key,
+            "private_key": self.private_key,
+            "network": {
+                "address":  f"{self.host_ip}:{self.p2p_port}"
+            },
+            "torii": {
+                "address": f"{self.host_ip}:{self.api_port}"
+            },
+            "kura": {
+                "store_dir": "storage"
+            },
+            "snapshot": {
+                "store_dir": "storage/snapshot"
+            },
+            # it is not available in debug iroha build
+            # "logger": {
+            #     "tokio_console_addr": f"{self.host_ip}:{self.tokio_console_port}",
+            # }
+        }
+        if nth == 0:
+            try:
+                shutil.copy2(self.root_dir / SWARM_CONFIGS_DIRECTORY / "genesis.json", self.peer_dir)
+                # assuming that `genesis.json` contains path to the executor as `./executor.wasm`
+                shutil.copy2(self.root_dir / SWARM_CONFIGS_DIRECTORY / "executor.wasm", self.peer_dir)
+            except FileNotFoundError:
+                target = self.root_dir / SWARM_CONFIGS_DIRECTORY
+                logging.error(f"Some of the config files are missing. \
+                                          Please provide them in the `{target}` directory")
+                sys.exit(1)
+            config["genesis"] = {
+                "private_key": self.private_key,
+                "file": "./genesis.json"
+            }
+        with open(self.config_path, "wb") as f:
+            tomli_w.dump(config, f)
         logging.info(f"Peer {self.name} initialized")
 
-    def run(self, shared_env: dict(), submit_genesis: bool = False):
+    @property
+    def public_key(self):
+        return self.key_pair["public_key"]
+
+    @property
+    def private_key(self):
+        return self.key_pair["private_key"]
+
+    def run(self, submit_genesis: bool = False):
         logging.info(f"Running peer {self.name}...")
 
-        peer_env = dict(shared_env)
-        peer_env["KURA_BLOCK_STORE_PATH"] = str(self.peer_dir.joinpath("storage"))
-        peer_env["SNAPSHOT_DIR_PATH"] = str(self.peer_dir.joinpath("storage"))
-        peer_env["LOG_LEVEL"] = "INFO"
-        peer_env["LOG_FORMAT"] = '"pretty"'
-        peer_env["LOG_TOKIO_CONSOLE_ADDR"] = f"{self.host_ip}:{self.tokio_console_port}"
-        peer_env["IROHA_PUBLIC_KEY"] = self.public_key
-        peer_env["IROHA_PRIVATE_KEY"] = self.private_key
-        peer_env["SUMERAGI_DEBUG_FORCE_SOFT_FORK"] = "false"
-        peer_env["TORII_P2P_ADDR"] = f"{self.host_ip}:{self.p2p_port}"
-        peer_env["TORII_API_URL"] = f"{self.host_ip}:{self.api_port}"
-
-        if submit_genesis:
-            peer_env["IROHA_GENESIS_PRIVATE_KEY"] = self.private_key
-            # Assuming it was copied to the peer's directory
-            peer_env["IROHA_GENESIS_FILE"] = str(self.peer_dir.joinpath("genesis.json"))
-
         # FD never gets closed
-        stdout_file = open(self.peer_dir.joinpath(".stdout"), "w")
-        stderr_file = open(self.peer_dir.joinpath(".stderr"), "w")
+        stdout_file = open(self.peer_dir / ".stdout", "w")
+        stderr_file = open(self.peer_dir / ".stderr", "w")
         # These processes are created detached from the parent process already
-        subprocess.Popen([self.name] + (["--submit-genesis"] if submit_genesis else []),
-                    executable=f"{self.out_dir}/peers/iroha", env=peer_env, stdout=stdout_file, stderr=stderr_file)
+        subprocess.Popen([self.name, "--config", self.config_path] + (["--submit-genesis"] if submit_genesis else []),
+                    executable=self.out_dir / "peers/iroha", stdout=stdout_file, stderr=stderr_file)
 
 def pos_int(arg):
     if int(arg) > 0:
@@ -152,8 +176,9 @@ def pos_int(arg):
         raise argparse.ArgumentTypeError(f"Argument {arg} must be a positive integer")
 
 def copy_or_prompt_build_bin(bin_name: str, root_dir: pathlib.Path, target_dir: pathlib.Path):
+    bin_path = root_dir / "target/debug" / bin_name
     try:
-        shutil.copy2(f"{root_dir}/target/debug/{bin_name}", target_dir)
+        shutil.copy2(bin_path, target_dir)
     except FileNotFoundError:
         logging.error(f"The binary `{bin_name}` wasn't found in `{root_dir}` directory")
         while True:
@@ -163,7 +188,7 @@ def copy_or_prompt_build_bin(bin_name: str, root_dir: pathlib.Path, target_dir: 
                     ["cargo", "build", "--bin", bin_name],
                     cwd=root_dir
                 )
-                shutil.copy2(f"{root_dir}/target/debug/{bin_name}", target_dir)
+                shutil.copy2(bin_path, target_dir)
                 break
             elif prompt.lower() in ["n", "no"]:
                 logging.critical("Can't launch the network without the binary. Aborting...")
@@ -195,7 +220,7 @@ def setup(args: argparse.Namespace):
     copy_or_prompt_build_bin("iroha_client_cli", args.root_dir, args.out_dir)
     with open(os.path.join(args.out_dir, "metadata.json"), "w") as f:
         f.write('{"comment":{"String": "Hello Meta!"}}')
-    shutil.copy2(f"{args.root_dir}/configs/client/config.json", args.out_dir)
+    shutil.copy2(pathlib.Path(args.root_dir) / SWARM_CONFIGS_DIRECTORY / "client.toml", args.out_dir)
     copy_or_prompt_build_bin("kagami", args.root_dir, args.out_dir)
 
     Network(args).run()

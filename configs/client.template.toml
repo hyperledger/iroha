@@ -1,0 +1,19 @@
+# chain_id =
+
+## Might be set via `TORII_URL` env var
+# torii_url =
+
+[basic_auth]
+# login =
+# password =
+
+[account]
+# id =
+# public_key =
+# private_key = { algorithm = "", payload = "" }
+
+[transaction]
+# time_to_live = "100s"
+# status_timeout = "100s"
+## Nonce is TODO describe what it is
+# nonce = false

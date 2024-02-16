@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 
-use iroha_config::kura::{Configuration, Mode};
+use iroha_config::{kura::Mode, parameters::actual::Kura as Config};
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::block::SignedBlock;
 use iroha_logger::prelude::*;
@@ -49,16 +49,13 @@ impl Kura {
     /// Fails if there are filesystem errors when trying
     /// to access the block store indicated by the provided
     /// path.
-    pub fn new(config: &Configuration) -> Result<Arc<Self>> {
-        let block_store_path = Path::new(&config.block_store_path);
-        let mut block_store = BlockStore::new(block_store_path, LockStatus::Unlocked);
+    pub fn new(config: &Config) -> Result<Arc<Self>> {
+        let mut block_store = BlockStore::new(&config.store_dir, LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist()?;
 
-        let block_plain_text_path = config.debug_output_new_blocks.then(|| {
-            let mut path_buf = block_store_path.to_path_buf();
-            path_buf.push("blocks.json");
-            path_buf
-        });
+        let block_plain_text_path = config
+            .debug_output_new_blocks
+            .then(|| config.store_dir.join("blocks.json"));
 
         let kura = Arc::new(Self {
             mode: config.init_mode,
@@ -75,7 +72,7 @@ impl Kura {
     pub fn blank_kura_for_testing() -> Arc<Kura> {
         Arc::new(Self {
             mode: Mode::Strict,
-            block_store: Mutex::new(BlockStore::new(&PathBuf::new(), LockStatus::Locked)),
+            block_store: Mutex::new(BlockStore::new(PathBuf::new(), LockStatus::Locked)),
             block_data: Mutex::new(Vec::new()),
             block_plain_text_path: None,
         })
@@ -395,9 +392,9 @@ impl BlockStore {
     ///
     /// # Panics
     /// * if you pass in `LockStatus::Unlocked` and it is unable to lock the block store.
-    pub fn new(store_path: &Path, already_locked: LockStatus) -> Self {
+    pub fn new(store_path: impl AsRef<Path>, already_locked: LockStatus) -> Self {
         if matches!(already_locked, LockStatus::Unlocked) {
-            let lock_path = store_path.join(LOCK_FILE_NAME);
+            let lock_path = store_path.as_ref().join(LOCK_FILE_NAME);
             if let Err(e) = fs::File::options()
                 .read(true)
                 .write(true)
@@ -407,8 +404,8 @@ impl BlockStore {
                 match e.kind() {
                     std::io::ErrorKind::AlreadyExists => Err(Error::Locked(lock_path)),
                     std::io::ErrorKind::NotFound => {
-                        match std::fs::create_dir_all(store_path)
-                            .map_err(|e| Error::MkDir(e, store_path.to_path_buf()))
+                        match std::fs::create_dir_all(store_path.as_ref())
+                            .map_err(|e| Error::MkDir(e, store_path.as_ref().to_path_buf()))
                         {
                             Err(e) => Err(e),
                             Ok(()) => {
@@ -431,7 +428,7 @@ impl BlockStore {
             }
         }
         BlockStore {
-            path_to_blockchain: store_path.to_path_buf(),
+            path_to_blockchain: store_path.as_ref().to_path_buf(),
         }
     }
 
@@ -1049,9 +1046,9 @@ mod tests {
     #[tokio::test]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().unwrap();
-        Kura::new(&Configuration {
+        Kura::new(&Config {
             init_mode: Mode::Strict,
-            block_store_path: temp_dir.path().to_str().unwrap().into(),
+            store_dir: temp_dir.path().to_str().unwrap().into(),
             debug_output_new_blocks: false,
         })
         .unwrap()

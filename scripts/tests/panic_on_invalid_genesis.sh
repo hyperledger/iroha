@@ -1,6 +1,7 @@
 #!/bin/bash
 set -ex
 # Setup env
+# FIXME: these are obsolete
 export TORII_P2P_ADDR='127.0.0.1:1341'
 export TORII_API_URL='127.0.0.1:8084'
 export IROHA_PUBLIC_KEY='ed01201C61FAF8FE94E253B93114240394F79A607B7FA55F9E5A41EBEC74B88055768B'
@@ -18,6 +19,6 @@ trap 'rm -rf -- "$IROHA2_GENESIS_PATH" "$KURA_BLOCK_STORE_PATH"' EXIT
 
 # Create invalid genesis
 # NewAssetDefinition replaced with AssetDefinition
-sed 's/NewAssetDefinition/AssetDefinition/' ./configs/peer/genesis.json > $IROHA2_GENESIS_PATH
+sed 's/NewAssetDefinition/AssetDefinition/' ./configs/swarm/genesis.json > $IROHA2_GENESIS_PATH
 
 timeout 1m target/debug/iroha --submit-genesis 2>&1 | tee /dev/stderr | grep -q 'Transaction validation failed in genesis block'

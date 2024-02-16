@@ -28,12 +28,6 @@ jobs:
       - name: Check genesis.json
         if: always()
         run: ./scripts/tests/consistency.sh genesis
-      - name: Check client/config.json
-        if: always()
-        run: ./scripts/tests/consistency.sh client
-      - name: Check peer/config.json
-        if: always()
-        run: ./scripts/tests/consistency.sh peer
       - name: Check schema.json
         if: always()
         run: ./scripts/tests/consistency.sh schema
@@ -144,11 +138,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build binaries
         run: |
-          cargo build --bin iroha_client_cli
-          cargo build --bin kagami
-          cargo build --bin iroha
+          cargo build -p iroha_client_cli -p kagami -p iroha
       - name: Setup test Iroha 2 environment on the bare metal
         run: |
+          pip3 install -r scripts/requirements.txt --no-input --break-system-packages
           ./scripts/test_env.py setup
       - name: Mark binaries as executable
         run: |
@@ -159,6 +152,10 @@ jobs:
           poetry install
       - name: Run client cli tests
         working-directory: client_cli/pytests
+        env:
+          # prepared by `test_env.py`
+          CLIENT_CLI_BINARY: ../../test/iroha_client_cli
+          CLIENT_CLI_CONFIG: ../../test/client.toml
         run: |
           poetry run pytest
       - name: Cleanup test environment

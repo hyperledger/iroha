@@ -7,7 +7,7 @@ use std::{
 };
 
 use indexmap::IndexMap;
-use iroha_config::live_query_store::Configuration;
+use iroha_config::parameters::actual::LiveQueryStore as Config;
 use iroha_data_model::{
     asset::AssetValue,
     query::{
@@ -69,15 +69,15 @@ type LiveQuery = Batched<Vec<Value>>;
 #[derive(Debug)]
 pub struct LiveQueryStore {
     queries: IndexMap<QueryId, (LiveQuery, Instant)>,
-    query_idle_time: Duration,
+    idle_time: Duration,
 }
 
 impl LiveQueryStore {
     /// Construct [`LiveQueryStore`] from configuration.
-    pub fn from_configuration(cfg: Configuration) -> Self {
+    pub fn from_config(cfg: Config) -> Self {
         Self {
             queries: IndexMap::new(),
-            query_idle_time: Duration::from_millis(cfg.query_idle_time_ms.into()),
+            idle_time: cfg.idle_time,
         }
     }
 
@@ -86,13 +86,7 @@ impl LiveQueryStore {
     ///
     /// Not marked as `#[cfg(test)]` because it is used in benches as well.
     pub fn test() -> Self {
-        use iroha_config::base::proxy::Builder as _;
-
-        LiveQueryStore::from_configuration(
-            iroha_config::live_query_store::ConfigurationProxy::default()
-                .build()
-                .expect("Failed to build LiveQueryStore configuration from proxy"),
-        )
+        Self::from_config(Config::default())
     }
 
     /// Start [`LiveQueryStore`]. Requires a [`tokio::runtime::Runtime`] being run
@@ -105,14 +99,14 @@ impl LiveQueryStore {
 
         let (message_sender, mut message_receiver) = mpsc::channel(1);
 
-        let mut idle_interval = tokio::time::interval(self.query_idle_time);
+        let mut idle_interval = tokio::time::interval(self.idle_time);
 
         tokio::task::spawn(async move {
             loop {
                 tokio::select! {
                     _ = idle_interval.tick() => {
                         self.queries
-                            .retain(|_, (_, last_access_time)| last_access_time.elapsed() <= self.query_idle_time);
+                            .retain(|_, (_, last_access_time)| last_access_time.elapsed() <= self.idle_time);
                     },
                     msg = message_receiver.recv() => {
                         let Some(msg) = msg else {

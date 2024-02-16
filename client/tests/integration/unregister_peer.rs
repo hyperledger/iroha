@@ -9,7 +9,7 @@ use iroha_client::{
         prelude::*,
     },
 };
-use iroha_config::iroha::Configuration;
+use iroha_config::parameters::actual::Root as Config;
 use test_network::*;
 
 // Note the test is marked as `unstable`,  not the network.
@@ -60,7 +60,7 @@ fn check_assets(
     iroha_client
         .poll_request_with_period(
             client::asset::by_account_id(account_id.clone()),
-            Configuration::block_sync_gossip_time(),
+            Config::block_sync_gossip_time(),
             15,
             |result| {
                 let assets = result.collect::<QueryResult<Vec<_>>>().expect("Valid");
@@ -100,7 +100,7 @@ fn init() -> Result<(
     AssetDefinitionId,
 )> {
     let (rt, network, client) = Network::start_test_with_runtime(4, Some(10_925));
-    let pipeline_time = Configuration::pipeline_time();
+    let pipeline_time = Config::pipeline_time();
     iroha_logger::info!("Started");
     let parameters = ParametersBuilder::new()
         .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, 1u32)?

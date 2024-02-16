@@ -622,6 +622,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-targets 0.48.5",
 ]
@@ -1032,20 +1033,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossbeam"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2801af0d36612ae591caa9568261fddce32ce6e08a7275ea334a06a4ad021a2c"
-dependencies = [
- "cfg-if",
- "crossbeam-channel",
- "crossbeam-deque",
- "crossbeam-epoch",
- "crossbeam-queue",
- "crossbeam-utils",
-]
-
-[[package]]
 name = "crossbeam-channel"
 version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1302,6 +1289,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8eb30d70a07a3b04884d2677f06bec33509dc67ca60d92949e5535352d3191dc"
 dependencies = [
  "powerfmt",
+ "serde",
 ]
 
 [[package]]
@@ -2626,6 +2614,7 @@ checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
 dependencies = [
  "autocfg",
  "hashbrown 0.12.3",
+ "serde",
 ]
 
 [[package]]
@@ -2685,15 +2674,16 @@ dependencies = [
  "iroha_telemetry",
  "iroha_torii",
  "iroha_wasm_builder",
+ "json5",
  "once_cell",
  "owo-colors",
  "path-absolutize",
- "serde_json",
  "serial_test",
  "supports-color 2.1.0",
  "tempfile",
  "thread-local-panic-hook",
  "tokio",
+ "toml 0.8.8",
  "tracing",
  "vergen",
 ]
@@ -2720,18 +2710,22 @@ dependencies = [
  "iroha_logger",
  "iroha_primitives",
  "iroha_telemetry",
+ "iroha_torii_const",
  "iroha_version",
  "iroha_wasm_builder",
+ "merge",
  "once_cell",
  "parity-scale-codec",
  "rand",
  "serde",
  "serde_json",
+ "serde_with",
  "tempfile",
  "test_network",
  "thiserror",
  "tokio",
  "tokio-tungstenite",
+ "toml 0.8.8",
  "tracing-flame",
  "tracing-subscriber",
  "tungstenite",
@@ -2764,21 +2758,27 @@ dependencies = [
  "displaydoc",
  "expect-test",
  "eyre",
+ "hex",
  "iroha_config_base",
  "iroha_crypto",
  "iroha_data_model",
  "iroha_genesis",
  "iroha_primitives",
  "json5",
+ "merge",
+ "nonzero_ext",
  "once_cell",
  "proptest",
  "serde",
  "serde_json",
+ "serde_with",
  "stacker",
  "strum 0.25.0",
  "thiserror",
+ "toml 0.8.8",
  "tracing",
  "tracing-subscriber",
+ "trybuild",
  "url",
 ]
 
@@ -2786,27 +2786,15 @@ dependencies = [
 name = "iroha_config_base"
 version = "2.0.0-pre-rc.20"
 dependencies = [
- "crossbeam",
- "displaydoc",
+ "derive_more",
+ "drop_bomb",
  "eyre",
- "iroha_config_derive",
- "iroha_crypto",
- "json5",
- "parking_lot",
+ "merge",
+ "num-traits",
  "serde",
- "serde_json",
+ "serde_with",
  "thiserror",
-]
-
-[[package]]
-name = "iroha_config_derive"
-version = "2.0.0-pre-rc.20"
-dependencies = [
- "iroha_macro_utils",
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
+ "toml 0.8.8",
 ]
 
 [[package]]
@@ -3235,6 +3223,7 @@ dependencies = [
  "pathdiff",
  "serde",
  "serde_json",
+ "serde_with",
  "serde_yaml",
 ]
 
@@ -3294,6 +3283,7 @@ dependencies = [
  "iroha_primitives",
  "iroha_schema_gen",
  "iroha_telemetry",
+ "iroha_torii_const",
  "iroha_torii_derive",
  "iroha_version",
  "parity-scale-codec",
@@ -3303,6 +3293,13 @@ dependencies = [
  "thiserror",
  "tokio",
  "warp",
+]
+
+[[package]]
+name = "iroha_torii_const"
+version = "2.0.0-pre-rc.20"
+dependencies = [
+ "iroha_primitives",
 ]
 
 [[package]]
@@ -3748,6 +3745,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "merge"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10bbef93abb1da61525bbc45eeaff6473a41907d19f8f9aa5168d214e10693e9"
+dependencies = [
+ "merge_derive",
+ "num-traits",
+]
+
+[[package]]
+name = "merge_derive"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "209d075476da2e63b4b29e72a2ef627b840589588e71400a25e3565c4f849d07"
+dependencies = [
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3861,6 +3880,12 @@ dependencies = [
  "memchr",
  "minimal-lexical",
 ]
+
+[[package]]
+name = "nonzero_ext"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38bf9645c8b145698bb0b18a4637dcacbc421ea49bef2317e4fd8065a387cf21"
 
 [[package]]
 name = "nu-ansi-term"
@@ -4337,12 +4362,11 @@ checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 
 [[package]]
 name = "proc-macro-crate"
-version = "2.0.1"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97dc5fea232fc28d2f597b37c4876b348a40e33f3b02cc975c8d006d78d94b1a"
+checksum = "7e8366a6159044a37876a2b9817124296703c586a5c92e2c53751fa06d8d43e8"
 dependencies = [
- "toml_datetime",
- "toml_edit",
+ "toml_edit 0.20.2",
 ]
 
 [[package]]
@@ -4930,6 +4954,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_spanned"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb3622f419d1296904700073ea6cc23ad690adbd66f13ea683df73298736f0c1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4947,8 +4980,15 @@ version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64cd236ccc1b7a29e7e2739f27c0b2dd199804abc4290e32f59f3b68d6405c23"
 dependencies = [
+ "base64",
+ "chrono",
+ "hex",
+ "indexmap 1.9.3",
+ "indexmap 2.1.0",
  "serde",
+ "serde_json",
  "serde_with_macros",
+ "time",
 ]
 
 [[package]]
@@ -5659,10 +5699,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "toml_datetime"
-version = "0.6.3"
+name = "toml"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cda73e2f1397b1262d6dfdcef8aafae14d1de7748d66822d3bfeeb6d03e5e4b"
+checksum = "a1a195ec8c9da26928f773888e0742ca3ca1040c6cd859c919c9f59c1954ab35"
+dependencies = [
+ "serde",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_edit 0.21.0",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3550f4e9685620ac18a50ed434eb3aec30db8ba93b0287467bca5826ea25baf1"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "toml_edit"
@@ -5671,6 +5726,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "396e4d48bbb2b7554c944bde63101b5ae446cff6ec4a24227428f15eb72ef338"
 dependencies = [
  "indexmap 2.1.0",
+ "toml_datetime",
+ "winnow",
+]
+
+[[package]]
+name = "toml_edit"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d34d383cd00a163b4a5b85053df514d45bc330f6de7737edfe0a93311d1eaa03"
+dependencies = [
+ "indexmap 2.1.0",
+ "serde",
+ "serde_spanned",
  "toml_datetime",
  "winnow",
 ]
@@ -6331,7 +6399,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "sha2",
- "toml",
+ "toml 0.5.11",
  "windows-sys 0.48.0",
  "zstd",
 ]

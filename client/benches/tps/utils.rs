@@ -196,7 +196,7 @@ impl MeasurerUnit {
 
     /// Spawn who periodically submits transactions
     fn spawn_transaction_submitter(&self, shutdown_signal: mpsc::Receiver<()>) -> JoinHandle<()> {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let submitter = self.client.clone();
         let interval_us_per_tx = self.config.interval_us_per_tx;

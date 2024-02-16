@@ -8,7 +8,7 @@
 #[cfg(feature = "telemetry")]
 use eyre::{eyre, WrapErr};
 use futures::TryStreamExt;
-use iroha_config::client_api::ConfigurationDTO;
+use iroha_config::client_api::ConfigDTO;
 use iroha_core::{
     query::store::LiveQueryStoreHandle, smartcontracts::query::ValidQueryRequest,
     sumeragi::SumeragiHandle,
@@ -182,10 +182,7 @@ pub async fn handle_get_configuration(kiso: KisoHandle) -> Result<Json> {
 }
 
 #[iroha_futures::telemetry_future]
-pub async fn handle_post_configuration(
-    kiso: KisoHandle,
-    value: ConfigurationDTO,
-) -> Result<impl Reply> {
+pub async fn handle_post_configuration(kiso: KisoHandle, value: ConfigDTO) -> Result<impl Reply> {
     kiso.update_with_dto(value).await?;
     Ok(reply::with_status(reply::reply(), StatusCode::ACCEPTED))
 }
@@ -327,20 +324,19 @@ pub async fn handle_version(sumeragi: SumeragiHandle) -> Json {
 }
 
 #[cfg(feature = "telemetry")]
-pub fn handle_metrics(sumeragi: &SumeragiHandle) -> Result<String> {
-    if let Err(error) = sumeragi.update_metrics() {
-        iroha_logger::error!(%error, "Error while calling sumeragi::update_metrics.");
-    }
-    sumeragi
-        .metrics()
-        .try_to_string()
-        .map_err(Error::Prometheus)
-}
-
 fn update_metrics_gracefully(sumeragi: &SumeragiHandle) {
     if let Err(error) = sumeragi.update_metrics() {
         iroha_logger::error!(%error, "Error while calling `sumeragi::update_metrics`.");
     }
+}
+
+#[cfg(feature = "telemetry")]
+pub fn handle_metrics(sumeragi: &SumeragiHandle) -> Result<String> {
+    update_metrics_gracefully(sumeragi);
+    sumeragi
+        .metrics()
+        .try_to_string()
+        .map_err(Error::Prometheus)
 }
 
 #[cfg(feature = "telemetry")]
@@ -424,7 +420,7 @@ pub mod profiling {
                 {
                     // Create profiler guard
                     let guard = pprof::ProfilerGuardBuilder::default()
-                        .frequency(frequency.get().into())
+                        .frequency(i32::from(frequency.get()))
                         .blocklist(&["libc", "libgcc", "pthread", "vdso"])
                         .build()
                         .map_err(|e| {

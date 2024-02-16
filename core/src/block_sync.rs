@@ -1,7 +1,7 @@
 //! This module contains structures and messages for synchronization of blocks between peers.
-use std::{fmt::Debug, sync::Arc, time::Duration};
+use std::{fmt::Debug, num::NonZeroU32, sync::Arc, time::Duration};
 
-use iroha_config::block_sync::Configuration;
+use iroha_config::parameters::actual::BlockSync as Config;
 use iroha_crypto::HashOf;
 use iroha_data_model::{block::SignedBlock, prelude::*};
 use iroha_logger::prelude::*;
@@ -36,7 +36,7 @@ pub struct BlockSynchronizer {
     kura: Arc<Kura>,
     peer_id: PeerId,
     gossip_period: Duration,
-    block_batch_size: u32,
+    gossip_max_size: NonZeroU32,
     network: IrohaNetwork,
     latest_hash: Option<HashOf<SignedBlock>>,
     previous_hash: Option<HashOf<SignedBlock>>,
@@ -104,8 +104,8 @@ impl BlockSynchronizer {
     }
 
     /// Create [`Self`] from [`Configuration`]
-    pub fn from_configuration(
-        config: &Configuration,
+    pub fn from_config(
+        config: &Config,
         sumeragi: SumeragiHandle,
         kura: Arc<Kura>,
         peer_id: PeerId,
@@ -117,8 +117,8 @@ impl BlockSynchronizer {
             peer_id,
             sumeragi,
             kura,
-            gossip_period: Duration::from_millis(config.gossip_period_ms),
-            block_batch_size: config.block_batch_size,
+            gossip_period: config.gossip_period,
+            gossip_max_size: config.gossip_max_size,
             network,
             latest_hash,
             previous_hash,
@@ -191,10 +191,6 @@ pub mod message {
                     previous_hash,
                     peer_id,
                 }) => {
-                    if block_sync.block_batch_size == 0 {
-                        warn!("Error: not sending any blocks as batch_size is equal to zero.");
-                        return;
-                    }
                     let local_latest_block_hash = block_sync.latest_hash;
                     if *latest_hash == local_latest_block_hash
                         || *previous_hash == local_latest_block_hash
@@ -214,7 +210,7 @@ pub mod message {
                     };
 
                     let blocks = (start_height..)
-                        .take(1 + block_sync.block_batch_size as usize)
+                        .take(1 + block_sync.gossip_max_size.get() as usize)
                         .map_while(|height| block_sync.kura.get_block_by_height(height))
                         .skip_while(|block| Some(block.hash()) == *latest_hash)
                         .map(|block| (*block).clone())

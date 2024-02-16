@@ -1,40 +1,23 @@
-//! Module for kura-related configuration and structs
+//! Configuration tools related to Kura specifically.
 
-use std::path::PathBuf;
+// use iroha_config_base::{impl_deserialize_from_str, impl_serialize_display};
 
-use eyre::Result;
-use iroha_config_base::derive::Proxy;
-use serde::{Deserialize, Serialize};
-
-const DEFAULT_BLOCK_STORE_PATH: &str = "./storage";
-
-/// `Kura` configuration.
-#[derive(Clone, Deserialize, Serialize, Debug, Proxy, PartialEq, Eq)]
-#[serde(rename_all = "UPPERCASE")]
-#[config(env_prefix = "KURA_")]
-pub struct Configuration {
-    /// Initialization mode: `strict` or `fast`.
-    pub init_mode: Mode,
-    /// Path to the existing block store folder or path to create new folder.
-    #[config(serde_as_str)]
-    pub block_store_path: PathBuf,
-    /// Whether or not new blocks be outputted to a file called blocks.json.
-    pub debug_output_new_blocks: bool,
-}
-
-impl Default for ConfigurationProxy {
-    fn default() -> Self {
-        Self {
-            init_mode: Some(Mode::default()),
-            block_store_path: Some(DEFAULT_BLOCK_STORE_PATH.into()),
-            debug_output_new_blocks: Some(false),
-        }
-    }
-}
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 /// Kura initialization mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    strum::EnumString,
+    strum::Display,
+    DeserializeFromStr,
+    SerializeDisplay,
+)]
+#[strum(serialize_all = "snake_case")]
 pub enum Mode {
     /// Strict validation of all blocks.
     #[default]
@@ -44,20 +27,14 @@ pub enum Mode {
 }
 
 #[cfg(test)]
-pub mod tests {
-    use proptest::prelude::*;
+mod tests {
+    use crate::kura::Mode;
 
-    use super::*;
-
-    prop_compose! {
-        pub fn arb_proxy()
-            (
-                init_mode in prop::option::of(Just(Mode::default())),
-                block_store_path in prop::option::of(Just(DEFAULT_BLOCK_STORE_PATH.into())),
-                debug_output_new_blocks in prop::option::of(Just(false))
-            )
-            -> ConfigurationProxy {
-            ConfigurationProxy { init_mode, block_store_path, debug_output_new_blocks }
-        }
+    #[test]
+    fn init_mode_display_reprs() {
+        assert_eq!(format!("{}", Mode::Strict), "strict");
+        assert_eq!(format!("{}", Mode::Fast), "fast");
+        assert_eq!("strict".parse::<Mode>().unwrap(), Mode::Strict);
+        assert_eq!("fast".parse::<Mode>().unwrap(), Mode::Fast);
     }
 }

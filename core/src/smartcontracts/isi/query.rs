@@ -249,7 +249,7 @@ mod tests {
         valid_tx_per_block: usize,
         invalid_tx_per_block: usize,
     ) -> Result<WorldStateView> {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();
@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     async fn find_transaction() -> Result<()> {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::test().start();

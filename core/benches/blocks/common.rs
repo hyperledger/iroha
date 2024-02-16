@@ -27,7 +27,7 @@ pub fn create_block(
     account_id: AccountId,
     key_pair: &KeyPair,
 ) -> CommittedBlock {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let transaction = TransactionBuilder::new(chain_id.clone(), account_id)
         .with_instructions(instructions)
@@ -185,12 +185,12 @@ pub fn build_wsv(
     );
     let mut wsv = WorldStateView::new(World::with([domain], UniqueVec::new()), kura, query_handle);
     wsv.config.transaction_limits = TransactionLimits::new(u64::MAX, u64::MAX);
-    wsv.config.wasm_runtime_config.fuel_limit = u64::MAX;
-    wsv.config.wasm_runtime_config.max_memory = u32::MAX;
+    wsv.config.wasm_runtime.fuel_limit = u64::MAX;
+    wsv.config.wasm_runtime.max_memory_bytes = u32::MAX;
 
     {
         let path_to_executor = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../configs/peer/executor.wasm");
+            .join("../configs/swarm/executor.wasm");
         let wasm = std::fs::read(&path_to_executor)
             .unwrap_or_else(|_| panic!("Failed to read file: {}", path_to_executor.display()));
         let executor = Executor::new(WasmSmartContract::from_compiled(wasm));

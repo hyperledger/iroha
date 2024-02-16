@@ -1,8 +1,8 @@
 //! Gossiper is actor which is responsible for transaction gossiping
 
-use std::{sync::Arc, time::Duration};
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
-use iroha_config::sumeragi::Configuration;
+use iroha_config::parameters::actual::TransactionGossiper as Config;
 use iroha_data_model::{transaction::SignedTransaction, ChainId};
 use iroha_p2p::Broadcast;
 use parity_scale_codec::{Decode, Encode};
@@ -35,7 +35,7 @@ pub struct TransactionGossiper {
     chain_id: ChainId,
     /// The size of batch that is being gossiped. Smaller size leads
     /// to longer time to synchronise, useful if you have high packet loss.
-    gossip_batch_size: u32,
+    gossip_max_size: NonZeroU32,
     /// The time between gossiping. More frequent gossiping shortens
     /// the time to sync, but can overload the network.
     gossip_period: Duration,
@@ -58,10 +58,12 @@ impl TransactionGossiper {
     }
 
     /// Construct [`Self`] from configuration
-    pub fn from_configuration(
+    pub fn from_config(
         chain_id: ChainId,
-        // Currently we are using configuration parameters from sumeragi not to break configuration
-        configuration: &Configuration,
+        Config {
+            gossip_period,
+            gossip_max_size,
+        }: Config,
         network: IrohaNetwork,
         queue: Arc<Queue>,
         sumeragi: SumeragiHandle,
@@ -69,11 +71,11 @@ impl TransactionGossiper {
         let wsv = sumeragi.wsv_clone();
         Self {
             chain_id,
+            gossip_max_size,
+            gossip_period,
             queue,
-            sumeragi,
             network,
-            gossip_batch_size: configuration.gossip_batch_size,
-            gossip_period: Duration::from_millis(configuration.gossip_period_ms),
+            sumeragi,
             wsv,
         }
     }
@@ -101,7 +103,7 @@ impl TransactionGossiper {
     fn gossip_transactions(&self) {
         let txs = self
             .queue
-            .n_random_transactions(self.gossip_batch_size, &self.wsv);
+            .n_random_transactions(self.gossip_max_size.get(), &self.wsv);
 
         if txs.is_empty() {
             return;

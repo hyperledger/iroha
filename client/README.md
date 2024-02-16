@@ -16,15 +16,9 @@ Follow the [Iroha 2 tutorial](https://hyperledger.github.io/iroha-2-docs/guide/r
 Add the following to the manifest file of your Rust project:
 
 ```toml
-iroha_client = { git = "https://github.com/hyperledger/iroha/", branch="iroha2-dev" }
+iroha_client = { git = "https://github.com/hyperledger/iroha", branch = "iroha2-dev" }
 ```
 
 ## Examples
-
-```rust
-let configuration =
-    &Configuration::from_path("config.json").expect("Failed to load configuration.");
-let mut iroha_client = Client::new(configuration);
-```
 
 We highly recommend looking at the sample [`iroha_client_cli`](../client_cli) implementation binary as well as our [tutorial](https://hyperledger.github.io/iroha-2-docs/guide/rust.html) for more examples and explanations.

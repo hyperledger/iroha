@@ -1,11 +1,8 @@
-use iroha_config::base::proxy::Builder;
-use iroha_logger::{init_global, ConfigurationProxy};
+use iroha_logger::{init_global, Config};
 
 #[tokio::test]
 async fn setting_logger_twice_fails() {
-    let cfg = ConfigurationProxy::default()
-        .build()
-        .expect("Default logger config always builds");
+    let cfg = Config::default();
 
     let first = init_global(&cfg, false);
     assert!(first.is_ok());

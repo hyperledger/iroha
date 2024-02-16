@@ -54,6 +54,7 @@ iroha_data_model = { workspace = true, features = ["http"] }
 iroha_primitives = { workspace = true }
 iroha_logger = { workspace = true }
 iroha_telemetry = { workspace = true }
+iroha_torii_const = { workspace = true }
 iroha_version = { workspace = true, features = ["http"] }
 
 attohttpc = { version = "0.26.1", default-features = false }
@@ -62,6 +63,7 @@ http = "0.2.9"
 url = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_with = { workspace = true }
 serde_json = { workspace = true }
 base64 = { workspace = true }
 thiserror = { workspace = true }
@@ -72,6 +74,8 @@ tokio = { workspace = true, features = ["rt"] }
 tokio-tungstenite = { workspace = true }
 tungstenite = { workspace = true }
 futures-util = "0.3.28"
+merge = "0.1.0"
+toml = { workspace = true }
 
 [dev-dependencies]
 iroha_wasm_builder = { workspace = true }

@@ -2,7 +2,7 @@ use std::thread;
 
 use eyre::Result;
 use iroha_client::{client, data_model::prelude::*};
-use iroha_config::iroha::Configuration;
+use iroha_config::parameters::actual::Root as Config;
 use test_network::*;
 
 #[test]
@@ -10,7 +10,7 @@ fn client_add_domain_with_name_length_more_than_limit_should_not_commit_transact
 {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_500).start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
-    let pipeline_time = Configuration::pipeline_time();
+    let pipeline_time = Config::pipeline_time();
 
     // Given
 

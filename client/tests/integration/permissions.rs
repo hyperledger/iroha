@@ -63,7 +63,7 @@ fn get_assets(iroha_client: &Client, id: &AccountId) -> Vec<Asset> {
 #[test]
 #[ignore = "ignore, more in #2851"]
 fn permissions_disallow_asset_transfer() {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
     wait_for_genesis_committed(&[iroha_client.clone()], 0);
@@ -120,7 +120,7 @@ fn permissions_disallow_asset_transfer() {
 #[test]
 #[ignore = "ignore, more in #2851"]
 fn permissions_disallow_asset_burn() {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_735).start_with_runtime();
 
@@ -195,7 +195,7 @@ fn account_can_query_only_its_own_domain() -> Result<()> {
 
 #[test]
 fn permissions_differ_not_only_by_names() {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let (_rt, _not_drop, client) = <PeerBuilder>::new().with_port(10_745).start_with_runtime();
 
@@ -292,7 +292,7 @@ fn permissions_differ_not_only_by_names() {
 #[test]
 #[allow(deprecated)]
 fn stored_vs_granted_token_payload() -> Result<()> {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let (_rt, _peer, iroha_client) = <PeerBuilder>::new().with_port(10_730).start_with_runtime();
     wait_for_genesis_committed(&[iroha_client.clone()], 0);

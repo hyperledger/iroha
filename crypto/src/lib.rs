@@ -657,6 +657,14 @@ impl PrivateKey {
             PrivateKeyInner::BlsSmall(key) => key.to_bytes(),
         }
     }
+
+    /// Extracts the raw bytes from the private key, copying the payload.
+    ///
+    /// `into_raw()` without copying is not provided because underlying crypto
+    /// libraries do not provide move functionality.
+    pub fn to_raw(&self) -> (Algorithm, Vec<u8>) {
+        (self.algorithm(), self.payload())
+    }
 }
 
 #[cfg(not(feature = "ffi_import"))]

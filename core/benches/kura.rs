@@ -4,7 +4,7 @@ use std::str::FromStr as _;
 
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
-use iroha_config::kura::Configuration;
+use iroha_config::parameters::actual::Kura as Config;
 use iroha_core::{
     block::*,
     kura::{BlockStore, LockStatus},
@@ -19,7 +19,7 @@ use iroha_primitives::unique_vec::UniqueVec;
 use tokio::{fs, runtime::Runtime};
 
 async fn measure_block_size_for_n_executors(n_executors: u32) {
-    let chain_id = ChainId::new("0");
+    let chain_id = ChainId::from("0");
 
     let alice_id = AccountId::from_str("alice@test").expect("tested");
     let bob_id = AccountId::from_str("bob@test").expect("tested");
@@ -40,10 +40,10 @@ async fn measure_block_size_for_n_executors(n_executors: u32) {
     let tx = AcceptedTransaction::accept(tx, &chain_id, &transaction_limits)
         .expect("Failed to accept Transaction.");
     let dir = tempfile::tempdir().expect("Could not create tempfile.");
-    let cfg = Configuration {
+    let cfg = Config {
         init_mode: iroha_config::kura::Mode::Strict,
         debug_output_new_blocks: false,
-        block_store_path: dir.path().to_str().unwrap().into(),
+        store_dir: dir.path().to_path_buf(),
     };
     let kura = iroha_core::kura::Kura::new(&cfg).unwrap();
     let _thread_handle = iroha_core::kura::Kura::start(kura.clone());

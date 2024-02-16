@@ -1,0 +1,6 @@
+# 1 - sets format, 2 - sets format and level
+extends = ["multiple_extends.1.toml", "multiple_extends.2.toml"]
+
+[logger]
+# final value
+level = "ERROR"

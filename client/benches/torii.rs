@@ -17,23 +17,12 @@ use tokio::runtime::Runtime;
 
 const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
 
-// assumes that config is having a complete genesis key pair
-fn get_genesis_key_pair(config: &iroha_config::iroha::Configuration) -> KeyPair {
-    if let (public_key, Some(private_key)) =
-        (&config.genesis.public_key, &config.genesis.private_key)
-    {
-        KeyPair::new(public_key.clone(), private_key.clone()).expect("Should be valid")
-    } else {
-        panic!("Cannot get genesis key pair from the config. Probably a bug.")
-    }
-}
-
 fn query_requests(criterion: &mut Criterion) {
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
 
     let chain_id = get_chain_id();
     let configuration = get_config(
-        unique_vec![peer.id.clone()],
+        &unique_vec![peer.id.clone()],
         Some(chain_id.clone()),
         Some(get_key_pair()),
     );
@@ -52,12 +41,15 @@ fn query_requests(criterion: &mut Criterion) {
             )
             .build(),
         &chain_id,
-        &get_genesis_key_pair(&configuration),
+        configuration
+            .genesis
+            .key_pair()
+            .expect("genesis config should be full, probably a bug"),
     )
     .expect("genesis creation failed");
 
     let builder = PeerBuilder::new()
-        .with_configuration(configuration)
+        .with_config(configuration)
         .with_into_genesis(genesis);
 
     rt.block_on(builder.start_with_peer(&mut peer));
@@ -81,12 +73,13 @@ fn query_requests(criterion: &mut Criterion) {
         quantity,
         AssetId::new(asset_definition_id, account_id.clone()),
     );
-    let mut client_config =
-        iroha_client::samples::get_client_config(get_chain_id(), &get_key_pair());
+    let client_config = iroha_client::samples::get_client_config(
+        get_chain_id(),
+        get_key_pair(),
+        format!("http://{}", peer.api_address).parse().unwrap(),
+    );
 
-    client_config.torii_api_url = format!("http://{}", peer.api_address).parse().unwrap();
-
-    let iroha_client = Client::new(&client_config).expect("Invalid client configuration");
+    let iroha_client = Client::new(client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
 
     let instructions: [InstructionBox; 4] = [
@@ -139,7 +132,7 @@ fn instruction_submits(criterion: &mut Criterion) {
 
     let chain_id = get_chain_id();
     let configuration = get_config(
-        unique_vec![peer.id.clone()],
+        &unique_vec![peer.id.clone()],
         Some(chain_id.clone()),
         Some(get_key_pair()),
     );
@@ -148,7 +141,7 @@ fn instruction_submits(criterion: &mut Criterion) {
             .domain("wonderland".parse().expect("Valid"))
             .account(
                 "alice".parse().expect("Valid"),
-                configuration.public_key.clone(),
+                configuration.common.key_pair.public_key().clone(),
             )
             .finish_domain()
             .executor(
@@ -156,11 +149,14 @@ fn instruction_submits(criterion: &mut Criterion) {
             )
             .build(),
         &chain_id,
-        &get_genesis_key_pair(&configuration),
+        configuration
+            .genesis
+            .key_pair()
+            .expect("config should be full; probably a bug"),
     )
     .expect("failed to create genesis");
     let builder = PeerBuilder::new()
-        .with_configuration(configuration)
+        .with_config(configuration)
         .with_into_genesis(genesis);
     rt.block_on(builder.start_with_peer(&mut peer));
     let mut group = criterion.benchmark_group("instruction-requests");
@@ -170,10 +166,12 @@ fn instruction_submits(criterion: &mut Criterion) {
     let (public_key, _) = KeyPair::generate().into();
     let create_account = Register::account(Account::new(account_id.clone(), [public_key])).into();
     let asset_definition_id = AssetDefinitionId::new(domain_id, "xor".parse().expect("Valid"));
-    let mut client_config =
-        iroha_client::samples::get_client_config(get_chain_id(), &get_key_pair());
-    client_config.torii_api_url = format!("http://{}", peer.api_address).parse().unwrap();
-    let iroha_client = Client::new(&client_config).expect("Invalid client configuration");
+    let client_config = iroha_client::samples::get_client_config(
+        get_chain_id(),
+        get_key_pair(),
+        format!("http://{}", peer.api_address).parse().unwrap(),
+    );
+    let iroha_client = Client::new(client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
     let _ = iroha_client
         .submit_all([create_domain, create_account])

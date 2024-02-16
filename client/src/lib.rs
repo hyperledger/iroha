@@ -2,6 +2,7 @@
 
 /// Module with iroha client itself
 pub mod client;
+pub mod config;
 /// Module with general communication primitives like an HTTP request builder.
 pub mod http;
 mod http_default;
@@ -9,40 +10,32 @@ mod query_builder;
 
 /// Module containing sample configurations for tests and benchmarks.
 pub mod samples {
+    use url::Url;
+
     use crate::{
-        config::{torii::DEFAULT_API_ADDR, Configuration, ConfigurationProxy},
+        config::{
+            Config, DEFAULT_TRANSACTION_NONCE, DEFAULT_TRANSACTION_STATUS_TIMEOUT,
+            DEFAULT_TRANSACTION_TIME_TO_LIVE,
+        },
         crypto::KeyPair,
         data_model::ChainId,
     };
 
     /// Get sample client configuration.
-    pub fn get_client_config(chain_id: ChainId, key_pair: &KeyPair) -> Configuration {
-        let (public_key, private_key) = key_pair.clone().into();
-        ConfigurationProxy {
-            chain_id: Some(chain_id),
-            public_key: Some(public_key),
-            private_key: Some(private_key),
-            account_id: Some(
-                "alice@wonderland"
-                    .parse()
-                    .expect("This account ID should be valid"),
-            ),
-            torii_api_url: Some(
-                format!("http://{DEFAULT_API_ADDR}")
-                    .parse()
-                    .expect("Should be a valid url"),
-            ),
-            ..ConfigurationProxy::default()
+    pub fn get_client_config(chain_id: ChainId, key_pair: KeyPair, torii_api_url: Url) -> Config {
+        Config {
+            chain_id,
+            key_pair,
+            torii_api_url,
+            account_id: "alice@wonderland"
+                .parse()
+                .expect("This account ID should be valid"),
+            basic_auth: None,
+            transaction_ttl: DEFAULT_TRANSACTION_TIME_TO_LIVE,
+            transaction_status_timeout: DEFAULT_TRANSACTION_STATUS_TIMEOUT,
+            transaction_add_nonce: DEFAULT_TRANSACTION_NONCE,
         }
-        .build()
-        .expect("Client config should build as all required fields were provided")
     }
-}
-
-pub mod config {
-    //! Module for client-related configuration and structs
-
-    pub use iroha_config::{client::*, client_api as api, path, torii::uri as torii};
 }
 
 pub use iroha_crypto as crypto;

@@ -1,10 +1,12 @@
-//! Retry period that is calculated as `min_period * 2 ^ min(exponent, max_exponent)`
+//! Period for re-entrant polling
+
+use std::time::Duration;
 
 /// Period for re-entrant polling
 #[derive(Clone, Copy, Debug)]
 pub struct RetryPeriod {
     /// The minimum period
-    min_period: u64,
+    min_period: Duration,
     /// The maximum exponent
     max_exponent: u8,
     /// The current exponent
@@ -13,7 +15,7 @@ pub struct RetryPeriod {
 
 impl RetryPeriod {
     /// Constructs a new object
-    pub const fn new(min_period: u64, max_exponent: u8) -> Self {
+    pub const fn new(min_period: Duration, max_exponent: u8) -> Self {
         Self {
             min_period,
             max_exponent,
@@ -30,27 +32,25 @@ impl RetryPeriod {
         }
     }
 
-    /// Returns the period
-    pub fn period(&mut self) -> u64 {
-        let mult = 2_u64.saturating_pow(self.exponent.into());
+    /// Retry period that is calculated as `min_period * 2 ^ min(exponent, max_exponent)`
+    pub fn period(&mut self) -> Duration {
+        let mult = 2_u32.saturating_pow(self.exponent.into());
         self.min_period.saturating_mul(mult)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn increase_exponent_saturates() {
-        let mut period = super::RetryPeriod {
-            min_period: 32000_u64,
-            max_exponent: u8::MAX,
-            exponent: (u8::MAX - 1),
-        };
-        println!("testing {period:?}");
-        let old = period.period();
-        period.increase_exponent();
-        assert_eq!(period.period(), 2_u64.saturating_mul(old));
-        period.increase_exponent();
-        assert_eq!(period.period(), 2_u64.saturating_mul(old));
+        let mut value = RetryPeriod::new(Duration::from_secs(42), 10);
+        println!("testing {value:?}");
+        let initial_period = value.period();
+        value.increase_exponent();
+        assert_eq!(value.period(), initial_period.saturating_mul(2));
+        value.increase_exponent();
+        assert_eq!(value.period(), initial_period.saturating_mul(4));
     }
 }

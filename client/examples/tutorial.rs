@@ -1,50 +1,34 @@
 //! This file contains examples from the Rust tutorial.
 //! <https://hyperledger.github.io/iroha-2-docs/guide/rust.html#_2-configuring-iroha-2>
-use std::fs::File;
 
 use eyre::{Error, WrapErr};
-use iroha_client::config::Configuration;
+use iroha_client::config::Config;
 // #region rust_config_crates
 // #endregion rust_config_crates
 
 fn main() {
     // #region rust_config_load
-    let config_loc = "../configs/client/config.json";
-    let file = File::open(config_loc)
-        .wrap_err("Unable to load the configuration file at `.....`")
-        .expect("Config file is loading normally.");
-    let config: Configuration = serde_json::from_reader(file)
-        .wrap_err("Failed to parse `../configs/client/config.json`")
-        .expect("Verified in tests");
+    let config = Config::load("../configs/swarm/client.toml").unwrap();
     // #endregion rust_config_load
 
     // Your code goes here…
 
-    json_config_client_test(&config)
-        .expect("JSON config client example is expected to work correctly");
-    domain_registration_test(&config)
+    domain_registration_test(config.clone())
         .expect("Domain registration example is expected to work correctly");
     account_definition_test().expect("Account definition example is expected to work correctly");
-    account_registration_test(&config)
+    account_registration_test(config.clone())
         .expect("Account registration example is expected to work correctly");
-    asset_registration_test(&config)
+    asset_registration_test(config.clone())
         .expect("Asset registration example is expected to work correctly");
-    asset_minting_test(&config).expect("Asset minting example is expected to work correctly");
-    asset_burning_test(&config).expect("Asset burning example is expected to work correctly");
+    asset_minting_test(config.clone())
+        .expect("Asset minting example is expected to work correctly");
+    asset_burning_test(config.clone())
+        .expect("Asset burning example is expected to work correctly");
     // output_visualising_test(&config).expect(msg: "Visualising outputs example is expected to work correctly");
     println!("Success!");
 }
 
-fn json_config_client_test(config: &Configuration) -> Result<(), Error> {
-    use iroha_client::client::Client;
-
-    // Initialise a client with a provided config
-    let _current_client: Client = Client::new(config)?;
-
-    Ok(())
-}
-
-fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
+fn domain_registration_test(config: Config) -> Result<(), Error> {
     // #region domain_register_example_crates
     use iroha_client::{
         client::Client,
@@ -67,7 +51,7 @@ fn domain_registration_test(config: &Configuration) -> Result<(), Error> {
 
     // #region rust_client_create
     // Create an Iroha client
-    let iroha_client: Client = Client::new(config)?;
+    let iroha_client = Client::new(config);
     // #endregion rust_client_create
 
     // #region domain_register_example_prepare_tx
@@ -108,7 +92,7 @@ fn account_definition_test() -> Result<(), Error> {
     Ok(())
 }
 
-fn account_registration_test(config: &Configuration) -> Result<(), Error> {
+fn account_registration_test(config: Config) -> Result<(), Error> {
     // #region register_account_crates
     use iroha_client::{
         client::Client,
@@ -121,7 +105,7 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     // #endregion register_account_crates
 
     // Create an Iroha client
-    let iroha_client: Client = Client::new(config)?;
+    let iroha_client = Client::new(config);
 
     // #region register_account_create
     // Create an AccountId instance by providing the account and domain name
@@ -156,7 +140,7 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
     Ok(())
 }
 
-fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
+fn asset_registration_test(config: Config) -> Result<(), Error> {
     // #region register_asset_crates
     use std::str::FromStr as _;
 
@@ -169,7 +153,7 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
     // #endregion register_asset_crates
 
     // Create an Iroha client
-    let iroha_client: Client = Client::new(config)?;
+    let iroha_client = Client::new(config);
 
     // #region register_asset_create_asset
     // Create an asset
@@ -206,7 +190,7 @@ fn asset_registration_test(config: &Configuration) -> Result<(), Error> {
     Ok(())
 }
 
-fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
+fn asset_minting_test(config: Config) -> Result<(), Error> {
     // #region mint_asset_crates
     use std::str::FromStr;
 
@@ -217,7 +201,7 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
     // #endregion mint_asset_crates
 
     // Create an Iroha client
-    let iroha_client: Client = Client::new(config)?;
+    let iroha_client = Client::new(config);
 
     // Define the instances of an Asset and Account
     // #region mint_asset_define_asset_account
@@ -257,7 +241,7 @@ fn asset_minting_test(config: &Configuration) -> Result<(), Error> {
     Ok(())
 }
 
-fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
+fn asset_burning_test(config: Config) -> Result<(), Error> {
     // #region burn_asset_crates
     use std::str::FromStr;
 
@@ -268,7 +252,7 @@ fn asset_burning_test(config: &Configuration) -> Result<(), Error> {
     // #endregion burn_asset_crates
 
     // Create an Iroha client
-    let iroha_client: Client = Client::new(config)?;
+    let iroha_client = Client::new(config);
 
     // #region burn_asset_define_asset_account
     // Define the instances of an Asset and Account

@@ -11,15 +11,14 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-iroha_config_derive = { workspace = true }
-iroha_crypto = { workspace = true, features = ["std"] }
-
-serde = { workspace = true, default-features = false, features = ["derive"] }
-serde_json = { workspace = true, features = ["alloc"] }
-parking_lot = { workspace = true }
-json5 = { workspace = true }
-thiserror = { workspace = true }
-displaydoc = { workspace = true }
-crossbeam = { workspace = true }
+merge = "0.1.0"
+drop_bomb = { workspace = true }
+derive_more = { workspace = true, features = ["from", "deref", "deref_mut"] }
 eyre = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_with = { workspace = true, features = ["macros", "std"] }
+thiserror = { workspace = true }
+num-traits = "0.2.17"
 
+[dev-dependencies]
+toml = { workspace = true }

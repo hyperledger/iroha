@@ -1,11 +1,8 @@
 //! Iroha peer command-line interface.
-use std::env;
+use std::{env, path::PathBuf};
 
 use clap::Parser;
 use color_eyre::eyre::Result;
-use iroha_config::path::Path;
-
-const DEFAULT_CONFIG_PATH: &str = "config";
 
 fn is_colouring_supported() -> bool {
     supports_color::on(supports_color::Stream::Stdout).is_some()
@@ -19,22 +16,9 @@ fn default_terminal_colors_str() -> clap::builder::OsStr {
 #[derive(Parser, Debug)]
 #[command(name = "iroha", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
 struct Args {
-    /// Path to the configuration file, defaults to `config.json`/`config.json5`
-    ///
-    /// Supported extensions are `.json` and `.json5`. By default, Iroha looks for a
-    /// `config` file with one of the supported extensions in the current working directory.
-    /// If the default config file is not found, Iroha will rely on default values and environment
-    /// variables. However, if the config path is set explicitly with this argument and the file
-    /// is not found, Iroha will exit with an error.
-    #[arg(
-        long,
-        short,
-        env("IROHA_CONFIG"),
-        value_name("PATH"),
-        value_parser(Path::user_provided_str),
-        value_hint(clap::ValueHint::FilePath)
-    )]
-    config: Option<Path>,
+    /// Path to the configuration file
+    #[arg(long, short, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
+    config: Option<PathBuf>,
     /// Whether to enable ANSI colored output or not
     ///
     /// By default, Iroha determines whether the terminal supports colors or not.
@@ -73,11 +57,7 @@ async fn main() -> Result<()> {
         color_eyre::install()?;
     }
 
-    let config_path = args
-        .config
-        .unwrap_or_else(|| Path::default(DEFAULT_CONFIG_PATH));
-
-    let (config, genesis) = iroha::read_config(&config_path, args.submit_genesis)?;
+    let (config, genesis) = iroha::read_config_and_genesis(args.config, args.submit_genesis)?;
     let logger = iroha_logger::init_global(&config.logger, args.terminal_colors)?;
 
     iroha_logger::info!(
@@ -100,8 +80,6 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use assertables::{assert_contains, assert_contains_as_result};
-
     use super::*;
 
     #[test]
@@ -109,7 +87,6 @@ mod tests {
     fn default_args() -> Result<()> {
         let args = Args::try_parse_from(["test"])?;
 
-        assert_eq!(args.config, None);
         assert_eq!(args.terminal_colors, is_colouring_supported());
         assert_eq!(args.submit_genesis, false);
 
@@ -139,21 +116,14 @@ mod tests {
     fn user_provided_config_path_works() -> Result<()> {
         let args = Args::try_parse_from(["test", "--config", "/home/custom/file.json"])?;
 
-        assert_eq!(
-            args.config,
-            Some(Path::user_provided("/home/custom/file.json").unwrap())
-        );
+        assert_eq!(args.config, Some(PathBuf::from("/home/custom/file.json")));
 
         Ok(())
     }
 
     #[test]
-    fn user_cannot_provide_invalid_extension() {
-        let err = Args::try_parse_from(["test", "--config", "file.toml"])
-            .expect_err("Should not allow TOML");
-
-        let formatted = format!("{err}");
-        assert_contains!(formatted, "invalid value 'file.toml' for '--config");
-        assert_contains!(formatted, "unsupported file extension `toml`");
+    fn user_can_provide_any_extension() {
+        let _args = Args::try_parse_from(["test", "--config", "file.toml.but.not"])
+            .expect("should allow doing this as well");
     }
 }

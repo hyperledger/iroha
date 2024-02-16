@@ -16,10 +16,9 @@ use dialoguer::Confirm;
 use erased_serde::Serialize;
 use iroha_client::{
     client::{Client, QueryResult},
-    config::{path::Path, Configuration as ClientConfiguration, ConfigurationProxy},
+    config::Config,
     data_model::prelude::*,
 };
-use iroha_config_base::proxy::{LoadFromDisk, LoadFromEnv, Override};
 use iroha_primitives::addr::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
@@ -90,21 +89,9 @@ impl FromStr for ValueArg {
 #[derive(clap::Parser, Debug)]
 #[command(name = "iroha_client_cli", version = concat!("version=", env!("CARGO_PKG_VERSION"), " git_commit_sha=", env!("VERGEN_GIT_SHA")), author)]
 struct Args {
-    /// Path to the configuration file, defaults to `config.json`/`config.json5`
-    ///
-    /// Supported extensions are `.json` and `.json5`. By default, Iroha Client looks for a
-    /// `config` file with one of the supported extensions in the current working directory.
-    /// If the default config file is not found, Iroha will rely on default values and environment
-    /// variables. However, if the config path is set explicitly with this argument and the file
-    /// is not found, Iroha Client will exit with an error.
-    #[arg(
-        short,
-        long,
-        value_name("PATH"),
-        value_hint(clap::ValueHint::FilePath),
-        value_parser(Path::user_provided_str)
-    )]
-    config: Option<Path>,
+    /// Path to the configuration file
+    #[arg(short, long, value_name("PATH"), value_hint(clap::ValueHint::FilePath))]
+    config: PathBuf,
     /// More verbose output
     #[arg(short, long)]
     verbose: bool,
@@ -146,7 +133,11 @@ enum Subcommand {
 /// Context inside which command is executed
 trait RunContext {
     /// Get access to configuration
-    fn configuration(&self) -> &ClientConfiguration;
+    fn configuration(&self) -> &Config;
+
+    fn client_from_config(&self) -> Client {
+        Client::new(self.configuration().clone())
+    }
 
     /// Skip check for MST
     fn skip_mst_check(&self) -> bool;
@@ -161,12 +152,12 @@ trait RunContext {
 
 struct PrintJsonContext<W> {
     write: W,
-    config: ClientConfiguration,
+    config: Config,
     skip_mst_check: bool,
 }
 
 impl<W: std::io::Write> RunContext for PrintJsonContext<W> {
-    fn configuration(&self) -> &ClientConfiguration {
+    fn configuration(&self) -> &Config {
         &self.config
     }
 
@@ -204,14 +195,13 @@ impl RunArgs for Subcommand {
     }
 }
 
-// TODO: move into config.
+// TODO: move into config?
 const RETRY_COUNT_MST: u32 = 1;
 const RETRY_IN_MST: Duration = Duration::from_millis(100);
 
-static DEFAULT_CONFIG_PATH: &str = "config";
-
 fn main() -> Result<()> {
     color_eyre::install()?;
+
     let Args {
         config: config_path,
         subcommand,
@@ -219,22 +209,7 @@ fn main() -> Result<()> {
         skip_mst_check,
     } = clap::Parser::parse();
 
-    let config = ConfigurationProxy::default();
-    let config = if let Some(path) = config_path
-        .unwrap_or_else(|| Path::default(DEFAULT_CONFIG_PATH))
-        .try_resolve()
-        .wrap_err("Failed to resolve config file")?
-    {
-        config.override_with(ConfigurationProxy::from_path(&*path))
-    } else {
-        config
-    };
-    let config = config.override_with(
-        ConfigurationProxy::from_std_env().wrap_err("Failed to read config from ENV")?,
-    );
-    let config = config
-        .build()
-        .wrap_err("Failed to finalize configuration")?;
+    let config = Config::load(config_path)?;
 
     if verbose {
         eprintln!(
@@ -263,7 +238,7 @@ fn submit(
     metadata: UnlimitedMetadata,
     context: &mut dyn RunContext,
 ) -> Result<()> {
-    let iroha_client = Client::new(context.configuration())?;
+    let iroha_client = context.client_from_config();
     let instructions = instructions.into();
     let tx = iroha_client.build_transaction(instructions, metadata);
     let transactions = if context.skip_mst_check() {
@@ -322,7 +297,6 @@ mod filter {
 }
 
 mod events {
-    use iroha_client::client::Client;
 
     use super::*;
 
@@ -349,7 +323,7 @@ mod events {
     }
 
     fn listen(filter: FilterBox, context: &mut dyn RunContext) -> Result<()> {
-        let iroha_client = Client::new(context.configuration())?;
+        let iroha_client = context.client_from_config();
         eprintln!("Listening to events with filter: {filter:?}");
         iroha_client
             .listen_for_events(filter)
@@ -361,8 +335,6 @@ mod events {
 
 mod blocks {
     use std::num::NonZeroU64;
-
-    use iroha_client::client::Client;
 
     use super::*;
 
@@ -381,7 +353,7 @@ mod blocks {
     }
 
     fn listen(height: NonZeroU64, context: &mut dyn RunContext) -> Result<()> {
-        let iroha_client = Client::new(context.configuration())?;
+        let iroha_client = context.client_from_config();
         eprintln!("Listening to blocks from height: {height}");
         iroha_client
             .listen_for_blocks(height)
@@ -446,7 +418,7 @@ mod domain {
 
     impl RunArgs for List {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let client = Client::new(context.configuration())?;
+            let client = context.client_from_config();
 
             let vec = match self {
                 Self::All => client
@@ -682,7 +654,7 @@ mod account {
 
     impl RunArgs for List {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let client = Client::new(context.configuration())?;
+            let client = context.client_from_config();
 
             let vec = match self {
                 Self::All => client
@@ -752,7 +724,7 @@ mod account {
 
     impl RunArgs for ListPermissions {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let client = Client::new(context.configuration())?;
+            let client = context.client_from_config();
             let find_all_permissions = FindPermissionTokensByAccountId::new(self.id);
             let permissions = client
                 .request(find_all_permissions)
@@ -765,7 +737,7 @@ mod account {
 
 mod asset {
     use iroha_client::{
-        client::{self, asset, Client},
+        client::{self, asset},
         data_model::{asset::AssetDefinition, name::Name},
     };
 
@@ -939,7 +911,7 @@ mod asset {
     impl RunArgs for Get {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { asset_id } = self;
-            let iroha_client = Client::new(context.configuration())?;
+            let iroha_client = context.client_from_config();
             let asset = iroha_client
                 .request(asset::by_id(asset_id))
                 .wrap_err("Failed to get asset.")?;
@@ -959,7 +931,7 @@ mod asset {
 
     impl RunArgs for List {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let client = Client::new(context.configuration())?;
+            let client = context.client_from_config();
 
             let vec = match self {
                 Self::All => client
@@ -1033,7 +1005,7 @@ mod asset {
     impl RunArgs for GetKeyValue {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { asset_id, key } = self;
-            let client = Client::new(context.configuration())?;
+            let client = context.client_from_config();
             let find_key_value = FindAssetKeyValueByIdAndKey::new(asset_id, key);
             let asset = client
                 .request(find_key_value)

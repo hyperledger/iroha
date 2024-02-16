@@ -3,14 +3,14 @@ use std::{str::FromStr as _, thread, time::Duration};
 use eyre::Result;
 use iroha_client::{
     client::{self, Client, QueryResult},
-    config::Configuration as ClientConfiguration,
+    config::Config as ClientConfig,
     crypto::KeyPair,
     data_model::{
         parameter::{default::MAX_TRANSACTIONS_IN_BLOCK, ParametersBuilder},
         prelude::*,
     },
 };
-use iroha_config::iroha::Configuration;
+use iroha_config::parameters::actual::Root as Config;
 use test_network::*;
 
 #[allow(clippy::too_many_lines)]
@@ -18,7 +18,7 @@ use test_network::*;
 fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     let (_rt, network, client) = Network::start_test_with_runtime(4, Some(10_945));
     wait_for_genesis_committed(&network.clients(), 0);
-    let pipeline_time = Configuration::pipeline_time();
+    let pipeline_time = Config::pipeline_time();
 
     client.submit_all_blocking(
         ParametersBuilder::new()
@@ -39,8 +39,8 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
         alice_id.clone(),
     );
 
-    let mut client_configuration = ClientConfiguration::test(&network.genesis.api_address);
-    let client = Client::new(&client_configuration)?;
+    let mut client_config = ClientConfig::test(&network.genesis.api_address);
+    let client = Client::new(client_config.clone());
     let instructions: [InstructionBox; 2] = [create_asset.into(), set_signature_condition.into()];
     client.submit_all_blocking(instructions)?;
 
@@ -49,24 +49,22 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, alice_id.clone());
     let mint_asset = Mint::asset_quantity(quantity, asset_id.clone());
 
-    let (public_key1, private_key1) = alice_key_pair.into();
-    client_configuration.account_id = alice_id.clone();
-    client_configuration.public_key = public_key1;
-    client_configuration.private_key = private_key1;
-    let client = Client::new(&client_configuration)?;
+    client_config.account_id = alice_id.clone();
+    client_config.key_pair = alice_key_pair;
+    let client = Client::new(client_config.clone());
     let instructions = [mint_asset.clone()];
     let transaction = client.build_transaction(instructions, UnlimitedMetadata::new());
     client.submit_transaction(&client.sign_transaction(transaction))?;
     thread::sleep(pipeline_time);
 
     //Then
-    client_configuration.torii_api_url = format!(
+    client_config.torii_api_url = format!(
         "http://{}",
         &network.peers.values().last().unwrap().api_address,
     )
     .parse()
     .unwrap();
-    let client_1 = Client::new(&client_configuration).expect("Invalid client configuration");
+    let client_1 = Client::new(client_config.clone());
     let request = client::asset::by_account_id(alice_id);
     let assets = client_1
         .request(request.clone())?
@@ -76,10 +74,9 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
         2, // Alice has roses and cabbage from Genesis, but doesn't yet have camomile
         "Multisignature transaction was committed before all required signatures were added"
     );
-    let (public_key2, private_key2) = key_pair_2.into();
-    client_configuration.public_key = public_key2;
-    client_configuration.private_key = private_key2;
-    let client_2 = Client::new(&client_configuration)?;
+
+    client_config.key_pair = key_pair_2;
+    let client_2 = Client::new(client_config);
     let instructions = [mint_asset];
     let transaction = client_2.build_transaction(instructions, UnlimitedMetadata::new());
     let transaction = client_2

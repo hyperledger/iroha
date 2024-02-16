@@ -54,6 +54,7 @@ The test model has the following structure:
 	 ```shell
 	 # Must be executed from the repo root:
 	 ./scripts/test_env.py setup
+     # Note: make sure you have installed packages from `./scripts/requirements.txt`
 	 ```
 
    By default, this builds `iroha`, `iroha_client_cli`, and `kagami` binaries, and runs four peers with their API exposed through the `8080`-`8083` ports.\
@@ -64,7 +65,8 @@ The test model has the following structure:
 3. Configure the tests by creating the following `.env` file in _this_ (`<repo root>/client_cli/pytests/`) directory:
 
 	 ```shell
-	 CLIENT_CLI_DIR=/path/to/iroha_client_cli/with/config.json/dir/
+     CLIENT_CLI_BINARY=/path/to/iroha_client_cli
+     CLIENT_CLI_CONFIG=/path/to/config.toml
 	 TORII_API_PORT_MIN=8080
 	 TORII_API_PORT_MAX=8083
 	 ```
@@ -161,7 +163,8 @@ The variables:
 **Example**:
 
 ```shell
-CLIENT_CLI_DIR=/path/to/iroha_client_cli/with/config.json/dir/
+CLIENT_CLI_BINARY=/path/to/iroha_client_cli
+CLIENT_CLI_CONFIG=/path/to/config.toml
 TORII_API_PORT_MIN=8080
 TORII_API_PORT_MAX=8083
 ```

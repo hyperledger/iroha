@@ -9,7 +9,7 @@ use iroha_client::{
         prelude::*,
     },
 };
-use iroha_config::iroha::Configuration;
+use iroha_config::parameters::actual::Root as Config;
 use test_network::*;
 
 #[test]
@@ -18,7 +18,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     // Given
     let (_rt, network, client) = Network::start_test_with_runtime(4, Some(10_450));
     wait_for_genesis_committed(&network.clients(), 0);
-    let pipeline_time = Configuration::pipeline_time();
+    let pipeline_time = Config::pipeline_time();
 
     client.submit_all_blocking(
         ParametersBuilder::new()

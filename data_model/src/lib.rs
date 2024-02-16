@@ -592,6 +592,15 @@ pub mod model {
     #[ffi_type(unsafe {robust})]
     pub struct ChainId(Box<str>);
 
+    impl<T> From<T> for ChainId
+    where
+        T: Into<Box<str>>,
+    {
+        fn from(value: T) -> Self {
+            ChainId(value.into())
+        }
+    }
+
     /// Sized container for all possible identifications.
     #[derive(
         Debug,
@@ -965,7 +974,6 @@ pub mod model {
     /// Log level for reading from environment and (de)serializing
     #[derive(
         Debug,
-        Display,
         Clone,
         Copy,
         Default,
@@ -979,6 +987,8 @@ pub mod model {
         Decode,
         FromRepr,
         IntoSchema,
+        strum::Display,
+        strum::EnumString,
     )]
     #[allow(clippy::upper_case_acronyms)]
     #[repr(u8)]
@@ -1010,13 +1020,6 @@ pub mod model {
         /// in the next request to continue fetching results of the original query
         pub cursor: crate::query::cursor::ForwardCursor,
     }
-
-    impl ChainId {
-        /// Create new [`Self`]
-        pub fn new(inner: &str) -> Self {
-            Self(inner.into())
-        }
-    }
 }
 
 impl Decode for ChainId {
@@ -1024,7 +1027,17 @@ impl Decode for ChainId {
         input: &mut I,
     ) -> Result<Self, parity_scale_codec::Error> {
         let boxed: String = parity_scale_codec::Decode::decode(input)?;
-        Ok(Self::new(&boxed))
+        Ok(Self::from(boxed))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn parse_level_from_str() {
+        assert_eq!("INFO".parse::<Level>().unwrap(), Level::INFO);
     }
 }
 

@@ -43,9 +43,7 @@ impl GenesisNetwork {
     /// Construct [`GenesisNetwork`] from configuration.
     ///
     /// # Errors
-    /// - If fails to sign a transaction (which means that the `key_pair` is malformed rather
-    ///   than anything else)
-    /// - If transactions set is empty
+    /// If fails to resolve the executor
     pub fn new(
         raw_block: RawGenesisBlock,
         chain_id: &ChainId,
@@ -82,6 +80,7 @@ pub struct RawGenesisBlock {
     /// Transactions
     transactions: Vec<GenesisTransactionBuilder>,
     /// Runtime Executor
+    // TODO `RawGenesisBlock` should have evaluated executor, i.e. loaded
     executor: ExecutorMode,
 }
 
@@ -93,7 +92,7 @@ impl RawGenesisBlock {
     ///
     /// # Errors
     /// If file not found or deserialization from file fails.
-    pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Self> {
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
         let file = File::open(&path)
             .wrap_err_with(|| eyre!("Failed to open {}", path.as_ref().display()))?;
         let size = file
@@ -104,8 +103,12 @@ impl RawGenesisBlock {
             eprintln!("Genesis is quite large, it will take some time to apply it (size = {}, threshold = {})", size, Self::WARN_ON_GENESIS_GTE);
         }
         let reader = BufReader::new(file);
-        let mut raw_genesis_block: Self = serde_json::from_reader(reader)
-            .wrap_err_with(|| eyre!("Failed to deserialize raw genesis block from {:?}", &path))?;
+        let mut raw_genesis_block: Self = serde_json::from_reader(reader).wrap_err_with(|| {
+            eyre!(
+                "Failed to deserialize raw genesis block from {:?}",
+                path.as_ref().display()
+            )
+        })?;
         raw_genesis_block.executor.set_genesis_path(path);
         Ok(raw_genesis_block)
     }
@@ -135,6 +138,7 @@ impl ExecutorMode {
     }
 }
 
+/// Loads the executor from the path or uses the inline blob for conversion
 impl TryFrom<ExecutorMode> for Executor {
     type Error = ErrReport;
 
@@ -356,7 +360,7 @@ mod tests {
 
     #[test]
     fn load_new_genesis_block() -> Result<()> {
-        let chain_id = ChainId::new("0");
+        let chain_id = ChainId::from("0");
 
         let genesis_key_pair = KeyPair::generate();
         let (alice_public_key, _) = KeyPair::generate().into();

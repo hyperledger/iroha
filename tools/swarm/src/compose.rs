@@ -9,21 +9,18 @@ use std::{
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 use iroha_crypto::{
-    error::Error as IrohaCryptoError, KeyGenConfiguration, KeyPair, PrivateKey, PublicKey,
+    error::Error as IrohaCryptoError, Algorithm, KeyGenConfiguration, KeyPair, PrivateKey,
+    PublicKey,
 };
 use iroha_data_model::{prelude::PeerId, ChainId};
 use iroha_primitives::addr::{socket_addr, SocketAddr};
 use peer_generator::Peer;
-use serde::{
-    ser::{Error as _, SerializeMap},
-    Serialize, Serializer,
-};
+use serde::{ser::SerializeMap, Serialize, Serializer};
 
 use crate::{cli::SourceParsed, util::AbsolutePath};
 
 /// Config directory inside of the docker image
 const DIR_CONFIG_IN_DOCKER: &str = "/config";
-const PATH_TO_CONFIG: &str = "/config/config.json";
 const PATH_TO_GENESIS: &str = "/config/genesis.json";
 const GENESIS_KEYPAIR_SEED: &[u8; 7] = b"genesis";
 const COMMAND_SUBMIT_GENESIS: &str = "iroha --submit-genesis";
@@ -297,22 +294,25 @@ pub enum ServiceSource {
     Build(PathBuf),
 }
 
+#[serde_with::serde_as]
+#[serde_with::skip_serializing_none]
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "UPPERCASE")]
 struct FullPeerEnv {
-    iroha_chain_id: ChainId,
-    iroha_config: String,
-    iroha_public_key: PublicKey,
-    iroha_private_key: SerializeAsJsonStr<PrivateKey>,
-    torii_p2p_addr: SocketAddr,
-    torii_api_url: SocketAddr,
-    iroha_genesis_public_key: PublicKey,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    iroha_genesis_private_key: Option<SerializeAsJsonStr<PrivateKey>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    iroha_genesis_file: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sumeragi_trusted_peers: Option<SerializeAsJsonStr<BTreeSet<PeerId>>>,
+    chain_id: ChainId,
+    public_key: PublicKey,
+    private_key_digest: Algorithm,
+    #[serde_as(as = "serde_with::hex::Hex")]
+    private_key_payload: Vec<u8>,
+    p2p_address: SocketAddr,
+    api_address: SocketAddr,
+    genesis_public_key: PublicKey,
+    genesis_private_key_digest: Option<Algorithm>,
+    #[serde_as(as = "Option<serde_with::hex::Hex>")]
+    genesis_private_key_payload: Option<Vec<u8>>,
+    genesis_file: Option<String>,
+    #[serde_as(as = "Option<serde_with::json::JsonString>")]
+    sumeragi_trusted_peers: Option<BTreeSet<PeerId>>,
 }
 
 struct CompactPeerEnv {
@@ -328,50 +328,39 @@ struct CompactPeerEnv {
 
 impl From<CompactPeerEnv> for FullPeerEnv {
     fn from(value: CompactPeerEnv) -> Self {
-        let (iroha_genesis_private_key, iroha_genesis_file) =
-            value
-                .genesis_private_key
-                .map_or((None, None), |private_key| {
-                    (
-                        Some(SerializeAsJsonStr(private_key)),
-                        Some(PATH_TO_GENESIS.to_string()),
-                    )
-                });
+        let (genesis_private_key_digest, genesis_private_key_payload, genesis_file) = value
+            .genesis_private_key
+            .map_or((None, None, None), |private_key| {
+                let (algorithm, payload) = private_key.to_raw();
+                (
+                    Some(algorithm),
+                    Some(payload),
+                    Some(PATH_TO_GENESIS.to_string()),
+                )
+            });
+
+        let (private_key_digest, private_key_payload) = {
+            let (algorithm, payload) = value.key_pair.private_key().clone().to_raw();
+            (algorithm, payload)
+        };
 
         Self {
-            iroha_chain_id: value.chain_id,
-            iroha_config: PATH_TO_CONFIG.to_string(),
-            iroha_public_key: value.key_pair.public_key().clone(),
-            iroha_private_key: SerializeAsJsonStr(value.key_pair.private_key().clone()),
-            iroha_genesis_public_key: value.genesis_public_key,
-            iroha_genesis_private_key,
-            iroha_genesis_file,
-            torii_p2p_addr: value.p2p_addr,
-            torii_api_url: value.api_addr,
+            chain_id: value.chain_id,
+            public_key: value.key_pair.public_key().clone(),
+            private_key_digest,
+            private_key_payload,
+            genesis_public_key: value.genesis_public_key,
+            genesis_private_key_digest,
+            genesis_private_key_payload,
+            genesis_file,
+            p2p_address: value.p2p_addr,
+            api_address: value.api_addr,
             sumeragi_trusted_peers: if value.trusted_peers.is_empty() {
                 None
             } else {
-                Some(SerializeAsJsonStr(value.trusted_peers))
+                Some(value.trusted_peers)
             },
         }
-    }
-}
-
-#[derive(Debug)]
-struct SerializeAsJsonStr<T>(T);
-
-impl<T> serde::Serialize for SerializeAsJsonStr<T>
-where
-    T: serde::Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let json = serde_json::to_string(&self.0).map_err(|json_err| {
-            S::Error::custom(format!("failed to serialize as JSON: {json_err}"))
-        })?;
-        serializer.serialize_str(&json)
     }
 }
 
@@ -397,7 +386,7 @@ impl DockerComposeBuilder<'_> {
             )
         })?;
 
-        let chain_id = ChainId::new("00000000-0000-0000-0000-000000000000");
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
         let peers = peer_generator::generate_peers(self.peers, self.seed)
             .wrap_err("Failed to generate peers")?;
         let genesis_key_pair = generate_key_pair(self.seed, GENESIS_KEYPAIR_SEED)
@@ -574,21 +563,17 @@ impl TryFrom<SourceParsed> for ResolvedImageSource {
 #[cfg(test)]
 mod tests {
     use std::{
-        cell::RefCell,
         collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-        env::VarError,
-        ffi::OsStr,
         path::{Path, PathBuf},
         str::FromStr,
     };
 
-    use color_eyre::eyre::Context;
     use iroha_config::{
-        base::proxy::{FetchEnv, LoadFromEnv, Override},
-        iroha::ConfigurationProxy,
+        base::{FromEnv, TestEnv, UnwrapPartial},
+        parameters::user::{CliContext, RootPartial},
     };
     use iroha_crypto::{KeyGenConfiguration, KeyPair};
-    use iroha_primitives::addr::SocketAddr;
+    use iroha_primitives::addr::{socket_addr, SocketAddr};
     use path_absolutize::Absolutize;
 
     use super::*;
@@ -603,34 +588,12 @@ mod tests {
         }
     }
 
-    #[derive(Debug)]
-    struct TestEnv {
-        env: HashMap<String, String>,
-        /// Set of env variables that weren't fetched yet
-        untouched: RefCell<HashSet<String>>,
-    }
-
     impl From<FullPeerEnv> for TestEnv {
         fn from(peer_env: FullPeerEnv) -> Self {
             let json = serde_json::to_string(&peer_env).expect("Must be serializable");
-            let env: HashMap<_, serde_json::Value> =
+            let env: HashMap<_, String> =
                 serde_json::from_str(&json).expect("Must be deserializable into a hash map");
-            let untouched = env.keys().cloned().collect();
-            Self {
-                env: env
-                    .into_iter()
-                    .map(|(k, v)| {
-                        let s = if let serde_json::Value::String(s) = v {
-                            s
-                        } else {
-                            v.to_string()
-                        };
-
-                        (k, s)
-                    })
-                    .collect(),
-                untouched: RefCell::new(untouched),
-            }
+            Self::with_map(env)
         }
     }
 
@@ -641,54 +604,30 @@ mod tests {
         }
     }
 
-    impl FetchEnv for TestEnv {
-        fn fetch<K: AsRef<OsStr>>(&self, key: K) -> Result<String, VarError> {
-            let key_str = key
-                .as_ref()
-                .to_str()
-                .ok_or_else(|| VarError::NotUnicode(key.as_ref().into()))?;
-
-            let res = self.env.get(key_str).ok_or(VarError::NotPresent).cloned();
-
-            if res.is_ok() {
-                self.untouched.borrow_mut().remove(key_str);
-            }
-
-            res
-        }
-    }
-
-    impl TestEnv {
-        fn assert_everything_covered(&self) {
-            assert_eq!(*self.untouched.borrow(), HashSet::new());
-        }
-    }
-
     #[test]
     fn default_config_with_swarm_env_is_exhaustive() {
         let keypair = KeyPair::generate();
         let env: TestEnv = CompactPeerEnv {
-            chain_id: ChainId::new("00000000-0000-0000-0000-000000000000"),
+            chain_id: ChainId::from("00000000-0000-0000-0000-000000000000"),
             key_pair: keypair.clone(),
             genesis_public_key: keypair.public_key().clone(),
             genesis_private_key: Some(keypair.private_key().clone()),
-            p2p_addr: SocketAddr::from_str("127.0.0.1:1337").unwrap(),
-            api_addr: SocketAddr::from_str("127.0.0.1:1338").unwrap(),
+            p2p_addr: socket_addr!(127.0.0.1:1337),
+            api_addr: socket_addr!(127.0.0.1:1338),
             trusted_peers: BTreeSet::new(),
         }
         .into();
 
-        // pretending like we've read `IROHA_CONFIG` env to know the config location
-        let _ = env.fetch("IROHA_CONFIG").expect("should be presented");
-        let proxy = ConfigurationProxy::default()
-            .override_with(ConfigurationProxy::from_env(&env).expect("valid env"));
+        let _cfg = RootPartial::from_env(&env)
+            .expect("valid env")
+            .unwrap_partial()
+            .expect("should not fail as input has all required fields")
+            .parse(CliContext {
+                submit_genesis: true,
+            })
+            .expect("should not fail as input is valid");
 
-        let _cfg = proxy
-            .build()
-            .wrap_err("Failed to build configuration")
-            .expect("Default configuration with swarm's env should be exhaustive");
-
-        env.assert_everything_covered();
+        assert_eq!(env.unvisited(), HashSet::new());
     }
 
     #[test]
@@ -705,7 +644,7 @@ mod tests {
             services: {
                 let mut map = BTreeMap::new();
 
-                let chain_id = ChainId::new("00000000-0000-0000-0000-000000000000");
+                let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
                 let key_pair =
                     KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(vec![
                         1, 5, 1, 2, 2, 3, 4, 1, 2, 3,
@@ -747,6 +686,7 @@ mod tests {
         };
 
         let actual = serde_yaml::to_string(&compose).expect("Should be serialisable");
+        #[allow(clippy::needless_raw_string_hashes)]
         let expected = expect_test::expect![[r#"
             version: '3.8'
             services:
@@ -754,15 +694,16 @@ mod tests {
                 build: .
                 platform: linux/amd64
                 environment:
-                  IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
-                  IROHA_CONFIG: /config/config.json
-                  IROHA_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
-                  IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8"}'
-                  TORII_P2P_ADDR: iroha1:1339
-                  TORII_API_URL: iroha1:1338
-                  IROHA_GENESIS_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
-                  IROHA_GENESIS_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8"}'
-                  IROHA_GENESIS_FILE: /config/genesis.json
+                  CHAIN_ID: 00000000-0000-0000-0000-000000000000
+                  PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
+                  PRIVATE_KEY_DIGEST: ed25519
+                  PRIVATE_KEY_PAYLOAD: db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8
+                  P2P_ADDRESS: iroha1:1339
+                  API_ADDRESS: iroha1:1338
+                  GENESIS_PUBLIC_KEY: ed012039E5BF092186FACC358770792A493CA98A83740643A3D41389483CF334F748C8
+                  GENESIS_PRIVATE_KEY_DIGEST: ed25519
+                  GENESIS_PRIVATE_KEY_PAYLOAD: db9d90d20f969177bd5882f9fe211d14d1399d5440d04e3468783d169bbc4a8e39e5bf092186facc358770792a493ca98a83740643a3d41389483cf334f748c8
+                  GENESIS_FILE: /config/genesis.json
                 ports:
                 - 1337:1337
                 - 8080:8080
@@ -776,8 +717,8 @@ mod tests {
     }
 
     #[test]
-    fn empty_genesis_public_key_is_skipped_in_env() {
-        let chain_id = ChainId::new("00000000-0000-0000-0000-000000000000");
+    fn empty_genesis_private_key_is_skipped_in_env() {
+        let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let key_pair =
             KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(vec![0, 1, 2]))
@@ -795,14 +736,15 @@ mod tests {
         .into();
 
         let actual = serde_yaml::to_string(&env).unwrap();
+        #[allow(clippy::needless_raw_string_hashes)]
         let expected = expect_test::expect![[r#"
-            IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
-            IROHA_CONFIG: /config/config.json
-            IROHA_PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
-            IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"6bf163fd75192b81a78cb20c5f8cb917f591ac6635f2577e6ca305c27a456a5d415388a90fa238196737746a70565d041cfb32eaa0c89ff8cb244c7f832a6ebd"}'
-            TORII_P2P_ADDR: iroha0:1337
-            TORII_API_URL: iroha0:1337
-            IROHA_GENESIS_PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
+            CHAIN_ID: 00000000-0000-0000-0000-000000000000
+            PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
+            PRIVATE_KEY_DIGEST: ed25519
+            PRIVATE_KEY_PAYLOAD: 6bf163fd75192b81a78cb20c5f8cb917f591ac6635f2577e6ca305c27a456a5d415388a90fa238196737746a70565d041cfb32eaa0c89ff8cb244c7f832a6ebd
+            P2P_ADDRESS: iroha0:1337
+            API_ADDRESS: iroha0:1337
+            GENESIS_PUBLIC_KEY: ed0120415388A90FA238196737746A70565D041CFB32EAA0C89FF8CB244C7F832A6EBD
         "#]];
         expected.assert_eq(&actual);
     }
@@ -838,15 +780,16 @@ mod tests {
                 build: ./iroha-cloned
                 platform: linux/amd64
                 environment:
-                  IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
-                  IROHA_CONFIG: /config/config.json
-                  IROHA_PUBLIC_KEY: ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13
-                  IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5f8d1291bf6b762ee748a87182345d135fd167062857aa4f20ba39f25e74c4b0f0321eb4139163c35f88bf78520ff7071499d7f4e79854550028a196c7b49e13"}'
-                  TORII_P2P_ADDR: 0.0.0.0:1337
-                  TORII_API_URL: 0.0.0.0:8080
-                  IROHA_GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
-                  IROHA_GENESIS_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9"}'
-                  IROHA_GENESIS_FILE: /config/genesis.json
+                  CHAIN_ID: 00000000-0000-0000-0000-000000000000
+                  PUBLIC_KEY: ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13
+                  PRIVATE_KEY_DIGEST: ed25519
+                  PRIVATE_KEY_PAYLOAD: 5f8d1291bf6b762ee748a87182345d135fd167062857aa4f20ba39f25e74c4b0f0321eb4139163c35f88bf78520ff7071499d7f4e79854550028a196c7b49e13
+                  P2P_ADDRESS: 0.0.0.0:1337
+                  API_ADDRESS: 0.0.0.0:8080
+                  GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
+                  GENESIS_PRIVATE_KEY_DIGEST: ed25519
+                  GENESIS_PRIVATE_KEY_PAYLOAD: 5a6d5f06a90d29ad906e2f6ea8b41b4ef187849d0d397081a4a15ffcbe71e7c73420f48a9eeb12513b8eb7daf71979ce80a1013f5f341c10dcda4f6aa19f97a9
+                  GENESIS_FILE: /config/genesis.json
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"}]'
                 ports:
                 - 1337:1337
@@ -865,13 +808,13 @@ mod tests {
                 build: ./iroha-cloned
                 platform: linux/amd64
                 environment:
-                  IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
-                  IROHA_CONFIG: /config/config.json
-                  IROHA_PUBLIC_KEY: ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C
-                  IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"8d34d2c6a699c61e7a9d5aabbbd07629029dfb4f9a0800d65aa6570113edb465a88554aa5c86d28d0eebec497235664433e807881cd31e12a1af6c4d8b0f026c"}'
-                  TORII_P2P_ADDR: 0.0.0.0:1338
-                  TORII_API_URL: 0.0.0.0:8081
-                  IROHA_GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
+                  CHAIN_ID: 00000000-0000-0000-0000-000000000000
+                  PUBLIC_KEY: ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C
+                  PRIVATE_KEY_DIGEST: ed25519
+                  PRIVATE_KEY_PAYLOAD: 8d34d2c6a699c61e7a9d5aabbbd07629029dfb4f9a0800d65aa6570113edb465a88554aa5c86d28d0eebec497235664433e807881cd31e12a1af6c4d8b0f026c
+                  P2P_ADDRESS: 0.0.0.0:1338
+                  API_ADDRESS: 0.0.0.0:8081
+                  GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
                 - 1338:1338
@@ -889,13 +832,13 @@ mod tests {
                 build: ./iroha-cloned
                 platform: linux/amd64
                 environment:
-                  IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
-                  IROHA_CONFIG: /config/config.json
-                  IROHA_PUBLIC_KEY: ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4
-                  IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"cf4515a82289f312868027568c0da0ee3f0fde7fef1b69deb47b19fde7cbc169312c1b7b5de23d366adcf23cd6db92ce18b2aa283c7d9f5033b969c2dc2b92f4"}'
-                  TORII_P2P_ADDR: 0.0.0.0:1339
-                  TORII_API_URL: 0.0.0.0:8082
-                  IROHA_GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
+                  CHAIN_ID: 00000000-0000-0000-0000-000000000000
+                  PUBLIC_KEY: ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4
+                  PRIVATE_KEY_DIGEST: ed25519
+                  PRIVATE_KEY_PAYLOAD: cf4515a82289f312868027568c0da0ee3f0fde7fef1b69deb47b19fde7cbc169312c1b7b5de23d366adcf23cd6db92ce18b2aa283c7d9f5033b969c2dc2b92f4
+                  P2P_ADDRESS: 0.0.0.0:1339
+                  API_ADDRESS: 0.0.0.0:8082
+                  GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha3:1340","public_key":"ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
                 - 1339:1339
@@ -913,13 +856,13 @@ mod tests {
                 build: ./iroha-cloned
                 platform: linux/amd64
                 environment:
-                  IROHA_CHAIN_ID: 00000000-0000-0000-0000-000000000000
-                  IROHA_CONFIG: /config/config.json
-                  IROHA_PUBLIC_KEY: ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE
-                  IROHA_PRIVATE_KEY: '{"digest_function":"ed25519","payload":"ab0e99c2b845b4ac7b3e88d25a860793c7eb600a25c66c75cba0bae91e955aa6854457b2e3d6082181da73dc01c1e6f93a72d0c45268dc8845755287e98a5dee"}'
-                  TORII_P2P_ADDR: 0.0.0.0:1340
-                  TORII_API_URL: 0.0.0.0:8083
-                  IROHA_GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
+                  CHAIN_ID: 00000000-0000-0000-0000-000000000000
+                  PUBLIC_KEY: ed0120854457B2E3D6082181DA73DC01C1E6F93A72D0C45268DC8845755287E98A5DEE
+                  PRIVATE_KEY_DIGEST: ed25519
+                  PRIVATE_KEY_PAYLOAD: ab0e99c2b845b4ac7b3e88d25a860793c7eb600a25c66c75cba0bae91e955aa6854457b2e3d6082181da73dc01c1e6f93a72d0c45268dc8845755287e98a5dee
+                  P2P_ADDRESS: 0.0.0.0:1340
+                  API_ADDRESS: 0.0.0.0:8083
+                  GENESIS_PUBLIC_KEY: ed01203420F48A9EEB12513B8EB7DAF71979CE80A1013F5F341C10DCDA4F6AA19F97A9
                   SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha2:1339","public_key":"ed0120312C1B7B5DE23D366ADCF23CD6DB92CE18B2AA283C7D9F5033B969C2DC2B92F4"},{"address":"iroha1:1338","public_key":"ed0120A88554AA5C86D28D0EEBEC497235664433E807881CD31E12A1AF6C4D8B0F026C"},{"address":"iroha0:1337","public_key":"ed0120F0321EB4139163C35F88BF78520FF7071499D7F4E79854550028A196C7B49E13"}]'
                 ports:
                 - 1340:1340

@@ -18,6 +18,7 @@ iroha = { path = "cli" }
 iroha_dsl = { version = "=2.0.0-pre-rc.20", path = "dsl" }
 iroha_torii = { version = "=2.0.0-pre-rc.20", path = "torii" }
 iroha_torii_derive = { version = "=2.0.0-pre-rc.20", path = "torii/derive" }
+iroha_torii_const = { version = "=2.0.0-pre-rc.20", path = "torii/const" }
 iroha_macro_utils = { version = "=2.0.0-pre-rc.20", path = "macro/utils" }
 iroha_telemetry = { version = "=2.0.0-pre-rc.20", path = "telemetry" }
 iroha_telemetry_derive = { version = "=2.0.0-pre-rc.20", path = "telemetry/derive" }
@@ -30,7 +31,6 @@ iroha_data_model_derive = { version = "=2.0.0-pre-rc.20", path = "data_model/der
 iroha_client = { version = "=2.0.0-pre-rc.20", path = "client" }
 iroha_config = { version = "=2.0.0-pre-rc.20", path = "config" }
 iroha_config_base = { version = "=2.0.0-pre-rc.20", path = "config/base" }
-iroha_config_derive = { version = "=2.0.0-pre-rc.20", path = "config/base/derive" }
 iroha_schema_gen = { version = "=2.0.0-pre-rc.20", path = "schema/gen" }
 iroha_schema = { version = "=2.0.0-pre-rc.20", path = "schema", default-features = false }
 iroha_schema_derive = { version = "=2.0.0-pre-rc.20", path = "schema/derive" }
@@ -65,6 +65,7 @@ syn2 = { package = "syn", version = "2.0.38", default-features = false }
 quote = "1.0.33"
 manyhow = { version = "0.8.1", features = ["darling"] }
 darling = "0.20.3"
+drop_bomb = "0.1.5"
 
 futures = { version = "0.3.28", default-features = false }
 tokio = "1.33.0"
@@ -88,6 +89,7 @@ impls = "1.0.3"
 
 base64 = { version = "0.21.4", default-features = false }
 hex = { version = "0.4.3", default-features = false }
+nonzero_ext = "0.3.0"
 
 fixnum = { version = "0.9.2", default-features = false }
 url = "2.4.1"
@@ -132,6 +134,7 @@ serde_yaml = "0.9.25"
 serde_with = { version = "3.3.0", default-features = false }
 parity-scale-codec = { version = "3.6.5", default-features = false }
 json5 = "0.4.1"
+toml = "0.8.8"
 
 [workspace.lints]
 rustdoc.private_doc_tests = "deny"
@@ -206,7 +209,6 @@ members = [
   "client_cli",
   "config",
   "config/base",
-  "config/base/derive",
   "core",
   "core/test_network",
   "crypto",
@@ -242,6 +244,7 @@ members = [
   "tools/wasm_test_runner",
   "torii",
   "torii/derive",
+  "torii/const",
   "version",
   "version/derive",
   "wasm_codec",

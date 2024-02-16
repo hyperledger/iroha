@@ -82,17 +82,20 @@ You may deploy Iroha as a [native binary](#native-binary) or by using [Docker](#
 
 ### Native binary
 
+<!-- FIXME: I don't like that this section suggests using docker configs for deployment -->
+
 1. Prepare a deployment environment.
 
     If you plan on running the `iroha` peer binary from the directory `deploy`, copy `config.json` and `genesis.json`:
 
     ```bash
-    cp ./target/release/iroha
-    cp ./configs/peer/config.json deploy
-    cp ./configs/peer/genesis.json deploy
+    # FIXME
+    # cp ./target/release/iroha
+    # cp ./configs/peer/config.json deploy
+    # cp ./configs/peer/genesis.json deploy
     ```
 
-2. Make necessary edits to `config.json` and `genesis.json`, such as:
+2. Make the necessary edits to `config.json` and `genesis.json`, such as:
 
     - Generate new key pairs and add their values to `genesis.json`)
     - Adjust the port values for your initial set of trusted peers
@@ -111,7 +114,7 @@ You may deploy Iroha as a [native binary](#native-binary) or by using [Docker](#
 
 ### Docker
 
-We provide a sample configuration for Docker in [`docker-compose.yml`](../docker-compose.yml). We highly recommend that you adjust the `config.json` to include a set of new key pairs.
+We provide a sample configuration for Docker in [`docker-compose.yml`](../configs/swarm/docker-compose.yml). We highly recommend that you adjust the `config.json` to include a set of new key pairs.
 
 [Generate the keys](#generating-keys) and put them into `services.*.environment` in `docker-compose.yml`. Don't forget to update the public keys of `TRUSTED_PEERS`.
 

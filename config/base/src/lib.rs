@@ -1,493 +1,632 @@
-//! Package for managing iroha configuration
-use std::{fmt::Debug, path::Path};
+//! Utilities behind Iroha configurations
 
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    convert::Infallible,
+    env::VarError,
+    error::Error,
+    ffi::OsString,
+    fmt::{Debug, Display, Formatter},
+    ops::Sub,
+    path::PathBuf,
+    str::FromStr,
+    time::Duration,
+};
 
-pub mod derive {
-    //! Derives for configuration entities
-    /// Generate view for the type and implement conversion `Type -> View`.
-    /// View contains a subset of the fields that the type has.
-    ///
-    /// Works only with structs.
-    ///
-    /// ## Container attributes
-    ///
-    /// ## Field attributes
-    /// ### `#[view(ignore)]`
-    /// Marks fields to ignore when converting to view type.
-    ///
-    /// ### `#[view(into = Ty)]`
-    /// Sets view's field type to Ty.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust
-    /// use iroha_config_base::derive::view;
-    ///
-    /// view! {
-    ///     #[derive(Default)]
-    ///     struct Structure {
-    ///         #[view(into = u64)]
-    ///         a: u32,
-    ///         // `View` shouldn't have field `b` so we must exclude it.
-    ///         #[view(ignore)]
-    ///         b: u32,
-    ///     }
-    /// }
-    ///
-    /// // Will generate something like
-    /// // --//-- original struct
-    /// //  struct StructureView {
-    /// //      a: u64,
-    /// //  }
-    /// //
-    /// //  impl From<Structure> for StructureView {
-    /// //      fn from(value: Structure) -> Self {
-    /// //          let Structure {
-    /// //              a,
-    /// //              ..
-    /// //          } = value;
-    /// //          Self {
-    /// //              a: From::<_>::from(a),
-    /// //          }
-    /// //      }
-    /// // }
-    ///
-    ///
-    /// let structure = Structure { a: 13, b: 37 };
-    /// let view: StructureView = structure.into();
-    /// assert_eq!(view.a, 13);
-    /// ```
-    pub use iroha_config_derive::view;
-    /// Derive macro for implementing the trait
-    /// [`iroha_config::base::proxy::Builder`](`crate::proxy::Builder`)
-    /// for config structures. Meant to be used on proxy types only, for
-    /// details see [`iroha_config::base::derive::Proxy`](`crate::derive::Proxy`).
-    ///
-    /// # Container attributes
-    ///
-    /// ## `#[builder(parent = ..)]`
-    /// Takes a target type to build into, e.g. for a `ConfigurationProxy`
-    /// it would be `Configuration`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use iroha_config_base::derive::{Builder, Override, LoadFromEnv};
-    /// use iroha_config_base::proxy::Builder as _;
-    ///
-    /// // Also need `LoadFromEnv` as it owns the `#[config]` attribute
-    /// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, LoadFromEnv, Builder)]
-    /// #[builder(parent = Outer)]
-    /// struct OuterProxy { #[config(inner)] inner: Option<InnerProxy> }
-    ///
-    /// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, LoadFromEnv, Builder, Override)]
-    /// #[builder(parent = Inner)]
-    /// struct InnerProxy { b: Option<String> }
-    ///
-    /// #[derive(Debug, PartialEq)]
-    /// struct Outer { inner: Inner }
-    ///
-    /// #[derive(Debug, PartialEq)]
-    /// struct Inner { b: String }
-    ///
-    /// let outer_proxy = OuterProxy { inner: Some(InnerProxy { b: Some("a".to_owned()) })};
-    ///
-    /// let outer = Outer { inner: Inner { b: "a".to_owned() } };
-    ///
-    /// assert_eq!(outer, outer_proxy.build().unwrap());
-    /// ```
-    pub use iroha_config_derive::Builder;
-    /// Derive macro for implementing the trait
-    /// [`iroha_config::base::proxy::LoadFromDisk`](`crate::proxy::LoadFromDisk`)
-    /// trait for config structures.
-    ///
-    /// Meant to be used on proxy types only, for
-    /// details see [`iroha_config::base::derive::Proxy`](`crate::derive::Proxy`).
-    ///
-    /// The trait's only method, `from_path`,
-    /// deserializes a JSON config at the provided path into the parent proxy structure,
-    /// leaving it empty in case of any error.
-    ///
-    /// The `ReturnValue` associated type can be
-    /// swapped for anything suitable. Currently, the proxy structure is returned
-    /// by default.
-    pub use iroha_config_derive::LoadFromDisk;
-    /// Derive macro for implementing the
-    /// [`iroha_config::base::proxy::LoadFromDisk`](`crate::proxy::LoadFromDisk`)
-    /// trait for config structures.
-    ///
-    /// Meant to be used on proxy types only, for
-    /// details see [`iroha_config::base::derive::Proxy`](`crate::derive::Proxy`).
-    ///
-    /// The `ReturnValue` associated type can be
-    /// swapped for anything suitable. Currently, the proxy structure is returned
-    /// by default.
-    ///
-    /// # Container attributes
-    /// ## `[config(env_prefix)]`
-    /// Sets prefix for all the env variables derived from fields in the
-    /// corresponding structure.
-    ///
-    /// ### Example
-    ///
-    /// ``` rust
-    /// use iroha_config_base::derive::LoadFromEnv;
-    /// use iroha_config_base::proxy::LoadFromEnv as _;
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, LoadFromEnv)]
-    /// #[config(env_prefix = "PREFIXED_")]
-    /// struct PrefixedProxy { a: Option<String> }
-    ///
-    /// std::env::set_var("PREFIXED_A", "B");
-    /// let prefixed = PrefixedProxy::from_std_env().unwrap();
-    /// assert_eq!(prefixed.a.unwrap(), "B");
-    /// ```
-    ///
-    /// # Field attributes
-    /// ## `#[config(inner)]`
-    /// Tells macro that the structure stores another config inside,
-    /// allowing to load it recursively. Moreover, the types that
-    /// have this attributes on them should also implement or
-    /// derive the [`iroha_config::base::proxy::Override`](`crate::proxy::Override`)
-    /// trait.
-    ///
-    /// ### Example
-    ///
-    /// ```rust
-    /// use iroha_config_base::derive::{Override, LoadFromEnv};
-    /// use iroha_config_base::proxy::LoadFromEnv as _;
-    ///
-    /// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, LoadFromEnv)]
-    /// struct OuterProxy { #[config(inner)] inner: Option<InnerProxy> }
-    ///
-    /// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, Override, LoadFromEnv)]
-    /// struct InnerProxy { b: Option<String> }
-    ///
-    /// let mut outer = OuterProxy { inner: Some(InnerProxy { b: Some("a".to_owned()) })};
-    ///
-    /// std::env::set_var("B", "a");
-    /// let env_outer = OuterProxy::from_std_env().unwrap();
-    ///
-    /// assert_eq!(env_outer, outer);
-    /// ```
-    ///
-    /// ## `#[config(serde_as_str)]`
-    /// Tells macro to deserialize from env variable as a bare string.
-    ///
-    /// ### Example
-    ///
-    /// ```
-    /// use iroha_config_base::derive::LoadFromEnv;
-    /// use iroha_config_base::proxy::LoadFromEnv;
-    /// use std::net::Ipv4Addr;
-    ///
-    /// #[derive(serde::Deserialize, serde::Serialize, LoadFromEnv)]
-    /// struct IpAddrProxy { #[config(serde_as_str)] ip: Option<Ipv4Addr> }
-    ///
-    /// std::env::set_var("IP", "127.0.0.1");
-    /// let ip = IpAddrProxy::from_std_env().unwrap();
-    /// assert_eq!(ip.ip.unwrap(), Ipv4Addr::new(127, 0, 0, 1));
-    /// ```
-    pub use iroha_config_derive::LoadFromEnv;
-    /// Derive macro for implementing the trait
-    /// [`iroha_config::base::proxy::Override`](`crate::proxy::Override`)
-    /// for config structures. Given two proxies, consumes them by recursively overloading
-    /// fields of [`self`] with fields of [`other`]. Order matters here,
-    /// i.e. `self.combine(other)` could yield different results than `other.combine(self)`.
-    ///
-    /// Meant to be used on proxy types only, for
-    /// details see [`iroha_config::base::derive::Proxy`](`crate::derive::Proxy`).
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use iroha_config_base::derive::{Override, LoadFromEnv};
-    /// use iroha_config_base::proxy::Override as _;
-    ///
-    /// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, Override, LoadFromEnv)]
-    /// struct OuterProxy {
-    ///     #[config(inner)]
-    ///     inner: Option<InnerProxy>,
-    ///     a: Option<String>
-    /// }
-    ///
-    /// #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, Override, LoadFromEnv)]
-    /// struct InnerProxy { b: Option<String> }
-    ///
-    /// let left_outer = OuterProxy {
-    ///     inner: Some(InnerProxy { b: Some("a".to_owned()) }),
-    ///     a: None
-    /// };
-    ///
-    /// let right_outer = OuterProxy {
-    ///     inner: None,
-    ///     a: Some("b".to_owned())
-    /// };
-    ///
-    /// let res_outer = OuterProxy {
-    ///     inner: Some(InnerProxy { b: Some("a".to_owned()) }),
-    ///     a: Some("b".to_owned())
-    /// };
-    ///
-    /// assert_eq!(left_outer.override_with(right_outer), res_outer);
-    /// ```
-    pub use iroha_config_derive::Override;
-    /// Derive macro for implementing the corresponding proxy type
-    /// for config structures. Most of the other traits in the
-    /// [`iroha_config_base::proxy`](`crate::proxy`) module are
-    /// best derived indirectly via this macro. Proxy types serve
-    /// as a stand-in for flexible configuration loading either
-    /// from environment variables or configuration files. Proxy types also
-    /// provide methods to build the initial parent type from them
-    /// (via [`iroha_config_base::proxy::Builder`](`crate::proxy::Builder`)
-    /// trait) and ways to combine two proxies together (via
-    /// [`iroha_config_base::proxy::Override`](`crate::proxy::Override`)).
-    pub use iroha_config_derive::Proxy;
-    use serde::Deserialize;
-    use thiserror::Error;
+use eyre::{eyre, Report, WrapErr};
+pub use merge::Merge;
+pub use serde;
+use serde::{Deserialize, Serialize};
 
-    /// Represents a path to a nested field in a config structure
-    #[derive(Debug, Deserialize)]
-    #[serde(transparent)]
-    pub struct Field(pub Vec<String>);
+/// [`Duration`], but can parse a human-readable string.
+/// TODO: currently deserializes just as [`Duration`]
+#[serde_with::serde_as]
+#[derive(Debug, Copy, Clone, Deserialize, Serialize, Ord, PartialOrd, Eq, PartialEq)]
+pub struct HumanDuration(#[serde_as(as = "serde_with::DurationMilliSeconds")] pub Duration);
 
-    impl std::fmt::Display for Field {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            // separate fields with dots
-            std::fmt::Display::fmt(&self.0.join("."), f)
-        }
-    }
-
-    // TODO: deal with `#[serde(skip)]`
-    /// Derive `Configurable` and `Proxy` error
-    #[derive(Debug, Error, Deserialize, displaydoc::Display)]
-    #[ignore_extra_doc_attributes]
-    #[allow(clippy::enum_variant_names)]
-    pub enum Error {
-        /// Failed to deserialize the field `{field}`
-        ///
-        /// Used in [`super::proxy::LoadFromEnv`] trait for deserialization
-        /// errors
-        #[serde(skip)]
-        FieldDeserialization {
-            /// Field name (known at compile time)
-            field: &'static str,
-            /// Unified error
-            #[source]
-            error: eyre::Report,
-        },
-
-        /// Please add `{field}` to the configuration
-        #[serde(skip)]
-        MissingField {
-            /// Field name
-            field: &'static str,
-            /// Additional message to be added as `color_eyre::suggestion`
-            message: &'static str,
-        },
-
-        /// Key pair creation failed, most likely because the keys don't form a pair
-        Crypto(#[from] iroha_crypto::error::Error),
-
-        // IMO this variant should not exist. If the value is inferred, we should only warn people if the inferred value is different from the provided one.
-        /// You should remove the field `{field}` as its value is determined by other configuration parameters
-        #[serde(skip)]
-        ProvidedInferredField {
-            /// Field name
-            field: &'static str,
-            /// Additional message to be added as `color_eyre::suggestion`
-            message: &'static str,
-        },
-
-        /// The value {value} of `{field}` is wrong. Please change the value
-        #[serde(skip)]
-        InsaneValue {
-            /// The value of the field that's incorrect
-            value: String,
-            /// Field name that contains invalid value
-            field: &'static str,
-            /// Additional message to be added as `color_eyre::suggestion`
-            message: String,
-            // docstring: &'static str,  // TODO: Inline the docstring for easy access
-        },
-
-        /// Reading file from disk failed
-        ///
-        /// Used in the [`LoadFromDisk`](`crate::proxy::LoadFromDisk`) trait for file read errors
-        #[serde(skip)]
-        Disk(#[from] std::io::Error),
-
-        /// Deserializing JSON failed
-        ///
-        /// Used in [`LoadFromDisk`](`crate::proxy::LoadFromDisk`) trait for deserialization errors
-        #[serde(skip)]
-        Json5(#[from] json5::Error),
-    }
-
-    impl Error {
-        /// This method is needed because a call of [`eyre::eyre!`] cannot be compiled when
-        /// generated in a proc macro. So, this shorthand is needed for proc macros.
-        pub fn field_deserialization_from_json(
-            field: &'static str,
-            error: &serde_json::Error,
-        ) -> Self {
-            Self::FieldDeserialization {
-                field,
-                error: eyre::eyre!("JSON: {}", error),
-            }
-        }
-
-        /// See [`Self::field_deserialization_from_json`]
-        pub fn field_deserialization_from_json5(field: &'static str, error: &json5::Error) -> Self {
-            Self::FieldDeserialization {
-                field,
-                error: eyre::eyre!("JSON5: {}", error),
-            }
-        }
+impl HumanDuration {
+    /// Get the [`Duration`]
+    pub fn get(self) -> Duration {
+        self.0
     }
 }
 
-pub mod view {
-    //! Module for view related traits and structs
+/// Representation of amount of bytes, parseable from a human-readable string.
+#[derive(Debug, Copy, Clone, Deserialize, Serialize)]
+pub struct HumanBytes<T: num_traits::int::PrimInt>(pub T);
 
-    /// Marker trait to set default value [`IsInstanceHasView::IS_INSTANCE_HAS_VIEW`] to `false`
-    pub trait NoView {
-        /// [`Self`] doesn't implement [`HasView`]
-        const IS_HAS_VIEW: bool = false;
-    }
-
-    impl<T> NoView for T {}
-
-    /// Marker traits for types for which views are implemented
-    pub trait HasView {}
-
-    /// Wrapper structure used to check if type implements `[HasView]`
-    /// If `T` doesn't implement [`HasView`] then
-    /// [`NoView::IS_INSTANCE_HAS_VIEW`] (`false`) will be used.
-    /// Otherwise [`IsInstanceHasView::IS_INSTANCE_HAS_VIEW`] (`true`)
-    /// from `impl` block will shadow `NoView::IS_INSTANCE_HAS_VIEW`
-    pub struct IsInstanceHasView<T>(core::marker::PhantomData<T>);
-
-    impl<T: HasView> IsInstanceHasView<T> {
-        /// `T` implements trait [`HasView`]
-        pub const IS_INSTANCE_HAS_VIEW: bool = true;
+impl<T: num_traits::int::PrimInt> HumanBytes<T> {
+    /// Get the number of bytes
+    pub fn get(self) -> T {
+        self.0
     }
 }
 
-pub mod proxy {
-    //! Module with traits for configuration proxies
+/// Error representing a missing field in the configuration
+#[derive(thiserror::Error, Debug)]
+#[error("missing field: `{path}`")]
+pub struct MissingFieldError {
+    path: String,
+}
 
-    use super::*;
-
-    /// Trait for combining two configuration instances
-    pub trait Override: Serialize + DeserializeOwned + Sized {
-        /// If any of the fields in `other` are filled, they
-        /// override the values of the fields in [`self`].
-        #[must_use]
-        fn override_with(self, other: Self) -> Self;
+impl MissingFieldError {
+    /// Create an instance
+    pub fn new(s: &str) -> Self {
+        Self { path: s.to_owned() }
     }
+}
 
-    impl<T: Override> Override for Box<T> {
-        fn override_with(self, other: Self) -> Self {
-            Box::new(T::override_with(*self, *other))
-        }
-    }
-
-    /// Trait for configuration loading and deserialization from
-    /// the environment
-    pub trait LoadFromEnv: Sized {
-        /// The return type. Could be target `Configuration`,
-        /// some `Result`, `Option`, or any other type that
-        /// wraps a `..Proxy` or `Configuration` type.
-        type ReturnValue;
-
-        /// Load configuration from the environment
-        ///
-        /// # Errors
-        /// - Fails if the deserialization of any field fails.
-        fn from_env<F: FetchEnv>(fetcher: &F) -> Self::ReturnValue;
-
-        /// Implementation of [`Self::from_env`] using [`std::env::var`].
-        fn from_std_env() -> Self::ReturnValue {
-            struct FetchStdEnv;
-
-            impl FetchEnv for FetchStdEnv {
-                fn fetch<K: AsRef<std::ffi::OsStr>>(
-                    &self,
-                    key: K,
-                ) -> Result<String, std::env::VarError> {
-                    std::env::var(key)
-                }
-            }
-
-            Self::from_env(&FetchStdEnv)
-        }
-    }
-
-    impl<T: LoadFromEnv> LoadFromEnv for Box<T> {
-        type ReturnValue = T::ReturnValue;
-
-        fn from_env<F: FetchEnv>(fetcher: &F) -> Self::ReturnValue {
-            T::from_env(fetcher)
-        }
-    }
-
-    /// Abstraction over the actual implementation of how env variables are gotten
-    /// from the environment. Necessary for mocking in tests.
-    pub trait FetchEnv {
-        /// The signature of [`std::env::var`].
-        ///
-        /// # Errors
-        ///
-        /// See errors of [`std::env::var`].
-        fn fetch<K: AsRef<std::ffi::OsStr>>(&self, key: K) -> Result<String, std::env::VarError>;
-    }
-
-    /// Trait for configuration loading and deserialization from disk
-    pub trait LoadFromDisk: Sized {
-        /// The return type. Could be target `Configuration`,
-        /// some `Result`, `Option`, or any other type that
-        /// wraps a `..Proxy` or `Configuration` type.
-        type ReturnValue;
-
-        /// Construct [`Self`] from a path-like object.
-        ///
-        /// # Errors
-        /// - File not found.
-        /// - File found, but peer configuration parsing failed.
-        fn from_path<P: AsRef<Path> + Debug + Clone>(path: P) -> Self::ReturnValue;
-    }
-
-    /// Trait for building the final config from a proxy one
-    pub trait Builder {
-        /// The return type. Could be target `Configuration`,
-        /// some `Result`, `Option` as users see fit.
-        type ReturnValue;
-
-        /// Construct [`Self::ReturnValue`] from a proxy object.
-        fn build(self) -> Self::ReturnValue;
-    }
-
-    impl<T: Builder> Builder for Box<T> {
-        type ReturnValue = T::ReturnValue;
-
-        fn build(self) -> Self::ReturnValue {
-            T::build(*self)
-        }
-    }
-
-    /// Deserialization helper for proxy fields that wrap an `Option`
+/// Provides environment variables
+pub trait ReadEnv<E> {
+    /// Read a value of an environment variable.
+    ///
+    /// This is a fallible operation, which might return an empty value if the given key is not
+    /// present.
+    ///
+    /// [`Cow`] is used for flexibility. The read value might be given both as an owned and as a
+    /// borrowed string depending on the structure that implements [`ReadEnv`]. On the receiving
+    /// part, it might be convenient to parse the string while just borrowing it
+    /// (e.g. with [`FromStr`]), but might be also convenient to own the value. [`Cow`] covers all
+    /// of this.
     ///
     /// # Errors
-    /// When deserialization of the field fails, e.g. it doesn't have
-    /// the `Option<Option<T>>`
-    #[allow(clippy::option_option)]
-    pub fn some_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+    /// For any reason an implementor might have.
+    fn read_env(&self, key: impl AsRef<str>) -> Result<Option<Cow<'_, str>>, E>;
+}
+
+/// Constructs from environment variables
+pub trait FromEnv {
+    /// Constructs from environment variables using [`ReadEnv`]
+    ///
+    /// # Errors
+    /// For any reason an implementor might have.
+    // `E: Error` so that it could be wrapped into a Report
+    fn from_env<E: Error, R: ReadEnv<E>>(env: &R) -> FromEnvResult<Self>
     where
-        T: Deserialize<'de>,
-        D: Deserializer<'de>,
+        Self: Sized;
+}
+
+/// Result of [`FromEnv::from_env`]. Intended to contain multiple possible errors at once.
+pub type FromEnvResult<T> = eyre::Result<T, ErrorsCollection<Report>>;
+
+/// Marker trait to implement [`FromEnv`] if a type implements [`Default`]
+pub trait FromEnvDefaultFallback {}
+
+impl<T> FromEnv for T
+where
+    T: FromEnvDefaultFallback + Default,
+{
+    fn from_env<E: Error, R: ReadEnv<E>>(_env: &R) -> FromEnvResult<Self>
+    where
+        Self: Sized,
     {
-        Option::<T>::deserialize(deserializer).map(Some)
+        Ok(Self::default())
+    }
+}
+
+/// Simple collector of errors.
+///
+/// Will panic on [`Drop`] if contains errors that are not handled with [`Emitter::finish`].
+pub struct Emitter<T: Debug> {
+    errors: Vec<T>,
+    bomb: drop_bomb::DropBomb,
+}
+
+impl<T: Debug> Emitter<T> {
+    /// Create a new empty emitter
+    pub fn new() -> Self {
+        Self {
+            errors: Vec::new(),
+            bomb: drop_bomb::DropBomb::new(
+                "Errors emitter is dropped without consuming collected errors",
+            ),
+        }
+    }
+
+    /// Emit a single error
+    pub fn emit(&mut self, error: T) {
+        self.errors.push(error);
+    }
+
+    /// Emit a collection of errors
+    pub fn emit_collection(&mut self, mut errors: ErrorsCollection<T>) {
+        self.errors.append(&mut errors.0);
+    }
+
+    /// Transform the emitter into a [`Result`], containing an [`ErrorCollection`] if
+    /// any errors were emitted.
+    ///
+    /// # Errors
+    /// If any errors were emitted.
+    pub fn finish(mut self) -> Result<(), ErrorsCollection<T>> {
+        self.bomb.defuse();
+
+        if self.errors.is_empty() {
+            Ok(())
+        } else {
+            Err(ErrorsCollection(self.errors))
+        }
+    }
+}
+
+impl<T: Debug> Default for Emitter<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Emitter<MissingFieldError> {
+    /// Shorthand to emit a [`MissingFieldError`].
+    pub fn emit_missing_field(&mut self, field_name: impl AsRef<str>) {
+        self.emit(MissingFieldError::new(field_name.as_ref()))
+    }
+
+    /// Tries to [`UnwrapPartial`], collecting errors on failure.
+    ///
+    /// This method is relevant for [`Emitter<MissingFieldError>`], because [`UnwrapPartial`]
+    /// returns a collection of [`MissingFieldError`]s.
+    pub fn try_unwrap_partial<P: UnwrapPartial>(&mut self, partial: P) -> Option<P::Output> {
+        partial.unwrap_partial().map_or_else(
+            |err| {
+                self.emit_collection(err);
+                None
+            },
+            Some,
+        )
+    }
+}
+
+/// An [`Error`] containing multiple errors inside
+pub struct ErrorsCollection<T>(Vec<T>);
+
+impl<T: Display + Debug> Error for ErrorsCollection<T> {}
+
+/// Displays each error on a new line
+impl<T> Display for ErrorsCollection<T>
+where
+    T: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for (i, item) in self.0.iter().enumerate() {
+            if i > 0 {
+                writeln!(f)?;
+            }
+            write!(f, "{item}")?;
+        }
+        Ok(())
+    }
+}
+
+impl<T> Debug for ErrorsCollection<T>
+where
+    T: Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for (i, item) in self.0.iter().enumerate() {
+            if i > 0 {
+                writeln!(f)?;
+            }
+            write!(f, "{item:?}")?;
+        }
+        Ok(())
+    }
+}
+
+impl<T> From<T> for ErrorsCollection<T> {
+    fn from(value: T) -> Self {
+        Self(vec![value])
+    }
+}
+
+impl<T> IntoIterator for ErrorsCollection<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+/// An implementation of [`ReadEnv`] for testing convenience.
+#[derive(Default)]
+pub struct TestEnv {
+    map: HashMap<String, String>,
+    visited: RefCell<HashSet<String>>,
+}
+
+impl TestEnv {
+    /// Create new empty environment
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create an environment with a given map
+    pub fn with_map(map: HashMap<String, String>) -> Self {
+        Self { map, ..Self::new() }
+    }
+
+    /// Set a key-value pair
+    #[must_use]
+    pub fn set(mut self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+        self.map
+            .insert(key.as_ref().to_string(), value.as_ref().to_string());
+        self
+    }
+
+    /// Get a set of keys not visited yet by [`ReadEnv::read_env`]
+    pub fn unvisited(&self) -> HashSet<String> {
+        let all_keys: HashSet<_> = self.map.keys().map(ToOwned::to_owned).collect();
+        let visited: HashSet<_> = self.visited.borrow().clone();
+        all_keys.sub(&visited)
+    }
+}
+
+impl ReadEnv<Infallible> for TestEnv {
+    fn read_env(&self, key: impl AsRef<str>) -> Result<Option<Cow<'_, str>>, Infallible> {
+        self.visited.borrow_mut().insert(key.as_ref().to_string());
+        Ok(self
+            .map
+            .get(key.as_ref())
+            .map(String::as_str)
+            .map(Cow::from))
+    }
+}
+
+/// Implemented of [`ReadEnv`] on top of [`std::env::var`].
+#[derive(Debug, Copy, Clone)]
+pub struct StdEnv;
+
+impl ReadEnv<StdEnvError> for StdEnv {
+    fn read_env(&self, key: impl AsRef<str>) -> Result<Option<Cow<'_, str>>, StdEnvError> {
+        match std::env::var(key.as_ref()) {
+            Ok(value) => Ok(Some(value.into())),
+            Err(VarError::NotPresent) => Ok(None),
+            Err(VarError::NotUnicode(input)) => Err(StdEnvError::NotUnicode(input)),
+        }
+    }
+}
+
+/// An error that might occur while reading from std env.
+///
+/// - **Q: Why just [`VarError`] is not used?**
+/// - A: Because [`VarError::NotPresent`] is `Ok(None)` in terms of [`ReadEnv`]
+#[derive(Debug, thiserror::Error)]
+pub enum StdEnvError {
+    /// Reflects [`VarError::NotUnicode`]
+    #[error("the specified environment variable was found, but it did not contain valid unicode data: {0:?}")]
+    NotUnicode(OsString),
+}
+
+/// A tool that simplifies work with graceful parsing of multiple values in combination
+/// with [`Emitter`]
+pub enum ParseEnvResult<T> {
+    /// Value was found and parsed
+    Value(T),
+    /// An error occurred while reading or parsing the environment
+    Error,
+    /// Value was not found, no error occurred
+    None,
+}
+
+impl<T> ParseEnvResult<T>
+where
+    T: FromStr,
+    <T as FromStr>::Err: Error + Send + Sync + 'static,
+{
+    /// _Simple_ parsing using [`FromStr`]
+    pub fn parse_simple<E: Error>(
+        emitter: &mut Emitter<Report>,
+        env: &impl ReadEnv<E>,
+        env_key: impl AsRef<str>,
+        field_name: impl AsRef<str>,
+    ) -> Self {
+        // FIXME: errors handling is such a mess now
+        let read = match env
+            .read_env(env_key.as_ref())
+            .map_err(|err| eyre!("{err}"))
+            .wrap_err_with(|| eyre!("ooops"))
+        {
+            Ok(Some(value)) => value,
+            Ok(None) => return Self::None,
+            Err(report) => {
+                emitter.emit(report);
+                return Self::Error;
+            }
+        };
+
+        match FromStr::from_str(read.as_ref()).wrap_err_with(|| {
+            eyre!(
+                "failed to parse `{}` field from `{}` env variable",
+                field_name.as_ref(),
+                env_key.as_ref()
+            )
+        }) {
+            Ok(value) => Self::Value(value),
+            Err(report) => {
+                emitter.emit(report);
+                Self::Error
+            }
+        }
+    }
+}
+
+/// During this conversion, [`ParseEnvResult::Error`] is interpreted as [`None`].
+impl<T> From<ParseEnvResult<T>> for Option<T> {
+    fn from(value: ParseEnvResult<T>) -> Self {
+        match value {
+            ParseEnvResult::None | ParseEnvResult::Error => None,
+            ParseEnvResult::Value(x) => Some(x),
+        }
+    }
+}
+
+/// Value container to be used in the partial layers.
+///
+/// In partial layers, values might be present or not.
+/// Partial layers consisting from [`UserField`] might be _incomplete_,
+/// merged into each other (with [`merge::Merge`]),
+/// and finally unwrapped (with [`UnwrapPartial`]) into a _complete_ layer of data.
+///
+/// Partial layers might consist of fields other than [`UserField`], but their types should follow
+/// the same conventions. This might be used e.g. to implement custom merge strategy.
+#[derive(
+    Serialize,
+    Deserialize,
+    Ord,
+    PartialOrd,
+    Eq,
+    PartialEq,
+    derive_more::From,
+    Clone,
+    derive_more::Deref,
+    derive_more::DerefMut,
+)]
+pub struct UserField<T>(Option<T>);
+
+/// Delegating debug repr to [`Option`]
+impl<T: Debug> Debug for UserField<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// Empty user field
+impl<T> Default for UserField<T> {
+    fn default() -> Self {
+        Self(None)
+    }
+}
+
+/// The other's value takes precedence over the self's
+impl<T> Merge for UserField<T> {
+    fn merge(&mut self, other: Self) {
+        if let Some(value) = other.0 {
+            self.0 = Some(value)
+        }
+    }
+}
+
+impl<T> UserField<T> {
+    /// Get the field value
+    pub fn get(self) -> Option<T> {
+        self.0
+    }
+
+    /// Set the field value
+    pub fn set(&mut self, value: T) {
+        self.0 = Some(value);
+    }
+}
+
+impl<T> From<ParseEnvResult<T>> for UserField<T> {
+    fn from(value: ParseEnvResult<T>) -> Self {
+        let option: Option<T> = value.into();
+        option.into()
+    }
+}
+
+/// Conversion from a layer's partial state into its full state, with all required
+/// fields presented.
+pub trait UnwrapPartial {
+    /// The output of unwrapping, i.e. the full layer
+    type Output;
+
+    /// Unwraps the partial into a structure with all required fields present.
+    ///
+    /// # Errors
+    /// If there are absent fields, returns a bulk of [`MissingFieldError`]s.
+    fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output>;
+}
+
+/// Used for [`UnwrapPartial::unwrap_partial`]
+pub type UnwrapPartialResult<T> = Result<T, ErrorsCollection<MissingFieldError>>;
+
+/// A tool to implement "extends" mechanism, i.e. mixins.
+///
+/// It allows users to provide a path of other files that should be used as
+/// a _base_ layer.
+///
+/// ```toml
+/// # contents of this file will be merged into the contents of `base.toml`
+/// extends = "./base.toml"
+/// ```
+///
+/// It is possible to specify multiple extensions at once:
+///
+/// ```toml
+/// # read `foo`, then merge `bar`, then merge `baz`, then merge this file's contents
+/// extends = ["foo", "bar", "baz"]
+/// ```
+///
+/// From the developer side, it should be used as a field on a partial layer:
+///
+/// ```
+/// use iroha_config_base::ExtendsPaths;
+///
+/// struct SomePartial {
+///     extends: Option<ExtendsPaths>,
+///     // ..other fields
+/// }
+/// ```
+///
+/// When this layer is constructed from a file, `ExtendsPaths` should be handled e.g.
+/// with [`ExtendsPaths::iter`].
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum ExtendsPaths {
+    /// A single path to extend from
+    Single(PathBuf),
+    /// A chain of paths to extend from
+    Chain(Vec<PathBuf>),
+}
+
+/// Iterator over [`ExtendsPaths`] for convenience
+pub enum ExtendsPathsIter<'a> {
+    #[allow(missing_docs)]
+    Single(Option<&'a PathBuf>),
+    #[allow(missing_docs)]
+    Multiple(std::slice::Iter<'a, PathBuf>),
+}
+
+impl ExtendsPaths {
+    /// Normalise into an iterator over chain of paths to extend from
+    #[allow(clippy::iter_without_into_iter)] // extra for this case
+    pub fn iter(&self) -> ExtendsPathsIter<'_> {
+        match &self {
+            Self::Single(x) => ExtendsPathsIter::Single(Some(x)),
+            Self::Chain(vec) => ExtendsPathsIter::Multiple(vec.iter()),
+        }
+    }
+}
+
+impl<'a> Iterator for ExtendsPathsIter<'a> {
+    type Item = &'a PathBuf;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Single(x) => x.take(),
+            Self::Multiple(iter) => iter.next(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_missing_field() {
+        let mut emitter: Emitter<MissingFieldError> = Emitter::new();
+
+        emitter.emit_missing_field("foo");
+
+        let err = emitter.finish().unwrap_err();
+
+        assert_eq!(format!("{err}"), "missing field: `foo`")
+    }
+
+    #[test]
+    fn multiple_missing_fields() {
+        let mut emitter: Emitter<MissingFieldError> = Emitter::new();
+
+        emitter.emit_missing_field("foo");
+        emitter.emit_missing_field("bar");
+
+        let err = emitter.finish().unwrap_err();
+
+        assert_eq!(
+            format!("{err}"),
+            "missing field: `foo`\nmissing field: `bar`"
+        )
+    }
+
+    #[test]
+    fn merging_user_fields_overrides_old_value() {
+        let mut field = UserField(None);
+        field.merge(UserField(Some(4)));
+        assert_eq!(field, UserField(Some(4)));
+
+        let mut field = UserField(Some(4));
+        field.merge(UserField(Some(5)));
+        assert_eq!(field, UserField(Some(5)));
+
+        let mut field = UserField(Some(4));
+        field.merge(UserField(None));
+        assert_eq!(field, UserField(Some(4)));
+    }
+
+    #[derive(Deserialize, Default)]
+    #[serde(default)]
+    struct TestExtends {
+        extends: Option<ExtendsPaths>,
+    }
+
+    #[test]
+    fn parse_empty_extends() {
+        let value: TestExtends = toml::from_str("").expect("should be fine with empty input");
+
+        assert_eq!(value.extends, None);
+    }
+
+    #[test]
+    fn parse_single_extends_path() {
+        let value: TestExtends = toml::toml! {
+            extends = "./path"
+        }
+        .try_into()
+        .unwrap();
+
+        assert_eq!(value.extends, Some(ExtendsPaths::Single("./path".into())));
+    }
+
+    #[test]
+    fn parse_multiple_extends_paths() {
+        let value: TestExtends = toml::toml! {
+            extends = ["foo", "bar", "baz"]
+        }
+        .try_into()
+        .unwrap();
+
+        assert_eq!(
+            value.extends,
+            Some(ExtendsPaths::Chain(vec![
+                "foo".into(),
+                "bar".into(),
+                "baz".into()
+            ]))
+        );
+    }
+
+    #[test]
+    fn iterating_over_extends() {
+        impl ExtendsPaths {
+            fn as_str_vec(&self) -> Vec<&str> {
+                self.iter().map(|p| p.to_str().unwrap()).collect()
+            }
+        }
+
+        let single = ExtendsPaths::Single("single".into());
+        assert_eq!(single.as_str_vec(), vec!["single"]);
+
+        let multi = ExtendsPaths::Chain(vec!["foo".into(), "bar".into(), "baz".into()]);
+        assert_eq!(multi.as_str_vec(), vec!["foo", "bar", "baz"]);
+    }
+
+    #[test]
+    fn deserialize_human_duration() {
+        #[derive(Deserialize)]
+        struct Test {
+            value: HumanDuration,
+        }
+
+        let Test { value } = toml::toml! {
+            value = 10_500
+        }
+        .try_into()
+        .expect("input is fine, should parse");
+
+        assert_eq!(value.get(), Duration::from_millis(10_500));
     }
 }

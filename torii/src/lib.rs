@@ -13,7 +13,7 @@ use std::{
 };
 
 use futures::{stream::FuturesUnordered, StreamExt};
-use iroha_config::torii::{uri, Configuration as ToriiConfiguration};
+use iroha_config::parameters::actual::Torii as Config;
 use iroha_core::{
     kiso::{Error as KisoError, KisoHandle},
     kura::Kura,
@@ -25,6 +25,7 @@ use iroha_core::{
 };
 use iroha_data_model::ChainId;
 use iroha_primitives::addr::SocketAddr;
+use iroha_torii_const::uri;
 use tokio::{sync::Notify, task};
 use utils::*;
 use warp::{
@@ -60,7 +61,7 @@ impl Torii {
     pub fn new(
         chain_id: ChainId,
         kiso: KisoHandle,
-        config: &ToriiConfiguration,
+        config: Config,
         queue: Arc<Queue>,
         events: EventsSender,
         notify_shutdown: Arc<Notify>,
@@ -77,8 +78,8 @@ impl Torii {
             sumeragi,
             query_service,
             kura,
-            address: config.api_url.clone(),
-            transaction_max_content_length: config.max_content_len.into(),
+            address: config.address,
+            transaction_max_content_length: config.max_content_len_bytes,
         }
     }
 

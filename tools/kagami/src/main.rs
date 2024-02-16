@@ -10,7 +10,6 @@ use clap::{Args as ClapArgs, Parser};
 use color_eyre::eyre::WrapErr as _;
 use iroha_data_model::prelude::*;
 
-mod config;
 mod crypto;
 mod genesis;
 mod schema;
@@ -51,8 +50,6 @@ enum Args {
     Schema(schema::Args),
     /// Generate the genesis block that is used in tests
     Genesis(genesis::Args),
-    /// Generate the default client/peer configuration
-    Config(config::Args),
 }
 
 impl<T: Write> RunArgs<T> for Args {
@@ -63,7 +60,6 @@ impl<T: Write> RunArgs<T> for Args {
             Crypto(args) => args.run(writer),
             Schema(args) => args.run(writer),
             Genesis(args) => args.run(writer),
-            Config(args) => args.run(writer),
         }
     }
 }

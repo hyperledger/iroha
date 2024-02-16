@@ -285,7 +285,7 @@ macro_rules! test_peers {
     }};
     ($($id:literal),+$(,)?: $key_pair_iter:expr) => {
         ::iroha_primitives::unique_vec![
-            $(PeerId::new(([0, 0, 0, 0], $id).into(), $key_pair_iter.next().expect("Not enough key pairs").public_key().clone())),+
+            $(PeerId::new((([0, 0, 0, 0], $id).into()), $key_pair_iter.next().expect("Not enough key pairs").public_key().clone())),+
         ]
     };
 }
