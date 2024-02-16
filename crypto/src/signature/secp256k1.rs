@@ -4,8 +4,6 @@ use alloc::{format, vec::Vec};
 use self::ecdsa_secp256k1::EcdsaSecp256k1Impl;
 use crate::{Error, KeyGenOption, ParseError};
 
-pub const PRIVATE_KEY_SIZE: usize = 32;
-
 pub struct EcdsaSecp256k1Sha256;
 
 pub type PublicKey = k256::PublicKey;
@@ -38,35 +36,22 @@ mod ecdsa_secp256k1 {
     use alloc::{format, string::ToString as _, vec::Vec};
     use core::borrow::Borrow;
 
-    use arrayref::array_ref;
-    use digest::Digest as _;
     #[cfg(feature = "rand")]
     use rand::rngs::OsRng;
-    use rand::{RngCore, SeedableRng};
-    use rand_chacha::ChaChaRng;
     use signature::{Signer as _, Verifier as _};
-    use zeroize::Zeroize;
 
-    use super::{PrivateKey, PublicKey, PRIVATE_KEY_SIZE};
+    use super::{PrivateKey, PublicKey};
     use crate::{Error, KeyGenOption, ParseError};
 
     pub struct EcdsaSecp256k1Impl;
-    type Digest = sha2::Sha256;
 
     impl EcdsaSecp256k1Impl {
-        pub fn keypair(mut option: KeyGenOption) -> (PublicKey, PrivateKey) {
+        pub fn keypair(option: KeyGenOption) -> (PublicKey, PrivateKey) {
             let signing_key = match option {
                 #[cfg(feature = "rand")]
                 KeyGenOption::Random => PrivateKey::random(&mut OsRng),
-                KeyGenOption::UseSeed(ref mut seed) => {
-                    let mut s = [0u8; PRIVATE_KEY_SIZE];
-                    let mut rng = ChaChaRng::from_seed(*array_ref!(seed.as_slice(), 0, 32));
-                    seed.zeroize();
-                    rng.fill_bytes(&mut s);
-                    let k = Digest::digest(s);
-                    s.zeroize();
-                    PrivateKey::from_slice(k.as_slice())
-                        .expect("Creating private key from seed should always succeed")
+                KeyGenOption::UseSeed(seed) => {
+                    PrivateKey::random(&mut super::super::rng_from_seed(seed))
                 }
                 KeyGenOption::FromPrivateKey(ref s) => {
                     let crate::PrivateKeyInner::Secp256k1(s) = s.0.borrow() else {

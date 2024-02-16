@@ -8,10 +8,7 @@ use std::{
 };
 
 use color_eyre::eyre::{eyre, Context, ContextCompat};
-use iroha_crypto::{
-    error::Error as IrohaCryptoError, Algorithm, KeyGenConfiguration, KeyPair, PrivateKey,
-    PublicKey,
-};
+use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::{prelude::PeerId, ChainId};
 use iroha_primitives::addr::{socket_addr, SocketAddr};
 use peer_generator::Peer;
@@ -389,8 +386,7 @@ impl DockerComposeBuilder<'_> {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
         let peers = peer_generator::generate_peers(self.peers, self.seed)
             .wrap_err("Failed to generate peers")?;
-        let genesis_key_pair = generate_key_pair(self.seed, GENESIS_KEYPAIR_SEED)
-            .wrap_err("Failed to generate genesis key pair")?;
+        let genesis_key_pair = generate_key_pair(self.seed, GENESIS_KEYPAIR_SEED);
         let service_source = match &self.image_source {
             ResolvedImageSource::Build { path } => {
                 ServiceSource::Build(path.relative_to(target_file_dir)?)
@@ -468,10 +464,7 @@ impl DockerComposeBuilder<'_> {
     }
 }
 
-fn generate_key_pair(
-    base_seed: Option<&[u8]>,
-    additional_seed: &[u8],
-) -> color_eyre::Result<KeyPair, IrohaCryptoError> {
+fn generate_key_pair(base_seed: Option<&[u8]>, additional_seed: &[u8]) -> KeyPair {
     let cfg = base_seed.map_or_else(KeyGenConfiguration::from_random, |base| {
         let seed: Vec<_> = base.iter().chain(additional_seed).copied().collect();
         KeyGenConfiguration::from_seed(seed)
@@ -483,7 +476,7 @@ fn generate_key_pair(
 mod peer_generator {
     use std::{collections::BTreeMap, num::NonZeroU16};
 
-    use color_eyre::{eyre::Context, Report};
+    use color_eyre::Report;
     use iroha_crypto::KeyPair;
     use iroha_data_model::prelude::PeerId;
     use iroha_primitives::addr::{SocketAddr, SocketAddrHost};
@@ -521,8 +514,7 @@ mod peer_generator {
             .map(|i| {
                 let service_name = format!("{BASE_SERVICE_NAME}{i}");
 
-                let key_pair = super::generate_key_pair(base_seed, service_name.as_bytes())
-                    .wrap_err("Failed to generate key pair")?;
+                let key_pair = super::generate_key_pair(base_seed, service_name.as_bytes());
 
                 let peer = Peer {
                     name: service_name.clone(),
@@ -648,8 +640,7 @@ mod tests {
                 let key_pair =
                     KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(vec![
                         1, 5, 1, 2, 2, 3, 4, 1, 2, 3,
-                    ]))
-                    .unwrap();
+                    ]));
 
                 map.insert(
                     "iroha0".to_owned(),
@@ -721,8 +712,7 @@ mod tests {
         let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
 
         let key_pair =
-            KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(vec![0, 1, 2]))
-                .unwrap();
+            KeyPair::generate_with_configuration(KeyGenConfiguration::from_seed(vec![0, 1, 2]));
 
         let env: FullPeerEnv = CompactPeerEnv {
             chain_id,

@@ -24,6 +24,7 @@ std = [
     "signature/std",
     "ed25519-dalek/std",
     "rand/std",
+    "rand_core/std",
     "rand_chacha/std",
     "zeroize/std",
     "aead/std",
@@ -70,6 +71,7 @@ curve25519-dalek = { version = "4.1.1", default-features = false }
 x25519-dalek = { version = "2.0.0", default-features = false, features = ["static_secrets"] }
 
 rand = { workspace = true, default-features = false, features = ["std_rng", "alloc"]}
+rand_core = { version = "0.6.4", default-features = false, features = ["alloc"]}
 rand_chacha = { version = "0.3.1", default-features = false }
 
 

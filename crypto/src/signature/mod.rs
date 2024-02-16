@@ -19,14 +19,25 @@ use core::{borrow::Borrow as _, marker::PhantomData};
 #[cfg(feature = "std")]
 use std::collections::btree_set;
 
+use arrayref::array_ref;
 use derive_more::{Deref, DerefMut};
 use iroha_primitives::const_vec::ConstVec;
 use iroha_schema::{IntoSchema, TypeId};
 use parity_scale_codec::{Decode, Encode};
+use rand_core::{CryptoRngCore, SeedableRng as _};
 #[cfg(not(feature = "ffi_import"))]
 use serde::{Deserialize, Serialize};
+use sha2::Digest as _;
+use zeroize::Zeroize as _;
 
 use crate::{ffi, Error, HashOf, KeyPair, PublicKey};
+
+/// Construct cryptographic RNG from seed.
+fn rng_from_seed(mut seed: Vec<u8>) -> impl CryptoRngCore {
+    let hash = sha2::Sha256::digest(&seed);
+    seed.zeroize();
+    rand_chacha::ChaChaRng::from_seed(*array_ref!(hash.as_slice(), 0, 32))
+}
 
 ffi::ffi_item! {
     /// Represents signature of the data (`Block` or `Transaction` for example).
@@ -534,8 +545,7 @@ mod tests {
     fn create_signature_ed25519() {
         let key_pair = KeyPair::generate_with_configuration(
             KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::Ed25519),
-        )
-        .expect("Failed to generate key pair.");
+        );
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
         assert!(*signature.public_key() == *key_pair.public_key());
@@ -547,8 +557,7 @@ mod tests {
     fn create_signature_secp256k1() {
         let key_pair = KeyPair::generate_with_configuration(
             KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::Secp256k1),
-        )
-        .expect("Failed to generate key pair.");
+        );
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
         assert!(*signature.public_key() == *key_pair.public_key());
@@ -560,8 +569,7 @@ mod tests {
     fn create_signature_bls_normal() {
         let key_pair = KeyPair::generate_with_configuration(
             KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::BlsNormal),
-        )
-        .expect("Failed to generate key pair.");
+        );
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
         assert!(*signature.public_key() == *key_pair.public_key());
@@ -573,8 +581,7 @@ mod tests {
     fn create_signature_bls_small() {
         let key_pair = KeyPair::generate_with_configuration(
             KeyGenConfiguration::from_random().with_algorithm(crate::Algorithm::BlsSmall),
-        )
-        .expect("Failed to generate key pair.");
+        );
         let message = b"Test message to sign.";
         let signature = Signature::new(&key_pair, message);
         assert!(*signature.public_key() == *key_pair.public_key());

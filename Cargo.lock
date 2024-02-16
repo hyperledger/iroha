@@ -2878,6 +2878,7 @@ dependencies = [
  "parity-scale-codec",
  "rand",
  "rand_chacha",
+ "rand_core",
  "secp256k1",
  "serde",
  "serde_json",
