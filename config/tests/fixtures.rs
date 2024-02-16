@@ -8,7 +8,7 @@ use std::{
 
 use eyre::Result;
 use iroha_config::parameters::{
-    actual::Root,
+    actual::{Genesis, Root},
     user::{CliContext, RootPartial},
 };
 use iroha_config_base::{FromEnv, TestEnv, UnwrapPartial as _};
@@ -490,4 +490,26 @@ fn full_config_parses_fine() {
         },
     )
     .expect("should be fine");
+}
+
+#[test]
+fn absolute_paths_are_preserved() {
+    let cfg = Root::load(
+        Some(fixtures_dir().join("absolute_paths.toml")),
+        CliContext {
+            submit_genesis: true,
+        },
+    )
+    .expect("should be fine");
+
+    assert_eq!(cfg.kura.store_dir, PathBuf::from("/kura/store"));
+    assert_eq!(cfg.snapshot.store_dir, PathBuf::from("/snapshot/store"));
+    assert_eq!(
+        cfg.dev_telemetry.unwrap().out_file,
+        PathBuf::from("/telemetry/file.json")
+    );
+    let Genesis::Full {
+        file: genesis_file, ..
+    } = cfg.genesis else { unreachable!() };
+    assert_eq!(genesis_file, PathBuf::from("/oh/my/genesis.json"));
 }
