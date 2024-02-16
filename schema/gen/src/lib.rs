@@ -228,7 +228,6 @@ types!(
     NewAccount,
     NewAssetDefinition,
     NewDomain,
-    NewParameter,
     NewRole,
     NonTrivial<PredicateBox>,
     NonZeroU64,

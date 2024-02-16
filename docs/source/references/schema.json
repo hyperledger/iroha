@@ -2111,23 +2111,18 @@
         "type": "SetParameter"
       },
       {
-        "tag": "NewParameter",
-        "discriminant": 11,
-        "type": "NewParameter"
-      },
-      {
         "tag": "Upgrade",
-        "discriminant": 12,
+        "discriminant": 11,
         "type": "Upgrade"
       },
       {
         "tag": "Log",
-        "discriminant": 13,
+        "discriminant": 12,
         "type": "Log"
       },
       {
         "tag": "Fail",
-        "discriminant": 14,
+        "discriminant": 13,
         "type": "Fail"
       }
     ]
@@ -2269,20 +2264,16 @@
         "discriminant": 10
       },
       {
-        "tag": "NewParameter",
+        "tag": "Upgrade",
         "discriminant": 11
       },
       {
-        "tag": "Upgrade",
+        "tag": "Log",
         "discriminant": 12
       },
       {
-        "tag": "Log",
-        "discriminant": 13
-      },
-      {
         "tag": "Fail",
-        "discriminant": 14
+        "discriminant": 13
       }
     ]
   },
@@ -2726,14 +2717,6 @@
       {
         "name": "metadata",
         "type": "Metadata"
-      }
-    ]
-  },
-  "NewParameter": {
-    "Struct": [
-      {
-        "name": "parameter",
-        "type": "Parameter"
       }
     ]
   },

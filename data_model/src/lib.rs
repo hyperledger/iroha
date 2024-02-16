@@ -140,7 +140,6 @@ mod seal {
         Revoke<RoleId>,
 
         SetParameter,
-        NewParameter,
         Upgrade,
         ExecuteTrigger,
         Log,
@@ -491,15 +490,6 @@ pub mod parameter {
             self.parameters
                 .into_iter()
                 .map(isi::SetParameter::new)
-                .map(Into::into)
-                .collect()
-        }
-
-        /// Create sequence isi for creating parameters
-        pub fn into_create_parameters(self) -> Vec<InstructionBox> {
-            self.parameters
-                .into_iter()
-                .map(isi::NewParameter::new)
                 .map(Into::into)
                 .collect()
         }
