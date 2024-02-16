@@ -120,7 +120,7 @@ class ClientCli:
         """
         self.command.append("list")
         self.command.append("filter")
-        self.command.append(filter_criteria)
+        self.command.append(str(filter_criteria))
         return self
 
     def domain(self, domain: str):
@@ -358,18 +358,18 @@ class ClientCli:
         """
         Executes two commands connected by a pipe.
         """
-        with (subprocess.Popen(
-                cmd1,
-                stdout=subprocess.PIPE,
-                env=self.config.env
-        ) as proc1,
+        with (
+            subprocess.Popen(
+                cmd1, stdout=subprocess.PIPE, env=self.config.env
+            ) as proc1,
             subprocess.Popen(
                 cmd2,
                 stdin=proc1.stdout,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                env=self.config.env
-        ) as proc2):
+                env=self.config.env,
+            ) as proc2,
+        ):
             self.stdout, self.stderr = proc2.communicate()
             self.transaction_hash = extract_hash(self.stdout)
             self._attach_allure_reports()
@@ -379,11 +379,11 @@ class ClientCli:
         Executes a single command.
         """
         with subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=self.config.env
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=self.config.env,
         ) as process:
             self.stdout, self.stderr = process.communicate()
             self.transaction_hash = extract_hash(self.stdout)

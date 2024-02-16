@@ -39,7 +39,7 @@ class Config:
         """
         if not os.path.exists(path_config_client_cli):
             raise IOError(f"No config file found at {path_config_client_cli}")
-        with open(path_config_client_cli, 'r', encoding='utf-8') as config_file:
+        with open(path_config_client_cli, "r", encoding="utf-8") as config_file:
             self._config = tomlkit.load(config_file)
         self.file = path_config_client_cli
 
@@ -92,7 +92,9 @@ class Config:
         """
         parsed_url = urlparse(self._config["torii_url"])
         random_port = random.randint(self.port_min, self.port_max)
-        self._envs["TORII_URL"] = parsed_url._replace(netloc=f"{parsed_url.hostname}:{random_port}").geturl()
+        self._envs["TORII_URL"] = parsed_url._replace(
+            netloc=f"{parsed_url.hostname}:{random_port}"
+        ).geturl()
 
     @property
     def torii_url(self):
@@ -124,7 +126,7 @@ class Config:
         :return: The ACCOUNT_ID.
         :rtype: str
         """
-        return self._config['account']["id"]
+        return self._config["account"]["id"]
 
     @property
     def account_name(self):
@@ -154,4 +156,4 @@ class Config:
         :return: The public key.
         :rtype: str
         """
-        return self._config["account"]['public_key'].split('ed0120')[1]
+        return self._config["account"]["public_key"].split("ed0120")[1]
