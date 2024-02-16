@@ -18,6 +18,7 @@ mod queries;
 mod roles;
 mod set_parameter;
 mod sorting;
+mod status_response;
 mod transfer_asset;
 mod triggers;
 mod tx_chain_id;

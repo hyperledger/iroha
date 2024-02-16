@@ -176,12 +176,17 @@ pub struct StatusResponseHandler;
 
 impl StatusResponseHandler {
     fn handle(resp: &Response<Vec<u8>>) -> Result<Status> {
+        let slice = Self::handle_raw(resp)?;
+        serde_json::from_slice(slice).wrap_err("Failed to decode body")
+    }
+
+    fn handle_raw(resp: &Response<Vec<u8>>) -> Result<&Vec<u8>> {
         if resp.status() != StatusCode::OK {
             return Err(ResponseReport::with_msg("Unexpected status response", resp)
                 .unwrap_or_else(core::convert::identity)
                 .into());
         }
-        serde_json::from_slice(resp.body()).wrap_err("Failed to decode body")
+        Ok(resp.body())
     }
 }
 
@@ -1032,6 +1037,18 @@ impl Client {
         let req = self.prepare_status_request::<DefaultRequestBuilder>();
         let resp = req.build()?.send()?;
         StatusResponseHandler::handle(&resp)
+    }
+
+    /// Gets network status seen from the peer in scale encoding
+    ///
+    /// # Errors
+    /// Fails if sending request or decoding fails
+    pub fn get_status_scale_encoded(&self) -> Result<Vec<u8>> {
+        let req = self
+            .prepare_status_request::<DefaultRequestBuilder>()
+            .header(http::header::ACCEPT, "application/x-parity-scale");
+        let resp = req.build()?.send()?;
+        StatusResponseHandler::handle_raw(&resp).cloned()
     }
 
     /// Prepares http-request to implement [`Self::get_status`] on your own.

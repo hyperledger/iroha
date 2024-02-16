@@ -5,7 +5,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use parity_scale_codec::{Compact, Encode};
+use parity_scale_codec::{Compact, Decode, Encode};
 use prometheus::{
     core::{AtomicU64, GenericGauge, GenericGaugeVec},
     Encoder, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, Opts, Registry,
@@ -32,8 +32,19 @@ impl Encode for Uptime {
     }
 }
 
+impl Decode for Uptime {
+    fn decode<I: parity_scale_codec::Input>(
+        input: &mut I,
+    ) -> Result<Self, parity_scale_codec::Error> {
+        let (secs, nanos) = <(Compact<u64>, u32)>::decode(input)?;
+        Ok(Self(
+            Duration::from_secs(secs.0) + Duration::from_nanos(nanos.into()),
+        ))
+    }
+}
+
 /// Response body for GET status request
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Encode)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Encode, Decode)]
 pub struct Status {
     /// Number of currently connected peers excluding the reporting peer
     #[codec(compact)]
