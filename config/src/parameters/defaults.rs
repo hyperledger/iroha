@@ -21,7 +21,7 @@ pub mod queue {
     pub const DEFAULT_FUTURE_THRESHOLD: Duration = Duration::from_secs(1);
 }
 pub mod kura {
-    pub const DEFAULT_BLOCK_STORE_PATH: &str = "./storage";
+    pub const DEFAULT_STORE_DIR: &str = "./storage";
 }
 
 #[cfg(feature = "tokio-console")]
@@ -45,9 +45,9 @@ pub mod network {
 pub mod snapshot {
     use super::*;
 
-    pub const DEFAULT_SNAPSHOT_PATH: &str = "./storage/snapshot";
+    pub const DEFAULT_STORE_DIR: &str = "./storage/snapshot";
     // Default frequency of making snapshots is 1 minute, need to be adjusted for larger world state view size
-    pub const DEFAULT_SNAPSHOT_CREATE_EVERY_MS: Duration = Duration::from_secs(60);
+    pub const DEFAULT_CREATE_EVERY: Duration = Duration::from_secs(60);
     pub const DEFAULT_ENABLED: bool = true;
 }
 

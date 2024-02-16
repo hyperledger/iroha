@@ -29,7 +29,7 @@ use crate::{
     kura::Mode,
     logger::Format,
     parameters::{
-        defaults::{chain_wide::*, kura::*, network::*, queue::*, snapshot::*, torii::*},
+        defaults::{self, chain_wide::*, network::*, queue::*, torii::*},
         user,
         user::{
             ChainWide, Genesis, Kura, KuraDebug, Logger, Network, Queue, Root, Snapshot, Sumeragi,
@@ -273,10 +273,10 @@ impl UnwrapPartial for KuraPartial {
 
         let init_mode = self.init_mode.unwrap_or_default();
 
-        let block_store_path = self
+        let store_dir = self
             .store_dir
             .get()
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_BLOCK_STORE_PATH));
+            .unwrap_or_else(|| PathBuf::from(defaults::kura::DEFAULT_STORE_DIR));
 
         let debug = UnwrapPartial::unwrap_partial(self.debug).map_or_else(
             |err| {
@@ -290,7 +290,7 @@ impl UnwrapPartial for KuraPartial {
 
         Ok(Kura {
             init_mode,
-            store_dir: block_store_path,
+            store_dir,
             debug: debug.unwrap(),
         })
     }
@@ -322,13 +322,9 @@ impl FromEnv for KuraPartial {
         let init_mode =
             ParseEnvResult::parse_simple(&mut emitter, env, "KURA_INIT_MODE", "kura.init_mode")
                 .into();
-        let block_store_path = ParseEnvResult::parse_simple(
-            &mut emitter,
-            env,
-            "KURA_BLOCK_STORE",
-            "kura.block_store_path",
-        )
-        .into();
+        let store_dir =
+            ParseEnvResult::parse_simple(&mut emitter, env, "KURA_STORE_DIR", "kura.store_dir")
+                .into();
         let debug_output_new_blocks = ParseEnvResult::parse_simple(
             &mut emitter,
             env,
@@ -341,7 +337,7 @@ impl FromEnv for KuraPartial {
 
         Ok(Self {
             init_mode,
-            store_dir: block_store_path,
+            store_dir,
             debug: KuraDebugPartial {
                 output_new_blocks: debug_output_new_blocks,
             },
@@ -609,15 +605,17 @@ impl UnwrapPartial for SnapshotPartial {
 
     fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
         Ok(Snapshot {
-            creation_enabled: self.creation_enabled.unwrap_or(DEFAULT_ENABLED),
+            creation_enabled: self
+                .creation_enabled
+                .unwrap_or(defaults::snapshot::DEFAULT_ENABLED),
             create_every: self
                 .create_every
                 .get()
-                .map_or(DEFAULT_SNAPSHOT_CREATE_EVERY_MS, HumanDuration::get),
+                .map_or(defaults::snapshot::DEFAULT_CREATE_EVERY, HumanDuration::get),
             store_dir: self
                 .store_dir
                 .get()
-                .unwrap_or_else(|| PathBuf::from(DEFAULT_SNAPSHOT_PATH)),
+                .unwrap_or_else(|| PathBuf::from(defaults::snapshot::DEFAULT_STORE_DIR)),
         })
     }
 }
@@ -629,11 +627,11 @@ impl FromEnv for SnapshotPartial {
     {
         let mut emitter = Emitter::new();
 
-        let store_path = ParseEnvResult::parse_simple(
+        let store_dir = ParseEnvResult::parse_simple(
             &mut emitter,
             env,
-            "SNAPSHOT_STORE",
-            "snapshot.store_path",
+            "SNAPSHOT_STORE_DIR",
+            "snapshot.store_dir",
         )
         .into();
         let creation_enabled = ParseEnvResult::parse_simple(
@@ -647,7 +645,7 @@ impl FromEnv for SnapshotPartial {
         emitter.finish()?;
 
         Ok(Self {
-            store_dir: store_path,
+            store_dir,
             creation_enabled,
             ..Self::default()
         })

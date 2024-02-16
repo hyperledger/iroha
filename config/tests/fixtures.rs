@@ -82,7 +82,7 @@ fn minimal_config_snapshot() -> Result<()> {
             },
             kura: Kura {
                 init_mode: Strict,
-                block_store_path: "./storage",
+                store_dir: "./storage",
                 debug_output_new_blocks: false,
             },
             sumeragi: Sumeragi {
@@ -102,11 +102,11 @@ fn minimal_config_snapshot() -> Result<()> {
             },
             block_sync: BlockSync {
                 gossip_period: 10s,
-                batch_size: 4,
+                gossip_max_size: 4,
             },
             transaction_gossiper: TransactionGossiper {
                 gossip_period: 1s,
-                batch_size: 500,
+                gossip_max_size: 500,
             },
             live_query_store: LiveQueryStore {
                 idle_time: 30s,
@@ -114,7 +114,7 @@ fn minimal_config_snapshot() -> Result<()> {
             logger: Logger {
                 level: INFO,
                 format: Full,
-                tokio_console_addr: 127.0.0.1:5555,
+                tokio_console_address: 127.0.0.1:5555,
             },
             queue: Queue {
                 capacity: 65536,
@@ -124,7 +124,7 @@ fn minimal_config_snapshot() -> Result<()> {
             },
             snapshot: Snapshot {
                 create_every: 60s,
-                store_path: "./storage/snapshot",
+                store_dir: "./storage/snapshot",
                 creation_enabled: true,
             },
             telemetry: None,
@@ -323,7 +323,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 init_mode: Some(
                     Strict,
                 ),
-                block_store_path: Some(
+                store_dir: Some(
                     "/store/path/from/env",
                 ),
                 debug: KuraDebugPartial {
@@ -342,9 +342,9 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 address: Some(
                     127.0.0.1:5432,
                 ),
+                block_gossip_max_size: None,
                 block_gossip_period: None,
-                max_blocks_per_gossip: None,
-                max_transactions_per_gossip: None,
+                transaction_gossip_max_size: None,
                 transaction_gossip_period: None,
             },
             logger: LoggerPartial {
@@ -354,7 +354,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 format: Some(
                     Pretty,
                 ),
-                tokio_console_addr: None,
+                tokio_console_address: None,
             },
             queue: QueuePartial {
                 capacity: None,
@@ -364,7 +364,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
             },
             snapshot: SnapshotPartial {
                 create_every: None,
-                store_path: Some(
+                store_dir: Some(
                     "/snapshot/path/from/env",
                 ),
                 creation_enabled: Some(
@@ -377,7 +377,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 min_retry_period: None,
                 max_retry_delay_exponent: None,
                 dev: TelemetryDevPartial {
-                    file: None,
+                    out_file: None,
                 },
             },
             torii: ToriiPartial {
@@ -396,7 +396,7 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 asset_definition_metadata_limits: None,
                 account_metadata_limits: None,
                 domain_metadata_limits: None,
-                identifier_length_limits: None,
+                ident_length_limits: None,
                 wasm_fuel_limit: None,
                 wasm_max_memory: None,
             },
@@ -474,7 +474,7 @@ fn multiple_extends_works() -> Result<()> {
             format: Some(
                 Compact,
             ),
-            tokio_console_addr: None,
+            tokio_console_address: None,
         }"#]];
     expected.assert_eq(&format!("{layer:#?}"));
 
@@ -508,8 +508,12 @@ fn absolute_paths_are_preserved() {
         cfg.dev_telemetry.unwrap().out_file,
         PathBuf::from("/telemetry/file.json")
     );
-    let Genesis::Full {
+    if let Genesis::Full {
         file: genesis_file, ..
-    } = cfg.genesis else { unreachable!() };
-    assert_eq!(genesis_file, PathBuf::from("/oh/my/genesis.json"));
+    } = cfg.genesis
+    {
+        assert_eq!(genesis_file, PathBuf::from("/oh/my/genesis.json"));
+    } else {
+        unreachable!()
+    };
 }
