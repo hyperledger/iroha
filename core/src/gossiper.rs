@@ -71,11 +71,11 @@ impl TransactionGossiper {
         let wsv = sumeragi.wsv_clone();
         Self {
             chain_id,
-            queue,
-            sumeragi,
-            network,
             gossip_max_size,
             gossip_period,
+            queue,
+            network,
+            sumeragi,
             wsv,
         }
     }

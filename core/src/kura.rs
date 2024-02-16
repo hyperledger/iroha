@@ -72,7 +72,7 @@ impl Kura {
     pub fn blank_kura_for_testing() -> Arc<Kura> {
         Arc::new(Self {
             mode: Mode::Strict,
-            block_store: Mutex::new(BlockStore::new(&PathBuf::new(), LockStatus::Locked)),
+            block_store: Mutex::new(BlockStore::new(PathBuf::new(), LockStatus::Locked)),
             block_data: Mutex::new(Vec::new()),
             block_plain_text_path: None,
         })
@@ -404,8 +404,8 @@ impl BlockStore {
                 match e.kind() {
                     std::io::ErrorKind::AlreadyExists => Err(Error::Locked(lock_path)),
                     std::io::ErrorKind::NotFound => {
-                        match std::fs::create_dir_all(store_path)
-                            .map_err(|e| Error::MkDir(e, store_path.to_path_buf()))
+                        match std::fs::create_dir_all(store_path.as_ref())
+                            .map_err(|e| Error::MkDir(e, store_path.as_ref().to_path_buf()))
                         {
                             Err(e) => Err(e),
                             Ok(()) => {
@@ -428,7 +428,7 @@ impl BlockStore {
             }
         }
         BlockStore {
-            path_to_blockchain: store_path.to_path_buf(),
+            path_to_blockchain: store_path.as_ref().to_path_buf(),
         }
     }
 
