@@ -15,10 +15,7 @@ use iroha_crypto::{
 use iroha_data_model::{prelude::PeerId, ChainId};
 use iroha_primitives::addr::{socket_addr, SocketAddr};
 use peer_generator::Peer;
-use serde::{
-    ser::{Error as _, SerializeMap},
-    Serialize, Serializer,
-};
+use serde::{ser::SerializeMap, Serialize, Serializer};
 
 use crate::{cli::SourceParsed, util::AbsolutePath};
 
@@ -297,24 +294,25 @@ pub enum ServiceSource {
     Build(PathBuf),
 }
 
+#[serde_with::serde_as]
+#[serde_with::skip_serializing_none]
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "UPPERCASE")]
 struct FullPeerEnv {
     chain_id: ChainId,
     public_key: PublicKey,
     private_key_digest: Algorithm,
-    private_key_payload: SerializeAsHex<Vec<u8>>,
+    #[serde_as(as = "serde_with::hex::Hex")]
+    private_key_payload: Vec<u8>,
     p2p_address: SocketAddr,
     api_address: SocketAddr,
     genesis_public_key: PublicKey,
-    #[serde(skip_serializing_if = "Option::is_none")]
     genesis_private_key_digest: Option<Algorithm>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    genesis_private_key_payload: Option<SerializeAsHex<Vec<u8>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde_as(as = "Option<serde_with::hex::Hex>")]
+    genesis_private_key_payload: Option<Vec<u8>>,
     genesis_file: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sumeragi_trusted_peers: Option<SerializeAsJsonStr<BTreeSet<PeerId>>>,
+    #[serde_as(as = "Option<serde_with::json::JsonString>")]
+    sumeragi_trusted_peers: Option<BTreeSet<PeerId>>,
 }
 
 struct CompactPeerEnv {
@@ -336,14 +334,14 @@ impl From<CompactPeerEnv> for FullPeerEnv {
                 let (algorithm, payload) = private_key.to_raw();
                 (
                     Some(algorithm),
-                    Some(SerializeAsHex(payload)),
+                    Some(payload),
                     Some(PATH_TO_GENESIS.to_string()),
                 )
             });
 
         let (private_key_digest, private_key_payload) = {
             let (algorithm, payload) = value.key_pair.private_key().clone().to_raw();
-            (algorithm, SerializeAsHex(payload))
+            (algorithm, payload)
         };
 
         Self {
@@ -360,44 +358,9 @@ impl From<CompactPeerEnv> for FullPeerEnv {
             sumeragi_trusted_peers: if value.trusted_peers.is_empty() {
                 None
             } else {
-                Some(SerializeAsJsonStr(value.trusted_peers))
+                Some(value.trusted_peers)
             },
         }
-    }
-}
-
-#[derive(Debug)]
-struct SerializeAsJsonStr<T>(T);
-
-impl<T> serde::Serialize for SerializeAsJsonStr<T>
-where
-    T: serde::Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let json = serde_json::to_string(&self.0).map_err(|json_err| {
-            S::Error::custom(format!("failed to serialize as JSON: {json_err}"))
-        })?;
-        serializer.serialize_str(&json)
-    }
-}
-
-#[derive(Debug)]
-struct SerializeAsHex<T>(T);
-
-impl<T> serde::Serialize for SerializeAsHex<T>
-where
-    T: AsRef<[u8]>,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // FIXME maybe there is a way to avoid extra allocation, doesn't matter much
-        let data = hex::encode(&self.0);
-        serializer.serialize_str(&data)
     }
 }
 
