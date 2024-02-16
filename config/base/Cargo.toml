@@ -16,6 +16,7 @@ drop_bomb = { workspace = true }
 derive_more = { workspace = true, features = ["from", "deref", "deref_mut"] }
 eyre = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_with = { workspace = true, features = ["macros", "std"] }
 thiserror = { workspace = true }
 num-traits = "0.2.17"
 

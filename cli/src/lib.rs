@@ -216,7 +216,7 @@ impl Iroha {
 
         let block_count = kura.init()?;
         let wsv = try_read_snapshot(
-            &config.snapshot.store_path,
+            &config.snapshot.store_dir,
             &kura,
             live_query_store_handle.clone(),
             block_count,
@@ -587,9 +587,9 @@ mod tests {
             let config = {
                 let mut cfg = config_factory();
                 cfg.genesis.file.set("./genesis/gen.json".into());
-                cfg.kura.block_store_path.set("../storage".into());
-                cfg.snapshot.store_path.set("../snapshots".into());
-                cfg.telemetry.dev.file.set("../logs/telemetry".into());
+                cfg.kura.store_dir.set("../storage".into());
+                cfg.snapshot.store_dir.set("../snapshots".into());
+                cfg.telemetry.dev.out_file.set("../logs/telemetry".into());
                 toml::Value::try_from(cfg)?
             };
 
@@ -615,11 +615,11 @@ mod tests {
             assert!(genesis.is_some());
 
             assert_eq!(
-                config.kura.block_store_path.absolutize()?,
+                config.kura.store_dir.absolutize()?,
                 dir.path().join("storage")
             );
             assert_eq!(
-                config.snapshot.store_path.absolutize()?,
+                config.snapshot.store_dir.absolutize()?,
                 dir.path().join("snapshots")
             );
             assert_eq!(

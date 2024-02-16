@@ -8,23 +8,22 @@
 
 # chain_id =
 # public_key =
-# private_key.digest_function =
-# private_key.payload =
+# private_key = {
+#   algorithm = ,
+#   payload =
+# }
+
+[genesis]
+# file =
+# public_key =
+# private_key = { algorithm = "", payload = "" }
 
 [network]
 # address =
 # block_gossip_period = "10s"
-# max_blocks_per_gossip = 4
-# max_transactions_per_gossip = 500
+# block_gossip_max_size = 4
 # transaction_gossip_period = "1s"
-
-[genesis]
-# public_key =
-
-## Combine these with `--submit-genesis` CLI argument
-# file =
-# private_key.digest_function =
-# private_key.payload =
+# transaction_gossip_max_size = 500
 
 [torii]
 # address =
@@ -33,43 +32,36 @@
 
 [kura]
 # init_mode = "strict"
-# block_store_path = "./storage"
-
-[kura.debug]
-# output_new_blocks = false
+# store_dir = "./storage"
 
 ## Add more of this section for each trusted peer
 # [[sumeragi.trusted_peers]]
 # address =
 # public_key =
 
-[sumeragi.debug]
-# force_soft_fork = false
-
 [logger]
 # level = "INFO"
 # format = "full"
+# tokio_console_address = "127.0.0.1:5555"
 
+## Transactions Queue
 [queue]
 # capacity = 65536
 # capacity_per_user = 65536
-# transaction_time_to_live = "86400s"
+# transaction_time_to_live = "1day"
 # future_threshold = "1s"
 
 [snapshot]
-# create_every = "60s"
-# store_path = "./storage/snapshot"
 # creation_enabled = true
+# create_every = "1min"
+# store_dir = "./storage/snapshot"
 
 [telemetry]
 # name =
 # url =
-# min_retry_period =
-# max_retry_delay_exponent =
+# min_retry_period = "1s"
+# max_retry_delay_exponent = 4
 
 [telemetry.dev]
 ## FIXME: is it JSON5?
 # out_file = "./dev-telemetry.json5"
-
-## TODO: remove it from the config file entirely
-# [chain_wide]

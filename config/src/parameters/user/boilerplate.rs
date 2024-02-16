@@ -261,7 +261,7 @@ impl FromEnv for GenesisPartial {
 #[serde(deny_unknown_fields, default)]
 pub struct KuraPartial {
     pub init_mode: UserField<Mode>,
-    pub block_store_path: UserField<PathBuf>,
+    pub store_dir: UserField<PathBuf>,
     pub debug: KuraDebugPartial,
 }
 
@@ -274,7 +274,7 @@ impl UnwrapPartial for KuraPartial {
         let init_mode = self.init_mode.unwrap_or_default();
 
         let block_store_path = self
-            .block_store_path
+            .store_dir
             .get()
             .unwrap_or_else(|| PathBuf::from(DEFAULT_BLOCK_STORE_PATH));
 
@@ -290,7 +290,7 @@ impl UnwrapPartial for KuraPartial {
 
         Ok(Kura {
             init_mode,
-            block_store_path,
+            store_dir: block_store_path,
             debug: debug.unwrap(),
         })
     }
@@ -341,7 +341,7 @@ impl FromEnv for KuraPartial {
 
         Ok(Self {
             init_mode,
-            block_store_path,
+            store_dir: block_store_path,
             debug: KuraDebugPartial {
                 output_new_blocks: debug_output_new_blocks,
             },
@@ -401,9 +401,9 @@ impl FromEnvDefaultFallback for SumeragiPartial {}
 #[serde(deny_unknown_fields, default)]
 pub struct NetworkPartial {
     pub address: UserField<SocketAddr>,
+    pub block_gossip_max_size: UserField<NonZeroU32>,
     pub block_gossip_period: UserField<HumanDuration>,
-    pub max_blocks_per_gossip: UserField<NonZeroU32>,
-    pub max_transactions_per_gossip: UserField<NonZeroU32>,
+    pub transaction_gossip_max_size: UserField<NonZeroU32>,
     pub transaction_gossip_period: UserField<HumanDuration>,
 }
 
@@ -425,12 +425,12 @@ impl UnwrapPartial for NetworkPartial {
                 .transaction_gossip_period
                 .map(HumanDuration::get)
                 .unwrap_or(DEFAULT_TRANSACTION_GOSSIP_PERIOD),
-            max_transactions_per_gossip: self
-                .max_transactions_per_gossip
+            transaction_gossip_max_size: self
+                .transaction_gossip_max_size
                 .get()
                 .unwrap_or(DEFAULT_MAX_TRANSACTIONS_PER_GOSSIP),
-            max_blocks_per_gossip: self
-                .max_blocks_per_gossip
+            block_gossip_max_size: self
+                .block_gossip_max_size
                 .get()
                 .unwrap_or(DEFAULT_MAX_BLOCKS_PER_GOSSIP),
         })
@@ -505,7 +505,7 @@ pub struct LoggerPartial {
     pub format: UserField<Format>,
     #[cfg(feature = "tokio-console")]
     /// Address of tokio console (only available under "tokio-console" feature)
-    pub tokio_console_addr: UserField<SocketAddr>,
+    pub tokio_console_address: UserField<SocketAddr>,
 }
 
 impl UnwrapPartial for LoggerPartial {
@@ -516,7 +516,7 @@ impl UnwrapPartial for LoggerPartial {
             level: self.level.unwrap_or_default(),
             format: self.format.unwrap_or_default(),
             #[cfg(feature = "tokio-console")]
-            tokio_console_addr: self.tokio_console_addr.get().unwrap_or_else(|| {
+            tokio_console_address: self.tokio_console_address.get().unwrap_or_else(|| {
                 super::super::defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR.clone()
             }),
         })
@@ -559,7 +559,7 @@ pub struct TelemetryPartial {
 #[derive(Clone, Deserialize, Serialize, Debug, Default, Merge)]
 #[serde(deny_unknown_fields, default)]
 pub struct TelemetryDevPartial {
-    pub file: UserField<PathBuf>,
+    pub out_file: UserField<PathBuf>,
 }
 
 impl UnwrapPartial for TelemetryDevPartial {
@@ -567,7 +567,7 @@ impl UnwrapPartial for TelemetryDevPartial {
 
     fn unwrap_partial(self) -> UnwrapPartialResult<Self::Output> {
         Ok(TelemetryDev {
-            out_file: self.file.get(),
+            out_file: self.out_file.get(),
         })
     }
 }
@@ -600,7 +600,7 @@ impl FromEnvDefaultFallback for TelemetryPartial {}
 #[serde(deny_unknown_fields, default)]
 pub struct SnapshotPartial {
     pub create_every: UserField<HumanDuration>,
-    pub store_path: UserField<PathBuf>,
+    pub store_dir: UserField<PathBuf>,
     pub creation_enabled: UserField<bool>,
 }
 
@@ -614,8 +614,8 @@ impl UnwrapPartial for SnapshotPartial {
                 .create_every
                 .get()
                 .map_or(DEFAULT_SNAPSHOT_CREATE_EVERY_MS, HumanDuration::get),
-            store_path: self
-                .store_path
+            store_dir: self
+                .store_dir
                 .get()
                 .unwrap_or_else(|| PathBuf::from(DEFAULT_SNAPSHOT_PATH)),
         })
@@ -647,7 +647,7 @@ impl FromEnv for SnapshotPartial {
         emitter.finish()?;
 
         Ok(Self {
-            store_path,
+            store_dir: store_path,
             creation_enabled,
             ..Self::default()
         })
@@ -665,7 +665,7 @@ pub struct ChainWidePartial {
     pub asset_definition_metadata_limits: UserField<MetadataLimits>,
     pub account_metadata_limits: UserField<MetadataLimits>,
     pub domain_metadata_limits: UserField<MetadataLimits>,
-    pub identifier_length_limits: UserField<LengthLimits>,
+    pub ident_length_limits: UserField<LengthLimits>,
     pub wasm_fuel_limit: UserField<u64>,
     pub wasm_max_memory: UserField<HumanBytes<u32>>,
 }
@@ -697,8 +697,8 @@ impl UnwrapPartial for ChainWidePartial {
             domain_metadata_limits: self
                 .domain_metadata_limits
                 .unwrap_or(DEFAULT_METADATA_LIMITS),
-            identifier_length_limits: self
-                .identifier_length_limits
+            ident_length_limits: self
+                .ident_length_limits
                 .unwrap_or(DEFAULT_IDENT_LENGTH_LIMITS),
             wasm_fuel_limit: self.wasm_fuel_limit.unwrap_or(DEFAULT_WASM_FUEL_LIMIT),
             wasm_max_memory: self

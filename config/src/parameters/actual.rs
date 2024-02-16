@@ -120,7 +120,7 @@ impl Genesis {
 #[derive(Debug, Clone)]
 pub struct Kura {
     pub init_mode: Mode,
-    pub block_store_path: PathBuf,
+    pub store_dir: PathBuf,
     pub debug_output_new_blocks: bool,
 }
 
@@ -160,14 +160,14 @@ impl Default for LiveQueryStore {
 #[derive(Debug, Clone, Copy)]
 pub struct BlockSync {
     pub gossip_period: Duration,
-    pub batch_size: NonZeroU32,
+    pub gossip_max_size: NonZeroU32,
 }
 
 #[derive(Debug, Clone, Copy)]
 #[allow(missing_docs)]
 pub struct TransactionGossiper {
     pub gossip_period: Duration,
-    pub batch_size: NonZeroU32,
+    pub gossip_max_size: NonZeroU32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

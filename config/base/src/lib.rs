@@ -22,8 +22,9 @@ use serde::{Deserialize, Serialize};
 
 /// [`Duration`], but can parse a human-readable string.
 /// TODO: currently deserializes just as [`Duration`]
+#[serde_with::serde_as]
 #[derive(Debug, Copy, Clone, Deserialize, Serialize, Ord, PartialOrd, Eq, PartialEq)]
-pub struct HumanDuration(pub Duration);
+pub struct HumanDuration(#[serde_as(as = "serde_with::DurationMilliSeconds")] pub Duration);
 
 impl HumanDuration {
     /// Get the [`Duration`]
@@ -611,5 +612,21 @@ mod tests {
 
         let multi = ExtendsPaths::Chain(vec!["foo".into(), "bar".into(), "baz".into()]);
         assert_eq!(multi.as_str_vec(), vec!["foo", "bar", "baz"]);
+    }
+
+    #[test]
+    fn deserialize_human_duration() {
+        #[derive(Deserialize)]
+        struct Test {
+            value: HumanDuration,
+        }
+
+        let Test { value } = toml::toml! {
+            value = 10_500
+        }
+        .try_into()
+        .expect("input is fine, should parse");
+
+        assert_eq!(value.get(), Duration::from_millis(10_500));
     }
 }

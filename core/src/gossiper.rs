@@ -35,7 +35,7 @@ pub struct TransactionGossiper {
     chain_id: ChainId,
     /// The size of batch that is being gossiped. Smaller size leads
     /// to longer time to synchronise, useful if you have high packet loss.
-    gossip_batch_size: NonZeroU32,
+    gossip_max_size: NonZeroU32,
     /// The time between gossiping. More frequent gossiping shortens
     /// the time to sync, but can overload the network.
     gossip_period: Duration,
@@ -60,7 +60,10 @@ impl TransactionGossiper {
     /// Construct [`Self`] from configuration
     pub fn from_config(
         chain_id: ChainId,
-        config: Config,
+        Config {
+            gossip_period,
+            gossip_max_size,
+        }: Config,
         network: IrohaNetwork,
         queue: Arc<Queue>,
         sumeragi: SumeragiHandle,
@@ -71,8 +74,8 @@ impl TransactionGossiper {
             queue,
             sumeragi,
             network,
-            gossip_batch_size: config.batch_size,
-            gossip_period: config.gossip_period,
+            gossip_max_size,
+            gossip_period,
             wsv,
         }
     }
@@ -100,7 +103,7 @@ impl TransactionGossiper {
     fn gossip_transactions(&self) {
         let txs = self
             .queue
-            .n_random_transactions(self.gossip_batch_size.get(), &self.wsv);
+            .n_random_transactions(self.gossip_max_size.get(), &self.wsv);
 
         if txs.is_empty() {
             return;

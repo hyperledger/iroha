@@ -116,9 +116,9 @@ impl RootPartial {
         }
 
         patch!(self.genesis.file);
-        patch!(self.snapshot.store_path);
-        patch!(self.kura.block_store_path);
-        patch!(self.telemetry.dev.file);
+        patch!(self.snapshot.store_dir);
+        patch!(self.kura.store_dir);
+        patch!(self.telemetry.dev.out_file);
     }
 
     // FIXME workaround the inconvenient way `Merge::merge` works
@@ -344,7 +344,7 @@ pub enum GenesisConfigError {
 #[derive(Debug)]
 pub struct Kura {
     pub init_mode: Mode,
-    pub block_store_path: PathBuf,
+    pub store_dir: PathBuf,
     pub debug: KuraDebug,
 }
 
@@ -352,7 +352,7 @@ impl Kura {
     fn parse(self) -> actual::Kura {
         let Self {
             init_mode,
-            block_store_path,
+            store_dir: block_store_path,
             debug:
                 KuraDebug {
                     output_new_blocks: debug_output_new_blocks,
@@ -361,7 +361,7 @@ impl Kura {
 
         actual::Kura {
             init_mode,
-            block_store_path,
+            store_dir: block_store_path,
             debug_output_new_blocks,
         }
     }
@@ -417,9 +417,9 @@ fn construct_unique_vec<T: Debug + PartialEq>(
 pub struct Network {
     /// Peer-to-peer address
     pub address: SocketAddr,
+    pub block_gossip_max_size: NonZeroU32,
     pub block_gossip_period: Duration,
-    pub max_blocks_per_gossip: NonZeroU32,
-    pub max_transactions_per_gossip: NonZeroU32,
+    pub transaction_gossip_max_size: NonZeroU32,
     pub transaction_gossip_period: Duration,
 }
 
@@ -427,9 +427,9 @@ impl Network {
     fn parse(self) -> (SocketAddr, actual::BlockSync, actual::TransactionGossiper) {
         let Self {
             address,
-            max_blocks_per_gossip,
-            max_transactions_per_gossip,
+            block_gossip_max_size,
             block_gossip_period,
+            transaction_gossip_max_size,
             transaction_gossip_period,
         } = self;
 
@@ -437,11 +437,11 @@ impl Network {
             address,
             actual::BlockSync {
                 gossip_period: block_gossip_period,
-                batch_size: max_blocks_per_gossip,
+                gossip_max_size: block_gossip_max_size,
             },
             actual::TransactionGossiper {
                 gossip_period: transaction_gossip_period,
-                batch_size: max_transactions_per_gossip,
+                gossip_max_size: transaction_gossip_max_size,
             },
         )
     }
@@ -472,7 +472,7 @@ pub struct Logger {
     pub format: Format,
     #[cfg(feature = "tokio-console")]
     /// Address of tokio console (only available under "tokio-console" feature)
-    pub tokio_console_addr: SocketAddr,
+    pub tokio_console_address: SocketAddr,
 }
 
 #[allow(clippy::derivable_impls)] // triggers in absence of `tokio-console` feature
@@ -482,7 +482,7 @@ impl Default for Logger {
             level: Level::default(),
             format: Format::default(),
             #[cfg(feature = "tokio-console")]
-            tokio_console_addr: super::defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR,
+            tokio_console_address: super::defaults::logger::DEFAULT_TOKIO_CONSOLE_ADDR,
         }
     }
 }
@@ -542,7 +542,7 @@ impl Telemetry {
 #[derive(Debug, Clone)]
 pub struct Snapshot {
     pub create_every: Duration,
-    pub store_path: PathBuf,
+    pub store_dir: PathBuf,
     pub creation_enabled: bool,
 }
 
@@ -556,7 +556,7 @@ pub struct ChainWide {
     pub asset_definition_metadata_limits: MetadataLimits,
     pub account_metadata_limits: MetadataLimits,
     pub domain_metadata_limits: MetadataLimits,
-    pub identifier_length_limits: LengthLimits,
+    pub ident_length_limits: LengthLimits,
     pub wasm_fuel_limit: u64,
     pub wasm_max_memory: HumanBytes<u32>,
 }
@@ -572,7 +572,7 @@ impl ChainWide {
             asset_definition_metadata_limits,
             account_metadata_limits,
             domain_metadata_limits,
-            identifier_length_limits,
+            ident_length_limits: identifier_length_limits,
             wasm_fuel_limit,
             wasm_max_memory,
         } = self;

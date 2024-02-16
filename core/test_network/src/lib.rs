@@ -414,7 +414,7 @@ impl Peer {
         temp_dir: Arc<TempDir>,
     ) {
         let mut config = self.get_config(config);
-        config.kura.block_store_path = temp_dir.path().to_str().unwrap().into();
+        config.kura.store_dir = temp_dir.path().to_str().unwrap().into();
         let info_span = iroha_logger::info_span!(
             "test-peer",
             p2p_addr = %self.p2p_address,

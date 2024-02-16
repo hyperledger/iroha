@@ -82,7 +82,7 @@ pub fn get_user_config(
     config.torii.address.set(DEFAULT_TORII_ADDR);
     config
         .network
-        .max_blocks_per_gossip
+        .block_gossip_max_size
         .set(1.try_into().unwrap());
     config
         .network

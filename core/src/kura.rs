@@ -50,15 +50,12 @@ impl Kura {
     /// to access the block store indicated by the provided
     /// path.
     pub fn new(config: &Config) -> Result<Arc<Self>> {
-        let block_store_path = Path::new(&config.block_store_path);
-        let mut block_store = BlockStore::new(block_store_path, LockStatus::Unlocked);
+        let mut block_store = BlockStore::new(&config.store_dir, LockStatus::Unlocked);
         block_store.create_files_if_they_do_not_exist()?;
 
-        let block_plain_text_path = config.debug_output_new_blocks.then(|| {
-            let mut path_buf = block_store_path.to_path_buf();
-            path_buf.push("blocks.json");
-            path_buf
-        });
+        let block_plain_text_path = config
+            .debug_output_new_blocks
+            .then(|| config.store_dir.join("blocks.json"));
 
         let kura = Arc::new(Self {
             mode: config.init_mode,
@@ -395,9 +392,9 @@ impl BlockStore {
     ///
     /// # Panics
     /// * if you pass in `LockStatus::Unlocked` and it is unable to lock the block store.
-    pub fn new(store_path: &Path, already_locked: LockStatus) -> Self {
+    pub fn new(store_path: impl AsRef<Path>, already_locked: LockStatus) -> Self {
         if matches!(already_locked, LockStatus::Unlocked) {
-            let lock_path = store_path.join(LOCK_FILE_NAME);
+            let lock_path = store_path.as_ref().join(LOCK_FILE_NAME);
             if let Err(e) = fs::File::options()
                 .read(true)
                 .write(true)
@@ -1051,7 +1048,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         Kura::new(&Config {
             init_mode: Mode::Strict,
-            block_store_path: temp_dir.path().to_str().unwrap().into(),
+            store_dir: temp_dir.path().to_str().unwrap().into(),
             debug_output_new_blocks: false,
         })
         .unwrap()

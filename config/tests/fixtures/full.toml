@@ -1,0 +1,74 @@
+# This config has ALL fields specified (except `extends`)
+
+chain_id = "0"
+public_key = "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB"
+private_key = { digest_function = "ed25519", payload = "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb" }
+
+[genesis]
+file = "genesis.json"
+public_key = "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB"
+private_key = { digest_function = "ed25519", payload = "8f4c15e5d664da3f13778801d23d4e89b76e94c1b94b389544168b6cb894f84f8ba62848cf767d72e7f7f4b9d2d7ba07fee33760f79abe5597a51520e292a0cb" }
+
+[network]
+address = "localhost:3840"
+block_gossip_period = 10_000
+block_gossip_max_size = 4
+transaction_gossip_period = 1_000
+transaction_gossip_max_size = 500
+
+[torii]
+address = "localhost:5000"
+max_content_len = 16
+query_idle_time = 30_000
+
+[kura]
+init_mode = "strict"
+store_dir = "./storage"
+
+[kura.debug]
+output_new_blocks = true
+
+[[sumeragi.trusted_peers]]
+address = "localhost:8081"
+public_key = "ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB"
+
+[sumeragi.debug]
+force_soft_fork = true
+
+[logger]
+level = "TRACE"
+format = "compact"
+tokio_console_address = "127.0.0.1:5555"
+
+[queue]
+capacity = 65536
+capacity_per_user = 65536
+transaction_time_to_live = 100
+future_threshold = 50
+
+[snapshot]
+creation_enabled = true
+create_every = 60_000
+store_dir = "./storage/snapshot"
+
+[telemetry]
+name = "test"
+url = "http://test.com"
+min_retry_period = 5_000
+max_retry_delay_exponent = 4
+
+[telemetry.dev]
+out_file = "./dev-telemetry.json5"
+
+[chain_wide]
+max_transactions_in_block = 512
+block_time = 2_000
+commit_time = 4_000
+transaction_limits = {max_instruction_number = 4096, max_wasm_size_bytes = 4194304 }
+asset_metadata_limits = { max_len = 1048576, max_entry_byte_size = 4096 }
+asset_definition_metadata_limits = { max_len = 1048576, max_entry_byte_size = 4096 }
+account_metadata_limits = { max_len = 1048576, max_entry_byte_size = 4096 }
+domain_metadata_limits = { max_len = 1048576, max_entry_byte_size = 4096 }
+ident_length_limits = { min = 1, max = 128 }
+wasm_fuel_limit = 55000000
+wasm_max_memory = 524288000

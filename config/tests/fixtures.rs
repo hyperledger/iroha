@@ -7,7 +7,10 @@ use std::{
 };
 
 use eyre::Result;
-use iroha_config::parameters::user::{CliContext, RootPartial};
+use iroha_config::parameters::{
+    actual::Root,
+    user::{CliContext, RootPartial},
+};
 use iroha_config_base::{FromEnv, TestEnv, UnwrapPartial as _};
 
 fn fixtures_dir() -> PathBuf {
@@ -476,4 +479,15 @@ fn multiple_extends_works() -> Result<()> {
     expected.assert_eq(&format!("{layer:#?}"));
 
     Ok(())
+}
+
+#[test]
+fn full_config_parses_fine() {
+    let _cfg = Root::load(
+        Some(fixtures_dir().join("full.toml")),
+        CliContext {
+            submit_genesis: true,
+        },
+    )
+    .expect("should be fine");
 }

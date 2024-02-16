@@ -141,7 +141,7 @@ impl SnapshotMaker {
         Self {
             sumeragi,
             snapshot_create_every: config.create_every,
-            snapshot_dir: config.store_path.clone(),
+            snapshot_dir: config.store_dir.clone(),
             snapshot_creation_enabled: config.creation_enabled,
             new_wsv_available: false,
         }

@@ -36,7 +36,7 @@ pub struct BlockSynchronizer {
     kura: Arc<Kura>,
     peer_id: PeerId,
     gossip_period: Duration,
-    block_batch_size: NonZeroU32,
+    gossip_max_size: NonZeroU32,
     network: IrohaNetwork,
     latest_hash: Option<HashOf<SignedBlock>>,
     previous_hash: Option<HashOf<SignedBlock>>,
@@ -118,7 +118,7 @@ impl BlockSynchronizer {
             sumeragi,
             kura,
             gossip_period: config.gossip_period,
-            block_batch_size: config.batch_size,
+            gossip_max_size: config.gossip_max_size,
             network,
             latest_hash,
             previous_hash,
@@ -210,7 +210,7 @@ pub mod message {
                     };
 
                     let blocks = (start_height..)
-                        .take(1 + block_sync.block_batch_size.get() as usize)
+                        .take(1 + block_sync.gossip_max_size.get() as usize)
                         .map_while(|height| block_sync.kura.get_block_by_height(height))
                         .skip_while(|block| Some(block.hash()) == *latest_hash)
                         .map(|block| (*block).clone())
