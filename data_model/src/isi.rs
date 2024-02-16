@@ -1256,7 +1256,6 @@ pub mod error {
     use derive_more::Display;
     use iroha_data_model_derive::model;
     use iroha_macro::FromVariant;
-    use iroha_primitives::fixed::FixedPointOperationError;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
 
@@ -1550,24 +1549,6 @@ pub mod error {
     impl From<TypeError> for InstructionExecutionError {
         fn from(err: TypeError) -> Self {
             Self::Evaluate(InstructionEvaluationError::Type(err))
-        }
-    }
-
-    impl From<FixedPointOperationError> for MathError {
-        fn from(err: FixedPointOperationError) -> Self {
-            match err {
-                FixedPointOperationError::NegativeValue(_) => Self::NegativeValue,
-                FixedPointOperationError::Conversion(e) => {
-                    #[cfg(not(feature = "std"))]
-                    use alloc::string::ToString as _;
-
-                    Self::FixedPointConversion(e.to_string())
-                }
-                FixedPointOperationError::Overflow => Self::Overflow,
-                FixedPointOperationError::DivideByZero => Self::DivideByZero,
-                FixedPointOperationError::DomainViolation => Self::DomainViolation,
-                FixedPointOperationError::Arithmetic => Self::Unknown,
-            }
         }
     }
 }

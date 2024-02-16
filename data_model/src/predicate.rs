@@ -560,7 +560,7 @@ pub mod numerical {
     //! Numerical predicates.
     use core::cmp::{max, min};
 
-    use iroha_primitives::{fixed::Fixed, numeric::Numeric};
+    use iroha_primitives::numeric::Numeric;
 
     use super::*;
 
@@ -674,11 +674,6 @@ pub mod numerical {
     impl UnsignedMarker for u128 {
         const MAX: Self = u128::MAX;
         const ZERO: Self = 0_u128;
-    }
-
-    impl UnsignedMarker for Fixed {
-        const MAX: Self = Fixed::MAX; // Inherent impl
-        const ZERO: Self = Fixed::ZERO; // Inherent impl
     }
 
     impl UnsignedMarker for Numeric {

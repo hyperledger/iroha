@@ -1984,10 +1984,7 @@ mod ffi {
 pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
     pub use iroha_crypto::PublicKey;
-    pub use iroha_primitives::{
-        fixed::Fixed,
-        numeric::{Numeric, NumericSpec},
-    };
+    pub use iroha_primitives::numeric::{Numeric, NumericSpec};
 
     #[cfg(feature = "std")]
     pub use super::current_time;
