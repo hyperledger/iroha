@@ -1585,20 +1585,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
 
 [[package]]
-name = "fixnum"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a312dd8b1a9875c6a2ddf253caa740804857615a478aa576d6982a41782516f"
-dependencies = [
- "derive_more",
- "itoa",
- "parity-scale-codec",
- "serde",
- "static_assertions",
- "typenum",
-]
-
-[[package]]
 name = "flate2"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3110,7 +3096,6 @@ version = "2.0.0-pre-rc.20"
 dependencies = [
  "derive_more",
  "displaydoc",
- "fixnum",
  "iroha_ffi",
  "iroha_macro",
  "iroha_primitives_derive",
@@ -3141,7 +3126,6 @@ dependencies = [
 name = "iroha_schema"
 version = "2.0.0-pre-rc.20"
 dependencies = [
- "fixnum",
  "impls",
  "iroha_schema_derive",
  "parity-scale-codec",
@@ -5265,12 +5249,6 @@ dependencies = [
  "psm",
  "winapi",
 ]
-
-[[package]]
-name = "static_assertions"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "streaming-stats"

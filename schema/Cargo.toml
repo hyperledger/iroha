@@ -14,7 +14,6 @@ workspace = true
 iroha_schema_derive = { workspace = true }
 
 serde = { workspace = true, features = ["derive", "alloc"] }
-fixnum = { workspace = true, features = ["i64"] }
 
 [dev-dependencies]
 parity-scale-codec = { workspace = true, default-features = false, features = ["derive", "full"] }

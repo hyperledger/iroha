@@ -307,33 +307,6 @@ macro_rules! impl_schema_non_zero_int {
 
 impl_schema_non_zero_int!(NonZeroU64 => u64, NonZeroU32 => u32);
 
-impl<I: TypeId, P: DecimalPlacesAware> TypeId for fixnum::FixedPoint<I, P> {
-    fn id() -> String {
-        format!("FixedPoint<{}>", I::id())
-    }
-}
-impl<I: IntoSchema, P: DecimalPlacesAware> IntoSchema for fixnum::FixedPoint<I, P> {
-    fn type_name() -> String {
-        format!("FixedPoint<{}>", I::type_name())
-    }
-
-    fn update_schema_map(map: &mut MetaMap) {
-        if !map.contains_key::<Self>() {
-            map.insert::<Self>(Metadata::FixedPoint(FixedMeta {
-                base: core::any::TypeId::of::<I>(),
-                decimal_places: P::decimal_places(),
-            }));
-
-            I::update_schema_map(map);
-        }
-    }
-}
-
-impl DecimalPlacesAware for fixnum::typenum::U9 {
-    fn decimal_places() -> u32 {
-        9
-    }
-}
 impl TypeId for String {
     fn id() -> String {
         "String".to_owned()
