@@ -644,8 +644,8 @@ mod tests {
 
         use super::*;
 
-        fn config_factory() -> Result<ConfigurationProxy> {
-            let key_pair = KeyPair::generate()?;
+        fn config_factory() -> ConfigurationProxy {
+            let key_pair = KeyPair::generate();
 
             let mut base = ConfigurationProxy {
                 chain_id: Some(ChainId::new("0")),
@@ -663,7 +663,7 @@ mod tests {
             torii.p2p_addr = Some(socket_addr!(127.0.0.1:1337));
             torii.api_url = Some(socket_addr!(127.0.0.1:1337));
 
-            Ok(base)
+            base
         }
 
         #[test]
@@ -675,7 +675,7 @@ mod tests {
                 .build();
 
             let config = {
-                let mut cfg = config_factory()?;
+                let mut cfg = config_factory();
                 cfg.genesis.as_mut().unwrap().file = Some(Some("./genesis/gen.json".into()));
                 cfg.kura.as_mut().unwrap().block_store_path = Some("../storage".into());
                 cfg.snapshot.as_mut().unwrap().dir_path = Some("../snapshots".into());
@@ -729,7 +729,7 @@ mod tests {
                 .build();
 
             let config = {
-                let mut cfg = config_factory()?;
+                let mut cfg = config_factory();
                 cfg.genesis.as_mut().unwrap().file = Some(Some("./genesis.json".into()));
                 cfg
             };

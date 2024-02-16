@@ -226,7 +226,7 @@ fn generate_synthetic(
         let mut domain_builder = builder.domain(format!("domain_{domain}").parse()?);
 
         for account in 0..accounts_per_domain {
-            let (public_key, _) = iroha_crypto::KeyPair::generate()?.into();
+            let (public_key, _) = iroha_crypto::KeyPair::generate().into();
             domain_builder =
                 domain_builder.account(format!("account_{account}").parse()?, public_key);
         }

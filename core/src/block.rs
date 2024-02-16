@@ -447,7 +447,7 @@ mod valid {
                 commit_topology: UniqueVec::new(),
                 event_recommendations: Vec::new(),
             }))
-            .sign(&KeyPair::generate().unwrap())
+            .sign(&KeyPair::generate())
         }
 
         /// Check if block's signatures meet requirements for given topology.
@@ -519,11 +519,9 @@ mod valid {
 
         #[test]
         fn signature_verification_ok() {
-            let key_pairs = core::iter::repeat_with(|| {
-                KeyPair::generate().expect("Failed to generate key pair")
-            })
-            .take(7)
-            .collect::<Vec<_>>();
+            let key_pairs = core::iter::repeat_with(KeyPair::generate)
+                .take(7)
+                .collect::<Vec<_>>();
             let mut key_pairs_iter = key_pairs.iter();
             let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
             let topology = Topology::new(peers);
@@ -541,11 +539,9 @@ mod valid {
 
         #[test]
         fn signature_verification_consensus_not_required_ok() {
-            let key_pairs = core::iter::repeat_with(|| {
-                KeyPair::generate().expect("Failed to generate key pair")
-            })
-            .take(1)
-            .collect::<Vec<_>>();
+            let key_pairs = core::iter::repeat_with(KeyPair::generate)
+                .take(1)
+                .collect::<Vec<_>>();
             let mut key_pairs_iter = key_pairs.iter();
             let peers = test_peers![0,: key_pairs_iter];
             let topology = Topology::new(peers);
@@ -565,11 +561,9 @@ mod valid {
         /// Check requirement of having at least $2f + 1$ signatures in $3f + 1$ network
         #[test]
         fn signature_verification_not_enough_signatures() {
-            let key_pairs = core::iter::repeat_with(|| {
-                KeyPair::generate().expect("Failed to generate key pair")
-            })
-            .take(7)
-            .collect::<Vec<_>>();
+            let key_pairs = core::iter::repeat_with(KeyPair::generate)
+                .take(7)
+                .collect::<Vec<_>>();
             let mut key_pairs_iter = key_pairs.iter();
             let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
             let topology = Topology::new(peers);
@@ -593,11 +587,9 @@ mod valid {
         /// Check requirement of having leader signature
         #[test]
         fn signature_verification_miss_proxy_tail_signature() {
-            let key_pairs = core::iter::repeat_with(|| {
-                KeyPair::generate().expect("Failed to generate key pair")
-            })
-            .take(7)
-            .collect::<Vec<_>>();
+            let key_pairs = core::iter::repeat_with(KeyPair::generate)
+                .take(7)
+                .collect::<Vec<_>>();
             let mut key_pairs_iter = key_pairs.iter();
             let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
             let topology = Topology::new(peers);
@@ -699,7 +691,7 @@ mod tests {
 
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
-        let alice_keys = KeyPair::generate().expect("Valid");
+        let alice_keys = KeyPair::generate();
         let account =
             Account::new(alice_id.clone(), [alice_keys.public_key().clone()]).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
@@ -730,7 +722,7 @@ mod tests {
             .sign(&alice_keys);
 
         // The first transaction should be confirmed
-        assert!(valid_block.0.transactions().nth(0).unwrap().error.is_none());
+        assert!(valid_block.0.transactions().next().unwrap().error.is_none());
 
         // The second transaction should be rejected
         assert!(valid_block.0.transactions().nth(1).unwrap().error.is_some());
@@ -742,7 +734,7 @@ mod tests {
 
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
-        let alice_keys = KeyPair::generate().expect("Valid");
+        let alice_keys = KeyPair::generate();
         let account =
             Account::new(alice_id.clone(), [alice_keys.public_key().clone()]).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
@@ -796,7 +788,7 @@ mod tests {
             .sign(&alice_keys);
 
         // The first transaction should fail
-        assert!(valid_block.0.transactions().nth(0).unwrap().error.is_some());
+        assert!(valid_block.0.transactions().next().unwrap().error.is_some());
 
         // The third transaction should succeed
         assert!(valid_block.0.transactions().nth(2).unwrap().error.is_none());
@@ -808,7 +800,7 @@ mod tests {
 
         // Predefined world state
         let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
-        let alice_keys = KeyPair::generate().expect("Valid");
+        let alice_keys = KeyPair::generate();
         let account =
             Account::new(alice_id.clone(), [alice_keys.public_key().clone()]).build(&alice_id);
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
@@ -853,7 +845,7 @@ mod tests {
 
         // The first transaction should be rejected
         assert!(
-            valid_block.0.transactions().nth(0).unwrap().error.is_some(),
+            valid_block.0.transactions().next().unwrap().error.is_some(),
             "The first transaction should be rejected, as it contains `Fail`."
         );
 

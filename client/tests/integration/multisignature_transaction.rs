@@ -28,7 +28,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
 
     let alice_id = AccountId::from_str("alice@wonderland")?;
     let alice_key_pair = get_key_pair();
-    let key_pair_2 = KeyPair::generate()?;
+    let key_pair_2 = KeyPair::generate();
     let asset_definition_id = AssetDefinitionId::from_str("camomile#wonderland")?;
     let create_asset =
         Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));

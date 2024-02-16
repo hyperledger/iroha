@@ -584,7 +584,7 @@ mod tests {
     #[test]
     #[cfg(all(feature = "rand", not(feature = "ffi_import")))]
     fn signatures_of_deduplication_by_public_key() {
-        let key_pair = KeyPair::generate().expect("Failed to generate keys");
+        let key_pair = KeyPair::generate();
         let signatures = [
             SignatureOf::new(&key_pair, &1),
             SignatureOf::new(&key_pair, &2),
@@ -603,17 +603,16 @@ mod tests {
 
         let keys = 5;
         let signatures_per_key = 10;
-        let signatures =
-            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate keys"))
-                .take(keys)
-                .flat_map(|key| {
-                    core::iter::repeat_with(move || key.clone())
-                        .zip(0..)
-                        .map(|(key, i)| SignatureOf::new(&key, &i))
-                        .take(signatures_per_key)
-                })
-                .map(SignatureWrapperOf)
-                .collect::<Vec<_>>();
+        let signatures = core::iter::repeat_with(KeyPair::generate)
+            .take(keys)
+            .flat_map(|key| {
+                core::iter::repeat_with(move || key.clone())
+                    .zip(0..)
+                    .map(|(key, i)| SignatureOf::new(&key, &i))
+                    .take(signatures_per_key)
+            })
+            .map(SignatureWrapperOf)
+            .collect::<Vec<_>>();
         let hash_set: HashSet<_> = signatures.clone().into_iter().collect();
         let btree_set: BTreeSet<_> = signatures.into_iter().collect();
 

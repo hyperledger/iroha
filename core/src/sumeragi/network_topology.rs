@@ -280,7 +280,7 @@ pub enum Role {
 #[cfg(test)]
 macro_rules! test_peers {
     ($($id:literal),+$(,)?) => {{
-        let mut iter = ::core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"));
+        let mut iter = ::core::iter::repeat_with(|| KeyPair::generate());
         test_peers![$($id),*: iter]
     }};
     ($($id:literal),+$(,)?: $key_pair_iter:expr) => {
@@ -353,10 +353,9 @@ mod tests {
 
     #[test]
     fn filter_by_role() {
-        let key_pairs =
-            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
-                .take(7)
-                .collect::<Vec<_>>();
+        let key_pairs = core::iter::repeat_with(KeyPair::generate)
+            .take(7)
+            .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
         let peers = test_peers![0, 1, 2, 3, 4, 5, 6: key_pairs_iter];
         let topology = Topology::new(peers.clone());
@@ -396,10 +395,9 @@ mod tests {
 
     #[test]
     fn filter_by_role_empty() {
-        let key_pairs =
-            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
-                .take(7)
-                .collect::<Vec<_>>();
+        let key_pairs = core::iter::repeat_with(KeyPair::generate)
+            .take(7)
+            .collect::<Vec<_>>();
         let peers = UniqueVec::new();
         let topology = Topology::new(peers);
 
@@ -428,10 +426,9 @@ mod tests {
 
     #[test]
     fn filter_by_role_1() {
-        let key_pairs =
-            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
-                .take(7)
-                .collect::<Vec<_>>();
+        let key_pairs = core::iter::repeat_with(KeyPair::generate)
+            .take(7)
+            .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
         let peers = test_peers![0: key_pairs_iter];
         let topology = Topology::new(peers.clone());
@@ -462,10 +459,9 @@ mod tests {
 
     #[test]
     fn filter_by_role_2() {
-        let key_pairs =
-            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
-                .take(7)
-                .collect::<Vec<_>>();
+        let key_pairs = core::iter::repeat_with(KeyPair::generate)
+            .take(7)
+            .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
         let peers = test_peers![0, 1: key_pairs_iter];
         let topology = Topology::new(peers.clone());
@@ -497,10 +493,9 @@ mod tests {
 
     #[test]
     fn filter_by_role_3() {
-        let key_pairs =
-            core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate key pair"))
-                .take(7)
-                .collect::<Vec<_>>();
+        let key_pairs = core::iter::repeat_with(KeyPair::generate)
+            .take(7)
+            .collect::<Vec<_>>();
         let mut key_pairs_iter = key_pairs.iter();
         let peers = test_peers![0, 1, 2: key_pairs_iter];
         let topology = Topology::new(peers.clone());

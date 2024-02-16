@@ -179,7 +179,7 @@ mod tests {
         sumeragi::network_topology::Topology, tx::AcceptedTransaction, wsv::World, PeersIds,
     };
 
-    static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
+    static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(KeyPair::generate);
     static ALICE_ID: Lazy<AccountId> =
         Lazy::new(|| AccountId::from_str("alice@wonderland").expect("Valid"));
 

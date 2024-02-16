@@ -53,9 +53,7 @@ pub fn get_config_proxy(
 ) -> ConfigurationProxy {
     let chain_id = chain_id.unwrap_or_else(|| ChainId::new("0"));
 
-    let (public_key, private_key) = key_pair
-        .unwrap_or_else(|| KeyPair::generate().expect("Key pair generation failed"))
-        .into();
+    let (public_key, private_key) = key_pair.unwrap_or_else(KeyPair::generate).into();
     iroha_logger::info!(%public_key);
     ConfigurationProxy {
         chain_id: Some(chain_id),

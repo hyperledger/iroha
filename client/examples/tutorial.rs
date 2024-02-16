@@ -132,9 +132,7 @@ fn account_registration_test(config: &Configuration) -> Result<(), Error> {
 
     // TODO: consider getting a key from white_rabbit
     // Generate a new public key for a new account
-    let (public_key, _) = KeyPair::generate()
-        .expect("Failed to generate KeyPair")
-        .into();
+    let (public_key, _) = KeyPair::generate().into();
 
     // #region register_account_generate
     // Generate a new account

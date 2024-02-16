@@ -1658,7 +1658,7 @@ mod tests {
 
     fn world_with_test_account(authority: &AccountId) -> World {
         let domain_id = authority.domain_id.clone();
-        let (public_key, _) = KeyPair::generate().unwrap().into();
+        let (public_key, _) = KeyPair::generate().into();
         let account = Account::new(authority.clone(), [public_key]).build(authority);
         let mut domain = Domain::new(domain_id).build(authority);
         assert!(domain.add_account(account).is_none());

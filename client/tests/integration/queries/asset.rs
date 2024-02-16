@@ -31,10 +31,9 @@ fn find_asset_total_quantity() -> Result<()> {
         "white_rabbit@looking_glass".parse()?,
     ];
 
-    let keys =
-        core::iter::repeat_with(|| KeyPair::generate().expect("Failed to generate `KeyPair`"))
-            .take(accounts.len() - 1)
-            .collect::<Vec<_>>();
+    let keys = core::iter::repeat_with(KeyPair::generate)
+        .take(accounts.len() - 1)
+        .collect::<Vec<_>>();
 
     // Registering accounts
     let register_accounts = accounts

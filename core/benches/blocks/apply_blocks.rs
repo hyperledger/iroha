@@ -24,7 +24,7 @@ impl WsvApplyBlocks {
         let accounts_per_domain = 1000;
         let assets_per_domain = 1000;
         let account_id: AccountId = "alice@wonderland".parse()?;
-        let key_pair = KeyPair::generate()?;
+        let key_pair = KeyPair::generate();
         let wsv = build_wsv(rt, &account_id, &key_pair);
 
         let nth = 100;

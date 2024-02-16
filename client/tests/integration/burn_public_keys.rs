@@ -49,7 +49,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
     let (_rt, _peer, client) = <PeerBuilder>::new().with_port(10_045).start_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
 
-    let charlie_initial_keypair = KeyPair::generate().unwrap();
+    let charlie_initial_keypair = KeyPair::generate();
     let register_charlie = Register::account(Account::new(
         charlie_id.clone(),
         [charlie_initial_keypair.public_key().clone()],
@@ -62,7 +62,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
     assert_eq!(keys_count, 1);
 
     let mint_keys = (0..KEYS_COUNT - 1).map(|_| {
-        let (public_key, _) = KeyPair::generate().unwrap().into();
+        let (public_key, _) = KeyPair::generate().into();
         Mint::account_public_key(public_key, charlie_id.clone())
     });
 

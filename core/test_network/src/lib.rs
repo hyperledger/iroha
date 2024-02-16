@@ -483,7 +483,7 @@ impl Peer {
     /// - `api_address`
     /// * If keypair generation fails
     pub fn new() -> Result<Self> {
-        let key_pair = KeyPair::generate()?;
+        let key_pair = KeyPair::generate();
         let p2p_address = local_unique_port()?;
         let api_address = local_unique_port()?;
         let id = PeerId::new(p2p_address.clone(), key_pair.public_key().clone());
@@ -775,7 +775,7 @@ impl TestConfiguration for Configuration {
         );
         let env_proxy =
             ConfigurationProxy::from_std_env().expect("Test env variables should parse properly");
-        let (public_key, private_key) = KeyPair::generate().unwrap().into();
+        let (public_key, private_key) = KeyPair::generate().into();
         sample_proxy.public_key = Some(public_key);
         sample_proxy.private_key = Some(private_key);
         sample_proxy.override_with(env_proxy)

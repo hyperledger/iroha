@@ -495,9 +495,7 @@ pub mod string {
 
             #[test]
             fn peer_id() {
-                let (public_key, _) = iroha_crypto::KeyPair::generate()
-                    .expect("Should not panic")
-                    .into();
+                let (public_key, _) = iroha_crypto::KeyPair::generate().into();
                 let id = IdBox::PeerId(peer::PeerId::new(socket_addr!(127.0.0.1:123), public_key));
                 assert!(StringPredicate::contains("123").applies(&id));
             }
@@ -1188,7 +1186,7 @@ pub mod value {
                 assert!(!pred.applies(&Value::String("alice@wonderland".to_owned())));
             }
             {
-                let key_pair = iroha_crypto::KeyPair::generate().expect("Should not fail");
+                let key_pair = iroha_crypto::KeyPair::generate();
                 let (public_key, _) = key_pair.into();
                 let pred = ValuePredicate::Display(string::StringPredicate::is("alice@wonderland"));
                 println!("{pred:?}");
