@@ -193,7 +193,6 @@ impl KeyPair {
         Self::generate_with_configuration(
             KeyGenConfiguration::from_random().with_algorithm(Algorithm::Ed25519),
         )
-        .expect("Ed25519 key generation from random bytes should never fail")
     }
 }
 
@@ -225,28 +224,20 @@ impl KeyPair {
     }
 
     /// Generates a pair of Public and Private key with the corresponding [`KeyGenConfiguration`].
-    ///
-    /// # Errors
-    ///
-    /// Fails if used [`Secp256k1`](Algorithm::Secp256k1) algorithm with seed less than `32` bytes.
-    pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, Error> {
-        let key_gen_option = match (configuration.algorithm, configuration.key_gen_option) {
-            (Algorithm::Secp256k1, KeyGenOption::UseSeed(seed)) if seed.len() < 32 => {
-                return Err(Error::KeyGen(
-                    "secp256k1 seed for must be at least 32 bytes long".to_owned(),
-                ))
-            }
-            (_, key_gen_option) => key_gen_option,
-        };
-
-        Ok(match configuration.algorithm {
+    pub fn generate_with_configuration(
+        KeyGenConfiguration {
+            key_gen_option,
+            algorithm,
+        }: KeyGenConfiguration,
+    ) -> Self {
+        match algorithm {
             Algorithm::Ed25519 => signature::ed25519::Ed25519Sha512::keypair(key_gen_option).into(),
             Algorithm::Secp256k1 => {
                 signature::secp256k1::EcdsaSecp256k1Sha256::keypair(key_gen_option).into()
             }
             Algorithm::BlsNormal => signature::bls::BlsNormal::keypair(key_gen_option).into(),
             Algorithm::BlsSmall => signature::bls::BlsSmall::keypair(key_gen_option).into(),
-        })
+        }
     }
 }
 
@@ -894,8 +885,7 @@ mod tests {
         ] {
             let key_pair = KeyPair::generate_with_configuration(
                 KeyGenConfiguration::from_random().with_algorithm(algorithm),
-            )
-            .expect("Failed to generate key pair");
+            );
 
             assert_eq!(
                 key_pair,
@@ -956,8 +946,7 @@ mod tests {
         ] {
             let key_pair = KeyPair::generate_with_configuration(
                 KeyGenConfiguration::from_random().with_algorithm(algorithm),
-            )
-            .expect("Failed to generate key pair");
+            );
             let (public_key, _) = key_pair.into();
 
             let encoded_public_key = public_key.encode();
@@ -1146,23 +1135,6 @@ mod tests {
                     "8cb95072914cdd8e4cf682fdbe1189cdf4fc54d445e760b3446f896dbdbf5b2b",
                 ).unwrap()
             }
-        );
-    }
-
-    #[test]
-    #[cfg(feature = "rand")]
-    fn secp256k1_key_gen_fails_with_seed_smaller_than_32() {
-        let seed: Vec<_> = (0..12u8).collect();
-
-        let result = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::from_seed(seed).with_algorithm(Algorithm::Secp256k1),
-        );
-
-        assert_eq!(
-            result,
-            Err(Error::KeyGen(
-                "secp256k1 seed for must be at least 32 bytes long".to_owned()
-            ))
         );
     }
 }

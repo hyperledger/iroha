@@ -93,8 +93,9 @@ impl Args {
             _ => unreachable!("Clap group invariant"),
         };
 
-        KeyPair::generate_with_configuration(configuration.with_algorithm(algorithm))
-            .wrap_err("Failed to generate key pair")
+        Ok(KeyPair::generate_with_configuration(
+            configuration.with_algorithm(algorithm),
+        ))
     }
 }
 

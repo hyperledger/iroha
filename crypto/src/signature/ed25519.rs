@@ -1,14 +1,9 @@
 use core::{borrow::Borrow as _, convert::TryFrom};
 
-use arrayref::array_ref;
 use ed25519_dalek::Signature;
 #[cfg(feature = "rand")]
 use rand::rngs::OsRng;
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
-use sha2::Digest;
 use signature::{Signer as _, Verifier as _};
-use zeroize::Zeroize;
 
 use crate::{Error, KeyGenOption, ParseError};
 
@@ -22,16 +17,11 @@ use alloc::{string::ToString as _, vec::Vec};
 pub struct Ed25519Sha512;
 
 impl Ed25519Sha512 {
-    pub fn keypair(mut option: KeyGenOption) -> (PublicKey, PrivateKey) {
+    pub fn keypair(option: KeyGenOption) -> (PublicKey, PrivateKey) {
         let signing_key = match option {
             #[cfg(feature = "rand")]
             KeyGenOption::Random => PrivateKey::generate(&mut OsRng),
-            KeyGenOption::UseSeed(ref mut s) => {
-                let hash = sha2::Sha256::digest(s.as_slice());
-                s.zeroize();
-                let mut rng = ChaChaRng::from_seed(*array_ref!(hash.as_slice(), 0, 32));
-                PrivateKey::generate(&mut rng)
-            }
+            KeyGenOption::UseSeed(seed) => PrivateKey::generate(&mut super::rng_from_seed(seed)),
             KeyGenOption::FromPrivateKey(ref s) => {
                 let crate::PrivateKeyInner::Ed25519(s) = s.0.borrow() else {
                     panic!("Wrong private key type, expected `Ed25519`, got {s:?}")
