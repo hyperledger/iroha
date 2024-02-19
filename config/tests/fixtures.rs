@@ -157,6 +157,10 @@ fn minimal_config_snapshot() -> Result<()> {
                     min: 1,
                     max: 128,
                 },
+                executor_runtime: WasmRuntime {
+                    fuel_limit: 55000000,
+                    max_memory_bytes: 524288000,
+                },
                 wasm_runtime: WasmRuntime {
                     fuel_limit: 55000000,
                     max_memory_bytes: 524288000,
@@ -397,6 +401,8 @@ fn full_envs_set_is_consumed() -> Result<()> {
                 account_metadata_limits: None,
                 domain_metadata_limits: None,
                 ident_length_limits: None,
+                executor_fuel_limit: None,
+                executor_max_memory: None,
                 wasm_fuel_limit: None,
                 wasm_max_memory: None,
             },

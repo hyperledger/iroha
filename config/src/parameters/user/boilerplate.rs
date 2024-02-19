@@ -664,6 +664,8 @@ pub struct ChainWidePartial {
     pub account_metadata_limits: UserField<MetadataLimits>,
     pub domain_metadata_limits: UserField<MetadataLimits>,
     pub ident_length_limits: UserField<LengthLimits>,
+    pub executor_fuel_limit: UserField<u64>,
+    pub executor_max_memory: UserField<HumanBytes<u32>>,
     pub wasm_fuel_limit: UserField<u64>,
     pub wasm_max_memory: UserField<HumanBytes<u32>>,
 }
@@ -698,6 +700,10 @@ impl UnwrapPartial for ChainWidePartial {
             ident_length_limits: self
                 .ident_length_limits
                 .unwrap_or(DEFAULT_IDENT_LENGTH_LIMITS),
+            executor_fuel_limit: self.executor_fuel_limit.unwrap_or(DEFAULT_WASM_FUEL_LIMIT),
+            executor_max_memory: self
+                .executor_max_memory
+                .unwrap_or(HumanBytes(DEFAULT_WASM_MAX_MEMORY_BYTES)),
             wasm_fuel_limit: self.wasm_fuel_limit.unwrap_or(DEFAULT_WASM_FUEL_LIMIT),
             wasm_max_memory: self
                 .wasm_max_memory

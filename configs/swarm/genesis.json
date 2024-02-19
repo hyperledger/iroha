@@ -154,6 +154,12 @@
         "NewParameter": "?WSVIdentLengthLimits=1,128_LL"
       },
       {
+        "NewParameter": "?ExecutorFuelLimit=55000000"
+      },
+      {
+        "NewParameter": "?ExecutorMaxMemory=524288000"
+      },
+      {
         "NewParameter": "?WASMFuelLimit=55000000"
       },
       {
