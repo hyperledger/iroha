@@ -4,12 +4,12 @@ use std::num::NonZeroUsize;
 
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
-use eyre::{Report, Result};
+use eyre::Result;
 use indexmap::IndexSet;
 use iroha_config::parameters::actual::Queue as Config;
 use iroha_crypto::HashOf;
 use iroha_data_model::{account::AccountId, transaction::prelude::*};
-use iroha_logger::{debug, trace, warn};
+use iroha_logger::{trace, warn};
 use iroha_primitives::must_use::MustUse;
 use rand::seq::IteratorRandom;
 use thiserror::Error;
@@ -18,7 +18,7 @@ use crate::prelude::*;
 
 impl AcceptedTransaction {
     // TODO: We should have another type of transaction like `CheckedTransaction` in the type system?
-    fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<MustUse<bool>> {
+    fn check_signature_condition(&self, wsv: &WorldStateView) -> MustUse<bool> {
         let authority = self.as_ref().authority();
 
         let transaction_signatories = self
@@ -30,8 +30,9 @@ impl AcceptedTransaction {
             .collect();
 
         wsv.map_account(authority, |account| {
-            Ok(account.check_signature_check_condition(&transaction_signatories))
-        })?
+            account.check_signature_check_condition(&transaction_signatories)
+        })
+        .unwrap_or(MustUse(false))
     }
 
     /// Check if [`self`] is committed or rejected.
@@ -46,9 +47,9 @@ impl AcceptedTransaction {
 #[derive(Debug)]
 pub struct Queue {
     /// The queue for transactions
-    tx_hashes: ArrayQueue<HashOf<TransactionPayload>>,
+    tx_hashes: ArrayQueue<HashOf<SignedTransaction>>,
     /// [`AcceptedTransaction`]s addressed by `Hash`
-    accepted_txs: DashMap<HashOf<TransactionPayload>, AcceptedTransaction>,
+    accepted_txs: DashMap<HashOf<SignedTransaction>, AcceptedTransaction>,
     /// Amount of transactions per user in the queue
     txs_per_user: DashMap<AccountId, usize>,
     /// The maximum number of transactions in the queue
@@ -63,7 +64,7 @@ pub struct Queue {
 }
 
 /// Queue push error
-#[derive(Error, Debug, displaydoc::Display)]
+#[derive(Error, Copy, Clone, Debug, displaydoc::Display)]
 #[allow(variant_size_differences)]
 pub enum Error {
     /// Queue is full
@@ -76,14 +77,10 @@ pub enum Error {
     InBlockchain,
     /// User reached maximum number of transactions in the queue
     MaximumTransactionsPerUser,
-    /// Failure during signature condition execution, tx payload hash: {tx_hash}
-    SignatureCondition {
-        /// Transaction hash
-        tx_hash: HashOf<TransactionPayload>,
-        /// Failure reason
-        #[source]
-        reason: Report,
-    },
+    /// The transaction is already in the queue
+    IsInQueue,
+    /// Failure during signature condition execution
+    SignatureCondition,
 }
 
 /// Failure that can pop up when pushing transaction into the queue
@@ -157,23 +154,17 @@ impl Queue {
             )
     }
 
-    fn check_tx(
-        &self,
-        tx: &AcceptedTransaction,
-        wsv: &WorldStateView,
-    ) -> Result<MustUse<bool>, Error> {
+    fn check_tx(&self, tx: &AcceptedTransaction, wsv: &WorldStateView) -> Result<(), Error> {
         if self.is_in_future(tx) {
             Err(Error::InFuture)
         } else if self.is_expired(tx) {
             Err(Error::Expired)
         } else if tx.is_in_blockchain(wsv) {
             Err(Error::InBlockchain)
+        } else if !tx.check_signature_condition(wsv).into_inner() {
+            Err(Error::SignatureCondition)
         } else {
-            tx.check_signature_condition(wsv)
-                .map_err(|reason| Error::SignatureCondition {
-                    tx_hash: tx.as_ref().hash_of_payload(),
-                    reason,
-                })
+            Ok(())
         }
     }
 
@@ -189,21 +180,17 @@ impl Queue {
 
         // Get `txs_len` before entry to avoid deadlock
         let txs_len = self.accepted_txs.len();
-        let hash = tx.as_ref().hash_of_payload();
+        let hash = tx.as_ref().hash();
         let entry = match self.accepted_txs.entry(hash) {
-            Entry::Occupied(mut old_tx) => {
-                // MST case
-                let signatures_amount_before = old_tx.get().as_ref().signatures().len();
-                assert!(old_tx.get_mut().merge_signatures(tx));
-                let signatures_amount_after = old_tx.get().as_ref().signatures().len();
-                let new_signatures_amount = signatures_amount_after - signatures_amount_before;
-                if new_signatures_amount > 0 {
-                    debug!(%hash, new_signatures_amount, "Signatures added to existing multisignature transaction");
-                }
-                return Ok(());
+            Entry::Occupied(_) => {
+                return Err(Failure {
+                    tx,
+                    err: Error::IsInQueue,
+                })
             }
             Entry::Vacant(entry) => entry,
         };
+
         if txs_len >= self.capacity.get() {
             warn!(
                 max = self.capacity,
@@ -237,10 +224,10 @@ impl Queue {
         Ok(())
     }
 
-    /// Pop single transaction from the queue. Record all visited and not removed transactions in `seen`.
+    /// Pop single transaction from the queue. Removes all transactions that fail the `tx_check`.
     fn pop_from_queue(
         &self,
-        seen: &mut Vec<HashOf<TransactionPayload>>,
+        seen: &mut Vec<HashOf<SignedTransaction>>,
         wsv: &WorldStateView,
         expired_transactions: &mut Vec<AcceptedTransaction>,
     ) -> Option<AcceptedTransaction> {
@@ -259,23 +246,19 @@ impl Queue {
             };
 
             let tx = entry.get();
-            if tx.is_in_blockchain(wsv) {
-                debug!("Transaction is already in blockchain");
-                let (_, tx) = entry.remove_entry();
-                self.decrease_per_user_tx_count(tx.as_ref().authority());
-                continue;
-            }
-            if self.is_expired(tx) {
-                debug!("Transaction is expired");
-                let (_, tx) = entry.remove_entry();
-                self.decrease_per_user_tx_count(tx.as_ref().authority());
-                expired_transactions.push(tx);
-                continue;
-            }
-            seen.push(hash);
-            if *tx.check_signature_condition(wsv).unwrap_or(MustUse(false)) {
-                // Transactions are not removed from the queue until expired or committed
-                return Some(entry.get().clone());
+            match self.check_tx(tx, wsv) {
+                Err(e) => {
+                    let (_, tx) = entry.remove_entry();
+                    self.decrease_per_user_tx_count(tx.as_ref().authority());
+                    if let Error::Expired = e {
+                        expired_transactions.push(tx);
+                    }
+                    continue;
+                }
+                Ok(()) => {
+                    seen.push(hash);
+                    return Some(tx.clone());
+                }
             }
         }
     }
@@ -320,12 +303,10 @@ impl Queue {
             self.pop_from_queue(&mut seen_queue, wsv, &mut expired_transactions_queue)
         });
 
-        let transactions_hashes: IndexSet<HashOf<TransactionPayload>> = transactions
-            .iter()
-            .map(|tx| tx.as_ref().hash_of_payload())
-            .collect();
+        let transactions_hashes: IndexSet<HashOf<SignedTransaction>> =
+            transactions.iter().map(|tx| tx.as_ref().hash()).collect();
         let txs = txs_from_queue
-            .filter(|tx| !transactions_hashes.contains(&tx.as_ref().hash_of_payload()))
+            .filter(|tx| !transactions_hashes.contains(&tx.as_ref().hash()))
             .take(max_txs_in_block - transactions.len());
         transactions.extend(txs);
 
@@ -489,7 +470,6 @@ mod tests {
     async fn push_multisignature_tx() {
         let chain_id = ChainId::from("0");
 
-        let max_txs_in_block = 2;
         let key_pairs = [KeyPair::generate(), KeyPair::generate()];
         let kura = Kura::blank_kura_for_testing();
         let wsv = {
@@ -526,10 +506,10 @@ mod tests {
             AcceptedTransaction::accept(signed_tx, &chain_id, &tx_limits)
                 .expect("Failed to accept Transaction.")
         };
-        // Check that fully signed transaction pass signature check
+        // Check that fully signed transaction passes signature check
         assert!(matches!(
             fully_signed_tx.check_signature_condition(&wsv),
-            Ok(MustUse(true))
+            MustUse(true)
         ));
 
         let get_tx = |key_pair| {
@@ -538,27 +518,16 @@ mod tests {
         };
         for key_pair in key_pairs {
             let partially_signed_tx: AcceptedTransaction = get_tx(key_pair);
-            // Check that non of partially signed pass signature check
-            assert!(matches!(
+            // Check that none of partially signed txs passes signature check
+            assert_eq!(
                 partially_signed_tx.check_signature_condition(&wsv),
-                Ok(MustUse(false))
-            ));
-            queue
-                .push(partially_signed_tx, &wsv)
-                .expect("Should be possible to put partially signed transaction into the queue");
+                MustUse(false)
+            );
+            assert!(matches!(
+                queue.push(partially_signed_tx, &wsv).unwrap_err().err,
+                Error::SignatureCondition
+            ))
         }
-
-        // Check that transactions combined into one instead of duplicating
-        assert_eq!(queue.tx_len(), 1);
-
-        let mut available = queue.collect_transactions_for_block(&wsv, max_txs_in_block);
-        assert_eq!(available.len(), 1);
-        let tx_from_queue = available.pop().expect("Checked that have one transactions");
-        // Check that transaction from queue pass signature check
-        assert!(matches!(
-            tx_from_queue.check_signature_condition(&wsv),
-            Ok(MustUse(true))
-        ));
     }
 
     #[test]
@@ -646,7 +615,7 @@ mod tests {
             query_handle,
         ));
         let queue = Queue::from_config(Config {
-            transaction_time_to_live: Duration::from_millis(200),
+            transaction_time_to_live: Duration::from_millis(300),
             ..config_factory()
         });
         for _ in 0..(max_txs_in_block - 1) {
@@ -713,7 +682,7 @@ mod tests {
 
     #[test]
     async fn custom_expired_transaction_is_rejected() {
-        const TTL_MS: u64 = 100;
+        const TTL_MS: u64 = 200;
 
         let chain_id = ChainId::from("0");
 

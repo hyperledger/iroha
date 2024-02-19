@@ -164,7 +164,7 @@ The variables:
 
 ```shell
 CLIENT_CLI_BINARY=/path/to/iroha_client_cli
-CLIENT_CLI_CONFIG=/path/to/config.toml
+CLIENT_CLI_CONFIG=/path/to/client.toml
 TORII_API_PORT_MIN=8080
 TORII_API_PORT_MAX=8083
 ```

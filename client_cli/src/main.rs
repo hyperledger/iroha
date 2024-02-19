@@ -4,7 +4,6 @@ use std::{
     io::{stdin, stdout},
     path::PathBuf,
     str::FromStr,
-    time::Duration,
 };
 
 use color_eyre::{
@@ -12,7 +11,6 @@ use color_eyre::{
     Result,
 };
 // FIXME: sync with `kagami` (it uses `inquiry`, migrate both to something single)
-use dialoguer::Confirm;
 use erased_serde::Serialize;
 use iroha_client::{
     client::{Client, QueryResult},
@@ -95,11 +93,6 @@ struct Args {
     /// More verbose output
     #[arg(short, long)]
     verbose: bool,
-    /// Skip MST check. By setting this flag searching similar transactions on the server can be omitted.
-    /// Thus if you don't use multisignature transactions you should use this flag as it will increase speed of submitting transactions.
-    /// Also setting this flag could be useful when `iroha_client_cli` is used to submit the same transaction multiple times (like mint for example) in short period of time.
-    #[arg(long)]
-    skip_mst_check: bool,
     /// Subcommands of client cli
     #[command(subcommand)]
     subcommand: Subcommand,
@@ -139,9 +132,6 @@ trait RunContext {
         Client::new(self.configuration().clone())
     }
 
-    /// Skip check for MST
-    fn skip_mst_check(&self) -> bool;
-
     /// Serialize and print data
     ///
     /// # Errors
@@ -153,7 +143,6 @@ trait RunContext {
 struct PrintJsonContext<W> {
     write: W,
     config: Config,
-    skip_mst_check: bool,
 }
 
 impl<W: std::io::Write> RunContext for PrintJsonContext<W> {
@@ -164,10 +153,6 @@ impl<W: std::io::Write> RunContext for PrintJsonContext<W> {
     fn print_data(&mut self, data: &dyn Serialize) -> Result<()> {
         writeln!(&mut self.write, "{}", serde_json::to_string_pretty(data)?)?;
         Ok(())
-    }
-
-    fn skip_mst_check(&self) -> bool {
-        self.skip_mst_check
     }
 }
 
@@ -195,10 +180,6 @@ impl RunArgs for Subcommand {
     }
 }
 
-// TODO: move into config?
-const RETRY_COUNT_MST: u32 = 1;
-const RETRY_IN_MST: Duration = Duration::from_millis(100);
-
 fn main() -> Result<()> {
     color_eyre::install()?;
 
@@ -206,7 +187,6 @@ fn main() -> Result<()> {
         config: config_path,
         subcommand,
         verbose,
-        skip_mst_check,
     } = clap::Parser::parse();
 
     let config = Config::load(config_path)?;
@@ -222,7 +202,6 @@ fn main() -> Result<()> {
     let mut context = PrintJsonContext {
         write: stdout(),
         config,
-        skip_mst_check,
     };
 
     subcommand.run(&mut context)
@@ -241,39 +220,15 @@ fn submit(
     let iroha_client = context.client_from_config();
     let instructions = instructions.into();
     let tx = iroha_client.build_transaction(instructions, metadata);
-    let transactions = if context.skip_mst_check() {
-        vec![tx]
-    } else {
-        match iroha_client.get_original_matching_transactions(
-            &tx,
-            RETRY_COUNT_MST,
-            RETRY_IN_MST,
-        ) {
-            Ok(original_transactions) if !original_transactions.is_empty() && Confirm::new()
-                .with_prompt("There are similar transactions from your account waiting for more signatures. \
-                            This could be because they weren't signed with the right key, \
-                            or because they're a multi-signature transactions (MST). \
-                            Do you want to sign these transactions (yes) \
-                            instead of submitting a new transaction (no)?")
-                .interact()
-                .wrap_err("Failed to show interactive prompt.")? => {
-                    original_transactions.into_iter().map(|transaction| {
-                        iroha_client.sign_transaction(transaction)
-                    }).collect()
-                }
-            _ => vec![tx],
-        }
-    };
+
     #[cfg(not(debug_assertions))]
     let err_msg = "Failed to submit transaction.";
-    for tx in transactions {
-        #[cfg(debug_assertions)]
-        let err_msg = format!("Failed to submit transaction {tx:?}");
-        let hash = iroha_client
-            .submit_transaction_blocking(&tx)
-            .wrap_err(err_msg)?;
-        context.print_data(&hash)?;
-    }
+    #[cfg(debug_assertions)]
+    let err_msg = format!("Failed to submit transaction {tx:?}");
+    let hash = iroha_client
+        .submit_transaction_blocking(&tx)
+        .wrap_err(err_msg)?;
+    context.print_data(&hash)?;
 
     Ok(())
 }

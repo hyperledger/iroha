@@ -311,14 +311,6 @@ impl SignedTransaction {
         iroha_crypto::HashOf::new(self)
     }
 
-    /// Calculate transaction payload [`Hash`](`iroha_crypto::HashOf`).
-    #[inline]
-    #[cfg(feature = "std")]
-    pub fn hash_of_payload(&self) -> iroha_crypto::HashOf<TransactionPayload> {
-        let SignedTransaction::V1(tx) = self;
-        iroha_crypto::HashOf::new(&tx.payload)
-    }
-
     /// Sign transaction with provided key pair.
     #[must_use]
     pub fn sign(self, key_pair: &iroha_crypto::KeyPair) -> SignedTransaction {
@@ -331,20 +323,6 @@ impl SignedTransaction {
             signatures: tx.signatures,
         }
         .into()
-    }
-
-    /// Add additional signatures to this transaction
-    #[cfg(feature = "transparent_api")]
-    pub fn merge_signatures(&mut self, other: Self) -> bool {
-        if self.hash_of_payload() != other.hash_of_payload() {
-            return false;
-        }
-
-        let SignedTransaction::V1(tx1) = self;
-        let SignedTransaction::V1(tx2) = other;
-        tx1.signatures.extend(tx2.signatures);
-
-        true
     }
 }
 

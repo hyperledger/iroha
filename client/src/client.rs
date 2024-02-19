@@ -32,7 +32,6 @@ use crate::{
         predicate::PredicateBox,
         prelude::*,
         query::{Pagination, Query, Sorting},
-        transaction::TransactionPayload,
         BatchedResponse, ChainId, ValidationFail,
     },
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
@@ -491,7 +490,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit(&self, instruction: impl Instruction) -> Result<HashOf<TransactionPayload>> {
+    pub fn submit(&self, instruction: impl Instruction) -> Result<HashOf<SignedTransaction>> {
         let isi = instruction.into();
         self.submit_all([isi])
     }
@@ -504,7 +503,7 @@ impl Client {
     pub fn submit_all(
         &self,
         instructions: impl IntoIterator<Item = impl Instruction>,
-    ) -> Result<HashOf<TransactionPayload>> {
+    ) -> Result<HashOf<SignedTransaction>> {
         self.submit_all_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
@@ -518,7 +517,7 @@ impl Client {
         &self,
         instruction: impl Instruction,
         metadata: UnlimitedMetadata,
-    ) -> Result<HashOf<TransactionPayload>> {
+    ) -> Result<HashOf<SignedTransaction>> {
         self.submit_all_with_metadata([instruction], metadata)
     }
 
@@ -532,7 +531,7 @@ impl Client {
         &self,
         instructions: impl IntoIterator<Item = impl Instruction>,
         metadata: UnlimitedMetadata,
-    ) -> Result<HashOf<TransactionPayload>> {
+    ) -> Result<HashOf<SignedTransaction>> {
         self.submit_transaction(&self.build_transaction(instructions, metadata))
     }
 
@@ -544,7 +543,7 @@ impl Client {
     pub fn submit_transaction(
         &self,
         transaction: &SignedTransaction,
-    ) -> Result<HashOf<TransactionPayload>> {
+    ) -> Result<HashOf<SignedTransaction>> {
         iroha_logger::trace!(tx=?transaction, "Submitting");
         let (req, hash) = self.prepare_transaction_request::<DefaultRequestBuilder>(transaction);
         let response = req
@@ -563,9 +562,9 @@ impl Client {
     pub fn submit_transaction_blocking(
         &self,
         transaction: &SignedTransaction,
-    ) -> Result<HashOf<TransactionPayload>> {
+    ) -> Result<HashOf<SignedTransaction>> {
         let (init_sender, init_receiver) = tokio::sync::oneshot::channel();
-        let hash = transaction.hash_of_payload();
+        let hash = transaction.hash();
 
         thread::scope(|spawner| {
             let submitter_handle = spawner.spawn(move || -> Result<()> {
@@ -592,8 +591,8 @@ impl Client {
     fn listen_for_tx_confirmation(
         &self,
         init_sender: tokio::sync::oneshot::Sender<bool>,
-        hash: HashOf<TransactionPayload>,
-    ) -> Result<HashOf<TransactionPayload>> {
+        hash: HashOf<SignedTransaction>,
+    ) -> Result<HashOf<SignedTransaction>> {
         let deadline = tokio::time::Instant::now() + self.transaction_status_timeout;
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -629,8 +628,8 @@ impl Client {
 
     async fn listen_for_tx_confirmation_loop(
         event_iterator: &mut AsyncEventStream,
-        hash: HashOf<TransactionPayload>,
-    ) -> Result<HashOf<TransactionPayload>> {
+        hash: HashOf<SignedTransaction>,
+    ) -> Result<HashOf<SignedTransaction>> {
         while let Some(event) = event_iterator.next().await {
             if let Event::Pipeline(this_event) = event? {
                 match this_event.status() {
@@ -657,7 +656,7 @@ impl Client {
     fn prepare_transaction_request<B: RequestBuilder>(
         &self,
         transaction: &SignedTransaction,
-    ) -> (B, HashOf<TransactionPayload>) {
+    ) -> (B, HashOf<SignedTransaction>) {
         let transaction_bytes: Vec<u8> = transaction.encode_versioned();
 
         (
@@ -669,7 +668,7 @@ impl Client {
             )
             .headers(self.headers.clone())
             .body(transaction_bytes),
-            transaction.hash_of_payload(),
+            transaction.hash(),
         )
     }
 
@@ -681,7 +680,7 @@ impl Client {
     pub fn submit_blocking(
         &self,
         instruction: impl Instruction,
-    ) -> Result<HashOf<TransactionPayload>> {
+    ) -> Result<HashOf<SignedTransaction>> {
         self.submit_all_blocking(vec![instruction.into()])
     }
 
@@ -693,7 +692,7 @@ impl Client {
     pub fn submit_all_blocking(
         &self,
         instructions: impl IntoIterator<Item = impl Instruction>,
-    ) -> Result<HashOf<TransactionPayload>> {
+    ) -> Result<HashOf<SignedTransaction>> {
         self.submit_all_blocking_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
@@ -707,7 +706,7 @@ impl Client {
         &self,
         instruction: impl Instruction,
         metadata: UnlimitedMetadata,
-    ) -> Result<HashOf<TransactionPayload>> {
+    ) -> Result<HashOf<SignedTransaction>> {
         self.submit_all_blocking_with_metadata(vec![instruction.into()], metadata)
     }
 
@@ -721,7 +720,7 @@ impl Client {
         &self,
         instructions: impl IntoIterator<Item = impl Instruction>,
         metadata: UnlimitedMetadata,
-    ) -> Result<HashOf<TransactionPayload>> {
+    ) -> Result<HashOf<SignedTransaction>> {
         let transaction = self.build_transaction(instructions, metadata);
         self.submit_transaction_blocking(&transaction)
     }
@@ -971,50 +970,6 @@ impl Client {
                 .join(torii_uri::BLOCKS_STREAM)
                 .expect("Valid URI"),
         )
-    }
-
-    /// Find the original transaction in the local pending tx queue.
-    /// Should be used for an MST case.
-    ///
-    /// # Errors
-    /// - if sending request fails
-    pub fn get_original_matching_transactions(
-        &self,
-        transaction: &SignedTransaction,
-        retry_count: u32,
-        retry_in: Duration,
-    ) -> Result<Vec<SignedTransaction>> {
-        let url = self
-            .torii_url
-            .join(torii_uri::MATCHING_PENDING_TRANSACTIONS)
-            .expect("Valid URI");
-        let body = transaction.encode();
-
-        for _ in 0..retry_count {
-            let response = DefaultRequestBuilder::new(HttpMethod::POST, url.clone())
-                .headers(self.headers.clone())
-                .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
-                .body(body.clone())
-                .build()?
-                .send()?;
-
-            if response.status() == StatusCode::OK {
-                let pending_transactions: Vec<SignedTransaction> =
-                    DecodeAll::decode_all(&mut response.body().as_slice())?;
-
-                if !pending_transactions.is_empty() {
-                    return Ok(pending_transactions);
-                }
-                thread::sleep(retry_in);
-            } else {
-                return Err(eyre!(
-                    "Failed to make query request with HTTP status: {}, {}",
-                    response.status(),
-                    std::str::from_utf8(response.body()).unwrap_or(""),
-                ));
-            }
-        }
-        Ok(Vec::new())
     }
 
     /// Get value of config on peer
@@ -1622,7 +1577,7 @@ mod tests {
             || client.build_transaction(Vec::<InstructionBox>::new(), UnlimitedMetadata::new());
         let tx1 = build_transaction();
         let tx2 = build_transaction();
-        assert_ne!(tx1.hash_of_payload(), tx2.hash_of_payload());
+        assert_ne!(tx1.hash(), tx2.hash());
 
         let tx2 = {
             let mut tx =
@@ -1640,7 +1595,7 @@ mod tests {
 
             client.sign_transaction(tx)
         };
-        assert_eq!(tx1.hash_of_payload(), tx2.hash_of_payload());
+        assert_eq!(tx1.hash(), tx2.hash());
     }
 
     #[test]

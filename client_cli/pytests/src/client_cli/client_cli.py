@@ -22,10 +22,7 @@ class ClientCli:
     """
 
     BASE_PATH = CLIENT_CLI_PATH
-    # --skip-mst-check flag is used because
-    # MST isn't used in the tests
-    # and don't using this flag results in tests being broken by interactive prompt
-    BASE_FLAGS = ["--config=" + PATH_CONFIG_CLIENT_CLI, "--skip-mst-check"]
+    BASE_FLAGS = ["--config=" + PATH_CONFIG_CLIENT_CLI]
 
     def __init__(self, config: Config):
         """
@@ -132,7 +129,7 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.insert(3, "domain")
+        self.command.insert(2, "domain")
         self.command.append("--id=" + domain)
         self.execute()
         return self
@@ -150,7 +147,7 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.insert(3, "account")
+        self.command.insert(2, "account")
         self.command.append("--id=" + account + "@" + domain)
         self.command.append("--key=ed0120" + key)
         self.execute()
@@ -169,7 +166,7 @@ class ClientCli:
         :return: The current ClientCli object.
         :rtype: ClientCli
         """
-        self.command.insert(3, "asset")
+        self.command.insert(2, "asset")
         if asset_definition and account and value_of_value_type:
             self.command.append(
                 "--asset-id="

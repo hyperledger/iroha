@@ -21,7 +21,7 @@ class Iroha(ClientCli):
         :param command_name: The name of the command to execute.
         :type command_name: str
         """
-        self.command.insert(3, command_name)
+        self.command.insert(2, command_name)
         self.execute()
 
     def should(self, *args, **kwargs):

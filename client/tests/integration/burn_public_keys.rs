@@ -1,7 +1,7 @@
 use iroha_client::{
     client::{account, transaction, Client},
     crypto::{HashOf, KeyPair, PublicKey},
-    data_model::{isi::Instruction, prelude::*, transaction::TransactionPayload},
+    data_model::{isi::Instruction, prelude::*},
 };
 use test_network::*;
 
@@ -11,7 +11,7 @@ fn submit(
     submitter: Option<(AccountId, KeyPair)>,
 ) -> (
     HashOf<SignedTransaction>,
-    eyre::Result<HashOf<TransactionPayload>>,
+    eyre::Result<HashOf<SignedTransaction>>,
 ) {
     let chain_id = ChainId::from("0");
 
