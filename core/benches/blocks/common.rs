@@ -185,6 +185,8 @@ pub fn build_wsv(
     );
     let mut wsv = WorldStateView::new(World::with([domain], UniqueVec::new()), kura, query_handle);
     wsv.config.transaction_limits = TransactionLimits::new(u64::MAX, u64::MAX);
+    wsv.config.executor_runtime.fuel_limit = u64::MAX;
+    wsv.config.executor_runtime.max_memory_bytes = u32::MAX;
     wsv.config.wasm_runtime.fuel_limit = u64::MAX;
     wsv.config.wasm_runtime.max_memory_bytes = u32::MAX;
 

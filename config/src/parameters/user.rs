@@ -557,6 +557,8 @@ pub struct ChainWide {
     pub account_metadata_limits: MetadataLimits,
     pub domain_metadata_limits: MetadataLimits,
     pub ident_length_limits: LengthLimits,
+    pub executor_fuel_limit: u64,
+    pub executor_max_memory: HumanBytes<u32>,
     pub wasm_fuel_limit: u64,
     pub wasm_max_memory: HumanBytes<u32>,
 }
@@ -573,6 +575,8 @@ impl ChainWide {
             account_metadata_limits,
             domain_metadata_limits,
             ident_length_limits: identifier_length_limits,
+            executor_fuel_limit,
+            executor_max_memory,
             wasm_fuel_limit,
             wasm_max_memory,
         } = self;
@@ -587,6 +591,10 @@ impl ChainWide {
             account_metadata_limits,
             domain_metadata_limits,
             ident_length_limits: identifier_length_limits,
+            executor_runtime: actual::WasmRuntime {
+                fuel_limit: executor_fuel_limit,
+                max_memory_bytes: executor_max_memory.get(),
+            },
             wasm_runtime: actual::WasmRuntime {
                 fuel_limit: wasm_fuel_limit,
                 max_memory_bytes: wasm_max_memory.get(),
