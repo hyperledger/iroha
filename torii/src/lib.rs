@@ -164,12 +164,6 @@ impl Torii {
                         .and(body::versioned()),
                 )
                 .or(endpoint3(
-                    routing::handle_pending_transactions,
-                    warp::path(uri::MATCHING_PENDING_TRANSACTIONS)
-                        .and(add_state!(self.queue, self.sumeragi))
-                        .and(body::versioned()),
-                ))
-                .or(endpoint3(
                     routing::handle_queries,
                     warp::path(uri::QUERY)
                         .and(add_state!(self.query_service, self.sumeragi,))
@@ -338,7 +332,7 @@ impl Error {
             Config(_) | StatusSegmentNotFound(_) => StatusCode::NOT_FOUND,
             PushIntoQueue(err) => match **err {
                 queue::Error::Full => StatusCode::INTERNAL_SERVER_ERROR,
-                queue::Error::SignatureCondition { .. } => StatusCode::UNAUTHORIZED,
+                queue::Error::SignatureCondition => StatusCode::UNAUTHORIZED,
                 _ => StatusCode::BAD_REQUEST,
             },
             #[cfg(feature = "telemetry")]

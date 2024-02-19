@@ -121,11 +121,6 @@ impl AcceptedTransaction {
     }
 
     #[inline]
-    pub(crate) fn merge_signatures(&mut self, other: Self) -> bool {
-        self.0.merge_signatures(other.0)
-    }
-
-    #[inline]
     fn len_u64(instruction_count: usize) -> u64 {
         u64::try_from(instruction_count).expect("`usize` should always fit into `u64`")
     }

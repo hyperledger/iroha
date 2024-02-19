@@ -1002,7 +1002,7 @@ fn expired_event(txn: &AcceptedTransaction) -> Event {
         status: PipelineStatus::Rejected(PipelineRejectionReason::Transaction(
             TransactionRejectionReason::Expired,
         )),
-        hash: txn.as_ref().hash_of_payload().into(),
+        hash: txn.as_ref().hash().into(),
     }
     .into()
 }

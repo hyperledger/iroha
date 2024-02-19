@@ -52,7 +52,7 @@ fn test_with_instruction_and_status_and_port(
     // Given
     let submitter = client;
     let transaction = submitter.build_transaction(instruction, UnlimitedMetadata::new());
-    let hash = transaction.hash_of_payload();
+    let hash = transaction.hash();
     let mut handles = Vec::new();
     for listener in clients {
         let checker = Checker { listener, hash };
@@ -74,7 +74,7 @@ fn test_with_instruction_and_status_and_port(
 #[derive(Clone)]
 struct Checker {
     listener: iroha_client::client::Client,
-    hash: HashOf<TransactionPayload>,
+    hash: HashOf<SignedTransaction>,
 }
 
 impl Checker {

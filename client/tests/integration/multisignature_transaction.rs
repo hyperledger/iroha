@@ -1,8 +1,9 @@
-use std::{str::FromStr as _, thread, time::Duration};
+use std::{str::FromStr as _, thread};
 
 use eyre::Result;
 use iroha_client::{
-    client::{self, Client, QueryResult},
+    client,
+    client::{Client, QueryResult},
     config::Config as ClientConfig,
     crypto::KeyPair,
     data_model::{
@@ -15,7 +16,7 @@ use test_network::*;
 
 #[allow(clippy::too_many_lines)]
 #[test]
-fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
+fn multisignature_transactions_should_be_accepted_after_fully_signed() -> Result<()> {
     let (_rt, network, client) = Network::start_test_with_runtime(4, Some(10_945));
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Config::pipeline_time();
@@ -54,7 +55,11 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
     let client = Client::new(client_config.clone());
     let instructions = [mint_asset.clone()];
     let transaction = client.build_transaction(instructions, UnlimitedMetadata::new());
-    client.submit_transaction(&client.sign_transaction(transaction))?;
+    // The tx signed by the first account
+    let _ = client
+        .submit_transaction(&client.sign_transaction(transaction.clone()))
+        .expect_err("Transaction should not be added into the queue");
+
     thread::sleep(pipeline_time);
 
     //Then
@@ -77,14 +82,11 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
 
     client_config.key_pair = key_pair_2;
     let client_2 = Client::new(client_config);
-    let instructions = [mint_asset];
-    let transaction = client_2.build_transaction(instructions, UnlimitedMetadata::new());
-    let transaction = client_2
-        .get_original_matching_transactions(&transaction, 3, Duration::from_millis(100))?
-        .pop()
-        .expect("Found no pending transaction for this account.");
+    // The tx signed by the second account
     client_2.submit_transaction(&client_2.sign_transaction(transaction))?;
+
     thread::sleep(pipeline_time);
+
     let assets = client_1
         .request(request)?
         .collect::<QueryResult<Vec<_>>>()?;
@@ -94,5 +96,6 @@ fn multisignature_transactions_should_wait_for_all_signatures() -> Result<()> {
         .find(|asset| *asset.id() == asset_id)
         .expect("Failed to find expected asset");
     assert_eq!(AssetValue::Quantity(quantity), *camomile_asset.value());
+
     Ok(())
 }

@@ -88,7 +88,7 @@ pub async fn handle_transaction(
         .push(transaction, &wsv)
         .map_err(|queue::Failure { tx, err }| {
             iroha_logger::warn!(
-                tx_hash=%tx.as_ref().hash_of_payload(), ?err,
+                tx_hash=%tx.as_ref().hash(), ?err,
                 "Failed to push into queue"
             );
 
@@ -143,36 +143,6 @@ pub fn handle_health() -> Json {
 #[cfg(feature = "schema")]
 pub async fn handle_schema() -> Json {
     reply::json(&iroha_schema_gen::build_schemas())
-}
-
-/// Check if two transactions are the same. Compare their contents excluding the creation time.
-fn transaction_payload_eq_excluding_creation_time(
-    first: &SignedTransaction,
-    second: &SignedTransaction,
-) -> bool {
-    first.authority() == second.authority()
-        && first.instructions() == second.instructions()
-        && first.time_to_live() == second.time_to_live()
-        && first.metadata().eq(second.metadata())
-}
-
-#[iroha_futures::telemetry_future]
-pub async fn handle_pending_transactions(
-    queue: Arc<Queue>,
-    sumeragi: SumeragiHandle,
-    transaction: SignedTransaction,
-) -> Result<Scale<Vec<SignedTransaction>>> {
-    let query_response = sumeragi.apply_wsv(|wsv| {
-        queue
-            .all_transactions(wsv)
-            .map(Into::into)
-            .filter(|current_transaction: &SignedTransaction| {
-                transaction_payload_eq_excluding_creation_time(current_transaction, &transaction)
-            })
-            .collect()
-    });
-
-    Ok(Scale(query_response))
 }
 
 #[iroha_futures::telemetry_future]

@@ -637,7 +637,7 @@ mod commit {
                 PipelineEvent {
                     entity_kind: PipelineEntityKind::Transaction,
                     status,
-                    hash: tx.as_ref().hash_of_payload().into(),
+                    hash: tx.as_ref().hash().into(),
                 }
             });
             let current_block = core::iter::once(PipelineEvent {
