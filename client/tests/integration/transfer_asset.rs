@@ -53,9 +53,10 @@ fn simulate_transfer_fixed() {
 }
 
 #[test]
+#[ignore = "long"]
+#[should_panic(expected = "insufficient funds")]
 // This test is also covered at the UI level in the iroha_client_cli tests
 // in test_tranfer_assets.py
-#[should_panic(expected = "insufficient funds")]
 fn simulate_insufficient_funds() {
     simulate_transfer(
         Fixed::try_from(20_f64).unwrap(),
