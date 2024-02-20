@@ -471,8 +471,8 @@ mod tests {
     const ISI_RESULT: Result<(), ValidationFail> = Ok(());
 
     fn get_test_instruction() -> InstructionBox {
-        let new_account_id = "mad_hatter@wonderland".parse().expect("Valid");
-        let register_isi = Register::account(Account::new(new_account_id, []));
+        let new_asset_id = "tulip##alice@wonderland".parse().unwrap();
+        let register_isi = Register::asset(Asset::new(new_asset_id, 1_u32));
 
         register_isi.into()
     }

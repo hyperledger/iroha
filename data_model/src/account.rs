@@ -13,7 +13,9 @@ use std::collections::{btree_map, btree_set};
 use derive_more::{Constructor, DebugCustom, Display};
 use getset::Getters;
 use iroha_data_model_derive::{model, IdEqOrdHash};
-use iroha_primitives::{const_vec::ConstVec, must_use::MustUse};
+use iroha_primitives::const_vec::ConstVec;
+#[cfg(feature = "transparent_api")]
+use iroha_primitives::must_use::MustUse;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -79,27 +81,19 @@ pub mod model {
 
     /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
     #[derive(
-        Debug,
-        Display,
-        Clone,
-        IdEqOrdHash,
-        Getters,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
+        Debug, Display, Clone, IdEqOrdHash, Getters, Encode, Deserialize, Serialize, IntoSchema,
     )]
     #[allow(clippy::multiple_inherent_impl)]
     #[display(fmt = "({id})")] // TODO: Add more?
     #[ffi_type]
+    #[serde(try_from = "candidate::Account")]
     pub struct Account {
         /// An Identification of the [`Account`].
         pub id: AccountId,
         /// Assets in this [`Account`].
         pub assets: AssetsMap,
         /// [`Account`]'s signatories.
-        pub signatories: Signatories,
+        pub(super) signatories: Signatories,
         /// Condition which checks if the account has the right signatures.
         #[getset(get = "pub")]
         pub signature_check_condition: SignatureCheckCondition,
@@ -109,16 +103,18 @@ pub mod model {
 
     /// Builder which should be submitted in a transaction to create a new [`Account`]
     #[derive(
-        DebugCustom, Display, Clone, IdEqOrdHash, Decode, Encode, Serialize, Deserialize, IntoSchema,
+        DebugCustom, Display, Clone, IdEqOrdHash, Encode, Serialize, Deserialize, IntoSchema,
     )]
     #[display(fmt = "[{id}]")]
     #[debug(fmt = "[{id:?}] {{ signatories: {signatories:?}, metadata: {metadata} }}")]
     #[ffi_type]
+    #[serde(try_from = "candidate::NewAccount")]
     pub struct NewAccount {
         /// Identification
         pub id: AccountId,
         /// Signatories, i.e. signatures attached to this message.
-        pub signatories: Signatories,
+        /// Cannot be empty, guaranteed by constructors.
+        pub(super) signatories: Signatories,
         /// Metadata that should be submitted with the builder
         pub metadata: Metadata,
     }
@@ -148,15 +144,73 @@ pub mod model {
     }
 }
 
+mod candidate {
+    //! Contains structs for deserialization checks
+
+    use super::*;
+
+    #[derive(Decode, Deserialize)]
+    /// [`Account`] candidate used for deserialization checks
+    pub struct Account {
+        id: AccountId,
+        assets: AssetsMap,
+        signatories: Signatories,
+        signature_check_condition: SignatureCheckCondition,
+        metadata: Metadata,
+    }
+
+    impl TryFrom<Account> for super::Account {
+        type Error = &'static str;
+
+        fn try_from(candidate: Account) -> Result<Self, Self::Error> {
+            check_signatories(&candidate.signatories)?;
+
+            Ok(Self {
+                id: candidate.id,
+                assets: candidate.assets,
+                signatories: candidate.signatories,
+                signature_check_condition: candidate.signature_check_condition,
+                metadata: candidate.metadata,
+            })
+        }
+    }
+
+    /// [`NewAccount`] candidate used for deserialization checks
+    #[derive(Decode, Deserialize)]
+    pub struct NewAccount {
+        id: AccountId,
+        signatories: Signatories,
+        metadata: Metadata,
+    }
+
+    impl TryFrom<NewAccount> for super::NewAccount {
+        type Error = &'static str;
+
+        fn try_from(candidate: NewAccount) -> Result<Self, Self::Error> {
+            check_signatories(&candidate.signatories)?;
+
+            Ok(Self {
+                id: candidate.id,
+                signatories: candidate.signatories,
+                metadata: candidate.metadata,
+            })
+        }
+    }
+
+    fn check_signatories(signatories: &Signatories) -> Result<(), &'static str> {
+        if signatories.is_empty() {
+            return Err("Signatories cannot be empty");
+        }
+        Ok(())
+    }
+}
+
 impl Account {
-    /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
+    /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatory.
     #[inline]
     #[must_use]
-    pub fn new(
-        id: AccountId,
-        signatories: impl IntoIterator<Item = PublicKey>,
-    ) -> <Self as Registered>::With {
-        <Self as Registered>::With::new(id, signatories)
+    pub fn new(id: AccountId, signatory: PublicKey) -> <Self as Registered>::With {
+        <Self as Registered>::With::new(id, signatory)
     }
 
     /// Get an iterator over [`signatories`](PublicKey) of the `Account`
@@ -197,32 +251,68 @@ impl Account {
     pub fn remove_asset(&mut self, asset_id: &AssetId) -> Option<Asset> {
         self.assets.remove(asset_id)
     }
+
     /// Add [`signatory`](PublicKey) into the [`Account`].
     ///
-    /// If `Account` did not have this signatory present, `true` is returned.
-    /// If `Account` did have this signatory present, `false` is returned.
+    /// If [`Account`] did not have this signatory present, `true` is returned.
+    /// If [`Account`] did have this signatory present, `false` is returned.
     #[inline]
     pub fn add_signatory(&mut self, signatory: PublicKey) -> bool {
         self.signatories.insert(signatory)
     }
 
-    /// Remove a signatory from the `Account` and return whether the signatory was present in the `Account`
+    /// Remove a signatory from the [`Account`].
+    ///
+    /// Does nothing and returns [`None`] if only one signature is left.
+    /// Otherwise returns whether the signatory was presented in the Account.
     #[inline]
-    pub fn remove_signatory(&mut self, signatory: &PublicKey) -> bool {
-        self.signatories.remove(signatory)
+    pub fn remove_signatory(&mut self, signatory: &PublicKey) -> Option<bool> {
+        if self.signatories.len() < 2 {
+            return None;
+        }
+
+        Some(self.signatories.remove(signatory))
+    }
+
+    /// Checks whether the transaction contains all the signatures required by the
+    /// [`SignatureCheckCondition`] stored in this account.
+    pub fn check_signature_check_condition(
+        &self,
+        transaction_signatories: &btree_set::BTreeSet<PublicKey>,
+    ) -> MustUse<bool> {
+        self.signature_check_condition
+            .check(&self.signatories, transaction_signatories)
+    }
+}
+
+impl Decode for Account {
+    fn decode<I: parity_scale_codec::Input>(
+        input: &mut I,
+    ) -> Result<Self, parity_scale_codec::Error> {
+        let candidate = candidate::Account::decode(input)?;
+        Self::try_from(candidate).map_err(Into::into)
     }
 }
 
 impl NewAccount {
-    fn new(id: AccountId, signatories: impl IntoIterator<Item = PublicKey>) -> Self {
+    fn new(id: AccountId, signatory: PublicKey) -> Self {
         Self {
             id,
-            signatories: signatories.into_iter().collect(),
+            signatories: Signatories::from([signatory]),
             metadata: Metadata::default(),
         }
     }
 
+    /// Add signatory to account.
+    #[inline]
+    #[must_use]
+    pub fn add_signatory(mut self, signatory: PublicKey) -> Self {
+        self.signatories.insert(signatory);
+        self
+    }
+
     /// Add [`Metadata`] to the account replacing any previously defined metadata
+    #[inline]
     #[must_use]
     pub fn with_metadata(mut self, metadata: Metadata) -> Self {
         self.metadata = metadata;
@@ -230,9 +320,32 @@ impl NewAccount {
     }
 }
 
+#[cfg(feature = "transparent_api")]
+impl NewAccount {
+    /// Convert into [`Account`].
+    pub fn into_account(self) -> Account {
+        Account {
+            id: self.id,
+            signatories: self.signatories,
+            assets: AssetsMap::default(),
+            signature_check_condition: SignatureCheckCondition::default(),
+            metadata: self.metadata,
+        }
+    }
+}
+
 impl HasMetadata for NewAccount {
     fn metadata(&self) -> &Metadata {
         &self.metadata
+    }
+}
+
+impl Decode for NewAccount {
+    fn decode<I: parity_scale_codec::Input>(
+        input: &mut I,
+    ) -> Result<Self, parity_scale_codec::Error> {
+        let candidate = candidate::NewAccount::decode(input)?;
+        Self::try_from(candidate).map_err(Into::into)
     }
 }
 
@@ -296,8 +409,8 @@ impl SignatureCheckCondition {
         Self::AllAccountSignaturesAnd(ConstVec::new_empty())
     }
 
-    /// Checks whether the transaction contains all the signatures required by the `SignatureCheckCondition`.
-    pub fn check(
+    #[cfg(feature = "transparent_api")]
+    fn check(
         &self,
         account_signatories: &btree_set::BTreeSet<PublicKey>,
         transaction_signatories: &btree_set::BTreeSet<PublicKey>,

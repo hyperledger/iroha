@@ -193,15 +193,10 @@ pub mod prelude {
 #[cfg(test)]
 #[cfg(feature = "transparent_api")]
 mod tests {
-    #[cfg(not(feature = "std"))]
-    use alloc::collections::BTreeSet;
-    #[cfg(feature = "std")]
-    use std::collections::BTreeSet;
-
     use super::*;
     use crate::{
         account::AccountsMap,
-        asset::{AssetDefinitionsMap, AssetTotalQuantityMap, AssetsMap},
+        asset::{AssetDefinitionsMap, AssetTotalQuantityMap},
     };
 
     #[test]
@@ -223,13 +218,11 @@ mod tests {
             owned_by: domain_owner_id,
         };
         let account_id = AccountId::new(domain_id.clone(), account_name);
-        let account = Account {
-            id: account_id.clone(),
-            assets: AssetsMap::default(),
-            signatories: BTreeSet::default(),
-            signature_check_condition: SignatureCheckCondition::default(),
-            metadata: Metadata::default(),
-        };
+        let account = Account::new(
+            account_id.clone(),
+            iroha_crypto::KeyPair::generate().into_raw_parts().0,
+        )
+        .into_account();
         let asset_id = AssetId::new(
             AssetDefinitionId::new(domain_id.clone(), asset_name),
             account_id.clone(),

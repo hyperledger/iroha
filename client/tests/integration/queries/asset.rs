@@ -41,7 +41,7 @@ fn find_asset_total_quantity() -> Result<()> {
         .skip(1) // Alice has already been registered in genesis
         .cloned()
         .zip(keys.iter().map(KeyPair::public_key).cloned())
-        .map(|(account_id, public_key)| Register::account(Account::new(account_id, [public_key])))
+        .map(|(account_id, public_key)| Register::account(Account::new(account_id, public_key)))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 

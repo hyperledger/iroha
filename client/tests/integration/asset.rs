@@ -271,7 +271,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     let buyer_keypair = KeyPair::generate();
 
     let register_account = |account_id: AccountId, signature: PublicKey| {
-        Register::account(Account::new(account_id, [signature]))
+        Register::account(Account::new(account_id, signature))
     };
 
     let grant_alice_asset_transfer_permission = |asset_id: AssetId, owner_keypair: KeyPair| {
@@ -448,19 +448,17 @@ fn asset_id_new(definition_name: &str, definition_domain: &str, account_id: Acco
 
 mod register {
     use super::*;
+    use crate::integration::new_account_with_random_public_key;
 
     pub fn domain(name: &str) -> Register<Domain> {
         Register::domain(Domain::new(DomainId::from_str(name).expect("Valid")))
     }
 
     pub fn account(account_name: &str, domain_name: &str) -> Register<Account> {
-        Register::account(Account::new(
-            AccountId::new(
-                domain_name.parse().expect("Valid"),
-                account_name.parse().expect("Valid"),
-            ),
-            [],
-        ))
+        Register::account(new_account_with_random_public_key(AccountId::new(
+            domain_name.parse().expect("Valid"),
+            account_name.parse().expect("Valid"),
+        )))
     }
 
     pub fn asset_definition(asset_name: &str, domain_name: &str) -> Register<AssetDefinition> {

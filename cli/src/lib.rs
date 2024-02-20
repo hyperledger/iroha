@@ -472,7 +472,7 @@ enum TelemetryStartStatus {
 }
 
 fn genesis_account(public_key: PublicKey) -> Account {
-    Account::new(iroha_genesis::GENESIS_ACCOUNT_ID.clone(), [public_key])
+    Account::new(iroha_genesis::GENESIS_ACCOUNT_ID.clone(), public_key)
         .build(&iroha_genesis::GENESIS_ACCOUNT_ID)
 }
 

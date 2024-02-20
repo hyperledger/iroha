@@ -1,7 +1,7 @@
 //! This module contains implementations of smart-contract traits and instructions for [`Account`] structure
 //! and implementations of [`Query`]'s to [`WorldStateView`] about [`Account`].
 
-use iroha_data_model::{asset::AssetsMap, prelude::*, query::error::FindError};
+use iroha_data_model::{prelude::*, query::error::FindError};
 use iroha_telemetry::metrics;
 
 use super::prelude::*;
@@ -13,13 +13,7 @@ impl Registrable for iroha_data_model::account::NewAccount {
     #[must_use]
     #[inline]
     fn build(self, _authority: &AccountId) -> Self::Target {
-        Self::Target {
-            id: self.id,
-            signatories: self.signatories,
-            assets: AssetsMap::default(),
-            signature_check_condition: SignatureCheckCondition::default(),
-            metadata: self.metadata,
-        }
+        self.into_account()
     }
 }
 
@@ -137,7 +131,7 @@ pub mod isi {
             wsv.account_mut(&account_id)
                 .map_err(Error::from)
                 .and_then(|account| {
-                    if account.signatories.contains(&public_key) {
+                    if account.contains_signatory(&public_key) {
                         return Err(RepetitionError {
                             instruction_type: InstructionType::Mint,
                             id: account_id.clone().into(),
@@ -164,16 +158,14 @@ pub mod isi {
             wsv.account_mut(&account_id)
                 .map_err(Error::from)
                 .and_then(|account| {
-                    if account.signatories.len() < 2 {
-                        return Err(Error::InvariantViolation(String::from(
+                    match account.remove_signatory(&public_key) {
+                        None => Err(Error::InvariantViolation(String::from(
                             "Public keys cannot be burned to nothing, \
                             if you want to delete the account, please use an unregister instruction",
-                        )));
+                        ))),
+                        Some(false) => Err(FindError::PublicKey(public_key).into()),
+                        Some(true) => Ok(())
                     }
-                    if !account.remove_signatory(&public_key) {
-                        return Err(FindError::PublicKey(public_key).into());
-                    }
-                    Ok(())
                 })?;
 
             wsv.emit_events(Some(AccountEvent::AuthenticationRemoved(account_id)));

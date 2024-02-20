@@ -9,6 +9,8 @@ use iroha_client::{
 use serde_json::json;
 use test_network::*;
 
+use crate::integration::new_account_with_random_public_key;
+
 #[test]
 fn register_empty_role() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_695).start_with_runtime();
@@ -58,7 +60,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let mouse_key_pair = KeyPair::generate();
     let register_mouse = Register::account(Account::new(
         mouse_id.clone(),
-        [mouse_key_pair.public_key().clone()],
+        mouse_key_pair.public_key().clone(),
     ));
     test_client.submit_blocking(register_mouse)?;
 
@@ -110,7 +112,7 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
 
     // Registering Mouse
-    let register_mouse = Register::account(Account::new(mouse_id.clone(), []));
+    let register_mouse = Register::account(new_account_with_random_public_key(mouse_id.clone()));
     test_client.submit_blocking(register_mouse)?;
 
     // Register root role

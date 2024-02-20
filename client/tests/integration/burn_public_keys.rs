@@ -52,7 +52,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
     let charlie_initial_keypair = KeyPair::generate();
     let register_charlie = Register::account(Account::new(
         charlie_id.clone(),
-        [charlie_initial_keypair.public_key().clone()],
+        charlie_initial_keypair.public_key().clone(),
     ));
 
     let (tx_hash, res) = submit(&client, [register_charlie], None);

@@ -1,7 +1,8 @@
 //! Build script that auto-updates sample binaries from sources.
 
-use std::{fs, io::Result, path::PathBuf};
+use std::{fs, path::PathBuf};
 
+use eyre::Result;
 use iroha_data_model::{account::NewAccount, domain::NewDomain, prelude::*};
 use parity_scale_codec::Encode;
 use serde::de::DeserializeOwned;

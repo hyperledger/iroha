@@ -6,6 +6,8 @@ use iroha_client::{
 use serde_json::json;
 use test_network::*;
 
+use super::new_account_with_random_public_key;
+
 #[test]
 fn domain_owner_domain_permissions() -> Result<()> {
     let chain_id = ChainId::from("0");
@@ -23,7 +25,7 @@ fn domain_owner_domain_permissions() -> Result<()> {
     test_client.submit_blocking(Register::domain(kingdom))?;
 
     let bob_keypair = KeyPair::generate();
-    let bob = Account::new(bob_id.clone(), [bob_keypair.public_key().clone()]);
+    let bob = Account::new(bob_id.clone(), bob_keypair.public_key().clone());
     test_client.submit_blocking(Register::account(bob))?;
 
     // Asset definitions can't be registered by "bob@kingdom" by default
@@ -96,7 +98,7 @@ fn domain_owner_account_permissions() -> Result<()> {
     let mad_hatter_keypair = KeyPair::generate();
     let mad_hatter = Account::new(
         mad_hatter_id.clone(),
-        [mad_hatter_keypair.public_key().clone()],
+        mad_hatter_keypair.public_key().clone(),
     );
     test_client.submit_blocking(Register::account(mad_hatter))?;
 
@@ -158,10 +160,10 @@ fn domain_owner_asset_definition_permissions() -> Result<()> {
     test_client.submit_blocking(Register::domain(kingdom))?;
 
     let bob_keypair = KeyPair::generate();
-    let bob = Account::new(bob_id.clone(), [bob_keypair.public_key().clone()]);
+    let bob = Account::new(bob_id.clone(), bob_keypair.public_key().clone());
     test_client.submit_blocking(Register::account(bob))?;
 
-    let rabbit = Account::new(rabbit_id.clone(), []);
+    let rabbit = new_account_with_random_public_key(rabbit_id.clone());
     test_client.submit_blocking(Register::account(rabbit))?;
 
     // Grant permission to register asset definitions to "bob@kingdom"
@@ -228,7 +230,7 @@ fn domain_owner_asset_permissions() -> Result<()> {
     test_client.submit_blocking(Register::domain(kingdom))?;
 
     let bob_keypair = KeyPair::generate();
-    let bob = Account::new(bob_id.clone(), [bob_keypair.public_key().clone()]);
+    let bob = Account::new(bob_id.clone(), bob_keypair.public_key().clone());
     test_client.submit_blocking(Register::account(bob))?;
 
     // Grant permission to register asset definitions to "bob@kingdom"
@@ -293,7 +295,7 @@ fn domain_owner_trigger_permissions() -> Result<()> {
     test_client.submit_blocking(Register::domain(kingdom))?;
 
     let bob_keypair = KeyPair::generate();
-    let bob = Account::new(bob_id.clone(), [bob_keypair.public_key().clone()]);
+    let bob = Account::new(bob_id.clone(), bob_keypair.public_key().clone());
     test_client.submit_blocking(Register::account(bob))?;
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -354,7 +356,7 @@ fn domain_owner_transfer() -> Result<()> {
     test_client.submit_blocking(Register::domain(kingdom))?;
 
     let bob_keypair = KeyPair::generate();
-    let bob = Account::new(bob_id.clone(), [bob_keypair.public_key().clone()]);
+    let bob = Account::new(bob_id.clone(), bob_keypair.public_key().clone());
     test_client.submit_blocking(Register::account(bob))?;
 
     let domain = test_client.request(FindDomainById::new(kingdom_id.clone()))?;

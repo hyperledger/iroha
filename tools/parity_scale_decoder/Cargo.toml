@@ -33,5 +33,6 @@ colored = "2.0.4"
 iroha_data_model = { workspace = true }
 
 parity-scale-codec = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["std"]}
 serde = { workspace = true }
+eyre = { workspace = true }

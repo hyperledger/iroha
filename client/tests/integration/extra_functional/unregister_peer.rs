@@ -108,7 +108,7 @@ fn init() -> Result<(
     let create_domain = Register::domain(Domain::new("domain".parse()?));
     let account_id: AccountId = "account@domain".parse()?;
     let (public_key, _) = KeyPair::generate().into();
-    let create_account = Register::account(Account::new(account_id.clone(), [public_key]));
+    let create_account = Register::account(Account::new(account_id.clone(), public_key));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse()?;
     let create_asset =
         Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));

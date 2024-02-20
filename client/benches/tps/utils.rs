@@ -158,8 +158,7 @@ impl MeasurerUnit {
         let account_id = account_id(self.name);
         let asset_id = asset_id(self.name);
 
-        let register_me =
-            Register::account(Account::new(account_id, [keypair.public_key().clone()]));
+        let register_me = Register::account(Account::new(account_id, keypair.public_key().clone()));
         self.client.submit_blocking(register_me)?;
 
         let mint_a_rose = Mint::asset_quantity(1_u32, asset_id);

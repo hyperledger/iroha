@@ -2,6 +2,8 @@ use eyre::Result;
 use iroha_client::{client, data_model::prelude::*};
 use test_network::*;
 
+use crate::integration::new_account_with_random_public_key;
+
 #[test]
 fn must_execute_both_triggers() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_650).start_with_runtime();
@@ -47,9 +49,8 @@ fn must_execute_both_triggers() -> Result<()> {
     ));
     test_client.submit_blocking(register_trigger)?;
 
-    test_client.submit_blocking(Register::account(Account::new(
+    test_client.submit_blocking(Register::account(new_account_with_random_public_key(
         "bunny@wonderland".parse()?,
-        [],
     )))?;
     test_client.submit_blocking(Register::domain(Domain::new("neverland".parse()?)))?;
 
@@ -68,7 +69,8 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
         Register::domain(Domain::new("neverland".parse()?)).into();
 
     let account_id: AccountId = "sapporo@neverland".parse()?;
-    let create_sapporo_account = Register::account(Account::new(account_id.clone(), [])).into();
+    let create_sapporo_account =
+        Register::account(new_account_with_random_public_key(account_id.clone())).into();
 
     let asset_definition_id: AssetDefinitionId = "sakura#neverland".parse()?;
     let create_sakura_asset_definition =
@@ -107,14 +109,12 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
     ));
     test_client.submit_blocking(register_trigger)?;
 
-    test_client.submit_blocking(Register::account(Account::new(
+    test_client.submit_blocking(Register::account(new_account_with_random_public_key(
         "asahi@wonderland".parse()?,
-        [],
     )))?;
 
-    test_client.submit_blocking(Register::account(Account::new(
+    test_client.submit_blocking(Register::account(new_account_with_random_public_key(
         "asahi@neverland".parse()?,
-        [],
     )))?;
 
     let new_value = get_asset_value(&test_client, asset_id)?;

@@ -1,6 +1,8 @@
 {
     "id": "alice@wonderland",
-    "signatories": [],
+    "signatories": [
+        "ed0120EDF6D7B52C7032D03AEC696F2068BD53101528F3C7B6081BFF05A1662D7FC245"
+    ],
     "metadata": {
         "hat": {
             "Name": "white"

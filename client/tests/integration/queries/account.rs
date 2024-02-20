@@ -7,6 +7,8 @@ use iroha_client::{
 };
 use test_network::*;
 
+use crate::integration::new_account_with_random_public_key;
+
 #[test]
 fn find_accounts_with_asset() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_760).start_with_runtime();
@@ -40,7 +42,7 @@ fn find_accounts_with_asset() -> Result<()> {
         .iter()
         .skip(1) // Alice has already been registered in genesis
         .cloned()
-        .map(|account_id| Register::account(Account::new(account_id, [])))
+        .map(|account_id| Register::account(new_account_with_random_public_key(account_id)))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 

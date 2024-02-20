@@ -1,3 +1,6 @@
+use iroha_crypto::KeyPair;
+use iroha_data_model::account::{Account, AccountId, NewAccount};
+
 mod add_account;
 mod add_domain;
 mod asset;
@@ -20,3 +23,7 @@ mod triggers;
 mod tx_history;
 mod tx_rollback;
 mod upgrade;
+
+fn new_account_with_random_public_key(account_id: AccountId) -> NewAccount {
+    Account::new(account_id, KeyPair::generate().into_raw_parts().0)
+}

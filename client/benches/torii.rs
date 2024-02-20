@@ -64,7 +64,7 @@ fn query_requests(criterion: &mut Criterion) {
     let create_domain = Register::domain(Domain::new(domain_id.clone()));
     let account_id = AccountId::new(domain_id.clone(), "account".parse().expect("Valid"));
     let (public_key, _) = KeyPair::generate().into();
-    let create_account = Register::account(Account::new(account_id.clone(), [public_key]));
+    let create_account = Register::account(Account::new(account_id.clone(), public_key));
     let asset_definition_id = AssetDefinitionId::new(domain_id, "xor".parse().expect("Valid"));
     let create_asset =
         Register::asset_definition(AssetDefinition::quantity(asset_definition_id.clone()));
@@ -164,7 +164,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     let create_domain: InstructionBox = Register::domain(Domain::new(domain_id.clone())).into();
     let account_id = AccountId::new(domain_id.clone(), "account".parse().expect("Valid"));
     let (public_key, _) = KeyPair::generate().into();
-    let create_account = Register::account(Account::new(account_id.clone(), [public_key])).into();
+    let create_account = Register::account(Account::new(account_id.clone(), public_key)).into();
     let asset_definition_id = AssetDefinitionId::new(domain_id, "xor".parse().expect("Valid"));
     let client_config = iroha_client::samples::get_client_config(
         get_chain_id(),

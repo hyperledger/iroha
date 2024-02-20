@@ -219,13 +219,17 @@ mod tests {
         let mut metadata = Metadata::new();
         metadata
             .insert_with_limits(
-                "hat".parse().expect("Valid"),
-                Value::Name("white".parse().expect("Valid")),
+                "hat".parse().unwrap(),
+                Value::Name("white".parse().unwrap()),
                 limits,
             )
             .expect("Valid");
+        let signature = PublicKey::from_str(
+            "ed0120EDF6D7B52C7032D03AEC696F2068BD53101528F3C7B6081BFF05A1662D7FC245",
+        )
+        .unwrap();
         let account =
-            Account::new("alice@wonderland".parse().expect("Valid"), []).with_metadata(metadata);
+            Account::new("alice@wonderland".parse().unwrap(), signature).with_metadata(metadata);
 
         decode_sample("account.bin", String::from("NewAccount"), &account);
     }

@@ -3,6 +3,7 @@ use std::{thread, time::Duration};
 
 use iroha::samples::{construct_executor, get_config};
 use iroha_client::data_model::prelude::*;
+use iroha_crypto::KeyPair;
 use iroha_data_model::isi::InstructionBox;
 use iroha_genesis::{GenesisNetwork, RawGenesisBlock, RawGenesisBlockBuilder};
 use iroha_primitives::unique_vec;
@@ -77,7 +78,11 @@ fn create_million_accounts_directly() {
             format!("bob-{i}").parse().expect("Valid"),
         );
         let create_domain: InstructionBox = Register::domain(Domain::new(domain_id)).into();
-        let create_account = Register::account(Account::new(normal_account_id.clone(), [])).into();
+        let create_account = Register::account(Account::new(
+            normal_account_id.clone(),
+            KeyPair::generate().into_raw_parts().0,
+        ))
+        .into();
         if test_client
             .submit_all([create_domain, create_account])
             .is_err()
