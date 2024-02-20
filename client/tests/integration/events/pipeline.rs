@@ -82,12 +82,12 @@ impl Checker {
         thread::spawn(move || {
             let mut event_iterator = self
                 .listener
-                .listen_for_events(EventFilterBox::Pipeline(
+                .listen_for_events(
                     PipelineEventFilter::new()
                         .entity_kind(PipelineEntityKind::Transaction)
                         .status_kind(status_kind)
                         .hash(*self.hash),
-                ))
+                )
                 .expect("Failed to create event iterator.");
             let event_result = event_iterator.next().expect("Stream closed");
             let _event = event_result.expect("Must be valid");
@@ -102,8 +102,7 @@ fn committed_block_must_be_available_in_kura() {
 
     let event_filter = PipelineEventFilter::new()
         .entity_kind(PipelineEntityKind::Block)
-        .status_kind(PipelineStatusKind::Committed)
-        .into();
+        .status_kind(PipelineStatusKind::Committed);
     let mut event_iter = client
         .listen_for_events(event_filter)
         .expect("Failed to subscribe for events");

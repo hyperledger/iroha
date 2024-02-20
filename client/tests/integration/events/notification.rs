@@ -38,8 +38,7 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
             NotificationEventFilter::ByTriggerCompleted(TriggerCompletedEventFilter::new(
                 Some(trigger_id),
                 Some(TriggerCompletedOutcomeType::Success),
-            ))
-            .into(),
+            )),
         )?;
         if event_it.next().is_some() {
             sender.send(())?;
@@ -87,8 +86,7 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
             NotificationEventFilter::ByTriggerCompleted(TriggerCompletedEventFilter::new(
                 Some(trigger_id),
                 Some(TriggerCompletedOutcomeType::Failure),
-            ))
-            .into(),
+            )),
         )?;
         if event_it.next().is_some() {
             sender.send(())?;
