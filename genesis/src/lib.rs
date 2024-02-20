@@ -302,13 +302,17 @@ impl<S> RawGenesisDomainBuilder<S> {
         }
     }
 
-    /// Add an account to this domain without a public key.
+    /// Add an account to this domain with random public key.
     #[cfg(test)]
-    fn account_without_public_key(mut self, account_name: Name) -> Self {
+    fn account_with_random_public_key(mut self, account_name: Name) -> Self {
         let account_id = AccountId::new(self.domain_id.clone(), account_name);
-        self.transaction
-            .isi
-            .push(Register::account(Account::new(account_id, [])).into());
+        self.transaction.isi.push(
+            Register::account(Account::new(
+                account_id,
+                KeyPair::generate().into_raw_parts().0,
+            ))
+            .into(),
+        );
         self
     }
 
@@ -326,7 +330,7 @@ impl<S> RawGenesisDomainBuilder<S> {
     ) -> Self {
         let account_id = AccountId::new(self.domain_id.clone(), account_name);
         let register =
-            Register::account(Account::new(account_id, [public_key]).with_metadata(metadata));
+            Register::account(Account::new(account_id, public_key).with_metadata(metadata));
         self.transaction.isi.push(register.into());
         self
     }
@@ -385,11 +389,11 @@ mod tests {
 
         genesis_builder = genesis_builder
             .domain("wonderland".parse().unwrap())
-            .account_without_public_key("alice".parse().unwrap())
-            .account_without_public_key("bob".parse().unwrap())
+            .account_with_random_public_key("alice".parse().unwrap())
+            .account_with_random_public_key("bob".parse().unwrap())
             .finish_domain()
             .domain("tulgey_wood".parse().unwrap())
-            .account_without_public_key("Cheshire_Cat".parse().unwrap())
+            .account_with_random_public_key("Cheshire_Cat".parse().unwrap())
             .finish_domain()
             .domain("meadow".parse().unwrap())
             .account("Mad_Hatter".parse().unwrap(), public_key.parse().unwrap())
@@ -408,7 +412,7 @@ mod tests {
                 finished_genesis_block.transactions[0].isi[1],
                 Register::account(Account::new(
                     AccountId::new(domain_id.clone(), "alice".parse().unwrap()),
-                    []
+                    KeyPair::generate().into_raw_parts().0,
                 ))
                 .into()
             );
@@ -416,7 +420,7 @@ mod tests {
                 finished_genesis_block.transactions[0].isi[2],
                 Register::account(Account::new(
                     AccountId::new(domain_id, "bob".parse().unwrap()),
-                    []
+                    KeyPair::generate().into_raw_parts().0,
                 ))
                 .into()
             );
@@ -431,7 +435,7 @@ mod tests {
                 finished_genesis_block.transactions[0].isi[4],
                 Register::account(Account::new(
                     AccountId::new(domain_id, "Cheshire_Cat".parse().unwrap()),
-                    []
+                    KeyPair::generate().into_raw_parts().0,
                 ))
                 .into()
             );
@@ -446,7 +450,7 @@ mod tests {
                 finished_genesis_block.transactions[0].isi[6],
                 Register::account(Account::new(
                     AccountId::new(domain_id, "Mad_Hatter".parse().unwrap()),
-                    [public_key.parse().unwrap()],
+                    public_key.parse().unwrap(),
                 ))
                 .into()
             );

@@ -586,7 +586,7 @@ mod account {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { id, key, metadata } = self;
             let create_account =
-                iroha_client::data_model::isi::Register::account(Account::new(id, [key]));
+                iroha_client::data_model::isi::Register::account(Account::new(id, key));
             submit([create_account], metadata.load()?, context)
                 .wrap_err("Failed to register account")
         }

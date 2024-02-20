@@ -74,7 +74,7 @@ pub fn populate_wsv(
         instructions.push(can_unregister_domain.into());
         for j in 0..accounts_per_domain {
             let account_id = construct_account_id(j, domain_id.clone());
-            let account = Account::new(account_id.clone(), []);
+            let account = Account::new(account_id.clone(), KeyPair::generate().into_raw_parts().0);
             instructions.push(Register::account(account).into());
             let can_unregister_account = Grant::permission(
                 PermissionToken::new(
@@ -150,7 +150,8 @@ pub fn restore_every_nth(
         for j in 0..accounts_per_domain {
             if j % nth == 0 || i % nth == 0 {
                 let account_id = construct_account_id(j, domain_id.clone());
-                let account = Account::new(account_id.clone(), []);
+                let account =
+                    Account::new(account_id.clone(), KeyPair::generate().into_raw_parts().0);
                 instructions.push(Register::account(account).into());
             }
         }
@@ -181,7 +182,7 @@ pub fn build_wsv(
     let mut domain = Domain::new(account_id.domain_id.clone()).build(account_id);
     domain.accounts.insert(
         account_id.clone(),
-        Account::new(account_id.clone(), [key_pair.public_key().clone()]).build(account_id),
+        Account::new(account_id.clone(), key_pair.public_key().clone()).build(account_id),
     );
     let mut wsv = WorldStateView::new(World::with([domain], UniqueVec::new()), kura, query_handle);
     wsv.config.transaction_limits = TransactionLimits::new(u64::MAX, u64::MAX);

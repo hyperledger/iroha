@@ -30,9 +30,7 @@ impl AcceptedTransaction {
             .collect();
 
         wsv.map_account(authority, |account| {
-            Ok(account
-                .signature_check_condition
-                .check(&account.signatories, &transaction_signatories))
+            Ok(account.check_signature_check_condition(&transaction_signatories))
         })?
     }
 
@@ -411,12 +409,17 @@ mod tests {
     }
 
     pub fn world_with_test_domains(
-        signatures: impl IntoIterator<Item = iroha_crypto::PublicKey>,
+        signatories: impl IntoIterator<Item = iroha_crypto::PublicKey>,
     ) -> World {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
         let mut domain = Domain::new(domain_id).build(&account_id);
-        let account = Account::new(account_id.clone(), signatures).build(&account_id);
+        let mut signatories = signatories.into_iter();
+        let mut account = Account::new(account_id.clone(), signatories.next().unwrap());
+        for signatory in signatories {
+            account = account.add_signatory(signatory);
+        }
+        let account = account.build(&account_id);
         assert!(domain.add_account(account).is_none());
         World::with([domain], PeersIds::new())
     }
@@ -493,11 +496,9 @@ mod tests {
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
             let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
             let mut domain = Domain::new(domain_id).build(&account_id);
-            let mut account = Account::new(
-                account_id.clone(),
-                key_pairs.iter().map(KeyPair::public_key).cloned(),
-            )
-            .build(&account_id);
+            let mut account = Account::new(account_id.clone(), key_pairs[0].public_key().clone())
+                .add_signatory(key_pairs[1].public_key().clone())
+                .build(&account_id);
             account.signature_check_condition = SignatureCheckCondition::all_account_signatures();
             assert!(domain.add_account(account).is_none());
             let query_handle = LiveQueryStore::test().start();
@@ -887,11 +888,11 @@ mod tests {
             let mut domain = Domain::new(domain_id).build(&alice_account_id);
             let alice_account = Account::new(
                 alice_account_id.clone(),
-                [alice_key_pair.public_key().clone()],
+                alice_key_pair.public_key().clone(),
             )
             .build(&alice_account_id);
             let bob_account =
-                Account::new(bob_account_id.clone(), [bob_key_pair.public_key().clone()])
+                Account::new(bob_account_id.clone(), bob_key_pair.public_key().clone())
                     .build(&bob_account_id);
             assert!(domain.add_account(alice_account).is_none());
             assert!(domain.add_account(bob_account).is_none());

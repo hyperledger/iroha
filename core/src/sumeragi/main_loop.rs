@@ -1198,7 +1198,7 @@ mod tests {
         let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
         let alice_keys = KeyPair::generate();
         let account =
-            Account::new(alice_id.clone(), [alice_keys.public_key().clone()]).build(&alice_id);
+            Account::new(alice_id.clone(), alice_keys.public_key().clone()).build(&alice_id);
         let domain_id = "wonderland".parse().expect("Valid");
         let mut domain = Domain::new(domain_id).build(&alice_id);
         assert!(domain.add_account(account).is_none());

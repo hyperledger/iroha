@@ -1150,6 +1150,7 @@ pub mod value {
 
     #[cfg(test)]
     mod test {
+        use iroha_crypto::KeyPair;
         use iroha_primitives::addr::socket_addr;
         use peer::Peer;
         use prelude::Metadata;
@@ -1169,7 +1170,10 @@ pub mod value {
                 ))));
                 assert!(
                     pred.applies(&Value::Identifiable(IdentifiableBox::NewAccount(
-                        Account::new("alice@wonderland".parse().expect("Valid"), [])
+                        Account::new(
+                            "alice@wonderland".parse().expect("Valid"),
+                            KeyPair::generate().into_raw_parts().0,
+                        )
                     )))
                 );
                 assert!(!pred.applies(&Value::Name("alice".parse().expect("Valid"))));

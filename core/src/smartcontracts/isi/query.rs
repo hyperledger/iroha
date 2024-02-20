@@ -65,7 +65,7 @@ impl ValidQueryRequest {
     pub fn validate(query: SignedQuery, wsv: &WorldStateView) -> Result<Self, ValidationFail> {
         let account_has_public_key = wsv
             .map_account(query.authority(), |account| {
-                account.signatories.contains(query.signature().public_key())
+                account.contains_signatory(query.signature().public_key())
             })
             .map_err(Error::from)?;
         if !account_has_public_key {
@@ -187,7 +187,7 @@ mod tests {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let mut domain = Domain::new(domain_id).build(&ALICE_ID);
         let account =
-            Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()]).build(&ALICE_ID);
+            Account::new(ALICE_ID.clone(), ALICE_KEYS.public_key().clone()).build(&ALICE_ID);
         assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
@@ -201,7 +201,7 @@ mod tests {
         let mut domain =
             Domain::new(DomainId::from_str("wonderland").expect("Valid")).build(&ALICE_ID);
         let mut account =
-            Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()]).build(&ALICE_ID);
+            Account::new(ALICE_ID.clone(), ALICE_KEYS.public_key().clone()).build(&ALICE_ID);
         assert!(domain
             .add_asset_definition(
                 AssetDefinition::quantity(asset_definition_id.clone()).build(&ALICE_ID)
@@ -233,7 +233,7 @@ mod tests {
         )?;
 
         let mut domain = Domain::new(DomainId::from_str("wonderland")?).build(&ALICE_ID);
-        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()])
+        let account = Account::new(ALICE_ID.clone(), ALICE_KEYS.public_key().clone())
             .with_metadata(metadata)
             .build(&ALICE_ID);
         assert!(domain.add_account(account).is_none());
@@ -466,7 +466,7 @@ mod tests {
                 .with_metadata(metadata)
                 .build(&ALICE_ID);
             let account =
-                Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()]).build(&ALICE_ID);
+                Account::new(ALICE_ID.clone(), ALICE_KEYS.public_key().clone()).build(&ALICE_ID);
             assert!(domain.add_account(account).is_none());
             let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
             assert!(domain

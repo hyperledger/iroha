@@ -9,6 +9,8 @@ use iroha_config::parameters::defaults::chain_wide::DEFAULT_CONSENSUS_ESTIMATION
 use iroha_logger::info;
 use test_network::*;
 
+use crate::integration::new_account_with_random_public_key;
+
 /// Macro to abort compilation, if `e` isn't `true`
 macro_rules! const_assert {
     ($e:expr) => {
@@ -195,7 +197,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
         .iter()
         .skip(1) // Alice has already been registered in genesis
         .cloned()
-        .map(|account_id| Register::account(Account::new(account_id, [])))
+        .map(|account_id| Register::account(new_account_with_random_public_key(account_id)))
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 

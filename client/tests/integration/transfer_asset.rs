@@ -184,5 +184,5 @@ fn generate_two_ids() -> (AccountId, AccountId) {
 
 fn create_mouse(mouse_id: AccountId) -> Register<Account> {
     let (mouse_public_key, _) = KeyPair::generate().into();
-    Register::account(Account::new(mouse_id, [mouse_public_key]))
+    Register::account(Account::new(mouse_id, mouse_public_key))
 }

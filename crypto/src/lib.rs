@@ -204,6 +204,7 @@ impl KeyPair {
     }
 
     /// Construct a [`KeyPair`]
+    ///
     /// # Errors
     /// If public and private key don't match, i.e. if they don't make a pair
     pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Result<Self, Error> {
@@ -238,6 +239,11 @@ impl KeyPair {
             Algorithm::BlsNormal => signature::bls::BlsNormal::keypair(key_gen_option).into(),
             Algorithm::BlsSmall => signature::bls::BlsSmall::keypair(key_gen_option).into(),
         }
+    }
+
+    /// Get [`PublicKey`] and [`PrivateKey`] contained in the [`KeyPair`].
+    pub fn into_raw_parts(self) -> (PublicKey, PrivateKey) {
+        (self.public_key, self.private_key)
     }
 }
 
@@ -303,7 +309,7 @@ impl<'de> Deserialize<'de> for KeyPair {
 #[cfg(not(feature = "ffi_import"))]
 impl From<KeyPair> for (PublicKey, PrivateKey) {
     fn from(key_pair: KeyPair) -> Self {
-        (key_pair.public_key, key_pair.private_key)
+        key_pair.into_raw_parts()
     }
 }
 

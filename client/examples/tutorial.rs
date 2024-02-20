@@ -120,7 +120,7 @@ fn account_registration_test(config: Config) -> Result<(), Error> {
 
     // #region register_account_generate
     // Generate a new account
-    let create_account = Register::account(Account::new(account_id, [public_key]));
+    let create_account = Register::account(Account::new(account_id, public_key));
     // #endregion register_account_generate
 
     // #region register_account_prepare_tx

@@ -206,7 +206,7 @@ fn permissions_differ_not_only_by_names() {
     // Registering mouse
     let outfit_domain: DomainId = "outfit".parse().unwrap();
     let create_outfit_domain = Register::domain(Domain::new(outfit_domain.clone()));
-    let new_mouse_account = Account::new(mouse_id.clone(), [mouse_keypair.public_key().clone()]);
+    let new_mouse_account = Account::new(mouse_id.clone(), mouse_keypair.public_key().clone());
     client
         .submit_all_blocking([
             InstructionBox::from(create_outfit_domain),
@@ -306,7 +306,7 @@ fn stored_vs_granted_token_payload() -> Result<()> {
         Register::asset_definition(AssetDefinition::store(asset_definition_id.clone()));
     let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
     let mouse_keypair = KeyPair::generate();
-    let new_mouse_account = Account::new(mouse_id.clone(), [mouse_keypair.public_key().clone()]);
+    let new_mouse_account = Account::new(mouse_id.clone(), mouse_keypair.public_key().clone());
     let instructions: [InstructionBox; 2] = [
         Register::account(new_mouse_account).into(),
         create_asset.into(),

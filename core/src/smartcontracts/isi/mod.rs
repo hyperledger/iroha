@@ -248,7 +248,7 @@ mod tests {
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         Register::domain(Domain::new(DomainId::from_str("wonderland")?))
             .execute(&genesis_account_id, &mut wsv)?;
-        Register::account(Account::new(account_id, [public_key]))
+        Register::account(Account::new(account_id, public_key))
             .execute(&genesis_account_id, &mut wsv)?;
         Register::asset_definition(AssetDefinition::store(asset_definition_id))
             .execute(&genesis_account_id, &mut wsv)?;
@@ -395,8 +395,7 @@ mod tests {
 
         // register fake account
         let (public_key, _) = KeyPair::generate().into();
-        let register_account =
-            Register::account(Account::new(fake_account_id.clone(), [public_key]));
+        let register_account = Register::account(Account::new(fake_account_id.clone(), public_key));
         register_account.execute(&account_id, &mut wsv)?;
 
         // register the trigger

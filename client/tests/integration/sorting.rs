@@ -17,6 +17,8 @@ use iroha_client::{
 use iroha_data_model::isi::InstructionBox;
 use test_network::*;
 
+use crate::integration::new_account_with_random_public_key;
+
 #[test]
 fn correct_pagination_assets_after_creating_new_one() {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().with_port(10_635).start_with_runtime();
@@ -201,7 +203,8 @@ fn correct_sorting_of_entities() {
                 MetadataLimits::new(10, 28),
             )
             .expect("Valid");
-        let account = Account::new(account_id.clone(), []).with_metadata(account_metadata.clone());
+        let account = new_account_with_random_public_key(account_id.clone())
+            .with_metadata(account_metadata.clone());
 
         accounts.push(account_id);
         metadata_of_accounts.push(account_metadata);
@@ -342,7 +345,7 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
     for i in 0..n {
         let account_id = AccountId::from_str(&format!("charlie{i}@wonderland")).expect("Valid");
         let account = if skip_set.contains(&i) {
-            let account = Account::new(account_id.clone(), []);
+            let account = new_account_with_random_public_key(account_id.clone());
             accounts_b.push(account_id);
             account
         } else {
@@ -354,7 +357,8 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
                     MetadataLimits::new(10, 28),
                 )
                 .expect("Valid");
-            let account = Account::new(account_id.clone(), []).with_metadata(account_metadata);
+            let account = new_account_with_random_public_key(account_id.clone())
+                .with_metadata(account_metadata);
             accounts_a.push(account_id);
             account
         };
