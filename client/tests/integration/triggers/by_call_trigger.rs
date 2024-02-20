@@ -60,7 +60,7 @@ fn execute_trigger_should_produce_event() -> Result<()> {
     let (sender, receiver) = mpsc::channel();
     let _handle = thread::spawn(move || -> Result<()> {
         let mut event_it = thread_client
-            .listen_for_events(ExecuteTriggerEventFilter::new(trigger_id, account_id).into())?;
+            .listen_for_events(ExecuteTriggerEventFilter::new(trigger_id, account_id))?;
         if event_it.next().is_some() {
             sender.send(())?;
             return Ok(());

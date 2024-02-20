@@ -273,11 +273,9 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
 fn get_block_committed_event_listener(
     client: &Client,
 ) -> Result<impl Iterator<Item = Result<Event>>> {
-    let block_filter = EventFilterBox::Pipeline(
-        PipelineEventFilter::new()
-            .entity_kind(PipelineEntityKind::Block)
-            .status_kind(PipelineStatusKind::Committed),
-    );
+    let block_filter = PipelineEventFilter::new()
+        .entity_kind(PipelineEntityKind::Block)
+        .status_kind(PipelineStatusKind::Committed);
     client.listen_for_events(block_filter)
 }
 

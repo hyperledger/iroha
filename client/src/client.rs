@@ -605,9 +605,7 @@ impl Client {
             let mut event_iterator = {
                 let event_iterator_result = tokio::time::timeout_at(
                     deadline,
-                    self.listen_for_events_async(
-                        PipelineEventFilter::new().hash(hash.into()).into(),
-                    ),
+                    self.listen_for_events_async(PipelineEventFilter::new().hash(hash.into())),
                 )
                 .await
                 .map_err(Into::into)
@@ -905,8 +903,9 @@ impl Client {
     /// - Forwards from [`events_api::EventIterator::new`]
     pub fn listen_for_events(
         &self,
-        event_filter: EventFilterBox,
+        event_filter: impl Into<EventFilterBox>,
     ) -> Result<impl Iterator<Item = Result<Event>>> {
+        let event_filter = event_filter.into();
         iroha_logger::trace!(?event_filter);
         events_api::EventIterator::new(self.events_handler(event_filter)?)
     }
@@ -918,8 +917,9 @@ impl Client {
     /// - Forwards from [`events_api::AsyncEventStream::new`]
     pub async fn listen_for_events_async(
         &self,
-        event_filter: EventFilterBox,
+        event_filter: impl Into<EventFilterBox>,
     ) -> Result<AsyncEventStream> {
+        let event_filter = event_filter.into();
         iroha_logger::trace!(?event_filter, "Async listening with");
         events_api::AsyncEventStream::new(self.events_handler(event_filter)?).await
     }
@@ -929,9 +929,12 @@ impl Client {
     /// # Errors
     /// Fails if handler construction fails
     #[inline]
-    pub fn events_handler(&self, event_filter: EventFilterBox) -> Result<events_api::flow::Init> {
+    pub fn events_handler(
+        &self,
+        event_filter: impl Into<EventFilterBox>,
+    ) -> Result<events_api::flow::Init> {
         events_api::flow::Init::new(
-            event_filter,
+            event_filter.into(),
             self.headers.clone(),
             self.torii_url
                 .join(torii_uri::SUBSCRIPTION)
