@@ -106,15 +106,15 @@ def test_register_account_with_invalid_character_in_key(
 
 @allure.label("sdk_test_id", "register_account_with_max_name")
 def test_register_account_with_max_name(
-    GIVEN_127_lenght_name, GIVEN_registered_domain, GIVEN_public_key
+    GIVEN_127_length_name, GIVEN_registered_domain, GIVEN_public_key
 ):
-    with allure.step("WHEN client_cli register an account with the 127 lenght name"):
+    with allure.step("WHEN client_cli register an account with the 127 length name"):
         client_cli.register().account(
-            account=GIVEN_127_lenght_name,
+            account=GIVEN_127_length_name,
             domain=GIVEN_registered_domain.name,
             key=GIVEN_public_key,
         )
-        registered = GIVEN_127_lenght_name + "@" + GIVEN_registered_domain.name
+        registered = GIVEN_127_length_name + "@" + GIVEN_registered_domain.name
     with allure.step(f'THEN Iroha should have the "{registered}" account'):
         iroha.should(have.account(registered))
 
@@ -129,13 +129,13 @@ def test_register_account_with_special_characters(
 
 @allure.label("sdk_test_id", "register_account_with_long_account_name")
 def test_register_account_with_long_account_name(
-    GIVEN_registered_domain, GIVEN_129_lenght_name, GIVEN_public_key
+    GIVEN_registered_domain, GIVEN_129_length_name, GIVEN_public_key
 ):
     with allure.step(
         "WHEN client_cli tries to register an account with a name with 129 characters"
     ):
         client_cli.register().account(
-            account=GIVEN_129_lenght_name,
+            account=GIVEN_129_length_name,
             domain=GIVEN_registered_domain.name,
             key=GIVEN_public_key,
         )

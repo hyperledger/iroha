@@ -25,7 +25,7 @@ fn impl_token(ident: &syn2::Ident, generics: &syn2::Generics) -> proc_macro2::To
             fn is_owned_by(&self, account_id: &::iroha_executor::data_model::account::AccountId) -> bool {
                 let account_tokens_cursor = ::iroha_executor::smart_contract::debug::DebugExpectExt::dbg_expect(
                     ::iroha_executor::smart_contract::ExecuteQueryOnHost::execute(
-                        ::iroha_executor::data_model::query::permission::FindPermissionTokensByAccountId::new(
+                        &::iroha_executor::data_model::query::permission::FindPermissionTokensByAccountId::new(
                             account_id.clone(),
                         )
                     ),

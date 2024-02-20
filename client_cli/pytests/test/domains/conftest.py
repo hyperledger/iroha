@@ -1,6 +1,6 @@
 from test import (
-    GIVEN_128_lenght_name,
-    GIVEN_129_lenght_name,
+    GIVEN_128_length_name,
+    GIVEN_129_length_name,
     GIVEN_currently_authorized_account,
     GIVEN_fake_name,
     GIVEN_public_key,

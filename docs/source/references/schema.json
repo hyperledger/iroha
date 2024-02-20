@@ -2367,11 +2367,11 @@
   "Limits": {
     "Struct": [
       {
-        "name": "max_len",
+        "name": "capacity",
         "type": "u32"
       },
       {
-        "name": "max_entry_byte_size",
+        "name": "max_entry_len",
         "type": "u32"
       }
     ]
@@ -2492,18 +2492,18 @@
   "MetadataError": {
     "Enum": [
       {
-        "tag": "EntryTooBig",
-        "discriminant": 0,
-        "type": "SizeError"
+        "tag": "EmptyPath",
+        "discriminant": 0
       },
       {
-        "tag": "OverallSize",
+        "tag": "EntryTooBig",
         "discriminant": 1,
         "type": "SizeError"
       },
       {
-        "tag": "EmptyPath",
-        "discriminant": 2
+        "tag": "MaxCapacity",
+        "discriminant": 2,
+        "type": "SizeError"
       },
       {
         "tag": "MissingSegment",

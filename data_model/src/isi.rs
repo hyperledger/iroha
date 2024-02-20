@@ -1359,7 +1359,7 @@ pub mod error {
         asset::AssetValueType,
         metadata,
         query::error::{FindError, QueryExecutionFail},
-        IdBox, Value,
+        IdBox,
     };
 
     #[model]
@@ -1367,7 +1367,7 @@ pub mod error {
         use serde::{Deserialize, Serialize};
 
         use super::*;
-        use crate::asset::AssetDefinitionId;
+        use crate::{asset::AssetDefinitionId, Value};
 
         /// Instruction execution error type
         #[derive(
@@ -1633,6 +1633,7 @@ pub mod error {
             Self::Evaluate(InstructionEvaluationError::Type(err))
         }
     }
+
     impl From<FixedPointOperationError> for MathError {
         fn from(err: FixedPointOperationError) -> Self {
             match err {

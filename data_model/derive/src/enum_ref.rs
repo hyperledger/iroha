@@ -151,7 +151,7 @@ impl ToTokens for EnumRef {
 
         quote! {
             #attrs
-            pub(super) enum #ident<'a> #impl_generics #where_clause {
+            pub(crate) enum #ident<'a> #impl_generics #where_clause {
                 #(#variants),*
             }
         }

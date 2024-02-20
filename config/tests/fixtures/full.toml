@@ -65,10 +65,10 @@ max_transactions_in_block = 512
 block_time = 2_000
 commit_time = 4_000
 transaction_limits = {max_instruction_number = 4096, max_wasm_size_bytes = 4194304 }
-asset_metadata_limits = { max_len = 1048576, max_entry_byte_size = 4096 }
-asset_definition_metadata_limits = { max_len = 1048576, max_entry_byte_size = 4096 }
-account_metadata_limits = { max_len = 1048576, max_entry_byte_size = 4096 }
-domain_metadata_limits = { max_len = 1048576, max_entry_byte_size = 4096 }
+asset_metadata_limits = { capacity = 1048576, max_entry_len = 4096 }
+asset_definition_metadata_limits = { capacity = 1048576, max_entry_len = 4096 }
+account_metadata_limits = { capacity = 1048576, max_entry_len = 4096 }
+domain_metadata_limits = { capacity = 1048576, max_entry_len = 4096 }
 ident_length_limits = { min = 1, max = 128 }
 wasm_fuel_limit = 55000000
 wasm_max_memory = 524288000

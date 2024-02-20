@@ -14,32 +14,34 @@ use proc_macro2::TokenStream;
 ///
 /// # Example
 ///
-/// ```rust
+/// ```
 /// use iroha_data_model_derive::EnumRef;
 /// use parity_scale_codec::Encode;
 ///
 /// #[derive(EnumRef)]
-/// enum InnerEnum {
+/// #[enum_ref(derive(Encode))]
+/// pub enum InnerEnum {
 ///     A(u32),
 ///     B(i32)
 /// }
 ///
 /// #[derive(EnumRef)]
 /// #[enum_ref(derive(Encode))]
-/// enum OuterEnum {
+/// pub enum OuterEnum {
 ///     A(String),
 ///     #[enum_ref(transparent)]
 ///     B(InnerEnum),
 /// }
 ///
 /// /* will produce:
-///
-/// enum InnerEnumRef<'a> {
+/// #[derive(Encode)]
+/// pub(crate) enum InnerEnumRef<'a> {
 ///     A(&'a u32),
 ///     B(&'a i32),
 /// }
 ///
-/// enum OuterEnumRef<'a> {
+/// #[derive(Encode)]
+/// pub(crate) enum OuterEnumRef<'a> {
 ///     A(&'a String),
 ///     B(InnerEnumRef<'a>),
 /// }
@@ -67,7 +69,7 @@ pub fn enum_ref(input: TokenStream) -> Result<TokenStream> {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```
 /// use iroha_data_model_derive::model;
 ///
 /// #[model]
@@ -170,7 +172,7 @@ pub fn model_single(input: TokenStream) -> TokenStream {
 ///
 /// The common use-case:
 ///
-/// ```rust
+/// ```
 /// use iroha_data_model_derive::IdEqOrdHash;
 /// use iroha_data_model::{Identifiable, IdBox};
 ///
@@ -230,7 +232,7 @@ pub fn model_single(input: TokenStream) -> TokenStream {
 ///
 /// Manual selection of the identifier field:
 ///
-/// ```rust
+/// ```
 /// use iroha_data_model_derive::IdEqOrdHash;
 /// use iroha_data_model::{Identifiable, IdBox};
 ///

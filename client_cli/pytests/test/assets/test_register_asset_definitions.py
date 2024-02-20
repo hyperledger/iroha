@@ -35,19 +35,19 @@ def test_register_asset_definition_with_quantity_value_type(
 
 @allure.label("sdk_test_id", "register_asset_definition_with_too_long_name")
 def test_register_asset_definition_with_too_long_name(
-    GIVEN_129_lenght_name, GIVEN_registered_domain, GIVEN_quantity_value_type
+    GIVEN_129_length_name, GIVEN_registered_domain, GIVEN_quantity_value_type
 ):
     with allure.step(
-        f'WHEN client_cli registers the asset_definition "{GIVEN_129_lenght_name}" '
+        f'WHEN client_cli registers the asset_definition "{GIVEN_129_length_name}" '
         f'with "{GIVEN_quantity_value_type}" value type'
         f'in the "{GIVEN_registered_domain.name}" domain'
     ):
         client_cli.register().asset().definition(
-            asset=GIVEN_129_lenght_name,
+            asset=GIVEN_129_length_name,
             domain=GIVEN_registered_domain.name,
             value_type=GIVEN_quantity_value_type,
         )
-    with allure.step(f'THEN Iroha should have the asset "{GIVEN_129_lenght_name}"'):
+    with allure.step(f'THEN Iroha should have the asset "{GIVEN_129_length_name}"'):
         client_cli.should(have.error(Stderr.TOO_LONG.value))
 
 

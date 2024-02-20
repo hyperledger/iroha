@@ -1,5 +1,5 @@
 from test import (
-    GIVEN_129_lenght_name,
+    GIVEN_129_length_name,
     GIVEN_big_quantity_value_type,
     GIVEN_currently_account_quantity_with_two_quantity_of_asset,
     GIVEN_currently_authorized_account,

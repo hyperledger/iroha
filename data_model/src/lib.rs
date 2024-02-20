@@ -413,11 +413,11 @@ pub mod parameter {
                                     })?;
                                 let lower = lower.parse::<u32>().map_err(|_| ParseError {
                                     reason:
-                                        "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Invalid `u32` in `max_len` field.",
+                                        "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Invalid `u32` in `capacity` field.",
                                 })?;
                                 let upper = upper.parse::<u32>().map_err(|_| ParseError {
                                     reason:
-                                        "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Invalid `u32` in `max_entry_byte_size` field.",
+                                        "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Invalid `u32` in `max_entry_len` field.",
                                 })?;
                                 Value::MetadataLimits(metadata::Limits::new(lower, upper))
                             }
