@@ -194,7 +194,7 @@ pub mod isi {
                 MetadataChanged {
                     target_id: asset_definition_id,
                     key: self.key,
-                    value: Box::new(self.value),
+                    value: self.value,
                 },
             )));
 
@@ -220,7 +220,7 @@ pub mod isi {
                 MetadataChanged {
                     target_id: asset_definition_id,
                     key: self.key,
-                    value: Box::new(value),
+                    value,
                 },
             )));
 
@@ -243,7 +243,7 @@ pub mod isi {
             wsv.emit_events(Some(DomainEvent::MetadataInserted(MetadataChanged {
                 target_id: domain_id,
                 key: self.key,
-                value: Box::new(self.value),
+                value: self.value,
             })));
 
             Ok(())
@@ -264,7 +264,7 @@ pub mod isi {
             wsv.emit_events(Some(DomainEvent::MetadataRemoved(MetadataChanged {
                 target_id: domain_id,
                 key: self.key,
-                value: Box::new(value),
+                value,
             })));
 
             Ok(())
@@ -303,8 +303,7 @@ pub mod isi {
 pub mod query {
     use eyre::Result;
     use iroha_data_model::{
-        domain::Domain,
-        query::{error::QueryExecutionFail as Error, MetadataValue},
+        domain::Domain, metadata::MetadataValueBox, query::error::QueryExecutionFail as Error,
     };
 
     use super::*;
@@ -330,7 +329,7 @@ pub mod query {
 
     impl ValidQuery for FindDomainKeyValueByIdAndKey {
         #[metrics(+"find_domain_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);
@@ -342,7 +341,7 @@ pub mod query {
 
     impl ValidQuery for FindAssetDefinitionKeyValueByIdAndKey {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);

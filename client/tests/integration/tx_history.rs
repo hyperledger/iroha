@@ -64,11 +64,15 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() -> Result<()> 
     assert_eq!(transactions.len(), 50);
 
     let mut prev_creation_time = core::time::Duration::from_millis(0);
-    for tx in &transactions {
-        assert_eq!(tx.as_ref().authority(), &account_id);
-        //check sorted
-        assert!(tx.as_ref().creation_time() >= prev_creation_time);
-        prev_creation_time = tx.as_ref().creation_time();
-    }
+    transactions
+        .iter()
+        .map(AsRef::as_ref)
+        .map(AsRef::as_ref)
+        .for_each(|tx| {
+            assert_eq!(tx.authority(), &account_id);
+            //check sorted
+            assert!(tx.creation_time() >= prev_creation_time);
+            prev_creation_time = tx.creation_time();
+        });
     Ok(())
 }

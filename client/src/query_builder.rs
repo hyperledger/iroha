@@ -1,12 +1,10 @@
 use std::fmt::Debug;
 
+use iroha_data_model::query::QueryOutputBox;
+
 use crate::{
     client::{Client, QueryOutput, QueryResult},
-    data_model::{
-        predicate::PredicateBox,
-        query::{sorting::Sorting, FetchSize, Pagination, Query},
-        Value,
-    },
+    data_model::query::{predicate::PredicateBox, sorting::Sorting, FetchSize, Pagination, Query},
 };
 
 pub struct QueryRequestBuilder<'a, R> {
@@ -22,7 +20,7 @@ impl<'a, R> QueryRequestBuilder<'a, R>
 where
     R: Query + Debug,
     R::Output: QueryOutput,
-    <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+    <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
 {
     pub(crate) fn new(client: &'a Client, request: R) -> Self {
         Self {

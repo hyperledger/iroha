@@ -74,7 +74,7 @@ impl ValidQuery for FindAllTransactions {
                 .flat_map(BlockTransactionIter::new)
                 .map(|tx| TransactionQueryOutput {
                     block_hash: tx.block_hash(),
-                    transaction: Box::new(tx.value()),
+                    transaction: tx.value(),
                 }),
         ))
     }
@@ -94,7 +94,7 @@ impl ValidQuery for FindTransactionsByAccountId {
                 .filter(move |tx| *tx.authority() == account_id)
                 .map(|tx| TransactionQueryOutput {
                     block_hash: tx.block_hash(),
-                    transaction: Box::new(tx.value()),
+                    transaction: tx.value(),
                 }),
         ))
     }
@@ -118,7 +118,6 @@ impl ValidQuery for FindTransactionByHash {
         transactions
             .find(|transaction| transaction.value.hash() == tx_hash)
             .cloned()
-            .map(Box::new)
             .map(|transaction| TransactionQueryOutput {
                 block_hash,
                 transaction,

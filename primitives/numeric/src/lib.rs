@@ -9,6 +9,7 @@ extern crate alloc;
 use alloc::{format, string::String, string::ToString, vec, vec::Vec};
 use core::str::FromStr;
 
+use derive_more::Display;
 use parity_scale_codec::{Decode, Encode};
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use serde::{Deserialize, Serialize};
@@ -23,7 +24,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 /// If more rich functionality is required (e.g. in smartcontract)
 /// it's suggested to convert this type into proper decimal type (like `rust_decimal`, `bigdecimal`, `u128`, ...),
 /// perform necessary operations, and then convert back into `Numeric` when sending isi to iroha.
-#[derive(Clone, Copy, Debug, derive_more::Display, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Numeric {
     inner: Decimal,
@@ -61,7 +62,7 @@ pub struct NumericSpec {
 }
 
 /// Error occurred during creation of [`Numeric`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, displaydoc::Display)]
+#[derive(Debug, Clone, Copy, displaydoc::Display)]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum NumericError {
     /// Mantissa exceeds allowed range
@@ -73,6 +74,11 @@ pub enum NumericError {
     /// Malformed: expecting number with optional decimal point (10, 10.02)
     Malformed,
 }
+
+/// The error type returned when a numeric conversion fails.
+#[derive(Debug, Clone, Copy, displaydoc::Display)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
+pub struct TryFromNumericError;
 
 /// Error occurred while checking if number satisfy given spec
 #[derive(Clone, Copy, Debug, displaydoc::Display)]
@@ -189,14 +195,14 @@ impl Numeric {
             .and_then(|inner| inner.is_sign_positive().then_some(Self { inner }))
     }
 
-    /// Check if number is zero
-    pub const fn is_zero(&self) -> bool {
-        self.inner.is_zero()
-    }
-
     /// Convert [`Numeric`] to [`f64`] with possible loss in precision
     pub fn to_f64(self) -> f64 {
         self.inner.to_f64().expect("never fails")
+    }
+
+    /// Check if number is zero
+    pub const fn is_zero(&self) -> bool {
+        self.inner.is_zero()
     }
 }
 
@@ -209,6 +215,22 @@ impl From<u32> for Numeric {
 impl From<u64> for Numeric {
     fn from(value: u64) -> Self {
         Self::new(value.into(), 0)
+    }
+}
+
+impl TryFrom<Numeric> for u32 {
+    type Error = TryFromNumericError;
+
+    fn try_from(value: Numeric) -> Result<Self, Self::Error> {
+        value.inner.try_into().map_err(|_| TryFromNumericError)
+    }
+}
+
+impl TryFrom<Numeric> for u64 {
+    type Error = TryFromNumericError;
+
+    fn try_from(value: Numeric) -> Result<Self, Self::Error> {
+        value.inner.try_into().map_err(|_| TryFromNumericError)
     }
 }
 

@@ -43,9 +43,7 @@ fn main(_owner: AccountId, _event: Event) {
         )
         .parse()
         .dbg_unwrap();
-        metadata
-            .insert_with_limits(name, true.into(), limits)
-            .dbg_unwrap();
+        metadata.insert_with_limits(name, true, limits).dbg_unwrap();
 
         let nft_id = generate_new_nft_id(account.id());
         let nft_definition = AssetDefinition::store(nft_id.clone())

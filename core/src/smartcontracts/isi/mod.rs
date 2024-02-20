@@ -205,6 +205,7 @@ mod tests {
     use std::sync::Arc;
 
     use iroha_crypto::KeyPair;
+    use iroha_data_model::metadata::MetadataValueBox;
     use tokio::test;
 
     use super::*;
@@ -241,16 +242,16 @@ mod tests {
         )
         .execute(&account_id, &mut wsv)?;
         let asset = wsv.asset(&asset_id)?;
-        let metadata: &Metadata = asset.try_as_ref()?;
-        let bytes = metadata
-            .get(&Name::from_str("Bytes").expect("Valid"))
-            .cloned();
+        let AssetValue::Store(store) = &asset.value else {
+            panic!("expected store asset");
+        };
+        let bytes = store.get(&"Bytes".parse::<Name>().expect("Valid")).cloned();
         assert_eq!(
             bytes,
-            Some(Value::Vec(vec![
-                1_u32.to_value(),
-                2_u32.to_value(),
-                3_u32.to_value(),
+            Some(MetadataValueBox::Vec(vec![
+                1_u32.into(),
+                2_u32.into(),
+                3_u32.into(),
             ]))
         );
         Ok(())
@@ -275,10 +276,10 @@ mod tests {
         })?;
         assert_eq!(
             bytes,
-            Some(Value::Vec(vec![
-                1_u32.to_value(),
-                2_u32.to_value(),
-                3_u32.to_value(),
+            Some(MetadataValueBox::Vec(vec![
+                1_u32.into(),
+                2_u32.into(),
+                3_u32.into(),
             ]))
         );
         Ok(())
@@ -303,10 +304,10 @@ mod tests {
             .cloned();
         assert_eq!(
             bytes,
-            Some(Value::Vec(vec![
-                1_u32.to_value(),
-                2_u32.to_value(),
-                3_u32.to_value(),
+            Some(MetadataValueBox::Vec(vec![
+                1_u32.into(),
+                2_u32.into(),
+                3_u32.into(),
             ]))
         );
         Ok(())
@@ -331,10 +332,10 @@ mod tests {
             .cloned();
         assert_eq!(
             bytes,
-            Some(Value::Vec(vec![
-                1_u32.to_value(),
-                2_u32.to_value(),
-                3_u32.to_value(),
+            Some(MetadataValueBox::Vec(vec![
+                1_u32.into(),
+                2_u32.into(),
+                3_u32.into(),
             ]))
         );
         Ok(())

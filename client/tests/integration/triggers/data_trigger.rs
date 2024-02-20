@@ -1,5 +1,6 @@
 use eyre::Result;
 use iroha_client::{client, data_model::prelude::*};
+use iroha_data_model::asset::AssetValue;
 use test_network::*;
 
 use crate::integration::new_account_with_random_public_key;
@@ -13,7 +14,7 @@ fn must_execute_both_triggers() -> Result<()> {
     let asset_definition_id = "rose#wonderland".parse()?;
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
-    let prev_value = get_asset_value(&test_client, asset_id.clone())?;
+    let prev_value = get_asset_value(&test_client, asset_id.clone());
 
     let instruction = Mint::asset_numeric(1u32, asset_id.clone());
     let register_trigger = Register::trigger(Trigger::new(
@@ -54,7 +55,7 @@ fn must_execute_both_triggers() -> Result<()> {
     )))?;
     test_client.submit_blocking(Register::domain(Domain::new("neverland".parse()?)))?;
 
-    let new_value = get_asset_value(&test_client, asset_id)?;
+    let new_value = get_asset_value(&test_client, asset_id);
     assert_eq!(new_value, prev_value.checked_add(numeric!(2)).unwrap());
 
     Ok(())
@@ -86,7 +87,7 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
         create_sakura_asset,
     ])?;
 
-    let prev_value = get_asset_value(&test_client, asset_id.clone())?;
+    let prev_value = get_asset_value(&test_client, asset_id.clone());
 
     let register_trigger = Register::trigger(Trigger::new(
         "mint_sakura$neverland".parse()?,
@@ -116,13 +117,18 @@ fn domain_scoped_trigger_must_be_executed_only_on_events_in_its_domain() -> Resu
         "asahi@neverland".parse()?,
     )))?;
 
-    let new_value = get_asset_value(&test_client, asset_id)?;
+    let new_value = get_asset_value(&test_client, asset_id);
     assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
 
     Ok(())
 }
 
-fn get_asset_value(client: &client::Client, asset_id: AssetId) -> Result<Numeric> {
-    let asset = client.request(client::asset::by_id(asset_id))?;
-    Ok(*TryAsRef::<Numeric>::try_as_ref(asset.value())?)
+fn get_asset_value(client: &client::Client, asset_id: AssetId) -> Numeric {
+    let asset = client.request(client::asset::by_id(asset_id)).unwrap();
+
+    let AssetValue::Numeric(val) = *asset.value() else {
+        panic!("Expected u32 asset value")
+    };
+
+    val
 }

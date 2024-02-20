@@ -44,6 +44,9 @@ macro_rules! unique_vec {
     Decode,
     IntoSchema,
 )]
+#[repr(transparent)]
+#[serde(transparent)]
+#[schema(transparent)]
 pub struct UniqueVec<T>(Vec<T>);
 
 impl<T> UniqueVec<T> {

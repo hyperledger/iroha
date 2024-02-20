@@ -14,6 +14,7 @@ use eyre::{eyre, Result, WrapErr};
 use futures_util::StreamExt;
 use http_default::{AsyncWebSocketStream, WebSocketStream};
 pub use iroha_config::client_api::ConfigDTO;
+use iroha_data_model::query::QueryOutputBox;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_torii_const::uri as torii_uri;
@@ -29,9 +30,8 @@ use crate::{
     data_model::{
         block::SignedBlock,
         isi::Instruction,
-        predicate::PredicateBox,
         prelude::*,
-        query::{Pagination, Query, Sorting},
+        query::{predicate::PredicateBox, Pagination, Query, Sorting},
         BatchedResponse, ChainId, ValidationFail,
     },
     http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
@@ -81,13 +81,13 @@ impl Sign for SignedTransaction {
 
 impl<R: QueryOutput> QueryResponseHandler<R>
 where
-    <R as TryFrom<Value>>::Error: Into<eyre::Error>,
+    <R as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
 {
     fn handle(&mut self, resp: &Response<Vec<u8>>) -> QueryResult<R> {
         // Separate-compilation friendly response handling
         fn _handle_query_response_base(
             resp: &Response<Vec<u8>>,
-        ) -> QueryResult<BatchedResponse<Value>> {
+        ) -> QueryResult<BatchedResponse<QueryOutputBox>> {
             match resp.status() {
                 StatusCode::OK => {
                     let res = BatchedResponse::decode_all_versioned(resp.body());
@@ -127,12 +127,12 @@ where
 
         let (batch, cursor) = _handle_query_response_base(resp)?.into();
 
-        let value = R::try_from(batch)
+        let output = R::try_from(batch)
             .map_err(Into::into)
             .wrap_err("Unexpected type")?;
 
         self.query_request.request = crate::data_model::query::QueryRequest::Cursor(cursor);
-        Ok(value)
+        Ok(output)
     }
 }
 
@@ -215,12 +215,12 @@ impl From<ResponseReport> for eyre::Report {
 }
 
 /// Output of a query
-pub trait QueryOutput: Into<Value> + TryFrom<Value> {
+pub trait QueryOutput: Into<QueryOutputBox> + TryFrom<QueryOutputBox> {
     /// Type of the query output
     type Target: Clone;
 
     /// Construct query output from query response
-    fn new(value: Self, query_request: QueryResponseHandler<Self>) -> Self::Target;
+    fn new(output: Self, query_request: QueryResponseHandler<Self>) -> Self::Target;
 }
 
 /// Iterable query output
@@ -244,7 +244,7 @@ impl<T> ResultSet<T> {
 impl<T: Clone> Iterator for ResultSet<T>
 where
     Vec<T>: QueryOutput,
-    <Vec<T> as TryFrom<Value>>::Error: Into<eyre::Error>,
+    <Vec<T> as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
 {
     type Item = QueryResult<T>;
 
@@ -268,11 +268,11 @@ where
                 Err(err) => return Some(Err(ClientQueryError::Other(err))),
                 Ok(ok) => ok,
             };
-            let value = match self.query_handler.handle(&response) {
+            let output = match self.query_handler.handle(&response) {
                 Err(err) => return Some(Err(err)),
                 Ok(ok) => ok,
             };
-            self.iter = value;
+            self.iter = output;
             self.client_cursor = 0;
         }
 
@@ -284,14 +284,14 @@ where
 
 impl<T: Debug + Clone> QueryOutput for Vec<T>
 where
-    Self: Into<Value> + TryFrom<Value>,
+    Self: Into<QueryOutputBox> + TryFrom<QueryOutputBox>,
 {
     type Target = ResultSet<T>;
 
-    fn new(value: Self, query_handler: QueryResponseHandler<Self>) -> Self::Target {
+    fn new(output: Self, query_handler: QueryResponseHandler<Self>) -> Self::Target {
         ResultSet {
             query_handler,
-            iter: value,
+            iter: output,
             client_cursor: 0,
         }
     }
@@ -302,22 +302,20 @@ macro_rules! impl_query_output {
         impl QueryOutput for $ident {
             type Target = Self;
 
-            fn new(value: Self, _query_handler: QueryResponseHandler<Self>) -> Self::Target {
-                value
+            fn new(output: Self, _query_handler: QueryResponseHandler<Self>) -> Self::Target {
+                output
             }
         } )+
     };
 }
 impl_query_output! {
-    bool,
-    crate::data_model::Value,
     crate::data_model::role::Role,
     crate::data_model::asset::Asset,
     crate::data_model::asset::AssetDefinition,
     crate::data_model::account::Account,
     crate::data_model::domain::Domain,
     crate::data_model::block::BlockHeader,
-    crate::data_model::query::MetadataValue,
+    crate::data_model::metadata::MetadataValueBox,
     crate::data_model::query::TransactionQueryOutput,
     crate::data_model::permission::PermissionTokenSchema,
     crate::data_model::trigger::Trigger<crate::data_model::events::TriggeringFilterBox>,
@@ -791,7 +789,7 @@ impl Client {
         fetch_size: FetchSize,
     ) -> (DefaultRequestBuilder, QueryResponseHandler<R::Output>)
     where
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
     {
         let query_builder = QueryBuilder::new(request, self.account_id.clone()).with_filter(filter);
         let request = self.sign_query(query_builder).encode_versioned();
@@ -826,15 +824,15 @@ impl Client {
     ) -> QueryResult<<R::Output as QueryOutput>::Target>
     where
         R::Output: QueryOutput,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
     {
         iroha_logger::trace!(?request, %pagination, ?sorting, ?filter);
         let (req, mut resp_handler) =
             self.prepare_query_request::<R>(request, filter, pagination, sorting, fetch_size);
 
         let response = req.build()?.send()?;
-        let value = resp_handler.handle(&response)?;
-        let output = QueryOutput::new(value, resp_handler);
+        let output = resp_handler.handle(&response)?;
+        let output = QueryOutput::new(output, resp_handler);
 
         Ok(output)
     }
@@ -847,7 +845,7 @@ impl Client {
     where
         R: Query + Debug,
         R::Output: QueryOutput,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
     {
         self.build_query(request).execute()
     }
@@ -865,7 +863,7 @@ impl Client {
     ) -> QueryResult<O::Target>
     where
         O: QueryOutput,
-        <O as TryFrom<Value>>::Error: Into<eyre::Error>,
+        <O as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
     {
         let request = QueryRequest {
             torii_url: self.torii_url.clone(),
@@ -875,8 +873,8 @@ impl Client {
         let response = request.clone().assemble().build()?.send()?;
 
         let mut resp_handler = QueryResponseHandler::<O>::new(request);
-        let value = resp_handler.handle(&response)?;
-        let output = O::new(value, resp_handler);
+        let output = resp_handler.handle(&response)?;
+        let output = O::new(output, resp_handler);
 
         Ok(output)
     }
@@ -890,7 +888,7 @@ impl Client {
     where
         R: Query + Debug,
         R::Output: QueryOutput,
-        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+        <R::Output as TryFrom<QueryOutputBox>>::Error: Into<eyre::Error>,
     {
         QueryRequestBuilder::new(self, request)
     }

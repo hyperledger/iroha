@@ -9,9 +9,11 @@ use iroha_client::{
     client::{self, QueryResult},
     data_model::{
         account::Account,
-        predicate::{string, value, PredicateBox},
         prelude::*,
-        query::{Pagination, Sorting},
+        query::{
+            predicate::{string, value, PredicateBox},
+            Pagination, Sorting,
+        },
     },
 };
 use iroha_data_model::isi::InstructionBox;
@@ -30,17 +32,13 @@ fn correct_pagination_assets_after_creating_new_one() {
     let mut assets = vec![];
     let mut instructions = vec![];
 
-    for i in 0..20_u128 {
+    for i in 0..20_u32 {
         let asset_definition_id =
             AssetDefinitionId::from_str(&format!("xor{i}#wonderland")).expect("Valid");
         let asset_definition = AssetDefinition::store(asset_definition_id.clone());
         let mut asset_metadata = Metadata::new();
         asset_metadata
-            .insert_with_limits(
-                sort_by_metadata_key.clone(),
-                i.to_value(),
-                MetadataLimits::new(10, 23),
-            )
+            .insert_with_limits(sort_by_metadata_key.clone(), i, MetadataLimits::new(10, 23))
             .expect("Valid");
         let asset = Asset::new(
             AssetId::new(asset_definition_id, account_id.clone()),
@@ -89,7 +87,7 @@ fn correct_pagination_assets_after_creating_new_one() {
     new_asset_metadata
         .insert_with_limits(
             sort_by_metadata_key,
-            20_u128.to_value(),
+            numeric!(20),
             MetadataLimits::new(10, 23),
         )
         .expect("Valid");
@@ -140,7 +138,7 @@ fn correct_sorting_of_entities() {
     let mut asset_definitions = vec![];
     let mut metadata_of_assets = vec![];
     let mut instructions = vec![];
-    let n = 10u128;
+    let n = 10_u32;
     for i in 0..n {
         let asset_definition_id =
             AssetDefinitionId::from_str(&format!("xor_{i}#wonderland")).expect("Valid");
@@ -148,7 +146,7 @@ fn correct_sorting_of_entities() {
         asset_metadata
             .insert_with_limits(
                 sort_by_metadata_key.clone(),
-                (n - i - 1).to_value(),
+                n - i - 1,
                 MetadataLimits::new(10, 28),
             )
             .expect("Valid");
@@ -169,9 +167,9 @@ fn correct_sorting_of_entities() {
     let res = test_client
         .build_query(client::asset::all_definitions())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
-        .with_filter(PredicateBox::new(value::ValuePredicate::Identifiable(
-            string::StringPredicate::starts_with("xor_"),
-        )))
+        .with_filter(PredicateBox::new(
+            value::QueryOutputPredicate::Identifiable(string::StringPredicate::starts_with("xor_")),
+        ))
         .execute()
         .expect("Valid")
         .collect::<QueryResult<Vec<_>>>()
@@ -199,7 +197,7 @@ fn correct_sorting_of_entities() {
         account_metadata
             .insert_with_limits(
                 sort_by_metadata_key.clone(),
-                (n - i - 1).to_value(),
+                n - i - 1,
                 MetadataLimits::new(10, 28),
             )
             .expect("Valid");
@@ -220,9 +218,11 @@ fn correct_sorting_of_entities() {
     let res = test_client
         .build_query(client::account::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
-        .with_filter(PredicateBox::new(value::ValuePredicate::Identifiable(
-            string::StringPredicate::starts_with("charlie"),
-        )))
+        .with_filter(PredicateBox::new(
+            value::QueryOutputPredicate::Identifiable(string::StringPredicate::starts_with(
+                "charlie",
+            )),
+        ))
         .execute()
         .expect("Valid")
         .collect::<QueryResult<Vec<_>>>()
@@ -246,7 +246,7 @@ fn correct_sorting_of_entities() {
         domain_metadata
             .insert_with_limits(
                 sort_by_metadata_key.clone(),
-                (n - i - 1).to_value(),
+                n - i - 1,
                 MetadataLimits::new(10, 28),
             )
             .expect("Valid");
@@ -266,9 +266,11 @@ fn correct_sorting_of_entities() {
     let res = test_client
         .build_query(client::domain::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
-        .with_filter(PredicateBox::new(value::ValuePredicate::Identifiable(
-            string::StringPredicate::starts_with("neverland"),
-        )))
+        .with_filter(PredicateBox::new(
+            value::QueryOutputPredicate::Identifiable(string::StringPredicate::starts_with(
+                "neverland",
+            )),
+        ))
         .execute()
         .expect("Valid")
         .collect::<QueryResult<Vec<_>>>()
@@ -281,7 +283,7 @@ fn correct_sorting_of_entities() {
         .eq(metadata_of_domains.iter().rev()));
 
     // Naive test sorting of domains
-    let input = [(0i32, 1u128), (2, 0), (1, 2)];
+    let input = [(0_i32, 1_u32), (2, 0), (1, 2)];
     let mut domains = vec![];
     let mut metadata_of_domains = vec![];
     let mut instructions = vec![];
@@ -291,7 +293,7 @@ fn correct_sorting_of_entities() {
         domain_metadata
             .insert_with_limits(
                 sort_by_metadata_key.clone(),
-                val.to_value(),
+                val,
                 MetadataLimits::new(10, 28),
             )
             .expect("Valid");
@@ -307,7 +309,7 @@ fn correct_sorting_of_entities() {
         .submit_all_blocking(instructions)
         .expect("Valid");
 
-    let filter = PredicateBox::new(value::ValuePredicate::Identifiable(
+    let filter = PredicateBox::new(value::QueryOutputPredicate::Identifiable(
         string::StringPredicate::starts_with("neverland_"),
     ));
     let res = test_client
@@ -353,7 +355,7 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
             account_metadata
                 .insert_with_limits(
                     sort_by_metadata_key.clone(),
-                    (n - i - 1).to_value(),
+                    n - i - 1,
                     MetadataLimits::new(10, 28),
                 )
                 .expect("Valid");
@@ -374,9 +376,11 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
     let res = test_client
         .build_query(client::account::all())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key))
-        .with_filter(PredicateBox::new(value::ValuePredicate::Identifiable(
-            string::StringPredicate::starts_with("charlie"),
-        )))
+        .with_filter(PredicateBox::new(
+            value::QueryOutputPredicate::Identifiable(string::StringPredicate::starts_with(
+                "charlie",
+            )),
+        ))
         .execute()
         .wrap_err("Failed to submit request")?
         .collect::<QueryResult<Vec<_>>>()?;

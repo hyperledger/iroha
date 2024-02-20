@@ -24,7 +24,7 @@ fn call_execute_trigger() -> Result<()> {
     let asset_definition_id = "rose#wonderland".parse()?;
     let account_id = "alice@wonderland".parse()?;
     let asset_id = AssetId::new(asset_definition_id, account_id);
-    let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
+    let prev_value = get_asset_value(&mut test_client, asset_id.clone());
 
     let instruction = Mint::asset_numeric(1u32, asset_id.clone());
     let register_trigger = build_register_trigger_isi(asset_id.clone(), vec![instruction.into()]);
@@ -34,7 +34,7 @@ fn call_execute_trigger() -> Result<()> {
     let call_trigger = ExecuteTrigger::new(trigger_id);
     test_client.submit_blocking(call_trigger)?;
 
-    let new_value = get_asset_value(&mut test_client, asset_id)?;
+    let new_value = get_asset_value(&mut test_client, asset_id);
     assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
 
     Ok(())
@@ -85,7 +85,7 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
     let asset_id = AssetId::new(asset_definition_id, account_id);
     let trigger_id = TriggerId::from_str(TRIGGER_NAME)?;
     let call_trigger = ExecuteTrigger::new(trigger_id);
-    let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
+    let prev_value = get_asset_value(&mut test_client, asset_id.clone());
 
     let instructions = vec![
         Mint::asset_numeric(1u32, asset_id.clone()).into(),
@@ -96,7 +96,7 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
 
     test_client.submit_blocking(call_trigger)?;
 
-    let new_value = get_asset_value(&mut test_client, asset_id)?;
+    let new_value = get_asset_value(&mut test_client, asset_id);
     assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
 
     Ok(())
@@ -145,13 +145,13 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
     test_client.submit_blocking(register_trigger)?;
 
     // Saving current asset value
-    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
+    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone());
 
     // Executing bad trigger
     test_client.submit_blocking(ExecuteTrigger::new(bad_trigger_id))?;
 
     // Checking results
-    let new_asset_value = get_asset_value(&mut test_client, asset_id)?;
+    let new_asset_value = get_asset_value(&mut test_client, asset_id);
     assert_eq!(
         new_asset_value,
         prev_asset_value.checked_add(Numeric::ONE).unwrap()
@@ -185,7 +185,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     test_client.submit_blocking(register_trigger)?;
 
     // Saving current asset value
-    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
+    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone());
 
     // Executing trigger first time
     let execute_trigger = ExecuteTrigger::new(trigger_id.clone());
@@ -211,7 +211,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
     ));
 
     // Checking results
-    let new_asset_value = get_asset_value(&mut test_client, asset_id)?;
+    let new_asset_value = get_asset_value(&mut test_client, asset_id);
     assert_eq!(
         new_asset_value,
         prev_asset_value.checked_add(Numeric::ONE).unwrap()
@@ -249,7 +249,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
     test_client.submit_blocking(register_trigger)?;
 
     // Saving current asset value
-    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
+    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone());
 
     // Executing trigger first time
     let execute_trigger = ExecuteTrigger::new(trigger_id);
@@ -259,7 +259,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
     test_client.submit_blocking(execute_trigger)?;
 
     // Checking results
-    let new_asset_value = get_asset_value(&mut test_client, asset_id)?;
+    let new_asset_value = get_asset_value(&mut test_client, asset_id);
     assert_eq!(
         new_asset_value,
         prev_asset_value.checked_add(numeric!(2)).unwrap()
@@ -378,14 +378,14 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
 
     let asset_definition_id = "rose#wonderland".parse()?;
     let asset_id = AssetId::new(asset_definition_id, account_id);
-    let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
+    let prev_value = get_asset_value(&mut test_client, asset_id.clone());
 
     // Executing trigger
     let call_trigger = ExecuteTrigger::new(trigger_id);
     test_client.submit_blocking(call_trigger)?;
 
     // Checking result
-    let new_value = get_asset_value(&mut test_client, asset_id)?;
+    let new_value = get_asset_value(&mut test_client, asset_id);
     assert_eq!(new_value, prev_value.checked_add(Numeric::ONE).unwrap());
 
     Ok(())
@@ -435,7 +435,7 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
     test_client.submit_blocking(register_trigger)?;
 
     // Saving current asset value
-    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
+    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone());
 
     // Executing triggers
     let execute_trigger_unregister = ExecuteTrigger::new(trigger_id_unregister);
@@ -447,7 +447,7 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
 
     // Checking results
     // First trigger should cancel second one, so value should stay the same
-    let new_asset_value = get_asset_value(&mut test_client, asset_id)?;
+    let new_asset_value = get_asset_value(&mut test_client, asset_id);
     assert_eq!(new_asset_value, prev_asset_value);
 
     Ok(())
@@ -542,9 +542,14 @@ fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_origin
     Ok(())
 }
 
-fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<Numeric> {
-    let asset = client.request(client::asset::by_id(asset_id))?;
-    Ok(*TryAsRef::<Numeric>::try_as_ref(asset.value())?)
+fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Numeric {
+    let asset = client.request(client::asset::by_id(asset_id)).unwrap();
+
+    let AssetValue::Numeric(val) = *asset.value() else {
+        panic!("Unexpected asset value");
+    };
+
+    val
 }
 
 fn build_register_trigger_isi(

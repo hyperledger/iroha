@@ -10,7 +10,7 @@ extern crate alloc;
 use alloc::string::ToString as _;
 use core::num::NonZeroU32;
 
-use iroha_smart_contract::{parse, prelude::*};
+use iroha_smart_contract::{data_model::metadata::MetadataValueBox, parse, prelude::*};
 use lol_alloc::{FreeListAllocator, LockedAllocator};
 
 #[global_allocator]
@@ -31,7 +31,7 @@ fn main(owner: AccountId) {
     SetKeyValue::account(
         owner,
         parse!("cursor" as Name),
-        Value::String(
+        MetadataValueBox::String(
             serde_json::to_value(cursor)
                 .dbg_expect("Failed to convert cursor to JSON")
                 .to_string(),

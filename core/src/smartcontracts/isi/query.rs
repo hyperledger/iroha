@@ -1,7 +1,10 @@
 //! Query functionality. The common error type is also defined here,
 //! alongside functions for converting them into HTTP responses.
 use eyre::Result;
-use iroha_data_model::{prelude::*, query::error::QueryExecutionFail as Error};
+use iroha_data_model::{
+    prelude::*,
+    query::{error::QueryExecutionFail as Error, QueryOutputBox},
+};
 use parity_scale_codec::{Decode, Encode};
 
 use crate::{prelude::ValidQuery, WorldStateView};
@@ -12,16 +15,16 @@ pub trait Lazy {
     type Lazy<'a>;
 }
 
-/// Lazily evaluated equivalent of [`Value`]
-pub enum LazyValue<'a> {
-    /// Concrete computed [`Value`]
-    Value(Value),
-    /// Iterator over a set of [`Value`]s
-    Iter(Box<dyn Iterator<Item = Value> + 'a>),
+/// Lazily evaluated equivalent of [`Query::Output`]
+pub enum LazyQueryOutput<'a> {
+    /// Concrete computed [`Query::Output`]
+    QueryOutput(QueryOutputBox),
+    /// Iterator over a set of [`Query::Output`]s
+    Iter(Box<dyn Iterator<Item = QueryOutputBox> + 'a>),
 }
 
-impl Lazy for Value {
-    type Lazy<'a> = LazyValue<'a>;
+impl Lazy for QueryOutputBox {
+    type Lazy<'a> = LazyQueryOutput<'a>;
 }
 
 impl<T> Lazy for Vec<T> {
@@ -44,7 +47,7 @@ impl_lazy! {
     iroha_data_model::account::Account,
     iroha_data_model::domain::Domain,
     iroha_data_model::block::BlockHeader,
-    iroha_data_model::query::MetadataValue,
+    iroha_data_model::metadata::MetadataValueBox,
     iroha_data_model::query::TransactionQueryOutput,
     iroha_data_model::permission::PermissionTokenSchema,
     iroha_data_model::trigger::Trigger<iroha_data_model::events::TriggeringFilterBox>,
@@ -83,13 +86,16 @@ impl ValidQueryRequest {
     ///
     /// # Errors
     /// Forwards `self.query.execute` error.
-    pub fn execute<'wsv>(&'wsv self, wsv: &'wsv WorldStateView) -> Result<LazyValue<'wsv>, Error> {
-        let value = self.0.query().execute(wsv)?;
+    pub fn execute<'wsv>(
+        &'wsv self,
+        wsv: &'wsv WorldStateView,
+    ) -> Result<LazyQueryOutput<'wsv>, Error> {
+        let output = self.0.query().execute(wsv)?;
 
-        Ok(if let LazyValue::Iter(iter) = value {
-            LazyValue::Iter(Box::new(iter.filter(|val| self.0.filter().applies(val))))
+        Ok(if let LazyQueryOutput::Iter(iter) = output {
+            LazyQueryOutput::Iter(Box::new(iter.filter(|val| self.0.filter().applies(val))))
         } else {
-            value
+            output
         })
 
         // We're not handling the LimitedMetadata case, because
@@ -103,14 +109,14 @@ impl ValidQueryRequest {
 }
 
 impl ValidQuery for QueryBox {
-    fn execute<'wsv>(&self, wsv: &'wsv WorldStateView) -> Result<LazyValue<'wsv>, Error> {
+    fn execute<'wsv>(&self, wsv: &'wsv WorldStateView) -> Result<LazyQueryOutput<'wsv>, Error> {
         iroha_logger::debug!(query=%self, "Executing");
 
         macro_rules! match_all {
             ( non_iter: {$( $non_iter_query:ident ),+ $(,)?} $( $query:ident, )+ ) => {
                 match self { $(
-                    QueryBox::$non_iter_query(query) => query.execute(wsv).map(Value::from).map(LazyValue::Value), )+ $(
-                    QueryBox::$query(query) => query.execute(wsv).map(|i| i.map(Value::from)).map(|iter| LazyValue::Iter(Box::new(iter))), )+
+                    QueryBox::$non_iter_query(query) => query.execute(wsv).map(QueryOutputBox::from).map(LazyQueryOutput::QueryOutput), )+ $(
+                    QueryBox::$query(query) => query.execute(wsv).map(|i| i.map(QueryOutputBox::from)).map(|iter| LazyQueryOutput::Iter(Box::new(iter))), )+
                 }
             };
         }
@@ -168,7 +174,9 @@ mod tests {
     use std::str::FromStr as _;
 
     use iroha_crypto::{Hash, HashOf, KeyPair};
-    use iroha_data_model::{query::error::FindError, transaction::TransactionLimits};
+    use iroha_data_model::{
+        metadata::MetadataValueBox, query::error::FindError, transaction::TransactionLimits,
+    };
     use iroha_primitives::unique_vec::UniqueVec;
     use once_cell::sync::Lazy;
     use tokio::test;
@@ -212,7 +220,7 @@ mod tests {
         store
             .insert_with_limits(
                 Name::from_str("Bytes").expect("Valid"),
-                Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()]),
+                MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
                 MetadataLimits::new(10, 100),
             )
             .unwrap();
@@ -228,7 +236,7 @@ mod tests {
         let mut metadata = Metadata::new();
         metadata.insert_with_limits(
             Name::from_str("Bytes")?,
-            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()]),
+            MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
             MetadataLimits::new(10, 100),
         )?;
 
@@ -319,8 +327,8 @@ mod tests {
         let bytes =
             FindAssetKeyValueByIdAndKey::new(asset_id, Name::from_str("Bytes")?).execute(&wsv)?;
         assert_eq!(
-            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()]),
-            bytes.into(),
+            MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
+            bytes,
         );
         Ok(())
     }
@@ -334,8 +342,8 @@ mod tests {
         let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::from_str("Bytes")?)
             .execute(&wsv)?;
         assert_eq!(
-            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()]),
-            bytes.into(),
+            MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
+            bytes,
         );
         Ok(())
     }
@@ -447,7 +455,10 @@ mod tests {
 
         let found_accepted = FindTransactionByHash::new(va_tx.as_ref().hash()).execute(&wsv)?;
         if found_accepted.transaction.error.is_none() {
-            assert_eq!(va_tx.as_ref().hash(), found_accepted.as_ref().hash())
+            assert_eq!(
+                va_tx.as_ref().hash(),
+                found_accepted.as_ref().as_ref().hash()
+            )
         }
         Ok(())
     }
@@ -459,7 +470,7 @@ mod tests {
             let mut metadata = Metadata::new();
             metadata.insert_with_limits(
                 Name::from_str("Bytes")?,
-                Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()]),
+                MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
                 MetadataLimits::new(10, 100),
             )?;
             let mut domain = Domain::new(DomainId::from_str("wonderland")?)
@@ -482,8 +493,8 @@ mod tests {
         let key = Name::from_str("Bytes")?;
         let bytes = FindDomainKeyValueByIdAndKey::new(domain_id, key).execute(&wsv)?;
         assert_eq!(
-            Value::Vec(vec![1_u32.to_value(), 2_u32.to_value(), 3_u32.to_value()]),
-            bytes.into(),
+            MetadataValueBox::Vec(vec![1_u32.into(), 2_u32.into(), 3_u32.into()]),
+            bytes,
         );
         Ok(())
     }

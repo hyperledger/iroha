@@ -146,7 +146,6 @@ fn test_total_quantity<T>(
 ) -> Result<()>
 where
     T: Copy + Into<AssetValue>,
-    Value: From<T>,
     Mint<T, Asset>: Instruction,
     Burn<T, Asset>: Instruction,
 {

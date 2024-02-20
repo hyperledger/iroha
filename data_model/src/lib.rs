@@ -15,40 +15,24 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::{
-    convert::AsRef,
-    fmt,
-    fmt::Debug,
-    ops::{ControlFlow, RangeInclusive},
-    str::FromStr,
-};
+use core::{fmt, fmt::Debug, ops::RangeInclusive, str::FromStr};
 
-use block::SignedBlock;
-#[cfg(not(target_arch = "aarch64"))]
-use derive_more::Into;
-use derive_more::{AsRef, Constructor, DebugCustom, Deref, Display, From, FromStr};
+use derive_more::{Constructor, Display, From, FromStr};
 use events::TriggeringFilterBox;
 use getset::Getters;
-pub use integer::model::Integer;
-use iroha_crypto::{HashOf, PublicKey};
-use iroha_data_model_derive::{
-    model, EnumRef, IdEqOrdHash, PartiallyTaggedDeserialize, PartiallyTaggedSerialize,
-};
-use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
-use iroha_primitives::{
-    numeric::Numeric,
-    small::{Array as SmallArray, SmallVec},
-};
+use iroha_crypto::PublicKey;
+use iroha_data_model_derive::{model, EnumRef, IdEqOrdHash};
+use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
-use prelude::{Executable, SignedTransaction, TransactionQueryOutput};
+use prelude::Executable;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use strum::FromRepr;
 
 pub use self::model::*;
-use crate::{account::SignatureCheckCondition, name::Name};
+use crate::name::Name;
 
 pub mod account;
 pub mod asset;
@@ -56,15 +40,12 @@ pub mod block;
 pub mod domain;
 pub mod events;
 pub mod executor;
-pub mod integer;
 pub mod ipfs;
 pub mod isi;
 pub mod metadata;
 pub mod name;
 pub mod peer;
 pub mod permission;
-#[cfg(feature = "http")]
-pub mod predicate;
 pub mod query;
 pub mod role;
 pub mod smart_contract;
@@ -199,26 +180,6 @@ pub struct ParseError {
 #[cfg(feature = "std")]
 impl std::error::Error for ParseError {}
 
-#[allow(clippy::missing_errors_doc)]
-/// [`AsMut`] but reference conversion can fail.
-pub trait TryAsMut<T> {
-    /// The type returned in the event of a conversion error.
-    type Error;
-
-    /// Perform the conversion.
-    fn try_as_mut(&mut self) -> Result<&mut T, Self::Error>;
-}
-
-#[allow(clippy::missing_errors_doc)]
-/// Similar to [`AsRef`] but indicating that this reference conversion can fail.
-pub trait TryAsRef<T> {
-    /// The type returned in the event of a conversion error.
-    type Error;
-
-    /// Perform the conversion.
-    fn try_as_ref(&self) -> Result<&T, Self::Error>;
-}
-
 /// Error which occurs when converting an enum reference to a variant reference
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
@@ -241,7 +202,8 @@ impl<EXPECTED, GOT: Debug> fmt::Display for EnumTryAsError<EXPECTED, GOT> {
 }
 
 impl<EXPECTED, GOT> EnumTryAsError<EXPECTED, GOT> {
-    const fn got(got: GOT) -> Self {
+    #[allow(missing_docs)]
+    pub const fn got(got: GOT) -> Self {
         Self {
             expected: core::marker::PhantomData,
             got,
@@ -256,6 +218,8 @@ pub mod parameter {
     //! Structures, traits and impls related to `Paramater`s.
 
     use core::borrow::Borrow;
+
+    use iroha_primitives::numeric::Numeric;
 
     pub use self::model::*;
     use super::*;
@@ -282,6 +246,32 @@ pub mod parameter {
     #[model]
     pub mod model {
         use super::*;
+
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            FromVariant,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+        )]
+        #[ffi_type(local)]
+        pub enum ParameterValueBox {
+            TransactionLimits(transaction::TransactionLimits),
+            MetadataLimits(metadata::Limits),
+            LengthLimits(LengthLimits),
+            Numeric(
+                #[skip_from]
+                #[skip_try_from]
+                Numeric,
+            ),
+        }
 
         /// Identification of a [`Parameter`].
         #[derive(
@@ -315,8 +305,8 @@ pub mod parameter {
             Debug,
             Display,
             Clone,
+            Constructor,
             IdEqOrdHash,
-            Getters,
             Decode,
             Encode,
             DeserializeFromStr,
@@ -330,17 +320,60 @@ pub mod parameter {
             /// Unique [`Id`] of the [`Parameter`].
             pub id: ParameterId,
             /// Current value of the [`Parameter`].
-            #[getset(get = "pub")]
-            pub val: Box<Value>,
+            pub val: ParameterValueBox,
+        }
+    }
+
+    // TODO: Maybe derive
+    impl core::fmt::Display for ParameterValueBox {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self {
+                Self::MetadataLimits(v) => core::fmt::Display::fmt(&v, f),
+                Self::TransactionLimits(v) => core::fmt::Display::fmt(&v, f),
+                Self::LengthLimits(v) => core::fmt::Display::fmt(&v, f),
+                Self::Numeric(v) => core::fmt::Display::fmt(&v, f),
+            }
+        }
+    }
+
+    impl<T: Into<Numeric>> From<T> for ParameterValueBox {
+        fn from(value: T) -> Self {
+            Self::Numeric(value.into())
+        }
+    }
+
+    impl TryFrom<ParameterValueBox> for u32 {
+        type Error = iroha_macro::error::ErrorTryFromEnum<ParameterValueBox, Self>;
+
+        fn try_from(value: ParameterValueBox) -> Result<Self, Self::Error> {
+            use iroha_macro::error::ErrorTryFromEnum;
+
+            let ParameterValueBox::Numeric(numeric) = value else {
+                return Err(ErrorTryFromEnum::default());
+            };
+
+            numeric.try_into().map_err(|_| ErrorTryFromEnum::default())
+        }
+    }
+
+    impl TryFrom<ParameterValueBox> for u64 {
+        type Error = iroha_macro::error::ErrorTryFromEnum<ParameterValueBox, Self>;
+
+        fn try_from(value: ParameterValueBox) -> Result<Self, Self::Error> {
+            use iroha_macro::error::ErrorTryFromEnum;
+
+            let ParameterValueBox::Numeric(numeric) = value else {
+                return Err(ErrorTryFromEnum::default());
+            };
+
+            numeric.try_into().map_err(|_| ErrorTryFromEnum::default())
         }
     }
 
     impl Parameter {
-        fn new(id: ParameterId, val: Value) -> Self {
-            Self {
-                id,
-                val: Box::new(val),
-            }
+        /// Current value of the [`Parameter`].
+        pub fn val(&self) -> &ParameterValueBox {
+            &self.val
         }
     }
 
@@ -382,7 +415,7 @@ pub mod parameter {
                                     reason:
                                         "Failed to parse the `val` part of the `Parameter` as `LengthLimits`. Invalid upper `u32` bound.",
                                 })?;
-                                Value::LengthLimits(LengthLimits::new(lower, upper))
+                                LengthLimits::new(lower, upper).into()
                             }
                             // Shorthand for `TransactionLimits`
                             "TL" => {
@@ -398,10 +431,10 @@ pub mod parameter {
                                     reason:
                                         "Failed to parse the `val` part of the `Parameter` as `TransactionLimits`. `max_wasm_size_bytes` field should be a valid `u64`.",
                                 })?;
-                                Value::TransactionLimits(transaction::TransactionLimits::new(
+                                transaction::TransactionLimits::new(
                                     max_instr,
                                     max_wasm_size,
-                                ))
+                                ).into()
                             }
                             // Shorthand for `MetadataLimits`
                             "ML" => {
@@ -417,7 +450,7 @@ pub mod parameter {
                                     reason:
                                         "Failed to parse the `val` part of the `Parameter` as `MetadataLimits`. Invalid `u32` in `max_entry_len` field.",
                                 })?;
-                                Value::MetadataLimits(metadata::Limits::new(lower, upper))
+                                metadata::Limits::new(lower, upper).into()
                             }
                             _ => return Err(ParseError {
                                 reason:
@@ -426,10 +459,12 @@ pub mod parameter {
                         };
                         Ok(Self::new(param_id, val))
                     } else {
-                        let val = val_candidate.parse::<u64>().map_err(|_| ParseError {
-                            reason: "Failed to parse the `val` part of the `Parameter` as `u64`.",
+                        let val = val_candidate.parse::<Numeric>().map_err(|_| ParseError {
+                            reason:
+                                "Failed to parse the `val` part of the `Parameter` as `Numeric`.",
                         })?;
-                        Ok(Self::new(param_id, Value::Integer(Integer::U64(val))))
+
+                        Ok(Self::new(param_id, val.into()))
                     }
                 } else {
                     Err(ParseError {
@@ -474,11 +509,11 @@ pub mod parameter {
         pub fn add_parameter(
             mut self,
             parameter_id: &str,
-            val: impl Into<Value>,
+            val: impl Into<ParameterValueBox>,
         ) -> Result<Self, ParametersBuilderError> {
             let parameter = Parameter {
                 id: parameter_id.parse()?,
-                val: Box::new(val.into()),
+                val: val.into(),
             };
             self.parameters.push(parameter);
             Ok(self)
@@ -550,19 +585,19 @@ pub mod parameter {
                 Parameter::new(
                     ParameterId::from_str("TransactionLimits")
                         .expect("Failed to parse `ParameterId`"),
-                    Value::TransactionLimits(TransactionLimits::new(42, 24)),
+                    TransactionLimits::new(42, 24).into(),
                 ),
                 Parameter::new(
                     ParameterId::from_str("MetadataLimits").expect("Failed to parse `ParameterId`"),
-                    Value::MetadataLimits(MetadataLimits::new(42, 24)),
+                    MetadataLimits::new(42, 24).into(),
                 ),
                 Parameter::new(
                     ParameterId::from_str("LengthLimits").expect("Failed to parse `ParameterId`"),
-                    Value::LengthLimits(LengthLimits::new(24, 42)),
+                    LengthLimits::new(24, 42).into(),
                 ),
                 Parameter::new(
                     ParameterId::from_str("Int").expect("Failed to parse `ParameterId`"),
-                    Value::Numeric(numeric!(42)),
+                    numeric!(42).into(),
                 ),
             ];
 
@@ -648,49 +683,6 @@ pub mod model {
         ParameterId(parameter::ParameterId),
     }
 
-    /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        EnumRef,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[enum_ref(derive(Encode, FromVariant))]
-    #[ffi_type]
-    pub enum RegistrableBox {
-        /// [`Peer`](`peer::Peer`) variant.
-        #[display(fmt = "Peer {_0}")]
-        Peer(<peer::Peer as Registered>::With),
-        /// [`Domain`](`domain::Domain`) variant.
-        #[display(fmt = "Domain {_0}")]
-        Domain(<domain::Domain as Registered>::With),
-        /// [`Account`](`account::Account`) variant.
-        #[display(fmt = "Account {_0}")]
-        Account(<account::Account as Registered>::With),
-        /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
-        #[display(fmt = "AssetDefinition {_0}")]
-        AssetDefinition(<asset::AssetDefinition as Registered>::With),
-        /// [`Asset`](`asset::Asset`) variant.
-        #[display(fmt = "Asset {_0}")]
-        Asset(<asset::Asset as Registered>::With),
-        /// [`Trigger`](`trigger::Trigger`) variant.
-        #[display(fmt = "Trigger {_0}")]
-        Trigger(<trigger::Trigger<TriggeringFilterBox> as Registered>::With),
-        /// [`Role`](`role::Role`) variant.
-        #[display(fmt = "Role {_0}")]
-        Role(<role::Role as Registered>::With),
-    }
-
     /// Sized container for all possible entities.
     #[derive(
         Debug,
@@ -736,167 +728,6 @@ pub mod model {
         /// [`Parameter`](`parameter::Parameter`) variant.
         Parameter(parameter::Parameter),
     }
-
-    /// Sized container for all possible upgradable entities.
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        EnumRef,
-        FromVariant,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[enum_ref(derive(Encode, FromVariant))]
-    // SAFETY: `UpgradableBox` has no trap representations in `executor::Executor`
-    #[ffi_type(unsafe {robust})]
-    #[serde(untagged)] // Unaffected by #3330, because stores binary data with no `u128`
-    #[repr(transparent)]
-    pub enum UpgradableBox {
-        /// [`Executor`](`executor::Executor`) variant.
-        #[display(fmt = "Executor")]
-        Executor(executor::Executor),
-    }
-
-    /// Sized container for all possible values.
-    #[derive(
-        DebugCustom,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        FromVariant,
-        Decode,
-        Encode,
-        PartiallyTaggedDeserialize,
-        PartiallyTaggedSerialize,
-        IntoSchema,
-    )]
-    #[allow(clippy::enum_variant_names, missing_docs)]
-    #[ffi_type(opaque)]
-    pub enum Value {
-        Bool(bool),
-        String(String),
-        Name(Name),
-        Vec(
-            #[skip_from]
-            #[skip_try_from]
-            Vec<Value>,
-        ),
-        LimitedMetadata(metadata::Metadata),
-        MetadataLimits(metadata::Limits),
-        TransactionLimits(transaction::TransactionLimits),
-        LengthLimits(LengthLimits),
-        #[serde_partially_tagged(untagged)]
-        Id(IdBox),
-        #[serde_partially_tagged(untagged)]
-        Identifiable(IdentifiableBox),
-        PublicKey(PublicKey),
-        SignatureCheckCondition(SignatureCheckCondition),
-        TransactionQueryOutput(TransactionQueryOutput),
-        PermissionToken(permission::PermissionToken),
-        PermissionTokenSchema(permission::PermissionTokenSchema),
-        Hash(HashValue),
-        Block(SignedBlockWrapper),
-        BlockHeader(block::BlockHeader),
-        Ipv4Addr(iroha_primitives::addr::Ipv4Addr),
-        Ipv6Addr(iroha_primitives::addr::Ipv6Addr),
-        #[serde_partially_tagged(untagged)]
-        #[debug(fmt = "{_0:?}")]
-        Numeric(Numeric),
-        // Workaround to allow integer values in parameter
-        #[serde_partially_tagged(untagged)]
-        #[debug(fmt = "{_0:?}")]
-        Integer(Integer),
-        Executor(executor::Executor),
-        LogLevel(Level),
-    }
-
-    /// Enum for all supported hash types
-    #[derive(
-        Debug,
-        Display,
-        Clone,
-        Copy,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[ffi_type]
-    pub enum HashValue {
-        /// Transaction hash
-        Transaction(HashOf<SignedTransaction>),
-        /// Block hash
-        Block(HashOf<SignedBlock>),
-    }
-
-    /// Cross-platform wrapper for [`SignedBlock`].
-    #[cfg(not(target_arch = "aarch64"))]
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        AsRef,
-        Deref,
-        From,
-        Into,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    // SAFETY: SignedBlockWrapper has no trap representations in SignedBlock
-    #[schema(transparent)]
-    #[ffi_type(unsafe {robust})]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    pub struct SignedBlockWrapper(SignedBlock);
-
-    /// Cross-platform wrapper for `BlockValue`.
-    #[cfg(target_arch = "aarch64")]
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        AsRef,
-        Deref,
-        From,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[schema(transparent)]
-    #[as_ref(forward)]
-    #[deref(forward)]
-    #[from(forward)]
-    // SAFETY: SignedBlockWrapper has no trap representations in Box<SignedBlock>
-    #[ffi_type(unsafe {robust})]
-    #[serde(transparent)]
-    #[repr(transparent)]
-    pub struct SignedBlockWrapper(pub(super) Box<SignedBlock>);
 
     /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
     #[derive(
@@ -1063,32 +894,6 @@ macro_rules! impl_encode_as_identifiable_box {
     }
 }
 
-macro_rules! impl_encode_as_registrable_box {
-    ($($ty:ty),+ $(,)?) => { $(
-        impl $ty {
-            /// [`Encode`] [`Self`] as [`RegistrableBox`].
-            ///
-            /// Used to avoid an unnecessary clone
-            pub fn encode_as_registrable_box(&self) -> Vec<u8> {
-                RegistrableBoxRef::from(self).encode()
-            }
-        } )+
-    }
-}
-
-macro_rules! impl_encode_as_upgradable_box {
-    ($($ty:ty),+ $(,)?) => { $(
-        impl $ty {
-            /// [`Encode`] [`Self`] as [`UpgradableBox`].
-            ///
-            /// Used to avoid an unnecessary clone
-            pub fn encode_as_upgradable_box(&self) -> Vec<u8> {
-                UpgradableBoxRef::from(self).encode()
-            }
-        } )+
-    }
-}
-
 impl_encode_as_id_box! {
     peer::PeerId,
     domain::DomainId,
@@ -1114,20 +919,6 @@ impl_encode_as_identifiable_box! {
     trigger::Trigger<TriggeringFilterBox>,
     role::Role,
     parameter::Parameter,
-}
-
-impl_encode_as_registrable_box! {
-    peer::Peer,
-    domain::NewDomain,
-    account::NewAccount,
-    asset::NewAssetDefinition,
-    asset::Asset,
-    trigger::Trigger<TriggeringFilterBox>,
-    role::NewRole,
-}
-
-impl_encode_as_upgradable_box! {
-    executor::Executor,
 }
 
 impl Decode for ChainId {
@@ -1190,463 +981,6 @@ impl<'idbox> TryFrom<&'idbox IdentifiableBox> for &'idbox dyn HasMetadata {
     }
 }
 
-/// Create a [`Vec`] containing the arguments, which should satisfy `Into<Value>` bound.
-///
-/// Syntax is the same as in [`vec`](macro@vec)
-#[macro_export]
-macro_rules! val_vec {
-    () => { Vec::new() };
-    ($elem:expr; $n:expr) => { vec![$crate::Value::from($elem); $n] };
-    ($($x:expr),+ $(,)?) => { vec![$($crate::Value::from($x),)+] };
-}
-
-#[cfg(target_arch = "aarch64")]
-impl From<SignedBlockWrapper> for SignedBlock {
-    fn from(block_value: SignedBlockWrapper) -> Self {
-        *block_value.0
-    }
-}
-
-impl fmt::Display for Value {
-    // TODO: Maybe derive
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Value::Bool(v) => fmt::Display::fmt(&v, f),
-            Value::String(v) => fmt::Display::fmt(&v, f),
-            Value::Name(v) => fmt::Display::fmt(&v, f),
-            Value::Vec(v) => {
-                // TODO: Remove so we can derive.
-                let list_of_display: Vec<_> = v.iter().map(ToString::to_string).collect();
-                // this prints with quotation marks, which is fine 90%
-                // of the time, and helps delineate where a display of
-                // one value stops and another one begins.
-                write!(f, "{list_of_display:?}")
-            }
-            Value::LimitedMetadata(v) => fmt::Display::fmt(&v, f),
-            Value::Id(v) => fmt::Display::fmt(&v, f),
-            Value::Identifiable(v) => fmt::Display::fmt(&v, f),
-            Value::PublicKey(v) => fmt::Display::fmt(&v, f),
-            Value::SignatureCheckCondition(v) => fmt::Display::fmt(&v, f),
-            Value::TransactionQueryOutput(_) => write!(f, "TransactionQueryOutput"),
-            Value::PermissionToken(v) => fmt::Display::fmt(&v, f),
-            Value::PermissionTokenSchema(v) => fmt::Display::fmt(&v, f),
-            Value::Hash(v) => fmt::Display::fmt(&v, f),
-            Value::Block(v) => fmt::Display::fmt(&**v, f),
-            Value::BlockHeader(v) => fmt::Display::fmt(&v, f),
-            Value::Ipv4Addr(v) => fmt::Display::fmt(&v, f),
-            Value::Ipv6Addr(v) => fmt::Display::fmt(&v, f),
-            Value::Numeric(v) => fmt::Display::fmt(&v, f),
-            Value::Integer(v) => fmt::Display::fmt(&v, f),
-            Value::MetadataLimits(v) => fmt::Display::fmt(&v, f),
-            Value::TransactionLimits(v) => fmt::Display::fmt(&v, f),
-            Value::LengthLimits(v) => fmt::Display::fmt(&v, f),
-            Value::Executor(v) => write!(f, "Executor({} bytes)", v.wasm.as_ref().len()),
-            Value::LogLevel(v) => fmt::Display::fmt(&v, f),
-        }
-    }
-}
-
-#[allow(clippy::len_without_is_empty)]
-impl Value {
-    /// Number of underneath expressions.
-    pub fn len(&self) -> usize {
-        use Value::*;
-
-        match self {
-            Id(_)
-            | PublicKey(_)
-            | Bool(_)
-            | Identifiable(_)
-            | String(_)
-            | Name(_)
-            | TransactionQueryOutput(_)
-            | PermissionToken(_)
-            | PermissionTokenSchema(_)
-            | Hash(_)
-            | Block(_)
-            | Ipv4Addr(_)
-            | Ipv6Addr(_)
-            | BlockHeader(_)
-            | MetadataLimits(_)
-            | TransactionLimits(_)
-            | LengthLimits(_)
-            | Numeric(_)
-            | Integer(_)
-            | Executor(_)
-            | LogLevel(_)
-            | SignatureCheckCondition(_) => 1_usize,
-            Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
-            LimitedMetadata(data) => data.nested_len() + 1_usize,
-        }
-    }
-}
-
-impl From<SignedBlock> for Value {
-    fn from(block_value: SignedBlock) -> Self {
-        Value::Block(block_value.into())
-    }
-}
-
-impl<A: SmallArray> From<SmallVec<A>> for Value
-where
-    A::Item: Into<Value>,
-{
-    fn from(sv: SmallVec<A>) -> Self {
-        // This looks inefficient, but `Value` can only hold a
-        // heap-allocated `Vec` (it's recursive) and the vector
-        // conversions only do a heap allocation (if that).
-        let vec: Vec<_> = sv.into_vec();
-        vec.into()
-    }
-}
-
-// TODO: The following macros looks very similar. Try to generalize them under one macro
-macro_rules! from_and_try_from_value_idbox {
-    ( $($variant:ident( $ty:ty ),)+ $(,)? ) => { $(
-        impl TryFrom<Value> for $ty {
-            type Error = ErrorTryFromEnum<Value, Self>;
-
-            fn try_from(value: Value) -> Result<Self, Self::Error> {
-                if let Value::Id(IdBox::$variant(id)) = value {
-                    Ok(id)
-                } else {
-                    Err(Self::Error::default())
-                }
-            }
-        }
-
-        impl From<$ty> for Value {
-            fn from(id: $ty) -> Self {
-                Value::Id(IdBox::$variant(id))
-            }
-        })+
-    };
-}
-
-macro_rules! from_and_try_from_value_identifiable {
-    ( $( $variant:ident( $ty:ty ), )+ $(,)? ) => { $(
-        impl TryFrom<Value> for $ty {
-            type Error = ErrorTryFromEnum<Value, Self>;
-
-            fn try_from(value: Value) -> Result<Self, Self::Error> {
-                if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
-                    Ok(id)
-                } else {
-                    Err(Self::Error::default())
-                }
-            }
-        }
-
-        impl From<$ty> for Value {
-            fn from(id: $ty) -> Self {
-                Value::Identifiable(IdentifiableBox::$variant(id))
-            }
-        } )+
-    };
-}
-
-macro_rules! from_and_try_from_and_try_as_value_hash {
-    ( $( $variant:ident($ty:ty)),+ $(,)? ) => { $(
-        impl TryFrom<Value> for $ty {
-            type Error = ErrorTryFromEnum<Value, Self>;
-
-            #[inline]
-            fn try_from(value: Value) -> Result<Self, Self::Error> {
-                if let Value::Hash(HashValue::$variant(value)) = value {
-                    Ok(value)
-                } else {
-                    Err(Self::Error::default())
-                }
-            }
-        }
-
-        impl From<$ty> for Value {
-            #[inline]
-            fn from(value: $ty) -> Self {
-                Value::Hash(HashValue::$variant(value))
-            }
-        }
-
-        impl TryAsMut<$ty> for HashValue {
-            type Error = crate::EnumTryAsError<$ty, HashValue>;
-
-            #[inline]
-            fn try_as_mut(&mut self) -> Result<&mut $ty, Self::Error> {
-                if let HashValue::$variant (value) = self {
-                    Ok(value)
-                } else {
-                    Err(crate::EnumTryAsError::got(*self))
-                }
-            }
-        }
-
-        impl TryAsRef<$ty> for HashValue {
-            type Error = crate::EnumTryAsError<$ty, HashValue>;
-
-            #[inline]
-            fn try_as_ref(&self) -> Result<& $ty, Self::Error> {
-                if let HashValue::$variant (value) = self {
-                    Ok(value)
-                } else {
-                    Err(crate::EnumTryAsError::got(*self))
-                }
-            }
-        })+
-    };
-}
-
-macro_rules! from_and_try_from_and_try_as_value_integer {
-    ( $( $variant:ident($ty:ty),)+ $(,)? ) => { $(
-        impl TryFrom<Value> for $ty {
-            type Error = ErrorTryFromEnum<Value, Self>;
-
-            #[inline]
-            fn try_from(value: Value) -> Result<Self, Self::Error> {
-                if let Value::Integer(Integer::$variant(value)) = value {
-                    Ok(value)
-                } else {
-                    Err(Self::Error::default())
-                }
-            }
-        }
-
-        impl From<$ty> for Value {
-            #[inline]
-            fn from(value: $ty) -> Self {
-                Value::Integer(Integer::$variant(value))
-            }
-        }
-
-        impl TryAsMut<$ty> for Integer {
-            type Error = crate::EnumTryAsError<$ty, Integer>;
-
-            #[inline]
-            fn try_as_mut(&mut self) -> Result<&mut $ty, Self::Error> {
-                if let Integer:: $variant (value) = self {
-                    Ok(value)
-                } else {
-                    Err(crate::EnumTryAsError::got(*self))
-                }
-            }
-        }
-
-        impl TryAsRef<$ty> for Integer {
-            type Error = crate::EnumTryAsError<$ty, Integer>;
-
-            #[inline]
-            fn try_as_ref(&self) -> Result<& $ty, Self::Error> {
-                if let Integer:: $variant (value) = self {
-                    Ok(value)
-                } else {
-                    Err(crate::EnumTryAsError::got(*self))
-                }
-            }
-        })+
-    };
-}
-
-from_and_try_from_value_idbox!(
-    PeerId(peer::PeerId),
-    DomainId(domain::DomainId),
-    AccountId(account::AccountId),
-    AssetId(asset::AssetId),
-    AssetDefinitionId(asset::AssetDefinitionId),
-    TriggerId(trigger::TriggerId),
-    RoleId(role::RoleId),
-    ParameterId(parameter::ParameterId),
-    // TODO: Should we wrap String with new type in order to convert like here?
-    //from_and_try_from_value_idbox!((DomainName(Name), ErrorValueTryFromDomainName),);
-);
-
-from_and_try_from_value_identifiable!(
-    NewDomain(domain::NewDomain),
-    NewAccount(account::NewAccount),
-    NewAssetDefinition(asset::NewAssetDefinition),
-    NewRole(role::NewRole),
-    Peer(peer::Peer),
-    Domain(domain::Domain),
-    Account(account::Account),
-    AssetDefinition(asset::AssetDefinition),
-    Asset(asset::Asset),
-    Trigger(trigger::Trigger<TriggeringFilterBox>),
-    Role(role::Role),
-    Parameter(parameter::Parameter),
-);
-
-from_and_try_from_and_try_as_value_hash! {
-    Transaction(HashOf<SignedTransaction>),
-    Block(HashOf<SignedBlock>),
-}
-
-from_and_try_from_and_try_as_value_integer! {
-    U32(u32),
-    U64(u64),
-    U128(u128),
-}
-
-impl TryFrom<Value> for RegistrableBox {
-    type Error = ErrorTryFromEnum<Value, Self>;
-
-    fn try_from(source: Value) -> Result<Self, Self::Error> {
-        if let Value::Identifiable(identifiable) = source {
-            identifiable
-                .try_into()
-                .map_err(|_err| Self::Error::default())
-        } else {
-            Err(Self::Error::default())
-        }
-    }
-}
-
-impl From<RegistrableBox> for Value {
-    fn from(source: RegistrableBox) -> Self {
-        let identifiable = source.into();
-        Value::Identifiable(identifiable)
-    }
-}
-
-impl TryFrom<IdentifiableBox> for RegistrableBox {
-    type Error = ErrorTryFromEnum<IdentifiableBox, Self>;
-
-    fn try_from(source: IdentifiableBox) -> Result<Self, Self::Error> {
-        use IdentifiableBox::*;
-
-        match source {
-            Peer(peer) => Ok(RegistrableBox::Peer(peer)),
-            NewDomain(domain) => Ok(RegistrableBox::Domain(domain)),
-            NewAccount(account) => Ok(RegistrableBox::Account(account)),
-            NewAssetDefinition(asset_definition) => {
-                Ok(RegistrableBox::AssetDefinition(asset_definition))
-            }
-            NewRole(role) => Ok(RegistrableBox::Role(role)),
-            Asset(asset) => Ok(RegistrableBox::Asset(asset)),
-            Trigger(trigger) => Ok(RegistrableBox::Trigger(trigger)),
-            Domain(_) | Account(_) | AssetDefinition(_) | Role(_) | Parameter(_) => {
-                Err(Self::Error::default())
-            }
-        }
-    }
-}
-
-impl From<RegistrableBox> for IdentifiableBox {
-    fn from(registrable: RegistrableBox) -> Self {
-        use RegistrableBox::*;
-
-        match registrable {
-            Peer(peer) => IdentifiableBox::Peer(peer),
-            Domain(domain) => IdentifiableBox::NewDomain(domain),
-            Account(account) => IdentifiableBox::NewAccount(account),
-            AssetDefinition(asset_definition) => {
-                IdentifiableBox::NewAssetDefinition(asset_definition)
-            }
-            Role(role) => IdentifiableBox::NewRole(role),
-            Asset(asset) => IdentifiableBox::Asset(asset),
-            Trigger(trigger) => IdentifiableBox::Trigger(trigger),
-        }
-    }
-}
-
-impl<V: Into<Value>> From<Vec<V>> for Value {
-    fn from(values: Vec<V>) -> Value {
-        Value::Vec(values.into_iter().map(Into::into).collect())
-    }
-}
-
-impl<V> TryFrom<Value> for Vec<V>
-where
-    Value: TryInto<V>,
-{
-    type Error = ErrorTryFromEnum<Value, Self>;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Value::Vec(vec) = value {
-            return vec
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|_e| Self::Error::default());
-        }
-
-        Err(Self::Error::default())
-    }
-}
-
-impl TryFrom<Value> for SignedBlock {
-    type Error = ErrorTryFromEnum<Value, Self>;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Value::Block(block_value) = value {
-            return Ok(block_value.into());
-        }
-
-        Err(Self::Error::default())
-    }
-}
-
-impl<A: SmallArray> TryFrom<Value> for SmallVec<A>
-where
-    Value: TryInto<A::Item>,
-{
-    type Error = ErrorTryFromEnum<Value, Self>;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Value::Vec(vec) = value {
-            return vec
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<SmallVec<_>, _>>()
-                .map_err(|_e| Self::Error::default());
-        }
-        Err(Self::Error::default())
-    }
-}
-
-impl TryFrom<Value> for UpgradableBox {
-    type Error = ErrorTryFromEnum<Value, Self>;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        match value {
-            Value::Executor(executor) => Ok(Self::Executor(executor)),
-            _ => Err(Self::Error::default()),
-        }
-    }
-}
-
-/// Represent type which can be converted into [`Value`] infallibly.
-/// This trait can be used when type inference can't properly inference desired type.
-pub trait ToValue {
-    /// Convert [`Self`] into [`Value`].
-    fn to_value(self) -> Value;
-}
-
-/// Represent type which can be converted into `Value` with possibility of failure.
-/// This trait can be used when type inference can't properly inference desired type.
-pub trait TryToValue {
-    /// Type which represents conversation error.
-    type Error;
-    /// Try convert [`Self`] into [`Value`].
-    ///
-    /// # Errors
-    /// Fail when it is not possible to convert [`Self`] into `Value`
-    fn try_to_value(self) -> Result<Value, Self::Error>;
-}
-
-impl<T: Into<Value>> ToValue for T {
-    #[inline]
-    fn to_value(self) -> Value {
-        self.into()
-    }
-}
-
-impl<T: TryInto<Value>> TryToValue for T {
-    type Error = T::Error;
-
-    #[inline]
-    fn try_to_value(self) -> Result<Value, Self::Error> {
-        self.try_into()
-    }
-}
-
 /// Uniquely identifiable entity ([`Domain`], [`Account`], etc.).
 /// This trait should always be derived with [`IdEqOrdHash`]
 pub trait Identifiable: Ord + Eq {
@@ -1672,7 +1006,7 @@ pub trait Registered: Identifiable {
     /// `Self`, but if you have a complex structure where most fields
     /// would be empty, to save space you create a builder for it, and
     /// set `With` to the builder's type.
-    type With: Into<RegistrableBox>;
+    type With;
 }
 
 impl LengthLimits {
@@ -1687,244 +1021,6 @@ impl From<LengthLimits> for RangeInclusive<u32> {
     fn from(limits: LengthLimits) -> Self {
         RangeInclusive::new(limits.min, limits.max)
     }
-}
-
-/// Trait for boolean-like values
-///
-/// [`or`](`Self::or`) and [`and`](`Self::and`) must satisfy De Morgan's laws, commutativity and associativity
-/// [`Not`](`core::ops::Not`) implementation should satisfy double negation elimintation.
-///
-/// Short-circuiting behaviour for `and` and `or` can be controlled by returning
-/// `ControlFlow::Break` when subsequent application of the same operation
-/// won't change the end result, no matter what operands.
-///
-/// When implementing, it's recommended to generate exhaustive tests with
-/// [`test_conformity`](`Self::test_conformity`).
-pub trait PredicateSymbol
-where
-    Self: Sized + core::ops::Not<Output = Self>,
-{
-    /// Conjunction (e.g. boolean and)
-    #[must_use]
-    fn and(self, other: Self) -> ControlFlow<Self, Self>;
-    /// Disjunction (e.g. boolean or)
-    #[must_use]
-    fn or(self, other: Self) -> ControlFlow<Self, Self>;
-
-    #[doc(hidden)]
-    #[must_use]
-    fn unwrapped_and(self, other: Self) -> Self {
-        match self.and(other) {
-            ControlFlow::Continue(val) | ControlFlow::Break(val) => val,
-        }
-    }
-
-    #[doc(hidden)]
-    #[must_use]
-    fn unwrapped_or(self, other: Self) -> Self {
-        match self.or(other) {
-            ControlFlow::Continue(val) | ControlFlow::Break(val) => val,
-        }
-    }
-
-    /// Given a list of all possible values of a type implementing [`PredicateSymbol`]
-    /// which are different in predicate context, exhaustively tests for:
-    /// - commutativity of `and` and `or`
-    /// - associativity of `and` and `or`
-    /// - De Mornan duality of `and` and `or`
-    /// - double negation elimination
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use iroha_data_model::PredicateSymbol;
-    ///
-    /// fn test() {
-    ///     PredicateSymbol::test_conformity(vec![true, false]);
-    /// }
-    /// ```
-    ///
-    fn test_conformity(values: Vec<Self>)
-    where
-        Self: PartialEq + Clone,
-    {
-        Self::test_conformity_with_eq(values, <Self as PartialEq>::eq);
-    }
-
-    /// Same as [`test_conformity`](`PredicateSymbol::test_conformity`), but
-    /// if type implementing [`PredicateSymbol`] carries some internal state
-    /// that isn't associative, one can provide custom `shallow_eq` function
-    /// that will be called instead of [`PartialEq::eq`]
-    ///
-    /// # Examples
-    ///
-    ///
-    /// ```
-    /// use std::ops::ControlFlow;
-    /// use iroha_data_model::PredicateSymbol;
-    ///
-    /// #[derive(Clone, PartialEq)]
-    /// enum Check {
-    ///    Good,
-    ///    // Encapsulates reason for badness which
-    ///    // doesn't behave associatively
-    ///    // (but if we ignore it, Check as a whole does)
-    ///    Bad(String),
-    /// }
-    ///
-    /// impl core::ops::Not for Check {
-    ///   type Output = Self;
-    ///   fn not(self) -> Self {
-    ///     // ...
-    ///     todo!()
-    ///   }
-    /// }
-    ///
-    /// impl PredicateSymbol for Check {
-    ///   fn and(self, other: Self) -> ControlFlow<Self, Self> {
-    ///     // ...
-    ///     todo!()
-    ///   }
-    ///
-    ///   fn or(self, other: Self) -> ControlFlow<Self, Self> {
-    ///     // ...
-    ///     todo!()
-    ///   }
-    /// }
-    ///
-    /// fn shallow_eq(left: &Check, right: &Check) -> bool {
-    ///    match (left, right) {
-    ///      (Check::Good, Check::Good) | (Check::Bad(_), Check::Bad(_)) => true,
-    ///      _ => false
-    ///    }
-    /// }
-    ///
-    /// fn test() {
-    ///    let good = Check::Good;
-    ///    let bad = Check::Bad("example".to_owned());
-    ///    // Would fail some assertions, since derived PartialEq is "deep"
-    ///    // PredicateSymbol::test_conformity(vec![good, bad]);
-    ///
-    ///    // Works as expected
-    ///    PredicateSymbol::test_conformity_with_eq(vec![good, bad], shallow_eq);
-    /// }
-    /// ```
-    fn test_conformity_with_eq(values: Vec<Self>, shallow_eq: impl FnMut(&Self, &Self) -> bool)
-    where
-        Self: Clone,
-    {
-        let mut eq = shallow_eq;
-        let values = values
-            .into_iter()
-            .map(|val| move || val.clone())
-            .collect::<Vec<_>>();
-
-        let typ = core::any::type_name::<Self>();
-
-        for a in &values {
-            assert!(
-                eq(&a().not().not(), &a()),
-                "Double negation elimination doesn't hold for {typ}",
-            );
-        }
-
-        for a in &values {
-            for b in &values {
-                assert!(
-                eq(
-                    &PredicateSymbol::unwrapped_and(a(), b()),
-                    &PredicateSymbol::unwrapped_and(b(), a())
-                ),
-                "Commutativity doesn't hold for `PredicateSymbol::and` implementation for {typ}"
-            );
-
-                assert!(
-                    eq(
-                        &PredicateSymbol::unwrapped_or(a(), b()),
-                        &PredicateSymbol::unwrapped_or(b(), a())
-                    ),
-                    "Commutativity doesn't hold for `PredicateSymbol::or` implementation for {typ}"
-                );
-
-                assert!(
-                    eq(
-                        &PredicateSymbol::unwrapped_or(!a(), !b()),
-                        &!PredicateSymbol::unwrapped_and(a(), b())
-                    ),
-                    "De Morgan's law doesn't hold for {typ}",
-                );
-
-                assert!(
-                    eq(
-                        &PredicateSymbol::unwrapped_and(!a(), !b()),
-                        &!PredicateSymbol::unwrapped_or(a(), b())
-                    ),
-                    "De Morgan's law doesn't hold for {typ}",
-                );
-            }
-        }
-
-        for a in &values {
-            for b in &values {
-                for c in &values {
-                    assert!(
-                    eq(
-                        &PredicateSymbol::unwrapped_and(
-                            PredicateSymbol::unwrapped_and(a(), b()),
-                            c()
-                        ),
-                        &PredicateSymbol::unwrapped_and(
-                            a(),
-                            PredicateSymbol::unwrapped_and(b(), c()),
-                        ),
-                    ),
-                    "Associativity doesn't hold for `PredicateSymbol::or` implementation for {typ}",
-                );
-
-                    assert!(
-                    eq(
-                        &PredicateSymbol::unwrapped_or(
-                            PredicateSymbol::unwrapped_or(a(), b()),
-                            c()
-                        ),
-                        &PredicateSymbol::unwrapped_or(
-                            a(),
-                            PredicateSymbol::unwrapped_or(b(), c()),
-                        ),
-                    ),
-                    "Associativity doesn't hold for `PredicateSymbol::and` implementation for {typ}",
-                );
-                }
-            }
-        }
-    }
-}
-
-impl PredicateSymbol for bool {
-    fn and(self, other: Self) -> ControlFlow<Self, Self> {
-        if self && other {
-            ControlFlow::Continue(true)
-        } else {
-            ControlFlow::Break(false)
-        }
-    }
-
-    fn or(self, other: Self) -> ControlFlow<Self, Self> {
-        if self || other {
-            ControlFlow::Break(true)
-        } else {
-            ControlFlow::Continue(false)
-        }
-    }
-}
-
-/// Trait for generic predicates.
-pub trait PredicateTrait<T: ?Sized + Copy> {
-    /// Type the predicate evaluates to.
-    type EvaluatesTo: PredicateSymbol;
-
-    /// The result of applying the predicate to a value.
-    fn applies(&self, input: T) -> Self::EvaluatesTo;
 }
 
 /// Get the current system time as `Duration` since the unix epoch.
@@ -1998,8 +1094,6 @@ pub mod prelude {
         executor::prelude::*, isi::prelude::*, metadata::prelude::*, name::prelude::*,
         parameter::prelude::*, peer::prelude::*, permission::prelude::*, query::prelude::*,
         role::prelude::*, transaction::prelude::*, trigger::prelude::*, ChainId, EnumTryAsError,
-        HasMetadata, IdBox, Identifiable, IdentifiableBox, Integer, LengthLimits, PredicateTrait,
-        RegistrableBox, ToValue, TryAsMut, TryAsRef, TryToValue, UpgradableBox, ValidationFail,
-        Value,
+        HasMetadata, IdBox, Identifiable, IdentifiableBox, LengthLimits, ValidationFail,
     };
 }

@@ -20,7 +20,7 @@ use iroha_data_model::{
     },
     prelude::*,
     query::{
-        cursor::ForwardCursor, http, sorting::Sorting, Pagination, QueryRequest,
+        cursor::ForwardCursor, http, sorting::Sorting, Pagination, QueryOutputBox, QueryRequest,
         QueryWithParameters,
     },
     BatchedResponse,
@@ -104,7 +104,7 @@ pub async fn handle_queries(
     sumeragi: SumeragiHandle,
 
     query_request: http::ClientQueryRequest,
-) -> Result<Scale<BatchedResponse<Value>>> {
+) -> Result<Scale<BatchedResponse<QueryOutputBox>>> {
     let handle = task::spawn_blocking(move || match query_request.0 {
         QueryRequest::Query(QueryWithParameters {
             query: signed_query,

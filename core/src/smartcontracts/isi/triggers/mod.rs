@@ -195,7 +195,8 @@ pub mod query {
     //! Queries associated to triggers.
     use iroha_data_model::{
         events::TriggeringFilterBox,
-        query::{error::QueryExecutionFail as Error, MetadataValue},
+        metadata::MetadataValueBox,
+        query::error::QueryExecutionFail as Error,
         trigger::{Trigger, TriggerId},
     };
 
@@ -233,7 +234,7 @@ pub mod query {
 
     impl ValidQuery for FindTriggerKeyValueByIdAndKey {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValue, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<MetadataValueBox, Error> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);

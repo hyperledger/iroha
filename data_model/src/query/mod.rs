@@ -4,9 +4,8 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
-    boxed::Box,
     format,
-    string::{String, ToString as _},
+    string::{String, ToString},
     vec,
     vec::Vec,
 };
@@ -16,7 +15,7 @@ pub use cursor::ForwardCursor;
 use derive_more::{Constructor, Display};
 use iroha_crypto::{PublicKey, SignatureOf};
 use iroha_data_model_derive::{model, EnumRef};
-use iroha_macro::FromVariant;
+use iroha_primitives::{numeric::Numeric, small::SmallVec};
 use iroha_schema::IntoSchema;
 use iroha_version::prelude::*;
 pub use pagination::Pagination;
@@ -31,15 +30,18 @@ use self::{
 };
 use crate::{
     account::{Account, AccountId},
-    block::SignedBlock,
+    block::{BlockHeader, SignedBlock},
     events::TriggeringFilterBox,
+    metadata::MetadataValueBox,
     seal,
     transaction::{SignedTransaction, TransactionPayload, TransactionValue},
-    Identifiable, Value,
+    IdBox, Identifiable, IdentifiableBox,
 };
 
 pub mod cursor;
 pub mod pagination;
+#[cfg(feature = "http")]
+pub mod predicate;
 pub mod sorting;
 
 const FETCH_SIZE: &str = "fetch_size";
@@ -103,7 +105,7 @@ pub type QueryId = String;
 /// Trait for typesafe query output
 pub trait Query: Into<QueryBox> + seal::Sealed {
     /// Output type of query
-    type Output: Into<Value> + TryFrom<Value>;
+    type Output: Into<QueryOutputBox> + TryFrom<QueryOutputBox>;
 
     /// [`Encode`] [`Self`] as [`QueryBox`].
     ///
@@ -115,6 +117,7 @@ pub trait Query: Into<QueryBox> + seal::Sealed {
 pub mod model {
     use getset::Getters;
     use iroha_crypto::HashOf;
+    use iroha_macro::FromVariant;
     use strum::EnumDiscriminants;
 
     use super::*;
@@ -191,6 +194,40 @@ pub mod model {
         FindAllParameters(FindAllParameters),
     }
 
+    /// Sized container for all possible [`Query::Output`]s
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        FromVariant,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    #[allow(missing_docs)]
+    pub enum QueryOutputBox {
+        Id(IdBox),
+        Identifiable(IdentifiableBox),
+        Transaction(TransactionQueryOutput),
+        PermissionToken(crate::permission::PermissionToken),
+        PermissionTokenSchema(crate::permission::PermissionTokenSchema),
+        LimitedMetadata(MetadataValueBox),
+        Numeric(Numeric),
+        BlockHeader(BlockHeader),
+        Block(crate::block::SignedBlock),
+
+        Vec(
+            #[skip_from]
+            #[skip_try_from]
+            Vec<QueryOutputBox>,
+        ),
+    }
+
     /// Output of [`FindAllTransactions`] query
     #[derive(
         Debug,
@@ -213,25 +250,8 @@ pub mod model {
         pub block_hash: HashOf<SignedBlock>,
         /// Transaction
         #[getset(skip)]
-        pub transaction: Box<TransactionValue>,
+        pub transaction: TransactionValue,
     }
-
-    /// Type returned from [`Metadata`] queries
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    #[ffi_type]
-    pub struct MetadataValue(pub Value);
 
     /// Request type clients (like http clients or wasm) can send to a query endpoint.
     #[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
@@ -260,6 +280,46 @@ pub mod model {
     }
 }
 
+impl From<u32> for QueryOutputBox {
+    fn from(value: u32) -> Self {
+        Self::Numeric(value.into())
+    }
+}
+
+impl From<u64> for QueryOutputBox {
+    fn from(value: u64) -> Self {
+        Self::Numeric(value.into())
+    }
+}
+
+impl TryFrom<QueryOutputBox> for u32 {
+    type Error = iroha_macro::error::ErrorTryFromEnum<QueryOutputBox, Self>;
+
+    fn try_from(value: QueryOutputBox) -> Result<Self, Self::Error> {
+        use iroha_macro::error::ErrorTryFromEnum;
+
+        let QueryOutputBox::Numeric(numeric) = value else {
+            return Err(ErrorTryFromEnum::default());
+        };
+
+        numeric.try_into().map_err(|_| ErrorTryFromEnum::default())
+    }
+}
+
+impl TryFrom<QueryOutputBox> for u64 {
+    type Error = iroha_macro::error::ErrorTryFromEnum<QueryOutputBox, Self>;
+
+    fn try_from(value: QueryOutputBox) -> Result<Self, Self::Error> {
+        use iroha_macro::error::ErrorTryFromEnum;
+
+        let QueryOutputBox::Numeric(numeric) = value else {
+            return Err(ErrorTryFromEnum::default());
+        };
+
+        numeric.try_into().map_err(|_| ErrorTryFromEnum::default())
+    }
+}
+
 macro_rules! impl_query {
     ($($ty:ty => $output:ty),+ $(,)?) => { $(
         impl Query for $ty {
@@ -281,7 +341,7 @@ impl_query! {
     FindPermissionTokensByAccountId => Vec<crate::permission::PermissionToken>,
     FindAllAccounts => Vec<crate::account::Account>,
     FindAccountById => crate::account::Account,
-    FindAccountKeyValueByIdAndKey => MetadataValue,
+    FindAccountKeyValueByIdAndKey => MetadataValueBox,
     FindAccountsByName => Vec<crate::account::Account>,
     FindAccountsByDomainId => Vec<crate::account::Account>,
     FindAccountsWithAsset => Vec<crate::account::Account>,
@@ -294,18 +354,18 @@ impl_query! {
     FindAssetsByAssetDefinitionId => Vec<crate::asset::Asset>,
     FindAssetsByDomainId => Vec<crate::asset::Asset>,
     FindAssetsByDomainIdAndAssetDefinitionId => Vec<crate::asset::Asset>,
-    FindAssetQuantityById => crate::Numeric,
-    FindTotalAssetQuantityByAssetDefinitionId => crate::Numeric,
-    FindAssetKeyValueByIdAndKey => MetadataValue,
-    FindAssetDefinitionKeyValueByIdAndKey => MetadataValue,
+    FindAssetQuantityById => Numeric,
+    FindTotalAssetQuantityByAssetDefinitionId => Numeric,
+    FindAssetKeyValueByIdAndKey => MetadataValueBox,
+    FindAssetDefinitionKeyValueByIdAndKey => MetadataValueBox,
     FindAllDomains => Vec<crate::domain::Domain>,
     FindDomainById => crate::domain::Domain,
-    FindDomainKeyValueByIdAndKey => MetadataValue,
+    FindDomainKeyValueByIdAndKey => MetadataValueBox,
     FindAllPeers => Vec<crate::peer::Peer>,
     FindAllParameters => Vec<crate::parameter::Parameter>,
     FindAllActiveTriggerIds => Vec<crate::trigger::TriggerId>,
     FindTriggerById => crate::trigger::Trigger<TriggeringFilterBox>,
-    FindTriggerKeyValueByIdAndKey => MetadataValue,
+    FindTriggerKeyValueByIdAndKey => MetadataValueBox,
     FindTriggersByDomainId => Vec<crate::trigger::Trigger<TriggeringFilterBox>>,
     FindAllTransactions => Vec<TransactionQueryOutput>,
     FindTransactionsByAccountId => Vec<TransactionQueryOutput>,
@@ -316,30 +376,140 @@ impl_query! {
 }
 
 impl Query for QueryBox {
-    type Output = Value;
+    type Output = QueryOutputBox;
 
     fn encode_as_query_box(&self) -> Vec<u8> {
         self.encode()
     }
 }
 
-impl From<MetadataValue> for Value {
-    #[inline]
-    fn from(source: MetadataValue) -> Self {
-        source.0
+impl core::fmt::Display for QueryOutputBox {
+    // TODO: Maybe derive
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            QueryOutputBox::Id(v) => core::fmt::Display::fmt(&v, f),
+            QueryOutputBox::Identifiable(v) => core::fmt::Display::fmt(&v, f),
+            QueryOutputBox::Transaction(_) => write!(f, "TransactionQueryOutput"),
+            QueryOutputBox::PermissionToken(v) => core::fmt::Display::fmt(&v, f),
+            QueryOutputBox::PermissionTokenSchema(v) => core::fmt::Display::fmt(&v, f),
+            QueryOutputBox::Block(v) => core::fmt::Display::fmt(&v, f),
+            QueryOutputBox::BlockHeader(v) => core::fmt::Display::fmt(&v, f),
+            QueryOutputBox::Numeric(v) => core::fmt::Display::fmt(&v, f),
+            QueryOutputBox::LimitedMetadata(v) => core::fmt::Display::fmt(&v, f),
+
+            QueryOutputBox::Vec(v) => {
+                // TODO: Remove so we can derive.
+                let list_of_display: Vec<_> = v.iter().map(ToString::to_string).collect();
+                // this prints with quotation marks, which is fine 90%
+                // of the time, and helps delineate where a display of
+                // one value stops and another one begins.
+                write!(f, "{list_of_display:?}")
+            }
+        }
     }
 }
 
-impl From<Value> for MetadataValue {
-    #[inline]
-    fn from(source: Value) -> Self {
-        Self(source)
+// TODO: The following macros looks very similar. Try to generalize them under one macro
+macro_rules! from_and_try_from_value_idbox {
+    ( $($variant:ident( $ty:ty ),)+ $(,)? ) => { $(
+        impl TryFrom<QueryOutputBox> for $ty {
+            type Error = iroha_macro::error::ErrorTryFromEnum<QueryOutputBox, Self>;
+
+            fn try_from(value: QueryOutputBox) -> Result<Self, Self::Error> {
+                if let QueryOutputBox::Id(IdBox::$variant(id)) = value {
+                    Ok(id)
+                } else {
+                    Err(Self::Error::default())
+                }
+            }
+        }
+
+        impl From<$ty> for QueryOutputBox {
+            fn from(id: $ty) -> Self {
+                QueryOutputBox::Id(IdBox::$variant(id))
+            }
+        })+
+    };
+}
+
+macro_rules! from_and_try_from_value_identifiable {
+    ( $( $variant:ident( $ty:ty ), )+ $(,)? ) => { $(
+        impl TryFrom<QueryOutputBox> for $ty {
+            type Error = iroha_macro::error::ErrorTryFromEnum<QueryOutputBox, Self>;
+
+            fn try_from(value: QueryOutputBox) -> Result<Self, Self::Error> {
+                if let QueryOutputBox::Identifiable(IdentifiableBox::$variant(id)) = value {
+                    Ok(id)
+                } else {
+                    Err(Self::Error::default())
+                }
+            }
+        }
+
+        impl From<$ty> for QueryOutputBox {
+            fn from(id: $ty) -> Self {
+                QueryOutputBox::Identifiable(IdentifiableBox::$variant(id))
+            }
+        } )+
+    };
+}
+
+from_and_try_from_value_idbox!(
+    PeerId(crate::peer::PeerId),
+    DomainId(crate::domain::DomainId),
+    AccountId(crate::account::AccountId),
+    AssetId(crate::asset::AssetId),
+    AssetDefinitionId(crate::asset::AssetDefinitionId),
+    TriggerId(crate::trigger::TriggerId),
+    RoleId(crate::role::RoleId),
+    ParameterId(crate::parameter::ParameterId),
+    // TODO: Should we wrap String with new type in order to convert like here?
+    //from_and_try_from_value_idbox!((DomainName(Name), ErrorValueTryFromDomainName),);
+);
+
+from_and_try_from_value_identifiable!(
+    NewDomain(crate::domain::NewDomain),
+    NewAccount(crate::account::NewAccount),
+    NewAssetDefinition(crate::asset::NewAssetDefinition),
+    NewRole(crate::role::NewRole),
+    Peer(crate::peer::Peer),
+    Domain(crate::domain::Domain),
+    Account(crate::account::Account),
+    AssetDefinition(crate::asset::AssetDefinition),
+    Asset(crate::asset::Asset),
+    Trigger(crate::trigger::Trigger<TriggeringFilterBox>),
+    Role(crate::role::Role),
+    Parameter(crate::parameter::Parameter),
+);
+
+impl<V: Into<QueryOutputBox>> From<Vec<V>> for QueryOutputBox {
+    fn from(values: Vec<V>) -> QueryOutputBox {
+        QueryOutputBox::Vec(values.into_iter().map(Into::into).collect())
     }
 }
 
-impl AsRef<SignedTransaction> for TransactionQueryOutput {
-    fn as_ref(&self) -> &SignedTransaction {
-        &self.transaction.value
+impl<V> TryFrom<QueryOutputBox> for Vec<V>
+where
+    QueryOutputBox: TryInto<V>,
+{
+    type Error = iroha_macro::error::ErrorTryFromEnum<QueryOutputBox, Self>;
+
+    fn try_from(value: QueryOutputBox) -> Result<Self, Self::Error> {
+        if let QueryOutputBox::Vec(vec) = value {
+            return vec
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_e| Self::Error::default());
+        }
+
+        Err(Self::Error::default())
+    }
+}
+
+impl AsRef<TransactionValue> for TransactionQueryOutput {
+    fn as_ref(&self) -> &TransactionValue {
+        &self.transaction
     }
 }
 
@@ -467,7 +637,7 @@ pub mod account {
     use derive_more::Display;
     use parity_scale_codec::Encode;
 
-    use super::{MetadataValue, Query, QueryType};
+    use super::{MetadataValueBox, Query, QueryType};
     use crate::prelude::*;
 
     queries! {
@@ -489,7 +659,7 @@ pub mod account {
             pub id: AccountId,
         }
 
-        /// [`FindAccountKeyValueByIdAndKey`] Iroha Query finds a [`Value`]
+        /// [`FindAccountKeyValueByIdAndKey`] Iroha Query finds an [`MetadataValue`]
         /// of the key-value metadata pair in the specified account.
         #[derive(Display)]
         #[display(fmt = "Find metadata value with `{key}` key in `{id}` account")]
@@ -560,7 +730,7 @@ pub mod asset {
     use iroha_primitives::numeric::Numeric;
     use parity_scale_codec::Encode;
 
-    use super::{MetadataValue, Query, QueryType};
+    use super::{MetadataValueBox, Query, QueryType};
     use crate::prelude::*;
 
     queries! {
@@ -685,7 +855,7 @@ pub mod asset {
             pub id: AssetDefinitionId,
         }
 
-        /// [`FindAssetKeyValueByIdAndKey`] Iroha Query gets [`AssetId`] and key as input and finds [`Value`]
+        /// [`FindAssetKeyValueByIdAndKey`] Iroha Query gets [`AssetId`] and key as input and finds [`MetadataValue`]
         /// of the key-value pair stored in this asset.
         #[derive(Display)]
         #[display(fmt = "Find metadata value with `{key}` key in `{id}` asset")]
@@ -697,7 +867,7 @@ pub mod asset {
             pub key: Name,
         }
 
-        /// [`FindAssetDefinitionKeyValueByIdAndKey`] Iroha Query gets [`AssetDefinitionId`] and key as input and finds [`Value`]
+        /// [`FindAssetDefinitionKeyValueByIdAndKey`] Iroha Query gets [`AssetDefinitionId`] and key as input and finds [`MetadataValue`]
         /// of the key-value pair stored in this asset definition.
         #[derive(Display)]
         #[display(fmt = "Find metadata value with `{key}` key in `{id}` asset definition")]
@@ -733,7 +903,7 @@ pub mod domain {
     use derive_more::Display;
     use parity_scale_codec::Encode;
 
-    use super::{MetadataValue, Query, QueryType};
+    use super::{MetadataValueBox, Query, QueryType};
     use crate::prelude::*;
 
     queries! {
@@ -754,7 +924,7 @@ pub mod domain {
             pub id: DomainId,
         }
 
-        /// [`FindDomainKeyValueByIdAndKey`] Iroha Query finds a [`Value`] of the key-value metadata pair
+        /// [`FindDomainKeyValueByIdAndKey`] Iroha Query finds a [`MetadataValue`] of the key-value metadata pair
         /// in the specified domain.
         #[derive(Display)]
         #[display(fmt = "Find metadata value with key `{key}` in `{id}` domain")]
@@ -813,12 +983,12 @@ pub mod trigger {
     use derive_more::Display;
     use parity_scale_codec::Encode;
 
-    use super::{MetadataValue, Query, QueryType};
+    use super::{MetadataValueBox, Query, QueryType};
     use crate::{
         domain::prelude::*,
         prelude::InstructionBox,
         trigger::{Trigger, TriggerId},
-        Executable, Identifiable, Name, Value,
+        Executable, Identifiable, Name,
     };
 
     queries! {
@@ -933,14 +1103,13 @@ pub mod block {
     #![allow(clippy::missing_inline_in_public_items)]
 
     #[cfg(not(feature = "std"))]
-    use alloc::{boxed::Box, format, string::String, vec::Vec};
+    use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
     use iroha_crypto::HashOf;
     use parity_scale_codec::{Decode, Encode};
 
-    use super::{Query, QueryType};
-    use crate::block::SignedBlock;
+    use super::{Query, SignedBlock};
 
     queries! {
         /// [`FindAllBlocks`] Iroha Query lists all blocks sorted by
@@ -981,10 +1150,11 @@ pub mod http {
 
     use getset::Getters;
     use iroha_data_model_derive::model;
+    use predicate::PredicateBox;
 
     pub use self::model::*;
     use super::*;
-    use crate::{account::AccountId, predicate::PredicateBox};
+    use crate::account::AccountId;
 
     declare_versioned_with_scale!(SignedQuery 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
@@ -1173,7 +1343,7 @@ pub mod error {
 
     pub use self::model::*;
     use super::*;
-    use crate::{block::SignedBlock, executor, permission, prelude::*};
+    use crate::{executor, permission, prelude::*};
 
     #[model]
     pub mod model {
@@ -1270,11 +1440,11 @@ pub mod error {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 #[allow(ambiguous_glob_reexports)]
 pub mod prelude {
-    #[cfg(feature = "http")]
-    pub use super::http::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
         peer::prelude::*, permission::prelude::*, role::prelude::*, transaction::*,
         trigger::prelude::*, FetchSize, QueryBox, QueryId, TransactionQueryOutput,
     };
+    #[cfg(feature = "http")]
+    pub use super::{http::*, predicate::PredicateTrait};
 }

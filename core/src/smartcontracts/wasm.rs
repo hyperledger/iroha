@@ -13,7 +13,7 @@ use iroha_data_model::{
     isi::InstructionBox,
     permission::PermissionTokenSchema,
     prelude::*,
-    query::{QueryBox, QueryRequest, QueryWithParameters},
+    query::{QueryBox, QueryId, QueryOutputBox, QueryRequest, QueryWithParameters},
     smart_contract::payloads::{self, Validate},
     BatchedResponse, Level as LogLevel, ValidationFail,
 };
@@ -78,7 +78,7 @@ mod import {
             fn execute_query(
                 query_request: SmartContractQueryRequest,
                 state: &mut S,
-            ) -> Result<BatchedResponse<Value>, ValidationFail>;
+            ) -> Result<BatchedResponse<QueryOutputBox>, ValidationFail>;
 
             /// Execute `instruction` on host
             #[codec::wrap_trait_fn]
@@ -761,7 +761,7 @@ where
     fn default_execute_query(
         query_request: SmartContractQueryRequest,
         state: &mut state::CommonState<W, S>,
-    ) -> Result<BatchedResponse<Value>, ValidationFail> {
+    ) -> Result<BatchedResponse<QueryOutputBox>, ValidationFail> {
         iroha_logger::debug!(%query_request, "Executing");
 
         match query_request.0 {
@@ -907,7 +907,7 @@ impl<'wrld> import::traits::ExecuteOperations<state::SmartContract<'wrld>>
     fn execute_query(
         query_request: SmartContractQueryRequest,
         state: &mut state::SmartContract<'wrld>,
-    ) -> Result<BatchedResponse<Value>, ValidationFail> {
+    ) -> Result<BatchedResponse<QueryOutputBox>, ValidationFail> {
         Self::default_execute_query(query_request, state)
     }
 
@@ -979,7 +979,7 @@ impl<'wrld> import::traits::ExecuteOperations<state::Trigger<'wrld>>
     fn execute_query(
         query_request: SmartContractQueryRequest,
         state: &mut state::Trigger<'wrld>,
-    ) -> Result<BatchedResponse<Value>, ValidationFail> {
+    ) -> Result<BatchedResponse<QueryOutputBox>, ValidationFail> {
         Self::default_execute_query(query_request, state)
     }
 
@@ -1008,7 +1008,7 @@ where
     fn execute_query(
         query_request: SmartContractQueryRequest,
         state: &mut state::CommonState<state::wsv::WithMut<'wrld>, S>,
-    ) -> Result<BatchedResponse<Value>, ValidationFail> {
+    ) -> Result<BatchedResponse<QueryOutputBox>, ValidationFail> {
         debug!(%query_request, "Executing as executor");
 
         Runtime::default_execute_query(query_request, state)
@@ -1246,7 +1246,7 @@ impl<'wrld> import::traits::ExecuteOperations<state::executor::ValidateQuery<'wr
     fn execute_query(
         query_request: SmartContractQueryRequest,
         state: &mut state::executor::ValidateQuery<'wrld>,
-    ) -> Result<BatchedResponse<Value>, ValidationFail> {
+    ) -> Result<BatchedResponse<QueryOutputBox>, ValidationFail> {
         debug!(%query_request, "Executing as executor");
 
         Runtime::default_execute_query(query_request, state)

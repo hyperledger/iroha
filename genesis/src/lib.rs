@@ -29,6 +29,7 @@ pub static GENESIS_ACCOUNT_ID: Lazy<AccountId> =
 
 /// Genesis transaction
 #[derive(Debug, Clone)]
+#[repr(transparent)]
 pub struct GenesisTransaction(pub SignedTransaction);
 
 /// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.

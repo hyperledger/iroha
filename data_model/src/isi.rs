@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 
 pub use self::{model::*, transparent::*};
-use super::{prelude::*, Value};
+use super::{metadata::MetadataValueBox, prelude::*};
 use crate::{seal, Level, Registered};
 
 /// Marker trait designating instruction.
@@ -283,13 +283,13 @@ mod transparent {
             /// Key.
             pub key: Name,
             /// Value.
-            pub value: Value,
+            pub value: MetadataValueBox,
         }
     }
 
     impl SetKeyValue<Domain> {
         /// Constructs a new [`SetKeyValue`] for a [`Domain`] with the given `key` and `value`.
-        pub fn domain(domain_id: DomainId, key: Name, value: impl Into<Value>) -> Self {
+        pub fn domain(domain_id: DomainId, key: Name, value: impl Into<MetadataValueBox>) -> Self {
             Self {
                 object_id: domain_id,
                 key,
@@ -300,7 +300,11 @@ mod transparent {
 
     impl SetKeyValue<Account> {
         /// Constructs a new [`SetKeyValue`] for an [`Account`] with the given `key` and `value`.
-        pub fn account(account_id: AccountId, key: Name, value: impl Into<Value>) -> Self {
+        pub fn account(
+            account_id: AccountId,
+            key: Name,
+            value: impl Into<MetadataValueBox>,
+        ) -> Self {
             Self {
                 object_id: account_id,
                 key,
@@ -314,7 +318,7 @@ mod transparent {
         pub fn asset_definition(
             asset_definition_id: AssetDefinitionId,
             key: Name,
-            value: impl Into<Value>,
+            value: impl Into<MetadataValueBox>,
         ) -> Self {
             Self {
                 object_id: asset_definition_id,
@@ -326,7 +330,7 @@ mod transparent {
 
     impl SetKeyValue<Asset> {
         /// Constructs a new [`SetKeyValue`] for an [`Asset`] with the given `key` and `value`.
-        pub fn asset(asset_id: AssetId, key: Name, value: impl Into<Value>) -> Self {
+        pub fn asset(asset_id: AssetId, key: Name, value: impl Into<MetadataValueBox>) -> Self {
             Self {
                 object_id: asset_id,
                 key,
@@ -855,8 +859,8 @@ mod transparent {
 
     isi! {
         /// Generic instruction for granting permission to an entity.
-        #[schema(bounds = "O: Into<Value> + IntoSchema, D: Identifiable, D::Id: IntoSchema")]
-        pub struct Grant<O: Into<Value>, D: Identifiable> {
+        #[schema(bounds = "O: IntoSchema, D: Identifiable, D::Id: IntoSchema")]
+        pub struct Grant<O, D: Identifiable> {
             /// Object to grant.
             pub object: O,
             /// Entity to which to grant this token.
@@ -897,7 +901,7 @@ mod transparent {
     impl_display! {
         Grant<O, D>
         where
-            O: Into<Value> + Display,
+            O: Display,
             D: Identifiable,
             D::Id: Display,
         =>
@@ -916,8 +920,8 @@ mod transparent {
 
     isi! {
         /// Generic instruction for revoking permission from an entity.
-        #[schema(bounds = "O: Into<Value> + IntoSchema, D: Identifiable, D::Id: IntoSchema")]
-        pub struct Revoke<O: Into<Value>, D: Identifiable> {
+        #[schema(bounds = "O: IntoSchema, D: Identifiable, D::Id: IntoSchema")]
+        pub struct Revoke<O, D: Identifiable> {
             /// Object to revoke.
             pub object: O,
             /// Entity which is being revoked this token from.
@@ -958,7 +962,7 @@ mod transparent {
     impl_display! {
         Revoke<O, D>
         where
-            O: Into<Value> + Display,
+            O: Display,
             D: Identifiable,
             D::Id: Display,
         =>
@@ -1248,7 +1252,7 @@ pub mod error {
     //! Module containing errors that can occur during instruction evaluation
 
     #[cfg(not(feature = "std"))]
-    use alloc::{boxed::Box, format, string::String, vec::Vec};
+    use alloc::{format, string::String, vec::Vec};
     use core::fmt::Debug;
 
     use derive_more::Display;
@@ -1271,7 +1275,6 @@ pub mod error {
         use serde::{Deserialize, Serialize};
 
         use super::*;
-        use crate::{asset::AssetDefinitionId, Value};
 
         /// Instruction execution error type
         #[derive(
@@ -1406,12 +1409,6 @@ pub mod error {
         pub enum TypeError {
             /// Asset Ids correspond to assets with different underlying types, {0}
             AssetValueType(#[cfg_attr(feature = "std", source)] Mismatch<AssetValueType>),
-            /// Value passed to the parameter doesn't have the right type, {0}
-            ParameterValueType(#[cfg_attr(feature = "std", source)] Box<Mismatch<Value>>),
-            /// AssetDefinition Ids don't match, {0}
-            AssetDefinitionId(
-                #[cfg_attr(feature = "std", source)] Box<Mismatch<AssetDefinitionId>>,
-            ),
             /// Numeric asset value type was expected, received: {0}
             NumericAssetValueTypeExpected(
                 #[skip_from]
