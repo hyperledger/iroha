@@ -172,8 +172,8 @@ impl MeasurerUnit {
         let listener = self.client.clone();
         let (init_sender, init_receiver) = mpsc::channel();
         let event_filter = PipelineEventFilter::new()
-            .entity_kind(PipelineEntityKind::Block)
-            .status_kind(PipelineStatusKind::Committed);
+            .from_entity_of_kind(PipelineEntityKind::Block)
+            .with_status(PipelineStatusKind::Committed);
         let blocks_expected = self.config.blocks as usize;
         let name = self.name;
         let handle = thread::spawn(move || -> Result<()> {

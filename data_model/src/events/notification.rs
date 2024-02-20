@@ -128,7 +128,7 @@ pub mod model {
         Eq,
         PartialOrd,
         Ord,
-        Constructor,
+        Default,
         Getters,
         Decode,
         Encode,
@@ -139,8 +139,8 @@ pub mod model {
     #[ffi_type]
     #[getset(get = "pub")]
     pub struct TriggerCompletedEventFilter {
-        trigger_id: Option<TriggerId>,
-        outcome_type: Option<TriggerCompletedOutcomeType>,
+        pub(super) trigger_id: Option<TriggerId>,
+        pub(super) outcome_type: Option<TriggerCompletedOutcomeType>,
     }
 }
 
@@ -157,6 +157,34 @@ impl super::EventFilter for NotificationEventFilter {
                 filter.matches(event)
             }
         }
+    }
+}
+
+impl TriggerCompletedEventFilter {
+    /// Creates a new [`TriggerCompletedEventFilter`] accepting all [`TriggerCompletedEvent`]s
+    #[must_use]
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            trigger_id: None,
+            outcome_type: None,
+        }
+    }
+
+    /// Modifies a [`TriggerCompletedEventFilter`] to accept only [`TriggerCompletedEvent`]s originating from a specific trigger
+    #[must_use]
+    #[inline]
+    pub fn from_trigger(mut self, trigger_id: TriggerId) -> Self {
+        self.trigger_id = Some(trigger_id);
+        self
+    }
+
+    /// Modifies a [`TriggerCompletedEventFilter`] to accept only [`TriggerCompletedEvent`]s with a specific outcome
+    #[must_use]
+    #[inline]
+    pub const fn with_outcome(mut self, outcome_type: TriggerCompletedOutcomeType) -> Self {
+        self.outcome_type = Some(outcome_type);
+        self
     }
 }
 
@@ -220,69 +248,65 @@ mod tests {
         let event_2_success =
             TriggerCompletedEvent::new(trigger_id_2.clone(), TriggerCompletedOutcome::Success);
 
-        let filter_accept_all = TriggerCompletedEventFilter::new(None, None);
+        let filter_accept_all = TriggerCompletedEventFilter::new();
         assert!(filter_accept_all.matches(&event_1_failure));
         assert!(filter_accept_all.matches(&event_1_success));
         assert!(filter_accept_all.matches(&event_2_failure));
         assert!(filter_accept_all.matches(&event_2_success));
 
         let filter_accept_success =
-            TriggerCompletedEventFilter::new(None, Some(TriggerCompletedOutcomeType::Success));
+            TriggerCompletedEventFilter::new().with_outcome(TriggerCompletedOutcomeType::Success);
         assert!(!filter_accept_success.matches(&event_1_failure));
         assert!(filter_accept_success.matches(&event_1_success));
         assert!(!filter_accept_success.matches(&event_2_failure));
         assert!(filter_accept_success.matches(&event_2_success));
 
         let filter_accept_failure =
-            TriggerCompletedEventFilter::new(None, Some(TriggerCompletedOutcomeType::Failure));
+            TriggerCompletedEventFilter::new().with_outcome(TriggerCompletedOutcomeType::Failure);
         assert!(filter_accept_failure.matches(&event_1_failure));
         assert!(!filter_accept_failure.matches(&event_1_success));
         assert!(filter_accept_failure.matches(&event_2_failure));
         assert!(!filter_accept_failure.matches(&event_2_success));
 
-        let filter_accept_1 = TriggerCompletedEventFilter::new(Some(trigger_id_1.clone()), None);
+        let filter_accept_1 = TriggerCompletedEventFilter::new().from_trigger(trigger_id_1.clone());
         assert!(filter_accept_1.matches(&event_1_failure));
         assert!(filter_accept_1.matches(&event_1_success));
         assert!(!filter_accept_1.matches(&event_2_failure));
         assert!(!filter_accept_1.matches(&event_2_success));
 
-        let filter_accept_1_failure = TriggerCompletedEventFilter::new(
-            Some(trigger_id_1.clone()),
-            Some(TriggerCompletedOutcomeType::Failure),
-        );
+        let filter_accept_1_failure = TriggerCompletedEventFilter::new()
+            .from_trigger(trigger_id_1.clone())
+            .with_outcome(TriggerCompletedOutcomeType::Failure);
         assert!(filter_accept_1_failure.matches(&event_1_failure));
         assert!(!filter_accept_1_failure.matches(&event_1_success));
         assert!(!filter_accept_1_failure.matches(&event_2_failure));
         assert!(!filter_accept_1_failure.matches(&event_2_success));
 
-        let filter_accept_1_success = TriggerCompletedEventFilter::new(
-            Some(trigger_id_1),
-            Some(TriggerCompletedOutcomeType::Success),
-        );
+        let filter_accept_1_success = TriggerCompletedEventFilter::new()
+            .from_trigger(trigger_id_1)
+            .with_outcome(TriggerCompletedOutcomeType::Success);
         assert!(!filter_accept_1_success.matches(&event_1_failure));
         assert!(filter_accept_1_success.matches(&event_1_success));
         assert!(!filter_accept_1_success.matches(&event_2_failure));
         assert!(!filter_accept_1_success.matches(&event_2_success));
 
-        let filter_accept_2 = TriggerCompletedEventFilter::new(Some(trigger_id_2.clone()), None);
+        let filter_accept_2 = TriggerCompletedEventFilter::new().from_trigger(trigger_id_2.clone());
         assert!(!filter_accept_2.matches(&event_1_failure));
         assert!(!filter_accept_2.matches(&event_1_success));
         assert!(filter_accept_2.matches(&event_2_failure));
         assert!(filter_accept_2.matches(&event_2_success));
 
-        let filter_accept_2_failure = TriggerCompletedEventFilter::new(
-            Some(trigger_id_2.clone()),
-            Some(TriggerCompletedOutcomeType::Failure),
-        );
+        let filter_accept_2_failure = TriggerCompletedEventFilter::new()
+            .from_trigger(trigger_id_2.clone())
+            .with_outcome(TriggerCompletedOutcomeType::Failure);
         assert!(!filter_accept_2_failure.matches(&event_1_failure));
         assert!(!filter_accept_2_failure.matches(&event_1_success));
         assert!(filter_accept_2_failure.matches(&event_2_failure));
         assert!(!filter_accept_2_failure.matches(&event_2_success));
 
-        let filter_accept_2_success = TriggerCompletedEventFilter::new(
-            Some(trigger_id_2),
-            Some(TriggerCompletedOutcomeType::Success),
-        );
+        let filter_accept_2_success = TriggerCompletedEventFilter::new()
+            .from_trigger(trigger_id_2)
+            .with_outcome(TriggerCompletedOutcomeType::Success);
         assert!(!filter_accept_2_success.matches(&event_1_failure));
         assert!(!filter_accept_2_success.matches(&event_1_success));
         assert!(!filter_accept_2_success.matches(&event_2_failure));

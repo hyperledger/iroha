@@ -21,10 +21,11 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
             vec![InstructionBox::from(instruction)],
             Repeats::Indefinitely,
             asset_id.account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
-                trigger_id.clone(),
-                asset_id.account_id,
-            )),
+            TriggeringEventFilterBox::ExecuteTrigger(
+                ExecuteTriggerEventFilter::new()
+                    .from_trigger(trigger_id.clone())
+                    .under_authority(asset_id.account_id),
+            ),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -34,12 +35,12 @@ fn trigger_completion_success_should_produce_event() -> Result<()> {
     let thread_client = test_client.clone();
     let (sender, receiver) = mpsc::channel();
     let _handle = thread::spawn(move || -> Result<()> {
-        let mut event_it = thread_client.listen_for_events(
-            NotificationEventFilter::ByTriggerCompleted(TriggerCompletedEventFilter::new(
-                Some(trigger_id),
-                Some(TriggerCompletedOutcomeType::Success),
-            )),
-        )?;
+        let mut event_it =
+            thread_client.listen_for_events(NotificationEventFilter::ByTriggerCompleted(
+                TriggerCompletedEventFilter::new()
+                    .from_trigger(trigger_id)
+                    .with_outcome(TriggerCompletedOutcomeType::Success),
+            ))?;
         if event_it.next().is_some() {
             sender.send(())?;
             return Ok(());
@@ -69,10 +70,11 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
             vec![InstructionBox::from(instruction)],
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
-                trigger_id.clone(),
-                account_id,
-            )),
+            TriggeringEventFilterBox::ExecuteTrigger(
+                ExecuteTriggerEventFilter::new()
+                    .from_trigger(trigger_id.clone())
+                    .under_authority(account_id),
+            ),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -82,12 +84,12 @@ fn trigger_completion_failure_should_produce_event() -> Result<()> {
     let thread_client = test_client.clone();
     let (sender, receiver) = mpsc::channel();
     let _handle = thread::spawn(move || -> Result<()> {
-        let mut event_it = thread_client.listen_for_events(
-            NotificationEventFilter::ByTriggerCompleted(TriggerCompletedEventFilter::new(
-                Some(trigger_id),
-                Some(TriggerCompletedOutcomeType::Failure),
-            )),
-        )?;
+        let mut event_it =
+            thread_client.listen_for_events(NotificationEventFilter::ByTriggerCompleted(
+                TriggerCompletedEventFilter::new()
+                    .from_trigger(trigger_id)
+                    .with_outcome(TriggerCompletedOutcomeType::Failure),
+            ))?;
         if event_it.next().is_some() {
             sender.send(())?;
             return Ok(());

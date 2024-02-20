@@ -59,8 +59,11 @@ fn execute_trigger_should_produce_event() -> Result<()> {
     let thread_client = test_client.clone();
     let (sender, receiver) = mpsc::channel();
     let _handle = thread::spawn(move || -> Result<()> {
-        let mut event_it = thread_client
-            .listen_for_events(ExecuteTriggerEventFilter::new(trigger_id, account_id))?;
+        let mut event_it = thread_client.listen_for_events(
+            ExecuteTriggerEventFilter::new()
+                .from_trigger(trigger_id)
+                .under_authority(account_id),
+        )?;
         if event_it.next().is_some() {
             sender.send(())?;
             return Ok(());
@@ -121,10 +124,11 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
             bad_trigger_instructions,
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
-                bad_trigger_id.clone(),
-                account_id.clone(),
-            )),
+            TriggeringEventFilterBox::ExecuteTrigger(
+                ExecuteTriggerEventFilter::new()
+                    .from_trigger(bad_trigger_id.clone())
+                    .under_authority(account_id.clone()),
+            ),
         ),
     ));
     test_client.submit(register_bad_trigger)?;
@@ -176,10 +180,11 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
             trigger_instructions,
             Repeats::from(1_u32),
             account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
-                trigger_id.clone(),
-                account_id,
-            )),
+            TriggeringEventFilterBox::ExecuteTrigger(
+                ExecuteTriggerEventFilter::new()
+                    .from_trigger(trigger_id.clone())
+                    .under_authority(account_id),
+            ),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -240,10 +245,11 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
             trigger_instructions,
             Repeats::from(1_u32),
             account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
-                trigger_id.clone(),
-                account_id,
-            )),
+            TriggeringEventFilterBox::ExecuteTrigger(
+                ExecuteTriggerEventFilter::new()
+                    .from_trigger(trigger_id.clone())
+                    .under_authority(account_id),
+            ),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -283,10 +289,11 @@ fn unregister_trigger() -> Result<()> {
             Vec::<InstructionBox>::new(),
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
-                trigger_id.clone(),
-                account_id,
-            )),
+            TriggeringEventFilterBox::ExecuteTrigger(
+                ExecuteTriggerEventFilter::new()
+                    .from_trigger(trigger_id.clone())
+                    .under_authority(account_id),
+            ),
         ),
     );
     let register_trigger = Register::trigger(trigger.clone());
@@ -360,10 +367,11 @@ fn trigger_in_genesis_using_base64() -> Result<()> {
                 .wrap_err("Can't deserialize wasm using base64")?,
             Repeats::Indefinitely,
             account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
-                trigger_id.clone(),
-                account_id.clone(),
-            )),
+            TriggeringEventFilterBox::ExecuteTrigger(
+                ExecuteTriggerEventFilter::new()
+                    .from_trigger(trigger_id.clone())
+                    .under_authority(account_id.clone()),
+            ),
         ),
     );
 
@@ -410,10 +418,11 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
             trigger_unregister_instructions,
             Repeats::from(1_u32),
             account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
-                trigger_id_unregister.clone(),
-                account_id.clone(),
-            )),
+            TriggeringEventFilterBox::ExecuteTrigger(
+                ExecuteTriggerEventFilter::new()
+                    .from_trigger(trigger_id_unregister.clone())
+                    .under_authority(account_id.clone()),
+            ),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -426,10 +435,11 @@ fn trigger_should_be_able_to_modify_other_trigger() -> Result<()> {
             trigger_should_be_unregistered_instructions,
             Repeats::from(1_u32),
             account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
-                trigger_id_to_be_unregistered.clone(),
-                account_id,
-            )),
+            TriggeringEventFilterBox::ExecuteTrigger(
+                ExecuteTriggerEventFilter::new()
+                    .from_trigger(trigger_id_to_be_unregistered.clone())
+                    .under_authority(account_id),
+            ),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -470,10 +480,11 @@ fn trigger_burn_repetitions() -> Result<()> {
             trigger_instructions,
             Repeats::from(1_u32),
             account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
-                trigger_id.clone(),
-                account_id,
-            )),
+            TriggeringEventFilterBox::ExecuteTrigger(
+                ExecuteTriggerEventFilter::new()
+                    .from_trigger(trigger_id.clone())
+                    .under_authority(account_id),
+            ),
         ),
     ));
     test_client.submit_blocking(register_trigger)?;
@@ -514,10 +525,11 @@ fn unregistering_one_of_two_triggers_with_identical_wasm_should_not_cause_origin
                 wasm.clone(),
                 Repeats::Indefinitely,
                 account_id.clone(),
-                TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
-                    trigger_id,
-                    account_id.clone(),
-                )),
+                TriggeringEventFilterBox::ExecuteTrigger(
+                    ExecuteTriggerEventFilter::new()
+                        .from_trigger(trigger_id)
+                        .under_authority(account_id.clone()),
+                ),
             ),
         )
     };
@@ -564,10 +576,11 @@ fn build_register_trigger_isi(
             trigger_instructions,
             Repeats::Indefinitely,
             asset_id.account_id.clone(),
-            TriggeringEventFilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
-                trigger_id,
-                asset_id.account_id,
-            )),
+            TriggeringEventFilterBox::ExecuteTrigger(
+                ExecuteTriggerEventFilter::new()
+                    .from_trigger(trigger_id)
+                    .under_authority(asset_id.account_id),
+            ),
         ),
     ))
 }

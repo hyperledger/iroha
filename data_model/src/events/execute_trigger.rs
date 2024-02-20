@@ -1,6 +1,5 @@
 //! Trigger execution event and filter
 
-use derive_more::Constructor;
 use getset::Getters;
 use iroha_data_model_derive::model;
 
@@ -44,7 +43,8 @@ pub mod model {
         Ord,
         PartialEq,
         Eq,
-        Constructor,
+        Default,
+        Getters,
         Decode,
         Encode,
         Deserialize,
@@ -53,9 +53,37 @@ pub mod model {
     )]
     pub struct ExecuteTriggerEventFilter {
         /// Id of trigger catch executions of
-        pub(super) trigger_id: TriggerId,
+        pub(super) trigger_id: Option<TriggerId>,
         /// Authority of user who owns trigger
-        pub(super) authority: AccountId,
+        pub(super) authority: Option<AccountId>,
+    }
+}
+
+impl ExecuteTriggerEventFilter {
+    /// Creates a new [`ExecuteTriggerEventFilter`] accepting all [`ExecuteTriggerEvent`]s
+    #[must_use]
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            trigger_id: None,
+            authority: None,
+        }
+    }
+
+    /// Modifies a [`ExecuteTriggerEventFilter`] to accept only [`ExecuteTriggerEvent`]s originating from a specific trigger
+    #[must_use]
+    #[inline]
+    pub fn from_trigger(mut self, trigger_id: TriggerId) -> Self {
+        self.trigger_id = Some(trigger_id);
+        self
+    }
+
+    /// Modifies a [`ExecuteTriggerEventFilter`] to accept only [`ExecuteTriggerEvent`]s from triggers executed under specific authority
+    #[must_use]
+    #[inline]
+    pub fn under_authority(mut self, authority: AccountId) -> Self {
+        self.authority = Some(authority);
+        self
     }
 }
 
@@ -67,7 +95,18 @@ impl EventFilter for ExecuteTriggerEventFilter {
     ///
     /// Event considered as matched if trigger ids are equal
     fn matches(&self, event: &ExecuteTriggerEvent) -> bool {
-        self.trigger_id == event.trigger_id && self.authority == event.authority
+        if let Some(trigger_id) = &self.trigger_id {
+            if trigger_id != &event.trigger_id {
+                return false;
+            }
+        }
+        if let Some(authority) = &self.authority {
+            if authority != &event.authority {
+                return false;
+            }
+        }
+
+        true
     }
 }
 
